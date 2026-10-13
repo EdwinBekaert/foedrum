@@ -17,7 +17,7 @@ Foedrum turns issues in a control repository (the **Brewery**) into pull request
 
 ### Non-goals for 1.0
 
-Hosted or multi-tenant service · public webhook server (1.0 polls) · interactive brainstorming sessions (use Claude Code directly) · trackers and code hosts other than GitHub (the interfaces allow them later, see §3.1) · non-Claude agents · code plugins.
+Hosted or multi-tenant service · public webhook server (1.0 polls) · trackers and code hosts other than GitHub (the interfaces allow them later, see §3.1) · non-Claude agents · code plugins.
 
 ## 2. Concepts
 
@@ -88,7 +88,7 @@ The user chooses a tracker and a code host per Brewery (`foedrum.jsonc`), and th
 Enterprise changes usually span several repositories. Cross-repository work is a core capability, not an add-on ([ADR 0013](adr/0013-single-repo-sub-orders-bottles-and-releases.md)).
 
 - **All work items live in the Brewery.** Orders and sub-orders are Brewery issues; Foedrum never creates or edits issues in target repositories.
-- **Decomposition.** A decomposition step (Maltster + Brewmaster) splits an order into **sub-orders** — GitHub sub-issues of the order — and records dependencies between them as native "blocked by" links. The breakdown is posted for approval (optional human gate).
+- **Decomposition.** A decomposition step (Maltster + Brewmaster) splits an order into **sub-orders** — GitHub sub-issues of the order — and records dependencies between them as native "blocked by" links. The breakdown is posted as **READY / NOT READY** and brewing starts after `/foedrum approve` — **approval is on by default**; recipes can switch it off. A breakdown produced interactively with the `/foedrum:refine` plugin (§3.5) counts as approved.
 - **One sub-order, one repository.** A sub-order never spans repositories. A brewer *writes* in exactly one repository and may *read* sibling repositories for context.
 - **Each sub-order gets its own batch** and recipe; batches are scheduled in dependency order.
 - **Bottling: choosing what goes into a pull request.** A **bottle** is a pull request. It bundles one or more finished sub-orders of the same repository: their branches are merged into a bottle branch by plain git (conflicts go to the Blender). Policy per recipe: `"bottling": "perSubOrder" | "perRepo" | "manual"`; manually with `/foedrum bottle #101 #102`. Bottles of the same order reference each other and carry a suggested merge order.
@@ -99,7 +99,7 @@ Enterprise changes usually span several repositories. Cross-repository work is a
 | `code` | Builds on another sub-order's code in the same repository | That sub-order's branch (stacked) |
 | `release` | Needs a published version of another repository's library | The bottle to be merged, CI to publish, and the **release signal** to report the new version; the dependent batch then starts by bumping the dependency |
 
-- **Release signals** are configured per repository: GitHub release or tag, or a version appearing in a package registry (NuGet and npm first; others later). Developing against a pre-release build is a later option.
+- **Release signals** are configured per repository: **GitHub release or tag** first; package registries (NuGet, npm, Maven, …) later through the same interface. Developing against a pre-release build is a later option.
 
 ```
 Order #100
@@ -124,8 +124,17 @@ The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 
 - On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history.
 - State is committed at **every step boundary** and pushed. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
 - **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging.
-- **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>` resets the batch's branches to those SHAs and appends a "resumed from step" event. History is never rewritten; work continues from an earlier point.
+- **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>` resets the batch's branches to those SHAs and appends a "resumed from step" event. History is never rewritten; work continues from an earlier point. An already open bottle is **updated in place**: its branch is force-pushed to the rewound state and a comment on the pull request explains the rewind.
 - **No duplicate pull requests after a crash:** branch names are deterministic (`foedrum/<batch>/<repo>`), so Foedrum looks up an existing pull request before creating one, even if the last event never reached the state branch.
+
+### 3.5 Interactive refinement
+
+Good automation starts with a sharp breakdown. Analysis and decomposition are where a human adds the most value, so Foedrum offers them interactively ([ADR 0014](adr/0014-interactive-refinement-plugin.md)):
+
+- A small **Claude Code plugin** provides `/foedrum:refine #<order>`. You run it in your own interactive Claude Code session, investigate the order together with Claude — across the registered repositories, read-only — and steer until the path is obvious.
+- When you are satisfied, the plugin writes the result into the Brewery: the analysis as an out doc on the state branch, the sub-orders as sub-issues with dependencies, and a plan per sub-order. The breakdown counts as approved; Foedrum starts brewing.
+- Re-running `/foedrum:refine` on an order that already has sub-orders shows the current breakdown and lets you deepen, add or cancel sub-orders (never silently delete).
+- The plugin is Markdown commands and skills only — no npm packages — and talks to the Brewery through the `foedrum` CLI.
 
 ## 4. Data model
 
@@ -180,7 +189,7 @@ ordered ──► brewing ──────────────────
              stuck ──► cancelled
 ```
 
-Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder deadline — never silent, but not a failure either.
+Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe) — never silent, but not a failure either.
 
 ### 4.4 Invariants
 
@@ -249,6 +258,7 @@ Orchestration should cost (almost) nothing:
 GitHub is the interface in 1.0:
 
 - One **status comment** per order, edited in place: recipe (as a Mermaid diagram with the current step highlighted), steps, state, assumptions brewers made, cost.
+- A **GitHub Projects board** with one column per lane serves as the kanban view until the Brewhouse dashboard (M6).
 - **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`.
 - **Commands** in comments, from allow-listed users only: `/foedrum retry`, `skip`, `recipe <name>`, `answer …`, `bottle #…`, `rewind <step>`, `cancel`, `pause`.
 - **CLI:** `foedrum status`, `foedrum stuck`, `foedrum replay <batch>`.

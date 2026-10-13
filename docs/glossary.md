@@ -12,7 +12,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
 | **Conditioning** ⏳ | Waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure |
-| **Release signal** | How Foedrum learns a library version was published (GitHub release or tag, NuGet, npm) |
+| **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
 | **Triage source** | Issues in target repositories, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
 | **Brewer** | A reusable agent role: prompt, in-docs, out doc, model, effort, tools, permissions, budget, guards |

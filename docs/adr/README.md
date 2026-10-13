@@ -17,6 +17,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted |
 | [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted |
 | [0013](0013-single-repo-sub-orders-bottles-and-releases.md) | Single-repository sub-orders, bottles and release dependencies | Accepted |
+| [0014](0014-interactive-refinement-plugin.md) | Interactive refinement through a Claude Code plugin | Accepted |
 
 ## Template
 

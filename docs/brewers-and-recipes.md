@@ -217,15 +217,17 @@ claude --print --verbose --output-format stream-json
 
 ## 5. Default brewers
 
-| Brewer | Role |
-|---|---|
-| Innkeeper | Router: picks a recipe for an order (lean call) |
-| Maltster | Gathers context: relevant code, history, constraints |
-| Brewmaster | Writes the plan with acceptance criteria |
-| Cellarman | Implements, test-first |
-| Taster | Reviews a diff (read-only) |
-| Cooper | Fixes review findings |
-| Blender | Resolves merge conflicts (bounded) |
-| Microbiologist | Bug triage: reproduce, root cause, failing test |
-| Lab tech | Verifies a fix in a real environment |
-| Tasting panel | Runs evaluations |
+Default models are aliases in `models.jsonc`, resolved to the current model of that family; blind tasting may propose changes.
+
+| Brewer | Role | Model | Effort |
+|---|---|---|---|
+| Innkeeper | Router: picks a recipe for an order (lean call) | haiku | low |
+| Maltster | Gathers context: relevant code, history, constraints | sonnet | high |
+| Brewmaster | Writes the plan with acceptance criteria | opus | medium |
+| Cellarman | Implements, test-first | sonnet | high |
+| Taster | Reviews a diff (read-only) | opus | medium |
+| Cooper | Fixes review findings | sonnet | high |
+| Blender | Resolves merge conflicts (bounded) | opus | medium |
+| Microbiologist | Bug triage: reproduce, root cause, failing test | opus | medium |
+| Lab tech | Verifies a fix in a real environment | sonnet | high |
+| Tasting panel | Runs evaluations | — (uses the model under test) | — |

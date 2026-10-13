@@ -10,7 +10,8 @@ In enterprise codebases a solution usually changes several repositories, and rep
 - **A sub-order targets exactly one repository.** A brewer writes in one repository and may read siblings for context.
 - Each sub-order has its own batch; batches run in dependency order.
 - **Bottles:** a pull request bundles one or more finished sub-orders of one repository. Bottling policy per recipe (`perSubOrder`, `perRepo`, `manual`); manual bottling by command. Bottles of one order link to each other with a suggested merge order.
-- **Dependency kinds:** `code` (stacked on another sub-order's branch in the same repository) and `release` (waits until a configured **release signal** reports a new version of a library — GitHub release or tag, NuGet, npm — then starts by bumping the dependency).
+- **Dependency kinds:** `code` (stacked on another sub-order's branch in the same repository) and `release` (waits until a configured **release signal** reports a new version of a library — GitHub release or tag first, package registries later — then starts by bumping the dependency).
+- Decomposition requires human approval by default (READY / NOT READY); breakdowns made with the interactive refine plugin count as approved.
 - Waiting for merges and releases is a distinct state, **Conditioning**, with a visible reason and a reminder deadline.
 - The data model is multi-repository from the first milestone.
 
