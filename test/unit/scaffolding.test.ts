@@ -5,9 +5,17 @@ import { describe, it } from 'node:test';
 
 const root = join(import.meta.dirname, '..', '..');
 
+interface DevEngine {
+  name: string;
+  version: string;
+  onFail: string;
+}
+
 interface PackageJson {
   type?: string;
+  license?: string;
   engines?: Record<string, string>;
+  devEngines?: { runtime?: DevEngine; packageManager?: DevEngine };
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -22,6 +30,23 @@ describe('package.json', () => {
   it('is an ES module package requiring Node 24.15 or later', () => {
     assert.equal(pkg.type, 'module');
     assert.equal(pkg.engines?.node, '>=24.15');
+  });
+
+  it('is licensed AGPL-3.0-only', () => {
+    assert.equal(pkg.license, 'AGPL-3.0-only');
+  });
+
+  it('fails development installs on a Node or npm too old for the .npmrc hardening', () => {
+    assert.deepEqual(pkg.devEngines?.runtime, {
+      name: 'node',
+      version: '>=24.15',
+      onFail: 'error',
+    });
+    assert.deepEqual(pkg.devEngines?.packageManager, {
+      name: 'npm',
+      version: '>=11.19.0',
+      onFail: 'error',
+    });
   });
 
   it('has no pre* or post* scripts (lifecycle scripts are disabled by .npmrc)', () => {

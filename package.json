@@ -21,7 +21,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc",
     "lint": "biome check",
     "test": "node --test \"test/**/*.test.ts\""
   },
