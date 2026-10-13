@@ -67,7 +67,7 @@ Full list: [glossary](glossary.md).
 - **One process per Brewery** (`foedrum serve`), the single writer of the event store.
 - **Brewers run as `claude` CLI child processes** that the engine spawns and owns: it streams their events live and kills the whole process tree on deadline, stall or cancel ([ADR 0003](adr/0003-drive-the-claude-cli.md)).
 - **Polling intake** with conditional requests: works on a laptop with zero infrastructure ([ADR 0008](adr/0008-polling-intake.md)).
-- **Always worktrees, never a clone per batch** ([ADR 0012](adr/0012-worktrees-from-local-clones.md)). Per repository, `source` is `local` (default: worktrees from the user's existing clone, in Foedrum's own branch namespace `foedrum/…`, never touching the checked-out branch) or `managed` (one bare partial clone per repository, created once, optionally borrowing objects from a local clone). Worktrees live under `.foedrum/`.
+- **Always worktrees, never a clone per batch** ([ADR 0012](adr/0012-worktrees-from-local-clones.md)). Per repository, `source` is `local` (default: worktrees from the user's existing clone, in Foedrum's own branch namespace `foedrum/…`, never touching the checked-out branch) or `managed` (one bare partial clone per repository, created once, optionally borrowing objects from a local clone). Worktrees live in a **work root outside the Brewery checkout** (default `~/.foedrum/<brewery>/`, configurable; short on Windows), so a brewer only ever sees the target repository's own instruction files — never anything placed in the Brewery.
 
 ### 3.1 Trackers and code hosts
 
@@ -310,6 +310,18 @@ Published metrics: chaos runs passed, stuck-without-transition count (target 0),
 2. **Packs** (later) — declarative bundles of brewers, recipes and checks; no code. Installed from a git repository pinned to a commit SHA, with a checksum and a **permission ceiling** set by the Brewery. Every pack ships evaluation samples.
 3. **Visual** — recipes rendered as Mermaid early; a drag-and-drop recipe editor in the dashboard later, saving as a pull request to the Brewery.
 
+## 12b. House yeast: the learning flywheel
+
+Reviews produce lessons ("never swallow errors in this module", "use the shared retry helper"). Kept as one ever-growing rules file and read in full by every agent, such a flywheel quickly reaches tens of thousands of tokens per run, and adherence drops as the list grows. House yeast is designed to stay small, relevant and enforceable ([ADR 0015](adr/0015-house-yeast.md)):
+
+1. **Rules carry metadata:** scope (repository, file globs, language), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
+2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on, ordered by relevance and recency, within a token budget (default about 2,000 tokens). Never the whole collection.
+3. **Promoted to gravity readings:** a rule that can be checked mechanically (a lint rule, a search pattern, a test) becomes a deterministic check — enforced every time at zero tokens — and leaves the prompt.
+4. **Curated:** a periodic curation step merges duplicates, folds similar rules together and retires rules that have not been relevant for a long time. Curation changes arrive as pull requests to the Brewery.
+5. **Suppressions are scoped too:** "do not flag this again here" applies to the reviewing brewer and to the matching scope only.
+
+New rules come from review/fix loops and from human review comments on bottles, proposed as pull requests to the Brewery's `house-yeast/`.
+
 ## 13. Platform support and isolation
 
 Foedrum runs on **Windows, macOS and Linux** ([ADR 0010](adr/0010-cross-platform-and-isolation-levels.md)).
@@ -322,7 +334,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 |---|---|---|
 | **Sandboxed** | macOS, Linux, WSL2 | Per-attempt settings enable `sandbox.enabled` with `allowUnsandboxedCommands: false`, writable paths limited to the worktree, network limited to an allowlist |
 | **Permissions only** | Native Windows | Strict tool allowlists, file-tool deny rules outside the worktree, minimal environment, `scope` guard. A warning is shown at start |
-| **Container** (optional, any OS with Docker) | Anywhere | The brewer runner starts `claude` inside a container that mounts only the worktree |
+| **Container** (optional, any OS with an OCI container runtime: Podman or Docker) | Anywhere | The brewer runner starts `claude` inside a container that mounts only the worktree |
 
 - `foedrum doctor` reports the effective isolation level and missing prerequisites (for example `bubblewrap`).
 - A Brewery can require a minimum level (`"isolation": { "minimum": "sandboxed" }`); writing brewers then refuse to run below it. Read-only brewers may run at a lower level.
@@ -370,8 +382,10 @@ foedrum.jsonc     repositories (source, release signal, triage sources), allow-l
 models.jsonc      model per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
-house-yeast/      rules learned from reviews
-.foedrum/         local (git-ignored): SQLite index, managed clones, worktrees, logs
+house-yeast/      learned rules with scope metadata (selected per attempt, see §12b)
+.foedrum/         local (git-ignored): SQLite index, logs
+
+Work root (outside the checkout, default ~/.foedrum/<brewery>/): worktrees, managed clones
 
 Branch foedrum/state: batches/<id>/events.jsonl and out docs, committed at every step boundary
 ```

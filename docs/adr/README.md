@@ -18,6 +18,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted |
 | [0013](0013-single-repo-sub-orders-bottles-and-releases.md) | Single-repository sub-orders, bottles and release dependencies | Accepted |
 | [0014](0014-interactive-refinement-plugin.md) | Interactive refinement through a Claude Code plugin | Accepted |
+| [0015](0015-house-yeast.md) | House yeast: scoped, budgeted, promotable rules | Accepted |
 
 ## Template
 
