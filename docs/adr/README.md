@@ -31,4 +31,5 @@ Date: YYYY-MM-DD · Status: Proposed | Accepted | Superseded by NNNN
 ## Decision
 ## Consequences
 ## Alternatives considered
+## Verification (optional: evidence added after acceptance, such as spike results; it does not change the decision)
 ```
