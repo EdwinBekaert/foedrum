@@ -61,7 +61,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | Field | Purpose |
 |---|---|
 | `access` | `read` or `write` |
-| `tree` | `task` worktree, `integration` tree, or a fresh read-only checkout |
+| `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt |
 | `git` | `commit: true/false`; pushing is always the engine's job |
 | `setup` | Repository setup command, run once per worktree, with a timeout |
 | `env` | Extra environment variables on top of a minimal base |
@@ -86,6 +86,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | `requiresOutDoc` | the out doc is missing or invalid |
 | `requiresCommits` | a writing brewer committed nothing (unless the out doc says no change was needed) |
 | `testsNotRemoved` | test declarations disappeared compared with the attempt's start commit |
+| `testsUnchanged` | files committed by the preceding red step were modified |
 | `noPush` | the branch moved on the remote |
 | `scope` | files outside the worktree were touched |
 | `diffLimits` | more files or lines changed than allowed |
@@ -96,13 +97,14 @@ Headless brewers always run in a permission mode where the allowlist decides and
 ---
 {
   "name": "cellarman",
-  "description": "Implements an approved plan in one repository, test-first.",
+  "description": "Makes the Gauger's failing tests pass in one repository.",
   "version": 1,
   "model": "builder",
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order", "trusted": false },
-    { "name": "plan", "from": "step:plan" }
+    { "name": "plan", "from": "step:plan" },
+    { "name": "tests", "from": "step:gauge" }
   ],
   "houseYeast": true,
   "output": { "doc": "brew-report.md", "schema": "brewReport" },
@@ -120,13 +122,15 @@ Headless brewers always run in a permission mode where the allowlist decides and
   "stall": { "turns": 60, "minutes": 20 },
   "maxAttempts": 2,
   "retryMode": "fresh",
-  "guards": ["requiresOutDoc", "requiresCommits", "testsNotRemoved", "noPush", "scope"]
+  "guards": ["requiresOutDoc", "requiresCommits", "testsNotRemoved", "testsUnchanged", "noPush", "scope"]
 }
 ---
-Implement the plan in {plan} for the order below, test-first.
+Implement the plan in {plan} for the order below. The Gauger's failing tests in {tests}
+are the specification: make them pass without changing them. If a test is wrong,
+report it as a finding instead of editing it.
 
-Done when: every plan step is done, each acceptance criterion is covered by a test,
-the full test suite passes, and everything is committed.
+Done when: every plan step is done, the Gauger's tests and the full test suite pass,
+and everything is committed.
 ```
 
 ## 2. The out doc contract
@@ -176,15 +180,21 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
   "budget": { "minutes": 60 },
   "steps": [
     { "brewer": "brewmaster" },                              // writes plan.md
+    { "brewer": "gauger", "id": "gauge" },                   // failing tests + commit
+    { "check": "test", "expect": "fail" },                   // red proof
     { "brewer": "cellarman" },                               // code + commits
     { "check": ["typecheck", "lint", "test"],                // gravity reading, no model tokens
       "onFail": { "goto": "cellarman", "maxRounds": 2 } },
     { "loop": {                                              // review/fix loop
         "maxRounds": 2,
-        "until": "taster.verdict == 'approve'",
+        "until": "tasting.verdict == 'approve'",   // every tasting in the round approves
         "steps": [
-          { "brewer": "taster" },                            // read-only review
-          { "brewer": "cooper", "when": "taster.verdict != 'approve'" }
+          { "parallel": [                                    // read-only tastings
+              { "brewer": "taster", "lens": "correctness" },
+              { "brewer": "taster", "lens": "security" },
+              { "brewer": "brett" }                          // mutation check, scratch tree
+          ] },
+          { "brewer": "cooper", "when": "tasting.verdict != 'approve'" }
         ]
       },
       "onExhausted": "stuck" },
@@ -193,7 +203,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 }
 ```
 
-**Step kinds:** `brewer` · `check` (gravity reading: a shell command or a built-in check) · `gate: "human"` (approval with a deadline) · `action` (`openPullRequest`, `comment`, `label`, `blend`) · `fanOut` (child orders per repository, scheduled as a dependency graph).
+**Step kinds:** `brewer` · `check` (gravity reading: a shell command or a built-in check; `"expect": "fail"` makes it a red proof that passes only when the tests added by the previous step fail on assertions) · `parallel` (independent read-only steps run side by side) · `gate: "human"` (approval with a deadline) · `action` (`openPullRequest`, `comment`, `label`, `blend`) · `fanOut` (child orders per repository, scheduled as a dependency graph).
 
 **Escalation:** a brewer may set `"escalate": "<recipe>"` in its out doc; the batch re-routes (for example Enkel → Tripel).
 
@@ -224,10 +234,14 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Innkeeper | Router: picks a recipe for an order (lean call) | haiku | low |
 | Maltster | Gathers context: relevant code, history, constraints | sonnet | high |
 | Brewmaster | Writes the plan with acceptance criteria | opus | medium |
-| Cellarman | Implements, test-first | sonnet | high |
-| Taster | Reviews a diff (read-only) | opus | medium |
+| Gauger | Writes failing tests from the order and plan (source files denied) | sonnet | high |
+| Cellarman | Makes the Gauger's tests pass without changing them | sonnet | high |
+| Taster | Reviews a diff through one lens (read-only) | opus | medium |
+| Brett | Mutation check: plants bugs in a scratch tree, reports mutants the tests miss | sonnet | medium |
 | Cooper | Fixes review findings | sonnet | high |
 | Blender | Resolves merge conflicts (bounded) | opus | medium |
 | Microbiologist | Bug triage: reproduce, root cause, failing test | opus | medium |
 | Lab tech | Verifies a fix in a real environment | sonnet | high |
 | Tasting panel | Runs evaluations | — (uses the model under test) | — |
+
+Default **tasting lenses** (`defaults/lenses/*.md`): correctness, security, cross-platform, design conformance. A Brewery adds or overrides lenses by committing files to `lenses/`. Test-first and lenses: [ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md).

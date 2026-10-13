@@ -14,6 +14,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
+- `npm run check` — typecheck, lint and test in one command; run it before every push (a Claude Code hook enforces this, #24)
 - `npm run typecheck` · `npm run lint` · `npm test`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 
@@ -52,7 +53,13 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
 ## Tests
 
+- Test-first, always: red → green → refactor ([ADR 0017](docs/adr/0017-test-first-recipes-and-tasting-lenses.md)).
+  - Commit the failing test before the implementation, so the red step is visible in history and can be checked out and run.
+  - Red means the new test fails on an assertion; a compile or import error is not red.
+  - Do not edit a red test to make the implementation pass. If the test is wrong, fix it in its own commit and say why.
+  - Exempt: spikes (throwaway code), scaffolding, documentation and CI configuration. Say so in the pull request.
 - `node:test` and `node:assert`. Inject dependencies (clock, `fetch`, process runner, brewer runner) instead of mocking modules.
+- Test behaviour through public interfaces, not implementation details; a test should fail when the behaviour breaks and survive a refactor.
 - Every change comes with tests. Engine changes must keep the property tests (invariants I1–I6) and the chaos tests green.
 - Use the fake brewer runner for engine tests; real `claude` CLI tests are opt-in.
 
@@ -60,6 +67,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
 - One branch per issue: `<issue-number>-<short-slug>`, or `docs/…`, `ci/…` for non-feature work.
 - Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
+- Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
 

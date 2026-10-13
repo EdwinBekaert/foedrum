@@ -136,6 +136,19 @@ Good automation starts with a sharp breakdown. Analysis and decomposition are wh
 - Re-running `/foedrum:refine` on an order that already has sub-orders shows the current breakdown and lets you deepen, add or cancel sub-orders (never silently delete).
 - The plugin is Markdown commands and skills only — no npm packages — and talks to the Brewery through the `foedrum` CLI.
 
+### 3.6 Delivery
+
+Foedrum ships as an npm command-line program with a companion Claude Code plugin ([ADR 0016](adr/0016-delivery-npm-cli-and-companion-plugin.md)):
+
+| Part | What it is | How users get it |
+|---|---|---|
+| `foedrum` CLI | The engine (`foedrum serve`), `init`, `doctor`, `status`, `replay`, and the default brewers, recipes and lenses | `npm install --global foedrum` or `npx foedrum`, published with provenance |
+| Claude Code plugin | Interactive commands (`/foedrum:refine`); Markdown only, calls the CLI | `/plugin marketplace add EdwinBekaert/foedrum` |
+| Brewery | The user's control repository | `foedrum init` |
+| Brewhouse (M6) | Dashboard served by the engine | `foedrum brewhouse` |
+
+The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.
+
 ## 4. Data model
 
 ### 4.1 Events
@@ -225,6 +238,8 @@ Brewers are defined first, then composed into recipes. Full specification: [brew
 
 - A **brewer** is a Markdown file with JSON frontmatter: inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
 - A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
+- **Test-first by structure:** writing recipes run the Gauger (failing tests), a red-proof gravity reading (`"expect": "fail"`), then Cellarman, who may not change the red tests ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
+- **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance), in parallel; Brett runs a mutation check to show the tests would catch a bug.
 - **Routing:** a `recipe:<name>` label wins; otherwise a lean router call picks one and explains why; a human can override before work starts.
 
 ### Default recipes
@@ -276,6 +291,8 @@ Stability is proven, not claimed.
 7. **Browser end-to-end tests** (from M6, when the dashboard exists): Playwright Test as a development dependency, subject to the admission checklist; browsers are downloaded by an explicit command, not an install script.
 8. **Cross-platform:** every test layer runs on Windows, macOS and Linux in CI (§13).
 9. **Evaluations** (§11) measure agent quality, separately from correctness tests.
+
+Foedrum's own code is written test-first, with the red commit before the implementation commit, and every pull request goes through a review skill that applies the same red proof, lenses and mutation check Foedrum ships ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)). CI enforces coverage thresholds with Node's built-in coverage.
 
 Browser testing *in target repositories* is a recipe concern, not a Foedrum test: a gravity reading can run the repository's own end-to-end suite (`"check": ["test", "npx playwright test"]`), and a verification brewer (Lab tech) can use a browser tool to exercise a UI change and attach screenshots to the pull request (M6).
 
@@ -370,7 +387,8 @@ src/
   checks/       gravity readings
   evals/        flight, blind tasting, model watcher
   schemas/      zod schemas (source of types, validation and JSON Schema)
-defaults/       default brewers and recipes
+defaults/       default brewers, recipes and tasting lenses
+plugin/         companion Claude Code plugin (Markdown commands and skills)
 test/           unit, property, chaos
 docs/
 ```
