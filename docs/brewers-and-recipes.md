@@ -29,7 +29,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 |---|---|
 | `inputs[]` | Named documents: the order, an earlier step's out doc, repository files |
 | `inputs[].trusted` | Untrusted input is wrapped in delimiters and marked as data, never instructions |
-| `houseYeast` | Inject the Brewery's learned rules |
+| `houseYeast` | Receive learned rules from the Brewery, selected by scope within a token budget (architecture §12b) |
 | `toolbox` | A short brief of extra command-line tools this brewer may use |
 
 **Output (out doc)**

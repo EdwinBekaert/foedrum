@@ -10,7 +10,7 @@ Foedrum's users work on Windows, macOS and Linux. Brewers run shell commands and
 - Foedrum defines three **isolation levels** and always reports the effective one:
   - **Sandboxed** (macOS, Linux, WSL2): sandbox enabled per attempt with unsandboxed commands disallowed, writes limited to the worktree, network limited to an allowlist.
   - **Permissions only** (native Windows): strict tool allowlists, file-tool deny rules outside the worktree, minimal environment, `scope` guard; a visible warning.
-  - **Container** (optional, any OS with Docker): `claude` runs in a container that mounts only the worktree.
+  - **Container** (optional, any OS with an OCI container runtime — Podman or Docker): `claude` runs in a container that mounts only the worktree.
 - A Brewery can require a minimum isolation level; writing brewers refuse to run below it.
 - Platform-specific behaviour (process spawning and killing, paths, line endings, file locks, executable lookup) is isolated in small modules with tests on all three platforms. Rules: [architecture §13](../architecture.md#13-platform-support-and-isolation).
 
@@ -21,5 +21,5 @@ Foedrum's users work on Windows, macOS and Linux. Brewers run shell commands and
 
 ## Alternatives considered
 - **Require WSL2 on Windows:** strongest isolation, but excludes many Windows users and complicates setup.
-- **Container-only:** uniform isolation everywhere, but requires Docker and complicates subscription login inside the container.
+- **Container-only:** uniform isolation everywhere, but requires a container runtime and complicates subscription login inside the container.
 - **macOS and Linux only:** simpler, but excludes a large share of developers.

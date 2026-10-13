@@ -24,7 +24,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Gravity reading** | A deterministic check: tests, lint, types, diff limits. Measured, not judged |
 | **Tasting** | An AI review. Judged, not measured |
 | **Stuck** 🔔 | A batch that needs a human. Always visible, never silent |
-| **House yeast** | Rules learned from reviews, carried from batch to batch |
+| **House yeast** | Rules learned from reviews, carried from batch to batch — scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
 | **On tap** | Pull request opened or merged |
 | **Cellar** | The engine (`foedrum serve`) |
