@@ -142,7 +142,7 @@ Foedrum ships as an npm command-line program with a companion Claude Code plugin
 
 | Part | What it is | How users get it |
 |---|---|---|
-| `foedrum` CLI | The engine (`foedrum serve`), `init`, `doctor`, `status`, `replay`, and the default brewers, recipes and lenses | `npm install --global foedrum` or `npx foedrum`, published with provenance |
+| `foedrum` CLI | The engine (`foedrum serve`), `init`, `doctor`, `status`, `stuck`, `replay`, and the default brewers, recipes and lenses | `npm install --global foedrum` or `npx foedrum`, published with provenance |
 | Claude Code plugin | Interactive commands (`/foedrum:refine`); Markdown only, calls the CLI | `/plugin marketplace add EdwinBekaert/foedrum` |
 | Brewery | The user's control repository | `foedrum init` |
 | Brewhouse (M6) | Dashboard served by the engine | `foedrum serve` prints its local address |
@@ -332,7 +332,7 @@ Published metrics: chaos runs passed, stuck-without-transition count (target 0),
 Reviews produce lessons ("never swallow errors in this module", "use the shared retry helper"). Kept as one ever-growing rules file and read in full by every agent, such a flywheel quickly reaches tens of thousands of tokens per run, and adherence drops as the list grows. House yeast is designed to stay small, relevant and enforceable ([ADR 0015](adr/0015-house-yeast.md)):
 
 1. **Rules carry metadata:** scope (repository, file globs, language, optionally a tasting lens), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
-2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on, ordered by relevance and recency, within a token budget (default about 2,000 tokens). Never the whole collection.
+2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on (and, for a Taster, its lens), ordered by relevance and recency, within a token budget (default about 2,000 tokens). Never the whole collection.
 3. **Promoted to gravity readings:** a rule that can be checked mechanically (a lint rule, a search pattern, a test) becomes a deterministic check — enforced every time at zero tokens — and leaves the prompt.
 4. **Curated:** a periodic curation step merges duplicates, folds similar rules together and retires rules that have not been relevant for a long time. Curation changes arrive as pull requests to the Brewery.
 5. **Suppressions are scoped too:** "do not flag this again here" applies to the reviewing brewer and to the matching scope only.
