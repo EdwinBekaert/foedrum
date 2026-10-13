@@ -145,7 +145,7 @@ Foedrum ships as an npm command-line program with a companion Claude Code plugin
 | `foedrum` CLI | The engine (`foedrum serve`), `init`, `doctor`, `status`, `replay`, and the default brewers, recipes and lenses | `npm install --global foedrum` or `npx foedrum`, published with provenance |
 | Claude Code plugin | Interactive commands (`/foedrum:refine`); Markdown only, calls the CLI | `/plugin marketplace add EdwinBekaert/foedrum` |
 | Brewery | The user's control repository | `foedrum init` |
-| Brewhouse (M6) | Dashboard served by the engine | `foedrum brewhouse` |
+| Brewhouse (M6) | Dashboard served by the engine | `foedrum serve` prints its local address |
 
 The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.
 
@@ -238,8 +238,8 @@ Brewers are defined first, then composed into recipes. Full specification: [brew
 
 - A **brewer** is a Markdown file with JSON frontmatter: inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
 - A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
-- **Test-first by structure:** writing recipes run the Gauger (failing tests), a red-proof gravity reading (`"expect": "fail"`), then Cellarman, who may not change the red tests ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
-- **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance), in parallel; Brett runs a mutation check to show the tests would catch a bug.
+- **Test-first by structure:** recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
+- **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance) in a parallel group. Brett proposes mutants; the engine confirms which ones the tests miss, and these findings are advisory by default.
 - **Routing:** a `recipe:<name>` label wins; otherwise a lean router call picks one and explains why; a human can override before work starts.
 
 ### Default recipes
@@ -331,7 +331,7 @@ Published metrics: chaos runs passed, stuck-without-transition count (target 0),
 
 Reviews produce lessons ("never swallow errors in this module", "use the shared retry helper"). Kept as one ever-growing rules file and read in full by every agent, such a flywheel quickly reaches tens of thousands of tokens per run, and adherence drops as the list grows. House yeast is designed to stay small, relevant and enforceable ([ADR 0015](adr/0015-house-yeast.md)):
 
-1. **Rules carry metadata:** scope (repository, file globs, language), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
+1. **Rules carry metadata:** scope (repository, file globs, language, optionally a tasting lens), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
 2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on, ordered by relevance and recency, within a token budget (default about 2,000 tokens). Never the whole collection.
 3. **Promoted to gravity readings:** a rule that can be checked mechanically (a lint rule, a search pattern, a test) becomes a deterministic check — enforced every time at zero tokens — and leaves the prompt.
 4. **Curated:** a periodic curation step merges duplicates, folds similar rules together and retires rules that have not been relevant for a long time. Curation changes arrive as pull requests to the Brewery.
@@ -396,7 +396,7 @@ docs/
 **A Brewery:**
 
 ```
-foedrum.jsonc     repositories (source, release signal, triage sources), allow-listed users, concurrency, budgets, permission ceiling
+foedrum.jsonc     repositories (source, release signal, triage sources, test report), allow-listed users, concurrency, budgets, permission ceiling
 models.jsonc      model per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)

@@ -8,7 +8,7 @@ Foedrum uses Claude Code heavily, which raises the question of whether Foedrum i
 ## Decision
 - **The core is a Node command-line program**, `foedrum`, published to npm. It contains the engine (`foedrum serve`, the Cellar), the setup and diagnostic commands (`init`, `doctor`, `status`, `replay`) and the default brewers, recipes and lenses.
 - Installation: `npm install --global foedrum` or `npx foedrum`. Releases are published with npm provenance through trusted publishing (no long-lived tokens).
-- **A companion Claude Code plugin** provides interactive commands such as `/foedrum:refine` ([ADR 0014](0014-interactive-refinement-plugin.md)). It contains Markdown commands and skills only and calls the `foedrum` CLI for everything that writes. The Foedrum repository is its plugin marketplace (`/plugin marketplace add EdwinBekaert/foedrum`).
+- **A companion Claude Code plugin** provides interactive commands such as `/foedrum:refine` ([ADR 0014](0014-interactive-refinement-plugin.md)). It contains Markdown commands and skills only and calls the `foedrum` CLI for everything that writes. The Foedrum repository is its plugin marketplace (`/plugin marketplace add EdwinBekaert/foedrum`). While the repository is private, adding the marketplace needs git credentials with access to it; from the public launch (M3) it works for everyone.
 - **The Brewery** is created by `foedrum init` in the user's own repository.
 - **The Brewhouse dashboard** (M6) is served by the engine itself; it is not a separate product.
 - Running the engine as a background service is documented per operating system (systemd, launchd, Task Scheduler). Foedrum does not ship its own service manager.

@@ -22,10 +22,10 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Attempt** | One try at a step; has a lease, a deadline and an outcome |
 | **In-doc / out doc** | Documents a brewer receives / must produce; the out doc's frontmatter is the step outcome |
 | **Gravity reading** | A deterministic check: tests, lint, types, diff limits. Measured, not judged |
-| **Red proof** | A gravity reading that must fail: shows the new tests fail before the implementation exists |
+| **Red proof** | A gravity reading that must fail: the tests committed by the Gauger (or Microbiologist) fail on assertions before the implementation exists, read from a structured test report |
 | **Tasting** | An AI review. Judged, not measured |
 | **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, or a Brewery's own |
-| **Mutant** | A bug planted on purpose by Brett; a mutant the tests do not catch is a finding |
+| **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |
 | **Stuck** 🔔 | A batch that needs a human. Always visible, never silent |
 | **House yeast** | Rules learned from reviews, carried from batch to batch — scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
