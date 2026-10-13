@@ -1,0 +1,33 @@
+{
+  "name": "foedrum",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GitHub-native orchestrator that runs Claude brewers through recipes and turns issues into pull requests",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=24.15"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.15",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11.19.0",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "lint": "biome check",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "24.19.1",
+    "typescript": "7.0.2"
+  }
+}
