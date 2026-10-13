@@ -1,0 +1,367 @@
+# Architecture
+
+Status: design (v0.1, October 2026). Decisions are recorded as [ADRs](adr/README.md).
+
+## 1. Purpose
+
+Foedrum turns issues in a control repository (the **Brewery**) into pull requests in other repositories, by running Claude agents (**Brewers**) through user-defined pipelines (**Recipes**). Every step has a typed outcome, a deadline and a visible trace.
+
+### Goals for 1.0
+
+1. Issue → pull request in one or more registered repositories via a chosen recipe.
+2. Stability as a measurable property: no batch is ever silently stuck.
+3. User-defined brewers and recipes, with good defaults.
+4. An evaluation harness that scores models, brewers and recipes on real tasks, including new Claude models as they are released.
+5. Runs locally on Windows, macOS and Linux.
+6. A codebase a reviewer can read in an afternoon.
+
+### Non-goals for 1.0
+
+Hosted or multi-tenant service · public webhook server (1.0 polls) · interactive brainstorming sessions (use Claude Code directly) · trackers and code hosts other than GitHub (the interfaces allow them later, see §3.1) · non-Claude agents · code plugins.
+
+## 2. Concepts
+
+| Concept | Term |
+|---|---|
+| Control repository | **Brewery** |
+| Issue in the Brewery | **Order** |
+| Single-repository part of an order (sub-issue) | **Sub-order** |
+| Pull request bundling one or more sub-orders | **Bottle** |
+| Waiting for a merge or release | **Conditioning** ⏳ |
+| Agent role (prompt, inputs, output, model, tools, permissions, budget) | **Brewer** |
+| Pipeline: brewers and checks in order, with loops | **Recipe** |
+| One execution of a recipe for an order | **Batch** |
+| One position in a recipe | **Step** |
+| One try at a step | **Attempt** |
+| Deterministic check (tests, lint, types, diff limits) | **Gravity reading** |
+| AI review | **Tasting** |
+| Needs a human | **Stuck** 🔔 |
+| Rules learned from reviews | **House yeast** |
+| Evaluation suite | **Flight** |
+
+Full list: [glossary](glossary.md).
+
+## 3. System overview
+
+```
+             GitHub: Brewery repo                         GitHub: target repos
+       issues · labels · comments · PRs                   branches · pull requests
+              ▲              │                                    ▲
+   projection │              │ poll                               │ push / PR
+              │              ▼                                    │
+┌──────────────────────────── foedrum serve ─────────────────────────────────────┐
+│  Intake ──► Router ──► Scheduler ──► Executor ──► BrewerRunner (claude CLI)    │
+│                           ▲   │          │             │                       │
+│                           │   ▼          ▼             ▼                       │
+│                       Supervisor     Workspace       Checks                    │
+│                   (leases, deadlines) (git worktrees) (gravity readings)       │
+│                           │                                                    │
+│              ┌────────────┴─────────────┐                                      │
+│              │ EventStore (node:sqlite) │ ◄── single source of truth           │
+│              └────────────┬─────────────┘                                      │
+│                           ▼                                                    │
+│      Projections: status comment · labels · CLI · (later) live dashboard       │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **One process per Brewery** (`foedrum serve`), the single writer of the event store.
+- **Brewers run as `claude` CLI child processes** that the engine spawns and owns: it streams their events live and kills the whole process tree on deadline, stall or cancel ([ADR 0003](adr/0003-drive-the-claude-cli.md)).
+- **Polling intake** with conditional requests: works on a laptop with zero infrastructure ([ADR 0008](adr/0008-polling-intake.md)).
+- **Always worktrees, never a clone per batch** ([ADR 0012](adr/0012-worktrees-from-local-clones.md)). Per repository, `source` is `local` (default: worktrees from the user's existing clone, in Foedrum's own branch namespace `foedrum/…`, never touching the checked-out branch) or `managed` (one bare partial clone per repository, created once, optionally borrowing objects from a local clone). Worktrees live under `.foedrum/`.
+
+### 3.1 Trackers and code hosts
+
+Foedrum separates three roles that GitHub happens to play all at once in 1.0:
+
+| Role | Interface | 1.0 | Later candidates |
+|---|---|---|---|
+| Where orders come from and where status is shown | `Tracker`: list orders, read comments/commands, post and edit the status comment, set state markers (labels, statuses) | GitHub Issues | Jira, Linear, GitLab Issues |
+| Where code lives and pull requests are opened | `CodeHost`: clone, push, open pull request, read review comments | GitHub | GitLab, Bitbucket, Azure DevOps |
+| Where configuration lives | the Brewery: any git repository | GitHub | any git host |
+
+The user chooses a tracker and a code host per Brewery (`foedrum.jsonc`), and they may differ (for example Jira orders, GitHub pull requests).
+
+**Design rule: a tracker is intake and projection only.** The event store is the source of truth; Foedrum reads orders and commands from the tracker and writes status back to it, but never synchronises workflow state two ways. Tracker-specific concepts (issue types, workflow transitions, re-parenting, key renames) are mapped at the edge, in the adapter, and never leak into the engine. Two-way tracker synchronisation is the most expensive part of an orchestrator to build and keep correct; this rule keeps adapters small.
+
+### 3.2 Work breakdown: orders, sub-orders and bottles
+
+Enterprise changes usually span several repositories. Cross-repository work is a core capability, not an add-on ([ADR 0013](adr/0013-single-repo-sub-orders-bottles-and-releases.md)).
+
+- **All work items live in the Brewery.** Orders and sub-orders are Brewery issues; Foedrum never creates or edits issues in target repositories.
+- **Decomposition.** A decomposition step (Maltster + Brewmaster) splits an order into **sub-orders** — GitHub sub-issues of the order — and records dependencies between them as native "blocked by" links. The breakdown is posted for approval (optional human gate).
+- **One sub-order, one repository.** A sub-order never spans repositories. A brewer *writes* in exactly one repository and may *read* sibling repositories for context.
+- **Each sub-order gets its own batch** and recipe; batches are scheduled in dependency order.
+- **Bottling: choosing what goes into a pull request.** A **bottle** is a pull request. It bundles one or more finished sub-orders of the same repository: their branches are merged into a bottle branch by plain git (conflicts go to the Blender). Policy per recipe: `"bottling": "perSubOrder" | "perRepo" | "manual"`; manually with `/foedrum bottle #101 #102`. Bottles of the same order reference each other and carry a suggested merge order.
+- **Dependency kinds:**
+
+| Kind | Meaning | The dependent batch waits for |
+|---|---|---|
+| `code` | Builds on another sub-order's code in the same repository | That sub-order's branch (stacked) |
+| `release` | Needs a published version of another repository's library | The bottle to be merged, CI to publish, and the **release signal** to report the new version; the dependent batch then starts by bumping the dependency |
+
+- **Release signals** are configured per repository: GitHub release or tag, or a version appearing in a package registry (NuGet and npm first; others later). Developing against a pre-release build is a later option.
+
+```
+Order #100
+ ├─ #101  lib-core  add field X
+ ├─ #102  lib-core  validate X
+ ├─ #103  api       use X          blocked by #101, #102  (release of lib-core)
+ └─ #104  web       show X         blocked by #103        (code)
+
+Bottle A  lib-core  #101 + #102 → PR → CI → lib-core 2.4.0
+Bottle B  api       #103 → waits for lib-core ≥ 2.4.0 → bump → PR
+Bottle C  web       #104 → PR
+```
+
+### 3.3 Triage of target-repository issues
+
+Issues filed in target repositories (bug reports, user requests) are a **triage source**, never a work queue. The Infection check recipe reads them — selected by repository and label/filter, by explicit references, or on a schedule — reproduces the problem in a clean worktree, confirms the root cause at file and line, and records the findings as one or more **orders in the Brewery** that link back to the source issue. It stops there: it never fixes, assigns, labels or closes anything in the target repository. Commenting a link back on the source issue is an opt-in setting.
+
+### 3.4 State in the Brewery repository
+
+The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 0011](adr/0011-state-in-the-brewery-repository.md)):
+
+- On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history.
+- State is committed at **every step boundary** and pushed. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
+- **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging.
+- **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>` resets the batch's branches to those SHAs and appends a "resumed from step" event. History is never rewritten; work continues from an earlier point.
+- **No duplicate pull requests after a crash:** branch names are deterministic (`foedrum/<batch>/<repo>`), so Foedrum looks up an existing pull request before creating one, even if the last event never reached the state branch.
+
+## 4. Data model
+
+### 4.1 Events
+
+State is derived from an append-only event log ([ADR 0002](adr/0002-event-sourced-engine-on-node-sqlite.md)).
+
+```ts
+type Event =
+  | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' | 'human' }
+  | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
+  | { type: 'step.started';        batchId: string; stepId: string; attempt: number; sessionId?: string }
+  | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage }
+  | { type: 'input.received';      batchId: string; stepId: string; by: string; answers: Answer[] }
+  | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[] }
+  | { type: 'batch.resumed';       batchId: string; by: string; action: 'retry' | 'skip' | 'recipe' | 'answer' }
+  | { type: 'order.decomposed';    batchId: string; subOrders: SubOrderRef[]; dependencies: Dependency[] }
+  | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
+  | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: string[]; pullRequest: string }
+  | { type: 'release.observed';    repo: string; package: string; version: string }
+  | { type: 'batch.rewound';       batchId: string; toStepId: string; by: string; shas: Record<string, string> }
+  | { type: 'batch.on_tap';        batchId: string; pullRequests: string[] }
+  | { type: 'batch.cancelled';     batchId: string; by: string }
+  | { type: 'effect.applied';      key: string; result: unknown }   // idempotency ledger for external side effects
+```
+
+Leases live in a separate mutable table (`attempt_key, owner, expires_at`): they are renewed every few seconds and only matter while alive.
+
+Current state is a pure fold over events. Crash recovery is replay.
+
+### 4.2 Step outcome — the single contract
+
+```ts
+type StepOutcome =
+  | { kind: 'succeeded';   output: unknown }
+  | { kind: 'failed';      retryable: boolean; reason: string }
+  | { kind: 'needs_input'; questions: Question[] }
+  | { kind: 'cancelled' }
+```
+
+Every step kind (brewer, check, human gate, action, fan-out) ends in exactly one of these. An exhaustive `switch` makes an unhandled outcome a compile error ([ADR 0005](adr/0005-typed-step-outcomes-and-out-docs.md)).
+
+### 4.3 Batch lifecycle
+
+```
+            ┌──────────── conditioning ◄──┐   (waiting for a merge, a release or a sibling)
+            ▼                             │
+ordered ──► brewing ──────────────────► on_tap
+              │  ▲
+              ▼  │  /foedrum retry · answer · skip · recipe · rewind
+             stuck ──► cancelled
+```
+
+Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder deadline — never silent, but not a failure either.
+
+### 4.4 Invariants
+
+Property-tested (see §9):
+
+- **I1** Every non-terminal batch has exactly one pending action with a deadline (for conditioning batches: a reminder deadline).
+- **I2** At most one live lease per attempt and per worktree.
+- **I3** Replaying the log yields identical state.
+- **I4** Every external side effect is keyed `(batch, step, attempt, effect)` and applied at most once.
+- **I5** A batch past its deadline becomes `stuck` within one supervisor tick.
+- **I6** From every reachable state, a terminal state is reachable.
+
+## 5. Failure modes designed out
+
+Agent orchestrators typically get stuck in a handful of ways. Foedrum removes each class structurally instead of patching instances.
+
+| Failure class | Typical symptoms | Mechanism |
+|---|---|---|
+| **Agent process observed from outside** | orphaned sessions, "alive but idle" processes, sessions outliving the orchestrator, spawn errors | The engine spawns and owns the child process, reads its stream live, renews a lease while it runs, and kills the process tree on deadline/stall/cancel. On restart, recorded process trees are killed — there is no "maybe alive" state |
+| **"Done" inferred from side effects** | agent exits 0 without doing work, missing report, unread messages | A brewer is done only when it writes a valid **out doc** (JSON frontmatter validated by schema). "No changes needed" is an explicit value, never an absence. Deterministic guards check commits, removed tests, scope |
+| **State spread over many stores** | reconcile/orphan/stale fixes, drift between files | One event log (durable on the Brewery's state branch, indexed locally in SQLite); everything else is a projection |
+| **Agents asking humans mid-run** | sessions parked on a question, resume failures | Brewers never ask mid-run. A question is an outcome (`needs_input`); the answer starts the next attempt ([ADR 0006](adr/0006-no-mid-run-questions.md)) |
+| **Unbounded loops** | "another round?" decisions, review/fix cycles that never converge | Every loop has `max_rounds`; exhaustion → Stuck with explicit options |
+| **Shared working trees** | two sessions in one checkout, merge collisions | One worktree per attempt, protected by a lease |
+| **Environment problems disguised as task failures** | agents retrying an unbuildable environment, flailing on denied tools | Out docs carry `blocker_kind: environment`; repeated permission denials abort the attempt and name the missing tools → Stuck, not retry |
+| **Duplicate side effects after a crash** | two pull requests, double comments | Idempotency ledger (I4) enforced by a `UNIQUE` constraint |
+
+The remaining risk is honest: brewers are still external processes. Deadlines, stall detection and leases are therefore mandatory — as one generic mechanism instead of many special cases.
+
+## 6. Brewers and recipes
+
+Brewers are defined first, then composed into recipes. Full specification: [brewers-and-recipes.md](brewers-and-recipes.md).
+
+- A **brewer** is a Markdown file with JSON frontmatter: inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
+- A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
+- **Routing:** a `recipe:<name>` label wins; otherwise a lean router call picks one and explains why; a human can override before work starts.
+
+### Default recipes
+
+| Recipe | Use |
+|---|---|
+| Tafelbier | quick fix |
+| Enkel | small feature |
+| Dubbel | medium feature, with plan approval |
+| Tripel | large feature: decomposed into single-repository sub-orders, bottled per repository |
+| Quadrupel | multi-repository change with release dependencies between repositories |
+| Pilot batch | spike / research, no PR |
+| Infection check | triage of target-repository issues: reproduce, root cause, findings as Brewery orders (§3.3) |
+| Guest tasting | review someone else's pull request |
+| Re-pitch | re-review a pull request after fixes |
+| Refresh | dependency upgrades (scheduled) |
+
+## 7. Token economy
+
+Orchestration should cost (almost) nothing:
+
+- The engine is plain code: advancing, routing by label, loops, checks, git and GitHub use **zero model tokens**.
+- The only text Foedrum adds to a brewer prompt is a short contract (~300 tokens) describing the out doc.
+- Brewers run with a **lean context** by default (no project instructions, hooks, plugins or MCP unless the brewer declares them).
+- Brewers receive the previous step's out doc, never full histories or transcripts.
+- Prompts are ordered static-first for prompt-cache reuse; effort stays constant per brewer.
+- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract tokens ÷ total). Target: below 5 %.
+
+## 8. Humans in the loop
+
+GitHub is the interface in 1.0:
+
+- One **status comment** per order, edited in place: recipe (as a Mermaid diagram with the current step highlighted), steps, state, assumptions brewers made, cost.
+- **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`.
+- **Commands** in comments, from allow-listed users only: `/foedrum retry`, `skip`, `recipe <name>`, `answer …`, `bottle #…`, `rewind <step>`, `cancel`, `pause`.
+- **CLI:** `foedrum status`, `foedrum stuck`, `foedrum replay <batch>`.
+
+## 9. Testing strategy
+
+Stability is proven, not claimed.
+
+1. **Unit tests** (`node:test`) for the fold, state machine, recipe parsing, GitHub client (injected `fetch`).
+2. **Fake brewer runner** with scripted behaviours: succeed, fail, hang, garbage output, no output, exceed budget, crash mid-step, ask a question.
+3. **Property tests** on the state machine: random event sequences must keep invariants I1–I6.
+4. **Chaos tests:** run many batches with the fake runner, kill the engine at random points, restart, and assert every batch reaches a terminal or Stuck state with no duplicated side effect.
+5. **Contract tests** against a real GitHub test repository (opt-in, CI only).
+6. **End-to-end tests** (from M1): a real test Brewery and target repository on GitHub, driven by the fake brewer runner — issue → batch → pull request, fast and deterministic. A **nightly smoke test** uses the real `claude` CLI to catch changes in its stream format.
+7. **Browser end-to-end tests** (from M6, when the dashboard exists): Playwright Test as a development dependency, subject to the admission checklist; browsers are downloaded by an explicit command, not an install script.
+8. **Cross-platform:** every test layer runs on Windows, macOS and Linux in CI (§13).
+9. **Evaluations** (§11) measure agent quality, separately from correctness tests.
+
+Browser testing *in target repositories* is a recipe concern, not a Foedrum test: a gravity reading can run the repository's own end-to-end suite (`"check": ["test", "npx playwright test"]`), and a verification brewer (Lab tech) can use a browser tool to exercise a UI change and attach screenshots to the pull request (M6).
+
+Published metrics: chaos runs passed, stuck-without-transition count (target 0), orchestration overhead, evaluation scores per model.
+
+## 10. Security model
+
+| Threat | Mitigation |
+|---|---|
+| Prompt injection through issue or PR text | Only allow-listed authors create orders and commands; untrusted text is delimited and marked as data; brewers have tool allowlists; `AskUserQuestion` and pushing are always denied |
+| Agents running malicious install scripts in target repos | Brewer environment forces `npm_config_ignore_scripts=true`; sandbox by default, container optional |
+| Repository-controlled agent settings or hooks | Lean context ignores project settings unless the brewer opts in |
+| Secret leakage | Minimal environment per brewer; short-lived, repository-scoped tokens; orchestrator credentials never passed to brewers |
+| Foedrum's own dependencies | [Dependency policy](../DEPENDENCIES.md) ([ADR 0004](adr/0004-built-in-first-dependency-policy.md)) |
+| Brewers acting outside their worktree | Generated per-attempt settings deny file tools outside the worktree; OS sandbox where available (§13); `scope` guard after every attempt |
+| Windows process spawning | Every CLI argument validated against a strict pattern; prompts and settings passed via stdin and files, never as arguments |
+
+**Authentication:** Claude — whatever the user's `claude` CLI is logged in with. GitHub — a fine-grained personal access token in 1.0, a GitHub App later.
+
+## 11. Evaluation: Flight and blind tasting
+
+- A public **tasting room** repository with seeded issues per recipe and **hidden acceptance tests** brewers never see; planted bugs for Infection check; pull requests with planted defects for Guest tasting.
+- **Real batches become samples:** any batch that got stuck or needed human fixes can be exported into the Flight.
+- **Metrics per recipe × brewer × model:** hidden-test pass rate, first-attempt gravity pass rate, retries, stuck rate, tokens, duration, diff size, planted-defect recall.
+- **Blind tasting:** `foedrum taste --model <id> [--brewer <name>]` swaps one brewer's model, runs the Flight several times (agent runs are noisy) and compares with the baseline.
+- **Model watcher:** when Anthropic lists a new model, Foedrum runs blind tasting per brewer and opens a pull request on the Brewery that updates `models.jsonc`, with the report as its description.
+- The same harness gates changes to Foedrum's own default brewers and recipes.
+
+## 12. Extensibility
+
+1. **Files in the Brewery** — add or override brewers and recipes by committing files; review and evaluate them like code.
+2. **Packs** (later) — declarative bundles of brewers, recipes and checks; no code. Installed from a git repository pinned to a commit SHA, with a checksum and a **permission ceiling** set by the Brewery. Every pack ships evaluation samples.
+3. **Visual** — recipes rendered as Mermaid early; a drag-and-drop recipe editor in the dashboard later, saving as a pull request to the Brewery.
+
+## 13. Platform support and isolation
+
+Foedrum runs on **Windows, macOS and Linux** ([ADR 0010](adr/0010-cross-platform-and-isolation-levels.md)).
+
+### Isolation levels
+
+Claude Code's OS sandbox covers **shell commands only** and is available on macOS (Seatbelt), Linux and WSL2 (bubblewrap + socat); on native Windows, shell commands run unsandboxed. File tools, MCP servers and hooks are governed by permission rules on every platform.
+
+| Level | Where | What Foedrum does |
+|---|---|---|
+| **Sandboxed** | macOS, Linux, WSL2 | Per-attempt settings enable `sandbox.enabled` with `allowUnsandboxedCommands: false`, writable paths limited to the worktree, network limited to an allowlist |
+| **Permissions only** | Native Windows | Strict tool allowlists, file-tool deny rules outside the worktree, minimal environment, `scope` guard. A warning is shown at start |
+| **Container** (optional, any OS with Docker) | Anywhere | The brewer runner starts `claude` inside a container that mounts only the worktree |
+
+- `foedrum doctor` reports the effective isolation level and missing prerequisites (for example `bubblewrap`).
+- A Brewery can require a minimum level (`"isolation": { "minimum": "sandboxed" }`); writing brewers then refuse to run below it. Read-only brewers may run at a lower level.
+- Recommended setup on Windows for untrusted repositories: run Foedrum inside WSL2.
+
+### Cross-platform rules for the code
+
+| Area | Rule |
+|---|---|
+| CI | Every pull request runs on `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS |
+| Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
+| Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
+| Spawning `claude` | On Windows only possible through a shell: every argument validated against a strict pattern; prompts and settings via stdin and files |
+| Spawning git and checks | `execFile` with argument arrays (no shell) for git; check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
+| Killing process trees | POSIX: process groups (`detached` + negative pid); Windows: `taskkill /T /F /PID` |
+| Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
+| Line endings | `.gitattributes` with `eol=lf` in Foedrum; frontmatter parsing tolerates CRLF; a guard fails attempts whose diff is mostly line-ending churn |
+| File locks | Worktree and file removal retried on Windows (`EBUSY`/`EPERM`); stale `index.lock` cleanup after interrupted git commands |
+| Executables | Resolve `claude` and `git` via `PATH` and `PATHEXT` on Windows; `foedrum doctor` shows the resolved paths |
+
+## 14. Layout
+
+**Foedrum repository:**
+
+```
+src/
+  cli/          entry point and commands
+  engine/       events, fold, store, scheduler, supervisor, executor
+  brewers/      brewer loading, prompt rendering, CLI invocation
+  recipes/      schema and loading
+  github/       client, auth, intake, projection
+  workspace/    git and worktrees
+  checks/       gravity readings
+  evals/        flight, blind tasting, model watcher
+  schemas/      zod schemas (source of types, validation and JSON Schema)
+defaults/       default brewers and recipes
+test/           unit, property, chaos
+docs/
+```
+
+**A Brewery:**
+
+```
+foedrum.jsonc     repositories (source, release signal, triage sources), allow-listed users, concurrency, budgets, permission ceiling
+models.jsonc      model per brewer (updated by blind-tasting pull requests)
+brewers/          custom and overriding brewers (*.md)
+recipes/          custom and overriding recipes (*.jsonc)
+house-yeast/      rules learned from reviews
+.foedrum/         local (git-ignored): SQLite index, managed clones, worktrees, logs
+
+Branch foedrum/state: batches/<id>/events.jsonl and out docs, committed at every step boundary
+```
