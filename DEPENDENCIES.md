@@ -7,7 +7,7 @@ Foedrum treats every dependency as attack surface. Built-in Node features come f
 | Tool | Version | Why |
 |---|---|---|
 | Node.js | ≥ 24.15 | Runtime; `node:sqlite` and type stripping |
-| npm | ≥ 11.19 (contributors) | Understands every `.npmrc` hardening key; enforced with `devEngines` |
+| npm | ≥ 11.19 (contributors) | Understands every `.npmrc` hardening key; enforced with `devEngines` (added in #1) |
 | git | any recent | Worktrees, branches, diffs |
 | `claude` CLI | logged in | Runs the brewers (subscription, API key, Bedrock or Vertex) |
 
