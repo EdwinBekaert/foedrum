@@ -54,7 +54,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 ## Tests
 
 - Test-first, always: red → green → refactor ([ADR 0017](docs/adr/0017-test-first-recipes-and-tasting-lenses.md)).
-  - Commit the failing test before the implementation, so the red step is visible in the pull request and can be checked out and run. Push red and green together; pull requests are squash-merged, so `main` only ever sees green commits.
+  - Commit the failing test before the implementation, so the red step is visible in the pull request and can be checked out and run. Push red and green together. Pull requests are merged with a merge commit (no squash), so the red → green history stays on `main`; every merge commit is green, so use `git log --first-parent` and `git bisect start --first-parent`.
   - Red means the new test fails on an assertion; a compile or import error is not red. Add a minimal stub (for example a function that throws "not implemented") when needed to get there.
   - Do not weaken a red test's assertions to make the implementation pass. If the test is wrong, fix it in its own commit and say why. Helpers, fixtures and imports may change.
   - Exempt: spikes (throwaway code), scaffolding, documentation and CI configuration. Say so in the pull request.
