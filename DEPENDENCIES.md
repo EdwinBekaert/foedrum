@@ -7,6 +7,7 @@ Foedrum treats every dependency as attack surface. Built-in Node features come f
 | Tool | Version | Why |
 |---|---|---|
 | Node.js | ≥ 24.15 | Runtime; `node:sqlite` and type stripping |
+| npm | ≥ 11.19 (contributors) | Understands every `.npmrc` hardening key; enforced with `devEngines` |
 | git | any recent | Worktrees, branches, diffs |
 | `claude` CLI | logged in | Runs the brewers (subscription, API key, Bedrock or Vertex) |
 
@@ -56,10 +57,27 @@ See [.npmrc](.npmrc): no lifecycle scripts, minimum release age of 7 days, exact
 
 Because lifecycle scripts are disabled, Foedrum's own `package.json` uses no `pre*`/`post*` scripts.
 
+### Verified behaviour
+
+Checked in a throwaway project with this `.npmrc` (spike [#16](https://github.com/EdwinBekaert/foedrum/issues/16); npm 11.19.0, Node 24.20.0, Windows 11; 2026-10-13):
+
+| Setting | Result |
+|---|---|
+| `min-release-age=7` | `zod@4.6.7` (1 day old) and `zod@^4.6.6` fail with `ETARGET … with a date before …`. `zod` and `zod@latest` resolve to 4.6.5, the newest version older than 7 days. |
+| `min-release-age-exclude` | `--min-release-age-exclude=zod` (or `min-release-age-exclude[]=zod` in `.npmrc`) lets `zod@4.6.7` install. Only the named package is exempt, not its dependencies. Use it per command for an urgent security fix; never commit it. |
+| **Lockfile bypass** | `min-release-age` only filters *resolution*. A lockfile that already pins a young version installs it with both `npm ci` and `npm install`. The CI lockfile checker must therefore check publish dates itself. |
+| `ignore-scripts=true` | A dependency's `preinstall`/`install`/`postinstall` and the root's `preinstall`/`postinstall`/`prepare` do not run on `npm install` or `npm ci`. `npm test` runs `test` but skips `pretest`/`posttest`. Control run with `--ignore-scripts=false` fired all of them. |
+| `allow-git=none` | `github:…` and `git+https://…` fail with `EALLOWGIT`, also when the git dependency comes in transitively. |
+| `allow-remote=none` | Tarball URLs fail with `EALLOWREMOTE`, also transitively. |
+| `engine-strict=true` | The root project's own `engines` is enforced (`EBADENGINE`) on `npm install` and `npm ci`. |
+| Unknown keys | An npm that does not know a key only warns (`Unknown cli config`) and ignores it, so an old npm silently drops the hardening. `devEngines.packageManager` with `onFail: "error"` fails with `EBADDEVENGINES` instead, and does not affect users installing the published package. |
+
+Local tarballs and directories are still allowed (`allow-file` and `allow-directory` default to `all`). They need a deliberate local path, so they are left at the default.
+
 ## Continuous integration (planned)
 
 - `npm ci` only, with a committed lockfile.
 - `npm audit signatures` and `npm audit --omit=dev`.
-- A lockfile checker: registry URLs only, integrity present, no install scripts, package budget (runtime ≤ 2, total ≤ 10), every package listed in this file.
+- A lockfile checker: registry URLs only, integrity present, no install scripts, every version published at least 7 days before the change (the lockfile bypasses `min-release-age`), package budget (runtime ≤ 2, total ≤ 10), every package listed in this file.
 - Dependabot with a 7-day cooldown; GitHub Actions pinned to commit SHAs.
 - Releases published with npm trusted publishing and provenance.
