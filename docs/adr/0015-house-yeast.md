@@ -1,6 +1,6 @@
 # 0015. House yeast: scoped, budgeted, promotable rules
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted, amended by [0017](0017-test-first-recipes-and-tasting-lenses.md) (optional `lens` scope)
 
 ## Context
 Learning from reviews is valuable: the same mistake should not be made twice. The naive implementation — append every lesson to one rules file and have every agent read it before coding — grows without bound. Such files easily reach hundreds of rules and tens of thousands of tokens per run; capping them drops the newest lessons, and models follow a long undifferentiated list less reliably than a short relevant one.
