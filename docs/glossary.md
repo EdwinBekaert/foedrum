@@ -61,15 +61,17 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | Lab tech | Verification |
 | Tasting panel | Evaluation |
 
-## Default recipes — the Belgian strength ladder
+## Default recipes — sized by the glass
+
+The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or let the router pick.
 
 | Recipe | Use |
 |---|---|
-| Tafelbier | Quick fix |
-| Enkel | Small feature |
-| Dubbel | Medium feature, with plan approval |
-| Tripel | Large feature, split into child orders |
-| Quadrupel | Multi-repository epic |
+| Nip | Quick fix |
+| Half-pint | Small feature |
+| Pint | Medium feature, with plan approval |
+| Growler | Large feature, split into sub-orders |
+| Keg | Multi-repository change with release dependencies |
 | Pilot batch | Spike or research |
 | Infection check | Bug triage |
 | Guest tasting | Review someone else's pull request |
