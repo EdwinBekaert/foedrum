@@ -31,7 +31,9 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
 | **On tap** | Pull request opened or merged |
-| **Cellar** | The engine (`foedrum serve`) |
+| **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
+| **Driver** | What moves a batch forward: an engineer's Claude Code session (interactive) or the Cellar (autonomous); one at a time per batch |
+| **Session step** | A recipe step that runs in an engineer's own Claude Code session: refine, triage, review |
 | **Brewhouse** | The live dashboard (later) |
 | **Tasting log** | Plain-language summaries of what a batch changed (later) |
 | **Flight** | The evaluation suite: a set of samples |
