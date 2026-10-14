@@ -136,6 +136,8 @@ Good automation starts with a sharp breakdown. Analysis and decomposition are wh
 - Re-running `/foedrum:refine` on an order that already has sub-orders shows the current breakdown and lets you deepen, add or cancel sub-orders (never silently delete).
 - The plugin is Markdown commands and skills only — no npm packages — and talks to the Brewery through the `foedrum` CLI.
 
+Since [ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md), refinement is one of several interactive steps (refine, triage, review) that run in the engineer's session, with or without the Cellar running.
+
 ### 3.6 Delivery
 
 Foedrum ships as an npm command-line program with a companion Claude Code plugin ([ADR 0016](adr/0016-delivery-npm-cli-and-companion-plugin.md)):
@@ -160,11 +162,12 @@ type Event =
   | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' | 'human' }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
-  | { type: 'step.started';        batchId: string; stepId: string; attempt: number; sessionId?: string }
+  | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef }  // required for brewer and session steps
+  // SessionRef = { id: string; resumes?: string; worktree: string; claudeVersion: string }
   | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage }
-  | { type: 'input.received';      batchId: string; stepId: string; by: string; answers: Answer[] }
+  | { type: 'input.received';      batchId: string; stepId: string; by: string; via: Surface; answers: Answer[] }
   | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[] }
-  | { type: 'batch.resumed';       batchId: string; by: string; action: 'retry' | 'skip' | 'recipe' | 'answer' }
+  | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer' }
   | { type: 'order.decomposed';    batchId: string; subOrders: SubOrderRef[]; dependencies: Dependency[] }
   | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
   | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: string[]; pullRequest: string }
@@ -175,7 +178,9 @@ type Event =
   | { type: 'effect.applied';      key: string; result: unknown }   // idempotency ledger for external side effects
 ```
 
-Leases live in a separate mutable table (`attempt_key, owner, expires_at`): they are renewed every few seconds and only matter while alive.
+`Surface` is `plugin`, `terminal`, `comment` or `dashboard`. Session ids are part of the state, so any action can resume the right session ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)).
+
+Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
 Current state is a pure fold over events. Crash recovery is replay.
 
@@ -270,13 +275,21 @@ Orchestration should cost (almost) nothing:
 
 ## 8. Humans in the loop
 
-GitHub is the interface in 1.0:
+Foedrum has two **drivers** that share one deterministic engine library and one event store ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)):
+
+- **Interactive:** an engineer opens Claude Code and types a plugin command, for example `/foedrum:brew 21`. The session drives the batch, without `foedrum serve` running: it asks the engine for the next step, runs it, shows progress live, and asks the engineer right away when a brewer returns `needs_input`. Judgement-heavy steps (refine, triage, review) run in the session itself.
+- **Autonomous:** the Cellar (`foedrum serve`) picks up orders and commands from GitHub, and later from the Brewhouse dashboard.
+
+A batch has one driver at a time, held as a lease with a heartbeat; taking over is an explicit, recorded command, and an expired lease frees the batch. `/foedrum:resume <batch> [<step>]` steps into any brewer's own session (`claude --resume`) in its worktree.
+
+**One command layer.** Every action (`brew`, `status`, `stuck`, `answer`, `approve`, `retry`, `skip`, `rewind`, `cancel`, `pause`, `bottle`, `recipe`, `refine`, `triage`, `review`, `resume`, `remember`, `doctor`, `init`) is one typed command, recorded as an event with who issued it and from where. The plugin (`/foedrum:<command>`), the terminal (`foedrum <command>`), GitHub comments (`/foedrum <command>`) and later the dashboard are thin adapters; a parity test keeps them identical. The dashboard shows each batch's live session output next to its pending questions, which are answered in place.
+
+On GitHub, for the autonomous driver and asynchronous teammates:
 
 - One **status comment** per order, edited in place: recipe (as a Mermaid diagram with the current step highlighted), steps, state, assumptions brewers made, cost.
 - A **GitHub Projects board** with one column per lane serves as the kanban view until the Brewhouse dashboard (M6).
 - **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`.
-- **Commands** in comments, from allow-listed users only: `/foedrum retry`, `skip`, `recipe <name>`, `answer …`, `bottle #…`, `rewind <step>`, `cancel`, `pause`.
-- **CLI:** `foedrum status`, `foedrum stuck`, `foedrum replay <batch>`.
+- **Commands** in comments, from allow-listed users only, processed exactly once (the comment id is the idempotency key) and acknowledged with a reaction: 👀 received, 🚀 done, 😕 rejected with the reason in the status comment.
 
 ## 9. Testing strategy
 
