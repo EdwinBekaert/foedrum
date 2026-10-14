@@ -13,10 +13,10 @@ import {
 const root = join(import.meta.dirname, '..', '..');
 const script = join(root, 'scripts', 'precheck.ts');
 
-const hookInput = (command: string, cwd = root): string =>
+const hookInput = (command: string, cwd = root, tool = 'Bash'): string =>
   JSON.stringify({
     hook_event_name: 'PreToolUse',
-    tool_name: 'Bash',
+    tool_name: tool,
     tool_input: { command },
     cwd,
   });
@@ -125,13 +125,73 @@ describe('precheck', () => {
     assert.deepEqual(calls, [root]);
   });
 
-  it('blocks when the hook input cannot be read', async () => {
+  it('blocks when hook input that mentions git cannot be read', async () => {
     const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
-    const result = await precheck('not json', runCheck);
+    const result = await precheck('not json: git push', runCheck);
     assert.equal(result.exitCode, 2);
     assert.match(result.stderr, /hook input/);
     assert.deepEqual(calls, []);
   });
+
+  it('lets through input that mentions neither git nor gh without parsing it', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    assert.deepEqual(await precheck('not json', runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
+
+  it('gates a push spelled in capitals', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: 'red' });
+    const result = await precheck(hookInput('GIT push', root, 'PowerShell'), runCheck);
+    assert.equal(result.exitCode, 2);
+    assert.deepEqual(calls, [root]);
+  });
+
+  it('gates a push hidden behind a JSON unicode escape', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: 'red' });
+    const input = hookInput('git push').replace('git', '\\u0067it');
+    assert.doesNotMatch(input, /git/i);
+    const result = await precheck(input, runCheck);
+    assert.equal(result.exitCode, 2);
+    assert.deepEqual(calls, [root]);
+  });
+});
+
+describe('precheck on pushes inside compound commands', () => {
+  const pushes: [name: string, tool: string, command: string][] = [
+    [
+      'the exact command that slipped past the if filter',
+      'Bash',
+      [
+        "mkdir -p test/unit && cat > test/unit/gate-smoke.test.ts <<'EOF'",
+        'import assert from "node:assert/strict";',
+        'import { test } from "node:test";',
+        '',
+        'test("gate smoke: deliberately fails", () => {',
+        '  assert.equal(1 + 1, 3);',
+        '});',
+        'EOF',
+        'git push 2>&1 | tail -30',
+      ].join('\n'),
+    ],
+    [
+      'the same command with ; before the push',
+      'Bash',
+      "mkdir -p test/unit && cat > test/unit/gate-smoke.test.ts <<'EOF'\nok\nEOF\n; git push",
+    ],
+    ['a push after a heredoc', 'Bash', "cat > notes.md <<'EOF'\nnotes\nEOF\ngit push origin main"],
+    ['a push after ;', 'Bash', 'npm test; git push'],
+    ['a push inside ( … )', 'Bash', '(cd ../foedrum && git push)'],
+    ['a PowerShell push after ;', 'PowerShell', 'npm run check; git push origin main'],
+  ];
+  for (const [name, tool, command] of pushes) {
+    it(`runs the check and blocks on failure: ${name}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: false, output: 'not ok 1 - gate smoke' });
+      const result = await precheck(hookInput(command, root, tool), runCheck);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /npm run check failed/);
+      assert.deepEqual(calls, [root]);
+    });
+  }
 });
 
 describe('forbiddenReason', () => {
@@ -200,8 +260,12 @@ describe('scripts/precheck.ts entry point', () => {
     assert.deepEqual(await runScript(hookInput('git status')), { code: 0, stdout: '', stderr: '' });
   });
 
-  it('exits 2 with a reason on stderr for unreadable input', async () => {
-    const { code, stdout, stderr } = await runScript('not json');
+  it('exits 0 silently for input that mentions neither git nor gh, even when it is not JSON', async () => {
+    assert.deepEqual(await runScript('not json'), { code: 0, stdout: '', stderr: '' });
+  });
+
+  it('exits 2 with a reason on stderr for unreadable input that mentions git', async () => {
+    const { code, stdout, stderr } = await runScript('not json: git push');
     assert.equal(code, 2);
     assert.equal(stdout, '');
     assert.match(stderr, /hook input/);
@@ -230,23 +294,26 @@ describe('local gate wiring', () => {
     assert.equal(scripts?.['hook:gate'], 'node scripts/precheck.ts');
   });
 
+  // No `if` filter: it only sees the start of a compound command, so `mkdir x && git push`
+  // slipped through. precheck.ts decides for every call and exits early for most of them.
   for (const tool of ['Bash', 'PowerShell']) {
-    for (const program of ['git', 'gh']) {
-      it(`.claude/settings.json runs the gate before ${tool} ${program} commands`, () => {
-        const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
-        const handlers = (settings.hooks?.PreToolUse ?? [])
-          .filter((group) => group.matcher === tool)
-          .flatMap((group) => group.hooks ?? []);
-        const handler = handlers.find((h) => h.if === `${tool}(${program} *)`);
-        assert.deepEqual(handler && { ...handler, timeout: undefined }, {
-          type: 'command',
-          if: `${tool}(${program} *)`,
-          command: 'npm run --silent hook:gate',
-          onFailure: 'block',
-          timeout: undefined,
-        });
-      });
-    }
+    it(`.claude/settings.json runs the gate before every ${tool} call`, () => {
+      const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
+      const handlers = (settings.hooks?.PreToolUse ?? [])
+        .filter((group) => group.matcher === tool)
+        .flatMap((group) => group.hooks ?? []);
+      assert.deepEqual(
+        handlers.map((handler) => ({ ...handler, timeout: undefined })),
+        [
+          {
+            type: 'command',
+            command: 'npm run --silent hook:gate',
+            onFailure: 'block',
+            timeout: undefined,
+          },
+        ],
+      );
+    });
   }
 });
 
