@@ -142,6 +142,7 @@ interface HookHandler {
 }
 
 interface Settings {
+  permissions?: { allow?: string[]; ask?: string[]; deny?: string[] };
   hooks?: { PreToolUse?: { matcher?: string; hooks?: HookHandler[] }[] };
 }
 
@@ -173,4 +174,47 @@ describe('local gate wiring', () => {
       });
     }
   }
+});
+
+describe('.claude/settings.json permissions', () => {
+  const permissions = readJson<Settings>(join(root, '.claude', 'settings.json')).permissions;
+
+  it('denies force pushes, merging pull requests and editing .npmrc', () => {
+    const deny = permissions?.deny ?? [];
+    const required = [
+      'Bash(git push --force *)',
+      'Bash(git push -f *)',
+      'Bash(git push * --force*)',
+      'PowerShell(git push --force *)',
+      'PowerShell(git push -f *)',
+      'PowerShell(git push * --force*)',
+      'Bash(gh pr merge *)',
+      'PowerShell(gh pr merge *)',
+      'Edit(/.npmrc)',
+      'Write(/.npmrc)',
+    ];
+    assert.deepEqual(
+      required.filter((rule) => !deny.includes(rule)),
+      [],
+    );
+  });
+
+  it('asks before pushing or opening a pull request', () => {
+    const ask = permissions?.ask ?? [];
+    for (const rule of ['git push *', 'gh pr create *']) {
+      assert.ok(ask.includes(`Bash(${rule})`), `ask is missing Bash(${rule})`);
+    }
+  });
+
+  it('mirrors every Bash rule for the PowerShell tool', () => {
+    for (const list of ['allow', 'ask', 'deny'] as const) {
+      const rules = permissions?.[list] ?? [];
+      const bash = rules.filter((rule) => rule.startsWith('Bash(')).map((rule) => rule.slice(4));
+      const powershell = rules
+        .filter((rule) => rule.startsWith('PowerShell('))
+        .map((rule) => rule.slice(10));
+      assert.ok(bash.length > 0, `${list} has no Bash rules`);
+      assert.deepEqual(powershell, bash, `${list}: PowerShell rules do not mirror the Bash rules`);
+    }
+  });
 });
