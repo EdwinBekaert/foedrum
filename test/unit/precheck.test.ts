@@ -1,17 +1,54 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import {
   type CheckResult,
   forbiddenReason,
   isGatedCommand,
   precheck,
 } from '../../scripts/precheck.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const script = join(root, 'scripts', 'precheck.ts');
+const npmStub = join(root, 'test', 'fixtures', 'npm-cli-stub.ts');
+
+interface ProcessResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+// The environment without npm's own variables, so a test controls which npm a child sees.
+const envWithoutNpm = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key))),
+  ...extra,
+});
+
+const run = (
+  file: string,
+  args: string[],
+  stdin: string,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<ProcessResult> =>
+  new Promise((resolve, reject) => {
+    const child = spawn(file, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(stdin);
+  });
 
 const hookInput = (command: string, cwd = root, tool = 'Bash'): string =>
   JSON.stringify({
@@ -30,23 +67,8 @@ const fakeCheck = (result: CheckResult) => {
   return { calls, runCheck };
 };
 
-const runScript = (
-  stdin: string,
-): Promise<{ code: number | null; stdout: string; stderr: string }> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-    child.stdin.end(stdin);
-  });
+const runScript = (stdin: string, env?: NodeJS.ProcessEnv): Promise<ProcessResult> =>
+  run(process.execPath, [script], stdin, env === undefined ? {} : { env });
 
 describe('isGatedCommand', () => {
   const gated = [
@@ -62,6 +84,8 @@ describe('isGatedCommand', () => {
     'gh pr create --draft --title "Local gate"',
     'gh pr new',
     'git log --oneline -1 && gh pr create --body-file body.md',
+    'gh -R owner/repo pr create --draft',
+    'gh pr --repo owner/repo create',
   ];
   for (const command of gated) {
     it(`gates: ${command}`, () => {
@@ -77,6 +101,7 @@ describe('isGatedCommand', () => {
     'gh pr view 24',
     'gh pr list --state all',
     'gh issue create --title push',
+    'gh -R owner/repo pr view 30',
     'npm run check',
     '',
   ];
@@ -215,10 +240,34 @@ describe('forbiddenReason', () => {
     });
   }
 
-  const merges = ['gh pr merge 30', 'gh pr merge --squash --admin', 'git status && gh pr merge 30'];
+  const merges = [
+    'gh pr merge 30',
+    'gh pr merge --squash --admin',
+    'git status && gh pr merge 30',
+    'gh -R owner/repo pr merge 30',
+    'gh --repo owner/repo pr merge 30',
+    'gh --repo=owner/repo pr merge 30',
+    'gh pr -R owner/repo merge 30',
+    'gh pr --repo owner/repo merge 30',
+  ];
   for (const command of merges) {
     it(`forbids merging a pull request: ${command}`, () => {
       assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+    });
+  }
+
+  const deletingPushes = [
+    'git push origin --delete old-branch',
+    'git push -d origin old-branch',
+    'git push origin :old-branch',
+    'git push --mirror',
+    'git push origin --mirror',
+    'git -C ../foedrum push origin --delete old-branch',
+    'npm test && git push origin :old-branch',
+  ];
+  for (const command of deletingPushes) {
+    it(`forbids deleting or mirroring remote refs: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /delet.*mirror|mirror.*delet/i);
     });
   }
 
@@ -227,12 +276,14 @@ describe('forbiddenReason', () => {
     'git push -u origin 24-local-gate',
     'git push --follow-tags',
     'git push --no-force-with-lease',
-    'git push origin --delete old-branch',
     'git push -o ci.skip origin main',
+    'git push origin HEAD:main',
+    'git push --dry-run origin main',
     'git merge origin/main',
     'git commit -m "never force push: use git push -f only in emergencies"',
     'gh pr create --draft',
     'gh pr view 30',
+    'gh -R owner/repo pr view 30',
     'echo git push --force',
   ];
   for (const command of allowed) {
@@ -243,7 +294,11 @@ describe('forbiddenReason', () => {
 });
 
 describe('precheck on forbidden commands', () => {
-  for (const command of ['git push --force-with-lease', 'gh pr merge 30']) {
+  for (const command of [
+    'git push --force-with-lease',
+    'gh pr merge 30',
+    'git push origin --delete old-branch',
+  ]) {
     it(`blocks without running the check: ${command}`, async () => {
       const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
       const result = await precheck(hookInput(command), runCheck);
@@ -270,12 +325,103 @@ describe('scripts/precheck.ts entry point', () => {
     assert.equal(stdout, '');
     assert.match(stderr, /hook input/);
   });
+
+  describe('running npm run check through npm_execpath', () => {
+    const push = hookInput('git push', root);
+    const env = envWithoutNpm({ npm_execpath: npmStub });
+
+    it('blocks the push with exit 2 when npm exits non-zero, passing run check to npm', async () => {
+      const { code, stdout, stderr } = await runScript(push, env);
+      assert.equal(code, 2);
+      assert.equal(stdout, '');
+      assert.match(stderr, /npm run check failed/);
+      assert.match(stderr, /stub npm: run check/);
+    });
+
+    it('keeps multi-byte characters intact when npm output arrives in pieces', async () => {
+      const { stderr } = await runScript(push, env);
+      assert.match(stderr, /café/);
+      assert.doesNotMatch(stderr, /�/);
+    });
+
+    it('blocks the push when npm_execpath is not set', async () => {
+      const { code, stderr } = await runScript(push, envWithoutNpm());
+      assert.equal(code, 2);
+      assert.match(stderr, /npm_execpath is not set/);
+    });
+  });
+});
+
+// Runs the hook command from .claude/settings.json the way Claude Code does: through bash, with
+// CLAUDE_PROJECT_DIR set. npm's own variables are removed so the hook finds npm itself.
+describe('the configured hook command', () => {
+  const hookCommand = (): string => {
+    const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
+    const command = settings.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command;
+    assert.ok(command !== undefined, 'no PreToolUse hook command');
+    return command;
+  };
+  const runHook = (projectDir: string, cwd: string, stdin: string): Promise<ProcessResult> =>
+    run('bash', ['-c', hookCommand()], stdin, {
+      cwd,
+      env: envWithoutNpm({ CLAUDE_PROJECT_DIR: projectDir }),
+    });
+
+  const dirs: TempDir[] = [];
+  const tempDir = (prefix: string, packageJson?: object): string => {
+    const dir = makeTempDir(prefix);
+    dirs.push(dir);
+    if (packageJson !== undefined) {
+      writeFileSync(join(dir.path, 'package.json'), `${JSON.stringify(packageJson)}\n`);
+    }
+    return dir.path;
+  };
+  // A gated push whose check runs in a directory where `npm run check` passes at once, so a
+  // gate that wrongly runs does not recurse into this test suite.
+  let gatedPush = '';
+  before(() => {
+    const safe = tempDir('safe-check', {
+      private: true,
+      scripts: { check: 'node -e ""' },
+    });
+    gatedPush = hookInput('git push', safe);
+  });
+  after(() => {
+    for (const dir of dirs) dir.remove();
+  });
+
+  it('blocks a git push with exit 2 when the project has no package.json', async () => {
+    const project = tempDir('no-package-json');
+    const { code } = await runHook(project, project, gatedPush);
+    assert.equal(code, 2);
+  });
+
+  it('blocks a git push with exit 2 when package.json has no hook:gate script', async () => {
+    const project = tempDir('no-hook-gate', { private: true, scripts: {} });
+    const { code } = await runHook(project, project, gatedPush);
+    assert.equal(code, 2);
+  });
+
+  it("runs the project's gate even when the working directory has another package.json", async () => {
+    const elsewhere = tempDir('other-package', { private: true, scripts: {} });
+    const { code, stderr } = await runHook(root, elsewhere, hookInput('git status', elsewhere));
+    assert.equal(stderr, '');
+    assert.equal(code, 0);
+  });
+
+  it('lets a gated push through when the check passes', async () => {
+    const elsewhere = tempDir('other-package', { private: true, scripts: {} });
+    const { code, stderr } = await runHook(root, elsewhere, gatedPush);
+    assert.equal(stderr, '');
+    assert.equal(code, 0);
+  });
 });
 
 interface HookHandler {
   type?: string;
   if?: string;
   command?: string;
+  shell?: string;
   onFailure?: string;
 }
 
@@ -296,6 +442,9 @@ describe('local gate wiring', () => {
 
   // No `if` filter: it only sees the start of a compound command, so `mkdir x && git push`
   // slipped through. precheck.ts decides for every call and exits early for most of them.
+  // The command is anchored to the project and fails closed: `|| exit 2` blocks when npm or
+  // the hook:gate script cannot run, even on Claude Code versions without onFailure. The
+  // shell is pinned to bash so PowerShell never parses `||`.
   for (const tool of ['Bash', 'PowerShell']) {
     it(`.claude/settings.json runs the gate before every ${tool} call`, () => {
       const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
@@ -307,7 +456,9 @@ describe('local gate wiring', () => {
         [
           {
             type: 'command',
-            command: 'npm run --silent hook:gate',
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: a placeholder Claude Code expands
+            command: 'npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate || exit 2',
+            shell: 'bash',
             onFailure: 'block',
             timeout: undefined,
           },
@@ -365,9 +516,9 @@ describe('.claude/settings.json permissions', () => {
     assert.ok((permissions?.allow ?? []).includes('Bash(gh repo view *)'));
   });
 
-  it('asks before pushing or opening a pull request', () => {
+  it('asks before pushing, opening a pull request or calling the GitHub API', () => {
     const ask = permissions?.ask ?? [];
-    for (const rule of ['git push *', 'gh pr create *']) {
+    for (const rule of ['git push *', 'gh pr create *', 'gh api *']) {
       assert.ok(ask.includes(`Bash(${rule})`), `ask is missing Bash(${rule})`);
     }
   });
