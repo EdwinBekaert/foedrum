@@ -120,6 +120,13 @@ describe('parseFrontmatter', () => {
         column: 9,
         reason: /object/,
       },
+      {
+        name: 'a --- line inside a block comment closes the frontmatter',
+        text: '---\n{\n/*\n---\n*/\n"a": 1\n}\n---\nBody',
+        line: 3,
+        column: 1,
+        reason: /Unterminated block comment/,
+      },
       { name: 'malformed JSON', text: '---\n{\n  "a" 1\n}\n---\n', line: 3, column: 7 },
       { name: '65 nested arrays', text: `---\n${'['.repeat(65)}\n---\n`, line: 2, column: 65 },
       {

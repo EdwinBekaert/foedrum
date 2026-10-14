@@ -7,7 +7,10 @@ export interface Frontmatter {
   body: string;
 }
 
-/** Errors are ParseErrors whose line and column refer to the whole file. */
+/**
+ * Errors are ParseErrors whose line and column refer to the whole file. The first line that is
+ * exactly `---` after the opening one closes the frontmatter, even inside a block comment.
+ */
 export function parseFrontmatter(text: string): Frontmatter {
   const lines = checkedInput(text).split(/(?<=\n)/); // each line keeps its line break
   if (!isDelimiter(lines[0] ?? '')) {
