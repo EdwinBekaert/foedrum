@@ -33,4 +33,4 @@ export function parseFrontmatter(text: string): Frontmatter {
 // Whitespace and comments before the value; the input has already parsed, so comments are closed.
 const leadingBlank = /^(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/;
 
-const isDelimiter =(line: string): boolean => line.replace(/\r?\n$/, '') === '---';
+const isDelimiter = (line: string): boolean => line.replace(/\r?\n$/, '') === '---';
