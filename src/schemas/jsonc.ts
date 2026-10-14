@@ -1,7 +1,24 @@
 // JSONC reader (ADR 0007): JSON with comments and trailing commas.
 
 export function parseJsonc(text: string): unknown {
-  return JSON.parse(stripComments(text));
+  return JSON.parse(stripTrailingCommas(stripComments(text)));
+}
+
+// Runs after stripComments, so only whitespace can separate a trailing comma from its bracket.
+function stripTrailingCommas(text: string): string {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '"') {
+      const stop = stringEnd(text, i);
+      out += text.slice(i, stop);
+      i = stop;
+    } else {
+      out += text[i] === ',' && /^\s*[}\]]/.test(text.slice(i + 1)) ? ' ' : text[i];
+      i++;
+    }
+  }
+  return out;
 }
 
 // Comments become spaces (line breaks kept) so positions in the result match the input.
