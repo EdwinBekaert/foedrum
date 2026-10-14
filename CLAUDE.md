@@ -18,6 +18,15 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `npm run typecheck` · `npm run lint` · `npm test`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 
+## Temporary files
+
+Everything a session or a test creates stays inside the checkout, so it is visible and easy to clean up.
+
+- Never write to the system temp directory (`%TEMP%`, `/tmp`, `os.tmpdir()`, or a tool's own scratch directory) while working on Foedrum.
+- Use `.foedrum/tmp/` at the root of the current checkout or worktree (git-ignored); create it when missing. Group files per issue: `.foedrum/tmp/<issue-number>/` for scripts, scratch files, captured output and logs.
+- Tests that need a directory create it under `.foedrum/tmp/tests/`, through a shared test helper, and remove it afterwards.
+- Delete what you no longer need before opening the pull request.
+
 ## Dependencies
 
 - Built-in Node first: `node:sqlite`, `node:test`, `fetch`, `node:crypto`, `node:child_process`, `util.parseArgs`, `node:http`.
@@ -46,7 +55,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 
 Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
-- Paths only through `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`.
+- Paths only through `node:path`, `os.homedir()` and `os.tmpdir()`; never string-built paths or `~`. (`os.tmpdir()` is for product code at run time; development and tests use `.foedrum/tmp/`, see Temporary files.)
 - Spawn git and other tools with `execFile` and argument arrays. The only shell spawn is the `claude` CLI on Windows, with every argument validated and prompts passed via stdin.
 - OS-specific behaviour (killing process trees, executable lookup, file-lock retries) lives in the platform module only.
 - Text files use LF; parsers tolerate CRLF and a BOM.
