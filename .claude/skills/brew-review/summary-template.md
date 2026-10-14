@@ -8,6 +8,8 @@ Fill in every section. Keep "skipped, because …" for stages that did not run. 
 
 Base `<short base hash>` · <n> commits · lenses: <lens names>
 
+Review criteria changed by this pull request: <paths from criteria.txt that the diff changes, and whether this run used the pull request's own skill or agents> (or "none")
+
 ### Red proof: pass | fail | exempt (…)
 
 | Commit | Kind | Result |
