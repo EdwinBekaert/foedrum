@@ -4,15 +4,24 @@ Four commits with known defects, used to check the review skill and the default 
 
 ## Apply
 
-The patches apply to base commit `65b46ecb2591bf321061e0a3ccf8fc99c0df4db5` ("Add review skill and default tasting lenses"). Apply them in a scratch worktree under `.foedrum/tmp/`, never in your own checkout:
+Apply the patches on top of the branch whose prompts you are checking (the skill, its agents or the lenses), so the run uses those prompts, not older ones. The patches only add files under `src/engine/` and `test/unit/`, so they apply to any branch that does not have those files yet. In a clean checkout of that branch:
 
 ```sh
-git worktree add --detach .foedrum/tmp/planted-demo 65b46ecb2591bf321061e0a3ccf8fc99c0df4db5
-git -C .foedrum/tmp/planted-demo switch -c planted/23-review-demo
-git -C .foedrum/tmp/planted-demo am "$PWD"/test/fixtures/brew-review/planted-demo/*.patch
+git switch -c planted/23-review-demo
+git am test/fixtures/brew-review/planted-demo/*.patch
 ```
 
-Then run `/brew-review planted/23-review-demo --no-comment` from that worktree. `npm test` is green there (9 of 9 pass), and both new files have 100% line coverage. Afterwards, remove the worktree (`git worktree remove --force .foedrum/tmp/planted-demo`, then `git worktree prune`) and delete the local branch.
+Then start a new Claude Code session in that checkout (the skill and the `taster` and `brett` agents load from it when the session starts) and run:
+
+```
+/brew-review planted/23-review-demo --base <branch> --no-comment
+```
+
+`--base <branch>` limits the review to the four planted commits and takes the review criteria from your branch. Without it, the review would also cover your branch's own commits, and lenses that are new on your branch would come from the planted branch instead. The summary is written to `.foedrum/tmp/branch-planted-23-review-demo/review/summary.md`.
+
+Afterwards: `git switch <branch>` and `git branch -D planted/23-review-demo`.
+
+If a patch no longer applies because those files now exist, rebase the sample onto a newer branch, export it again with `git format-patch <branch>..planted/23-review-demo`, and update this README.
 
 ## Patches
 

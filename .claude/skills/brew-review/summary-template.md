@@ -18,7 +18,7 @@ Review criteria changed by this pull request: <paths from criteria.txt that the 
 
 ### Simplify
 
-- <proposal> — applied in `<hash>` / rejected because …
+- <proposal> — applied in `<hash>` / reported as finding #<n> (it touches a prompt or review criterion) / rejected because …
 
 ### Lens findings
 
