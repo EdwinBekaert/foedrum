@@ -4,7 +4,7 @@ Status: design (v0.1). A **brewer** is a reusable agent role. A **recipe** puts 
 
 ## 1. Brewer
 
-A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The body is the prompt.
+A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The body is the prompt. The frontmatter is read as JSONC (comments and trailing commas allowed); strictness comes from schema validation.
 
 ### 1.1 Fields
 
