@@ -27,7 +27,8 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, or a Brewery's own |
 | **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |
 | **Stuck** 🔔 | A batch that needs a human. Always visible, never silent |
-| **House yeast** | Rules learned from reviews, carried from batch to batch — scoped, budgeted per attempt, promoted to checks when possible, curated over time |
+| **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |
+| **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
 | **On tap** | Pull request opened or merged |
 | **Cellar** | The engine (`foedrum serve`) |

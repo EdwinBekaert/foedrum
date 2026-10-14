@@ -337,7 +337,17 @@ Reviews produce lessons ("never swallow errors in this module", "use the shared 
 4. **Curated:** a periodic curation step merges duplicates, folds similar rules together and retires rules that have not been relevant for a long time. Curation changes arrive as pull requests to the Brewery.
 5. **Suppressions are scoped too:** "do not flag this again here" applies to the reviewing brewer and to the matching scope only.
 
-New rules come from review/fix loops and from human review comments on bottles, proposed as pull requests to the Brewery's `house-yeast/`.
+**Three layers** ([ADR 0018](adr/0018-house-yeast-layers.md)):
+
+| Layer | Location | Holds | Approved by |
+|---|---|---|---|
+| Defaults | Shipped with Foedrum, mostly inside lens and brewer prompts | Craft rules that hold everywhere | Foedrum maintainers, measured with the Flight |
+| Brewery | `house-yeast/` in the Brewery | Conventions across the organisation's repositories | Brewery owners, by pull request |
+| Repository | `.foedrum/house-yeast/` in the target repository | Knowledge about that repository's code | The repository's owners, in the bottle that introduces the rule |
+
+Selection draws from all layers within one budget; the more specific layer wins. Repository rules are untrusted input, read only from registered repositories. A repository can opt for the Brewery fallback (`houseYeast: "brewery"`), and nothing flows back to Foedrum's defaults automatically.
+
+**From lesson to rule:** a review finding that needed a fix, or a human review comment on a bottle, is recorded as a **candidate** on the state branch. When the lesson recurs, or a human asks with `/foedrum remember`, it is proposed as a rule: one Markdown file with JSON frontmatter. A repository-layer rule ships in the same bottle as the fix that taught it. A human always approves a rule.
 
 ## 13. Platform support and isolation
 
@@ -400,10 +410,16 @@ foedrum.jsonc     repositories (source, release signal, triage sources, test rep
 models.jsonc      model per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
-house-yeast/      learned rules with scope metadata (selected per attempt, see §12b)
+house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)
 .foedrum/         local (git-ignored): SQLite index, logs
 
 Work root (outside the checkout, default ~/.foedrum/<brewery>/): worktrees, managed clones
 
 Branch foedrum/state: batches/<id>/events.jsonl and out docs, committed at every step boundary
+```
+
+**A target repository** receives only what its bottles bring, plus:
+
+```
+.foedrum/house-yeast/   repository-layer rules (one Markdown file per rule), committed in bottles (§12b)
 ```

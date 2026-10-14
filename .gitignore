@@ -148,8 +148,9 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 
-# Foedrum local state (event store, clones, worktrees)
-.foedrum/
+# Foedrum local state (event store, clones, worktrees); repository-layer house yeast is committed
+.foedrum/*
+!.foedrum/house-yeast/
 
 # Claude Code worktrees
 .claude/worktrees/
