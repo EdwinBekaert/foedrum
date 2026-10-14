@@ -1,50 +1,45 @@
 // JSONC reader (ADR 0007): JSON with comments and trailing commas.
 
 export function parseJsonc(text: string): unknown {
-  return JSON.parse(stripTrailingCommas(stripComments(text)));
+  return JSON.parse(toJson(text));
 }
 
-// Runs after stripComments, so only whitespace can separate a trailing comma from its bracket.
-function stripTrailingCommas(text: string): string {
-  let out = '';
+// Comments and trailing commas become spaces (line breaks kept), so positions in the
+// result match the input.
+function toJson(text: string): string {
+  const out: string[] = [];
+  let comma = -1; // index in `out` of a comma that may turn out to be trailing
   let i = 0;
   while (i < text.length) {
-    if (text[i] === '"') {
+    const c = text[i] as string;
+    if (c === '"') {
       const stop = stringEnd(text, i);
-      out += text.slice(i, stop);
-      i = stop;
-    } else {
-      out += text[i] === ',' && /^\s*[}\]]/.test(text.slice(i + 1)) ? ' ' : text[i];
-      i++;
-    }
-  }
-  return out;
-}
-
-// Comments become spaces (line breaks kept) so positions in the result match the input.
-function stripComments(text: string): string {
-  let out = '';
-  let i = 0;
-  while (i < text.length) {
-    if (text[i] === '"') {
-      const stop = stringEnd(text, i);
-      out += text.slice(i, stop);
+      out.push(text.slice(i, stop));
+      comma = -1;
       i = stop;
     } else if (text.startsWith('//', i)) {
       const end = text.indexOf('\n', i);
       const stop = end === -1 ? text.length : end;
-      out += blank(text.slice(i, stop));
+      out.push(blank(text.slice(i, stop)));
       i = stop;
     } else if (text.startsWith('/*', i)) {
       const stop = text.indexOf('*/', i + 2) + 2;
-      out += blank(text.slice(i, stop));
+      out.push(blank(text.slice(i, stop)));
       i = stop;
     } else {
-      out += text[i];
+      if ((c === '}' || c === ']') && comma !== -1) {
+        out[comma] = ' ';
+      }
+      if (c === ',') {
+        comma = out.length;
+      } else if (!/\s/.test(c)) {
+        comma = -1;
+      }
+      out.push(c);
       i++;
     }
   }
-  return out;
+  return out.join('');
 }
 
 // Index just past the string starting at `start`, or the end of the line if it is unterminated.
@@ -56,4 +51,4 @@ function stringEnd(text: string, start: number): number {
   return text[i] === '"' ? i + 1 : i;
 }
 
-const blank =(s: string): string => s.replace(/[^\r\n]/g, ' ');
+const blank = (s: string): string => s.replace(/[^\r\n]/g, ' ');
