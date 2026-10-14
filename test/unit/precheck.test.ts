@@ -117,6 +117,14 @@ describe('precheck', () => {
     assert.deepEqual(calls, []);
   });
 
+  it('reads hook input that starts with a byte order mark', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: 'red' });
+    const bom = String.fromCharCode(0xfeff);
+    const result = await precheck(`${bom}${hookInput('git push')}`, runCheck);
+    assert.equal(result.exitCode, 2);
+    assert.deepEqual(calls, [root]);
+  });
+
   it('blocks when the hook input cannot be read', async () => {
     const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
     const result = await precheck('not json', runCheck);

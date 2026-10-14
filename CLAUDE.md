@@ -24,6 +24,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 
 - The logic lives in `scripts/precheck.ts` and runs as `npm run --silent hook:gate`, so it behaves the same in PowerShell, Git Bash, macOS and Linux.
 - A check that times out (600 s) also blocks.
+- Force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`) and `gh pr merge` are always blocked, without running the check. The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f`.
 - Never bypass the gate. Fix the failure, or ask the user.
 - There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
 
@@ -78,6 +79,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
 - Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.
+- Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
 
 ## Security

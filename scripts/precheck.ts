@@ -1,4 +1,5 @@
-// Claude Code PreToolUse hook: runs `npm run check` before `git push` and `gh pr create`.
+// Claude Code PreToolUse hook: blocks force pushes and `gh pr merge`, and runs `npm run check`
+// before `git push` and `gh pr create`.
 // Wired in .claude/settings.json as `npm run --silent hook:gate`, so npm provides npm_execpath
 // and the check runs without a shell on every platform.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
@@ -40,32 +41,54 @@ const tokenize = (segment: string): string[] => {
   return tokens;
 };
 
-const isGitPush = (args: string[]): boolean => {
-  let i = 0;
-  while (args[i]?.startsWith('-')) i += GIT_OPTIONS_WITH_VALUE.has(args[i] ?? '') ? 2 : 1;
-  return args[i] === 'push';
-};
+interface Invocation {
+  program: string;
+  args: string[];
+}
 
-const isGhPrCreate = (args: string[]): boolean => {
-  const [group, action] = args.filter((arg) => !arg.startsWith('-'));
-  return group === 'pr' && (action === 'create' || action === 'new');
-};
-
-export const isGatedCommand = (command: string): boolean =>
-  command.split(COMMAND_SEPARATORS).some((segment) => {
+const invocations = (command: string): Invocation[] =>
+  command.split(COMMAND_SEPARATORS).flatMap((segment) => {
     const [program, ...args] = tokenize(segment);
-    if (program === undefined) return false;
-    switch (programName(program)) {
-      case 'git':
-        return isGitPush(args);
-      case 'gh':
-        return isGhPrCreate(args);
-      default:
-        return false;
-    }
+    return program === undefined ? [] : [{ program: programName(program), args }];
   });
 
-export const forbiddenReason = (_command: string): string | undefined => undefined;
+// The arguments after `push` when this is a `git push`, otherwise undefined.
+const gitPushArgs = ({ program, args }: Invocation): string[] | undefined => {
+  if (program !== 'git') return undefined;
+  let i = 0;
+  while (args[i]?.startsWith('-')) i += GIT_OPTIONS_WITH_VALUE.has(args[i] ?? '') ? 2 : 1;
+  return args[i] === 'push' ? args.slice(i + 1) : undefined;
+};
+
+// The action after `gh pr`, such as `create` or `merge`, otherwise undefined.
+const ghPrAction = ({ program, args }: Invocation): string | undefined => {
+  if (program !== 'gh') return undefined;
+  const [group, action] = args.filter((arg) => !arg.startsWith('-'));
+  return group === 'pr' ? action : undefined;
+};
+
+// --force, --force-with-lease[=…], -f alone or in a group such as -uf, or a +refspec.
+const isForceArg = (arg: string): boolean =>
+  arg.startsWith('--force') || /^-[A-Za-z]*f[A-Za-z]*$/.test(arg) || arg.startsWith('+');
+
+const FORCE_PUSH_BLOCKED =
+  'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
+const PR_MERGE_BLOCKED =
+  '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
+
+export const isGatedCommand = (command: string): boolean =>
+  invocations(command).some((invocation) => {
+    const action = ghPrAction(invocation);
+    return gitPushArgs(invocation) !== undefined || action === 'create' || action === 'new';
+  });
+
+export const forbiddenReason = (command: string): string | undefined => {
+  for (const invocation of invocations(command)) {
+    if (gitPushArgs(invocation)?.some(isForceArg)) return FORCE_PUSH_BLOCKED;
+    if (ghPrAction(invocation) === 'merge') return PR_MERGE_BLOCKED;
+  }
+  return undefined;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -76,7 +99,7 @@ const lastChars = (text: string): string =>
 export const precheck = async (input: string, runCheck: RunCheck): Promise<HookResult> => {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(input.replace(/^﻿/, ''));
+    parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
   } catch {
     return { exitCode: 2, stderr: 'precheck: could not parse the hook input as JSON.\n' };
   }
@@ -85,7 +108,10 @@ export const precheck = async (input: string, runCheck: RunCheck): Promise<HookR
   }
 
   const command = isRecord(parsed.tool_input) ? parsed.tool_input.command : undefined;
-  if (typeof command !== 'string' || !isGatedCommand(command)) return { exitCode: 0, stderr: '' };
+  if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
+  const reason = forbiddenReason(command);
+  if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
+  if (!isGatedCommand(command)) return { exitCode: 0, stderr: '' };
 
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
   const { ok, output } = await runCheck(cwd);
