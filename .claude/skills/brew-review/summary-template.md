@@ -1,6 +1,6 @@
 # Summary template
 
-Fill in every section. Keep "skipped, because …" for stages that did not run. Every finding has exactly one disposition: **fixed in `<hash>`** or **dismissed because …** (add "(user)" when the user decided). There is no "open": ask the user instead.
+Fill in every section. Keep "skipped, because …" for stages that did not run. Every finding has exactly one disposition: **fixed in `<hash>`** or **dismissed because …**; list the ones the user decided under "Decided by the user". There is no "open": ask the user instead.
 
 ---
 
