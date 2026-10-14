@@ -80,6 +80,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
 - Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.
+- Pass multi-line text to git and gh through a file written with the file tool (`-F`, `--body-file`), never through a shell heredoc: text containing the delimiter ends the heredoc early and the rest runs as commands.
 - Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
 
