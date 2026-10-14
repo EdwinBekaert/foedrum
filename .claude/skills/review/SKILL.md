@@ -33,7 +33,7 @@ Arguments: `$ARGUMENTS`
    - `diff.patch`: `git diff <base> <head>`
    - `commits.txt`: `git log --reverse --format="%h %s" <base>..<head>`
    - `files.txt`: `git diff --name-status <base> <head>`
-   - the list of **ADRs the diff touches**: every `docs/adr/*.md` changed in the diff, plus every ADR whose number appears in the diff or the commit messages (`ADR 0017`, `0017-…`), plus the ADRs linked from the sections of `docs/architecture.md` or `docs/brewers-and-recipes.md` the diff changes. Note the list in `adrs.txt` (paths, one per line).
+   - the list of **ADRs the diff touches**: every `docs/adr/*.md` changed in the diff, plus every ADR whose number appears in the diff or the commit messages (`ADR 0017`, `0017-…`), plus the ADRs linked from the sections of `docs/architecture.md` or `docs/brewers-and-recipes.md` the diff changes, plus the ADRs in `docs/adr/README.md` whose title covers a module or concern the diff changes (for example engine state, process spawning, paths, where state is stored). Note the list in `adrs.txt` (paths, one per line).
    Reviewers read `CLAUDE.md` and the ADRs from the checkout itself, at `<head>`.
 
 ## Stage 1: red proof
