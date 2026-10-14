@@ -22,10 +22,18 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 
 A project hook in `.claude/settings.json` runs `npm run check` before every `git push` and `gh pr create` (or `gh pr new`) in a Claude Code session, through both the Bash and PowerShell tools. If the check fails, the command is blocked and the failure output is shown.
 
-- The logic lives in `scripts/precheck.ts` and runs as `npm run --silent hook:gate`, so it behaves the same in PowerShell, Git Bash, macOS and Linux.
+- The logic lives in `scripts/precheck.ts` and runs as `npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate || exit 2` in bash (Git Bash on Windows), so it behaves the same in PowerShell, Git Bash, macOS and Linux sessions.
+- The command is anchored to the project root, so the gate runs even after a `cd` into a directory with another `package.json`.
+- The hook fails closed. If npm, `package.json` or the `hook:gate` script is missing, `|| exit 2` blocks the command, and `onFailure: "block"` does the same on Claude Code ≥ 2.1.295.
 - The hook runs before every Bash and PowerShell call, with no `if` filter: a filter only sees the start of a compound command, so `mkdir x && git push` would slip through. precheck finds the push anywhere in the command, and exits at once when the input does not mention `git` or `gh`.
 - A check that times out (600 s) also blocks.
-- Force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`) and `gh pr merge` are always blocked, without running the check. The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f`.
+- The check runs on the working tree in the hook's working directory, not on the commits being pushed. Commit everything before pushing, and push from the checkout you changed: `cd elsewhere && git push`, or pushing another branch, checks the wrong tree.
+- Always blocked, without running the check:
+  - force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`);
+  - pushes that delete or mirror remote refs (`--delete`, `-d`, a `:branch` refspec, `--mirror`);
+  - `gh pr merge`, also with `-R`/`--repo`.
+
+  The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f` or `gh -R owner/repo pr merge`.
 - Never bypass the gate. Fix the failure, or ask the user.
 - There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
 

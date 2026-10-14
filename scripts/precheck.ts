@@ -1,7 +1,7 @@
-// Claude Code PreToolUse hook: blocks force pushes and `gh pr merge`, and runs `npm run check`
-// before `git push` and `gh pr create`.
-// Wired in .claude/settings.json as `npm run --silent hook:gate`, so npm provides npm_execpath
-// and the check runs without a shell on every platform.
+// Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
+// `gh pr merge`, and runs `npm run check` before `git push` and `gh pr create`.
+// Wired in .claude/settings.json as `npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate
+// || exit 2`, so npm provides npm_execpath and the check itself runs without a shell.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // It runs before every Bash and PowerShell call, so input that cannot name git or gh exits
 // before any parsing, and the module has no static imports.
@@ -22,6 +22,8 @@ const MAX_OUTPUT_CHARS = 4000;
 const COMMAND_SEPARATORS = /&&|\|\||[;&|\r\n(){}]/;
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
+// gh flags that can appear before the `pr` action and take the next token as their value.
+const GH_OPTIONS_WITH_VALUE = new Set(['-R', '--repo', '--hostname']);
 // Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter.
 const MAY_NAME_GIT_OR_GH = /git|gh|\\u/i;
 
@@ -58,10 +60,21 @@ const gitPushArgs = ({ program, args }: Invocation): string[] | undefined => {
   return args[i] === 'push' ? args.slice(i + 1) : undefined;
 };
 
+// The positional arguments, skipping flags and the values of flags that take one.
+const positionals = (args: string[], optionsWithValue: Set<string>): string[] => {
+  const result: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? '';
+    if (!arg.startsWith('-')) result.push(arg);
+    else if (optionsWithValue.has(arg)) i++;
+  }
+  return result;
+};
+
 // The action after `gh pr`, such as `create` or `merge`, otherwise undefined.
 const ghPrAction = ({ program, args }: Invocation): string | undefined => {
   if (program !== 'gh') return undefined;
-  const [group, action] = args.filter((arg) => !arg.startsWith('-'));
+  const [group, action] = positionals(args, GH_OPTIONS_WITH_VALUE);
   return group === 'pr' ? action : undefined;
 };
 
@@ -69,8 +82,17 @@ const ghPrAction = ({ program, args }: Invocation): string | undefined => {
 const isForceArg = (arg: string): boolean =>
   arg.startsWith('--force') || /^-[A-Za-z]*f[A-Za-z]*$/.test(arg) || arg.startsWith('+');
 
+// --delete, -d alone or in a group, a :branch refspec, or --mirror.
+const isDeleteOrMirrorArg = (arg: string): boolean =>
+  arg === '--delete' ||
+  arg === '--mirror' ||
+  /^-[A-Za-z]*d[A-Za-z]*$/.test(arg) ||
+  arg.startsWith(':');
+
 const FORCE_PUSH_BLOCKED =
   'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
+const DELETE_PUSH_BLOCKED =
+  'Deleting or mirroring remote refs with git push is blocked: ask a maintainer to delete remote branches.';
 const PR_MERGE_BLOCKED =
   '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
 
@@ -82,7 +104,9 @@ export const isGatedCommand = (command: string): boolean =>
 
 export const forbiddenReason = (command: string): string | undefined => {
   for (const invocation of invocations(command)) {
-    if (gitPushArgs(invocation)?.some(isForceArg)) return FORCE_PUSH_BLOCKED;
+    const pushArgs = gitPushArgs(invocation) ?? [];
+    if (pushArgs.some(isForceArg)) return FORCE_PUSH_BLOCKED;
+    if (pushArgs.some(isDeleteOrMirrorArg)) return DELETE_PUSH_BLOCKED;
     if (ghPrAction(invocation) === 'merge') return PR_MERGE_BLOCKED;
   }
   return undefined;
@@ -137,9 +161,12 @@ const runNpmCheck: RunCheck = async (cwd) => {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
-    const collect = (chunk: Buffer): void => {
-      output += chunk.toString();
+    const collect = (chunk: string): void => {
+      output += chunk;
     };
+    // Decode as a stream, so a multi-byte character split across chunks stays intact.
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
     child.on('error', (error) => resolve({ ok: false, output: error.message }));

@@ -56,11 +56,13 @@
       "Bash(gh pr create *)",
       "Bash(gh pr comment *)",
       "Bash(gh issue comment *)",
+      "Bash(gh api *)",
       "Bash(npm install *)",
       "PowerShell(git push *)",
       "PowerShell(gh pr create *)",
       "PowerShell(gh pr comment *)",
       "PowerShell(gh issue comment *)",
+      "PowerShell(gh api *)",
       "PowerShell(npm install *)"
     ],
     "deny": [
@@ -94,7 +96,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run --silent hook:gate",
+            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" hook:gate || exit 2",
+            "shell": "bash",
             "timeout": 600,
             "onFailure": "block"
           }
@@ -105,7 +108,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run --silent hook:gate",
+            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" hook:gate || exit 2",
+            "shell": "bash",
             "timeout": 600,
             "onFailure": "block"
           }
