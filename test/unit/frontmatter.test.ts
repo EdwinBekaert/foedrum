@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type Frontmatter, parseFrontmatter } from '../../src/schemas/frontmatter.ts';
-import { ParseError } from '../../src/schemas/jsonc.ts';
+import { type Frontmatter, parseFrontmatter } from '../../src/formats/frontmatter.ts';
+import { ParseError } from '../../src/formats/jsonc.ts';
 
 interface Case {
   name: string;

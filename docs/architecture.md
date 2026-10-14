@@ -387,6 +387,7 @@ src/
   checks/       gravity readings
   evals/        flight, blind tasting, model watcher
   schemas/      zod schemas (source of types, validation and JSON Schema)
+  formats/      JSONC and frontmatter readers
 defaults/       default brewers, recipes and tasting lenses
 plugin/         companion Claude Code plugin (Markdown commands and skills)
 test/           unit, property, chaos

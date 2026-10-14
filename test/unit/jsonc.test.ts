@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ParseError, parseJsonc } from '../../src/schemas/jsonc.ts';
+import { ParseError, parseJsonc } from '../../src/formats/jsonc.ts';
 
 interface Case {
   name: string;
