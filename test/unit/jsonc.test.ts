@@ -45,4 +45,32 @@ describe('parseJsonc', () => {
       { name: 'comment between tokens', text: '{"a"/**/:/**/1}', expected: { a: 1 } },
     ]);
   });
+
+  describe('strings', () => {
+    check([
+      {
+        name: '// inside a string',
+        text: '{"url": "https://example.com"}',
+        expected: { url: 'https://example.com' },
+      },
+      {
+        name: '/* */ inside a string',
+        text: '["/* not a comment */"]',
+        expected: ['/* not a comment */'],
+      },
+      { name: 'comment marker in a key', text: '{"a//b": 1}', expected: { 'a//b': 1 } },
+      {
+        name: 'escaped quote before //',
+        text: '["say \\"hi\\" // still a string"]',
+        expected: ['say "hi" // still a string'],
+      },
+      {
+        name: 'escaped backslash ending a string',
+        text: '["c:\\\\" // comment\n]',
+        expected: ['c:\\'],
+      },
+      { name: 'unicode escape', text: '["\\u002f\\u002f"]', expected: ['//'] },
+      { name: 'comment after a string', text: '{"a": "x" /* note */}', expected: { a: 'x' } },
+    ]);
+  });
 });
