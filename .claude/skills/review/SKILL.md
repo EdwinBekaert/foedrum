@@ -37,7 +37,7 @@ Arguments: `$ARGUMENTS`
 
 ## Stage 1: red proof
 
-Proves that the tests were written first and failed for the right reason. Measure; do not reason about whether the author "probably" wrote tests first.
+Proves that the tests were written first and failed for the right reason.
 
 1. Classify every commit in `git rev-list --reverse --no-merges <base>..<head>` by the files it changes (`git diff-tree --no-commit-id --name-only -r <sha>`):
    - **test**: changes only files under `test/` (or `*.test.ts`), optionally with stubs in `src/` that only throw `"not implemented"`;
@@ -58,7 +58,7 @@ Proves that the tests were written first and failed for the right reason. Measur
 
 ## Stage 2: simplify
 
-Start one fresh subagent with the reviewer prompt in [reviewer-prompt.md](reviewer-prompt.md), filled in for **simplify**: it reads the bundle and proposes, without editing anything, concrete removals of duplication, dead code and needless indirection in the changed code, each as a small patch. It must not touch test declarations or assertions.
+Start one fresh subagent with the reviewer prompt in [reviewer-prompt.md](reviewer-prompt.md), filled in for **simplify**. It returns proposed patches and edits nothing.
 
 Apply the proposals you agree with, run the checks, and commit them together as `Simplify <area>` when they pass. Reject the rest with a reason. Record each proposal and its disposition.
 
@@ -79,7 +79,7 @@ If you fixed any finding, start the affected lenses once more on the new diff (f
 
 Skip with a reason when the diff changes no code under `src/`.
 
-1. Start one fresh subagent with [reviewer-prompt.md](reviewer-prompt.md) filled in for **Brett**: it proposes 3 to 5 mutants, plausible bugs in the changed code under `src/` (a removed deadline, an inverted condition, an off-by-one, a dropped `await`, a skipped event), each as a unified diff against `<head>`. It never edits files.
+1. Start one fresh subagent with [reviewer-prompt.md](reviewer-prompt.md) filled in for **Brett**. It returns mutants as patches against `<head>` and edits nothing.
 2. You, not the subagent, decide which mutants survive. In the scratch tree at `<head>` (`git -C <scratch>/tree checkout --detach <head>`), for each mutant:
    - save the patch to `<scratch>/mutants/<n>.patch` and `git -C <scratch>/tree apply <patch>`; a patch that does not apply is *invalid*, not a survivor;
    - run `npm test` in the scratch tree with a 5-minute timeout;
@@ -96,7 +96,7 @@ Report a table of changed files: line % at base (or *new*), line % at head, and 
 
 ## Stage 6: summary
 
-Write the summary with [summary-template.md](summary-template.md) to `<scratch>/summary.md`. Every finding from stages 1 to 5 appears with exactly one disposition: *fixed in `<hash>`*, *dismissed because …*, or *open*. Show the summary to the user.
+Write the summary with [summary-template.md](summary-template.md) to `<scratch>/summary.md` and show it to the user.
 
 - Pull request run: fix commits must be on the remote before the comment refers to them. Ask the user once to confirm pushing (if there are new commits) and posting, unless they already asked for both in this request; then run the checks, `git push`, and `gh pr comment <n> --body-file <scratch>/summary.md`. Never mark the pull request ready and never merge; that is the user's call.
 - Local run, or `--no-comment`: print the summary and its path; nothing leaves the machine.

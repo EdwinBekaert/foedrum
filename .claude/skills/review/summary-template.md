@@ -6,7 +6,7 @@ Fill in every section. Keep "skipped, because …" for stages that did not run. 
 
 ## Review: `<branch>` @ `<short head hash>`
 
-Base `<short base hash>` · <n> commits · lenses: correctness, security, cross-platform, design-conformance
+Base `<short base hash>` · <n> commits · lenses: <lens names>
 
 ### Red proof: pass | fail | exempt (…)
 
