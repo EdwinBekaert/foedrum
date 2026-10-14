@@ -98,6 +98,18 @@ describe('parseJsonc', () => {
     ]);
   });
 
+  describe('nesting up to 64 levels', () => {
+    const nested = (depth: number): unknown => (depth === 0 ? 1 : [nested(depth - 1)]);
+    check([
+      { name: '64 arrays', text: `${'['.repeat(64)}1${']'.repeat(64)}`, expected: nested(64) },
+      {
+        name: 'brackets in strings and comments do not count',
+        text: `[/* ${'{'.repeat(100)} */ "${'['.repeat(100)}"]`,
+        expected: ['['.repeat(100)],
+      },
+    ]);
+  });
+
   describe('malformed input', () => {
     const cases: { name: string; text: string; line: number; column: number; reason?: RegExp }[] = [
       { name: 'empty input', text: '', line: 1, column: 1, reason: /end of input/ },
@@ -124,6 +136,34 @@ describe('parseJsonc', () => {
       { name: 'after a comment on the same line', text: '/* c */ {"a" 1}', line: 1, column: 14 },
       { name: 'CRLF', text: '{\r\n  "a": tru\r\n}', line: 2, column: 8 },
       { name: 'BOM is not a column', text: '\uFEFF[1 2]', line: 1, column: 4 },
+      {
+        name: '65 nested arrays',
+        text: `${'['.repeat(65)}1${']'.repeat(65)}`,
+        line: 1,
+        column: 65,
+        reason: /nest/,
+      },
+      {
+        name: '65 nested objects',
+        text: `${'{"a":'.repeat(65)}1${'}'.repeat(65)}`,
+        line: 1,
+        column: 321,
+        reason: /nest/,
+      },
+      {
+        name: '65 levels over 65 lines',
+        text: '[\n'.repeat(65),
+        line: 65,
+        column: 1,
+        reason: /nest/,
+      },
+      {
+        name: 'deep unclosed nesting',
+        text: '['.repeat(100_000),
+        line: 1,
+        column: 65,
+        reason: /nest/,
+      },
     ];
 
     for (const { name, text, line, column, reason } of cases) {

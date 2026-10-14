@@ -106,6 +106,7 @@ describe('parseFrontmatter', () => {
       { name: 'array', text: '---\n[1]\n---\n', line: 2, column: 1, reason: /object/ },
       { name: 'null', text: '---\n\n  null\n---\n', line: 3, column: 3, reason: /object/ },
       { name: 'malformed JSON', text: '---\n{\n  "a" 1\n}\n---\n', line: 3, column: 7 },
+      { name: '65 nested arrays', text: `---\n${'['.repeat(65)}\n---\n`, line: 2, column: 65 },
       { name: 'BOM and CRLF', text: '\uFEFF---\r\n{"a": }\r\n---\r\n', line: 2, column: 7 },
     ];
 
