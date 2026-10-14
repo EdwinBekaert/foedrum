@@ -85,4 +85,16 @@ describe('parseJsonc', () => {
       { name: 'inside a string', text: '["1,]", "2,}",]', expected: ['1,]', '2,}'] },
     ]);
   });
+
+  describe('line endings and byte order mark', () => {
+    check([
+      { name: 'BOM', text: '﻿{"a": 1}', expected: { a: 1 } },
+      {
+        name: 'CRLF with comments and trailing commas',
+        text: '{\r\n  // note\r\n  "a": [1,\r\n  ], /* x\r\n */\r\n}\r\n',
+        expected: { a: [1] },
+      },
+      { name: 'BOM and CRLF', text: '﻿// header\r\n[1,]\r\n', expected: [1] },
+    ]);
+  });
 });
