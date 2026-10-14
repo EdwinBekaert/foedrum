@@ -15,7 +15,7 @@ export class ParseError extends SyntaxError {
 
 /** Parses JSONC, ignoring a leading BOM; throws a ParseError at the first syntax error. */
 export function parseJsonc(text: string): unknown {
-  const json = toJson(stripBom(text));
+  const json = toJson(checkedInput(text));
   try {
     return JSON.parse(json);
   } catch (error) {
@@ -24,8 +24,20 @@ export function parseJsonc(text: string): unknown {
   }
 }
 
-export const stripBom = (text: string): string =>
-  text.startsWith('\uFEFF') ? text.slice(1) : text;
+/** The text without a leading BOM; throws a ParseError if it is longer than maxInputLength. */
+export function checkedInput(text: string): string {
+  const source = stripBom(text);
+  if (source.length > maxInputLength) {
+    throw parseErrorAt(
+      source,
+      maxInputLength,
+      `Input too large (more than ${maxInputLength} characters)`,
+    );
+  }
+  return source;
+}
+
+const stripBom = (text: string): string => (text.startsWith('\uFEFF') ? text.slice(1) : text);
 
 // Input may come from untrusted repositories; the limit also bounds locateError's recursion.
 const maxDepth = 64;

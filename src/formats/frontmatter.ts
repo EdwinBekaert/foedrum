@@ -1,6 +1,6 @@
 // JSON frontmatter (ADR 0007): a JSON object between `---` lines at the top of a Markdown file.
 
-import { ParseError, parseErrorAt, parseJsonc, stripBom } from './jsonc.ts';
+import { checkedInput, ParseError, parseErrorAt, parseJsonc } from './jsonc.ts';
 
 export interface Frontmatter {
   data: Record<string, unknown>;
@@ -9,7 +9,7 @@ export interface Frontmatter {
 
 /** Errors are ParseErrors whose line and column refer to the whole file. */
 export function parseFrontmatter(text: string): Frontmatter {
-  const lines = stripBom(text).split(/(?<=\n)/); // each line keeps its line break
+  const lines = checkedInput(text).split(/(?<=\n)/); // each line keeps its line break
   if (!isDelimiter(lines[0] ?? '')) {
     throw new ParseError("Expected '---' on the first line", 1, 1);
   }
