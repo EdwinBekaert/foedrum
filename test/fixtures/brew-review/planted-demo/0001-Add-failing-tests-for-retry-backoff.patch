@@ -1,0 +1,43 @@
+From 162c3d4dfb7f09934107a18d4411171be49541fc Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 09:15:43 +0200
+Subject: [PATCH 2/5] Add failing tests for retry backoff
+
+---
+ src/engine/backoff.ts     |  3 +++
+ test/unit/backoff.test.ts | 13 +++++++++++++
+ 2 files changed, 16 insertions(+)
+ create mode 100644 src/engine/backoff.ts
+ create mode 100644 test/unit/backoff.test.ts
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+new file mode 100644
+index 0000000..ca7b166
+--- /dev/null
++++ b/src/engine/backoff.ts
+@@ -0,0 +1,3 @@
++export const backoffMs = (_attempt: number, _baseMs: number, _capMs: number): number => {
++  throw new Error('not implemented');
++};
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+new file mode 100644
+index 0000000..7b3e6c3
+--- /dev/null
++++ b/test/unit/backoff.test.ts
+@@ -0,0 +1,13 @@
++import assert from 'node:assert/strict';
++import { describe, it } from 'node:test';
++import { backoffMs } from '../../src/engine/backoff.ts';
++
++describe('backoffMs', () => {
++  it('doubles the delay for every attempt', () => {
++    assert.deepEqual([1, 2, 3].map((attempt) => backoffMs(attempt, 100, 10_000)), [100, 200, 400]);
++  });
++
++  it('never exceeds the cap', () => {
++    assert.equal(backoffMs(20, 100, 10_000), 10_000);
++  });
++});
+-- 
+2.56.0.windows.2
+

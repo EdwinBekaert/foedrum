@@ -16,6 +16,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
 - `npm run check` — typecheck, lint and test in one command; run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test`
+- `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 
 ## Local gate
@@ -87,6 +88,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
   - A new test that passes immediately is not a red step; commit it labelled as a regression test.
   - Do not weaken a red test's assertions to make the implementation pass. If the test is wrong, fix it in its own commit and say why. Helpers, fixtures and imports may change.
   - Exempt: spikes (throwaway code), scaffolding, documentation and CI configuration. Say so in the pull request.
+  - Prompts (skills, agent definitions, lens and brewer files) are exempt from red proof, but not from verification: a change to a prompt is exercised before merging — for the review skill and lenses by a /brew-review run against the planted-defect sample (test/fixtures/brew-review/planted-demo), later by the Flight (architecture §11).
 - `node:test` and `node:assert`. Inject dependencies (clock, `fetch`, process runner, brewer runner) instead of mocking modules.
 - Test behaviour through public interfaces, not implementation details; a test should fail when the behaviour breaks and survive a refactor.
 - Every change comes with tests. Engine changes must keep the property tests (invariants I1–I6) and the chaos tests green.
