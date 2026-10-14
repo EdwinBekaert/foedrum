@@ -42,6 +42,28 @@ describe('parseFrontmatter', () => {
     ]);
   });
 
+  describe('empty or missing body', () => {
+    check([
+      { name: 'empty body', text: '---\n{"a": 1}\n---\n', expected: { data: { a: 1 }, body: '' } },
+      {
+        name: 'no line break after ---',
+        text: '---\n{"a": 1}\n---',
+        expected: { data: { a: 1 }, body: '' },
+      },
+      { name: 'CRLF, empty body', text: '---\r\n{}\r\n---\r\n', expected: { data: {}, body: '' } },
+      {
+        name: 'CRLF, no line break after ---',
+        text: '---\r\n{}\r\n---',
+        expected: { data: {}, body: '' },
+      },
+      {
+        name: 'blank lines only',
+        text: '---\n{}\n---\n\n\n',
+        expected: { data: {}, body: '\n\n' },
+      },
+    ]);
+  });
+
   describe('line endings and byte order mark', () => {
     check([
       {
