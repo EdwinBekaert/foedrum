@@ -88,13 +88,13 @@ describe('parseJsonc', () => {
 
   describe('line endings and byte order mark', () => {
     check([
-      { name: 'BOM', text: '﻿{"a": 1}', expected: { a: 1 } },
+      { name: 'BOM', text: '\uFEFF{"a": 1}', expected: { a: 1 } },
       {
         name: 'CRLF with comments and trailing commas',
         text: '{\r\n  // note\r\n  "a": [1,\r\n  ], /* x\r\n */\r\n}\r\n',
         expected: { a: [1] },
       },
-      { name: 'BOM and CRLF', text: '﻿// header\r\n[1,]\r\n', expected: [1] },
+      { name: 'BOM and CRLF', text: '\uFEFF// header\r\n[1,]\r\n', expected: [1] },
     ]);
   });
 
@@ -123,7 +123,7 @@ describe('parseJsonc', () => {
       },
       { name: 'after a comment on the same line', text: '/* c */ {"a" 1}', line: 1, column: 14 },
       { name: 'CRLF', text: '{\r\n  "a": tru\r\n}', line: 2, column: 8 },
-      { name: 'BOM is not a column', text: '﻿[1 2]', line: 1, column: 4 },
+      { name: 'BOM is not a column', text: '\uFEFF[1 2]', line: 1, column: 4 },
     ];
 
     for (const { name, text, line, column, reason } of cases) {

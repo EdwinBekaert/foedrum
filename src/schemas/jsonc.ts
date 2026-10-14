@@ -17,7 +17,7 @@ export function parseJsonc(text: string): unknown {
   return JSON.parse(toJson(stripBom(text)));
 }
 
-const stripBom = (text: string): string => (text.startsWith('﻿') ? text.slice(1) : text);
+const stripBom = (text: string): string => (text.startsWith('\uFEFF') ? text.slice(1) : text);
 
 // Comments and trailing commas become spaces (line breaks kept), so positions in the
 // result match the input.
