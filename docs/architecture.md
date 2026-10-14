@@ -251,11 +251,11 @@ Brewers are defined first, then composed into recipes. Full specification: [brew
 
 | Recipe | Use |
 |---|---|
-| Tafelbier | quick fix |
-| Enkel | small feature |
-| Dubbel | medium feature, with plan approval |
-| Tripel | large feature: decomposed into single-repository sub-orders, bottled per repository |
-| Quadrupel | multi-repository change with release dependencies between repositories |
+| Nip | quick fix |
+| Half-pint | small feature |
+| Pint | medium feature, with plan approval |
+| Growler | large feature: decomposed into single-repository sub-orders, bottled per repository |
+| Keg | multi-repository change with release dependencies between repositories |
 | Pilot batch | spike / research, no PR |
 | Infection check | triage of target-repository issues: reproduce, root cause, findings as Brewery orders (§3.3) |
 | Guest tasting | review someone else's pull request |

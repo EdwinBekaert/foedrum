@@ -174,7 +174,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 ```jsonc
 {
   "$schema": "../.foedrum/schemas/recipe.json",          // written by `foedrum init`
-  "name": "enkel",
+  "name": "half-pint",
   "description": "Small feature in one repository",
   "match": { "labels": ["feature"] },
   "budget": { "minutes": 60 },
@@ -239,7 +239,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 
 **Test-first in bug-fix recipes.** The Microbiologist's reproducing test is the failing test: its step has `"id": "triage"`, the red proof uses `"of": "triage"`, and no Gauger step is needed.
 
-**Escalation:** a brewer may set `"escalate": "<recipe>"` in its out doc; the batch re-routes (for example Enkel → Tripel).
+**Escalation:** a brewer may set `"escalate": "<recipe>"` in its out doc; the batch re-routes (for example Half-pint → Growler).
 
 ## 4. How a brewer runs
 
