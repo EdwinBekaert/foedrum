@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" hook:gate || exit 2",
+            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" hook:gate || { echo \"Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why.\" >&2; exit 2; }",
             "shell": "bash",
             "timeout": 600,
             "onFailure": "block"
@@ -108,7 +108,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" hook:gate || exit 2",
+            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" hook:gate || { echo \"Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why.\" >&2; exit 2; }",
             "shell": "bash",
             "timeout": 600,
             "onFailure": "block"
