@@ -3,7 +3,12 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { type CheckResult, isGatedCommand, precheck } from '../../scripts/precheck.ts';
+import {
+  type CheckResult,
+  forbiddenReason,
+  isGatedCommand,
+  precheck,
+} from '../../scripts/precheck.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const script = join(root, 'scripts', 'precheck.ts');
@@ -121,6 +126,67 @@ describe('precheck', () => {
   });
 });
 
+describe('forbiddenReason', () => {
+  const forcePushes = [
+    'git push --force',
+    'git push origin main --force',
+    'git push --force-with-lease',
+    'git push --force-with-lease=main:abc123 origin main',
+    'git push -f',
+    'git push origin main -f',
+    'git push -uf origin main',
+    'git push origin +main',
+    'git push origin +HEAD:main',
+    'git -C ../foedrum push --force',
+    'npm run check && git push -f',
+    'cd repo; git push origin +main',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  const merges = ['gh pr merge 30', 'gh pr merge --squash --admin', 'git status && gh pr merge 30'];
+  for (const command of merges) {
+    it(`forbids merging a pull request: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+    });
+  }
+
+  const allowed = [
+    'git push',
+    'git push -u origin 24-local-gate',
+    'git push --follow-tags',
+    'git push --no-force-with-lease',
+    'git push origin --delete old-branch',
+    'git push -o ci.skip origin main',
+    'git merge origin/main',
+    'git commit -m "never force push: use git push -f only in emergencies"',
+    'gh pr create --draft',
+    'gh pr view 30',
+    'echo git push --force',
+  ];
+  for (const command of allowed) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+describe('precheck on forbidden commands', () => {
+  for (const command of ['git push --force-with-lease', 'gh pr merge 30']) {
+    it(`blocks without running the check: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const result = await precheck(hookInput(command), runCheck);
+      assert.equal(result.exitCode, 2);
+      assert.equal(result.stderr, `${forbiddenReason(command)}\n`);
+      assert.match(result.stderr, /blocked/);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 describe('scripts/precheck.ts entry point', () => {
   it('exits 0 silently for a command that is not gated', async () => {
     assert.deepEqual(await runScript(hookInput('git status')), { code: 0, stdout: '', stderr: '' });
@@ -197,6 +263,24 @@ describe('.claude/settings.json permissions', () => {
       required.filter((rule) => !deny.includes(rule)),
       [],
     );
+  });
+
+  it('updates branches by merging origin/main, never by rebasing', () => {
+    const allow = permissions?.allow ?? [];
+    assert.ok(allow.includes('Bash(git merge origin/main)'));
+    assert.deepEqual(
+      allow.filter((rule) => rule.includes('git rebase')),
+      [],
+    );
+  });
+
+  it('denies destructive gh repo commands and allows gh repo view', () => {
+    const deny = permissions?.deny ?? [];
+    for (const action of ['delete', 'edit', 'rename', 'archive']) {
+      assert.ok(deny.includes(`Bash(gh repo ${action} *)`), `deny is missing gh repo ${action}`);
+    }
+    assert.ok(!deny.includes('Bash(gh repo *)'), 'gh repo * would also deny gh repo view');
+    assert.ok((permissions?.allow ?? []).includes('Bash(gh repo view *)'));
   });
 
   it('asks before pushing or opening a pull request', () => {

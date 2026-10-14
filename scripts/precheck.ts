@@ -65,6 +65,8 @@ export const isGatedCommand = (command: string): boolean =>
     }
   });
 
+export const forbiddenReason = (_command: string): string | undefined => undefined;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
