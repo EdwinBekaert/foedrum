@@ -13,6 +13,7 @@ export class ParseError extends SyntaxError {
   }
 }
 
+/** Parses JSONC, ignoring a leading BOM; throws a ParseError at the first syntax error. */
 export function parseJsonc(text: string): unknown {
   const json = toJson(stripBom(text));
   try {
@@ -57,7 +58,7 @@ function toJson(text: string): string {
       if ((c === '}' || c === ']') && comma !== -1) {
         out[comma] = ' ';
       }
-      if (!/\s/.test(c)) {
+      if (!isWhitespace(c)) {
         // A comma right after '[', '{' or another comma is not trailing; JSON.parse rejects it.
         comma = c === ',' && !'[{,'.includes(last) ? out.length : -1;
         last = c;
@@ -78,7 +79,7 @@ function locateError(json: string): void {
     throw parseErrorAt(json, i, i < json.length ? reason : 'Unexpected end of input');
   };
   const skipWhitespace = (): void => {
-    while (i < json.length && ' \t\n\r'.includes(json[i] as string)) i++;
+    while (i < json.length && isWhitespace(json[i] as string)) i++;
   };
   const scalar = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
   const escapeSequence = /\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})/y;
@@ -153,6 +154,7 @@ function locateError(json: string): void {
   if (i < json.length) fail('Unexpected content after the value');
 }
 
+/** A ParseError at `offset` in `text`; lines are counted by LF, so CRLF counts once. */
 export function parseErrorAt(text: string, offset: number, reason: string): ParseError {
   const before = text.slice(0, offset);
   const lineStart = before.lastIndexOf('\n') + 1;
@@ -169,3 +171,6 @@ function stringEnd(text: string, start: number): number {
 }
 
 const blank = (s: string): string => s.replace(/[^\r\n]/g, ' ');
+
+// JSON whitespace only: JSON.parse rejects anything else, such as a no-break space.
+const isWhitespace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
