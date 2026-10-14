@@ -265,10 +265,17 @@ describe('.claude/settings.json permissions', () => {
       'Bash(gh pr merge *)',
       'PowerShell(gh pr merge *)',
       'Edit(/.npmrc)',
-      'Write(/.npmrc)',
     ];
     assert.deepEqual(
       required.filter((rule) => !deny.includes(rule)),
+      [],
+    );
+  });
+
+  it('has no Write(...) rules, because Edit(...) rules cover every file-editing tool', () => {
+    const { allow = [], ask = [], deny = [] } = permissions ?? {};
+    assert.deepEqual(
+      [...allow, ...ask, ...deny].filter((rule) => rule.startsWith('Write(')),
       [],
     );
   });
