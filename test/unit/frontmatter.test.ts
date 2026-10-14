@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { type Frontmatter, parseFrontmatter } from '../../src/formats/frontmatter.ts';
-import { ParseError } from '../../src/formats/jsonc.ts';
+import { maxInputLength, ParseError } from '../../src/formats/jsonc.ts';
 
 interface Case {
   name: string;
@@ -91,6 +91,7 @@ describe('parseFrontmatter', () => {
   });
 
   describe('malformed input', () => {
+    const header = '---\n{}\n---\n';
     const cases: { name: string; text: string; line: number; column: number; reason?: RegExp }[] = [
       { name: 'empty file', text: '', line: 1, column: 1, reason: /'---'/ },
       { name: 'no frontmatter', text: '# Title\n', line: 1, column: 1, reason: /'---'/ },
@@ -107,6 +108,13 @@ describe('parseFrontmatter', () => {
       { name: 'null', text: '---\n\n  null\n---\n', line: 3, column: 3, reason: /object/ },
       { name: 'malformed JSON', text: '---\n{\n  "a" 1\n}\n---\n', line: 3, column: 7 },
       { name: '65 nested arrays', text: `---\n${'['.repeat(65)}\n---\n`, line: 2, column: 65 },
+      {
+        name: 'file too large, counting the body',
+        text: `${header}${'x'.repeat(maxInputLength)}`,
+        line: 4,
+        column: maxInputLength - header.length + 1,
+        reason: /large/,
+      },
       { name: 'BOM and CRLF', text: '\uFEFF---\r\n{"a": }\r\n---\r\n', line: 2, column: 7 },
     ];
 

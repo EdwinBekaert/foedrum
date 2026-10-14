@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ParseError, parseJsonc } from '../../src/formats/jsonc.ts';
+import { maxInputLength, ParseError, parseJsonc } from '../../src/formats/jsonc.ts';
 
 interface Case {
   name: string;
@@ -110,6 +110,16 @@ describe('parseJsonc', () => {
     ]);
   });
 
+  describe('input size', () => {
+    check([
+      {
+        name: `exactly ${maxInputLength} characters`,
+        text: `"${'a'.repeat(maxInputLength - 2)}"`,
+        expected: 'a'.repeat(maxInputLength - 2),
+      },
+    ]);
+  });
+
   describe('malformed input', () => {
     const cases: { name: string; text: string; line: number; column: number; reason?: RegExp }[] = [
       { name: 'empty input', text: '', line: 1, column: 1, reason: /end of input/ },
@@ -156,6 +166,20 @@ describe('parseJsonc', () => {
         line: 65,
         column: 1,
         reason: /nest/,
+      },
+      {
+        name: 'one character too large',
+        text: `"${'a'.repeat(maxInputLength - 1)}"`,
+        line: 1,
+        column: maxInputLength + 1,
+        reason: /large/,
+      },
+      {
+        name: 'too large over many lines',
+        text: `${' \n'.repeat(maxInputLength / 2)}1`,
+        line: maxInputLength / 2 + 1,
+        column: 1,
+        reason: /large/,
       },
       {
         name: 'deep unclosed nesting',

@@ -30,6 +30,9 @@ export const stripBom = (text: string): string =>
 // Input may come from untrusted repositories; the limit also bounds locateError's recursion.
 const maxDepth = 64;
 
+/** Longest accepted input in characters (1 MiB), not counting a BOM. */
+export const maxInputLength = 1_048_576;
+
 // Comments and trailing commas become spaces (line breaks kept), so positions in the
 // result match the input.
 function toJson(text: string): string {
