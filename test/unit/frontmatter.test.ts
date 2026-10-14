@@ -41,4 +41,24 @@ describe('parseFrontmatter', () => {
       },
     ]);
   });
+
+  describe('line endings and byte order mark', () => {
+    check([
+      {
+        name: 'CRLF',
+        text: '---\r\n{\r\n  "name": "taster"\r\n}\r\n---\r\nBody\r\nmore\r\n',
+        expected: { data: { name: 'taster' }, body: 'Body\r\nmore\r\n' },
+      },
+      {
+        name: 'BOM',
+        text: '\uFEFF---\n{"name": "taster"}\n---\nBody\n',
+        expected: { data: { name: 'taster' }, body: 'Body\n' },
+      },
+      {
+        name: 'BOM and CRLF',
+        text: '\uFEFF---\r\n{}\r\n---\r\nBody',
+        expected: { data: {}, body: 'Body' },
+      },
+    ]);
+  });
 });
