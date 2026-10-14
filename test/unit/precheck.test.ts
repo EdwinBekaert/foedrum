@@ -390,16 +390,21 @@ describe('the configured hook command', () => {
     for (const dir of dirs) dir.remove();
   });
 
+  const gateCouldNotRun =
+    'Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why.';
+
   it('blocks a git push with exit 2 when the project has no package.json', async () => {
     const project = tempDir('no-package-json');
-    const { code } = await runHook(project, project, gatedPush);
+    const { code, stderr } = await runHook(project, project, gatedPush);
     assert.equal(code, 2);
+    assert.ok(stderr.includes(gateCouldNotRun), `stderr: ${stderr}`);
   });
 
   it('blocks a git push with exit 2 when package.json has no hook:gate script', async () => {
     const project = tempDir('no-hook-gate', { private: true, scripts: {} });
-    const { code } = await runHook(project, project, gatedPush);
+    const { code, stderr } = await runHook(project, project, gatedPush);
     assert.equal(code, 2);
+    assert.ok(stderr.includes(gateCouldNotRun), `stderr: ${stderr}`);
   });
 
   it("runs the project's gate even when the working directory has another package.json", async () => {
@@ -442,9 +447,9 @@ describe('local gate wiring', () => {
 
   // No `if` filter: it only sees the start of a compound command, so `mkdir x && git push`
   // slipped through. precheck.ts decides for every call and exits early for most of them.
-  // The command is anchored to the project and fails closed: `|| exit 2` blocks when npm or
-  // the hook:gate script cannot run, even on Claude Code versions without onFailure. The
-  // shell is pinned to bash so PowerShell never parses `||`.
+  // The command is anchored to the project and fails closed: when npm or the hook:gate script
+  // cannot run, it explains why on stderr and exits 2, even on Claude Code versions without
+  // onFailure. The shell is pinned to bash so PowerShell never parses `||` or `{ …; }`.
   for (const tool of ['Bash', 'PowerShell']) {
     it(`.claude/settings.json runs the gate before every ${tool} call`, () => {
       const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
@@ -456,8 +461,9 @@ describe('local gate wiring', () => {
         [
           {
             type: 'command',
-            // biome-ignore lint/suspicious/noTemplateCurlyInString: a placeholder Claude Code expands
-            command: 'npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate || exit 2',
+            command:
+              // biome-ignore lint/suspicious/noTemplateCurlyInString: a placeholder Claude Code expands
+              'npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate || { echo "Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why." >&2; exit 2; }',
             shell: 'bash',
             onFailure: 'block',
             timeout: undefined,
