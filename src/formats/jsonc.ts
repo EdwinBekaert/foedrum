@@ -39,10 +39,10 @@ export function checkedInput(text: string): string {
 
 const stripBom = (text: string): string => (text.startsWith('\uFEFF') ? text.slice(1) : text);
 
-// Input may come from untrusted repositories; the limit also bounds locateError's recursion.
+// Input may come from untrusted repositories (ADR 0020); the limit also bounds locateError's recursion.
 const maxDepth = 64;
 
-/** Longest accepted input in characters (1 MiB), not counting a BOM. */
+/** Longest accepted input in characters (1 MiB, ADR 0020), not counting a BOM. */
 export const maxInputLength = 1_048_576;
 
 // Comments and trailing commas become spaces (line breaks kept), so positions in the

@@ -1,4 +1,4 @@
-// JSON frontmatter (ADR 0007): a JSON object between `---` lines at the top of a Markdown file.
+// Frontmatter (ADR 0007, amended by ADR 0020): a JSONC object between `---` lines at the top of a Markdown file.
 
 import { checkedInput, ParseError, parseErrorAt, parseJsonc } from './jsonc.ts';
 
