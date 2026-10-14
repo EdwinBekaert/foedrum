@@ -84,8 +84,7 @@
       "PowerShell(gh repo rename *)",
       "PowerShell(gh repo archive *)",
       "PowerShell(npm publish *)",
-      "Edit(/.npmrc)",
-      "Write(/.npmrc)"
+      "Edit(/.npmrc)"
     ]
   },
   "hooks": {
