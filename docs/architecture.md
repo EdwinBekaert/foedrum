@@ -162,11 +162,12 @@ type Event =
   | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' | 'human' }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
-  | { type: 'step.started';        batchId: string; stepId: string; attempt: number; sessionId?: string }
+  | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef }  // required for brewer and session steps
+  // SessionRef = { id: string; resumes?: string; worktree: string; claudeVersion: string }
   | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage }
-  | { type: 'input.received';      batchId: string; stepId: string; by: string; answers: Answer[] }
+  | { type: 'input.received';      batchId: string; stepId: string; by: string; via: Surface; answers: Answer[] }
   | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[] }
-  | { type: 'batch.resumed';       batchId: string; by: string; action: 'retry' | 'skip' | 'recipe' | 'answer' }
+  | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer' }
   | { type: 'order.decomposed';    batchId: string; subOrders: SubOrderRef[]; dependencies: Dependency[] }
   | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
   | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: string[]; pullRequest: string }
@@ -177,7 +178,9 @@ type Event =
   | { type: 'effect.applied';      key: string; result: unknown }   // idempotency ledger for external side effects
 ```
 
-Leases live in a separate mutable table (`attempt_key, owner, expires_at`): they are renewed every few seconds and only matter while alive.
+`Surface` is `plugin`, `terminal`, `comment` or `dashboard`. Session ids are part of the state, so any action can resume the right session ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)).
+
+Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
 Current state is a pure fold over events. Crash recovery is replay.
 

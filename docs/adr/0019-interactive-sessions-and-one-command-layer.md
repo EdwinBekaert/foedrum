@@ -27,6 +27,24 @@ Foedrum was designed around an always-on engine (`foedrum serve`) controlled thr
 - A brewer still never asks mid-run ([ADR 0006](0006-no-mid-run-questions.md)). When it returns `needs_input`, the session asks the engineer right away and starts the next attempt with the answers. A Stuck question costs seconds instead of a comment round trip.
 - **Interactive steps** run in the engineer's session itself: analysis and refinement, triage, and review discussion. A recipe marks them with a `session` step (`{ "id": "analyze", "session": "refine" }`). Under the autonomous driver, such a step waits visibly in the Stuck lane with the reason "waiting for a session", with a reminder and a deadline; a recipe may name an automated fallback with an approval gate.
 
+### Sessions are part of the state
+- Every brewer attempt records its **Claude Code session** in the event store, and therefore on the state branch: the session id (from the CLI's first stream event), the session it resumed if any, the worktree path, and the Claude Code version. Session steps in an engineer's own session are recorded the same way.
+- Answering, retrying and stepping in are defined by what they do to a session:
+
+| Action (from any surface) | Session |
+|---|---|
+| `answer` | **Resume** the brewer's session; the answers are its next message |
+| `retry` | Per the brewer's `retryMode`: resume the session, or start a fresh one with the same in-docs |
+| `rewind <step>` | **Fresh** session from that step's in-docs, at the rewound commits |
+| `recipe <name>` | Fresh sessions for the new recipe's steps |
+| `resume`, takeover | **Interactive resume** of the session in the engineer's Claude Code, in the brewer's worktree |
+| `skip`, `cancel`, `pause` | No session |
+
+- A resumed session is a new attempt that names the session it continues, so the history stays a list of attempts with deadlines and outcomes.
+- **One process per session.** A session can be resumed by only one process at a time; the lease covers the session as well as the attempt.
+- **Fallback:** when a session cannot be resumed (the transcript is missing on this machine, or its worktree is gone and cannot be recreated at the recorded commit), the engine starts a fresh attempt with the original in-docs plus the questions and answers, and records why.
+- Resuming keeps the model and effort of the original session, so the prompt cache stays valid where it is still warm.
+
 ### Stepping into any session
 - Brewer sessions are persisted. `/foedrum:resume <batch> [<step>]` opens the brewer's own session (`claude --resume`) in its worktree, with the same per-attempt settings, so the engineer sees everything the brewer saw and did.
 - On a finished attempt, resuming is for inspection or a follow-up; on a running batch, it takes over the batch as described above. When the engineer is done, the session writes the out doc and the engine continues from the next step.
@@ -38,7 +56,7 @@ Foedrum was designed around an always-on engine (`foedrum serve`) controlled thr
   - **Plugin** (`/foedrum:<command>`): the engineer's interface. Every command is available here.
   - **Terminal** (`foedrum <command>`): the same commands; the plugin calls it, and scripts and CI can too.
   - **GitHub comments** (`/foedrum <command>` on orders, sub-orders and bottles): for the autonomous driver and for asynchronous teammates.
-  - **Dashboard** (M6): shows each batch's live session output (the brewer's event stream that the engine already reads) and its pending questions side by side. Questions appear with their options and recommendation and are answered in place, which issues an `answer` command. From the same view, an engineer can retry, rewind or take over.
+  - **Dashboard** (M6): shows each batch's live session output (the brewer's event stream that the engine already reads) and its pending questions side by side. Questions appear with their options and recommendation and are answered in place, which issues an `answer` command and so resumes the brewer's session. From the same view, an engineer can retry, rewind or take over.
 - Commands that only make sense on one surface are marked as such in the command registry. A **parity test** fails when a command is missing from a surface without being marked.
 - **Authorisation** sits in the command layer: GitHub comments from allow-listed users only; the plugin and the terminal for whoever runs them on that machine; the dashboard bound to localhost with a per-session token.
 - **Comments** are processed exactly once: the comment's id is the idempotency key. Foedrum acknowledges with a reaction (👀 received, 🚀 done, 😕 rejected with the reason in the status comment) and ignores later edits. Only the command line is parsed; free text reaches brewers as delimited, untrusted data.
