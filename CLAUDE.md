@@ -29,6 +29,15 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 - Never bypass the gate. Fix the failure, or ask the user.
 - There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
 
+## Temporary files
+
+Everything a session or a test creates stays inside the checkout, so it is visible and easy to clean up.
+
+- Never write to the system temp directory (`%TEMP%`, `/tmp`, `os.tmpdir()`, or a tool's own scratch directory) while working on Foedrum.
+- Use `.foedrum/tmp/` at the root of the current checkout or worktree (git-ignored); create it when missing. Group files per issue: `.foedrum/tmp/<issue-number>/` for scripts, scratch files, captured output and logs.
+- Tests that need a directory create it under `.foedrum/tmp/tests/`, through a shared test helper, and remove it afterwards.
+- Delete what you no longer need before opening the pull request.
+
 ## Dependencies
 
 - Built-in Node first: `node:sqlite`, `node:test`, `fetch`, `node:crypto`, `node:child_process`, `util.parseArgs`, `node:http`.
@@ -57,7 +66,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 
 Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
-- Paths only through `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`.
+- Paths only through `node:path`, `os.homedir()` and `os.tmpdir()`; never string-built paths or `~`. (`os.tmpdir()` is for product code at run time; development and tests use `.foedrum/tmp/`, see Temporary files.)
 - Spawn git and other tools with `execFile` and argument arrays. The only shell spawn is the `claude` CLI on Windows, with every argument validated and prompts passed via stdin.
 - OS-specific behaviour (killing process trees, executable lookup, file-lock retries) lives in the platform module only.
 - Text files use LF; parsers tolerate CRLF and a BOM.
@@ -66,7 +75,8 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
 - Test-first, always: red → green → refactor ([ADR 0017](docs/adr/0017-test-first-recipes-and-tasting-lenses.md)).
   - Commit the failing test before the implementation, so the red step is visible in the pull request and can be checked out and run. Push red and green together. Pull requests are merged with a merge commit (no squash), so the red → green history stays on `main`; every merge commit is green, so use `git log --first-parent` and `git bisect start --first-parent`.
-  - Red means the new test fails on an assertion; a compile or import error is not red. Add a minimal stub (for example a function that throws "not implemented") when needed to get there.
+  - Red means the new test runs and fails because the behaviour is missing: a failed assertion, or an error thrown by the code under test (including a stub that throws "not implemented"). A test file that fails to load, compile or import is not red. Add a minimal stub when needed to get there.
+  - A new test that passes immediately is not a red step; commit it labelled as a regression test.
   - Do not weaken a red test's assertions to make the implementation pass. If the test is wrong, fix it in its own commit and say why. Helpers, fixtures and imports may change.
   - Exempt: spikes (throwaway code), scaffolding, documentation and CI configuration. Say so in the pull request.
 - `node:test` and `node:assert`. Inject dependencies (clock, `fetch`, process runner, brewer runner) instead of mocking modules.
