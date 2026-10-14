@@ -3,9 +3,8 @@
 // Wired in .claude/settings.json as `npm run --silent hook:gate`, so npm provides npm_execpath
 // and the check runs without a shell on every platform.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
-
-import { spawn } from 'node:child_process';
-import { win32 } from 'node:path';
+// It runs before every Bash and PowerShell call, so input that cannot name git or gh exits
+// before any parsing, and the module has no static imports.
 
 export interface CheckResult {
   ok: boolean;
@@ -23,13 +22,12 @@ const MAX_OUTPUT_CHARS = 4000;
 const COMMAND_SEPARATORS = /&&|\|\||[;&|\r\n(){}]/;
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
+// Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter.
+const MAY_NAME_GIT_OR_GH = /git|gh|\\u/i;
 
-// win32.basename accepts both separators, so this works for Windows and POSIX paths.
+// Splits on both separators, so this works for Windows and POSIX paths.
 const programName = (token: string): string =>
-  win32
-    .basename(token)
-    .toLowerCase()
-    .replace(/\.exe$/, '');
+  (token.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.exe$/, '');
 
 const tokenize = (segment: string): string[] => {
   const tokens = segment
@@ -97,6 +95,7 @@ const lastChars = (text: string): string =>
   text.length > MAX_OUTPUT_CHARS ? `…\n${text.slice(-MAX_OUTPUT_CHARS)}` : text;
 
 export const precheck = async (input: string, runCheck: RunCheck): Promise<HookResult> => {
+  if (!MAY_NAME_GIT_OR_GH.test(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
@@ -122,8 +121,9 @@ export const precheck = async (input: string, runCheck: RunCheck): Promise<HookR
   };
 };
 
-const runNpmCheck: RunCheck = (cwd) =>
-  new Promise((resolve) => {
+const runNpmCheck: RunCheck = async (cwd) => {
+  const { spawn } = await import('node:child_process');
+  return new Promise((resolve) => {
     const npmCli = process.env.npm_execpath;
     if (npmCli === undefined || npmCli === '') {
       resolve({
@@ -145,6 +145,7 @@ const runNpmCheck: RunCheck = (cwd) =>
     child.on('error', (error) => resolve({ ok: false, output: error.message }));
     child.on('close', (code) => resolve({ ok: code === 0, output }));
   });
+};
 
 const readStdin = async (): Promise<string> => {
   const chunks: Buffer[] = [];

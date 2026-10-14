@@ -94,14 +94,6 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git *)",
-            "command": "npm run --silent hook:gate",
-            "timeout": 600,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh *)",
             "command": "npm run --silent hook:gate",
             "timeout": 600,
             "onFailure": "block"
@@ -113,14 +105,6 @@
         "hooks": [
           {
             "type": "command",
-            "if": "PowerShell(git *)",
-            "command": "npm run --silent hook:gate",
-            "timeout": 600,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(gh *)",
             "command": "npm run --silent hook:gate",
             "timeout": 600,
             "onFailure": "block"
