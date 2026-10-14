@@ -14,9 +14,18 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
-- `npm run check` — typecheck, lint and test in one command; run it before every push (a Claude Code hook will enforce this, #24)
+- `npm run check` — typecheck, lint and test in one command; run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
+
+## Local gate
+
+A project hook in `.claude/settings.json` runs `npm run check` before every `git push` and `gh pr create` (or `gh pr new`) in a Claude Code session, through both the Bash and PowerShell tools. If the check fails, the command is blocked and the failure output is shown.
+
+- The logic lives in `scripts/precheck.ts` and runs as `npm run --silent hook:gate`, so it behaves the same in PowerShell, Git Bash, macOS and Linux.
+- A check that times out (600 s) also blocks.
+- Never bypass the gate. Fix the failure, or ask the user.
+- There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
 
 ## Dependencies
 

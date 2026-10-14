@@ -23,7 +23,9 @@
   "scripts": {
     "typecheck": "tsc",
     "lint": "biome check",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "hook:gate": "node scripts/precheck.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
