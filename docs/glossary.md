@@ -63,6 +63,8 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 ## Default recipes — sized by the glass
 
+The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or let the router pick.
+
 | Recipe | Use |
 |---|---|
 | Nip | Quick fix |
