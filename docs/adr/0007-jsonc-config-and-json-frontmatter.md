@@ -1,6 +1,6 @@
 # 0007. JSONC configuration, JSON frontmatter
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted, amended by [0020](0020-jsonc-frontmatter.md) (frontmatter is read as JSONC; input limits)
 
 ## Context
 Foedrum reads configuration, recipes, brewer definitions and out docs written by models. YAML is familiar from GitHub Actions but needs a third-party parser and has well-known pitfalls (indentation, implicit types). Prompts — the main reason to want multi-line strings — live in Markdown bodies, not in configuration.

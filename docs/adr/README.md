@@ -10,7 +10,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0004](0004-built-in-first-dependency-policy.md) | Built-in first dependency policy | Accepted |
 | [0005](0005-typed-step-outcomes-and-out-docs.md) | Typed step outcomes via out docs | Accepted |
 | [0006](0006-no-mid-run-questions.md) | Brewers never ask questions mid-run | Accepted |
-| [0007](0007-jsonc-config-and-json-frontmatter.md) | JSONC configuration, JSON frontmatter | Accepted |
+| [0007](0007-jsonc-config-and-json-frontmatter.md) | JSONC configuration, JSON frontmatter | Accepted, amended by 0020 |
 | [0008](0008-polling-intake.md) | Polling intake | Accepted |
 | [0009](0009-agpl-and-cla.md) | AGPL-3.0 with a Contributor License Agreement | Accepted |
 | [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted |
@@ -23,6 +23,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0017](0017-test-first-recipes-and-tasting-lenses.md) | Test-first recipes and tasting lenses | Accepted |
 | [0018](0018-house-yeast-layers.md) | House yeast in three layers: defaults, Brewery, repository | Accepted |
 | [0019](0019-interactive-sessions-and-one-command-layer.md) | Interactive sessions, the autonomous Cellar, and one command layer | Accepted |
+| [0020](0020-jsonc-frontmatter.md) | Frontmatter is read as JSONC (amends 0007) | Accepted |
 
 ## Template
 

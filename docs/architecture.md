@@ -241,7 +241,7 @@ The remaining risk is honest: brewers are still external processes. Deadlines, s
 
 Brewers are defined first, then composed into recipes. Full specification: [brewers-and-recipes.md](brewers-and-recipes.md).
 
-- A **brewer** is a Markdown file with JSON frontmatter: inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
+- A **brewer** is a Markdown file with JSON frontmatter (read as JSONC, [ADR 0020](adr/0020-jsonc-frontmatter.md)): inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
 - A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
 - **Test-first by structure:** recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
 - **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance) in a parallel group. Brett proposes mutants; the engine confirms which ones the tests miss, and these findings are advisory by default.
@@ -410,6 +410,7 @@ src/
   checks/       gravity readings
   evals/        flight, blind tasting, model watcher
   schemas/      zod schemas (source of types, validation and JSON Schema)
+  formats/      JSONC and frontmatter readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020)
 defaults/       default brewers, recipes and tasting lenses
 plugin/         companion Claude Code plugin (Markdown commands and skills)
 test/           unit, property, chaos
