@@ -1,8 +1,10 @@
 // JSONC reader (ADR 0007): JSON with comments and trailing commas.
 
 export function parseJsonc(text: string): unknown {
-  return JSON.parse(toJson(text));
+  return JSON.parse(toJson(stripBom(text)));
 }
+
+const stripBom = (text: string): string => (text.startsWith('﻿') ? text.slice(1) : text);
 
 // Comments and trailing commas become spaces (line breaks kept), so positions in the
 // result match the input.
