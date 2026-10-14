@@ -40,6 +40,11 @@ describe('parseFrontmatter', () => {
         text: '---\n{"rule": "---"}\n---\nBody',
         expected: { data: { rule: '---' }, body: 'Body' },
       },
+      {
+        name: 'JSONC comments and trailing commas',
+        text: '---\n{\n  // who tastes\n  "name": "taster",\n}\n---\nBody',
+        expected: { data: { name: 'taster' }, body: 'Body' },
+      },
     ]);
   });
 
