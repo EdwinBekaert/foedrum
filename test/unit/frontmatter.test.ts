@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { type Frontmatter, parseFrontmatter } from '../../src/schemas/frontmatter.ts';
+import { ParseError } from '../../src/schemas/jsonc.ts';
 
 interface Case {
   name: string;
@@ -82,5 +83,39 @@ describe('parseFrontmatter', () => {
         expected: { data: {}, body: 'Body' },
       },
     ]);
+  });
+
+  describe('malformed input', () => {
+    const cases: { name: string; text: string; line: number; column: number; reason?: RegExp }[] = [
+      { name: 'empty file', text: '', line: 1, column: 1, reason: /'---'/ },
+      { name: 'no frontmatter', text: '# Title\n', line: 1, column: 1, reason: /'---'/ },
+      { name: 'text after the opening ---', text: '--- x\n{}\n---\n', line: 1, column: 1 },
+      {
+        name: 'no closing ---',
+        text: '---\n{"a": 1}\nBody\n',
+        line: 1,
+        column: 1,
+        reason: /closing/,
+      },
+      { name: 'nothing between the --- lines', text: '---\n---\nBody', line: 2, column: 1 },
+      { name: 'array', text: '---\n[1]\n---\n', line: 2, column: 1, reason: /object/ },
+      { name: 'null', text: '---\n\n  null\n---\n', line: 3, column: 3, reason: /object/ },
+      { name: 'malformed JSON', text: '---\n{\n  "a" 1\n}\n---\n', line: 3, column: 7 },
+      { name: 'BOM and CRLF', text: '\uFEFF---\r\n{"a": }\r\n---\r\n', line: 2, column: 7 },
+    ];
+
+    for (const { name, text, line, column, reason } of cases) {
+      it(name, () => {
+        assert.throws(
+          () => parseFrontmatter(text),
+          (error: unknown) => {
+            assert.ok(error instanceof ParseError, `expected a ParseError, got ${String(error)}`);
+            assert.deepEqual({ line: error.line, column: error.column }, { line, column });
+            if (reason) assert.match(error.message, reason);
+            return true;
+          },
+        );
+      });
+    }
   });
 });
