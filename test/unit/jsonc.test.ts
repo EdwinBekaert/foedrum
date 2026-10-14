@@ -73,4 +73,16 @@ describe('parseJsonc', () => {
       { name: 'comment after a string', text: '{"a": "x" /* note */}', expected: { a: 'x' } },
     ]);
   });
+
+  describe('trailing commas', () => {
+    check([
+      { name: 'in an object', text: '{"a": 1,}', expected: { a: 1 } },
+      { name: 'in an array', text: '[1, 2,]', expected: [1, 2] },
+      { name: 'before whitespace and newlines', text: '[\n  1,\n  2,\n]', expected: [1, 2] },
+      { name: 'before a comment', text: '{"a": 1, // last\n}', expected: { a: 1 } },
+      { name: 'before a block comment', text: '[1, /* end */ ]', expected: [1] },
+      { name: 'nested', text: '{"a": [1, {"b": [2,],},],}', expected: { a: [1, { b: [2] }] } },
+      { name: 'inside a string', text: '["1,]", "2,}",]', expected: ['1,]', '2,}'] },
+    ]);
+  });
 });
