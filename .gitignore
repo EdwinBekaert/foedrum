@@ -150,3 +150,9 @@ vite.config.ts.timestamp-*
 
 # Foedrum local state (event store, clones, worktrees)
 .foedrum/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Claude Code personal settings
+.claude/settings.local.json
