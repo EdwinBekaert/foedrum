@@ -14,7 +14,13 @@ export class ParseError extends SyntaxError {
 }
 
 export function parseJsonc(text: string): unknown {
-  return JSON.parse(toJson(stripBom(text)));
+  const json = toJson(stripBom(text));
+  try {
+    return JSON.parse(json);
+  } catch (error) {
+    locateError(json);
+    throw error;
+  }
 }
 
 const stripBom = (text: string): string => (text.startsWith('\uFEFF') ? text.slice(1) : text);
@@ -24,6 +30,7 @@ const stripBom = (text: string): string => (text.startsWith('\uFEFF') ? text.sli
 function toJson(text: string): string {
   const out: string[] = [];
   let comma = -1; // index in `out` of a comma that may turn out to be trailing
+  let last = ''; // last character outside comments and whitespace
   let i = 0;
   while (i < text.length) {
     const c = text[i] as string;
@@ -31,6 +38,7 @@ function toJson(text: string): string {
       const stop = stringEnd(text, i);
       out.push(text.slice(i, stop));
       comma = -1;
+      last = c;
       i = stop;
     } else if (text.startsWith('//', i)) {
       const end = text.indexOf('\n', i);
@@ -38,23 +46,116 @@ function toJson(text: string): string {
       out.push(blank(text.slice(i, stop)));
       i = stop;
     } else if (text.startsWith('/*', i)) {
-      const stop = text.indexOf('*/', i + 2) + 2;
-      out.push(blank(text.slice(i, stop)));
-      i = stop;
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) {
+        throw errorAt(text, i, 'Unterminated block comment');
+      }
+      out.push(blank(text.slice(i, end + 2)));
+      i = end + 2;
     } else {
       if ((c === '}' || c === ']') && comma !== -1) {
         out[comma] = ' ';
       }
-      if (c === ',') {
-        comma = out.length;
-      } else if (!/\s/.test(c)) {
-        comma = -1;
+      if (!/\s/.test(c)) {
+        // A comma right after '[', '{' or another comma is not trailing; JSON.parse rejects it.
+        comma = c === ',' && !'[{,'.includes(last) ? out.length : -1;
+        last = c;
       }
       out.push(c);
       i++;
     }
   }
   return out.join('');
+}
+
+// Throws a ParseError at the first syntax error in `json` (comments and trailing commas
+// already blanked out). Runs only after JSON.parse rejected the input, whose messages do not
+// always carry a position.
+function locateError(json: string): void {
+  let i = 0;
+  const fail = (reason: string): never => {
+    throw errorAt(json, i, i < json.length ? reason : 'Unexpected end of input');
+  };
+  const skipWhitespace = (): void => {
+    while (i < json.length && ' \t\n\r'.includes(json[i] as string)) i++;
+  };
+  const scalar = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
+  const escapeSequence = /\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})/y;
+
+  const string = (): void => {
+    i++;
+    while (json[i] !== '"') {
+      const c = json[i];
+      if (c === undefined || c === '\n' || c === '\r') fail('Unterminated string');
+      if (c === '\\') {
+        escapeSequence.lastIndex = i;
+        if (!escapeSequence.test(json)) fail('Invalid escape in string');
+        i = escapeSequence.lastIndex;
+      } else if ((c as string) < ' ') {
+        fail('Control character in string');
+      } else {
+        i++;
+      }
+    }
+    i++;
+  };
+
+  // Elements of an array or members of an object, after the opening bracket.
+  const items = (close: string, item: () => void): void => {
+    skipWhitespace();
+    if (json[i] === close) {
+      i++;
+      return;
+    }
+    for (;;) {
+      item();
+      skipWhitespace();
+      if (json[i] === close) {
+        i++;
+        return;
+      }
+      if (json[i] !== ',') fail(`Expected ',' or '${close}'`);
+      i++;
+    }
+  };
+
+  const member = (): void => {
+    skipWhitespace();
+    if (json[i] !== '"') fail('Expected a property name');
+    string();
+    skipWhitespace();
+    if (json[i] !== ':') fail("Expected ':' after a property name");
+    i++;
+    value();
+  };
+
+  const value = (): void => {
+    skipWhitespace();
+    const c = json[i];
+    if (c === '{') {
+      i++;
+      items('}', member);
+    } else if (c === '[') {
+      i++;
+      items(']', value);
+    } else if (c === '"') {
+      string();
+    } else {
+      scalar.lastIndex = i;
+      if (!scalar.test(json)) fail('Expected a value');
+      i = scalar.lastIndex;
+    }
+  };
+
+  value();
+  skipWhitespace();
+  if (i < json.length) fail('Unexpected content after the value');
+}
+
+function errorAt(text: string, offset: number, reason: string): ParseError {
+  const before = text.slice(0, offset);
+  const lineStart = before.lastIndexOf('\n') + 1;
+  return new ParseError(reason, before.split('\n').length, offset - lineStart + 1);
 }
 
 // Index just past the string starting at `start`, or the end of the line if it is unterminated.
