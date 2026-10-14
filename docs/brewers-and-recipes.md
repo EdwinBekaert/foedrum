@@ -183,7 +183,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
     { "id": "plan", "brewer": "brewmaster" },                // writes plan.md
     { "id": "gauge", "brewer": "gauger",                     // failing tests (+ stubs) + commit
       "when": "recipe.testFirst" },
-    { "id": "red", "check": "test", "expect": "fail",        // red proof: gauge's tests fail on assertions
+    { "id": "red", "check": "test", "expect": "fail",        // red proof: gauge's tests fail (behaviour missing)
       "of": "gauge", "when": "recipe.testFirst",
       "onFail": { "goto": "gauge", "maxRounds": 1 } },
     { "id": "implement", "brewer": "cellarman",              // code + commits
@@ -223,7 +223,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 | `when` | Run the step only when the expression is true; otherwise it is skipped and recorded as skipped. Expressions read step results by id (`tasting.verdict`, `mutants.survivors`) and the recipe's settings after routing (`recipe.testFirst`) |
 | `lens` | Taster only: the lens file (`lenses/<lens>.md`) that sets the review focus |
 | `expect` | `check` only: `"pass"` (default) or `"fail"`. `"fail"` is a **red proof** |
-| `of` | Red proof only: the step whose committed tests must fail on assertions; compile, import or collection errors do not count |
+| `of` | Red proof only: the step whose committed tests must fail because the behaviour is missing (a failed assertion or an error thrown by the code under test); load, compile, import or collection errors do not count |
 | `blocking` | Brett only: `true` makes confirmed surviving mutants block the tasting verdict (default `false`, advisory) |
 | `onFail` | `check` only: `{ goto: <step id>, maxRounds }` |
 | `onBlocked` | Route per `blockerKind` outside a loop, e.g. `{ "findings": { "goto": "gauge", "maxRounds": 1 } }`; after `maxRounds` the batch becomes Stuck |
