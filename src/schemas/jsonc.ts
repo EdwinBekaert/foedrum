@@ -49,7 +49,7 @@ function toJson(text: string): string {
     } else if (text.startsWith('/*', i)) {
       const end = text.indexOf('*/', i + 2);
       if (end === -1) {
-        throw errorAt(text, i, 'Unterminated block comment');
+        throw parseErrorAt(text, i, 'Unterminated block comment');
       }
       out.push(blank(text.slice(i, end + 2)));
       i = end + 2;
@@ -75,7 +75,7 @@ function toJson(text: string): string {
 function locateError(json: string): void {
   let i = 0;
   const fail = (reason: string): never => {
-    throw errorAt(json, i, i < json.length ? reason : 'Unexpected end of input');
+    throw parseErrorAt(json, i, i < json.length ? reason : 'Unexpected end of input');
   };
   const skipWhitespace = (): void => {
     while (i < json.length && ' \t\n\r'.includes(json[i] as string)) i++;
@@ -153,7 +153,7 @@ function locateError(json: string): void {
   if (i < json.length) fail('Unexpected content after the value');
 }
 
-function errorAt(text: string, offset: number, reason: string): ParseError {
+export function parseErrorAt(text: string, offset: number, reason: string): ParseError {
   const before = text.slice(0, offset);
   const lineStart = before.lastIndexOf('\n') + 1;
   return new ParseError(reason, before.split('\n').length, offset - lineStart + 1);
