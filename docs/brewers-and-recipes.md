@@ -29,7 +29,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 |---|---|
 | `inputs[]` | Named documents: the order, an earlier step's out doc, repository files |
 | `inputs[].trusted` | Untrusted input is wrapped in delimiters and marked as data, never instructions |
-| `houseYeast` | Receive learned rules from the Brewery, selected by scope within a token budget (architecture §12b) |
+| `houseYeast` | Receive learned rules from all three layers (defaults, Brewery, repository), selected by scope within a token budget (architecture §12b) |
 | `toolbox` | A short brief of extra command-line tools this brewer may use |
 
 **Output (out doc)**
@@ -161,7 +161,7 @@ guess would likely waste this run. Never ask questions any other way. Do not pus
 | Out doc | Next |
 |---|---|
 | `done` | Guards pass → next step |
-| `needs_input` | Stuck 🔔 with the questions; the answer starts the next attempt (`--resume` with the answers, or a fresh attempt with a `qa.md` in-doc) |
+| `needs_input` | Stuck 🔔 with the questions; the answer, from any surface, resumes the brewer's session as the next attempt (fallback: a fresh attempt with a `qa.md` in-doc when the session cannot be resumed) |
 | `blocked` + `findings` | Next loop round, until `maxRounds`; outside a loop, the step's `onBlocked` route, else Stuck |
 | `blocked` + `environment` | Stuck immediately: another round would hit the same wall |
 | `blocked` + `divergence` | Stuck: the plan does not match reality |
@@ -183,7 +183,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
     { "id": "plan", "brewer": "brewmaster" },                // writes plan.md
     { "id": "gauge", "brewer": "gauger",                     // failing tests (+ stubs) + commit
       "when": "recipe.testFirst" },
-    { "id": "red", "check": "test", "expect": "fail",        // red proof: gauge's tests fail on assertions
+    { "id": "red", "check": "test", "expect": "fail",        // red proof: gauge's tests fail (behaviour missing)
       "of": "gauge", "when": "recipe.testFirst",
       "onFail": { "goto": "gauge", "maxRounds": 1 } },
     { "id": "implement", "brewer": "cellarman",              // code + commits
@@ -211,7 +211,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 }
 ```
 
-**Step kinds:** `brewer` · `check` (gravity reading: a shell command or a built-in check) · `parallel` (a group of steps run side by side; none of them writes the task tree) · `loop` · `gate: "human"` (approval with a deadline) · `action` (`openPullRequest`, `comment`, `label`, `blend`) · `fanOut` (child orders per repository, scheduled as a dependency graph).
+**Step kinds:** `brewer` · `session` (an interactive step that runs in an engineer's Claude Code session: `refine`, `triage` or `review`; under the autonomous driver it waits visibly in the Stuck lane, with a reminder, a deadline and an optional automated fallback) · `check` (gravity reading: a shell command or a built-in check) · `parallel` (a group of steps run side by side; none of them writes the task tree) · `loop` · `gate: "human"` (approval with a deadline) · `action` (`openPullRequest`, `comment`, `label`, `blend`) · `fanOut` (child orders per repository, scheduled as a dependency graph).
 
 **Recipe fields:** `name`, `description`, `match`, `budget`, `steps`, and `testFirst` (default `true` for recipes that write code; the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
 
@@ -223,7 +223,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 | `when` | Run the step only when the expression is true; otherwise it is skipped and recorded as skipped. Expressions read step results by id (`tasting.verdict`, `mutants.survivors`) and the recipe's settings after routing (`recipe.testFirst`) |
 | `lens` | Taster only: the lens file (`lenses/<lens>.md`) that sets the review focus |
 | `expect` | `check` only: `"pass"` (default) or `"fail"`. `"fail"` is a **red proof** |
-| `of` | Red proof only: the step whose committed tests must fail on assertions; compile, import or collection errors do not count |
+| `of` | Red proof only: the step whose committed tests must fail because the behaviour is missing (a failed assertion or an error thrown by the code under test); load, compile, import or collection errors do not count |
 | `blocking` | Brett only: `true` makes confirmed surviving mutants block the tasting verdict (default `false`, advisory) |
 | `onFail` | `check` only: `{ goto: <step id>, maxRounds }` |
 | `onBlocked` | Route per `blockerKind` outside a loop, e.g. `{ "findings": { "goto": "gauge", "maxRounds": 1 } }`; after `maxRounds` the batch becomes Stuck |
@@ -250,7 +250,7 @@ claude --print --verbose --output-format stream-json
        --permission-mode dontAsk
        --model <model> --effort <effort>
        --settings <per-attempt settings: allow/deny, environment>
-       [--safe-mode] [--system-prompt-file <file>] [--no-session-persistence]
+       [--safe-mode] [--system-prompt-file <file>]
        [--resume <session-id>]
        -p -                      # prompt via stdin
 ```
@@ -258,6 +258,7 @@ claude --print --verbose --output-format stream-json
 - The engine owns the child process, reads the event stream live (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
 - On Windows the CLI can only be spawned through a shell; every argument is therefore validated against a strict pattern, and prompts and settings travel via stdin and files only.
 - `--safe-mode` implements `context: lean`.
+- Sessions are persisted for the lifetime of the batch, so anyone on the machine can step into them with `/foedrum:resume` (ADR 0019); they are cleaned up with the batch.
 
 ## 5. Default brewers
 

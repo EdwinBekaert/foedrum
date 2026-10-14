@@ -1,0 +1,39 @@
+From 8a9007c9c1bc356b763f23953e3ae0895964f8ac Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 09:15:52 +0200
+Subject: [PATCH 4/5] Wait for a bottle to be merged
+
+---
+ src/engine/wait-for-merge.ts | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+ create mode 100644 src/engine/wait-for-merge.ts
+
+diff --git a/src/engine/wait-for-merge.ts b/src/engine/wait-for-merge.ts
+new file mode 100644
+index 0000000..f63f129
+--- /dev/null
++++ b/src/engine/wait-for-merge.ts
+@@ -0,0 +1,20 @@
++import { homedir } from 'node:os';
++
++export interface Clock {
++  sleep(ms: number): Promise<void>;
++}
++
++/** Polls until the bottle's pull request is merged. */
++export const waitForMerge = async (
++  isMerged: () => Promise<boolean>,
++  clock: Clock,
++  pollMs: number,
++): Promise<void> => {
++  while (!(await isMerged())) {
++    await clock.sleep(pollMs);
++  }
++};
++
++/** Where the Cellar keeps the event store for a Brewery. */
++export const eventStorePath = (brewery: string): string =>
++  homedir() + '/.foedrum/' + brewery + '/events.db';
+-- 
+2.56.0.windows.2
+

@@ -14,9 +14,38 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
-- `npm run check` — typecheck, lint and test in one command; run it before every push (a Claude Code hook will enforce this, #24)
+- `npm run check` — typecheck, lint and test in one command; run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test`
+- `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
+
+## Local gate
+
+A project hook in `.claude/settings.json` runs `npm run check` before every `git push` and `gh pr create` (or `gh pr new`) in a Claude Code session, through both the Bash and PowerShell tools. If the check fails, the command is blocked and the failure output is shown.
+
+- The logic lives in `scripts/precheck.ts` and runs as `npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate || { echo "Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why." >&2; exit 2; }` in bash (Git Bash on Windows), so it behaves the same in PowerShell, Git Bash, macOS and Linux sessions.
+- The command is anchored to the project root, so the gate runs even after a `cd` into a directory with another `package.json`.
+- The hook fails closed. If npm, `package.json` or the `hook:gate` script is missing, `|| exit 2` blocks the command, and `onFailure: "block"` does the same on Claude Code ≥ 2.1.295.
+- The hook runs before every Bash and PowerShell call, with no `if` filter: a filter only sees the start of a compound command, so `mkdir x && git push` would slip through. precheck finds the push anywhere in the command, and exits at once when the input does not mention `git` or `gh`.
+- A check that times out (600 s) also blocks.
+- The check runs on the working tree in the hook's working directory, not on the commits being pushed. Commit everything before pushing, and push from the checkout you changed: `cd elsewhere && git push`, or pushing another branch, checks the wrong tree.
+- Always blocked, without running the check:
+  - force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`);
+  - pushes that delete or mirror remote refs (`--delete`, `-d`, a `:branch` refspec, `--mirror`);
+  - `gh pr merge`, also with `-R`/`--repo`.
+
+  The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f` or `gh -R owner/repo pr merge`.
+- Never bypass the gate. Fix the failure, or ask the user.
+- There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
+
+## Temporary files
+
+Everything a session or a test creates stays inside the checkout, so it is visible and easy to clean up.
+
+- Never write to the system temp directory (`%TEMP%`, `/tmp`, `os.tmpdir()`, or a tool's own scratch directory) while working on Foedrum.
+- Use `.foedrum/tmp/` at the root of the current checkout or worktree (git-ignored); create it when missing. Group files per issue: `.foedrum/tmp/<issue-number>/` for scripts, scratch files, captured output and logs.
+- Tests that need a directory create it under `.foedrum/tmp/tests/`, through a shared test helper, and remove it afterwards.
+- Delete what you no longer need before opening the pull request.
 
 ## Dependencies
 
@@ -46,7 +75,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 
 Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
-- Paths only through `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`.
+- Paths only through `node:path`, `os.homedir()` and `os.tmpdir()`; never string-built paths or `~`. (`os.tmpdir()` is for product code at run time; development and tests use `.foedrum/tmp/`, see Temporary files.)
 - Spawn git and other tools with `execFile` and argument arrays. The only shell spawn is the `claude` CLI on Windows, with every argument validated and prompts passed via stdin.
 - OS-specific behaviour (killing process trees, executable lookup, file-lock retries) lives in the platform module only.
 - Text files use LF; parsers tolerate CRLF and a BOM.
@@ -55,9 +84,11 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
 - Test-first, always: red → green → refactor ([ADR 0017](docs/adr/0017-test-first-recipes-and-tasting-lenses.md)).
   - Commit the failing test before the implementation, so the red step is visible in the pull request and can be checked out and run. Push red and green together. Pull requests are merged with a merge commit (no squash), so the red → green history stays on `main`; every merge commit is green, so use `git log --first-parent` and `git bisect start --first-parent`.
-  - Red means the new test fails on an assertion; a compile or import error is not red. Add a minimal stub (for example a function that throws "not implemented") when needed to get there.
+  - Red means the new test runs and fails because the behaviour is missing: a failed assertion, or an error thrown by the code under test (including a stub that throws "not implemented"). A test file that fails to load, compile or import is not red. Add a minimal stub when needed to get there.
+  - A new test that passes immediately is not a red step; commit it labelled as a regression test.
   - Do not weaken a red test's assertions to make the implementation pass. If the test is wrong, fix it in its own commit and say why. Helpers, fixtures and imports may change.
   - Exempt: spikes (throwaway code), scaffolding, documentation and CI configuration. Say so in the pull request.
+  - Prompts (skills, agent definitions, lens and brewer files) are exempt from red proof, but not from verification: a change to a prompt is exercised before merging — for the review skill and lenses by a /brew-review run against the planted-defect sample (test/fixtures/brew-review/planted-demo), later by the Flight (architecture §11).
 - `node:test` and `node:assert`. Inject dependencies (clock, `fetch`, process runner, brewer runner) instead of mocking modules.
 - Test behaviour through public interfaces, not implementation details; a test should fail when the behaviour breaks and survive a refactor.
 - Every change comes with tests. Engine changes must keep the property tests (invariants I1–I6) and the chaos tests green.
@@ -69,6 +100,8 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
 - Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.
+- Pass multi-line text to git and gh through a file written with the file tool (`-F`, `--body-file`), never through a shell heredoc: text containing the delimiter ends the heredoc early and the rest runs as commands.
+- Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
 
 ## Security

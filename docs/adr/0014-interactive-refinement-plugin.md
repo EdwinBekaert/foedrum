@@ -1,6 +1,6 @@
 # 0014. Interactive refinement through a Claude Code plugin
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted, generalised by [0019](0019-interactive-sessions-and-one-command-layer.md)
 
 ## Context
 Autonomous brewing is only as good as the breakdown it starts from. Investigating an order — where the change belongs, which repositories it touches, what the right approach is — benefits most from a human steering in real time ("go deeper here", "check that repository too", "that's enough"). Brewers never hold a live conversation ([ADR 0006](0006-no-mid-run-questions.md)), and a dashboard chat would duplicate what Claude Code already does well.
