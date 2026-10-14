@@ -100,12 +100,12 @@ Report a table of changed files: line % at base (or *new*), line % at head, and 
 
 ## Stage 6: summary
 
-Write the summary with [summary-template.md](summary-template.md) to `<scratch>/summary.md` and show it to the user.
+Write the summary with [summary-template.md](summary-template.md) to `<bundle>/summary.md` and show it to the user.
 
-- Pull request run: fix commits must be on the remote before the comment refers to them. Ask the user once to confirm pushing (if there are new commits) and posting, unless they already asked for both in this request; then run the checks, `git push`, and `gh pr comment <n> --body-file <scratch>/summary.md`. Never mark the pull request ready and never merge; that is the user's call.
+- Pull request run: fix commits must be on the remote before the comment refers to them. Ask the user once to confirm pushing (if there are new commits) and posting, unless they already asked for both in this request; then run the checks, `git push`, and `gh pr comment <n> --body-file <bundle>/summary.md`. Never mark the pull request ready and never merge; that is the user's call.
 - Local run, or `--no-comment`: print the summary and its path; nothing leaves the machine.
 
 Finally clean up, in this order, even when an earlier step failed:
 1. `git worktree remove --force <scratch>/tree` (on Windows it can fail on a file that is still open; continue anyway);
-2. remove the directory portably, with retries: `node -e "require('node:fs').rmSync(process.argv[1],{recursive:true,force:true,maxRetries:5,retryDelay:200})" <dir>`, where `<dir>` is `<scratch>/tree` on a local run (keep `<scratch>/summary.md`) and `<scratch>` otherwise;
+2. remove the directory portably, with retries: `node -e "require('node:fs').rmSync(process.argv[1],{recursive:true,force:true,maxRetries:5,retryDelay:200})" <scratch>`;
 3. `git worktree prune`, so no stale worktree stays registered.
