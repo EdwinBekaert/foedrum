@@ -27,12 +27,16 @@ export function parseJsonc(text: string): unknown {
 export const stripBom = (text: string): string =>
   text.startsWith('\uFEFF') ? text.slice(1) : text;
 
+// Input may come from untrusted repositories; the limit also bounds locateError's recursion.
+const maxDepth = 64;
+
 // Comments and trailing commas become spaces (line breaks kept), so positions in the
 // result match the input.
 function toJson(text: string): string {
   const out: string[] = [];
   let comma = -1; // index in `out` of a comma that may turn out to be trailing
   let last = ''; // last character outside comments and whitespace
+  let depth = 0;
   let i = 0;
   while (i < text.length) {
     const c = text[i] as string;
@@ -55,8 +59,14 @@ function toJson(text: string): string {
       out.push(blank(text.slice(i, end + 2)));
       i = end + 2;
     } else {
-      if ((c === '}' || c === ']') && comma !== -1) {
-        out[comma] = ' ';
+      if (c === '{' || c === '[') {
+        depth++;
+        if (depth > maxDepth) {
+          throw parseErrorAt(text, i, `Too deeply nested (more than ${maxDepth} levels)`);
+        }
+      } else if (c === '}' || c === ']') {
+        depth = Math.max(0, depth - 1);
+        if (comma !== -1) out[comma] = ' ';
       }
       if (!isWhitespace(c)) {
         // A comma right after '[', '{' or another comma is not trailing; JSON.parse rejects it.
