@@ -21,9 +21,13 @@ export function parseFrontmatter(text: string): Frontmatter {
   const json = `\n${lines.slice(1, close).join('')}`;
   const data = parseJsonc(json);
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-    throw parseErrorAt(json, json.search(/\S/), 'Frontmatter must be a JSON object');
+    const start = (json.match(leadingBlank)?.[0] ?? '').length;
+    throw parseErrorAt(json, start, 'Frontmatter must be a JSON object');
   }
   return { data: data as Record<string, unknown>, body: lines.slice(close + 1).join('') };
 }
 
-const isDelimiter = (line: string): boolean => line.replace(/\r?\n$/, '') === '---';
+// Whitespace and comments before the value; the input has already parsed, so comments are closed.
+const leadingBlank = /^(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/;
+
+const isDelimiter =(line: string): boolean => line.replace(/\r?\n$/, '') === '---';
