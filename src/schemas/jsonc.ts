@@ -23,7 +23,8 @@ export function parseJsonc(text: string): unknown {
   }
 }
 
-const stripBom = (text: string): string => (text.startsWith('\uFEFF') ? text.slice(1) : text);
+export const stripBom = (text: string): string =>
+  text.startsWith('\uFEFF') ? text.slice(1) : text;
 
 // Comments and trailing commas become spaces (line breaks kept), so positions in the
 // result match the input.
