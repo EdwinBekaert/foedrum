@@ -1,5 +1,18 @@
 // JSONC reader (ADR 0007): JSON with comments and trailing commas.
 
+/** Malformed input; `line` and `column` are 1-based and point at the offending character. */
+export class ParseError extends SyntaxError {
+  readonly line: number;
+  readonly column: number;
+
+  constructor(reason: string, line: number, column: number) {
+    super(`${reason} at line ${line}, column ${column}`);
+    this.name = 'ParseError';
+    this.line = line;
+    this.column = column;
+  }
+}
+
 export function parseJsonc(text: string): unknown {
   return JSON.parse(toJson(stripBom(text)));
 }

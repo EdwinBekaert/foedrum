@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parseJsonc } from '../../src/schemas/jsonc.ts';
+import { ParseError, parseJsonc } from '../../src/schemas/jsonc.ts';
 
 interface Case {
   name: string;
@@ -96,5 +96,49 @@ describe('parseJsonc', () => {
       },
       { name: 'BOM and CRLF', text: '﻿// header\r\n[1,]\r\n', expected: [1] },
     ]);
+  });
+
+  describe('malformed input', () => {
+    const cases: { name: string; text: string; line: number; column: number; reason?: RegExp }[] = [
+      { name: 'empty input', text: '', line: 1, column: 1, reason: /end of input/ },
+      { name: 'only a comment', text: '// nothing', line: 1, column: 11, reason: /end of input/ },
+      { name: 'missing colon', text: '{\n  "a" 1\n}', line: 2, column: 7, reason: /':'/ },
+      { name: 'missing value', text: '{\n  "a": }', line: 2, column: 8 },
+      { name: 'invalid literal', text: '[tru]', line: 1, column: 2 },
+      { name: 'missing comma', text: '[1 2]', line: 1, column: 4 },
+      { name: 'unclosed array', text: '[1, 2', line: 1, column: 6, reason: /end of input/ },
+      { name: 'unclosed string', text: '{"a": "x\n}', line: 1, column: 9 },
+      { name: 'invalid escape', text: '["\\x"]', line: 1, column: 3 },
+      { name: 'single-quoted string', text: "['a']", line: 1, column: 2 },
+      { name: 'content after the value', text: '{"a": 1}\n// ok\nx', line: 3, column: 1 },
+      { name: 'lone comma in an array', text: '[,]', line: 1, column: 2 },
+      { name: 'lone comma in an object', text: '{,}', line: 1, column: 2 },
+      { name: 'double comma', text: '[1,,]', line: 1, column: 4 },
+      {
+        name: 'unclosed block comment',
+        text: '[1 /* never\nclosed',
+        line: 1,
+        column: 4,
+        reason: /comment/,
+      },
+      { name: 'after a comment on the same line', text: '/* c */ {"a" 1}', line: 1, column: 14 },
+      { name: 'CRLF', text: '{\r\n  "a": tru\r\n}', line: 2, column: 8 },
+      { name: 'BOM is not a column', text: '﻿[1 2]', line: 1, column: 4 },
+    ];
+
+    for (const { name, text, line, column, reason } of cases) {
+      it(name, () => {
+        assert.throws(
+          () => parseJsonc(text),
+          (error: unknown) => {
+            assert.ok(error instanceof ParseError, `expected a ParseError, got ${String(error)}`);
+            assert.deepEqual({ line: error.line, column: error.column }, { line, column });
+            assert.match(error.message, new RegExp(`at line ${line}, column ${column}$`));
+            if (reason) assert.match(error.message, reason);
+            return true;
+          },
+        );
+      });
+    }
   });
 });
