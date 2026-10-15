@@ -73,6 +73,10 @@ describe('RelativePath', () => {
     ['angle brackets', '<results>.xml'],
     ['a double quote', 'results".xml'],
   ]);
+
+  it('accepts names that only start like a Windows device name', () => {
+    accepts(RelativePath, ['console.xml', 'auxiliary/notes.md', 'com10/a', 'nully', 'conf/.con']);
+  });
 });
 
 describe('CheckName', () => {
@@ -147,6 +151,16 @@ describe('withinCeiling', () => {
     ['a command a glob matches', 'Bash(npm test)', ['Bash(npm t*st)']],
     ['a rule covered by any entry', 'Bash(dotnet test*)', ['Read', 'Bash(dotnet test*)']],
     ['regular-expression characters literally', 'Bash(a+b)', ['Bash(a+b)']],
+    [
+      'a compound command the ceiling names exactly',
+      'Bash(npm ci && npm test)',
+      ['Bash(npm ci && npm test)'],
+    ],
+    ['a path a single star matches within one folder', 'Edit(docs/readme.md)', ['Edit(docs/*)']],
+    ['a deeper path under a double star', 'Edit(docs/a/b.md)', ['Edit(docs/**)']],
+    ['a narrower double star', 'Read(./src/schemas/**)', ['Read(./src/**)']],
+    ['a parent segment the ceiling names exactly', 'Read(../shared/**)', ['Read(../shared/**)']],
+    ['a parent segment under a bare tool', 'Read(../x)', ['Read']],
   ];
   for (const [what, entry, ceiling] of covered) {
     it(`covers ${what}`, () => {

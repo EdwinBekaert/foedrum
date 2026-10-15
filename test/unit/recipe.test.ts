@@ -171,6 +171,8 @@ describe('check steps', () => {
     const e2e = { id: 'e2e', check: { run: 'npm run e2e', windows: 'npm.cmd run e2e' } };
     assert.equal(accepted(recipe([e2e])), true);
     assert.equal(accepted(recipe([{ id: 'all', check: ['test', { run: 'make e2e' }] }])), true);
+    const two = { id: 'e2e', check: [{ run: 'make e2e' }, { run: 'make smoke' }] };
+    assert.equal(accepted(recipe([two])), true);
   });
 
   const invalid: [string, unknown][] = [
@@ -178,6 +180,7 @@ describe('check steps', () => {
     ['a command as a plain string', { id: 'c', check: 'npm run e2e' }],
     ['an empty list of checks', { id: 'c', check: [] }],
     ['a check listed twice', { id: 'c', check: ['test', 'lint', 'test'] }],
+    ['a literal command listed twice', { id: 'c', check: [{ run: 'make' }, { run: 'make' }] }],
     ['a check without an id', { check: 'test' }],
     ['an unknown expectation', { id: 'c', check: 'test', expect: 'maybe' }],
     ['a red proof without of', { id: 'red', check: 'test', expect: 'fail' }],
@@ -380,6 +383,31 @@ describe('step references', () => {
       );
     });
   }
+
+  it('accepts a route from inside a loop or parallel group back to an earlier outer step', () => {
+    const value = recipe([
+      gauge,
+      {
+        id: 'review',
+        loop: {
+          maxRounds: 1,
+          until: 'fix.done',
+          steps: [
+            {
+              id: 'tasting',
+              parallel: [
+                { brewer: 'taster', onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } } },
+              ],
+            },
+            { id: 'fix', brewer: 'cooper' },
+            { id: 'recheck', check: 'test', onFail: { goto: 'gauge', maxRounds: 1 } },
+          ],
+        },
+      },
+    ]);
+    const result = Recipe.safeParse(value);
+    assert.equal(result.success, true, result.error?.message);
+  });
 
   // A route goes back: to an earlier step at the same level or in an enclosing loop, never into
   // another loop's body. A red proof reads the tests of a step that already ran.

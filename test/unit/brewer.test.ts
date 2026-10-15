@@ -56,6 +56,10 @@ describe('BrewerFrontmatter', () => {
     });
   });
 
+  it('accepts a writing brewer that commits', () => {
+    assert.equal(accepted(cooper), true);
+  });
+
   it('defaults a writing brewer to not committing', () => {
     const { git: _, ...noGit } = cooper;
     const parsed = BrewerFrontmatter.parse({ ...noGit, produces: 'report' });

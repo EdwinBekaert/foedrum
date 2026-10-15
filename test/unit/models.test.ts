@@ -49,6 +49,10 @@ describe('ModelsConfig', () => {
       { models: { b: 'sonnet' }, brewers: { Cellarman: 'b' } },
     ],
     [
+      'a brewer mapped to an alias that is only an Object property',
+      { models: { b: 'sonnet' }, brewers: { cellarman: 'constructor' } },
+    ],
+    [
       'a brewer mapped to an unknown alias',
       { models: { b: 'sonnet' }, brewers: { cellarman: 'c' } },
     ],
