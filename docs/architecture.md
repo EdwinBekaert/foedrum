@@ -413,7 +413,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | Killing process trees | POSIX: process groups (`detached` + negative pid); Windows: `taskkill /T /F /PID` |
 | Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
 | Line endings | `.gitattributes` with `eol=lf` in Foedrum; frontmatter parsing tolerates CRLF; a guard fails attempts whose diff is mostly line-ending churn |
-| File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff. `git worktree remove` runs once after the bits are cleared; what it leaves behind is finished with the platform removal on the next run. Stale `index.lock` cleanup after interrupted git commands |
+| File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff; stale `index.lock` cleanup after interrupted git commands |
 | Executables | Resolve `claude` and `git` via `PATH` and `PATHEXT` on Windows; `foedrum doctor` shows the resolved paths |
 
 ## 14. Layout
