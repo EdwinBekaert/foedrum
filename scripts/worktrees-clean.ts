@@ -1,12 +1,12 @@
 // `npm run worktrees:clean`: removes worktrees under .claude/worktrees/ and local branches that
-// are merged into origin/main and whose remote branch GitHub has deleted. worktrees-clean/core.ts
-// decides; this shell gathers the facts from git and carries out the plan (ADR 0021).
+// are merged into origin/main and whose remote branch GitHub has deleted, and records under
+// .git/worktrees/ that git no longer lists or whose folder is gone, wherever it was.
+// worktrees-clean/core.ts decides; this shell gathers the facts and carries out the plan (ADR 0021).
 // With --session-start (the SessionStart hook) it runs only in the main checkout. It never fails.
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive } from '../src/platform/processes.ts';
@@ -20,6 +20,7 @@ import {
   shouldRun,
 } from './worktrees-clean/core.ts';
 import { parseWorktreeList } from './worktrees-clean/porcelain.ts';
+import { readRecords } from './worktrees-clean/records.ts';
 
 interface GitResult {
   ok: boolean;
@@ -28,7 +29,7 @@ interface GitResult {
 }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>;
 
-const runGit: Git = (cwd, args) =>
+export const runGit: Git = (cwd, args) =>
   new Promise((done) => {
     const env = gitEnv(process.env);
     const options = { cwd, encoding: 'utf8', timeout: 60_000, windowsHide: true, env } as const;
@@ -52,19 +53,6 @@ const mainCheckoutOf = async (git: Git, cwd: string): Promise<string | undefined
   return result.ok && /[\\/]\.git$/.test(commonDir) ? dirname(commonDir) : undefined;
 };
 
-// Records under .git/worktrees/ with the folder each points at; a relative gitdir
-// (worktree.useRelativePaths) is relative to the record.
-const listRecords = async (main: string): Promise<{ dir: string; folder: string }[]> => {
-  const root = join(main, '.git', 'worktrees');
-  const records = [];
-  for (const name of await readdir(root).catch(() => [])) {
-    const gitdir = await readFile(join(root, name, 'gitdir'), 'utf8').catch(() => '');
-    const dir = join(root, name);
-    if (gitdir.trim() !== '') records.push({ dir, folder: dirname(resolve(dir, gitdir.trim())) });
-  }
-  return records;
-};
-
 const folderState = async (git: Git, path: string): Promise<FolderState> => {
   if (!existsSync(path)) return 'gone';
   if (!existsSync(join(path, '.git'))) return 'no-git';
@@ -78,7 +66,7 @@ type Gathered = Facts & { tips: Map<string, string> };
 
 const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
   const root = join(main, '.claude', 'worktrees');
-  const records = await listRecords(main);
+  const records = await readRecords(join(main, '.git'));
   const listed = await succeed(
     git(main, ['worktree', 'list', '--porcelain', '-z']),
     'worktree list',
@@ -86,7 +74,9 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
   const worktrees = [];
   for (const { path, branch, lockReason } of parseWorktreeList(listed)) {
     const inside = pathInside(root, path);
-    const record = records.find(({ folder }) => samePath(folder, path))?.dir;
+    const record = records.find(
+      ({ folder }) => folder !== undefined && samePath(folder, path),
+    )?.dir;
     const state = inside === undefined ? 'unchecked' : await folderState(git, path);
     worktrees.push({ path, inside, branch, lockReason, state, record });
   }
@@ -111,7 +101,7 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
       upstreamGone: track === '[gone]',
     };
   });
-  return { worktrees, branches, tips };
+  return { worktrees, branches, records, tips };
 };
 
 // Carries out one action and returns what it did; throws when it could not.
@@ -144,6 +134,9 @@ const carryOut = async (
     case 'prune':
       await removeTree(action.record);
       return `pruned stale worktree ${action.label}: folder is gone`;
+    case 'drop-record':
+      await removeTree(action.record);
+      return `removed stale worktree record ${action.label}: ${action.reason}`;
     case 'delete-branch': {
       // `git branch -d` would check against the main checkout's own main, which is usually
       // behind. Check the tip against origin/main instead, and delete the branch only while it
@@ -181,7 +174,7 @@ export const cleanWorktrees = async (
   const done = [...kept];
   for (const action of actions) {
     const steps: Action[] = [action];
-    if (action.kind !== 'delete-branch' && action.branch !== undefined) {
+    if ('branch' in action && action.kind !== 'delete-branch' && action.branch !== undefined) {
       steps.push({ kind: 'delete-branch', branch: action.branch });
     }
     for (const step of steps) {

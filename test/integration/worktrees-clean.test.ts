@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { makeReadOnly } from './read-only.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'worktrees-clean.ts');
 
@@ -113,6 +114,27 @@ describe('worktrees-clean with real git', () => {
     assert.match(result.stdout, /deleted branch 7-merged/);
   });
 
+  it('removes a merged worktree that holds a review scratch clone in its git-ignored .foedrum/', () => {
+    const merged = worktree('15-reviewed');
+    writeFileSync(join(merged, '.gitignore'), '.claude/worktrees/\n.foedrum/\n');
+    git(merged, ['commit', '-q', '-am', 'Ignore .foedrum/']);
+    git(merged, ['push', '-q', 'origin', '15-reviewed']);
+    merge('15-reviewed');
+    // The review skill's scratch tree: a shared clone, not a worktree, so no record exists.
+    const tree = join(merged, '.foedrum', 'tmp', '15', 'scratch', 'tree');
+    git(merged, ['clone', '-q', '--shared', '--no-checkout', merged, tree]);
+    git(tree, ['checkout', '-q', '--detach', 'HEAD']);
+    writeFileSync(join(tree, 'mutant.txt'), 'left behind by a review\n');
+    assert.equal(worktrees().length, 2);
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(merged), false, result.stdout);
+    assert.match(result.stdout, /removed worktree \.claude\/worktrees\/15-reviewed/);
+    assert.deepEqual(branches(), ['main']);
+  });
+
   it('finishes a worktree folder whose .git file is gone and whose branch may go', () => {
     const half = worktree('11-half');
     merge('11-half');
@@ -158,6 +180,26 @@ describe('worktrees-clean with real git', () => {
     assert.match(
       result.stdout,
       /kept worktree \.claude\/worktrees\/13-live: locked by a live session/,
+    );
+  });
+
+  it('removes read-only records git no longer lists, outside .claude/worktrees/ too', () => {
+    // A review run from the main checkout, whose removal stopped after deleting the gitdir file.
+    const scratch = join(main, '.foedrum', 'tmp', '14', 'scratch', 'tree');
+    git(main, ['worktree', 'add', '-q', '--detach', scratch, 'origin/main']);
+    const record = join(main, '.git', 'worktrees', 'tree');
+    rmSync(join(main, '.foedrum'), { recursive: true, force: true });
+    rmSync(join(record, 'gitdir'));
+    makeReadOnly(record);
+    assert.equal(worktrees().length, 1);
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(record), false, result.stdout);
+    assert.match(
+      result.stdout,
+      /removed stale worktree record \.git\/worktrees\/tree: its gitdir file is missing/,
     );
   });
 });
