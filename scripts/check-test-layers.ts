@@ -24,7 +24,8 @@ export const EXCEPTIONS: ReadonlyMap<string, string> = new Map([
 
 const SOURCE_FILE = /\.[cm]?[jt]s$/;
 // `import … from`, `export … from`, `import '…'`, `import('…')` and `require('…')`, with or
-// without the node: prefix. Comments and other strings that merely name the module do not match.
+// without the node: prefix. A string or comment that only names the module does not match; one
+// that contains an import statement, and `import type`, do: the guard errs on the side of failing.
 const CHILD_PROCESS_IMPORT = /\b(?:from|import|require)\s*\(?\s*(['"`])(?:node:)?child_process\1/;
 
 const IMPORTS =
