@@ -184,6 +184,9 @@ export const planClean = (
   // What goes: attempt folders (below the root) and branches that go with their worktree.
   const removed = new Set<string>();
   const branchesDone = new Set<string>();
+  // A worktree git lists below the folder: removing the folder would take it along.
+  const nestedIn = (inside: string) =>
+    inRoot.find((other) => other.state !== 'gone' && other.inside.startsWith(`${inside}/`));
 
   for (const worktree of inRoot) {
     const { inside, record, state } = worktree;
@@ -193,13 +196,15 @@ export const planClean = (
     if (worktree.branch !== undefined) branchesDone.add(worktree.branch);
     const ref = parseAttemptFolder(inside);
     if (ref === undefined) {
-      kept.push(`kept worktree ${inside}: not an attempt folder`);
+      // A record whose folder is gone holds nothing, wherever it was in the attempts root.
+      if (state === 'gone' && record !== undefined && !live(batchId)) {
+        actions.push({ kind: 'prune', record, label: inside, branch: undefined });
+        removed.add(inside);
+      } else kept.push(`kept worktree ${inside}: not an attempt folder`);
       continue;
     }
     const isLeased = leased(ref);
-    const nested = inRoot.find(
-      (other) => other.state !== 'gone' && other.inside.startsWith(`${inside}/`),
-    );
+    const nested = nestedIn(inside);
     // undefined: kept without a word, as every worktree of a live batch is.
     let removal: RemovalOrKeep | undefined;
     if (live(batchId)) removal = undefined;
@@ -225,16 +230,25 @@ export const planClean = (
   // Folders git does not know as worktrees: a crash before git recorded one, or after it
   // dropped the record.
   const batchFolders: Action[] = [];
-  for (const { batchId, attempts } of facts.folders) {
+  for (const { batchId, attempts, withGit = [] } of facts.folders) {
     if (!inScope(batchId)) continue;
     for (const entry of attempts) {
       const inside = `${batchId}/${entry}`;
       if (inRoot.some((worktree) => worktree.inside === inside)) continue;
       const ref = parseAttemptFolder(inside);
+      const nested = nestedIn(inside);
       if (ref === undefined) kept.push(`kept folder ${inside}: not an attempt folder`);
       else if (live(batchId)) continue;
       else if (leased(ref)) kept.push(`kept folder ${inside}: ${LEASED}`);
-      else {
+      // git lists it under another spelling of its path, or it belongs to another clone:
+      // either way removing it would skip the checks a worktree gets.
+      else if (withGit.includes(entry)) {
+        kept.push(
+          `kept folder ${inside}: it has a .git file, but git does not list it as a worktree of this clone`,
+        );
+      } else if (nested !== undefined) {
+        kept.push(`kept folder ${inside}: it contains the worktree ${nested.inside}`);
+      } else {
         const path = join(root, ...inside.split('/'));
         actions.push({ kind: 'remove-folder', label: inside, path });
         removed.add(inside);

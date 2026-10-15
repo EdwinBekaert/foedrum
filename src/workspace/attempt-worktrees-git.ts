@@ -3,12 +3,12 @@
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, rename, rmdir } from 'node:fs/promises';
+import { mkdir, readdir, realpath, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
 import { errorCode, removeTree } from '../platform/remove.ts';
-import type { Rename } from '../platform/replace-file.ts';
+import { type Rename, replaceFile } from '../platform/replace-file.ts';
 import {
   type Action,
   type AttemptRef,
@@ -80,7 +80,10 @@ export interface AttemptWorktrees {
   clean(claims: Claims, scope?: { batchId?: string }): Promise<CleanReport>;
 }
 
-/** A fetch of a large repository takes a while; a stalled one must still end. */
+/**
+ * A fetch of a large repository takes a while, and so does a checkout from a partial clone,
+ * which downloads every file then; a stalled one must still end.
+ */
 const FETCH_TIMEOUT_MS = 300_000;
 /** The first clone of a large repository takes longer still. */
 const CLONE_TIMEOUT_MS = 1_800_000;
@@ -126,7 +129,10 @@ const readBatchFolders = async (root: string): Promise<BatchFolderFact[]> => {
         }
       }
     }
-    folders.push({ batchId: batch.name, attempts });
+    const withGit = attempts.filter((entry) =>
+      existsSync(join(root, batch.name, ...entry.split('/'), '.git')),
+    );
+    folders.push({ batchId: batch.name, attempts, withGit });
   }
   return folders;
 };
@@ -137,7 +143,10 @@ const removeEmptyFolders = async (path: string): Promise<boolean> => {
   for (const entry of await entriesOf(path)) {
     if (!entry.isDirectory() || !(await removeEmptyFolders(join(path, entry.name)))) return false;
   }
-  await rmdir(path);
+  // Retried like any removal while Windows still holds the folder; gone already is fine.
+  await removeTree(path, { removePath: rmdir }).catch((error: unknown) => {
+    if (errorCode(error) !== 'ENOENT') throw error;
+  });
   return true;
 };
 
@@ -145,7 +154,12 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
   const { git, workRoot, repo, clone, remote = 'origin', now = Date.now } = options;
   const root = join(workRoot, repoFolder(repo), 'attempts');
   const okGit = gitThrough(git);
-  const pathOf = (inside: string): string => join(root, ...inside.split('/'));
+  // git lists worktrees by their real path, so the attempts root is compared through links
+  // (a work root on a linked folder, macOS /var for /private/var).
+  const realRoot = async (): Promise<string> => {
+    await mkdir(workRoot, { recursive: true });
+    return join(await realpath(workRoot), repoFolder(repo), 'attempts');
+  };
   const listWorktrees = async () =>
     parseWorktreeList(await must(git, clone, ['worktree', 'list', '--porcelain', '-z']));
   const readRecordsOfClone = async () => {
@@ -158,7 +172,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
   const attach = async (ref: AttemptRef, target: Target): Promise<AttemptWorktree> => {
     const branch = attemptBranch(ref);
     const inside = attemptFolder(ref);
-    const path = pathOf(inside);
+    const path = join(await realRoot(), ...inside.split('/'));
     const worktrees = await listWorktrees();
     const tip = await git(clone, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
     const branchTip = tip.code === 0 ? tip.stdout.trim() : undefined;
@@ -185,7 +199,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
           await removeWorktree(okGit, clone, { kind: 'prune', record: plan.prune });
         }
         const args = plan.newBranch ? ['-b', branch, path, plan.at] : [path, branch];
-        await must(git, clone, ['worktree', 'add', ...args]);
+        await must(git, clone, ['worktree', 'add', ...args], { timeoutMs: FETCH_TIMEOUT_MS });
         return { path, branch, commit: plan.newBranch ? plan.at : (branchTip ?? '') };
       }
       default: {
@@ -235,12 +249,19 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     async create(ref, base) {
       attemptBranch(ref);
       await must(git, clone, ['fetch', '--quiet', remote], { timeoutMs: FETCH_TIMEOUT_MS });
-      const resolved = await git(clone, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]);
+      const resolved = await git(clone, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        '--end-of-options',
+        `${base}^{commit}`,
+      ]);
       if (resolved.code !== 0) throw new Error(`The base ${base} is no commit in ${clone}`);
       return attach(ref, { kind: 'new', base: resolved.stdout.trim() });
     },
     recreate: (ref, commit) => attach(ref, { kind: 'resume', commit }),
     async clean(claims, scope = {}) {
+      const root = await realRoot();
       const records = await readRecordsOfClone();
       const worktrees: ListedFact[] = [];
       for (const worktree of await listWorktrees()) {
@@ -294,6 +315,15 @@ export interface ManagedCloneOptions {
   rename?: Rename;
 }
 
+// A URL as it may be shown: without a user name or password, which may be a token.
+const withoutCredentials = (url: string): string => {
+  const parsed = URL.parse(url);
+  if (parsed === null || (parsed.username === '' && parsed.password === '')) return url;
+  parsed.username = '';
+  parsed.password = '';
+  return parsed.toString();
+};
+
 /**
  * The repository's managed clone (`source: managed`, ADR 0012): a bare partial clone in the work
  * root, made once. Returns its path.
@@ -308,11 +338,11 @@ export const ensureManagedClone = async (options: ManagedCloneOptions): Promise<
   await removeTree(partial);
   await mkdir(folder, { recursive: true });
   const borrow = reference === undefined ? [] : ['--reference', reference];
-  const args = ['clone', '--bare', '--filter=blob:none', ...borrow, url, partial];
+  const args = ['clone', '--bare', '--filter=blob:none', ...borrow, '--', url, partial];
   const cloned = await git(folder, args, { timeoutMs: CLONE_TIMEOUT_MS });
   if (cloned.code !== 0) {
     await removeTree(partial);
-    throw new Error(`git clone of ${url} failed: ${why(cloned)}`);
+    throw new Error(`git clone of ${withoutCredentials(url)} failed: ${why(cloned)}`);
   }
   // A bare clone fetches into nothing by default; into origin/* like any clone, so a fetch
   // never moves Foedrum's own branches.
@@ -321,6 +351,7 @@ export const ensureManagedClone = async (options: ManagedCloneOptions): Promise<
     'remote.origin.fetch',
     '+refs/heads/*:refs/remotes/origin/*',
   ]);
-  await rename(partial, path);
+  // Retried while Windows still holds a file the clone just wrote.
+  await replaceFile(partial, path, options.rename === undefined ? {} : { rename: options.rename });
   return path;
 };
