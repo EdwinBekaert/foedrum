@@ -217,7 +217,7 @@ Current state is a pure fold over events (`src/engine/fold.ts`): orders and sub-
 
 The fold records what the events say and leaves the batch lifecycle to the state machine; it only requires attempts to go from scheduled to started to finished. It throws an `InvalidLogError`, naming the index and type of the event and the reason, when an event:
 
-- refers to a batch, step or attempt the log never created, repeats one, or takes an attempt out of that order;
+- refers to a batch, step or attempt the log never created (an applied effect refers to the attempt its key names), repeats one, or takes an attempt out of that order;
 - opens a bottle or applies an effect twice (invariant I4);
 - decomposes a sub-order, lists an order as a sub-order, or moves a sub-order to another order.
 
