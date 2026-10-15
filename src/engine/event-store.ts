@@ -53,6 +53,8 @@ export interface EventStore {
   batchesPastDeadline(now: Date): DueBatch[];
   /** Leases still alive at `now`. */
   currentLeases(now: Date): Lease[];
+  /** Leases that expired at or before `now` and were not released, earliest first. */
+  expiredLeases(now: Date): Lease[];
   /**
    * Rebuilds an empty store from a log (ADR 0011: the state branch is the durable record), in one
    * transaction. Throws `ReplayError` naming the first event that cannot be appended.
