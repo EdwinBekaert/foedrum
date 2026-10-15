@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import type { EffectKey } from '../../src/engine/event-store.ts';
+
+const key: EffectKey = { batchId: 'b1', stepId: 'open-pr', attempt: 1, effect: 'pull_request' };
+
+describe('effectKey', () => {
+  it('encodes a key as a JSON array of its parts', () => {
+    assert.equal(effectKey.encode(key), '["b1","open-pr",1,"pull_request"]');
+  });
+
+  it('decodes what it encodes, also parts that contain separators or quotes', () => {
+    const awkward: EffectKey = {
+      batchId: 'a:b/c',
+      stepId: '"],["#',
+      attempt: 2,
+      effect: 'x\\y,z',
+    };
+    for (const k of [key, awkward]) assert.deepEqual(effectKey.decode(effectKey.encode(k)), k);
+  });
+
+  it('gives different texts to keys whose parts would join to the same text', () => {
+    const pairs: [EffectKey, EffectKey][] = [
+      [
+        { ...key, batchId: 'a/b', stepId: 'c' },
+        { ...key, batchId: 'a', stepId: 'b/c' },
+      ],
+      [
+        { ...key, batchId: 'a:b', stepId: 'c' },
+        { ...key, batchId: 'a', stepId: 'b:c' },
+      ],
+      [
+        { ...key, batchId: 'a","b', stepId: 'c' },
+        { ...key, batchId: 'a', stepId: 'b","c' },
+      ],
+    ];
+    for (const [one, other] of pairs) {
+      assert.notEqual(effectKey.encode(one), effectKey.encode(other));
+    }
+  });
+
+  const invalidKeys: [string, EffectKey][] = [
+    ['an empty batch id', { ...key, batchId: '' }],
+    ['an empty step id', { ...key, stepId: '' }],
+    ['an empty effect', { ...key, effect: '' }],
+    ['attempt 0', { ...key, attempt: 0 }],
+    ['a fractional attempt', { ...key, attempt: 1.5 }],
+  ];
+  for (const [what, invalid] of invalidKeys) {
+    it(`refuses to encode a key with ${what}`, () => {
+      assert.throws(() => effectKey.encode(invalid), /Invalid effect key/);
+    });
+  }
+
+  const invalidTexts: [string, string][] = [
+    ['text that is not JSON', 'b1/open-pr#1/pull_request'],
+    ['an object', '{"batchId":"b1","stepId":"open-pr","attempt":1,"effect":"pull_request"}'],
+    ['three parts', '["b1","open-pr",1]'],
+    ['five parts', '["b1","open-pr",1,"pull_request","x"]'],
+    ['an attempt as a string', '["b1","open-pr","1","pull_request"]'],
+    ['an empty part', '["","open-pr",1,"pull_request"]'],
+    ['attempt 0', '["b1","open-pr",0,"pull_request"]'],
+    ['a non-canonical spelling (spaces)', '["b1", "open-pr", 1, "pull_request"]'],
+    ['a non-canonical spelling (exponent)', '["b1","open-pr",1e0,"pull_request"]'],
+    ['a non-canonical spelling (escape)', '["\\u00621","open-pr",1,"pull_request"]'],
+  ];
+  for (const [what, text] of invalidTexts) {
+    it(`refuses to decode ${what}`, () => {
+      assert.throws(() => effectKey.decode(text), /Invalid effect key/);
+    });
+  }
+});
