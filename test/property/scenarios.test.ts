@@ -13,22 +13,33 @@ import {
 } from '../helpers/event-sequences.ts';
 import { openEngine, runScenario } from '../helpers/simulation.ts';
 
-/** The events `scenario` appends; generated from `seed` and recorded into it when one is given. */
-const play = async (scenario: Scenario, seed?: number): Promise<Event[]> => {
+/** What a scenario did: the events it appended, and why the engine refused what it refused. */
+interface Played {
+  events: Event[];
+  refusals: string[];
+}
+
+/** Plays `scenario`; generated from `seed` and recorded into it when one is given. */
+const play = async (scenario: Scenario, seed?: number): Promise<Played> => {
   const source =
     seed === undefined ? replaying(scenario) : recording(generateScenario(seed), scenario);
   const engine = openEngine((attempt) => source.play(attempt));
   try {
     await runScenario(engine, source);
-    return engine.events();
+    return { events: engine.events(), refusals: [...engine.brewing.refusals] };
   } finally {
     engine.close();
   }
 };
 
-/** What happened in `events` that a property needs scenarios to reach. */
-const reached = (events: readonly Event[]): Set<string> => {
+/** What happened in a scenario that a property needs scenarios to reach. */
+const reached = ({ events, refusals }: Played): Set<string> => {
   const seen = new Set<string>();
+  // Effects the engine must refuse (invariant I4): of an attempt that never existed, and twice.
+  for (const reason of refusals) {
+    if (/^attempt .* was never scheduled$/.test(reason)) seen.add('effect of no attempt refused');
+    if (/^effect .* was already applied$/.test(reason)) seen.add('effect applied twice refused');
+  }
   let state = emptyState;
   for (const event of events) {
     const lane = 'batchId' in event ? state.batches.get(event.batchId)?.lane.kind : undefined;
@@ -63,8 +74,8 @@ describe('engine scenarios', () => {
   it('append the same events when replayed, so a failing one can be shrunk', async () => {
     for (let seed = 1; seed <= 5; seed++) {
       const scenario: Scenario = { moves: [], plays: [] };
-      const events = await play(scenario, seed);
-      assert.deepStrictEqual(await play(scenario), events, `seed ${seed}`);
+      const played = await play(scenario, seed);
+      assert.deepStrictEqual(await play(scenario), played, `seed ${seed}`);
     }
   });
 
@@ -88,6 +99,8 @@ describe('engine scenarios', () => {
       'input.received',
       'order.decomposed',
       'effect.applied',
+      'effect of no attempt refused',
+      'effect applied twice refused',
       'batch.on_tap',
       'batch.cancelled',
     ];
