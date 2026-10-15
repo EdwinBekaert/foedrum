@@ -349,9 +349,10 @@ describe('brewing with the fake brewer runner', () => {
     assert.equal(brewing.batch('b1').lane.kind, 'on_tap');
   });
 
-  it('meets a storm of permission denials: Stuck at once, blocked by its environment', async () => {
+  it('meets a storm of permission denials: Stuck at once, naming the denied tools', async () => {
+    const npmTest = 'Bash(npm test)';
     const { brewing } = await brew(
-      { plan: [behave.denialStorm(5)] },
+      { plan: [behave.denialStorm([npmTest, 'WebFetch', npmTest, npmTest, 'WebFetch'])] },
       { limits: { maxDenials: 5 } },
     );
     assert.deepStrictEqual(trail(brewing.events()), [
@@ -359,7 +360,7 @@ describe('brewing with the fake brewer runner', () => {
       'finished plan#1 failed',
       'stuck blocked',
     ]);
-    const summary = '5 permission denials, maxDenials is 5';
+    const summary = '5 permission denials, maxDenials is 5; denied: Bash(npm test), WebFetch';
     assert.deepStrictEqual(finished(brewing.events())[0]?.outcome, {
       kind: 'failed',
       retryable: false,

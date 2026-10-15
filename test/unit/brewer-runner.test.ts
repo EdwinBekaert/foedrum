@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   type AttemptFacts,
   type AttemptLimits,
+  noteDenial,
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
 import { OutDocFrontmatter, outDocFrontmatter } from '../../src/schemas/out-doc.ts';
@@ -19,6 +20,7 @@ const facts = (more: Partial<AttemptFacts> = {}): AttemptFacts => ({
   exit: { kind: 'exited', code: 0 },
   outDoc: done,
   denials: 0,
+  deniedTools: [],
   turns: 10,
   ...more,
 });
@@ -26,6 +28,23 @@ const succeeded = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Planned', assumptions: [] },
 };
+
+describe('noteDenial', () => {
+  it('counts every denial and keeps each tool once, in the order first denied', () => {
+    const tools = ['WebFetch', 'Bash(npm test)', 'WebFetch', 'Edit', 'Bash(npm test)'];
+    const seen = tools.reduce(noteDenial, { denials: 0, deniedTools: [] });
+    assert.deepStrictEqual(seen, {
+      denials: 5,
+      deniedTools: ['WebFetch', 'Bash(npm test)', 'Edit'],
+    });
+  });
+
+  it('changes none of what it was given', () => {
+    const before = { denials: 1, deniedTools: ['WebFetch'] };
+    noteDenial(before, 'Edit');
+    assert.deepStrictEqual(before, { denials: 1, deniedTools: ['WebFetch'] });
+  });
+});
 
 describe('settleAttempt', () => {
   it('succeeds at its limits, not past them', () => {
@@ -48,13 +67,23 @@ describe('settleAttempt', () => {
 
   it('puts the denials before the budget: the environment is what to fix', () => {
     const ending = settleAttempt(
-      facts({ exit: { kind: 'stopped' }, denials: 9, turns: 101 }),
+      facts({ exit: { kind: 'stopped' }, denials: 9, deniedTools: ['WebFetch'], turns: 101 }),
       limits,
     );
     assert.deepStrictEqual(ending, {
       kind: 'blocked',
       blockerKind: 'environment',
-      summary: '9 permission denials, maxDenials is 5',
+      summary: '9 permission denials, maxDenials is 5; denied: WebFetch',
+    });
+  });
+
+  it('names every denied tool once, in the order first denied', () => {
+    const denied = { denials: 6, deniedTools: ['Bash(npm test)', 'WebFetch', 'Edit'] };
+    const ending = settleAttempt(facts({ exit: { kind: 'stopped' }, ...denied }), limits);
+    assert.deepStrictEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: '6 permission denials, maxDenials is 5; denied: Bash(npm test), WebFetch, Edit',
     });
   });
 

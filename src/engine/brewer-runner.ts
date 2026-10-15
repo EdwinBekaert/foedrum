@@ -62,10 +62,20 @@ export interface AttemptFacts {
   outDoc: string | undefined;
   /** The first line of the event stream that was not a stream-json event. */
   garbage?: string;
-  /** Permission denials in the event stream. */
+  /** Permission denials in the event stream, every one counted. */
   denials: number;
+  /** The tools denied, each once, in the order they were first denied (ADR 0006: named). */
+  deniedTools: readonly string[];
   /** Turns the brewer took. */
   turns: number;
+}
+
+/** The permission denials of an attempt so far. */
+export type Denials = Pick<AttemptFacts, 'denials' | 'deniedTools'>;
+
+/** The denials after one more of `tool`: counted always, its name kept once. */
+export function noteDenial(_seen: Denials, _tool: string): Denials {
+  throw new Error('not implemented');
 }
 
 /** How much of a garbage line a reason quotes: the stream is untrusted and may be huge. */

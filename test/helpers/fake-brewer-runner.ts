@@ -8,6 +8,7 @@ import {
   type AttemptFacts,
   type AttemptStart,
   type BrewerRunner,
+  noteDenial,
   type RunningAttempt,
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
@@ -29,7 +30,14 @@ export const outDoc = (frontmatter: Record<string, unknown>): string =>
 /** A process that ends at once: a clean exit with `doc`, unless `more` says otherwise. */
 const settle = (doc: string | undefined, more: Partial<AttemptFacts> = {}): Behaviour => ({
   kind: 'settle',
-  facts: { exit: { kind: 'exited', code: 0 }, outDoc: doc, denials: 0, turns: 12, ...more },
+  facts: {
+    exit: { kind: 'exited', code: 0 },
+    outDoc: doc,
+    denials: 0,
+    deniedTools: [],
+    turns: 12,
+    ...more,
+  },
 });
 
 export const question: Question = {
@@ -66,8 +74,10 @@ export const behave = {
   needInput: (questions: readonly Question[] = [question]): Behaviour =>
     settle(outDoc({ status: 'needs_input', summary: 'Needs a decision', questions })),
   /** The runner stopped the brewer when its permission denials reached `maxDenials`. */
-  denialStorm: (denials: number): Behaviour =>
-    settle(undefined, { exit: { kind: 'stopped' }, denials, turns: denials }),
+  denialStorm: (tools: readonly string[]): Behaviour => {
+    const denials = tools.reduce(noteDenial, { denials: 0, deniedTools: [] });
+    return settle(undefined, { exit: { kind: 'stopped' }, ...denials, turns: tools.length });
+  },
 };
 
 export interface FakeBrewerRunner extends BrewerRunner {
@@ -108,6 +118,7 @@ export const fakeBrewerRunner = (
               exit: { kind: 'stopped' },
               outDoc: undefined,
               denials: 0,
+              deniedTools: [],
               turns: behaviour.progress.turnsWithoutProgress,
             };
             try {
