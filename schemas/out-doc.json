@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "done"
+        },
+        "summary": {
+          "type": "string",
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n]*$"
+            }
+          ]
+        },
+        "assumptions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        }
+      },
+      "required": [
+        "status",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "needs_input"
+        },
+        "summary": {
+          "type": "string",
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n]*$"
+            }
+          ]
+        },
+        "assumptions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "questions": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "options": {
+                "minItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "\\S"
+                }
+              },
+              "recommended": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "whyBlocking": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "q",
+              "options",
+              "recommended",
+              "whyBlocking"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "status",
+        "summary",
+        "questions"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "blocked"
+        },
+        "summary": {
+          "type": "string",
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n]*$"
+            }
+          ]
+        },
+        "assumptions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "blockerKind": {
+          "type": "string",
+          "enum": [
+            "findings",
+            "environment",
+            "divergence"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "summary",
+        "blockerKind"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "failed"
+        },
+        "summary": {
+          "type": "string",
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "pattern": "^[^\\r\\n]*$"
+            }
+          ]
+        },
+        "assumptions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        }
+      },
+      "required": [
+        "status",
+        "summary"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

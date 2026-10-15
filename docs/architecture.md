@@ -170,7 +170,7 @@ type Event =
   | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer' }
   | { type: 'order.decomposed';    batchId: string; subOrders: SubOrderRef[]; dependencies: Dependency[] }
   | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
-  | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: string[]; pullRequest: string }
+  | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: number[]; pullRequest: string }
   | { type: 'release.observed';    repo: string; package: string; version: string }
   | { type: 'batch.rewound';       batchId: string; toStepId: string; by: string; shas: Record<string, string> }
   | { type: 'batch.on_tap';        batchId: string; pullRequests: string[] }
@@ -179,6 +179,27 @@ type Event =
 ```
 
 `Surface` is `plugin`, `terminal`, `comment` or `dashboard`. Session ids are part of the state, so any action can resume the right session ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)).
+
+```ts
+type OrderRef    = { issue: number }                                   // a Brewery issue
+type SubOrderRef = { issue: number; repo: string }                     // repo is owner/name; one repository per sub-order
+type Dependency  = { subOrder: number; blockedBy: number; kind: 'code' | 'release' }
+type Usage       = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }
+type Answer      = { q: string; answer: string }
+type StuckOption = 'answer' | 'retry' | 'skip' | 'recipe' | 'rewind' | 'cancel'
+type StuckReason =
+  | { kind: 'needs_input';         stepId: string; questions: Question[] }
+  | { kind: 'blocked';             stepId: string; blockerKind: BlockerKind; summary: string }
+  | { kind: 'attempts_exhausted';  stepId: string; attempts: number; lastReason: string }
+  | { kind: 'deadline_passed';     stepId: string; deadlineAt: string }
+  | { kind: 'waiting_for_session'; stepId: string }
+type WaitCondition =
+  | { kind: 'merge';   pullRequest: string }
+  | { kind: 'release'; repo: string; package: string; minVersion: string }
+  | { kind: 'sibling'; batchId: string }
+```
+
+The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
@@ -411,6 +432,7 @@ src/
   evals/        flight, blind tasting, model watcher
   schemas/      zod schemas (source of types, validation and JSON Schema)
   formats/      JSONC and frontmatter readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020)
+schemas/        JSON Schema files generated from src/schemas (npm run schemas)
 defaults/       default brewers, recipes and tasting lenses
 plugin/         companion Claude Code plugin (Markdown commands and skills)
 test/           unit, property, chaos
