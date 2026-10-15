@@ -69,6 +69,17 @@ describe('diagnose: required tools', () => {
     ]);
   });
 
+  it('says why the version command failed, from the first line it or the runner printed', () => {
+    const path = 'C:\\Users\\R&D\\AppData\\Roaming\\npm\\claude.cmd';
+    const refused = `the file "${path}" cannot go through the Windows shell: only letters, digits`;
+    const facts = {
+      ...windows,
+      tools: { ...windows.tools, claude: ran(path, `${refused}\n`, null) },
+    };
+    const [problem] = diagnose(facts).problems;
+    assert.equal(problem?.fix, `\`claude --version\` failed: ${refused}`);
+  });
+
   it('is not ok on a Node older than 24.15', () => {
     assert.deepEqual(required({ ...linux(), node: '24.14.9' }), ['node 24.14.9 is too old']);
     assert.deepEqual(required({ ...linux(), node: '22.20.0' }), ['node 22.20.0 is too old']);
@@ -97,6 +108,12 @@ describe('diagnose: isolation (ADR 0010)', () => {
 
   it('is sandboxed on WSL2 with bubblewrap and socat', () => {
     const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
+    assert.equal(diagnose(wsl2).isolation.level, 'sandboxed');
+    assert.deepEqual(diagnose(wsl2).advice, []);
+  });
+
+  it('is sandboxed on a WSL 2 kernel from before the WSL2 suffix', () => {
+    const wsl2 = { ...linux(), kernelRelease: '4.19.128-microsoft-standard' };
     assert.equal(diagnose(wsl2).isolation.level, 'sandboxed');
     assert.deepEqual(diagnose(wsl2).advice, []);
   });

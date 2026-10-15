@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -1129,5 +1129,56 @@ describe('SqliteEventStore on a file', () => {
     });
     waiting.withTransaction((tx) => tx.append(ordered('b1')));
     assert.equal(writer.eventsAfter(0).length, 1);
+  });
+});
+
+describe('SqliteEventStore read-only', () => {
+  let dir: TempDir;
+  let path: string;
+  beforeEach(() => {
+    dir = makeTempDir('event-store');
+    path = join(dir.path, 'foedrum.db');
+  });
+  afterEach(() => {
+    closeAll();
+    dir.remove();
+  });
+
+  const version = (): unknown => ({ ...raw(path).prepare('PRAGMA user_version').get() });
+
+  it('refuses to append', () => {
+    open(path).withTransaction((tx) => tx.append(ordered('b1')));
+    closeAll();
+    const reader = open(path, { readOnly: true });
+    assert.throws(() => reader.withTransaction((tx) => tx.append(ordered('b2'))), /readonly/i);
+    assert.equal(reader.lastEventId(), 1);
+  });
+
+  it('refuses an older schema version without migrating it', () => {
+    open(path).withTransaction((tx) => tx.append(ordered('b1')));
+    closeAll();
+    const db = raw(path);
+    db.exec('DROP TABLE pushed; PRAGMA user_version = 1');
+    db.close();
+    assert.throws(() => open(path, { readOnly: true }), /schema version 1/);
+    assert.deepEqual(version(), { user_version: 1 });
+  });
+
+  it('leaves the journal mode as it is', () => {
+    open(path);
+    closeAll();
+    const db = raw(path);
+    db.exec('PRAGMA journal_mode = DELETE');
+    db.close();
+    open(path, { readOnly: true });
+    assert.deepEqual(
+      { ...raw(path).prepare('PRAGMA journal_mode').get() },
+      { journal_mode: 'delete' },
+    );
+  });
+
+  it('creates no database where there is none', () => {
+    assert.throws(() => open(path, { readOnly: true }));
+    assert.equal(existsSync(path), false);
   });
 });

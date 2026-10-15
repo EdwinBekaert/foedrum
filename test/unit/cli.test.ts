@@ -353,6 +353,39 @@ describe('foedrum status', () => {
     snapshot(t, result.stdout);
   });
 
+  it('escapes control characters in what brewers wrote, so they cannot drive the terminal', async () => {
+    // An OSC 52 clipboard write and a cursor move, in a model-written summary and reason.
+    const events: Event[] = [
+      ordered(11),
+      { type: 'step.scheduled', batchId: '11-1', stepId: 'plan', attempt: 1, deadlineAt: D1 },
+      { type: 'step.started', batchId: '11-1', stepId: 'plan', attempt: 1 },
+      {
+        type: 'step.finished',
+        batchId: '11-1',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: false, reason: 'red\u001b[1A\u001b[2Kgreen' },
+      },
+      stuck(11, {
+        kind: 'blocked',
+        stepId: 'plan',
+        blockerKind: 'findings',
+        summary: 'copy\u001b]52;c;aGk=\u0007\u009b done',
+      }),
+    ];
+    const status = await run(['status'], { openStore: () => storeWith(events) });
+    assert.match(status.stdout, /copy\\u001b\]52;c;aGk=\\u0007\\u009b done/);
+    const replay = await run(['replay', '11-1'], { openStore: () => storeWith(events) });
+    assert.match(replay.stdout, /failed: red\\u001b\[1A\\u001b\[2Kgreen\n/);
+    // Nothing but line feeds below U+0020, and no DEL or C1 control.
+    const control = (text: string) =>
+      [...text].filter((char) => {
+        const code = char.codePointAt(0) ?? 0;
+        return (code < 0x20 && code !== 0x0a) || (code >= 0x7f && code <= 0x9f);
+      });
+    for (const { stdout } of [status, replay]) assert.deepEqual(control(stdout), []);
+  });
+
   it('counts one batch as one', async () => {
     const result = await run(['status'], { openStore: () => storeWith([ordered(11)]) });
     assert.equal(result.stdout, '1 batch\n\n  11-1  #11  ordered\n');

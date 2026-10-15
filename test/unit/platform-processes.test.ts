@@ -512,38 +512,57 @@ describe('runProcessThrough', () => {
 });
 
 describe('spawnCommand', () => {
-  it('starts a program directly, without a shell', () => {
-    assert.deepEqual(spawnCommand('/usr/bin/git', ['--version'], 'linux'), {
+  const env = { PATH: 'C:\\nodejs', SystemRoot: 'D:\\WINDOWS' };
+  // cmd.exe by its full path, never through ComSpec or a lookup that could find a planted one.
+  const cmd = 'D:\\WINDOWS\\System32\\cmd.exe';
+  // cmd.exe then also skips the working directory when the .cmd file runs a bare `node` (#12).
+  const shellEnv = { ...env, NoDefaultCurrentDirectoryInExePath: '1' };
+
+  it('starts a program directly, without a shell, in the environment it was given', () => {
+    assert.deepEqual(spawnCommand('/usr/bin/git', ['--version'], 'linux', env), {
       file: '/usr/bin/git',
       args: ['--version'],
       shell: false,
+      env,
     });
-    assert.deepEqual(spawnCommand('C:\\Git\\cmd\\git.exe', ['--version'], 'win32'), {
+    assert.deepEqual(spawnCommand('C:\\Git\\cmd\\git.exe', ['--version'], 'win32', env), {
       file: 'C:\\Git\\cmd\\git.exe',
       args: ['--version'],
       shell: false,
+      env,
     });
   });
 
   it('starts a .cmd or .bat file on Windows through cmd.exe, every part quoted', () => {
     // npm.cmd and npm's claude.cmd cannot start without a shell (architecture §13).
-    assert.deepEqual(spawnCommand('C:\\Program Files\\nodejs\\npm.cmd', ['--version'], 'win32'), {
+    const npm = 'C:\\Program Files\\nodejs\\npm.cmd';
+    assert.deepEqual(spawnCommand(npm, ['--version'], 'win32', env), {
       file: '"C:\\Program Files\\nodejs\\npm.cmd" "--version"',
       args: [],
-      shell: true,
+      shell: cmd,
+      env: shellEnv,
     });
-    assert.deepEqual(spawnCommand('C:\\tools\\RUN.BAT', [], 'win32'), {
+    assert.deepEqual(spawnCommand('C:\\tools\\RUN.BAT', [], 'win32', env), {
       file: '"C:\\tools\\RUN.BAT"',
       args: [],
-      shell: true,
+      shell: cmd,
+      env: shellEnv,
     });
   });
 
+  it('finds cmd.exe in C:\\Windows when SystemRoot is not set', () => {
+    assert.equal(
+      spawnCommand('C:\\tools\\run.cmd', [], 'win32', { PATH: 'C:\\nodejs' }).shell,
+      'C:\\Windows\\System32\\cmd.exe',
+    );
+  });
+
   it('starts a .cmd file elsewhere as any other file', () => {
-    assert.deepEqual(spawnCommand('/opt/tools/run.cmd', ['a'], 'darwin'), {
+    assert.deepEqual(spawnCommand('/opt/tools/run.cmd', ['a'], 'darwin', env), {
       file: '/opt/tools/run.cmd',
       args: ['a'],
       shell: false,
+      env,
     });
   });
 

@@ -44,6 +44,7 @@ export const spawnCommand = (
   file: string,
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
+  _env: NodeJS.ProcessEnv = process.env,
 ): SpawnCommand =>
   platform === 'win32' && /\.(?:cmd|bat)$/i.test(file)
     ? { file: windowsCommandLine(file, args), args: [], shell: true }
