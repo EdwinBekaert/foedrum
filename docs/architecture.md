@@ -125,7 +125,7 @@ The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed. SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
 - The branch has its own worktree of the Brewery clone in the work root. Commits and pushes skip the user's git hooks; signing follows the clone, and a test commit at start-up refuses to start when signing cannot work unattended.
 - **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging. At start-up a missing or behind database is rebuilt from the branch; unpushed local events while the branch moved stop the engine with an error naming both heads. Foedrum never merges or rewrites state history.
-- **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>` resets the batch's branches to those SHAs and appends a "resumed from step" event. History is never rewritten; work continues from an earlier point. An already open bottle is **updated in place**: its branch is force-pushed to the rewound state and a comment on the pull request explains the rewind.
+- **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>`, offered when a batch is Stuck, resets the batch's branches to those SHAs and appends a `batch.rewound` event that records them. History is never rewritten; work continues from an earlier point. An already open bottle is **updated in place**: its branch is force-pushed to the rewound state and a comment on the pull request explains the rewind.
 - **No duplicate pull requests after a crash:** branch names are deterministic (`foedrum/<batch>/<repo>`), so Foedrum looks up an existing pull request before creating one, even if the last event never reached the state branch.
 
 ### 3.5 Interactive refinement
@@ -161,21 +161,22 @@ State is derived from an append-only event log ([ADR 0002](adr/0002-event-source
 ```ts
 type Event =
   | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
-  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' | 'human' }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'human'; via: Surface }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
   | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef }  // required for brewer and session steps
   // SessionRef = { id: string; resumes?: string; worktree: string; claudeVersion: string }
   | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage }
   | { type: 'input.received';      batchId: string; stepId: string; by: string; via: Surface; answers: Answer[] }
-  | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[] }
+  | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[]; remindAt: string }
   | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer' }
   | { type: 'order.decomposed';    batchId: string; subOrders: SubOrderRef[]; dependencies: Dependency[] }
   | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
   | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: number[]; pullRequest: string }
   | { type: 'release.observed';    repo: string; package: string; version: string }
-  | { type: 'batch.rewound';       batchId: string; toStepId: string; by: string; shas: Record<string, string> }
+  | { type: 'batch.rewound';       batchId: string; toStepId: string; by: string; via: Surface; shas: Record<string, string> }
   | { type: 'batch.on_tap';        batchId: string; pullRequests: string[] }
-  | { type: 'batch.cancelled';     batchId: string; by: string }
+  | { type: 'batch.cancelled';     batchId: string; by: string; via: Surface }
   | { type: 'effect.applied';      key: string; result: unknown }   // idempotency ledger for external side effects
 ```
 
@@ -207,7 +208,7 @@ Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lea
 The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps five tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024). `restore` appends events read from the state branch keeping their ids, after every stored event, and marks them pushed in the same transaction:
 
 - `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A trigger on `events` fills it, so the database itself refuses a second event for a key (the failed insert leaves no row), and `replay` refuses a log that contains one.
-- `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning reminder; `batch.waiting` sets the reminder; `step.finished` clears its own attempt's deadline; `batch.stuck`, `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
+- `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning reminder; `batch.waiting` sets the reminder; `batch.stuck` replaces every deadline of the batch with its reminder ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)); `step.finished` clears its own attempt's deadline; `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
 
 Events are validated against the zod schemas when appended and when read. All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout. The store reads no clock: callers pass `now`.
 
@@ -220,6 +221,8 @@ The fold records what the events say and leaves the batch lifecycle to the state
 - decomposes a sub-order, lists an order as a sub-order, or moves a sub-order to another order.
 
 Such a log is corrupt. The command layer refuses these events before they are appended; the fold's check is the last line of defence. Crash recovery is replay.
+
+The guard before append (`src/engine/admit.ts`) checks each event against the folded state: its schema, the lanes it may come from (§4.3), and then the fold itself. The fold marks the unfinished attempts of a batch abandoned when it gets Stuck, and the guard refuses a late start or finish of one. It also refuses two things the fold records as they come ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)): a breakdown that moves a sub-order with batches to another repository, and a bottle that lists a sub-order that does not exist, targets another repository or has no batch on tap ([ADR 0013](adr/0013-single-repo-sub-orders-bottles-and-releases.md)).
 
 ### 4.2 Step outcome — the single contract
 
@@ -236,21 +239,25 @@ Every step kind (brewer, check, human gate, action, fan-out) ends in exactly one
 ### 4.3 Batch lifecycle
 
 ```
-            ┌──────────── conditioning ◄──┐   (waiting for a merge, a release or a sibling)
-            ▼                             │
-ordered ──► brewing ──────────────────► on_tap
-              │  ▲
-              ▼  │  /foedrum retry · answer · skip · recipe · rewind
-             stuck ──► cancelled
+ordered ──── route · recipe ────► brewing ──── done ────► on_tap
+   │                                ▲  │  ▲
+   │ wait                           │  │  │ retry · answer · skip · recipe · rewind
+   ▼                                │  ▼  │
+conditioning ── route · recipe ─────┘  stuck
+
+(waiting for a merge,     ordered · brewing · conditioning · stuck ──► cancelled
+ a release or a sibling)  conditioning and stuck repeat their reminder (remind)
 ```
 
-Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe) — never silent, but not a failure either.
+The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)). It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`). On tap and cancelled are terminal. A blocked out doc is recorded as a final failure and routed by its blocker kind (brewers-and-recipes §2). Rewind is allowed only from Stuck.
+
+Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe) — never silent, but not a failure either. A Stuck batch has a reminder as well, with the same default.
 
 ### 4.4 Invariants
 
 Property-tested (see §9):
 
-- **I1** Every non-terminal batch has exactly one pending action with a deadline (for conditioning batches: a reminder deadline).
+- **I1** Every non-terminal batch has exactly one pending action with a deadline (for conditioning and stuck batches: a reminder deadline).
 - **I2** At most one live lease per attempt and per worktree.
 - **I3** Replaying the log yields identical state.
 - **I4** Every external side effect is keyed `(batch, step, attempt, effect)` and applied at most once.

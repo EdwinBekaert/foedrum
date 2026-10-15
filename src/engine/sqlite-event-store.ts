@@ -82,7 +82,7 @@ const migrations = [
 
 // node:sqlite reports the extended result code in `errcode` (ADR 0002 verification).
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
-// The deadlines row of a Conditioning reminder; step ids are never empty.
+// The deadlines row of a Conditioning or Stuck reminder; step ids are never empty.
 const REMINDER = '';
 
 const timeOf = (date: Date, name: string): number => {
@@ -209,6 +209,10 @@ export const openSqliteEventStore = (
         clearDeadline.run(event.batchId, event.stepId, event.attempt);
         return;
       case 'batch.stuck':
+        // A Stuck batch waits for a human: its reminder replaces its steps' deadlines (ADR 0025).
+        clearDeadlines.run(event.batchId);
+        setDeadline.run(event.batchId, REMINDER, 0, Date.parse(event.remindAt));
+        return;
       case 'batch.on_tap':
       case 'batch.cancelled':
         clearDeadlines.run(event.batchId);

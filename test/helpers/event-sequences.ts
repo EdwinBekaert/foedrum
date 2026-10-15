@@ -159,13 +159,15 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
     () => {
       const batch = open();
       if (batch === undefined) return undefined;
-      return {
+      const chosen = {
         type: 'batch.recipe_chosen',
         batchId: batch.id,
         recipe: random.pick(['nip', 'pint', 'growler']),
         reason: 'label',
-        by: random.pick(['label', 'router', 'human'] as const),
-      };
+      } as const;
+      return random.chance(1 / 3)
+        ? { ...chosen, by: 'human', via: random.pick(surfaces) }
+        : { ...chosen, by: random.pick(['label', 'router'] as const) };
     },
     () => {
       const batch = open();
@@ -238,6 +240,7 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         batchId: found[0].id,
         reason: stuckReason(found[1]),
         options: options.length === 0 ? ['cancel'] : options,
+        remindAt: timestamp(),
       };
     },
     () => {
@@ -319,6 +322,7 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         batchId: found[0].id,
         toStepId: found[1],
         by: 'octocat',
+        via: random.pick(surfaces),
         shas: { [random.pick(repos)]: sha() },
       };
     },
@@ -332,7 +336,12 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
       const batch = open();
       if (batch === undefined || !random.chance(0.2)) return undefined;
       batch.open = false;
-      return { type: 'batch.cancelled', batchId: batch.id, by: 'octocat' };
+      return {
+        type: 'batch.cancelled',
+        batchId: batch.id,
+        by: 'octocat',
+        via: random.pick(surfaces),
+      };
     },
     () => {
       // An effect of an attempt scheduled earlier, at most once per key (invariant I4).
