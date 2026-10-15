@@ -238,6 +238,100 @@ describe('fold', () => {
     );
   });
 
+  it('keeps the sub-orders of other orders when one order is decomposed again', () => {
+    const state = fold([
+      ordered,
+      { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+      {
+        type: 'order.decomposed',
+        batchId: 'b2',
+        subOrders: [{ issue: 201, repo: 'acme/web' }],
+        dependencies: [],
+      },
+      {
+        type: 'order.decomposed',
+        batchId: 'b1',
+        subOrders: [{ issue: 101, repo: 'acme/api' }],
+        dependencies: [],
+      },
+    ]);
+    assert.equal(state.subOrders.get(201)?.order, 200);
+    assert.deepStrictEqual(state.orders.get(200)?.subOrders, [201]);
+  });
+
+  it('replaces the dependencies of an earlier breakdown', () => {
+    const subOrders = [
+      { issue: 101, repo: 'acme/lib-core' },
+      { issue: 102, repo: 'acme/api' },
+    ];
+    const state = fold([
+      ordered,
+      {
+        type: 'order.decomposed',
+        batchId: 'b1',
+        subOrders,
+        dependencies: [{ subOrder: 102, blockedBy: 101, kind: 'release' }],
+      },
+      {
+        type: 'order.decomposed',
+        batchId: 'b1',
+        subOrders,
+        dependencies: [{ subOrder: 101, blockedBy: 102, kind: 'code' }],
+      },
+    ]);
+    assert.deepStrictEqual(state.orders.get(100)?.dependencies, [
+      { subOrder: 101, blockedBy: 102, kind: 'code' },
+    ]);
+  });
+
+  it('keeps every input, rewind and release in order', () => {
+    const input = (answer: string): Event => ({
+      type: 'input.received',
+      batchId: 'b1',
+      stepId: 'plan',
+      by: 'octocat',
+      via: 'plugin',
+      answers: [{ q: question.q, answer }],
+    });
+    const rewound = (by: string): Event => ({
+      type: 'batch.rewound',
+      batchId: 'b1',
+      toStepId: 'plan',
+      by,
+      shas: {},
+    });
+    const release = (version: string): Event => ({
+      type: 'release.observed',
+      repo: 'acme/lib-core',
+      package: 'lib-core',
+      version,
+    });
+    const state = fold([
+      ordered,
+      scheduled,
+      input('keep'),
+      { ...scheduled, attempt: 2 },
+      input('remove'),
+      rewound('octocat'),
+      rewound('hubot'),
+      release('2.4.0'),
+      release('2.5.0'),
+    ]);
+    const step = batch(state).steps.get('plan');
+    assert.deepStrictEqual(
+      step?.inputs.map((received) => received.answers[0]?.answer),
+      ['keep', 'remove'],
+    );
+    assert.deepStrictEqual(
+      batch(state).rewinds.map((rewind) => rewind.by),
+      ['octocat', 'hubot'],
+    );
+    assert.deepStrictEqual(
+      state.releases.map((observed) => observed.version),
+      ['2.4.0', '2.5.0'],
+    );
+  });
+
   it('records bottles, releases and applied effects', () => {
     const bottle = { bottleId: 'k1', repo: 'acme/api', subOrders: [101, 102], pullRequest };
     const release = { repo: 'acme/lib-core', package: 'lib-core', version: '2.4.0' };
@@ -327,6 +421,48 @@ describe('fold of an inconsistent log', () => {
   for (const [name, events, message] of cases) {
     it(`throws on ${name}`, () => {
       assert.throws(() => fold(events), message);
+    });
+  }
+
+  const batchEvents: Event[] = [
+    { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'router' },
+    scheduled,
+    started,
+    finished,
+    {
+      type: 'input.received',
+      batchId: 'b1',
+      stepId: 'plan',
+      by: 'octocat',
+      via: 'plugin',
+      answers: [{ q: 'Why?', answer: 'Because' }],
+    },
+    {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: { kind: 'waiting_for_session', stepId: 'plan' },
+      options: ['cancel'],
+    },
+    { type: 'batch.resumed', batchId: 'b1', by: 'octocat', via: 'plugin', action: 'retry' },
+    {
+      type: 'order.decomposed',
+      batchId: 'b1',
+      subOrders: [{ issue: 101, repo: 'acme/api' }],
+      dependencies: [],
+    },
+    {
+      type: 'batch.waiting',
+      batchId: 'b1',
+      on: { kind: 'merge', pullRequest },
+      remindAt: deadlineAt,
+    },
+    { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+    { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
+    { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
+  ];
+  for (const event of batchEvents) {
+    it(`throws on ${event.type} for a batch that was never ordered`, () => {
+      assert.throws(() => fold([event]), /batch b1 was never ordered/);
     });
   }
 });
