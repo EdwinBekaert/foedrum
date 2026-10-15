@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { PathSafeId } from '../../src/schemas/ids.ts';
 
 describe('PathSafeId', () => {
-  const valid = ['b1', 'plan', 'open-pr', 'a', '7', 'step.2', 'red_proof', 'x'.repeat(100)];
+  const valid = ['b1', 'plan', 'open-pr', 'a', '7', 'step.2', 'red_proof', 'x'.repeat(64)];
   for (const id of valid) {
     it(`accepts ${id.length > 20 ? `an id of ${id.length} characters` : id}`, () => {
       assert.equal(PathSafeId.parse(id), id);
@@ -29,7 +29,7 @@ describe('PathSafeId', () => {
     ['dot dot', '..'],
     ['a letter outside ASCII', 'bière'],
     ['a newline', 'b1\n'],
-    ['101 characters', 'x'.repeat(101)],
+    ['65 characters', 'x'.repeat(65)],
     ...reserved.map((id): [string, unknown] => [`the reserved name ${id}`, id]),
   ];
   for (const [what, value] of invalid) {
