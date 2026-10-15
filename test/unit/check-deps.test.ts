@@ -214,10 +214,49 @@ describe('checkLockfile', () => {
     assert.match(problems[0] ?? '', /undici-types.*DEPENDENCIES\.md/);
   });
 
-  it('does not require platform binaries to be listed', () => {
+  it('admits the biome and typescript binaries with only their parents listed', () => {
+    const lock = lockOf({
+      '@biomejs/biome': entry('@biomejs/biome', '2.5.15', {
+        dev: true,
+        optionalDependencies: { '@biomejs/cli-linux-x64': '2.5.15' },
+      }),
+      '@biomejs/cli-linux-x64': platformBinary('@biomejs/cli-linux-x64'),
+      typescript: entry('typescript', '7.0.2', {
+        dev: true,
+        optionalDependencies: { '@typescript/typescript-win32-x64': '7.0.2' },
+      }),
+      '@typescript/typescript-win32-x64': platformBinary('@typescript/typescript-win32-x64'),
+    });
+    const admitted = new Set(['@biomejs/biome', 'typescript']);
+    assert.deepEqual(checkLockfile(lock, { ...policy, admitted }), []);
+  });
+
+  // Admission is the human gate: an optional entry with os or cpu is a platform binary only
+  // when an admitted package asks for it.
+  it('reports an os-restricted optional entry that no admitted package declares', () => {
     const lock = okLock();
-    lock.packages['node_modules/@biomejs/cli-linux-x64'] = platformBinary('@biomejs/cli-linux-x64');
-    assert.deepEqual(checkLockfile(lock, policy), []);
+    lock.packages['node_modules/sneaky'] = platformBinary('sneaky');
+    const problems = checkLockfile(lock, policy);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /sneaky.*DEPENDENCIES\.md/);
+  });
+
+  it('reports a platform binary declared only by a package that is not admitted', () => {
+    const lock = okLock();
+    lock.packages['node_modules/carrier'] = entry('carrier', '1.0.0', {
+      optionalDependencies: { sneaky: '1.0.0' },
+    });
+    lock.packages['node_modules/sneaky'] = platformBinary('sneaky');
+    const problems = checkLockfile(lock, policy).join('\n');
+    assert.match(problems, /carrier.*DEPENDENCIES\.md/);
+    assert.match(problems, /sneaky.*DEPENDENCIES\.md/);
+  });
+
+  it('still leaves an undeclared, listed platform binary out of the budget', () => {
+    const lock = lockOf({ ...packagesOf(['a', 'b']), ...packagesOf(DEV, { dev: true }) });
+    lock.packages['node_modules/cli-linux-x64'] = platformBinary('cli-linux-x64');
+    const admitted = new Set(['a', 'b', ...DEV, 'cli-linux-x64']);
+    assert.deepEqual(checkLockfile(lock, { ...policy, admitted }), []);
   });
 
   it('reports more runtime packages than the budget allows', () => {
@@ -255,6 +294,10 @@ describe('checkLockfile', () => {
     const lock = lockOf({
       ...packagesOf(['a', 'b']),
       ...packagesOf(DEV, { dev: true }),
+      c: entry('c', '1.0.0', {
+        dev: true,
+        optionalDependencies: { 'cli-linux-x64': '1.0.0', 'cli-win32-x64': '1.0.0' },
+      }),
       'cli-linux-x64': platformBinary('cli-linux-x64'),
       'cli-win32-x64': platformBinary('cli-win32-x64'),
     });
@@ -305,8 +348,9 @@ describe('parseLockfile', () => {
     ['devOptional', '"true"'],
     ['os', '"linux"'],
     ['cpu', '[64]'],
+    ['optionalDependencies', '{"sneaky":1}'],
   ] as const) {
-    it(`rejects ${field} of the wrong type, which would change what the budget counts`, () => {
+    it(`rejects ${field} of the wrong type, which would change what is counted or admitted`, () => {
       const text = JSON.stringify({ lockfileVersion: 3, ...okLock() }).replace(
         '"integrity":',
         `"${field}":${value},"integrity":`,

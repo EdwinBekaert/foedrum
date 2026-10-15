@@ -20,6 +20,7 @@ export interface LockEntry {
   devOptional?: boolean;
   os?: string[];
   cpu?: string[];
+  optionalDependencies?: Record<string, string>;
 }
 
 export interface Lockfile {
