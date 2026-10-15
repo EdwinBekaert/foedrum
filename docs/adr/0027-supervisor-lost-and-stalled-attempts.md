@@ -10,7 +10,7 @@ The supervisor (#10) is the one liveness mechanism of the engine: leases, deadli
 ### A pure tick
 - `planTick` (`src/engine/supervisor.ts`) takes the folded state, the batches past their deadline from the store's `deadlines` index, the expired leases, the runner's progress signals and the time, and returns engine commands for `decide` and the leases to release. It never builds events: `decide` does, and the guard checks them, so the supervisor cannot do what the state machine refuses.
 - At most one command per batch and tick, in this order: a due deadline (`expire` for a brewing batch, `remind` for a Conditioning or Stuck one), then an expired lease (`lose`), then a stall (`stall`). A deadline wins, so a batch past its deadline is Stuck within one tick (I5) even when its lease also expired. The folded state has the last word: a batch the index lists whose attempt is not due gets nothing.
-- The shell (`src/engine/supervisor-loop.ts`) runs a tick on an interval (default 5 s) with an injected clock, timer and store. It decides the commands one after another against the state the earlier ones lead to, appends their events and releases the leases in one transaction, then flushes the state branch. The next tick is scheduled when the last one finished, so ticks never overlap. A refused command or a tick that throws is reported, and the next tick runs.
+- The shell (`src/engine/supervisor-loop.ts`) runs a tick on an interval (default 5 s) with an injected clock, timer and store. It decides the commands one after another, each against the state the earlier ones led to, and appends each command's events in a transaction of its own: a command that `decide` refuses (`refused`) or that throws (`command_failed`, for example from a broken recipe or an invalid progress signal) is reported and skipped, and the other batches still reach their deadlines (I5). It then releases the expired leases and flushes the state branch, also when the tick itself failed. The next tick is scheduled when the last one finished, so ticks never overlap, and each `run()` numbers its chain of ticks, so a tick of a stopped run never schedules another, even when `run()` is called again while it is in flight. A tick that throws is reported, and the next tick runs.
 
 ### A lost attempt is retried
 - A lease's `attemptKey` is the canonical JSON text `["batchId","stepId",attempt]` (`src/engine/attempt-key.ts`), written exactly as `JSON.stringify` writes it, like an effect key. The store lists `expiredLeases(now)` next to `currentLeases(now)`.
@@ -25,10 +25,12 @@ The supervisor (#10) is the one liveness mechanism of the engine: leases, deadli
 
 ### Reminders
 - Conditioning and Stuck reminders repeat at the shell's `reminderMs` (default 2 days), passed to `decide` as before. I1 holds after every tick: every Conditioning or Stuck batch has its next reminder ahead.
+- The interval is one per supervisor for now. Architecture §4.3 makes it configurable per Brewery and recipe; a per-recipe interval needs a recipe field and a `Recipe` accessor first, which this decision leaves open.
 
 ### The flush retry
 - Every tick flushes the state branch after its own events, so events that a failed flush left in the local store do not wait for a step boundary that may never come. A flush that throws (other than `StateBranchStopError`) counts as failed.
 - The flush deadline (default 10 minutes) is the engine's, not a batch's: when flushes have failed for that long, the supervisor reports `flush_overdue` once, naming when they started failing. This amends ADR 0024's "raises the batch's attention": the push failure belongs to no single batch, and making batches Stuck would append more events that cannot be pushed either.
+- When the flushes started failing is kept in the supervisor's memory, not in the event store: it drives only a notice, and nothing about a batch. An engine that restarts during an outage starts the flush deadline again, so the notice can come later, never sooner. This is in-process state of the shell, like its cache of the folded state, not engine state; the engine rule's exceptions (leases and the pushed-through marker) stay as they are.
 - A `StateBranchStopError` (another engine pushed, the branch was rewritten) stops the supervisor: `run()` rejects with it and no further tick is scheduled.
 
 ### Batch ids
