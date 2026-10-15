@@ -14,12 +14,12 @@ Two follow-ups of #52 land here too. A brewer's `env` adds variables on top of a
 - An attempt ends in an `Ending`: a `StepOutcome`, or a brewer's `blocked` out doc with its blocker kind, which `decide` records as a final failure and routes ([ADR 0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md)).
 
 ### One rule for how an attempt ends
-`settleAttempt(facts, limits)` is pure and shared by the real runner and the fake. The facts are what the runner saw: how the process ended (exited with a code, killed by a signal the runner did not send, stopped by the runner, or not startable), the out doc's text, the first stream line that was not stream-json, the permission denials and the turns. The first rule that applies wins:
+`settleAttempt(facts, limits)` is pure and shared by the real runner and the fake. The facts are what the runner saw: how the process ended (exited with a code, killed by a signal the runner did not send, stopped by the runner, or not startable), the out doc's text, the first stream line that was not stream-json, the permission denials (every one counted, and each denied tool named once, in the order first denied: `noteDenial`, so the list stays bounded however long a storm lasts) and the turns. The first rule that applies wins:
 
 | Facts | Ending |
 |---|---|
 | The process could not start | `failed`, not retryable |
-| Denials reached `maxDenials` | `blocked` + `environment` (Stuck at once) |
+| Denials reached `maxDenials` | `blocked` + `environment` (Stuck at once), naming the denied tools ([ADR 0006](0006-no-mid-run-questions.md)) |
 | Turns past `maxTurns` (budget exceeded) | `failed`, not retryable |
 | Stopped by the runner within its limits | `cancelled` |
 | Killed by a signal, or exited with another code than 0 (a crash) | `failed`, retryable |

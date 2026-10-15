@@ -258,7 +258,7 @@ claude --print --verbose --output-format stream-json
 ```
 
 - The engine owns the child process, reads the event stream live (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
-- How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): `maxDenials` reached → `blocked` + `environment`; `maxTurns` passed → a failure that is not retried; a crash, garbage in the stream, or a missing or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status.
+- How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): `maxDenials` reached → `blocked` + `environment`, naming the denied tools; `maxTurns` passed → a failure that is not retried; a crash, garbage in the stream, or a missing or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status.
 - On Windows the CLI can only be spawned through a shell; every argument is therefore validated against a strict pattern, and prompts and settings travel via stdin and files only.
 - `--safe-mode` implements `context: lean`.
 - Sessions are persisted for the lifetime of the batch, so anyone on the machine can step into them with `/foedrum:resume` (ADR 0019); they are cleaned up with the batch.
