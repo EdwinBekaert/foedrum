@@ -110,6 +110,11 @@ const packageName = (key: string, entry: LockEntry): string =>
 const installed = (lock: Lockfile): Array<[string, LockEntry]> =>
   Object.entries(lock.packages).filter(([key]) => key !== '');
 
+// Strict, so a name or version can hold no '/', '..', '%', '?' or '#': with those, the expected
+// URL could equal a resolved one that URL normalisation points at another package.
+const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/;
+const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
 // The tarball npm ci downloads must be the version the publish dates are checked for.
 const tarballUrl = (name: string, version: string): string =>
   `${REGISTRY}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`;
@@ -118,8 +123,10 @@ const entryProblems = (key: string, entry: LockEntry): string[] => {
   if (entry.link === true) return [`${key}: is a link, not a registry package`];
   const problems: string[] = [];
   const name = packageName(key, entry);
-  if (entry.version === undefined) {
-    problems.push(`${key}: no version`);
+  if (!PACKAGE_NAME.test(name)) {
+    problems.push(`${key}: not a valid package name (${name})`);
+  } else if (entry.version === undefined || !VERSION.test(entry.version)) {
+    problems.push(`${key}: no valid version (${entry.version ?? 'none'})`);
   } else if (entry.resolved !== tarballUrl(name, entry.version)) {
     problems.push(
       `${key}: resolved ${entry.resolved ?? 'nowhere'}, not the npm registry tarball of ` +
@@ -196,8 +203,9 @@ export const checkPublishDates = async (
 ): Promise<string[]> => {
   const versionsByName = new Map<string, Set<string>>();
   for (const [key, entry] of installed(lock)) {
-    if (entry.link === true || entry.version === undefined) continue;
     const name = packageName(key, entry);
+    // checkLockfile reports these; never build a registry URL from them.
+    if (entry.link === true || entry.version === undefined || !PACKAGE_NAME.test(name)) continue;
     const versions = versionsByName.get(name) ?? new Set<string>();
     versions.add(entry.version);
     versionsByName.set(name, versions);
@@ -222,46 +230,48 @@ export interface RunDeps {
   err: (text: string) => void;
 }
 
-export const run = async (_args: string[], _deps: RunDeps): Promise<number> => {
-  throw new Error('not implemented');
-};
-
 const USAGE = 'usage: node scripts/check-deps.ts [--offline]\n';
 
-const main = async (args: string[]): Promise<number> => {
+export const run = async (args: string[], deps: RunDeps): Promise<number> => {
   let offline: boolean;
   try {
     ({
       values: { offline },
     } = parseArgs({ args, options: { offline: { type: 'boolean', default: false } } }));
   } catch {
-    process.stderr.write(USAGE);
+    deps.err(USAGE);
     return 2;
   }
   let lock: Lockfile;
   let policy: Policy;
   try {
-    const read = (file: string): string => readFileSync(join(process.cwd(), file), 'utf8');
+    const read = (file: string): string => readFileSync(join(deps.cwd, file), 'utf8');
     lock = parseLockfile(read('package-lock.json'));
     policy = readPolicy(read('DEPENDENCIES.md'), read('.npmrc'));
   } catch (error) {
-    process.stderr.write(`check-deps: ${(error as Error).message}\n`);
+    deps.err(`check-deps: ${(error as Error).message}\n`);
     return 2;
   }
   const problems = checkLockfile(lock, policy);
   if (!offline) {
     problems.push(
       ...(await checkPublishDates(lock, {
-        fetch,
-        now: new Date(),
+        fetch: deps.fetch,
+        now: deps.now,
         minReleaseAgeDays: policy.minReleaseAgeDays,
       })),
     );
   }
-  for (const problem of problems) process.stdout.write(`${problem}\n`);
+  for (const problem of problems) deps.out(`${problem}\n`);
   return problems.length > 0 ? 1 : 0;
 };
 
 if (import.meta.main) {
-  process.exitCode = await main(process.argv.slice(2));
+  process.exitCode = await run(process.argv.slice(2), {
+    cwd: process.cwd(),
+    fetch,
+    now: new Date(),
+    out: (text) => process.stdout.write(text),
+    err: (text) => process.stderr.write(text),
+  });
 }
