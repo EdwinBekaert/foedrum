@@ -37,7 +37,10 @@ export const gitThrough =
   (run: WorkspaceGit): Git =>
   async (cwd, args, options) => {
     const { code, stdout, stderr } = await run(cwd, args, options);
-    return { ok: code === 0, stdout, stderr };
+    // A failure is printed with its reason, and git does not always give one.
+    const reason =
+      code !== 0 && stderr === '' ? `git ${args[0] ?? ''} exited with code ${code}` : stderr;
+    return { ok: code === 0, stdout, stderr: reason };
   };
 
 // Foedrum's git never prompts and, at its deadline (60 s by default), kills git with every

@@ -126,7 +126,7 @@ export interface Spawner {
  * waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
-  ({ spawn, killTree }: Spawner, _timers: Timers = realTimers): ExecProcess =>
+  ({ spawn, killTree }: Spawner, timers: Timers = realTimers): ExecProcess =>
   (file, args, { cwd, env = process.env, timeoutMs, signal }) =>
     new Promise((done) => {
       let stdout = '';
@@ -155,7 +155,7 @@ export const execProcessWith =
       const finish = (result: ExecResult): void => {
         if (finished) return;
         finished = true;
-        clearTimeout(timer);
+        if (timer !== undefined) timers.clear(timer);
         signal?.removeEventListener('abort', stop);
         done(result);
       };
@@ -167,7 +167,8 @@ export const execProcessWith =
         finish(ended(null, killed));
       };
       const stop = (): void => kill('stopped');
-      const timer = timeoutMs === undefined ? undefined : setTimeout(kill, timeoutMs, 'timed-out');
+      const timer =
+        timeoutMs === undefined ? undefined : timers.set(() => kill('timed-out'), timeoutMs);
       signal?.addEventListener('abort', stop, { once: true });
       // Decode as a stream, so a multi-byte character split across chunks stays intact.
       child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
@@ -223,6 +224,22 @@ export const runProcessThrough =
 /** The real runner, with the output together. */
 export const spawnProcess: RunProcess = runProcessThrough(execProcess);
 
+/** Why the runner killed a process, for a message; undefined when it ended by itself. */
+export const whyKilled = (killed: Killed | undefined, timeoutMs: number): string | undefined => {
+  switch (killed) {
+    case undefined:
+      return undefined;
+    case 'timed-out':
+      return `timed out after ${timeoutMs / 1000} s`;
+    case 'stopped':
+      return 'stopped';
+    default: {
+      const unknown: never = killed;
+      throw new Error(`unknown kill ${String(unknown)}`);
+    }
+  }
+};
+
 export type ListenForSignal = (name: NodeJS.Signals, handler: () => void) => void;
 
 /**
@@ -232,9 +249,13 @@ export type ListenForSignal = (name: NodeJS.Signals, handler: () => void) => voi
  * passes this signal on and the runner kills their trees.
  */
 export const stopOnSignals = (
-  _listen: ListenForSignal = (name, handler) => {
+  listen: ListenForSignal = (name, handler) => {
     process.once(name, handler);
   },
 ): AbortSignal => {
-  throw new Error('not implemented');
+  const stop = new AbortController();
+  for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
+    listen(name, () => stop.abort());
+  }
+  return stop.signal;
 };

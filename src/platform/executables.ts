@@ -1,7 +1,7 @@
 // Finding the file a command name runs (architecture §13, executables): through PATH, and on
 // Windows also PATHEXT, so `claude` can be found as `claude.cmd` and `foedrum doctor` can show
-// what runs. Unlike cmd.exe, it never looks in the current directory unless PATH names it, so a
-// repository cannot plant its own `git.exe`.
+// what runs. Unlike cmd.exe, it never looks in the current directory, and it skips PATH folders
+// that are not absolute, so a repository cannot plant its own `git.exe`.
 
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
@@ -60,7 +60,9 @@ export const resolveExecutable = (
       : (variable(env, 'PATH', platform) ?? '')
           .split(path.delimiter)
           .map((folder) => folder.replace(/^"(.*)"$/, '$1'))
-          .filter((folder) => folder !== '');
+          // A relative folder would be checked here but resolved against another directory
+          // when the program starts.
+          .filter((folder) => path.isAbsolute(folder));
   for (const folder of folders) {
     const base = folder === '' ? name : path.join(folder, name);
     const found = candidates(base).find(isExecutable);

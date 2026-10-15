@@ -4,7 +4,7 @@
 // through npm's own CLI (npm_execpath, set by `npm run check`), so package.json stays the one
 // place for their commands and nothing starts a shell.
 
-import type { Killed } from '../src/platform/processes.ts';
+import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export interface CheckStep {
@@ -41,22 +41,6 @@ const STEP_TIMEOUT_MS = 300_000;
 const withNewline = (text: string): string =>
   text === '' || text.endsWith('\n') ? text : `${text}\n`;
 
-// Why the runner killed a step, if it did.
-const killedBecause = (killed: Killed | undefined, timeoutMs: number): string | undefined => {
-  switch (killed) {
-    case undefined:
-      return undefined;
-    case 'timed-out':
-      return `timed out after ${timeoutMs / 1000} s`;
-    case 'stopped':
-      return 'stopped';
-    default: {
-      const unknown: never = killed;
-      throw new Error(`unknown kill ${String(unknown)}`);
-    }
-  }
-};
-
 // Resolves to the exit code.
 export const runCheck = async ({
   env,
@@ -88,7 +72,7 @@ export const runCheck = async ({
   const failed: { label: string; output: string }[] = [];
   for (const { label, outcome } of running) {
     const { exitCode, output, killed } = await outcome;
-    const why = killedBecause(killed, stepTimeoutMs);
+    const why = whyKilled(killed, stepTimeoutMs);
     const text = `> ${label}\n${withNewline(output)}${why === undefined ? '' : `${why}\n`}`;
     if (exitCode === 0) write(text);
     else failed.push({ label: why === undefined ? label : `${label} (${why})`, output: text });
@@ -103,16 +87,13 @@ if (import.meta.main) {
   const { spawnProcess } = await import('./process-runner.ts');
   // Outside Windows the steps lead process groups of their own, which a Ctrl+C in the terminal
   // does not reach, and on Windows npm's children would outlive it: kill their trees instead.
-  const stop = new AbortController();
-  for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
-    process.once(name, () => stop.abort());
-  }
+  // A kill that cannot be caught (SIGKILL) still leaves them to their deadline.
   process.exitCode = await runCheck({
     env: process.env,
     execPath: process.execPath,
     runProcess: spawnProcess,
     cwd: process.cwd(),
     write: (text) => process.stdout.write(text),
-    signal: stop.signal,
+    signal: stopOnSignals(),
   });
 }

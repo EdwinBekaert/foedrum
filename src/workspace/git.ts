@@ -53,9 +53,15 @@ export const gitEnv = (
 
 /** git through the given process runner; unit tests pass a fake one (ADR 0021). */
 export const runGitWith =
-  (_exec: ExecProcess): Git =>
-  () => {
-    throw new Error('not implemented');
+  (exec: ExecProcess): Git =>
+  async (cwd, args, { timeoutMs = 60_000, config } = {}) => {
+    const { exitCode, stdout, stderr, killed } = await exec('git', args, {
+      cwd,
+      env: gitEnv(process.env, config),
+      timeoutMs,
+    });
+    const timedOut = killed === 'timed-out' ? `git timed out after ${timeoutMs} ms` : '';
+    return { code: exitCode, stdout, stderr: `${stderr}${timedOut}` };
   };
 
 /**
@@ -64,12 +70,4 @@ export const runGitWith =
  * waiting for their output to close. A git that cannot start (not installed) has no exit code
  * either.
  */
-export const runGit: Git = async (cwd, args, { timeoutMs = 60_000, config } = {}) => {
-  const { exitCode, stdout, stderr, killed } = await execProcess('git', args, {
-    cwd,
-    env: gitEnv(process.env, config),
-    timeoutMs,
-  });
-  const timedOut = killed === 'timed-out' ? `git timed out after ${timeoutMs} ms` : '';
-  return { code: exitCode, stdout, stderr: `${stderr}${timedOut}` };
-};
+export const runGit: Git = runGitWith(execProcess);
