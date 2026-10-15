@@ -1,0 +1,571 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema of this file, for editors",
+      "type": "string"
+    },
+    "permissionCeiling": {
+      "default": [],
+      "description": "The most any repository may add to its brewers; a rule covers narrower ones",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][\\w-]*(?:\\([^\\r\\n]+\\))?$"
+      }
+    },
+    "repositories": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*\\/(?!\\.\\.?$)[\\w.][\\w.-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "object",
+            "properties": {
+              "build": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "run": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "windows": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "macos": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "linux": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "run"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "typecheck": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "run": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "windows": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "macos": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "linux": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "run"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lint": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "run": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "windows": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "macos": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "linux": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "run"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "format": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "run": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "windows": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "macos": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "linux": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "run"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "test": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "run": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "windows": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "macos": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "linux": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "run"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "build",
+              "typecheck",
+              "lint",
+              "format",
+              "test"
+            ],
+            "additionalProperties": false,
+            "description": "The command behind each check recipes name, or null when the repository has none"
+          },
+          "testReport": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "const": "tap"
+                  },
+                  "path": {
+                    "description": "Without a path, the test command writes TAP to stdout",
+                    "type": "string",
+                    "pattern": "^(?!\\.\\.?(?:\\/|$))[^/\\\\:\\r\\n]+(?:\\/(?!\\.\\.?(?:\\/|$))[^/\\\\:\\r\\n]+)*$"
+                  }
+                },
+                "required": [
+                  "format"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "const": "junit"
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(?!\\.\\.?(?:\\/|$))[^/\\\\:\\r\\n]+(?:\\/(?!\\.\\.?(?:\\/|$))[^/\\\\:\\r\\n]+)*$"
+                  }
+                },
+                "required": [
+                  "format",
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "setup": {
+            "description": "Runs once per worktree, before the first step",
+            "type": "object",
+            "properties": {
+              "command": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "run": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "windows": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "macos": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      },
+                      "linux": {
+                        "type": "string",
+                        "allOf": [
+                          {
+                            "pattern": "\\S"
+                          },
+                          {
+                            "pattern": "^[^\\r\\n]*$"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "run"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "timeout": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*[smhd]$",
+                "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+              }
+            },
+            "required": [
+              "command",
+              "timeout"
+            ],
+            "additionalProperties": false
+          },
+          "tools": {
+            "default": [],
+            "description": "Toolchain rules added to every brewer's allowlist, within the permission ceiling",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z][\\w-]*(?:\\([^\\r\\n]+\\))?$"
+            }
+          },
+          "houseYeast": {
+            "default": "repo",
+            "description": "Where repository-layer house-yeast rules are kept (ADR 0018)",
+            "type": "string",
+            "enum": [
+              "repo",
+              "brewery"
+            ]
+          }
+        },
+        "required": [
+          "checks"
+        ],
+        "additionalProperties": false
+      },
+      "description": "The target repositories, by owner/name"
+    }
+  },
+  "required": [
+    "repositories"
+  ],
+  "additionalProperties": false
+}

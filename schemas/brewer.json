@@ -1,0 +1,507 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "string",
+          "const": "read"
+        },
+        "tree": {
+          "type": "string",
+          "enum": [
+            "task",
+            "integration",
+            "checkout",
+            "scratch"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "doneWhen": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "inputs": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^(?:order|step:(.+)|file:(.+))$"
+              },
+              "trusted": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "from"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "houseYeast": {
+          "default": false,
+          "type": "boolean"
+        },
+        "toolbox": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$"
+            }
+          },
+          "required": [
+            "doc",
+            "schema"
+          ],
+          "additionalProperties": false
+        },
+        "produces": {
+          "type": "string",
+          "enum": [
+            "commits",
+            "report",
+            "comment",
+            "none"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "tools": {
+          "type": "object",
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][\\w-]*(?:\\([^\\r\\n]+\\))?$"
+              }
+            },
+            "deny": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][\\w-]*(?:\\([^\\r\\n]+\\))?$"
+              }
+            }
+          },
+          "required": [
+            "allow"
+          ],
+          "additionalProperties": false
+        },
+        "skills": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "mcp": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "context": {
+          "default": "lean",
+          "type": "string",
+          "enum": [
+            "lean",
+            "repo"
+          ]
+        },
+        "env": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "deadline": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smhd]$",
+          "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+        },
+        "maxTurns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stall": {
+          "type": "object",
+          "properties": {
+            "turns": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "minutes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "retryMode": {
+          "default": "fresh",
+          "type": "string",
+          "enum": [
+            "resume",
+            "fresh"
+          ]
+        },
+        "maxDenials": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "guards": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "requiresOutDoc",
+              "requiresCommits",
+              "testsNotRemoved",
+              "testsUnchanged",
+              "noPush",
+              "scope",
+              "diffLimits"
+            ]
+          }
+        }
+      },
+      "required": [
+        "access",
+        "tree",
+        "name",
+        "description",
+        "version",
+        "output",
+        "produces",
+        "model",
+        "effort",
+        "tools",
+        "deadline",
+        "maxAttempts"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "string",
+          "const": "write"
+        },
+        "tree": {
+          "type": "string",
+          "enum": [
+            "task",
+            "integration",
+            "scratch"
+          ]
+        },
+        "git": {
+          "default": {
+            "commit": false
+          },
+          "type": "object",
+          "properties": {
+            "commit": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "commit"
+          ],
+          "additionalProperties": false
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "doneWhen": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "inputs": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^(?:order|step:(.+)|file:(.+))$"
+              },
+              "trusted": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "from"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "houseYeast": {
+          "default": false,
+          "type": "boolean"
+        },
+        "toolbox": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$"
+            }
+          },
+          "required": [
+            "doc",
+            "schema"
+          ],
+          "additionalProperties": false
+        },
+        "produces": {
+          "type": "string",
+          "enum": [
+            "commits",
+            "report",
+            "comment",
+            "none"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "tools": {
+          "type": "object",
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][\\w-]*(?:\\([^\\r\\n]+\\))?$"
+              }
+            },
+            "deny": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][\\w-]*(?:\\([^\\r\\n]+\\))?$"
+              }
+            }
+          },
+          "required": [
+            "allow"
+          ],
+          "additionalProperties": false
+        },
+        "skills": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "mcp": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "context": {
+          "default": "lean",
+          "type": "string",
+          "enum": [
+            "lean",
+            "repo"
+          ]
+        },
+        "env": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "deadline": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[smhd]$",
+          "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+        },
+        "maxTurns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stall": {
+          "type": "object",
+          "properties": {
+            "turns": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "minutes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "retryMode": {
+          "default": "fresh",
+          "type": "string",
+          "enum": [
+            "resume",
+            "fresh"
+          ]
+        },
+        "maxDenials": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "guards": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "requiresOutDoc",
+              "requiresCommits",
+              "testsNotRemoved",
+              "testsUnchanged",
+              "noPush",
+              "scope",
+              "diffLimits"
+            ]
+          }
+        }
+      },
+      "required": [
+        "access",
+        "tree",
+        "name",
+        "description",
+        "version",
+        "output",
+        "produces",
+        "model",
+        "effort",
+        "tools",
+        "deadline",
+        "maxAttempts"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

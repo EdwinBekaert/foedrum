@@ -2,14 +2,24 @@
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { BrewerFrontmatter } from './brewer.ts';
+import { BreweryConfig } from './brewery-config.ts';
 import { Event } from './events.ts';
+import { HouseYeastRule } from './house-yeast.ts';
+import { ModelsConfig } from './models.ts';
 import { OutDocFrontmatter } from './out-doc.ts';
+import { Recipe } from './recipe.ts';
 import { StepOutcome } from './step-outcome.ts';
 import { z } from './zod.ts';
 
 const schemas: Record<string, z.ZodType> = {
+  'brewer.json': BrewerFrontmatter,
   'event.json': Event,
+  'foedrum.json': BreweryConfig,
+  'house-yeast.json': HouseYeastRule,
+  'models.json': ModelsConfig,
   'out-doc.json': OutDocFrontmatter,
+  'recipe.json': Recipe,
   'step-outcome.json': StepOutcome,
 };
 

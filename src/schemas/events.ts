@@ -15,7 +15,7 @@ const Count = z.int().nonnegative();
 const Timestamp = z.iso.datetime();
 const IssueNumber = z.int().positive();
 /** `owner/name` of a GitHub repository; neither part may be `.`, `..` or start with `-`. */
-const Repo = z
+export const Repo = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[\w.][\w.-]*$/, 'Must be owner/name');
 const PullRequestUrl = z
