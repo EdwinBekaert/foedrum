@@ -144,4 +144,8 @@ describe('windowsCommandLine through cmd.exe', { skip: process.platform !== 'win
     ];
     assert.deepEqual(await argsThrough(printArgs, args), args);
   });
+
+  it('starts a .cmd file named with forward slashes', async () => {
+    assert.deepEqual(await argsThrough(printArgs.replaceAll('\\', '/'), ['-p']), ['-p']);
+  });
 });

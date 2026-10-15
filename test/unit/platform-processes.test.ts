@@ -329,6 +329,17 @@ describe('execProcessWith and its clock', () => {
     await done;
     assert.equal(pending.size, 0);
   });
+
+  it('sets no deadline without a timeout', async () => {
+    const child = new FakeChild();
+    const { pending, timers } = fakeTimers();
+    const done = execProcessWith(fakeSpawner(child).spawner, timers)('git', [], {
+      cwd: '/work/tree',
+    });
+    assert.equal(pending.size, 0);
+    child.close(0);
+    await done;
+  });
 });
 
 describe('stopOnSignals', () => {

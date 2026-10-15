@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { resolveExecutable } from '../../src/platform/executables.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // A file system with only these runnable files.
 const files =
@@ -132,8 +135,29 @@ describe('resolveExecutable on Windows', () => {
 });
 
 describe('resolveExecutable on this machine', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('executables');
+  });
+  afterEach(() => dir.remove());
+
   // The node running this test is a runnable file, found by its full path.
   it('finds this node by its path', () => {
     assert.equal(resolveExecutable(process.execPath), process.execPath);
+  });
+
+  it('skips a folder that has the name of the command', () => {
+    mkdirSync(join(dir.path, 'tool'));
+    mkdirSync(join(dir.path, 'tool.exe'));
+    const env = { PATH: dir.path, PATHEXT: '.EXE' };
+    assert.equal(resolveExecutable('tool', { env }), undefined);
+  });
+
+  it('skips a file that may not run', { skip: process.platform === 'win32' }, () => {
+    writeFileSync(join(dir.path, 'tool'), '#!/bin/sh\n');
+    chmodSync(join(dir.path, 'tool'), 0o644);
+    assert.equal(resolveExecutable('tool', { env: { PATH: dir.path } }), undefined);
+    chmodSync(join(dir.path, 'tool'), 0o755);
+    assert.equal(resolveExecutable('tool', { env: { PATH: dir.path } }), join(dir.path, 'tool'));
   });
 });

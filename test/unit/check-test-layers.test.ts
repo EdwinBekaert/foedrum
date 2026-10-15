@@ -101,8 +101,10 @@ describe('checkTestLayer and the real process runner', () => {
     'dynamic-import.test.ts',
     'exec-import.test.ts',
     'helpers/re-export.ts',
+    'helpers/star-re-export.ts',
     'named-import.test.ts',
     'namespace.test.ts',
+    'require.test.cjs',
     'script-runner.test.ts',
   ];
 
