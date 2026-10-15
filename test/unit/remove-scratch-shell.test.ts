@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { removeScratch } from '../../scripts/remove-scratch.ts';
@@ -61,6 +61,24 @@ describe('removeScratch with a fake git', () => {
     assert.equal(existsSync(record('tree')), false, result.lines.join('\n'));
     assert.ok(existsSync(record('orphan')));
     assert.ok(result.lines.includes('removed worktree record .git/worktrees/tree'));
+  });
+
+  it('removes the scratch folder when the checkout is opened through a link git resolves', async () => {
+    // A junction on Windows (no admin rights needed), a symbolic link elsewhere; git prints
+    // the real path of the checkout, the session's working directory is the link.
+    const links = makeTempDir('link');
+    try {
+      const link = join(links.path, 'checkout');
+      symlinkSync(dir.path, link, 'junction');
+
+      const result = await removeScratch(link, '.foedrum/tmp/61/scratch', git);
+
+      assert.equal(result.ok, true, result.lines.join('\n'));
+      assert.equal(existsSync(scratch), false);
+      assert.equal(existsSync(record('tree')), false);
+    } finally {
+      links.remove();
+    }
   });
 
   it('refuses a folder outside .foedrum/tmp/ and removes nothing', async () => {
