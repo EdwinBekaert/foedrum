@@ -67,6 +67,10 @@ jobs:
         id: check
         run: npm run check 2>&1 | tee "$RUNNER_TEMP/check.log"
 
+      # Tests against the real tools, kept out of npm run check (ADR 0021).
+      - name: npm run test:integration
+        run: npm run test:integration
+
       - name: Coverage summary
         if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
         run: |
