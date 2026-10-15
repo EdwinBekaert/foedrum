@@ -15,7 +15,11 @@ const Repo = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[\w.][\w.-]*$/, 'Must be owner/name');
 const PullRequestUrl = z
   .url({ protocol: /^https$/ })
-  .refine((url) => !/^https:\/\/[^/]*@/.test(url), 'Must not contain credentials');
+  // Checked on the parsed URL: the parser also finds credentials in `HTTPS://`, `https:\\` or `https:/`.
+  .refine((url) => {
+    const parsed = URL.parse(url); // null when z.url already rejected it; zod runs this anyway
+    return parsed?.username === '' && parsed.password === '';
+  }, 'Must not contain credentials');
 const Sha = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
 
 /** Where a command or answer came from (ADR 0019). */
@@ -104,16 +108,17 @@ const orderDecomposed = z
   .strictObject({
     type: z.literal('order.decomposed'),
     batchId: Id,
-    subOrders: z.array(SubOrderRef).min(1),
-    dependencies: z.array(Dependency),
+    // Limits for a model-written breakdown; they also bound the cost of the checks below.
+    subOrders: z.array(SubOrderRef).min(1).max(100),
+    dependencies: z.array(Dependency).max(1000),
   })
   .superRefine(({ subOrders, dependencies }, ctx) => {
-    const issues = subOrders.map((subOrder) => subOrder.issue);
-    if (new Set(issues).size !== issues.length) {
+    const issues = new Set(subOrders.map((subOrder) => subOrder.issue));
+    if (issues.size !== subOrders.length) {
       ctx.addIssue({ code: 'custom', message: 'Sub-orders must be unique', path: ['subOrders'] });
     }
     dependencies.forEach(({ subOrder, blockedBy }, i) => {
-      if (!issues.includes(subOrder) || !issues.includes(blockedBy)) {
+      if (!issues.has(subOrder) || !issues.has(blockedBy)) {
         ctx.addIssue({
           code: 'custom',
           message: 'Must name sub-orders of this breakdown',

@@ -24,14 +24,21 @@ const variants = [
   z.strictObject({ status: z.literal('failed'), ...shared }),
 ] as const;
 
+const contractFields = new Set(variants.flatMap((variant) => Object.keys(variant.shape)));
+
 /** The out-doc frontmatter with a brewer's own fields (for example a review verdict) added to every status. */
-export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) =>
-  z.discriminatedUnion('status', [
+export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) => {
+  const replaced = Object.keys(fields).filter((key) => contractFields.has(key));
+  if (replaced.length > 0) {
+    throw new Error(`Brewer-specific fields cannot replace the out-doc contract: ${replaced}`);
+  }
+  return z.discriminatedUnion('status', [
     variants[0].extend(fields),
     variants[1].extend(fields),
     variants[2].extend(fields),
     variants[3].extend(fields),
   ]);
+};
 
 export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
 export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
