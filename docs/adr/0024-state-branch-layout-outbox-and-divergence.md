@@ -1,6 +1,6 @@
 # 0024. The state branch: layout, outbox and divergence
 
-Date: 2026-10-15 · Status: Accepted · Amends [0011](0011-state-in-the-brewery-repository.md)
+Date: 2026-10-15 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md) and [0011](0011-state-in-the-brewery-repository.md)
 
 ## Context
 [ADR 0011](0011-state-in-the-brewery-repository.md) puts the durable record on the branch `foedrum/state` of the Brewery, committed and pushed at every step boundary, with SQLite as the local index that is rebuilt from the branch. It leaves open how the files rebuild the same store, where events without a batch go, in which order SQLite and git are written, what a step boundary is, what "behind" means, and how ids that become file names stay safe. A rebuild that changes event ids, or a crash between SQLite and git that loses or doubles an event, would break invariant I3 (replaying the log yields identical state) across machines.
@@ -15,14 +15,17 @@ Date: 2026-10-15 · Status: Accepted · Amends [0011](0011-state-in-the-brewery-
 - **Out docs** go to `batches/<batchId>/<stepId>-<attempt>.md`, next to `events.jsonl`. The engine writes an out doc into the state worktree before it appends the event that refers to it, so the doc is committed with that event. A crash in between leaves at worst a doc without its event, committed at the next boundary; never an event without its doc.
 
 ### Ids are path segments
-- Batch and step ids are path segments on every operating system: one shared schema (`src/schemas/ids.ts`) requires `^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$` (lowercase, so `B1` and `b1` cannot share a folder on Windows or macOS; starting and ending with a letter or digit; at most 100 characters) and refuses Windows reserved names (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`, also with an extension such as `nul.txt`). Every `batchId` and `stepId` in the event schemas and the effect key uses it. The state branch relies on the schema and checks once more where it builds a path.
+- Batch and step ids are path segments on every operating system: one shared schema (`src/schemas/ids.ts`) requires `^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$` (lowercase, so `B1` and `b1` cannot share a folder on Windows or macOS; starting and ending with a letter or digit; at most 64 characters, so out-doc paths stay well inside Windows' 260-character limit) and refuses Windows reserved names (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`, also with an extension such as `nul.txt`). Every `batchId` and `stepId` in the event schemas and the effect key uses it. The state branch relies on the schema and checks once more where it builds a path.
+- Foedrum's git runs with `core.longpaths=true` (set through `GIT_CONFIG_COUNT`), so a deep work root on Windows does not make git refuse a path either.
+- A remote branch that holds a symbolic link or a submodule is refused before anything of it is checked out: either could lead the engine's reads and writes outside the state worktree.
 
 ### Outbox
 - SQLite is written first, in its transaction; git follows. The store keeps a **pushed-through marker**: the id of the last event on the remote branch and the commit that holds it.
 - At a step boundary the engine flushes: every event after the marker is written to its file (lines after the marker that a crashed flush left on disk are dropped first, so a flush is idempotent), the worktree is committed, the branch is pushed, and only then the marker advances to the last flushed event and the pushed commit.
 - A **step boundary** is the append of `step.finished`, or of any event that changes a batch's lane kind (ordered, brewing, conditioning, stuck, on tap, cancelled), including `batch.ordered`. Other events are pushed with the next boundary.
+- **Exceptions to ADR 0002 and the engine rules.** The marker is the store's second mutable record, next to leases: it only moves forward and is rebuilt with the store. The state branch's own push is the one external side effect outside the idempotency ledger: a ledger entry for it would be an event that itself has to be pushed. It is idempotent through the marker instead, because a flush rewrites the same lines and git pushes the same commit again.
 - A push that fails for another reason (network, a remote hook) leaves the marker where it was; the next boundary retries.
-- State commits and pushes run with `--no-verify`: the user's hooks are written for code, and would slow or block every boundary. Signing follows the clone's configuration. At start-up (where `foedrum serve`, and later `foedrum doctor`, call it) the engine makes one test commit, signed when the clone signs, on a throw-away ref in the state worktree, non-interactively with a short timeout, and deletes the ref. When it fails the engine refuses to start, naming the signing setting when signing is on, instead of failing at every boundary.
+- State commits and pushes run with `--no-verify`: the user's hooks are written for code, and would slow or block every boundary. Signing follows the clone's configuration. At start-up (where `foedrum serve`, and later `foedrum doctor`, call it) the engine makes one test commit, signed when the clone signs, on a throw-away ref in the state worktree, non-interactively with a short timeout, and deletes the ref. It asks for the signature (`-S`) itself, because `git commit-tree` does not read `commit.gpgSign`. When it fails the engine refuses to start, naming the signing setting when signing is on, instead of failing at every boundary.
 
 ### Behind or diverged
 At start-up the engine fetches the branch and compares its head with the marker and with the state worktree's own head:
@@ -39,11 +42,11 @@ At start-up the engine fetches the branch and compares its head with the marker 
 | not a descendant of the marker | anything | **stop**: the branch was rewritten |
 
 - A push rejected as non-fast-forward means another engine wrote in between: the engine **stops**.
-- A stop is an error that names both heads: the local commit and unpushed events, and the remote commit. Foedrum never merges, rebases or force-pushes the state branch. A human chooses: keep the remote history (move the local database aside; the next start rebuilds it) or investigate the other engine first.
+- A stop is an error that names both heads: the local commit and unpushed events, and the remote commit. Foedrum never merges, rebases or force-pushes the state branch. A human chooses: keep the remote history (move the local database aside; the next start rebuilds it) or investigate the other engine first. A rebuild into an empty store resets the state worktree's local branch to the remote head and removes untracked log files; the remote is never touched, and a diverged local commit stays in the reflog. A store that is behind keeps its events, so it refuses a worktree with changes instead.
 
 ### Worktree
 - The state branch has its own worktree of the Brewery clone in the work root ([ADR 0012](0012-worktrees-from-local-clones.md)), created from the remote branch, or as an orphan branch when there is none. Foedrum never touches the user's working tree or `main`.
-- Git runs through an injected process runner, non-interactively (no terminal or credential prompts) and with a timeout. A pure core decides what to write, what to commit and whether to stop; the shell gathers facts and runs git ([ADR 0021](0021-unit-tests-spawn-no-processes.md)).
+- Git runs through an injected process runner, non-interactively (no terminal or credential prompts) and with a timeout that is a hard deadline: it kills git and every process git started (taskkill `/T` on Windows, the process group elsewhere). State files are written to a temporary file and renamed into place, with a bounded retry while another process holds the target open (Windows). A pure core decides what to write, what to commit and whether to stop; the shell gathers facts and runs git ([ADR 0021](0021-unit-tests-spawn-no-processes.md)).
 
 ## Consequences
 - A database can be deleted or lost at any time; the next start rebuilds an identical one. Leases are not rebuilt: they have no meaning after a crash.

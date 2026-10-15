@@ -1,4 +1,5 @@
-// The event store's own records: effect keys (invariant I4) and leases (ADR 0002).
+// The event store's own records: effect keys (invariant I4), leases (ADR 0002), the state branch's
+// pushed-through marker (ADR 0024), and the commit sha they and the events share.
 
 import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';

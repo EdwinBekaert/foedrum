@@ -5,7 +5,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-typescript-on-node.md) | TypeScript, run by Node's built-in type stripping | Accepted |
-| [0002](0002-event-sourced-engine-on-node-sqlite.md) | Event-sourced engine on `node:sqlite` | Accepted, amended by 0011 |
+| [0002](0002-event-sourced-engine-on-node-sqlite.md) | Event-sourced engine on `node:sqlite` | Accepted, amended by 0011 and 0024 |
 | [0003](0003-drive-the-claude-cli.md) | Drive the user's `claude` CLI, not the Agent SDK | Accepted |
 | [0004](0004-built-in-first-dependency-policy.md) | Built-in first dependency policy | Accepted |
 | [0005](0005-typed-step-outcomes-and-out-docs.md) | Typed step outcomes via out docs | Accepted |
@@ -27,7 +27,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0021](0021-unit-tests-spawn-no-processes.md) | Unit tests start no processes | Accepted |
 | [0022](0022-five-default-lenses.md) | Five default lenses: test design joins the four (amends 0017) | Accepted |
 | [0023](0023-language-independent-recipes.md) | Default recipes are language-independent | Accepted |
-| [0024](0024-state-branch-layout-outbox-and-divergence.md) | The state branch: layout, outbox and divergence (amends 0011) | Accepted |
+| [0024](0024-state-branch-layout-outbox-and-divergence.md) | The state branch: layout, outbox and divergence (amends 0002 and 0011) | Accepted |
 
 ## Template
 
