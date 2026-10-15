@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { after, before, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { outOfDate } from '../../scripts/deps-sync.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -33,15 +33,17 @@ describe('outOfDate on this checkout', () => {
 });
 
 describe('scripts/deps-sync.ts with a stub npm', () => {
+  // Each test gets its own project with a src folder and no node_modules, so their order does
+  // not matter.
   let project: TempDir;
-  before(() => {
+  beforeEach(() => {
     project = makeTempDir('deps-sync');
     writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
     const packages = { '': {}, 'node_modules/zod': zod };
     writeFileSync(join(project.path, 'package-lock.json'), JSON.stringify({ packages }));
     mkdirSync(join(project.path, 'src'));
   });
-  after(() => project.remove());
+  afterEach(() => project.remove());
 
   it('runs npm ci in the package root when node_modules is stale, and never fails', () => {
     const { status, stdout, stderr } = runScript(join(project.path, 'src'));
