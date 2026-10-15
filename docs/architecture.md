@@ -458,7 +458,7 @@ docs/
 **A Brewery:**
 
 ```
-foedrum.jsonc     repositories (source, release signal, triage sources, test report), allow-listed users, concurrency, budgets, permission ceiling
+foedrum.jsonc     repositories (source, release signal, triage sources, check commands, test report, setup, toolchain allowlist; ADR 0023), allow-listed users, concurrency, budgets, permission ceiling
 models.jsonc      model per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)

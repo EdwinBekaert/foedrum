@@ -26,6 +26,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0020](0020-jsonc-frontmatter.md) | Frontmatter is read as JSONC (amends 0007) | Accepted |
 | [0021](0021-unit-tests-spawn-no-processes.md) | Unit tests start no processes | Accepted |
 | [0022](0022-five-default-lenses.md) | Five default lenses: test design joins the four (amends 0017) | Accepted |
+| [0023](0023-language-independent-recipes.md) | Default recipes are language-independent | Accepted |
 
 ## Template
 

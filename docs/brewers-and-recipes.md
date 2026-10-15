@@ -51,7 +51,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 
 | Field | Purpose |
 |---|---|
-| `tools.allow` | Allowlist, including scoped shell commands (`Bash(npm test*)`) |
+| `tools.allow` | Allowlist, including scoped shell commands (`Bash(git diff*)`). Role-level only: the repository adds its toolchain commands ([ADR 0023](adr/0023-language-independent-recipes.md)) |
 | `tools.deny` | Denylist; `AskUserQuestion` and `git push` are always denied |
 | `skills`, `mcp` | Claude Code skills, plugins or MCP servers this brewer may use (default: none) |
 | `context` | `lean` (default: no project instructions, hooks, plugins or MCP) or `repo` (load the target repository's instructions) |
@@ -63,7 +63,6 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | `access` | `read` or `write` |
 | `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt |
 | `git` | `commit: true/false`; pushing is always the engine's job |
-| `setup` | Repository setup command, run once per worktree, with a timeout |
 | `env` | Extra environment variables on top of a minimal base |
 
 Headless brewers always run in a permission mode where the allowlist decides and nothing waits for an approver.
@@ -111,7 +110,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
   "produces": "commits",
   "context": "repo",
   "tools": {
-    "allow": ["Read", "Edit", "Write", "Grep", "Glob", "Bash(npm test*)", "Bash(git add*)", "Bash(git commit*)", "Bash(git diff*)"],
+    "allow": ["Read", "Edit", "Write", "Grep", "Glob", "Bash(git add*)", "Bash(git commit*)", "Bash(git diff*)"],
     "deny": ["AskUserQuestion", "Bash(git push*)", "WebFetch"]
   },
   "access": "write",
@@ -212,7 +211,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 }
 ```
 
-**Step kinds:** `brewer` · `session` (an interactive step that runs in an engineer's Claude Code session: `refine`, `triage` or `review`; under the autonomous driver it waits visibly in the Stuck lane, with a reminder, a deadline and an optional automated fallback) · `check` (gravity reading: a shell command or a built-in check) · `parallel` (a group of steps run side by side; none of them writes the task tree) · `loop` · `gate: "human"` (approval with a deadline) · `action` (`openPullRequest`, `comment`, `label`, `blend`) · `fanOut` (child orders per repository, scheduled as a dependency graph).
+**Step kinds:** `brewer` · `session` (an interactive step that runs in an engineer's Claude Code session: `refine`, `triage` or `review`; under the autonomous driver it waits visibly in the Stuck lane, with a reminder, a deadline and an optional automated fallback) · `check` (gravity reading: a named check, `build`, `typecheck`, `lint`, `format` or `test`, resolved through the repository's commands in `foedrum.jsonc` ([ADR 0023](adr/0023-language-independent-recipes.md)), or a literal shell command in a Brewery's own recipe) · `parallel` (a group of steps run side by side; none of them writes the task tree) · `loop` · `gate: "human"` (approval with a deadline) · `action` (`openPullRequest`, `comment`, `label`, `blend`) · `fanOut` (child orders per repository, scheduled as a dependency graph).
 
 **Recipe fields:** `name`, `description`, `match`, `budget`, `steps`, and `testFirst` (default `true` for recipes that write code; the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
 
