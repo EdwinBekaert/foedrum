@@ -597,6 +597,22 @@ describe('SqliteEventStore in memory', () => {
       ]);
     });
 
+    it('ends the Stuck reminder when a step is scheduled', () => {
+      store.withTransaction((tx) => {
+        tx.append(stuck('b1', '2026-10-15T11:00:00Z'));
+        tx.append(scheduled('b1', '2026-10-15T13:00:00Z', 2));
+      });
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
+    it('replaces the Stuck reminder of a batch', () => {
+      store.withTransaction((tx) => {
+        tx.append(stuck('b1', '2026-10-15T11:00:00Z'));
+        tx.append(stuck('b1', '2026-10-15T13:00:00Z'));
+      });
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
     it('ends the Conditioning reminder when a step is scheduled', () => {
       store.withTransaction((tx) => {
         tx.append(waiting('b1', '2026-10-15T11:00:00Z'));
