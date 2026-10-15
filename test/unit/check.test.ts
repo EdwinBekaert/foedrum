@@ -17,19 +17,26 @@ const pendingProcesses = () => {
     args: string[];
     cwd: string;
     finish: (o: ProcessOutcome) => void;
+    reject: (error: Error) => void;
   }[] = [];
   const runProcess: RunProcess = (file, args, cwd) =>
-    new Promise((finish) => {
-      calls.push({ file, args, cwd, finish });
+    new Promise((finish, reject) => {
+      calls.push({ file, args, cwd, finish, reject });
     });
   return { calls, runProcess };
 };
 
 // Runs the check with the fake runner, then finishes the steps in the given order (by index)
-// with the given outcomes, and returns the exit code and everything written.
-const check = async (outcomes: ProcessOutcome[], order = outcomes.map((_, index) => index)) => {
+// with the given outcomes (an Error makes the runner reject), and returns the exit code and
+// everything written.
+const check = async (
+  outcomes: (ProcessOutcome | Error)[],
+  order = outcomes.map((_, index) => index),
+) => {
   const { calls, runProcess } = pendingProcesses();
   let written = '';
+  // A rejection comes back as the exit code, so the test's assertions report it; caught at once,
+  // since it may come while later steps are still being finished.
   const done = runCheck({
     env,
     execPath,
@@ -38,10 +45,15 @@ const check = async (outcomes: ProcessOutcome[], order = outcomes.map((_, index)
     write: (text) => {
       written += text;
     },
-  });
+  }).catch((error: unknown) => error);
   for (const index of order) {
     await new Promise((resolve) => setImmediate(resolve));
-    calls[index]?.finish(outcomes[index] as ProcessOutcome);
+    const call = calls[index];
+    // A step that never started would leave runCheck waiting forever; fail here instead.
+    assert.ok(call, `step ${index} was not started`);
+    const outcome = outcomes[index] as ProcessOutcome | Error;
+    if (outcome instanceof Error) call.reject(outcome);
+    else call.finish(outcome);
   }
   return { exitCode: await done, written, calls };
 };
@@ -111,6 +123,28 @@ describe('runCheck', () => {
       assert.match(written, /✖ npm run check failed: npm test\n$/);
     });
   }
+
+  // The local gate shows only the end of the output, so a failure must not scroll out of it.
+  it('writes the failed steps last, just before the summary, after the passing ones', async () => {
+    const outcomes = allGreen();
+    outcomes[0] = { exitCode: 2, output: 'error TS2322\n' };
+    const { written } = await check(outcomes);
+    assert.match(written, /^> npm run lint\n/);
+    assert.match(
+      written,
+      /\n> npm run typecheck\nerror TS2322\n✖ npm run check failed: npm run typecheck\n$/,
+    );
+  });
+
+  it('counts a step whose runner rejects as failed, with the error, and keeps the others', async () => {
+    const outcomes: (ProcessOutcome | Error)[] = allGreen();
+    outcomes[1] = new Error('spawn EINVAL');
+    const { exitCode, written } = await check(outcomes);
+    assert.equal(exitCode, 1);
+    for (const label of labels()) assert.ok(written.includes(`> ${label}\n`), label);
+    assert.match(written, /> npm run lint\n.*spawn EINVAL/);
+    assert.match(written, /✖ npm run check failed: npm run lint\n$/);
+  });
 
   it('names every failed step', async () => {
     const outcomes = allGreen();
