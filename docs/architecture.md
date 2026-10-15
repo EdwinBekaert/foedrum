@@ -430,7 +430,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | **Permissions only** | Native Windows | Strict tool allowlists, file-tool deny rules outside the worktree, minimal environment, `scope` guard. A warning is shown at start |
 | **Container** (optional, any OS with an OCI container runtime: Podman or Docker) | Anywhere | The brewer runner starts `claude` inside a container that mounts only the worktree |
 
-- `foedrum doctor` reports the effective isolation level and missing prerequisites (for example `bubblewrap`).
+- `foedrum doctor` reports Node, npm, git and `claude` (resolved path and version), the effective isolation level, a container runtime (Podman or Docker) when there is one, and missing prerequisites (for example `bubblewrap`). It exits 1 when a required one is missing: git, `claude`, or Node 24.15. A pure core (`src/cli/doctor.ts`) turns the facts its shell gathers through the process runner into the report.
 - A Brewery can require a minimum level (`"isolation": { "minimum": "sandboxed" }`); writing brewers then refuse to run below it. Read-only brewers may run at a lower level.
 - Recommended setup on Windows for untrusted repositories: run Foedrum inside WSL2.
 
@@ -441,7 +441,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | CI | Every pull request, push to `main` and nightly run uses `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS. `npm test` fails below the coverage thresholds (Node's built-in coverage, still experimental). The single required check is `ci-ok` |
 | Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
 | Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
-| Spawning `claude` | On Windows only possible through a shell: every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files |
+| Spawning `claude` | On Windows only possible through a shell: every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files. The process runner does this for every `.cmd` and `.bat` file on Windows (npm's `claude.cmd`, `npm.cmd`) and starts everything else without a shell |
 | Spawning git and checks | Argument arrays and no shell for git, through the one process runner in `src/platform/processes.ts` (`execProcess`; `spawn`, not `execFile`, which answers only once every output pipe closes); check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
 | Killing process trees | POSIX: process groups (`detached` + negative pid), SIGTERM first so a process in the group can end its own children's groups, SIGKILL 2.5 s later; Windows: `taskkill /T /F /PID`. The runner kills the tree at the call's deadline or when its signal aborts, answers at once, and reports `timed-out` or `stopped` apart from an exit code |
 | Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
@@ -481,7 +481,7 @@ models.jsonc      model aliases, and an alias per brewer (updated by blind-tasti
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)
-.foedrum/         local (git-ignored): SQLite index, logs
+.foedrum/         local (git-ignored): SQLite index (index.db, read by foedrum status and replay), logs
 
 Work root (outside the checkout, default ~/.foedrum/<brewery>/): worktrees, managed clones
 

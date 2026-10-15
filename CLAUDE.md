@@ -25,6 +25,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm run test:integration` and `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
+- `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `doctor`, `status`, `replay <batch>`; `--help` lists them
 
 ## Local gate
 
@@ -107,7 +108,7 @@ Everything a session or a test creates stays inside the checkout, so it is visib
 Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
 - Paths only through `node:path`, `os.homedir()` and `os.tmpdir()`; never string-built paths or `~`. (`os.tmpdir()` is for product code at run time; development and tests use `.foedrum/tmp/`, see Temporary files.)
-- Spawn git and other tools with argument arrays and no shell, through the process runner in `src/platform/processes.ts` (`execProcess`, or `spawnProcess` in scripts): it kills the whole tree at a deadline or when stopped, which `execFile` cannot, since it waits for every output pipe to close. The only shell spawn is the `claude` CLI on Windows, with every argument validated and quoted (`windowsCommandLine`) and prompts passed via stdin.
+- Spawn git and other tools with argument arrays and no shell, through the process runner in `src/platform/processes.ts` (`execProcess`, or `spawnProcess` in scripts): it kills the whole tree at a deadline or when stopped, which `execFile` cannot, since it waits for every output pipe to close. The only shell spawns are `.cmd` and `.bat` files on Windows (npm's `claude.cmd`, `npm.cmd`), which the runner starts through cmd.exe with every argument validated and quoted (`windowsCommandLine`); prompts go via stdin.
 - OS-specific behaviour (killing process trees, executable lookup, file-lock retries) lives in the platform module only.
 - Text files use LF; parsers tolerate CRLF and a BOM.
 
