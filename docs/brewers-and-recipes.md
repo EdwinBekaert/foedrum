@@ -63,7 +63,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | `access` | `read` or `write` |
 | `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt |
 | `git` | `commit: true/false`; pushing is always the engine's job |
-| `env` | Extra environment variables on top of a minimal base. The runner applies its own variables last; names it owns are rejected when the brewer is loaded, in any case: `NODE_*`, `npm_config_*`, `PATH`, `PATHEXT`, `COMSPEC`, `SYSTEMROOT`, `HOME`, `USERPROFILE`, `APPDATA`, `ANTHROPIC_*`, `CLAUDE_*`, `GIT_*`, `SSH_*`, `LD_*`, `DYLD_*`, `BASH_ENV`, `ENV` and `*_PROXY`, as are two names that differ only in case |
+| `env` | Extra environment variables on top of a minimal base. The runner builds the environment from a minimal base, then this `env`, then its own variables last, comparing names without case on Windows (`buildBrewerEnv`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); names it owns are rejected when the brewer is loaded, in any case: `NODE_*`, `npm_config_*`, `PATH`, `PATHEXT`, `COMSPEC`, `SYSTEMROOT`, `HOME`, `USERPROFILE`, `APPDATA`, `ANTHROPIC_*`, `CLAUDE_*`, `GIT_*`, `SSH_*`, `LD_*`, `DYLD_*`, `BASH_ENV`, `ENV` and `*_PROXY`, as are two names that differ only in case |
 
 Headless brewers always run in a permission mode where the allowlist decides and nothing waits for an approver.
 
@@ -215,7 +215,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 
 A step has exactly one of these kind fields. A `session` step needs a `deadline` and may name a `fallback` brewer.
 
-**Recipe fields:** `name`, `description`, `match` (`labels`), `budget` (`minutes`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded, since it depends on the brewers the recipe uses; the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+**Recipe fields:** `name`, `description`, `match` (`labels`), `budget` (`minutes`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
 
 **Step fields**
 
@@ -258,6 +258,7 @@ claude --print --verbose --output-format stream-json
 ```
 
 - The engine owns the child process, reads the event stream live (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
+- How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): `maxDenials` reached → `blocked` + `environment`, naming the denied tools; `maxTurns` passed → a failure that is not retried; a crash, garbage in the stream, or a missing or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status.
 - On Windows the CLI can only be spawned through a shell; every argument is therefore validated against a strict pattern, and prompts and settings travel via stdin and files only.
 - `--safe-mode` implements `context: lean`.
 - Sessions are persisted for the lifetime of the batch, so anyone on the machine can step into them with `/foedrum:resume` (ADR 0019); they are cleaned up with the batch.
