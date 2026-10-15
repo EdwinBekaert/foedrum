@@ -282,6 +282,17 @@ describe('Event', () => {
       'a human recipe choice without where it came from',
       { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'human' },
     ],
+    [
+      'a recipe choice by the router with a surface',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        by: 'router',
+        via: 'plugin',
+      },
+    ],
     // A Stuck batch waits for a human with a reminder, never silently (ADR 0025).
     [
       'batch.stuck without a reminder',
