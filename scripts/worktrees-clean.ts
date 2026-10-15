@@ -15,6 +15,8 @@ import {
   runGit as runFoedrumGit,
   type Git as WorkspaceGit,
 } from '../src/workspace/git.ts';
+import { parseWorktreeList } from '../src/workspace/worktree-list.ts';
+import { readRecords } from '../src/workspace/worktree-records.ts';
 import {
   type Action,
   type Facts,
@@ -22,8 +24,6 @@ import {
   plan,
   shouldRun,
 } from './worktrees-clean/core.ts';
-import { parseWorktreeList } from './worktrees-clean/porcelain.ts';
-import { readRecords } from './worktrees-clean/records.ts';
 
 interface GitResult {
   ok: boolean;

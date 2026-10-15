@@ -1,5 +1,9 @@
 // Decides what the worktree cleanup removes, from facts gathered by the shell (ADR 0021).
 
+import type { RecordFact } from '../../src/workspace/worktree-records.ts';
+
+export type { RecordFact };
+
 // clean or dirty: the folder is a worktree; no-git: the folder is there without its .git
 // file; gone: only the record under .git/worktrees/ is left; unchecked: outside
 // .claude/worktrees/, so never looked at.
@@ -20,16 +24,6 @@ export interface BranchFact {
   merged: boolean;
   upstream: string | undefined;
   upstreamGone: boolean;
-}
-
-// A record under .git/worktrees/. `folder` is the worktree folder its gitdir file names, or
-// undefined when that file is missing or empty; git no longer lists such a record.
-export interface RecordFact {
-  dir: string;
-  name: string;
-  folder: string | undefined;
-  folderExists: boolean;
-  lockReason: string | undefined;
 }
 
 export interface Facts {

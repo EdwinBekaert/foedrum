@@ -4,7 +4,16 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import type { RecordFact } from './core.ts';
+
+// A record under .git/worktrees/. `folder` is the worktree folder its gitdir file names, or
+// undefined when that file is missing or empty; git no longer lists such a record.
+export interface RecordFact {
+  dir: string;
+  name: string;
+  folder: string | undefined;
+  folderExists: boolean;
+  lockReason: string | undefined;
+}
 
 const readText = (path: string): Promise<string | undefined> =>
   readFile(path, 'utf8').catch(() => undefined);
