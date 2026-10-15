@@ -450,6 +450,11 @@ describe('step references', () => {
       [{ id: 'red', check: 'test', expect: 'fail', of: 'gauge' }, gauge],
       ['steps', 0, 'of'],
     ],
+    [
+      'a red proof of its own step',
+      [gauge, { id: 'red', check: 'test', expect: 'fail', of: 'red' }],
+      ['steps', 1, 'of'],
+    ],
   ];
   for (const [what, steps, path] of misplaced) {
     it(`rejects ${what}, pointing at the reference`, () => {
