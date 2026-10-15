@@ -81,25 +81,36 @@ const isCommitHere: IsCommit = (sha) => {
   }
 };
 
-const main = (file: string | undefined): number => {
+export interface RunDeps {
+  readFile: (file: string) => string;
+  isCommit: IsCommit;
+  out: (text: string) => void;
+  err: (text: string) => void;
+}
+
+// The command without the process: the exit code for these arguments.
+export const run = ([file]: string[], deps: RunDeps): number => {
   if (file === undefined) {
-    process.stderr.write('usage: node scripts/secret-scan.ts <file>\n');
+    deps.err('usage: node scripts/secret-scan.ts <file>\n');
     return 2;
   }
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = deps.readFile(file);
   } catch (error) {
-    process.stderr.write(`cannot read ${file}: ${(error as Error).message}\n`);
+    deps.err(`cannot read ${file}: ${(error as Error).message}\n`);
     return 2;
   }
-  const found = findSecrets(text, isCommitHere);
-  for (const { line, kind, excerpt } of found) {
-    process.stdout.write(`line ${line}: ${kind} ${excerpt}\n`);
-  }
+  const found = findSecrets(text, deps.isCommit);
+  for (const { line, kind, excerpt } of found) deps.out(`line ${line}: ${kind} ${excerpt}\n`);
   return found.length > 0 ? 1 : 0;
 };
 
 if (import.meta.main) {
-  process.exitCode = main(process.argv[2]);
+  process.exitCode = run(process.argv.slice(2), {
+    readFile: (file) => readFileSync(file, 'utf8'),
+    isCommit: isCommitHere,
+    out: (text) => process.stdout.write(text),
+    err: (text) => process.stderr.write(text),
+  });
 }

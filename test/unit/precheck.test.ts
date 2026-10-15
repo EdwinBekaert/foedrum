@@ -1,54 +1,21 @@
+// The gate's decisions on the hook input, with the check and the process runner injected. The
+// hook command and the real npm run in test/integration/precheck.test.ts (ADR 0021).
+
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { after, before, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import {
   type CheckResult,
   forbiddenReason,
   isGatedCommand,
+  npmCheck,
+  type ProcessOutcome,
   precheck,
+  type RunProcess,
 } from '../../scripts/precheck.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
-const script = join(root, 'scripts', 'precheck.ts');
-const npmStub = join(root, 'test', 'fixtures', 'npm-cli-stub.ts');
-
-interface ProcessResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-// The environment without npm's own variables, so a test controls which npm a child sees.
-const envWithoutNpm = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key))),
-  ...extra,
-});
-
-const run = (
-  file: string,
-  args: string[],
-  stdin: string,
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
-): Promise<ProcessResult> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(file, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-    child.stdin.end(stdin);
-  });
 
 const hookInput = (command: string, cwd = root, tool = 'Bash'): string =>
   JSON.stringify({
@@ -66,9 +33,6 @@ const fakeCheck = (result: CheckResult) => {
   };
   return { calls, runCheck };
 };
-
-const runScript = (stdin: string, env?: NodeJS.ProcessEnv): Promise<ProcessResult> =>
-  run(process.execPath, [script], stdin, env === undefined ? {} : { env });
 
 describe('isGatedCommand', () => {
   const gated = [
@@ -310,116 +274,56 @@ describe('precheck on forbidden commands', () => {
   }
 });
 
-describe('scripts/precheck.ts entry point', () => {
-  it('exits 0 silently for a command that is not gated', async () => {
-    assert.deepEqual(await runScript(hookInput('git status')), { code: 0, stdout: '', stderr: '' });
-  });
+describe('npmCheck', () => {
+  const execPath = '/usr/local/bin/node';
+  const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
 
-  it('exits 0 silently for input that mentions neither git nor gh, even when it is not JSON', async () => {
-    assert.deepEqual(await runScript('not json'), { code: 0, stdout: '', stderr: '' });
-  });
-
-  it('exits 2 with a reason on stderr for unreadable input that mentions git', async () => {
-    const { code, stdout, stderr } = await runScript('not json: git push');
-    assert.equal(code, 2);
-    assert.equal(stdout, '');
-    assert.match(stderr, /hook input/);
-  });
-
-  describe('running npm run check through npm_execpath', () => {
-    const push = hookInput('git push', root);
-    const env = envWithoutNpm({ npm_execpath: npmStub });
-
-    it('blocks the push with exit 2 when npm exits non-zero, passing run check to npm', async () => {
-      const { code, stdout, stderr } = await runScript(push, env);
-      assert.equal(code, 2);
-      assert.equal(stdout, '');
-      assert.match(stderr, /npm run check failed/);
-      assert.match(stderr, /stub npm: run check/);
-    });
-
-    it('keeps multi-byte characters intact when npm output arrives in pieces', async () => {
-      const { stderr } = await runScript(push, env);
-      assert.match(stderr, /café/);
-      assert.doesNotMatch(stderr, /�/);
-    });
-
-    it('blocks the push when npm_execpath is not set', async () => {
-      const { code, stderr } = await runScript(push, envWithoutNpm());
-      assert.equal(code, 2);
-      assert.match(stderr, /npm_execpath is not set/);
-    });
-  });
-});
-
-// Runs the hook command from .claude/settings.json the way Claude Code does: through bash, with
-// CLAUDE_PROJECT_DIR set. npm's own variables are removed so the hook finds npm itself.
-describe('the configured hook command', () => {
-  const hookCommand = (): string => {
-    const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
-    const command = settings.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command;
-    assert.ok(command !== undefined, 'no PreToolUse hook command');
-    return command;
+  // A fake process runner that records each call and answers with the given outcome.
+  const fakeProcess = (outcome: ProcessOutcome) => {
+    const calls: [file: string, args: string[], cwd: string][] = [];
+    const runProcess: RunProcess = async (file, args, cwd) => {
+      calls.push([file, args, cwd]);
+      return outcome;
+    };
+    return { calls, runProcess };
   };
-  const runHook = (projectDir: string, cwd: string, stdin: string): Promise<ProcessResult> =>
-    run('bash', ['-c', hookCommand()], stdin, {
-      cwd,
-      env: envWithoutNpm({ CLAUDE_PROJECT_DIR: projectDir }),
+
+  it('runs npm run check with this node and npm_execpath in the given directory', async () => {
+    const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
+    await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(calls, [[execPath, [npmCli, 'run', 'check'], '/work/tree']]);
+  });
+
+  it('passes when npm exits 0, keeping its output', async () => {
+    const { runProcess } = fakeProcess({ exitCode: 0, output: 'all green\n' });
+    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: true, output: 'all green\n' });
+  });
+
+  it('fails when npm exits non-zero, keeping its output', async () => {
+    const { runProcess } = fakeProcess({ exitCode: 1, output: 'not ok 1 - café\n' });
+    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: false, output: 'not ok 1 - café\n' });
+  });
+
+  it('fails when npm could not start or was killed', async () => {
+    const { runProcess } = fakeProcess({ exitCode: null, output: 'spawn ENOENT' });
+    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: false, output: 'spawn ENOENT' });
+  });
+
+  for (const [name, env] of [
+    ['missing', {}],
+    ['empty', { npm_execpath: '' }],
+  ] as const) {
+    it(`fails without starting a process when npm_execpath is ${name}`, async () => {
+      const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
+      const result = await npmCheck(env, execPath, runProcess)('/work/tree');
+      assert.equal(result.ok, false);
+      assert.match(result.output, /npm_execpath is not set/);
+      assert.deepEqual(calls, []);
     });
-
-  const dirs: TempDir[] = [];
-  const tempDir = (prefix: string, packageJson?: object): string => {
-    const dir = makeTempDir(prefix);
-    dirs.push(dir);
-    if (packageJson !== undefined) {
-      writeFileSync(join(dir.path, 'package.json'), `${JSON.stringify(packageJson)}\n`);
-    }
-    return dir.path;
-  };
-  // A gated push whose check runs in a directory where `npm run check` passes at once, so a
-  // gate that wrongly runs does not recurse into this test suite.
-  let gatedPush = '';
-  before(() => {
-    const safe = tempDir('safe-check', {
-      private: true,
-      scripts: { check: 'node -e ""' },
-    });
-    gatedPush = hookInput('git push', safe);
-  });
-  after(() => {
-    for (const dir of dirs) dir.remove();
-  });
-
-  const gateCouldNotRun =
-    'Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why.';
-
-  it('blocks a git push with exit 2 when the project has no package.json', async () => {
-    const project = tempDir('no-package-json');
-    const { code, stderr } = await runHook(project, project, gatedPush);
-    assert.equal(code, 2);
-    assert.ok(stderr.includes(gateCouldNotRun), `stderr: ${stderr}`);
-  });
-
-  it('blocks a git push with exit 2 when package.json has no hook:gate script', async () => {
-    const project = tempDir('no-hook-gate', { private: true, scripts: {} });
-    const { code, stderr } = await runHook(project, project, gatedPush);
-    assert.equal(code, 2);
-    assert.ok(stderr.includes(gateCouldNotRun), `stderr: ${stderr}`);
-  });
-
-  it("runs the project's gate even when the working directory has another package.json", async () => {
-    const elsewhere = tempDir('other-package', { private: true, scripts: {} });
-    const { code, stderr } = await runHook(root, elsewhere, hookInput('git status', elsewhere));
-    assert.equal(stderr, '');
-    assert.equal(code, 0);
-  });
-
-  it('lets a gated push through when the check passes', async () => {
-    const elsewhere = tempDir('other-package', { private: true, scripts: {} });
-    const { code, stderr } = await runHook(root, elsewhere, gatedPush);
-    assert.equal(stderr, '');
-    assert.equal(code, 0);
-  });
+  }
 });
 
 interface HookHandler {

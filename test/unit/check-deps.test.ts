@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -16,8 +15,6 @@ import {
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
-const script = join(root, 'scripts', 'check-deps.ts');
-
 const registry = 'https://registry.npmjs.org';
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -507,11 +504,14 @@ describe('checkPublishDates', () => {
   });
 });
 
-describe('check-deps CLI', () => {
+// The command without the process: arguments, files read from cwd, injected registry and output.
+// The script itself runs in test/integration/check-deps.test.ts.
+describe('run', () => {
   let dir: TempDir;
   const md =
     '## Admitted packages\n\n| Package |\n|---|\n| `zod` |\n| `typescript` |\n\n' +
     'Package budget (runtime ≤ 2, total ≤ 10).\n';
+  const now = new Date('2026-10-15T12:00:00Z');
 
   const write = (lock: Lockfile): void => {
     writeFileSync(
@@ -520,39 +520,10 @@ describe('check-deps CLI', () => {
     );
   };
 
-  const run = (...args: string[]) =>
-    spawnSync(process.execPath, [script, ...args], { cwd: dir.path, encoding: 'utf8' });
-
-  before(() => {
-    dir = makeTempDir('check-deps');
-    writeFileSync(join(dir.path, 'DEPENDENCIES.md'), md);
-    writeFileSync(join(dir.path, '.npmrc'), 'min-release-age=7\n');
-  });
-  after(() => dir.remove());
-
-  it('exits 0 offline for a lockfile that passes', () => {
-    write(okLock());
-    const result = run('--offline');
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-  });
-
-  it('exits 1 and prints one line per problem', () => {
-    const lock = okLock();
-    lock.packages['node_modules/zod'] = entry('zod', '4.6.5', { hasInstallScript: true });
-    write(lock);
-    const result = run('--offline');
-    assert.equal(result.status, 1);
-    assert.match(result.stdout, /node_modules\/zod.*install script/);
-  });
-
-  it('exits 2 on an unknown argument', () => {
-    write(okLock());
-    assert.equal(run('--online').status, 2);
-  });
-
-  describe('run, with the registry injected', () => {
-    const now = new Date('2026-10-15T12:00:00Z');
-    const youngZod = (async (input: string | URL | Request) => {
+  // A registry where zod was published yesterday and everything else a month ago.
+  const youngZod = (asked: string[]) =>
+    (async (input: string | URL | Request) => {
+      asked.push(String(input));
       const name = decodeURIComponent(String(input).slice(registry.length + 1));
       const published = name === 'zod' ? now.getTime() - DAY : now.getTime() - 30 * DAY;
       return Response.json({
@@ -563,30 +534,67 @@ describe('check-deps CLI', () => {
       });
     }) as typeof fetch;
 
-    const runWith = async (...args: string[]) => {
-      const out: string[] = [];
-      const err: string[] = [];
-      const status = await runCheck(args, {
-        cwd: dir.path,
-        fetch: youngZod,
-        now,
-        out: (line) => out.push(line),
-        err: (line) => err.push(line),
-      });
-      return { status, out: out.join(''), err: err.join('') };
-    };
-
-    it('checks publish dates without --offline', async () => {
-      write(okLock());
-      const result = await runWith();
-      assert.equal(result.status, 1, result.err);
-      assert.match(result.out, /zod@4\.6\.5.*7 days/);
+  const runIn = async (cwd: string, ...args: string[]) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const asked: string[] = [];
+    const status = await runCheck(args, {
+      cwd,
+      fetch: youngZod(asked),
+      now,
+      out: (line) => out.push(line),
+      err: (line) => err.push(line),
     });
+    return { status, out: out.join(''), err: err.join(''), asked };
+  };
+  const runWith = (...args: string[]) => runIn(dir.path, ...args);
 
-    it('skips publish dates with --offline', async () => {
-      write(okLock());
-      const result = await runWith('--offline');
-      assert.equal(result.status, 0, result.out + result.err);
-    });
+  before(() => {
+    dir = makeTempDir('check-deps');
+    writeFileSync(join(dir.path, 'DEPENDENCIES.md'), md);
+    writeFileSync(join(dir.path, '.npmrc'), 'min-release-age=7\n');
+  });
+  after(() => dir.remove());
+
+  it('exits 0 offline for a lockfile that passes, without asking the registry', async () => {
+    write(okLock());
+    assert.deepEqual(await runWith('--offline'), { status: 0, out: '', err: '', asked: [] });
+  });
+
+  it('exits 1 and prints one line per problem', async () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod'] = entry('zod', '4.6.5', { hasInstallScript: true });
+    write(lock);
+    const result = await runWith('--offline');
+    assert.equal(result.status, 1);
+    assert.match(result.out, /^node_modules\/zod.*install script.*\n$/);
+  });
+
+  it('checks publish dates without --offline', async () => {
+    write(okLock());
+    const result = await runWith();
+    assert.equal(result.status, 1, result.err);
+    assert.match(result.out, /zod@4\.6\.5.*7 days/);
+    assert.ok(result.asked.includes(`${registry}/zod`));
+  });
+
+  it('exits 2 with usage on an unknown argument', async () => {
+    write(okLock());
+    const result = await runWith('--online');
+    assert.equal(result.status, 2);
+    assert.match(result.err, /^usage: node scripts\/check-deps\.ts \[--offline\]/);
+    assert.equal(result.out, '');
+  });
+
+  it('exits 2 naming the problem when a file cannot be read', async () => {
+    const empty = makeTempDir('check-deps-empty');
+    try {
+      const result = await runIn(empty.path, '--offline');
+      assert.equal(result.status, 2);
+      assert.match(result.err, /^check-deps: .*package-lock\.json/);
+      assert.equal(result.out, '');
+    } finally {
+      empty.remove();
+    }
   });
 });

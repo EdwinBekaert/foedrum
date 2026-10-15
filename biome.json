@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/package-lock.json", "!schemas"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/package-lock.json",
+      "!schemas",
+      "!test/fixtures/test-layers"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

@@ -145,21 +145,35 @@ export const precheck = async (input: string, runCheck: RunCheck): Promise<HookR
   };
 };
 
-const runNpmCheck: RunCheck = async (cwd) => {
-  const { spawn } = await import('node:child_process');
-  return new Promise((resolve) => {
-    const npmCli = process.env.npm_execpath;
+// The exit code of a finished process (null when it could not start or was killed) and its
+// stdout and stderr together.
+export interface ProcessOutcome {
+  exitCode: number | null;
+  output: string;
+}
+
+export type RunProcess = (file: string, args: string[], cwd: string) => Promise<ProcessOutcome>;
+
+// `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
+// by this node, so the check starts without a shell.
+export const npmCheck =
+  (env: NodeJS.ProcessEnv, execPath: string, runProcess: RunProcess): RunCheck =>
+  async (cwd) => {
+    const npmCli = env.npm_execpath;
     if (npmCli === undefined || npmCli === '') {
-      resolve({
+      return {
         ok: false,
         output: 'npm_execpath is not set: run this hook as `npm run --silent hook:gate`.',
-      });
-      return;
+      };
     }
-    const child = spawn(process.execPath, [npmCli, 'run', 'check'], {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const { exitCode, output } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd);
+    return { ok: exitCode === 0, output };
+  };
+
+const spawnProcess: RunProcess = async (file, args, cwd) => {
+  const { spawn } = await import('node:child_process');
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
     const collect = (chunk: string): void => {
       output += chunk;
@@ -169,8 +183,8 @@ const runNpmCheck: RunCheck = async (cwd) => {
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
-    child.on('error', (error) => resolve({ ok: false, output: error.message }));
-    child.on('close', (code) => resolve({ ok: code === 0, output }));
+    child.on('error', (error) => resolve({ exitCode: null, output: error.message }));
+    child.on('close', (code) => resolve({ exitCode: code, output }));
   });
 };
 
@@ -181,7 +195,8 @@ const readStdin = async (): Promise<string> => {
 };
 
 if (import.meta.main) {
-  const { exitCode, stderr } = await precheck(await readStdin(), runNpmCheck);
+  const runCheck = npmCheck(process.env, process.execPath, spawnProcess);
+  const { exitCode, stderr } = await precheck(await readStdin(), runCheck);
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;
 }
