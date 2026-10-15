@@ -81,6 +81,18 @@ const isCommitHere: IsCommit = (sha) => {
   }
 };
 
+export interface RunDeps {
+  readFile: (file: string) => string;
+  isCommit: IsCommit;
+  out: (text: string) => void;
+  err: (text: string) => void;
+}
+
+// The command without the process: the exit code for these arguments.
+export const run = (_args: string[], _deps: RunDeps): number => {
+  throw new Error('not implemented');
+};
+
 const main = (file: string | undefined): number => {
   if (file === undefined) {
     process.stderr.write('usage: node scripts/secret-scan.ts <file>\n');

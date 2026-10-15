@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { findSecrets, type IsCommit } from '../../scripts/secret-scan.ts';
+import { findSecrets, type IsCommit, run } from '../../scripts/secret-scan.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
@@ -82,6 +82,64 @@ describe('findSecrets', () => {
 
   it('tolerates CRLF line endings', () => {
     assert.equal(findSecrets(`one\r\ntwo\r\n${githubToken}\r\n`, noCommits)[0]?.line, 3);
+  });
+});
+
+describe('run', () => {
+  const runWith = (args: string[], files: Record<string, string>, isCommit = noCommits) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const read: string[] = [];
+    const readFile = (file: string): string => {
+      read.push(file);
+      const text = files[file];
+      if (text === undefined) throw new Error(`ENOENT: no such file, open '${file}'`);
+      return text;
+    };
+    const status = run(args, {
+      readFile,
+      isCommit,
+      out: (text) => out.push(text),
+      err: (text) => err.push(text),
+    });
+    return { status, out: out.join(''), err: err.join(''), read };
+  };
+
+  it('exits 0 silently for a summary without secrets, reading the named file', () => {
+    const result = runWith(['summary.md'], { 'summary.md': '## Review\n\nAll good.\n' });
+    assert.deepEqual(result, { status: 0, out: '', err: '', read: ['summary.md'] });
+  });
+
+  it('exits 0 when the only long hex string is a commit of this repository', () => {
+    const result = runWith(['summary.md'], { 'summary.md': `Base \`${fortyHex}\`\n` }, allCommits);
+    assert.equal(result.status, 0);
+    assert.equal(result.out, '');
+  });
+
+  it('exits 1 and prints one line per secret, naming its line without the secret', () => {
+    const result = runWith(['summary.md'], { 'summary.md': `fine\n${githubToken}\n${apiKey}\n` });
+    assert.equal(result.status, 1);
+    assert.deepEqual(result.out.split('\n'), [
+      'line 2: GitHub token ghp_… (40 characters)',
+      'line 3: API key sk-a… (43 characters)',
+      '',
+    ]);
+    assert.ok(!result.out.includes(githubToken));
+    assert.equal(result.err, '');
+  });
+
+  it('exits 2 with usage on stderr when no file is given', () => {
+    const result = runWith([], {});
+    assert.equal(result.status, 2);
+    assert.match(result.err, /^usage: node scripts\/secret-scan\.ts <file>/);
+    assert.deepEqual(result.read, []);
+  });
+
+  it('exits 2 naming the file when it cannot be read', () => {
+    const result = runWith(['missing.md'], {});
+    assert.equal(result.status, 2);
+    assert.match(result.err, /cannot read missing\.md: ENOENT/);
+    assert.equal(result.out, '');
   });
 });
 
