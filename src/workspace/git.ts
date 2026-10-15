@@ -31,18 +31,24 @@ export type Git = (
  */
 export const gitEnv = (
   env: NodeJS.ProcessEnv,
-  _config: Readonly<Record<string, string>> = {},
+  config: Readonly<Record<string, string>> = {},
 ): NodeJS.ProcessEnv => {
-  // core.longpaths, added after any configuration the environment already gives git: out docs
-  // on the state branch can be deeper than Windows' 260 characters (ADR 0024).
+  // core.longpaths, then the call's own configuration, after any configuration the environment
+  // already gives git: out docs on the state branch can be deeper than Windows' 260 characters
+  // (ADR 0024).
   const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;
+  const entries = [['core.longpaths', 'true'], ...Object.entries(config)];
+  const added: NodeJS.ProcessEnv = {};
+  entries.forEach(([key, value], i) => {
+    added[`GIT_CONFIG_KEY_${count + i}`] = key;
+    added[`GIT_CONFIG_VALUE_${count + i}`] = value;
+  });
   return {
     ...env,
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'never',
-    GIT_CONFIG_COUNT: String(count + 1),
-    [`GIT_CONFIG_KEY_${count}`]: 'core.longpaths',
-    [`GIT_CONFIG_VALUE_${count}`]: 'true',
+    GIT_CONFIG_COUNT: String(count + entries.length),
+    ...added,
   };
 };
 
@@ -50,7 +56,7 @@ export const gitEnv = (
  * The real git. The timeout is a hard deadline: it kills git and every process git started (a
  * credential helper, ssh, gpg) and answers at once, without waiting for their output to close.
  */
-export const runGit: Git = (cwd, args, { timeoutMs = 60_000 } = {}) =>
+export const runGit: Git = (cwd, args, { timeoutMs = 60_000, config } = {}) =>
   new Promise((done) => {
     let stdout = '';
     let stderr = '';
@@ -65,7 +71,7 @@ export const runGit: Git = (cwd, args, { timeoutMs = 60_000 } = {}) =>
     // only once every output pipe closes, which a surviving child of git can hold off forever.
     const child = spawn('git', [...args], {
       cwd,
-      env: gitEnv(process.env),
+      env: gitEnv(process.env, config),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       ...killableSpawnOptions(),

@@ -91,9 +91,24 @@ const why = ({ code, stderr }: { code: number | null; stderr: string }): string 
   firstLine(stderr) || (code === null ? 'git did not finish in time' : `git exited with ${code}`);
 
 export const openStateBranch = (options: StateBranchOptions): StateBranch => {
-  const { store, git, clone, worktree, remote = 'origin', branch = 'foedrum/state' } = options;
+  const { store, clone, worktree, remote = 'origin', branch = 'foedrum/state' } = options;
   const ref = `refs/heads/${branch}`;
   const remoteBranch = `${remote}/${branch}`;
+  // --no-verify skips pre-commit and pre-push only. Every call gets core.hooksPath at an empty
+  // folder Foedrum owns, next to the worktree, so no hook of the clone runs (ADR 0024).
+  const hooks = join(dirname(worktree), 'no-hooks');
+  const git: Git = (cwd, args, gitOptions) =>
+    options.git(cwd, args, {
+      ...gitOptions,
+      config: { ...gitOptions?.config, 'core.hooksPath': hooks },
+    });
+  const emptyHooks = async (): Promise<void> => {
+    await mkdir(hooks, { recursive: true });
+    const found = await readdir(hooks);
+    if (found.length > 0) {
+      throw new Error(`The hooks folder ${hooks} must stay empty, but holds ${found.join(', ')}`);
+    }
+  };
 
   const must = async (cwd: string, args: string[], gitOptions?: GitOptions): Promise<string> => {
     const result = await git(cwd, args, gitOptions);
@@ -305,6 +320,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
 
   return {
     start: async () => {
+      await emptyHooks();
       const remoteSha = await remoteHead(clone);
       if (remoteSha !== undefined) {
         await must(clone, ['fetch', '--no-tags', remote, `+${ref}:refs/remotes/${remoteBranch}`]);
