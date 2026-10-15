@@ -1,0 +1,20 @@
+From eac8a5a274ccde232ee3c681cc1c20134ec037a7 Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 11:26:15 +0200
+Subject: [PATCH 8/8] Check Brewery names
+
+---
+ src/workspace/brewery-name.ts | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/workspace/brewery-name.ts b/src/workspace/brewery-name.ts
+index 5409778..ef5e698 100644
+--- a/src/workspace/brewery-name.ts
++++ b/src/workspace/brewery-name.ts
+@@ -1 +1,2 @@
+-export const isBreweryName = (_name: string): boolean => false;
++/** Whether a Brewery name is safe to use as a directory name: lower-case letters, digits and dashes. */
++export const isBreweryName = (name: string): boolean => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
+-- 
+2.56.0.windows.2
+
