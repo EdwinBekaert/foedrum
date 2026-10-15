@@ -1,8 +1,9 @@
 // Decides what the worktree cleanup removes, from facts gathered by the shell (ADR 0021).
 
 // clean or dirty: the folder is a worktree; no-git: the folder is there without its .git
-// file; gone: only the record under .git/worktrees/ is left.
-export type FolderState = 'clean' | 'dirty' | 'no-git' | 'gone';
+// file; gone: only the record under .git/worktrees/ is left; unchecked: outside
+// .claude/worktrees/, so never looked at.
+export type FolderState = 'clean' | 'dirty' | 'no-git' | 'gone' | 'unchecked';
 
 export interface WorktreeFact {
   path: string;
@@ -106,6 +107,8 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
     } else if (state === 'clean') {
       const unlock = worktree.lockReason !== undefined;
       actions.push({ kind: 'remove', label, path, record, unlock, branch });
+    } else {
+      kept.push(`kept worktree ${label}: no record under .git/worktrees/ points at it`);
     }
   }
 

@@ -9,6 +9,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
+import { isPidAlive } from '../src/platform/processes.ts';
 import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
 import {
   type Action,
@@ -26,13 +27,13 @@ interface GitResult {
 }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>;
 
-// git never prompts: not in the terminal, not through Git Credential Manager's window, not for
-// an ssh passphrase. A credential that is missing makes the fetch fail instead.
+// git never prompts, in the terminal or through Git Credential Manager's window; a missing
+// credential makes the fetch fail instead. The user's ssh choice (GIT_SSH, core.sshCommand)
+// stays: the hook runs without a terminal, so ssh cannot prompt either.
 export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
   ...env,
   GIT_TERMINAL_PROMPT: '0',
   GCM_INTERACTIVE: 'never',
-  GIT_SSH_COMMAND: env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
 });
 
 const runGit: Git = (cwd, args) =>
@@ -51,16 +52,6 @@ const succeed = async (result: Promise<GitResult>, what = ''): Promise<string> =
   const { ok, stdout, stderr } = await result;
   if (!ok) throw new Error(`${what && `git ${what} failed: `}${lines(stderr)[0] ?? 'git failed'}`);
   return stdout;
-};
-
-const isPidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM: the process exists but belongs to someone else.
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
 };
 
 const mainCheckoutOf = async (git: Git, cwd: string): Promise<string | undefined> => {
@@ -104,15 +95,16 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
   for (const { path, branch, lockReason } of parseWorktreeList(listed)) {
     const inside = pathInside(root, path);
     const record = records.find(({ folder }) => samePath(folder, path))?.dir;
-    const state = inside === undefined ? 'dirty' : await folderState(git, path);
+    const state = inside === undefined ? 'unchecked' : await folderState(git, path);
     worktrees.push({ path, inside, branch, lockReason, state, record });
   }
-  const fields = '%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)';
+  // lstrip=2, not :short, which git disambiguates (heads/<name> next to a tag of that name).
+  const fields = '%(refname:lstrip=2)%00%(objectname)%00%(upstream:lstrip=2)%00%(upstream:track)';
   const heads = await succeed(
     git(main, ['for-each-ref', `--format=${fields}`, 'refs/heads']),
     'for-each-ref',
   );
-  const mergedArgs = ['for-each-ref', '--format=%(refname:short)', '--merged=origin/main'];
+  const mergedArgs = ['for-each-ref', '--format=%(refname:lstrip=2)', '--merged=origin/main'];
   const merged = new Set(
     lines(await succeed(git(main, [...mergedArgs, 'refs/heads']), 'for-each-ref')),
   );
@@ -143,7 +135,15 @@ const carryOut = async (
         if (path !== undefined) await clearReadOnly(path).catch(() => undefined);
       }
       if (action.unlock) await git(main, ['worktree', 'unlock', action.path]);
-      await succeed(git(main, ['worktree', 'remove', action.path]));
+      try {
+        await succeed(git(main, ['worktree', 'remove', action.path]));
+      } catch (error) {
+        // git deletes the .git file and the record even when it fails on a busy file, and no
+        // later run would see the folder again; with the .git file still there, it refused.
+        if (existsSync(join(action.path, '.git'))) throw error;
+        await removeTree(action.path);
+        if (action.record !== undefined) await removeTree(action.record);
+      }
       return `removed worktree ${action.label}`;
     case 'finish':
       await removeTree(action.path);
