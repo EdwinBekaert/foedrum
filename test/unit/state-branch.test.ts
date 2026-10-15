@@ -329,6 +329,15 @@ describe('planFlush', () => {
     stops(() => planFlush(current, [stored(2, started('b1'))], 1), /event 5/);
   });
 
+  it('checks every file it is given, also those the pending events do not go to', () => {
+    // A worktree made from another engine's branch: its event 2 went to batch b2.
+    const current = new Map([
+      [b1, line(1, ordered('b1'))],
+      [b2, line(2, ordered('b2'))],
+    ]);
+    stops(() => planFlush(current, [stored(2, scheduled('b1'))], 1), /event 2/);
+  });
+
   it('plans nothing without pending events', () => {
     assert.deepEqual(planFlush(new Map(), [], 3), []);
   });
