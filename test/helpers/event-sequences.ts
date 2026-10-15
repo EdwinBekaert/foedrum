@@ -73,6 +73,8 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
   const random = seededRandom(seed);
   const batches: SimBatch[] = [];
   const subOrders: { issue: number; parentBatchId: string }[] = [];
+  /** The latest breakdown of each order, by its issue. */
+  const breakdowns = new Map<number, { issue: number; repo: string }[]>();
   let nextIssue = 100;
   let nextId = 1;
   let tick = 0;
@@ -251,14 +253,22 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
       const candidates = batches.filter((batch) => batch.open && !batch.subOrder);
       if (candidates.length === 0) return undefined;
       const batch = random.pick(candidates);
-      const issues = Array.from({ length: random.int(3) + 1 }, () => nextIssue++);
-      for (const issue of issues) subOrders.push({ issue, parentBatchId: batch.id });
-      // Sometimes every sub-order targets one repository, with or without dependencies.
+      // Sometimes every new sub-order targets one repository, with or without dependencies.
       const sameRepo = random.chance(0.3) ? random.pick(repos) : undefined;
+      const fresh = Array.from({ length: random.int(3) + 1 }, () => ({
+        issue: nextIssue++,
+        repo: sameRepo ?? random.pick(repos),
+      }));
+      for (const { issue } of fresh) subOrders.push({ issue, parentBatchId: batch.id });
+      // A new breakdown keeps some sub-orders of the last one; the others are cancelled.
+      const kept = (breakdowns.get(batch.issue) ?? []).filter(() => random.chance(0.5));
+      const breakdown = [...kept, ...fresh];
+      breakdowns.set(batch.issue, breakdown);
+      const issues = breakdown.map((subOrder) => subOrder.issue);
       return {
         type: 'order.decomposed',
         batchId: batch.id,
-        subOrders: issues.map((issue) => ({ issue, repo: sameRepo ?? random.pick(repos) })),
+        subOrders: breakdown,
         // Only on earlier sub-orders, so the breakdown never has a cycle.
         dependencies: issues.flatMap((subOrder, i) =>
           issues

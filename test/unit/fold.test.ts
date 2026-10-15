@@ -210,13 +210,13 @@ describe('fold', () => {
     assert.deepStrictEqual(
       state.subOrders,
       new Map([
-        [101, { issue: 101, repo: 'acme/lib-core', order: 100, batchIds: [] }],
-        [102, { issue: 102, repo: 'acme/api', order: 100, batchIds: [] }],
+        [101, { issue: 101, repo: 'acme/lib-core', order: 100, batchIds: [], cancelled: false }],
+        [102, { issue: 102, repo: 'acme/api', order: 100, batchIds: [], cancelled: false }],
       ]),
     );
   });
 
-  it('replaces an earlier breakdown of the same order', () => {
+  it('replaces an earlier breakdown, and cancels the sub-orders it leaves out', () => {
     const decomposed = (subOrders: { issue: number; repo: string }[]): Event => ({
       type: 'order.decomposed',
       batchId: 'b1',
@@ -234,8 +234,33 @@ describe('fold', () => {
     assert.deepStrictEqual(state.orders.get(100)?.subOrders, [102]);
     assert.deepStrictEqual(
       state.subOrders,
-      new Map([[102, { issue: 102, repo: 'acme/web', order: 100, batchIds: [] }]]),
+      new Map([
+        [101, { issue: 101, repo: 'acme/lib-core', order: 100, batchIds: [], cancelled: true }],
+        [102, { issue: 102, repo: 'acme/web', order: 100, batchIds: [], cancelled: false }],
+      ]),
     );
+  });
+
+  it('keeps the batches of a cancelled sub-order, and a later breakdown can list it again', () => {
+    const decomposed = (issues: number[]): Event => ({
+      type: 'order.decomposed',
+      batchId: 'b1',
+      subOrders: issues.map((issue) => ({ issue, repo: 'acme/api' })),
+      dependencies: [],
+    });
+    const cancelled = fold([
+      ordered,
+      decomposed([101, 102]),
+      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      decomposed([102]),
+    ]);
+    const subOrder = { issue: 101, repo: 'acme/api', order: 100, batchIds: ['b2'] };
+    assert.deepStrictEqual(cancelled.subOrders.get(101), { ...subOrder, cancelled: true });
+    assert.deepStrictEqual(cancelled.orders.get(100)?.subOrders, [102]);
+
+    const listedAgain = fold([decomposed([101, 102])], cancelled);
+    assert.deepStrictEqual(listedAgain.subOrders.get(101), { ...subOrder, cancelled: false });
+    assert.deepStrictEqual(listedAgain.orders.get(100)?.subOrders, [101, 102]);
   });
 
   it('lists the batches of a sub-order on the sub-order, not as an order', () => {
@@ -255,6 +280,7 @@ describe('fold', () => {
       repo: 'acme/api',
       order: 100,
       batchIds: ['b2'],
+      cancelled: false,
     });
   });
 
@@ -276,6 +302,7 @@ describe('fold', () => {
       repo: 'acme/web',
       order: 100,
       batchIds: ['b2'],
+      cancelled: false,
     });
   });
 
@@ -512,13 +539,83 @@ describe('fold of an inconsistent log', () => {
       ],
       /effect b1:plan:1:pr was already applied/,
     ],
+    [
+      'a breakdown of a sub-order',
+      [
+        ordered,
+        {
+          type: 'order.decomposed',
+          batchId: 'b1',
+          subOrders: [{ issue: 101, repo: 'acme/api' }],
+          dependencies: [],
+        },
+        { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+        {
+          type: 'order.decomposed',
+          batchId: 'b2',
+          subOrders: [{ issue: 300, repo: 'acme/api' }],
+          dependencies: [],
+        },
+      ],
+      /batch b2 brews sub-order 101; only an order can be decomposed/,
+    ],
+    [
+      'an order listed as a sub-order of another order',
+      [
+        ordered,
+        { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+        {
+          type: 'order.decomposed',
+          batchId: 'b1',
+          subOrders: [{ issue: 200, repo: 'acme/api' }],
+          dependencies: [],
+        },
+      ],
+      /issue 200 is an order, so it cannot be a sub-order/,
+    ],
+    [
+      'an order listed as its own sub-order',
+      [
+        ordered,
+        {
+          type: 'order.decomposed',
+          batchId: 'b1',
+          subOrders: [{ issue: 100, repo: 'acme/api' }],
+          dependencies: [],
+        },
+      ],
+      /issue 100 is an order, so it cannot be a sub-order/,
+    ],
   ];
 
   for (const [name, events, message] of cases) {
     it(`throws on ${name}`, () => {
-      assert.throws(() => fold(events), message);
+      assert.throws(() => fold(events), {
+        name: 'InvalidLogError',
+        index: events.length - 1,
+        eventType: events.at(-1)?.type,
+        message,
+      });
     });
   }
+
+  it('names the index, type and reason of the event that broke the log', () => {
+    assert.throws(() => fold([ordered, scheduled, scheduled]), {
+      name: 'InvalidLogError',
+      index: 2,
+      eventType: 'step.scheduled',
+      reason: 'attempt plan#1 of batch b1 was already scheduled',
+      message:
+        'Invalid event log at event 2 (step.scheduled): attempt plan#1 of batch b1 was already scheduled',
+    });
+  });
+
+  it('counts the index from the first event it folds when it continues from a state', () => {
+    assert.throws(() => fold([scheduled, scheduled], fold([ordered])), {
+      name: 'InvalidLogError',
+      index: 1,
+    });
+  });
 
   const batchEvents: Event[] = [
     { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'router' },
@@ -558,7 +655,12 @@ describe('fold of an inconsistent log', () => {
   ];
   for (const event of batchEvents) {
     it(`throws on ${event.type} for a batch that was never ordered`, () => {
-      assert.throws(() => fold([event]), /batch b1 was never ordered/);
+      assert.throws(() => fold([event]), {
+        name: 'InvalidLogError',
+        index: 0,
+        eventType: event.type,
+        message: /batch b1 was never ordered/,
+      });
     });
   }
 });

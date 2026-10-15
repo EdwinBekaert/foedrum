@@ -76,4 +76,14 @@ describe('fold state', () => {
       assert.deepStrictEqual(both, []);
     });
   });
+
+  it('lists every batch on exactly one order or sub-order', () => {
+    forEachSeed((seed) => {
+      const state = fold(generateEvents(seed));
+      const listed = [...state.orders.values(), ...state.subOrders.values()]
+        .flatMap((issue) => issue.batchIds)
+        .sort();
+      assert.deepStrictEqual(listed, [...state.batches.keys()].sort());
+    });
+  });
 });
