@@ -149,7 +149,7 @@ describe('planClean', () => {
     });
   });
 
-  it('takes the branch of an unknown batch worktree along: checked out in the attempts root, it is ours', () => {
+  it('removes the clean worktree of an unknown batch but keeps its branch: its commits may be the only copy', () => {
     const worktree = listed(ended);
 
     const plan = planClean(facts([worktree]), claims({}), root);
@@ -159,8 +159,12 @@ describe('planClean', () => {
       label: '12-1/implement/1',
       path: worktree.path,
       record: worktree.record,
-      branch: branchOf(ended),
+      branch: undefined,
     });
+    assert.ok(!plan.actions.some((action) => action.kind === 'delete-branch'));
+    assert.deepEqual(plan.kept, [
+      'kept branch foedrum/12-1/implement/1: no batch 12-1 in this Brewery',
+    ]);
   });
 
   it('removes a folder git does not know of a batch the state does not know', () => {

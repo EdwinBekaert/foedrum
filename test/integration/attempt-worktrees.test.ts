@@ -141,9 +141,13 @@ describe('attempt worktrees with real git', () => {
     assert.deepEqual(report.failed, []);
     assert.equal(existsSync(halfRemoved.path), false);
     assert.equal(existsSync(unrecorded.path), false);
-    // What the state records is not lost.
+    // What the state records is not lost, and neither are the commits of the batch it does
+    // not know: that branch stays and is reported.
     assert.ok(existsSync(join(kept.path, 'work.txt')));
-    assert.deepEqual(foedrumBranches(), [kept.branch]);
+    assert.deepEqual(foedrumBranches().sort(), [kept.branch, unrecorded.branch].sort());
+    assert.ok(
+      report.kept.includes(`kept branch ${unrecorded.branch}: no batch 14-1 in this Brewery`),
+    );
     assert.equal(records().length, 1);
   });
 
