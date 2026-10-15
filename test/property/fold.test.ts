@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomInt } from 'node:crypto';
 import { describe, it } from 'node:test';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { Event } from '../../src/schemas/events.ts';
 import { generateEvents } from '../helpers/event-sequences.ts';
@@ -33,6 +34,24 @@ describe('generated event sequences', () => {
     forEachSeed((seed) => {
       for (const event of generateEvents(seed)) Event.parse(event);
     });
+  });
+
+  it('apply effects only to attempts scheduled earlier in the sequence', () => {
+    let effects = 0;
+    forEachSeed((seed) => {
+      const scheduled = new Set<string>();
+      for (const event of generateEvents(seed)) {
+        if (event.type === 'step.scheduled') {
+          scheduled.add(JSON.stringify([event.batchId, event.stepId, event.attempt]));
+        }
+        if (event.type === 'effect.applied') {
+          const { batchId, stepId, attempt } = effectKey.decode(event.key);
+          assert.ok(scheduled.has(JSON.stringify([batchId, stepId, attempt])), event.key);
+          effects++;
+        }
+      }
+    });
+    assert.ok(effects > 0, 'some sequence applies an effect');
   });
 
   it('are the same for the same seed', () => {
