@@ -174,6 +174,27 @@ describe('planClean', () => {
     );
   });
 
+  it('keeps a locked stale record below an attempt folder: its drive may only be away', () => {
+    const stale = listed(ref('12-1', 'c'), {
+      path: join(root, '12-1', 'c', '1', 'sub'),
+      inside: '12-1/c/1/sub',
+      branch: undefined,
+      state: 'gone',
+      lockReason: 'on a removable drive',
+    });
+
+    const plan = planClean(
+      { worktrees: [stale], branches: [], folders: [] },
+      claims({ '12-1': 'ended' }),
+      root,
+    );
+
+    assert.deepEqual(plan, {
+      actions: [],
+      kept: ['kept worktree 12-1/c/1/sub: locked: on a removable drive'],
+    });
+  });
+
   it('keeps a stale record below an attempt folder of a live batch', () => {
     const stale = listed(ref('12-1', 'c'), {
       path: join(root, '12-1', 'c', '1', 'sub'),

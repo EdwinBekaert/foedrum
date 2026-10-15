@@ -16,7 +16,7 @@ import {
   ensureManagedClone,
   openAttemptWorktrees,
 } from '../../src/workspace/attempt-worktrees-git.ts';
-import type { Git, GitResult } from '../../src/workspace/git.ts';
+import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 type Call = [cwd: string, ...args: string[]];
@@ -108,7 +108,7 @@ describe('openAttemptWorktrees with a fake git', () => {
         [clone, 'rev-parse', '--verify', '--quiet', '--end-of-options', 'origin/main^{commit}'],
         [clone, 'worktree', 'list', '--porcelain', '-z'],
         [clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
-        [clone, 'worktree', 'add', '-b', branch, path, BASE],
+        [clone, 'worktree', 'add', '-b', branch, '--', path, BASE],
       ]);
     });
 
@@ -150,6 +150,32 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.ok((deadlines.get('worktree add') ?? 0) >= 300_000);
     });
 
+    it('fetches one at a time when attempts start together: git locks the refs it updates', async () => {
+      let running = 0;
+      let most = 0;
+      const git: Git = async (_cwd, args) => {
+        if (args[0] === 'fetch') {
+          running += 1;
+          most = Math.max(most, running);
+          await new Promise((resolve) => setImmediate(resolve));
+          running -= 1;
+          return ok();
+        }
+        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse') return { code: 1, stdout: '', stderr: '' };
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return ok();
+      };
+      const worktrees = open(git);
+
+      await Promise.all([
+        worktrees.create(attempt, 'origin/main'),
+        worktrees.create({ ...attempt, stepId: 'review' }, 'origin/main'),
+      ]);
+
+      assert.equal(most, 1);
+    });
+
     it('refuses an attempt id that is no path segment before running git', async () => {
       const { calls, git } = fakeGit();
       await assert.rejects(open(git).create({ ...attempt, batchId: '../x' }, BASE), /attempt/i);
@@ -169,8 +195,24 @@ describe('openAttemptWorktrees with a fake git', () => {
       const worktree = await open(git).recreate(attempt, BASE);
 
       assert.deepEqual(worktree, { path, branch, commit: TIP });
-      assert.deepEqual(calls.at(-1), [clone, 'worktree', 'add', path, branch]);
+      assert.deepEqual(calls.at(-1), [clone, 'worktree', 'add', '--', path, branch]);
       assert.ok(!calls.some(([, ...args]) => args[0] === 'fetch'));
+    });
+
+    it('refuses a recorded commit that is no commit, before adding anything', async () => {
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return { code: 1, stdout: '', stderr: '' };
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+
+      await assert.rejects(open(git).recreate(attempt, '--orphan'), /--orphan/);
+      assert.ok(
+        calls.some(
+          (call) => call.includes('--end-of-options') && call.includes('--orphan^{commit}'),
+        ),
+      );
+      assert.ok(!calls.some(([, ...args]) => args[0] === 'worktree' && args[1] === 'add'));
     });
 
     it('gives back the worktree that is there', async () => {
@@ -178,7 +220,7 @@ describe('openAttemptWorktrees with a fake git', () => {
       const { calls, git } = fakeGit((_cwd, args) => {
         if (args[0] === 'rev-parse') return ok(`${TIP}\n`);
         if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
-        if (args[0] === 'status') return ok(' M file.txt\n');
+        if (args.includes('status')) return ok(' M file.txt\n');
         return undefined;
       });
 
@@ -193,6 +235,7 @@ describe('openAttemptWorktrees with a fake git', () => {
       let recordAtAdd: boolean | undefined;
       const { git } = fakeGit((_cwd, args) => {
         if (args.includes('--git-common-dir')) return ok(`${join(clone, '.git')}\n`);
+        if (args.includes(`${BASE}^{commit}`)) return ok(`${BASE}\n`);
         if (args[0] === 'rev-parse') return { code: 1, stdout: '', stderr: '' };
         if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
         if (args[0] === 'worktree' && args[1] === 'add') recordAtAdd = existsSync(record);
@@ -234,7 +277,14 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.deepEqual(calls, [
         [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
         [clone, 'worktree', 'list', '--porcelain', '-z'],
-        [path, 'status', '--porcelain'],
+        // Against the record, never the repository the folder's own .git file names.
+        [
+          clone,
+          `--git-dir=${join(clone, '.git', 'worktrees', 'implement1')}`,
+          `--work-tree=${path}`,
+          'status',
+          '--porcelain',
+        ],
         [
           clone,
           'for-each-ref',
@@ -272,6 +322,46 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.deepEqual(report.failed, ['could not clean 12-1/implement/1: fatal: busy']);
       assert.ok(!calls.some(([, ...args]) => args[0] === 'update-ref'));
       assert.ok(existsSync(join(root, '12-1')));
+    });
+
+    it('never runs git by a .git file that names another repository, and keeps that folder', async () => {
+      // A brewer can write its worktree's .git file; git would then read that repository's
+      // configuration, core.fsmonitor included, and run what it names.
+      worktreeOnDisk(path, 'implement1');
+      writeFileSync(join(path, '.git'), 'gitdir: ./forged\n');
+      let statusCalls = 0;
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
+        if (args.includes('status')) statusCalls += 1;
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.deepEqual(report.kept, [
+        'kept worktree 12-1/implement/1: its .git file does not point at its record under the clone',
+      ]);
+      assert.deepEqual(report.done, []);
+      assert.equal(statusCalls, 0);
+    });
+
+    it('runs status with core.fsmonitor off', async () => {
+      worktreeOnDisk(path, 'implement1');
+      const statusOptions: (GitOptions | undefined)[] = [];
+      const git: Git = async (_cwd, args, options) => {
+        if (args.includes('status')) statusOptions.push(options);
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
+        return ok();
+      };
+
+      await open(git).clean({ batches: new Map([['12-1', 'live' as const]]), leased: [] });
+
+      assert.deepEqual(
+        statusOptions.map((options) => options?.config?.['core.fsmonitor']),
+        ['false'],
+      );
     });
 
     it('goes on after an item it could not remove, and reports each failure', async () => {
@@ -335,7 +425,7 @@ describe('openAttemptWorktrees with a fake git', () => {
         if (args[0] === 'worktree' && args[1] === 'list') {
           return ok(porcelain([{ path: realPath, branch }]));
         }
-        if (args[0] === 'status') return ok('?? work.txt\n');
+        if (args.includes('status')) return ok('?? work.txt\n');
         return undefined;
       });
 
@@ -348,7 +438,7 @@ describe('openAttemptWorktrees with a fake git', () => {
         failed: [],
       });
       assert.ok(existsSync(join(realPath, 'work.txt')));
-      assert.ok(calls.some(([cwd, ...args]) => cwd === realPath && args[0] === 'status'));
+      assert.ok(calls.some((call) => call.includes(`--work-tree=${realPath}`)));
     });
 
     it('removes a stale index.lock of a live batch worktree no attempt runs in', async () => {
@@ -468,6 +558,17 @@ describe('ensureManagedClone with a fake git', () => {
         return true;
       },
     );
+  });
+
+  it('refuses a clone URL with credentials: they would be in the process list and the config', async () => {
+    const { calls, git } = fakeGit();
+    const url = 'https://user:s3cret-token@github.com/acme/app.git';
+
+    await assert.rejects(
+      ensureManagedClone({ git, workRoot: dir.path, repo: 'acme/app', url }),
+      /credential/,
+    );
+    assert.deepEqual(calls, []);
   });
 
   it('retries moving the clone into place while Windows holds a file in it', async () => {
