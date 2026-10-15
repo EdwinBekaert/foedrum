@@ -1,6 +1,6 @@
 # 0011. State in the Brewery repository
 
-Date: 2026-10-13 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md)
+Date: 2026-10-13 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md) · Amended by [0024](0024-state-branch-layout-outbox-and-divergence.md)
 
 ## Context
 [0002](0002-event-sourced-engine-on-node-sqlite.md) puts the event log in a local SQLite file. If that machine is lost, so is every batch's history. The Brewery is already a git repository: versioned, pushed, reviewable. Users want no state loss and the ability to go back to an earlier point in a batch.

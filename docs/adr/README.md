@@ -14,7 +14,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0008](0008-polling-intake.md) | Polling intake | Accepted |
 | [0009](0009-agpl-and-cla.md) | AGPL-3.0 with a Contributor License Agreement | Accepted |
 | [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted |
-| [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted |
+| [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted, amended by 0024 |
 | [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted |
 | [0013](0013-single-repo-sub-orders-bottles-and-releases.md) | Single-repository sub-orders, bottles and release dependencies | Accepted |
 | [0014](0014-interactive-refinement-plugin.md) | Interactive refinement through a Claude Code plugin | Accepted, generalised by 0019 |
@@ -27,6 +27,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0021](0021-unit-tests-spawn-no-processes.md) | Unit tests start no processes | Accepted |
 | [0022](0022-five-default-lenses.md) | Five default lenses: test design joins the four (amends 0017) | Accepted |
 | [0023](0023-language-independent-recipes.md) | Default recipes are language-independent | Accepted |
+| [0024](0024-state-branch-layout-outbox-and-divergence.md) | The state branch: layout, outbox and divergence (amends 0011) | Accepted |
 
 ## Template
 
