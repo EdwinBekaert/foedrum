@@ -13,6 +13,7 @@ import {
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
+import type { BlockerKind } from '../../src/schemas/out-doc.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 
 export type Behaviour =
@@ -73,6 +74,8 @@ export const behave = {
     settle(undefined, { exit: { kind: 'stopped' }, turns }),
   needInput: (questions: readonly Question[] = [question]): Behaviour =>
     settle(outDoc({ status: 'needs_input', summary: 'Needs a decision', questions })),
+  blocked: (blockerKind: BlockerKind, summary = 'Blocked'): Behaviour =>
+    settle(outDoc({ status: 'blocked', summary, blockerKind })),
   /** The runner stopped the brewer when its permission denials reached `maxDenials`. */
   denialStorm: (tools: readonly string[]): Behaviour => {
     const denials = tools.reduce(noteDenial, { denials: 0, deniedTools: [] });
@@ -87,11 +90,20 @@ export interface FakeBrewerRunner extends BrewerRunner {
   readonly stopped: string[];
 }
 
-/** A runner whose attempts at each step play `scripts[stepId]` in turn. */
+/**
+ * A runner whose attempts at each step play `scripts[stepId]` in turn, or what `scripts` returns
+ * for the attempt when it is a function.
+ */
 export const fakeBrewerRunner = (
-  scripts: Readonly<Record<string, readonly Behaviour[]>>,
+  scripts:
+    | Readonly<Record<string, readonly Behaviour[]>>
+    | ((attempt: AttemptStart) => Behaviour | undefined),
 ): FakeBrewerRunner => {
-  const queues = new Map(Object.entries(scripts).map(([stepId, list]) => [stepId, [...list]]));
+  const queues = new Map(
+    typeof scripts === 'function'
+      ? []
+      : Object.entries(scripts).map(([stepId, list]) => [stepId, [...list]]),
+  );
   const running = new Map<string, AttemptProgress>();
   const started: AttemptStart[] = [];
   const stopped: string[] = [];
@@ -99,7 +111,8 @@ export const fakeBrewerRunner = (
   const start = (attempt: AttemptStart): RunningAttempt => {
     started.push(attempt);
     const key = attemptKey.encode(attempt.ref);
-    const behaviour = queues.get(attempt.ref.stepId)?.shift();
+    const behaviour =
+      typeof scripts === 'function' ? scripts(attempt) : queues.get(attempt.ref.stepId)?.shift();
     if (behaviour === undefined) throw new Error(`No behaviour scripted for ${key}`);
     const end = (facts: AttemptFacts): AttemptEnd => ({
       ending: settleAttempt(facts, attempt.limits),

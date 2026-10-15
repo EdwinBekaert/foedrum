@@ -13,6 +13,7 @@ import type {
   WaitCondition,
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
+import { effectKey } from './effect-key.ts';
 
 /** Where a batch is: the board lanes (architecture §4.3), plus cancelled. */
 export type Lane =
@@ -155,9 +156,9 @@ export class InvalidLogError extends Error {
 /**
  * Folds `events` onto `state`; `fold(rest, fold(prefix))` equals `fold([...prefix, ...rest])`.
  * Throws an InvalidLogError when an event refers to a batch, step or attempt the log never
- * created, repeats one or takes an attempt out of order, opens a bottle or applies an effect
- * twice, decomposes a sub-order, makes an order a sub-order, or moves a sub-order to another
- * order.
+ * created (an applied effect, to the attempt its key names), repeats one or takes an attempt out
+ * of order, opens a bottle or applies an effect twice, decomposes a sub-order, makes an order a
+ * sub-order, or moves a sub-order to another order.
  */
 export function fold(events: readonly Event[], state: State = emptyState): State {
   return events.reduce((current, event, index) => {
@@ -345,12 +346,17 @@ function apply(state: State, event: Event): State {
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
-    case 'effect.applied':
-      // Invariant I4: an effect is applied at most once.
+    case 'effect.applied': {
+      // Invariant I4: an effect is keyed by an attempt of the log, and applied at most once.
+      const key = effectKey.decode(event.key);
+      if (!batchOf(state, key.batchId).steps.get(key.stepId)?.attempts.has(key.attempt)) {
+        throw attemptError(key, 'was never scheduled');
+      }
       if (state.effects.has(event.key)) {
         throw reject(`effect ${event.key} was already applied`);
       }
       return { ...state, effects: put(state.effects, event.key, event.result) };
+    }
     default:
       return unreachable(event);
   }

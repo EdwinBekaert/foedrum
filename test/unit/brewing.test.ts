@@ -216,6 +216,19 @@ describe('brewing with the fake brewer runner', () => {
       });
       assert.equal(runner.stopped.length, 1);
     });
+
+    it('until its deadline, then a retry: only the new attempt holds a lease (I2)', async () => {
+      const { brewing } = await brew({ plan: [behave.hang(progress), behave.hang(progress)] });
+      now = at(60);
+      await brewing.tick();
+      assert.ok(brewing.command({ kind: 'retry', batchId: 'b1', by: 'octocat', via: 'terminal' }));
+      await brewing.drive();
+      // The stopped attempt's finish was refused, and its lease went with it.
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 2 })],
+      );
+    });
   });
 
   describe('crashes mid-step', () => {

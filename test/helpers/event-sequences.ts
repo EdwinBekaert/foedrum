@@ -1,11 +1,18 @@
 // A seeded generator of valid event sequences for property tests (architecture §9).
 // The same seed always gives the same events, so a failing seed can be replayed.
 
+import { nonTerminal } from '../../src/engine/admit.ts';
+import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
+import { nextBatchId } from '../../src/engine/batch-id.ts';
+import type { Command, RecordedEvent } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import type { Batch, Lane, State } from '../../src/engine/fold.ts';
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
+import type { BlockerKind } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
+import type { FakeRecipe } from './fake-recipes.ts';
 
-interface Random {
+export interface Random {
   /** An integer in [0, max). */
   int: (max: number) => number;
   pick: <T>(items: readonly T[]) => T;
@@ -13,7 +20,7 @@ interface Random {
 }
 
 /** mulberry32: small, fast and good enough to explore event orders. */
-const seededRandom = (seed: number): Random => {
+export const seededRandom = (seed: number): Random => {
   let a = seed >>> 0;
   const next = (): number => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -368,4 +375,334 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
     if (event !== undefined) events.push(event);
   }
   return events;
+};
+
+// Engine scenarios (#14): commands, supervisor ticks and what the brewer does, each chosen from the
+// folded state as it is, so most commands are ones the engine accepts. A scenario is recorded as
+// plain data, so a failing one can be replayed and shrunk without the generator.
+
+/** One move of a scenario: a command for decide, or the clock moving on and a supervisor tick. */
+export type Move = { kind: 'command'; command: Command } | { kind: 'tick'; advanceMs: number };
+
+/** What the brewer does in one attempt, played by the fake runner (ADR 0028). */
+export type Play =
+  | { kind: 'succeed' }
+  | { kind: 'fail'; retryable: boolean }
+  | { kind: 'crash' }
+  /** Dies with its runner: nobody renews its lease, and the supervisor loses it (ADR 0027). */
+  | { kind: 'lost' }
+  | { kind: 'garbage' }
+  | { kind: 'missingOutDoc' }
+  | { kind: 'invalidOutDoc' }
+  | { kind: 'exceedBudget' }
+  | { kind: 'needInput' }
+  | { kind: 'denialStorm' }
+  | { kind: 'blocked'; blockerKind: BlockerKind }
+  /** Runs until stopped; its last file write or commit was `idleMs` before it started. */
+  | { kind: 'hang'; turnsWithoutProgress: number; idleMs: number };
+
+/**
+ * A recorded scenario: the moves in order, and the play of each attempt in the order they started.
+ * A play belongs to its attempt, so a scenario shrunk to fewer moves keeps what each attempt does.
+ */
+export interface Scenario {
+  moves: Move[];
+  plays: { attempt: AttemptRef; play: Play }[];
+}
+
+/** Where a scenario's moves and plays come from: a generator, or a recorded scenario. */
+export interface MoveSource {
+  /** The next move for `state`, or `undefined` when the scenario is over. */
+  move(state: State): Move | undefined;
+  /** The play of `attempt`, which starts now. */
+  play(attempt: AttemptRef): Play;
+}
+
+/** The recipes of every scenario: one step without retries, two steps, and three with loops. */
+export const scenarioRecipes: Readonly<Record<string, FakeRecipe>> = {
+  nip: { steps: ['brew'], maxAttempts: 1 },
+  pint: { steps: ['plan', 'implement'], stall: { turns: 30 } },
+  growler: {
+    steps: ['tests', 'implement', 'review'],
+    maxAttempts: 3,
+    stall: { minutes: 20 },
+    routes: { implement: { failed: 'tests' }, review: { findings: 'implement' } },
+  },
+};
+
+/** The limits of every attempt, so a denial storm and an exceeded budget end it (ADR 0028). */
+export const scenarioLimits = { maxTurns: 40, maxDenials: 5 } as const;
+
+/** A human issuing commands in a scenario. */
+export const human = { by: 'octocat', via: 'terminal' } as const;
+
+const minute = 60_000;
+const advances = [1, 4, 6, 15, 25, 59, 61, 125].map((minutes) => minutes * minute);
+
+/** Picks one of `choices` by weight; a choice of weight 0 is never picked. */
+const weighted = <T>(random: Random, choices: readonly (readonly [number, T])[]): T => {
+  const total = choices.reduce((sum, [weight]) => sum + weight, 0);
+  let at = (random.int(1_000_000) / 1_000_000) * total;
+  for (const [weight, choice] of choices) {
+    if (at < weight) return choice;
+    at -= weight;
+  }
+  throw new Error('Cannot pick from choices that all weigh 0');
+};
+
+/**
+ * A scenario of `length` moves from `seed`: batches ordered, decomposed, routed and waiting; humans
+ * answering, retrying, skipping, changing the recipe, rewinding and cancelling Stuck batches;
+ * effects, some repeated and some of attempts that never existed; and the clock moving between
+ * supervisor ticks, so deadlines pass, leases expire, attempts stall and reminders come due.
+ */
+export const generateScenario = (seed: number, length = 40): MoveSource => {
+  const random = seededRandom(seed);
+  const effectKeys: string[] = [];
+  let moves = 0;
+  let nextIssue = 1;
+  let nextSubOrder = 100;
+
+  const command = (cmd: Command): Move => ({ kind: 'command', command: cmd });
+  const record = (event: RecordedEvent): Move => command({ kind: 'record', event });
+  const sha = (): string => (random.int(0xfffffff) + 1).toString(16).padStart(40, '0');
+  const release = {
+    kind: 'release',
+    repo: 'acme/lib-core',
+    package: 'lib-core',
+    minVersion: '2.4.0',
+  } as const;
+
+  /** A pending sub-order of a breakdown, another batch of an order, or a new order. */
+  const order = (state: State): Move => {
+    const pending = [...state.subOrders.values()].filter(
+      (subOrder) => !subOrder.cancelled && subOrder.batchIds.length === 0,
+    );
+    const subOrder = pending.length > 0 && random.chance(0.6) ? random.pick(pending) : undefined;
+    const parentBatchId = subOrder && state.orders.get(subOrder.order)?.batchIds[0];
+    if (subOrder !== undefined && parentBatchId !== undefined) {
+      const { issue } = subOrder;
+      const batchId = nextBatchId(state, issue);
+      return record({ type: 'batch.ordered', batchId, order: { issue }, parentBatchId });
+    }
+    const orders = [...state.orders.keys()];
+    const issue = orders.length > 0 && random.chance(0.2) ? random.pick(orders) : nextIssue++;
+    return record({ type: 'batch.ordered', batchId: nextBatchId(state, issue), order: { issue } });
+  };
+
+  /** A breakdown that keeps some sub-orders of the last one and adds new ones. */
+  const decompose = (batch: Batch, state: State): Move => {
+    const kept = (state.orders.get(batch.issue)?.subOrders ?? []).flatMap((issue) => {
+      const subOrder = state.subOrders.get(issue);
+      return subOrder !== undefined && random.chance(0.5) ? [{ issue, repo: subOrder.repo }] : [];
+    });
+    const fresh = Array.from({ length: random.int(2) + 1 }, () => ({
+      issue: nextSubOrder++,
+      repo: random.pick(repos),
+    }));
+    const subOrders = [...kept, ...fresh];
+    const [first, second] = subOrders;
+    const dependencies =
+      first !== undefined && second !== undefined && random.chance(0.4)
+        ? [{ subOrder: second.issue, blockedBy: first.issue, kind: 'code' as const }]
+        : [];
+    return record({ type: 'order.decomposed', batchId: batch.id, subOrders, dependencies });
+  };
+
+  const waitCondition = (batch: Batch, state: State): WaitCondition => {
+    const siblings = [...state.batches.keys()].filter((id) => id !== batch.id);
+    switch (random.int(3)) {
+      case 0:
+        return {
+          kind: 'merge',
+          pullRequest: `https://github.com/acme/api/pull/${random.int(99) + 1}`,
+        };
+      case 1:
+        return release;
+      default:
+        return siblings.length > 0 ? { kind: 'sibling', batchId: random.pick(siblings) } : release;
+    }
+  };
+
+  /** What a human does about a Stuck batch: what its options offer, cancelling least. */
+  const unstick = (batch: Batch, state: State): Move | undefined => {
+    const { lane } = batch;
+    if (lane.kind !== 'stuck') return undefined;
+    const batchId = batch.id;
+    const action = weighted(random, [
+      [lane.reason.kind === 'needs_input' ? 3 : 0, 'answer'],
+      [3, 'retry'],
+      [2, 'skip'],
+      [1, 'recipe'],
+      [1.5, 'rewind'],
+      [0.5, 'cancel'],
+    ] as const);
+    switch (action) {
+      case 'answer': {
+        const questions = lane.reason.kind === 'needs_input' ? lane.reason.questions : [];
+        const answers = questions.map(({ q, recommended }) => ({ q, answer: recommended }));
+        return command({ kind: 'answer', batchId, ...human, answers });
+      }
+      case 'retry':
+      case 'skip':
+      case 'cancel':
+        return command({ kind: action, batchId, ...human });
+      case 'recipe':
+        return command({
+          kind: 'recipe',
+          batchId,
+          ...human,
+          recipe: random.pick(Object.keys(scenarioRecipes)),
+          reason: 'another recipe fits better',
+        });
+      case 'rewind': {
+        const steps = scenarioRecipes[batch.recipe?.name ?? '']?.steps ?? ['plan'];
+        const repo = state.subOrders.get(batch.issue)?.repo ?? random.pick(repos);
+        return command({
+          kind: 'rewind',
+          batchId,
+          ...human,
+          toStepId: random.chance(0.9) ? random.pick(steps) : 'nowhere',
+          shas: { [repo]: sha() },
+        });
+      }
+      default: {
+        const unhandled: never = action;
+        throw new Error(`Unhandled action ${JSON.stringify(unhandled)}`);
+      }
+    }
+  };
+
+  /** An effect of an attempt: mostly a new key of an attempt that exists, sometimes not. */
+  const effect = (state: State): Move | undefined => {
+    if (effectKeys.length > 0 && random.chance(0.15)) {
+      return record({ type: 'effect.applied', key: random.pick(effectKeys), result: 'again' });
+    }
+    const withSteps = [...state.batches.values()].filter((batch) => batch.steps.size > 0);
+    if (withSteps.length === 0) return undefined;
+    const batch = random.pick(withSteps);
+    const [stepId, step] = random.pick([...batch.steps]);
+    const latest = Math.max(...step.attempts.keys());
+    const ghost = random.chance(0.1);
+    const key = effectKey.encode({
+      batchId: batch.id,
+      stepId: ghost && random.chance(0.5) ? 'ghost' : stepId,
+      attempt: ghost ? latest + 1 : random.int(latest) + 1,
+      effect: random.pick(effects),
+    });
+    effectKeys.push(key);
+    return record({ type: 'effect.applied', key, result: { ok: true } });
+  };
+
+  const next = (state: State): Move | undefined => {
+    const batches = [...state.batches.values()];
+    const live = batches.filter((batch) => nonTerminal.includes(batch.lane.kind));
+    const inLane = (...kinds: Lane['kind'][]) =>
+      live.filter((batch) => kinds.includes(batch.lane.kind));
+    const unrouted = inLane('ordered', 'conditioning');
+    const orders = live.filter((batch) => state.orders.has(batch.issue));
+    const choice = weighted(random, [
+      [batches.length < 2 ? 4 : batches.length < 6 ? 1 : 0.1, 'order'],
+      [orders.length > 0 ? 0.4 : 0, 'decompose'],
+      [unrouted.length > 0 ? 3 : 0, 'route'],
+      [unrouted.length > 0 ? 0.7 : 0, 'wait'],
+      [inLane('stuck').length > 0 ? 4 : 0, 'unstick'],
+      [live.length > 0 ? 0.3 : 0, 'meddle'],
+      [1, 'effect'],
+      [4, 'tick'],
+    ] as const);
+    switch (choice) {
+      case 'order':
+        return order(state);
+      case 'decompose':
+        return decompose(random.pick(orders), state);
+      case 'route':
+        return command({
+          kind: 'route',
+          batchId: random.pick(unrouted).id,
+          recipe: random.pick(Object.keys(scenarioRecipes)),
+          reason: 'label',
+          source: random.pick(['label', 'router'] as const),
+        });
+      case 'wait': {
+        const batch = random.pick(unrouted);
+        return command({ kind: 'wait', batchId: batch.id, on: waitCondition(batch, state) });
+      }
+      case 'unstick':
+        return unstick(random.pick(inLane('stuck')), state);
+      case 'meddle': {
+        // A human command in whatever lane the batch is in: the engine refuses it or obeys.
+        const kind = random.pick(['retry', 'skip', 'cancel'] as const);
+        return command({ kind, batchId: random.pick(live).id, ...human });
+      }
+      case 'effect':
+        return effect(state);
+      case 'tick':
+        return { kind: 'tick', advanceMs: random.pick(advances) };
+      default: {
+        const unhandled: never = choice;
+        throw new Error(`Unhandled move ${JSON.stringify(unhandled)}`);
+      }
+    }
+  };
+
+  const play = (): Play =>
+    weighted<Play>(random, [
+      [8, { kind: 'succeed' }],
+      [2, { kind: 'fail', retryable: true }],
+      [0.7, { kind: 'fail', retryable: false }],
+      [1, { kind: 'crash' }],
+      [1.5, { kind: 'lost' }],
+      [0.5, { kind: 'garbage' }],
+      [0.5, { kind: 'missingOutDoc' }],
+      [0.5, { kind: 'invalidOutDoc' }],
+      [0.5, { kind: 'exceedBudget' }],
+      [1.5, { kind: 'needInput' }],
+      [1, { kind: 'denialStorm' }],
+      [1, { kind: 'blocked', blockerKind: 'findings' }],
+      [0.5, { kind: 'blocked', blockerKind: 'environment' }],
+      [0.5, { kind: 'blocked', blockerKind: 'divergence' }],
+      [2, { kind: 'hang', turnsWithoutProgress: random.int(60), idleMs: random.int(30) * minute }],
+    ]);
+
+  return {
+    move: (state) => {
+      // A choice with nothing to act on picks again; a tick always can.
+      while (moves < length) {
+        const move = next(state);
+        if (move !== undefined) {
+          moves++;
+          return move;
+        }
+      }
+      return undefined;
+    },
+    play,
+  };
+};
+
+/** Records what `source` gives into `scenario`, so it can be replayed. */
+export const recording = (source: MoveSource, scenario: Scenario): MoveSource => ({
+  move: (state) => {
+    const move = source.move(state);
+    if (move !== undefined) scenario.moves.push(move);
+    return move;
+  },
+  play: (attempt) => {
+    const play = source.play(attempt);
+    scenario.plays.push({ attempt, play });
+    return play;
+  },
+});
+
+/** Replays a recorded scenario; an attempt it has no play for succeeds. */
+export const replaying = (scenario: Scenario): MoveSource => {
+  let moves = 0;
+  const plays = new Map(
+    scenario.plays.map(({ attempt, play }) => [attemptKey.encode(attempt), play]),
+  );
+  return {
+    move: () => scenario.moves[moves++],
+    play: (attempt) => plays.get(attemptKey.encode(attempt)) ?? { kind: 'succeed' },
+  };
 };

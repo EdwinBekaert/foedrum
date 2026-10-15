@@ -62,7 +62,7 @@ const bottled: Event = {
 };
 const applied = (batchId: string): Event => ({
   type: 'effect.applied',
-  key: JSON.stringify([batchId, 'open-pr', 1, 'pull_request']),
+  key: JSON.stringify([batchId, 'plan', 1, 'pull_request']),
   result: { number: 7 },
 });
 

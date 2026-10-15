@@ -535,6 +535,8 @@ describe('fold', () => {
     const state = fold([
       { type: 'bottle.opened', ...bottle },
       { type: 'release.observed', ...release },
+      ordered,
+      scheduled,
       { type: 'effect.applied', key: prKey, result: { number: 7 } },
     ]);
     assert.deepStrictEqual(
@@ -651,10 +653,30 @@ describe('fold of an inconsistent log', () => {
     [
       'an effect applied twice',
       [
+        ordered,
+        scheduled,
         { type: 'effect.applied', key: prKey, result: { number: 7 } },
         { type: 'effect.applied', key: prKey, result: { number: 8 } },
       ],
       /effect \["b1","plan",1,"pr"\] was already applied/,
+    ],
+    [
+      'an effect of a batch that was never ordered',
+      [{ type: 'effect.applied', key: prKey, result: { number: 7 } }],
+      /batch b1 was never ordered/,
+    ],
+    [
+      'an effect of an attempt that was never scheduled',
+      [
+        ordered,
+        scheduled,
+        {
+          type: 'effect.applied',
+          key: effectKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 2, effect: 'pr' }),
+          result: { number: 7 },
+        },
+      ],
+      /attempt plan#2 of batch b1 was never scheduled/,
     ],
     [
       'a breakdown of a sub-order',

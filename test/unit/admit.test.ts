@@ -209,9 +209,15 @@ describe('admit refuses what the fold throws on', () => {
     ['a bottle opened twice', bottled, bottle, /bottle k1 was already opened/],
     [
       'an effect applied twice',
-      [{ type: 'effect.applied', key: prKey, result: { number: 7 } }],
+      [ordered, scheduled, { type: 'effect.applied', key: prKey, result: { number: 7 } }],
       { type: 'effect.applied', key: prKey, result: { number: 8 } },
       /effect \["b1","plan",1,"pr"\] was already applied/,
+    ],
+    [
+      'an effect of an attempt that was never scheduled',
+      [ordered],
+      { type: 'effect.applied', key: prKey, result: { number: 7 } },
+      /attempt plan#1 of batch b1 was never scheduled/,
     ],
     [
       'a breakdown of a sub-order',
@@ -350,7 +356,7 @@ describe('admit lane rules (ADR 0025)', () => {
     refused(lanes.stuck, { ...rewound, shas: {} }, /rewind needs the commit of each repository/);
   });
 
-  it('accepts a release and an effect whatever the lanes', () => {
+  it('accepts a release, and an effect of an attempt, whatever the lanes', () => {
     const release: Event = {
       type: 'release.observed',
       repo: 'acme/lib-core',
@@ -362,8 +368,10 @@ describe('admit lane rules (ADR 0025)', () => {
       key: effectKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1, effect: 'comment' }),
       result: null,
     };
-    for (const events of Object.values(lanes)) {
-      assert.equal(admit(fold(events), [release, effect]).kind, 'accepted');
+    for (const [lane, events] of Object.entries(lanes)) {
+      // An effect is keyed by an attempt: a batch that never scheduled one has none (I4).
+      const appended: Event[] = events.includes(scheduled) ? [release, effect] : [release];
+      assert.equal(admit(fold(events), appended).kind, 'accepted', lane);
     }
   });
 });
