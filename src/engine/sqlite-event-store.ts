@@ -58,6 +58,10 @@ const migrations = [
     BEGIN SELECT RAISE(ABORT, 'effects are append-only'); END;
   CREATE TRIGGER effects_no_delete BEFORE DELETE ON effects
     BEGIN SELECT RAISE(ABORT, 'effects are append-only'); END;
+  -- The database, not a code path, keeps the index (ADR 0002): a duplicate key fails the INSERT
+  -- of its event, which leaves no row behind.
+  CREATE TRIGGER events_index_effects AFTER INSERT ON events WHEN NEW.type = 'effect.applied'
+    BEGIN INSERT INTO effects (key, event_id) VALUES (json_extract(NEW.body, '$.key'), NEW.id); END;
   `,
 ];
 
@@ -142,7 +146,6 @@ export const openSqliteEventStore = (
     'DELETE FROM deadlines WHERE batch_id = ? AND step_id = ? AND attempt = ?',
   );
   const clearDeadlines = db.prepare('DELETE FROM deadlines WHERE batch_id = ?');
-  const insertEffect = db.prepare('INSERT INTO effects (key, event_id) VALUES (?, ?)');
   const putLease = db.prepare(
     'INSERT INTO leases (attempt_key, owner, expires_at) VALUES (?, ?, ?) ' +
       'ON CONFLICT (attempt_key) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at',
@@ -164,8 +167,8 @@ export const openSqliteEventStore = (
       'WHERE effects.key = ?',
   );
 
-  /** Keeps the deadlines and effects indexes up to date with an appended event. */
-  const index = (event: Event, id: number, key?: EffectKey): void => {
+  /** Keeps the deadlines index up to date with an appended event. */
+  const index = (event: Event): void => {
     switch (event.type) {
       case 'step.scheduled':
         // Scheduling a step ends Conditioning, and replaces the step's earlier attempt.
@@ -183,18 +186,7 @@ export const openSqliteEventStore = (
       case 'batch.cancelled':
         clearDeadlines.run(event.batchId);
         return;
-      case 'effect.applied': {
-        const applied = key ?? effectKey.decode(event.key);
-        try {
-          insertEffect.run(event.key, id);
-        } catch (error) {
-          if ((error as { errcode?: unknown }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
-            throw new DuplicateEffectError(applied);
-          }
-          throw error;
-        }
-        return;
-      }
+      case 'effect.applied': // indexed by the events_index_effects trigger
       case 'batch.ordered':
       case 'batch.recipe_chosen':
       case 'step.started':
@@ -214,9 +206,18 @@ export const openSqliteEventStore = (
 
   const append = (event: Event, key?: EffectKey): number => {
     const valid = Event.parse(event);
-    if (valid.type === 'effect.applied' && key === undefined) effectKey.decode(valid.key);
-    const id = Number(insertEvent.run(valid.type, JSON.stringify(valid)).lastInsertRowid);
-    index(valid, id, key);
+    const applied =
+      valid.type === 'effect.applied' ? (key ?? effectKey.decode(valid.key)) : undefined;
+    let id: number;
+    try {
+      id = Number(insertEvent.run(valid.type, JSON.stringify(valid)).lastInsertRowid);
+    } catch (error) {
+      if (applied && (error as { errcode?: unknown }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
+        throw new DuplicateEffectError(applied);
+      }
+      throw error;
+    }
+    index(valid);
     return id;
   };
 
