@@ -17,10 +17,14 @@ Versions are pinned exactly when a package is first installed, after the 7-day m
 
 | Package | Kind | Purpose | Tree | Install scripts | Provenance | Licence |
 |---|---|---|---|---|---|---|
-| `zod` | runtime | Schemas: TypeScript types, runtime validation, generated JSON Schema | 0 deps | none | yes | MIT |
+| `zod` | runtime | Schemas: TypeScript types, runtime validation, generated JSON Schema; wrapped by `src/schemas/zod.ts` | 0 deps | none | yes | MIT |
 | `typescript` | dev | Type checking and emitting `.js` for publishing | wrapper + 1 platform binary | none | no — verified via registry signatures, diff review on bumps | Apache-2.0 |
 | `@types/node` | dev | Types for Node's built-in APIs | 1 dep (`undici-types`) | none | partial | MIT |
 | `@biomejs/biome` | dev | Lint and format | wrapper + 1 platform binary | none | yes | MIT OR Apache-2.0 |
+
+### Exceptions
+
+- **`zod` — one maintainer.** The package lists a single npm maintainer (checklist point 6). Accepted because it is widely used and actively released (4.6.5, 2026-09-13), publishes with provenance, has no dependencies and no install scripts, and is imported only by `src/schemas/zod.ts`. Bumps get a diff review.
 
 ## Built-ins used instead of packages
 
