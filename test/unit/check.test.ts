@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { checkSteps, runCheck } from '../../scripts/check.ts';
-import type { ProcessOutcome, RunProcess } from '../../scripts/process-runner.ts';
+import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 
 const execPath = '/usr/local/bin/node';
 const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
@@ -16,12 +16,13 @@ const pendingProcesses = () => {
     file: string;
     args: string[];
     cwd: string;
+    options: RunOptions | undefined;
     finish: (o: ProcessOutcome) => void;
     reject: (error: Error) => void;
   }[] = [];
-  const runProcess: RunProcess = (file, args, cwd) =>
+  const runProcess: RunProcess = (file, args, cwd, options) =>
     new Promise((finish, reject) => {
-      calls.push({ file, args, cwd, finish, reject });
+      calls.push({ file, args, cwd, options, finish, reject });
     });
   return { calls, runProcess };
 };
@@ -186,6 +187,69 @@ describe('runCheck', () => {
       /✖ npm run check failed: npm run typecheck, node scripts\/check-test-layers\.ts\n$/,
     );
   });
+
+  // The local gate's hook ends after 600 s, without killing the steps or showing their output.
+  it('gives every step a deadline well before the gate gives up on the check', async () => {
+    const { calls, runProcess } = pendingProcesses();
+    const done = runCheck({ env, execPath, runProcess, cwd: '/work/tree', write: () => {} });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls.length, labels().length);
+    for (const { options } of calls) {
+      const timeoutMs = options?.timeoutMs;
+      assert.ok(timeoutMs !== undefined && timeoutMs > 0 && timeoutMs <= 300_000, `${timeoutMs}`);
+    }
+    for (const call of calls) call.finish(green(''));
+    assert.equal(await done, 0);
+  });
+
+  it("gives every step the check's own deadline and stop signal", async () => {
+    const { calls, runProcess } = pendingProcesses();
+    const stop = new AbortController();
+    const done = runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd: '/work/tree',
+      write: () => {},
+      stepTimeoutMs: 90_000,
+      signal: stop.signal,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+      calls.map(({ options }) => options),
+      labels().map(() => ({ timeoutMs: 90_000, signal: stop.signal })),
+    );
+    for (const call of calls) call.finish(green(''));
+    assert.equal(await done, 0);
+  });
+
+  for (const [killed, reason] of [
+    ['timed-out', 'timed out after 90 s'],
+    ['stopped', 'stopped'],
+  ] as const) {
+    it(`fails a step the runner killed (${killed}), naming why, and keeps its output`, async () => {
+      const { calls, runProcess } = pendingProcesses();
+      let written = '';
+      const done = runCheck({
+        env,
+        execPath,
+        runProcess,
+        cwd: '/work/tree',
+        write: (text) => {
+          written += text;
+        },
+        stepTimeoutMs: 90_000,
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      calls.forEach((call, index) => {
+        if (index === 2) call.finish({ exitCode: null, output: '▶ suite\n', killed });
+        else call.finish(green(''));
+      });
+      assert.equal(await done, 1);
+      assert.match(written, new RegExp(`\\n> npm test\\n▶ suite\\n${reason}\\n`));
+      assert.match(written, new RegExp(`✖ npm run check failed: npm test \\(${reason}\\)\\n$`));
+    });
+  }
 
   for (const [name, badEnv] of [
     ['missing', {}],

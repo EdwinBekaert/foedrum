@@ -6,6 +6,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { whyKilled } from '../src/platform/processes.ts';
 import { staleReason } from './deps-sync/core.ts';
 import type { RunProcess } from './process-runner.ts';
 
@@ -21,6 +22,8 @@ export interface OutOfDate {
 }
 
 const MAX_OUTPUT_CHARS = 2000;
+// Under the SessionStart hook's 600 s, which would end this process without killing npm ci.
+const NPM_CI_TIMEOUT_MS = 540_000;
 
 const packageRoot = async (cwd: string, read: ReadText): Promise<string | undefined> => {
   for (let dir = cwd; ; dir = dirname(dir)) {
@@ -48,6 +51,7 @@ export const syncDeps = async (
   execPath: string,
   runProcess: RunProcess,
   read: ReadText = readText,
+  stop?: AbortSignal,
 ): Promise<string[]> => {
   const stale = await outOfDate(cwd, read);
   if (stale === undefined) return [];
@@ -56,11 +60,18 @@ export const syncDeps = async (
   if (npmCli === undefined || npmCli === '') {
     return [`${what}; npm_execpath is not set, so run npm ci yourself`];
   }
-  const { exitCode, output } = await runProcess(execPath, [npmCli, 'ci'], stale.root);
+  // Outside Windows npm ci leads a process group of its own, which the end of the hook does not
+  // reach: `stop` and the deadline kill its tree.
+  const { exitCode, output, killed } = await runProcess(execPath, [npmCli, 'ci'], stale.root, {
+    timeoutMs: NPM_CI_TIMEOUT_MS,
+    signal: stop,
+  });
   if (exitCode === 0) {
     return [`node_modules was out of date with package-lock.json (${stale.reason}); ran npm ci`];
   }
-  const code = exitCode === null ? 'no exit code' : `exit ${exitCode}`;
+  const code =
+    whyKilled(killed, NPM_CI_TIMEOUT_MS) ??
+    (exitCode === null ? 'no exit code' : `exit ${exitCode}`);
   const tail = output.trim().slice(-MAX_OUTPUT_CHARS);
   return [`${what}; npm ci failed (${code}), run it yourself:\n${tail}`];
 };
@@ -68,7 +79,15 @@ export const syncDeps = async (
 if (import.meta.main) {
   try {
     const { spawnProcess } = await import('./process-runner.ts');
-    const lines = await syncDeps(process.cwd(), process.env, process.execPath, spawnProcess);
+    const { stopOnSignals } = await import('../src/platform/processes.ts');
+    const lines = await syncDeps(
+      process.cwd(),
+      process.env,
+      process.execPath,
+      spawnProcess,
+      readText,
+      stopOnSignals(),
+    );
     for (const line of lines) console.log(`deps:sync: ${line}`);
   } catch (error) {
     console.log(`deps:sync failed: ${String(error)}`);

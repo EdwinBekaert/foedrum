@@ -1,7 +1,8 @@
 // Part of `npm run check`: fails when a file under test/unit/, test/property/, test/chaos/ or
-// test/helpers/ imports node:child_process. npm test runs the first three and they import the
-// helpers, so none of them may start a process (ADR 0021). Tests that run real tools belong in
-// test/integration/. Exit 0: clean. Exit 1: one line per problem on stdout.
+// test/helpers/ imports node:child_process or the real process runner (spawnProcess or
+// execProcess). npm test runs the first three and they import the helpers, so none of them may
+// start a process (ADR 0021). Tests that run real tools belong in test/integration/. Exit 0:
+// clean. Exit 1: one line per problem on stdout.
 // It sees direct imports only: a test that starts a process through a script it imports is not
 // caught here; the per-file time budget (scripts/test-budget-reporter.ts) and review are the
 // backstops.
@@ -15,10 +16,10 @@ export interface LayerProblem {
   problem: string;
 }
 
-// Files in those folders that may import child_process anyway, by path relative to test/ with
-// forward slashes, each with the reason. Empty by default: move a test that needs a real process
-// to test/integration/ instead. An entry whose file no longer imports child_process is itself
-// reported, so the list cannot go stale.
+// Files in those folders that may import child_process or the real process runner anyway, by
+// path relative to test/ with forward slashes, each with the reason. Empty by default: move a
+// test that needs a real process to test/integration/ instead. An entry whose file imports
+// neither is itself reported, so the list cannot go stale.
 export const EXCEPTIONS: ReadonlyMap<string, string> = new Map([
   // ['unit/example.test.ts', 'why this test must start a process'],
 ]);
@@ -29,28 +30,53 @@ const SOURCE_FILE = /\.[cm]?[jt]s$/;
 // that contains an import statement, and `import type`, do: the guard errs on the side of failing.
 const CHILD_PROCESS_IMPORT = /\b(?:from|import|require)\s*\(?\s*(['"`])(?:node:)?child_process\1/;
 
+// The real process runner (#12): spawnProcess or execProcess from src/platform/processes.ts or
+// scripts/process-runner.ts, imported by name, as a namespace, re-exported, or through `import()`
+// or `require()`, whose bindings it cannot see. `import type` and the runner with a fake spawner
+// (execProcessWith) do not match.
+const RUNNER_MODULE = String.raw`(?<quote>['"\`])[^'"\`\n]*(?:platform/processes|process-runner)(?:\.[cm]?[jt]s)?\k<quote>`;
+const RUNNER_STATIC = new RegExp(
+  String.raw`\b(?:import|export)\s+(?!type\b)(?<bindings>[^;]*?)\bfrom\s*${RUNNER_MODULE}`,
+  'g',
+);
+const RUNNER_DYNAMIC = new RegExp(String.raw`\b(?:import|require)\s*\(\s*${RUNNER_MODULE}`);
+const RUNNER_BINDING = /\*|(?<!\btype\s+)\b(?:spawnProcess|execProcess)\b/;
+
+const importsRealRunner = (source: string): boolean =>
+  RUNNER_DYNAMIC.test(source) ||
+  [...source.matchAll(RUNNER_STATIC)].some(({ groups }) =>
+    RUNNER_BINDING.test(groups?.bindings ?? ''),
+  );
+
 const IMPORTS =
   'imports child_process, but unit, property and chaos tests start no processes: move the test to test/integration/ (ADR 0021)';
+const RUNNER =
+  'imports the real process runner, but unit, property and chaos tests start no processes: inject a fake runner, or move the test to test/integration/ (ADR 0021)';
 const STALE =
-  'is on the exception list but does not import child_process: remove the entry from scripts/check-test-layers.ts';
+  'is on the exception list but does not import child_process or the real process runner: remove the entry from scripts/check-test-layers.ts';
 
-// Source files under dir that import child_process, relative to dir with forward slashes.
-const importingFiles = (dir: string): string[] =>
+// What source files under dir import that they may not, by file relative to dir with forward
+// slashes.
+const findingsIn = (dir: string): LayerProblem[] =>
   readdirSync(dir, { recursive: true, encoding: 'utf8' })
     .filter((path) => SOURCE_FILE.test(path))
-    .filter((path) => CHILD_PROCESS_IMPORT.test(readFileSync(join(dir, path), 'utf8')))
-    .map((path) => path.split(sep).join('/'));
+    .flatMap((path) => {
+      const source = readFileSync(join(dir, path), 'utf8');
+      const file = path.split(sep).join('/');
+      return [
+        ...(CHILD_PROCESS_IMPORT.test(source) ? [{ file, problem: IMPORTS }] : []),
+        ...(importsRealRunner(source) ? [{ file, problem: RUNNER }] : []),
+      ];
+    });
 
 const problemsOf = (
-  importing: string[],
+  findings: LayerProblem[],
   exceptions: ReadonlyMap<string, string>,
 ): LayerProblem[] => {
   const problems = [
-    ...importing
-      .filter((file) => !exceptions.has(file))
-      .map((file) => ({ file, problem: IMPORTS })),
+    ...findings.filter(({ file }) => !exceptions.has(file)),
     ...[...exceptions.keys()]
-      .filter((file) => !importing.includes(file))
+      .filter((file) => !findings.some((finding) => finding.file === file))
       .map((file) => ({ file, problem: STALE })),
   ];
   return problems.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
@@ -60,7 +86,7 @@ const problemsOf = (
 export const checkTestLayer = (
   dir: string,
   exceptions: ReadonlyMap<string, string>,
-): LayerProblem[] => problemsOf(importingFiles(dir), exceptions);
+): LayerProblem[] => problemsOf(findingsIn(dir), exceptions);
 
 // The folders under test/ that npm test runs or that those tests import (ADR 0021).
 export const NO_PROCESS_FOLDERS = ['unit', 'property', 'chaos', 'helpers'] as const;
@@ -73,7 +99,10 @@ export const checkTestLayers = (
 ): LayerProblem[] =>
   problemsOf(
     NO_PROCESS_FOLDERS.filter((folder) => existsSync(join(testDir, folder))).flatMap((folder) =>
-      importingFiles(join(testDir, folder)).map((file) => `${folder}/${file}`),
+      findingsIn(join(testDir, folder)).map(({ file, problem }) => ({
+        file: `${folder}/${file}`,
+        problem,
+      })),
     ),
     exceptions,
   );

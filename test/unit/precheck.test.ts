@@ -16,6 +16,7 @@ import {
   precheck,
   type RunProcess,
 } from '../../scripts/precheck.ts';
+import type { RunOptions } from '../../scripts/process-runner.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -488,6 +489,36 @@ describe('npmCheck', () => {
       assert.equal(result.ok, false);
       assert.match(result.output, /npm_execpath is not set/);
       assert.deepEqual(calls, []);
+    });
+  }
+
+  // Outside Windows the check leads a process group of its own, which a Ctrl+C on the push or
+  // the end of the hook does not reach: the gate passes its stop on and sets a deadline (#12).
+  it("gives the check the gate's stop signal and a deadline between the steps' and the hook's", async () => {
+    const options: (RunOptions | undefined)[] = [];
+    const runProcess: RunProcess = async (_file, _args, _cwd, given) => {
+      options.push(given);
+      return { exitCode: 0, output: '' };
+    };
+    const stop = new AbortController();
+    await npmCheck({ npm_execpath: npmCli }, execPath, runProcess, stop.signal)('/work/tree');
+    assert.equal(options.length, 1);
+    assert.equal(options[0]?.signal, stop.signal);
+    const timeoutMs = options[0]?.timeoutMs ?? 0;
+    // A step's own deadline is 300 s; the hook ends after 600 s.
+    assert.ok(timeoutMs > 300_000 && timeoutMs < 600_000, String(timeoutMs));
+  });
+
+  for (const [killed, reason] of [
+    ['timed-out', /npm run check timed out after \d+ s/],
+    ['stopped', /npm run check was stopped/],
+  ] as const) {
+    it(`fails, saying why, when the check was killed (${killed})`, async () => {
+      const { runProcess } = fakeProcess({ exitCode: null, output: '> npm test\n', killed });
+      const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+      assert.equal(result.ok, false);
+      assert.match(result.output, /^> npm test\n/);
+      assert.match(result.output, reason);
     });
   }
 });

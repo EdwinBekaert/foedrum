@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isPidAlive } from '../../src/platform/processes.ts';
+import { removeTree } from '../../src/platform/remove.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -16,7 +17,8 @@ describe('runGit with real git', () => {
   beforeEach(() => {
     dir = makeTempDir('git');
   });
-  afterEach(() => dir.remove());
+  // On Windows, git's killed tree can hold the folder a moment longer; removeTree retries.
+  afterEach(() => removeTree(dir.path));
 
   it('answers with git output and exit code', async () => {
     const result = await runGit(dir.path, ['--version']);

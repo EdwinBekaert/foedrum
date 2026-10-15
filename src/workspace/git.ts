@@ -1,8 +1,7 @@
 // Runs git for Foedrum: non-interactive, with a timeout, through an argument array (architecture
 // §13). Code that drives git takes a `Git` so unit tests can pass a fake one (ADR 0021).
 
-import { spawn } from 'node:child_process';
-import { killableSpawnOptions, killProcessTree } from '../platform/processes.ts';
+import { type ExecProcess, execProcess } from '../platform/processes.ts';
 
 export interface GitResult {
   /** The exit code; `null` when git was killed, for example by the timeout. */
@@ -16,6 +15,8 @@ export interface GitOptions {
   timeoutMs?: number;
   /** Configuration for this call only, given through the environment (`GIT_CONFIG_COUNT`). */
   config?: Readonly<Record<string, string>>;
+  /** Kills git and every process it started when it aborts. */
+  signal?: AbortSignal;
 }
 
 export type Git = (
@@ -52,43 +53,24 @@ export const gitEnv = (
   };
 };
 
-/**
- * The real git. The timeout is a hard deadline: it kills git and every process git started (a
- * credential helper, ssh, gpg) and answers at once, without waiting for their output to close.
- */
-export const runGit: Git = (cwd, args, { timeoutMs = 60_000, config } = {}) =>
-  new Promise((done) => {
-    let stdout = '';
-    let stderr = '';
-    let finished = false;
-    const finish = (result: GitResult): void => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      done(result);
-    };
-    // spawn rather than execFile, still with an argument array and no shell: execFile answers
-    // only once every output pipe closes, which a surviving child of git can hold off forever.
-    const child = spawn('git', [...args], {
+/** git through the given process runner; unit tests pass a fake one (ADR 0021). */
+export const runGitWith =
+  (exec: ExecProcess): Git =>
+  async (cwd, args, { timeoutMs = 60_000, config, signal } = {}) => {
+    const { exitCode, stdout, stderr, killed } = await exec('git', args, {
       cwd,
       env: gitEnv(process.env, config),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      ...killableSpawnOptions(),
+      timeoutMs,
+      signal,
     });
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    const timer = setTimeout(() => {
-      if (child.pid !== undefined) killProcessTree(child.pid);
-      child.stdout.destroy();
-      child.stderr.destroy();
-      finish({ code: null, stdout, stderr: `${stderr}git timed out after ${timeoutMs} ms` });
-    }, timeoutMs);
-    // A git that cannot start (not installed) has no exit code either.
-    child.on('error', (error) => finish({ code: null, stdout, stderr: stderr || error.message }));
-    child.on('close', (code) => finish({ code, stdout, stderr }));
-  });
+    const timedOut = killed === 'timed-out' ? `git timed out after ${timeoutMs} ms` : '';
+    return { code: exitCode, stdout, stderr: `${stderr}${timedOut}` };
+  };
+
+/**
+ * The real git, through the platform's process runner. The timeout is a hard deadline: it kills
+ * git and every process git started (a credential helper, ssh, gpg) and answers at once, without
+ * waiting for their output to close. A git that cannot start (not installed) has no exit code
+ * either.
+ */
+export const runGit: Git = runGitWith(execProcess);

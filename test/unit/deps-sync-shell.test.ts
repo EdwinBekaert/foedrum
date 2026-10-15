@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { outOfDate, type ReadText, syncDeps } from '../../scripts/deps-sync.ts';
-import type { ProcessOutcome, RunProcess } from '../../scripts/process-runner.ts';
+import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 
 const root = join('/work', 'tree');
 const execPath = '/usr/local/bin/node';
@@ -110,6 +110,33 @@ describe('syncDeps', () => {
     assert.match(lines[0] ?? '', /npm error code EBUSY$/);
     assert.ok((lines[0] ?? '').length < 2500, 'only the end of the output');
   });
+
+  // Outside Windows npm ci leads a process group of its own, which the end of the SessionStart
+  // hook does not reach: deps:sync passes its stop on and sets a deadline under the hook's (#12).
+  it("gives npm ci deps:sync's stop signal and a deadline under the hook's 600 s", async () => {
+    const options: (RunOptions | undefined)[] = [];
+    const runProcess: RunProcess = async (_file, _args, _cwd, given) => {
+      options.push(given);
+      return { exitCode: 0, output: '' };
+    };
+    const stop = new AbortController();
+    await syncDeps(root, env, execPath, runProcess, checkout(older), stop.signal);
+    assert.equal(options.length, 1);
+    assert.equal(options[0]?.signal, stop.signal);
+    const timeoutMs = options[0]?.timeoutMs ?? 0;
+    assert.ok(timeoutMs > 0 && timeoutMs < 600_000, String(timeoutMs));
+  });
+
+  for (const [killed, reason] of [
+    ['timed-out', /npm ci failed \(timed out after \d+ s\), run it yourself:\npartial$/],
+    ['stopped', /npm ci failed \(stopped\), run it yourself:\npartial$/],
+  ] as const) {
+    it(`reports an npm ci the runner killed (${killed}) with why`, async () => {
+      const { runProcess } = fakeProcess({ exitCode: null, output: 'partial', killed });
+      const [line] = await syncDeps(root, env, execPath, runProcess, checkout(older));
+      assert.match(line ?? '', reason);
+    });
+  }
 
   it('reports an npm ci that could not start or was killed', async () => {
     const { runProcess } = fakeProcess({ exitCode: null, output: 'spawn ENOENT' });

@@ -237,6 +237,8 @@ type StepOutcome =
 
 Every step kind (brewer, check, human gate, action, fan-out) ends in exactly one of these. An exhaustive `switch` makes an unhandled outcome a compile error ([ADR 0005](adr/0005-typed-step-outcomes-and-out-docs.md)).
 
+A brewer attempt runs through the `BrewerRunner` interface (`src/engine/brewer-runner.ts`), which also reports progress to the supervisor. One pure rule, `settleAttempt`, shared by the real runner and the fake, turns what the runner saw (exit, stream, denials, turns, out doc) into the ending, the first rule that applies winning: a process that could not start fails; reached `maxDenials` is `blocked` + `environment`, naming the denied tools; passed `maxTurns` is a failure that is not retried; a stop within the limits is `cancelled`; then a crash, garbage in the stream, and a missing or invalid out doc each fail retryably; only then does the out doc's status count ([ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)).
+
 ### 4.3 Batch lifecycle
 
 ```
@@ -348,7 +350,7 @@ On GitHub, for the autonomous driver and asynchronous teammates:
 Stability is proven, not claimed.
 
 1. **Unit tests** (`node:test`) for the fold, state machine, recipe parsing, GitHub client (injected `fetch`). They start no processes: git, npm and other tools are reached through an injected process runner, and `npm run check` stays under 20 s ([ADR 0021](adr/0021-unit-tests-spawn-no-processes.md)). The check enforces both: it fails when a file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`, or when one test file takes more than 5 s, and CI reports how long it took. **Integration tests** (`test/integration/`, `npm run test:integration`, CI and nightly) are a few per tool boundary, running the real git, npm or shell to prove the thin shells and the captured fixtures still match the real tools.
-2. **Fake brewer runner** with scripted behaviours: succeed, fail, hang, garbage output, no output, exceed budget, crash mid-step, ask a question.
+2. **Fake brewer runner** (`test/helpers/fake-brewer-runner.ts`) with scripted behaviours: succeed, fail (retryable or not), hang, crash mid-step, garbage output, no out doc, exceed budget, ask a question, a storm of permission denials. Each has an end-to-end test through `decide`, the supervisor and a small test driver against an in-memory store with a controllable clock ([ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)).
 3. **Property tests** on the state machine: random event sequences must keep invariants I1–I6. A seeded generator (`test/helpers/event-sequences.ts`, no dependency) writes the sequences; each run starts from a fresh seed, a failure names it, and setting the environment variable `FOEDRUM_SEED` to that seed replays it.
 4. **Chaos tests:** run many batches with the fake runner, kill the engine at random points, restart, and assert every batch reaches a terminal or Stuck state with no duplicated side effect.
 5. **Contract tests** against a real GitHub test repository (opt-in, CI only).
@@ -439,13 +441,13 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | CI | Every pull request, push to `main` and nightly run uses `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS. `npm test` fails below the coverage thresholds (Node's built-in coverage, still experimental). The single required check is `ci-ok` |
 | Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
 | Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
-| Spawning `claude` | On Windows only possible through a shell: every argument validated against a strict pattern; prompts and settings via stdin and files |
-| Spawning git and checks | `execFile` with argument arrays (no shell) for git; check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
-| Killing process trees | POSIX: process groups (`detached` + negative pid); Windows: `taskkill /T /F /PID` |
+| Spawning `claude` | On Windows only possible through a shell: every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files |
+| Spawning git and checks | Argument arrays and no shell for git, through the one process runner in `src/platform/processes.ts` (`execProcess`; `spawn`, not `execFile`, which answers only once every output pipe closes); check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
+| Killing process trees | POSIX: process groups (`detached` + negative pid), SIGTERM first so a process in the group can end its own children's groups, SIGKILL 2.5 s later; Windows: `taskkill /T /F /PID`. The runner kills the tree at the call's deadline or when its signal aborts, answers at once, and reports `timed-out` or `stopped` apart from an exit code |
 | Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
 | Line endings | `.gitattributes` with `eol=lf` in Foedrum; frontmatter parsing tolerates CRLF; a guard fails attempts whose diff is mostly line-ending churn |
-| File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff; stale `index.lock` cleanup after interrupted git commands |
-| Executables | Resolve `claude` and `git` via `PATH` and `PATHEXT` on Windows; `foedrum doctor` shows the resolved paths |
+| File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff; stale `index.lock` cleanup after interrupted git commands (`src/platform/index-lock.ts`: a lock older than a minute, in a worktree no Foedrum git command is running in) |
+| Executables | Resolve `claude` and `git` via `PATH` and `PATHEXT` on Windows (`src/platform/executables.ts`), never in the current directory or a `PATH` folder that is not absolute. The process runner starts the file it finds, so a repository cannot plant its own `git.exe`; `foedrum doctor` shows the resolved paths |
 
 ## 14. Layout
 
