@@ -4,7 +4,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
 import type { Readable } from 'node:stream';
-import { resolveExecutable } from './executables.ts';
+import { environmentVariable, resolveExecutable } from './executables.ts';
 import { windowsCommandLine } from './shell.ts';
 
 export type Kill = (pid: number, signal: 0) => void;
@@ -56,7 +56,11 @@ export const spawnCommand = (
     ? {
         file: windowsCommandLine(file, args),
         args: [],
-        shell: win32.join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe'),
+        shell: win32.join(
+          environmentVariable(env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows',
+          'System32',
+          'cmd.exe',
+        ),
         env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
       }
     : { file, args: [...args], shell: false, env };

@@ -95,6 +95,12 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const missing = command.positionals[values.length];
   if (missing !== undefined) return usageError(`${prefix}: missing <${missing}>`);
   const input = Object.fromEntries(command.positionals.map((field, i) => [field, values[i] ?? '']));
-  const result = await command.run({ command: name, ...input }, context);
-  return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;
+  try {
+    const result = await command.run({ command: name, ...input }, context);
+    return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;
+  } catch (error) {
+    // A store that cannot be read, for example: one line, escaped like every other output.
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: '', stderr: `${prefix}: ${message}\n` };
+  }
 };

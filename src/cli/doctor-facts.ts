@@ -1,7 +1,7 @@
 // `foedrum doctor`, the shell (ADR 0021): finds each tool through PATH and asks it for its
 // version through the process runner. doctor.ts decides what the answers mean.
 
-import type { ExecProcess } from '../platform/processes.ts';
+import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import type { DoctorFacts, ToolName, ToolRun } from './doctor.ts';
 
 // How each tool reports its version; socat has no --version.
@@ -35,11 +35,13 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   const ask = async (name: ToolName): Promise<ToolRun | undefined> => {
     const path = resolve(name);
     if (path === undefined) return undefined;
-    const { exitCode, output } = await exec(path, VERSION_ARGS[name], {
+    const { exitCode, output, killed } = await exec(path, VERSION_ARGS[name], {
       cwd,
       timeoutMs: VERSION_TIMEOUT_MS,
     });
-    return { path, exitCode, output };
+    // Why the runner killed it comes first, so the report can say so.
+    const why = whyKilled(killed, VERSION_TIMEOUT_MS);
+    return { path, exitCode, output: why === undefined ? output : `${why}\n${output}` };
   };
   const [npm, git, claude, bwrap, socat, podman, docker] = await Promise.all(
     (['npm', 'git', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),

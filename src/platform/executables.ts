@@ -28,8 +28,12 @@ const runnableFile =
     }
   };
 
-// Windows reads environment names whatever their case (Path, PATHEXT).
-const variable = (env: NodeJS.ProcessEnv, name: string, platform: NodeJS.Platform) =>
+/** An environment variable; on Windows whatever the case of its name (Path, PATHEXT, SYSTEMROOT). */
+export const environmentVariable = (
+  env: NodeJS.ProcessEnv,
+  name: string,
+  platform: NodeJS.Platform,
+): string | undefined =>
   platform === 'win32'
     ? Object.entries(env).find(([key]) => key.toUpperCase() === name)?.[1]
     : env[name];
@@ -46,7 +50,7 @@ export const resolveExecutable = (
   const { isExecutable = runnableFile(platform) } = options;
   const path = platform === 'win32' ? win32 : posix;
   // On Windows a name gets each PATHEXT extension, unless it already ends in one.
-  const extensions = (variable(env, 'PATHEXT', platform) || DEFAULT_PATHEXT)
+  const extensions = (environmentVariable(env, 'PATHEXT', platform) || DEFAULT_PATHEXT)
     .split(';')
     .filter((extension) => extension !== '')
     .map((extension) => extension.toLowerCase());
@@ -57,7 +61,7 @@ export const resolveExecutable = (
   const folders =
     name.includes(path.sep) || name.includes('/')
       ? ['']
-      : (variable(env, 'PATH', platform) ?? '')
+      : (environmentVariable(env, 'PATH', platform) ?? '')
           .split(path.delimiter)
           .map((folder) => folder.replace(/^"(.*)"$/, '$1'))
           // A relative folder would be checked here but resolved against another directory
