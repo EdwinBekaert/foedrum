@@ -253,6 +253,24 @@ describe('the state branch with real git', () => {
     assert.equal(git(a.worktree, ['rev-parse', 'HEAD']).trim(), pushedByB);
   });
 
+  it("runs none of the clone's hooks, also those --no-verify does not skip", async () => {
+    const a = machine('a');
+    const marker = join(dir.path, 'post-commit-ran').replaceAll('\\', '/');
+    const hook = join(a.clone, '.git', 'hooks', 'post-commit');
+    writeFileSync(hook, `#!/bin/sh\necho ran > "${marker}"\n`);
+    chmodSync(hook, 0o755);
+    // The hook works for an ordinary commit in the clone.
+    git(a.clone, ['commit', '-q', '--allow-empty', '-m', 'Check the hook']);
+    assert.ok(existsSync(marker), 'the post-commit hook did not run for a plain commit');
+    rmSync(marker);
+
+    await a.state.start();
+    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+
+    assert.equal(a.store.pushedThrough()?.eventId, 1);
+    assert.equal(existsSync(marker), false, 'a state commit ran the post-commit hook');
+  });
+
   it('catches up a store that is behind with a fast-forward', async () => {
     const a = machine('a');
     await a.state.start();

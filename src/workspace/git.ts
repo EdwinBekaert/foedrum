@@ -14,6 +14,8 @@ export interface GitResult {
 export interface GitOptions {
   /** Kills git after this long; default 60 s. */
   timeoutMs?: number;
+  /** Configuration for this call only, given through the environment (`GIT_CONFIG_COUNT`). */
+  config?: Readonly<Record<string, string>>;
 }
 
 export type Git = (
@@ -27,7 +29,10 @@ export type Git = (
  * Manager's window; a missing credential makes the command fail instead. The user's ssh choice
  * (GIT_SSH, core.sshCommand) stays: without a terminal, ssh cannot prompt either.
  */
-export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+export const gitEnv = (
+  env: NodeJS.ProcessEnv,
+  _config: Readonly<Record<string, string>> = {},
+): NodeJS.ProcessEnv => {
   // core.longpaths, added after any configuration the environment already gives git: out docs
   // on the state branch can be deeper than Windows' 260 characters (ADR 0024).
   const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;

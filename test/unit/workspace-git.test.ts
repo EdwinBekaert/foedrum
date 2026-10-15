@@ -31,6 +31,16 @@ describe('gitEnv', () => {
     assert.equal(given.GIT_CONFIG_VALUE_2, 'true');
   });
 
+  it("adds a call's own configuration after long paths", () => {
+    const env = gitEnv({}, { 'core.hooksPath': '/work/no-hooks', 'x.y': 'z' });
+    assert.equal(env.GIT_CONFIG_COUNT, '3');
+    assert.equal(env.GIT_CONFIG_KEY_0, 'core.longpaths');
+    assert.equal(env.GIT_CONFIG_KEY_1, 'core.hooksPath');
+    assert.equal(env.GIT_CONFIG_VALUE_1, '/work/no-hooks');
+    assert.equal(env.GIT_CONFIG_KEY_2, 'x.y');
+    assert.equal(env.GIT_CONFIG_VALUE_2, 'z');
+  });
+
   // An ssh command of its own would override GIT_SSH and core.sshCommand, such as Windows'
   // OpenSSH for the ssh-agent service or plink for Pageant, and the fetch would fail.
   it("leaves the user's ssh choice alone", () => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
@@ -42,6 +42,7 @@ interface Call {
   cwd: string;
   args: string[];
   timeoutMs: number | undefined;
+  config: Readonly<Record<string, string>> | undefined;
 }
 
 /**
@@ -68,7 +69,7 @@ class FakeGit {
 
   readonly git: Git = async (cwd, args, options) => {
     const list = [...args];
-    this.calls.push({ cwd, args: list, timeoutMs: options?.timeoutMs });
+    this.calls.push({ cwd, args: list, timeoutMs: options?.timeoutMs, config: options?.config });
     return this.answer(list) ?? this.simulate(list);
   };
 
@@ -458,6 +459,33 @@ describe('openStateBranch with a fake git', () => {
       writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
       fake.answer = (args) => (args[0] === 'symbolic-ref' ? ok('main\n') : undefined);
       await assert.rejects(branch().start(), /main/);
+    });
+  });
+
+  // --no-verify skips pre-commit and pre-push only; post-commit, post-checkout, post-merge and
+  // reference-transaction would still run the clone's hooks (ADR 0024).
+  describe('git hooks', () => {
+    const hooks = () => join(dir.path, 'no-hooks');
+
+    it('runs every git call with core.hooksPath at an empty folder next to the worktree', async () => {
+      fake.remote = sha(5);
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      await state.flush();
+
+      assert.ok(fake.find('worktree') && fake.find('commit') && fake.find('push'));
+      for (const call of fake.calls) {
+        assert.equal(call.config?.['core.hooksPath'], hooks(), call.args.join(' '));
+      }
+      assert.deepEqual(readdirSync(hooks()), []);
+    });
+
+    it('refuses a hooks folder that is not empty', async () => {
+      mkdirSync(hooks(), { recursive: true });
+      writeFileSync(join(hooks(), 'post-commit'), '#!/bin/sh\n');
+      await assert.rejects(branch().start(), /no-hooks/);
+      assert.deepEqual(fake.calls, []);
     });
   });
 
