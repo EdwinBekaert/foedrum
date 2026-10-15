@@ -12,6 +12,8 @@ import {
   killProcessTree,
   runProcessThrough,
   type Spawner,
+  stopOnSignals,
+  type Timers,
 } from '../../src/platform/processes.ts';
 
 const failingWith =
@@ -296,6 +298,65 @@ describe('execProcessWith', () => {
     stop.abort();
     assert.deepEqual(killed, []);
   });
+});
+
+// A deadline left running keeps node alive after the process ended: the worktree cleanup would
+// wait out git's 60 s, npm run check its 300 s.
+describe('execProcessWith and its clock', () => {
+  const fakeTimers = () => {
+    const pending = new Map<number, number>();
+    let next = 0;
+    const timers: Timers = {
+      set: (_callback, ms) => {
+        next += 1;
+        pending.set(next, ms);
+        return next;
+      },
+      clear: (timer) => {
+        pending.delete(timer as number);
+      },
+    };
+    return { pending, timers };
+  };
+
+  it('sets the deadline on the given clock and clears it once the process has ended', async () => {
+    const child = new FakeChild();
+    const { pending, timers } = fakeTimers();
+    const exec = execProcessWith(fakeSpawner(child).spawner, timers);
+    const done = exec('git', ['fetch'], { cwd: '/work/tree', timeoutMs: 60_000 });
+    assert.deepEqual([...pending.values()], [60_000]);
+    child.close(0);
+    await done;
+    assert.equal(pending.size, 0);
+  });
+});
+
+describe('stopOnSignals', () => {
+  const listening = () => {
+    const handlers = new Map<string, () => void>();
+    return {
+      handlers,
+      listen: (name: NodeJS.Signals, handler: () => void) => {
+        handlers.set(name, handler);
+      },
+    };
+  };
+
+  it('listens for Ctrl+C, a closed terminal, a catchable kill and Ctrl+Break', () => {
+    const { handlers, listen } = listening();
+    stopOnSignals(listen);
+    assert.deepEqual([...handlers.keys()].sort(), ['SIGBREAK', 'SIGHUP', 'SIGINT', 'SIGTERM']);
+  });
+
+  for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
+    it(`aborts when ${name} comes`, () => {
+      const { handlers, listen } = listening();
+      const signal = stopOnSignals(listen);
+      assert.equal(signal.aborted, false);
+      handlers.get(name)?.();
+      assert.equal(signal.aborted, true);
+    });
+  }
 });
 
 describe('runProcessThrough', () => {

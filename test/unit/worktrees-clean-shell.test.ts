@@ -326,6 +326,16 @@ describe('gitThrough', () => {
     });
   });
 
+  // The cleanup prints what it could not do with the reason; git does not always give one.
+  it('names the command and its exit code when git fails without a word on stderr', async () => {
+    const { git } = answering({ code: 1, stdout: '', stderr: '' });
+    assert.deepEqual(await git('/work/repo', ['merge-base', '--is-ancestor', 'a', 'b']), {
+      ok: false,
+      stdout: '',
+      stderr: 'git merge-base exited with code 1',
+    });
+  });
+
   it('fails, saying so, when git was killed at its deadline', async () => {
     const stderr = 'git timed out after 60000 ms';
     const { git } = answering({ code: null, stdout: '', stderr });

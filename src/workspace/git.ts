@@ -1,7 +1,7 @@
 // Runs git for Foedrum: non-interactive, with a timeout, through an argument array (architecture
 // §13). Code that drives git takes a `Git` so unit tests can pass a fake one (ADR 0021).
 
-import { execProcess } from '../platform/processes.ts';
+import { type ExecProcess, execProcess } from '../platform/processes.ts';
 
 export interface GitResult {
   /** The exit code; `null` when git was killed, for example by the timeout. */
@@ -50,6 +50,13 @@ export const gitEnv = (
     ...added,
   };
 };
+
+/** git through the given process runner; unit tests pass a fake one (ADR 0021). */
+export const runGitWith =
+  (_exec: ExecProcess): Git =>
+  () => {
+    throw new Error('not implemented');
+  };
 
 /**
  * The real git, through the platform's process runner. The timeout is a hard deadline: it kills

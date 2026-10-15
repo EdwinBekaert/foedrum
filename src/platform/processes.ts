@@ -99,6 +99,17 @@ export interface ChildHandle {
   on(event: 'close', listener: (code: number | null) => void): unknown;
 }
 
+/** The clock for deadlines; unit tests pass a fake one. */
+export interface Timers {
+  set: (callback: () => void, ms: number) => unknown;
+  clear: (timer: unknown) => void;
+}
+
+const realTimers: Timers = {
+  set: (callback, ms) => setTimeout(callback, ms),
+  clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
+};
+
 export interface Spawner {
   /** Starts a program without a shell; may throw when it cannot. */
   spawn: (
@@ -115,7 +126,7 @@ export interface Spawner {
  * waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
-  ({ spawn, killTree }: Spawner): ExecProcess =>
+  ({ spawn, killTree }: Spawner, _timers: Timers = realTimers): ExecProcess =>
   (file, args, { cwd, env = process.env, timeoutMs, signal }) =>
     new Promise((done) => {
       let stdout = '';
@@ -211,3 +222,19 @@ export const runProcessThrough =
 
 /** The real runner, with the output together. */
 export const spawnProcess: RunProcess = runProcessThrough(execProcess);
+
+export type ListenForSignal = (name: NodeJS.Signals, handler: () => void) => void;
+
+/**
+ * A signal that aborts when this process is asked to stop: Ctrl+C, a closed terminal, a kill
+ * that can be caught, Ctrl+Break on Windows. Outside Windows the runner's children lead process
+ * groups of their own, which the terminal's signals do not reach, so a script that runs them
+ * passes this signal on and the runner kills their trees.
+ */
+export const stopOnSignals = (
+  _listen: ListenForSignal = (name, handler) => {
+    process.once(name, handler);
+  },
+): AbortSignal => {
+  throw new Error('not implemented');
+};

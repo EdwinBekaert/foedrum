@@ -36,6 +36,21 @@ describe('resolveExecutable on Linux and macOS', () => {
     assert.equal(resolve('git', ':/usr/bin:', '/usr/bin/git', 'git'), '/usr/bin/git');
   });
 
+  // A relative folder would be found against this directory but run against another one, such
+  // as a worktree with a file of that name planted in it.
+  it('skips PATH folders that are not absolute', () => {
+    assert.equal(
+      resolve(
+        'git',
+        'node_modules/.bin:.:/usr/bin',
+        'node_modules/.bin/git',
+        'git',
+        '/usr/bin/git',
+      ),
+      '/usr/bin/git',
+    );
+  });
+
   it('does not add an extension', () => {
     assert.equal(resolve('claude', '/usr/bin', '/usr/bin/claude.cmd'), undefined);
   });
@@ -92,6 +107,14 @@ describe('resolveExecutable on Windows', () => {
     assert.equal(
       resolve('git', env, 'C:\\Program Files\\Git\\cmd\\git.exe'),
       'C:\\Program Files\\Git\\cmd\\git.exe',
+    );
+  });
+
+  it('skips PATH folders that are not absolute', () => {
+    const env = { PATH: 'node_modules\\.bin;.;C:\\Git\\cmd', PATHEXT: '.EXE' };
+    assert.equal(
+      resolve('git', env, 'node_modules\\.bin\\git.exe', 'git.exe', 'C:\\Git\\cmd\\git.exe'),
+      'C:\\Git\\cmd\\git.exe',
     );
   });
 

@@ -48,6 +48,7 @@ export const syncDeps = async (
   execPath: string,
   runProcess: RunProcess,
   read: ReadText = readText,
+  _stop?: AbortSignal,
 ): Promise<string[]> => {
   const stale = await outOfDate(cwd, read);
   if (stale === undefined) return [];

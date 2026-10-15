@@ -114,10 +114,9 @@ describe('resolveExecutable on this machine', () => {
 
 describe('windowsCommandLine through cmd.exe', { skip: process.platform !== 'win32' }, () => {
   // A .cmd file that passes its arguments on to node with %*, as npm's claude.cmd does.
-  it('reaches the program behind a .cmd file with every argument intact', async () => {
-    const args = ['-p', 'C:\\Users\\Ann Lee\\settings.json', '', 'C:\\Work Trees\\12\\', 'José'];
-    const printArgs = join(import.meta.dirname, '..', 'fixtures', 'processes', 'print-args.cmd');
-    const line = windowsCommandLine(printArgs, args);
+  const printArgs = join(import.meta.dirname, '..', 'fixtures', 'processes', 'print-args.cmd');
+  const argsThrough = async (file: string, args: string[]): Promise<unknown> => {
+    const line = windowsCommandLine(file, args);
     const child = spawn(line, [], { shell: true, stdio: ['ignore', 'pipe', 'inherit'] });
     let stdout = '';
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
@@ -125,6 +124,24 @@ describe('windowsCommandLine through cmd.exe', { skip: process.platform !== 'win
     });
     const code = await new Promise((resolve) => child.on('close', resolve));
     assert.equal(code, 0);
-    assert.deepEqual(JSON.parse(stdout), args);
+    return JSON.parse(stdout);
+  };
+
+  it('reaches the program behind a .cmd file with every argument intact', async () => {
+    const args = [
+      '-p',
+      'C:\\Users\\Ann Lee\\settings.json',
+      '',
+      'C:\\Work Trees\\12\\',
+      'José',
+      '--output-format=stream-json',
+      'a,b',
+      'user@host',
+      'a+b',
+      '~x',
+      'C:\\Program Files (x86)\\nodejs',
+      "C:\\Users\\O'Brien",
+    ];
+    assert.deepEqual(await argsThrough(printArgs, args), args);
   });
 });

@@ -168,7 +168,12 @@ export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 // `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
 // by this node, so the check starts without a shell.
 export const npmCheck =
-  (env: NodeJS.ProcessEnv, execPath: string, runProcess: RunProcess): RunCheck =>
+  (
+    env: NodeJS.ProcessEnv,
+    execPath: string,
+    runProcess: RunProcess,
+    _stop?: AbortSignal,
+  ): RunCheck =>
   async (cwd) => {
     const npmCli = env.npm_execpath;
     if (npmCli === undefined || npmCli === '') {
