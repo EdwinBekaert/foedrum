@@ -1,13 +1,9 @@
-import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { after, before, describe, it } from 'node:test';
-import { findSecrets, type IsCommit, run } from '../../scripts/secret-scan.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+// The secret scan's matching and its exit codes, with file reading and the commit lookup
+// injected. The script with real node and git runs in test/integration/secret-scan.test.ts.
 
-const root = join(import.meta.dirname, '..', '..');
-const script = join(root, 'scripts', 'secret-scan.ts');
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { findSecrets, type IsCommit, run } from '../../scripts/secret-scan.ts';
 
 // Synthetic secrets, built at run time so the source never holds a token-shaped string.
 const githubToken = `ghp${'_'}${'a1B2'.repeat(9)}`;
@@ -140,37 +136,5 @@ describe('run', () => {
     assert.equal(result.status, 2);
     assert.match(result.err, /cannot read missing\.md: ENOENT/);
     assert.equal(result.out, '');
-  });
-});
-
-describe('secret-scan command', () => {
-  let dir: TempDir;
-  before(() => {
-    dir = makeTempDir('secret-scan');
-  });
-  after(() => dir.remove());
-
-  const scan = (content: string) => {
-    const file = join(dir.path, 'summary.md');
-    writeFileSync(file, content);
-    return spawnSync(process.execPath, [script, file], { cwd: root, encoding: 'utf8' });
-  };
-
-  it('exits 0 for a summary whose only long hex string is a commit of this repository', () => {
-    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-    const result = scan(`Base \`${head}\`\n`);
-    assert.equal(result.status, 0, result.stderr);
-  });
-
-  it('exits 1 and names the line when it finds a secret', () => {
-    const result = scan(`fine\n${githubToken}\n`);
-    assert.equal(result.status, 1);
-    assert.match(result.stdout, /line 2/);
-    assert.ok(!result.stdout.includes(githubToken));
-  });
-
-  it('exits 2 when no file is given', () => {
-    const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' });
-    assert.equal(result.status, 2);
   });
 });
