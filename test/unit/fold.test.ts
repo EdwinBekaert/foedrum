@@ -69,6 +69,24 @@ describe('fold', () => {
     assert.deepStrictEqual(state.orders.get(101)?.batchIds, ['b2']);
   });
 
+  it('records a label choice with its source and no issuer', () => {
+    const state = fold([
+      ordered,
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'pint',
+        reason: 'label size:pint',
+        source: 'label',
+      },
+    ]);
+    assert.deepStrictEqual(batch(state).recipe, {
+      name: 'pint',
+      reason: 'label size:pint',
+      source: 'label',
+    });
+  });
+
   it('records the chosen recipe and who chose it, and a later choice replaces it', () => {
     const state = fold([
       ordered,
