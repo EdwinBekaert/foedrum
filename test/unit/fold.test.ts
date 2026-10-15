@@ -250,3 +250,62 @@ describe('fold', () => {
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
   });
 });
+
+describe('fold of an inconsistent log', () => {
+  const started: Event = { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1 };
+  const cases: [string, Event[], RegExp][] = [
+    ['an event for a batch that was never ordered', [scheduled], /batch b1 was never ordered/],
+    ['a batch ordered twice', [ordered, ordered], /batch b1 was already ordered/],
+    [
+      'a parent batch that was never ordered',
+      [{ ...ordered, parentBatchId: 'b0' }],
+      /batch b0 was never ordered/,
+    ],
+    ['an attempt started before it was scheduled', [ordered, started], /plan#1 .*never scheduled/],
+    [
+      'an attempt finished before it was started',
+      [
+        ordered,
+        scheduled,
+        {
+          type: 'step.finished',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 1,
+          outcome: { kind: 'cancelled' },
+        },
+      ],
+      /plan#1 .*never started/,
+    ],
+    ['an attempt scheduled twice', [ordered, scheduled, scheduled], /plan#1 .*already scheduled/],
+    [
+      'input for a step that never ran',
+      [
+        ordered,
+        {
+          type: 'input.received',
+          batchId: 'b1',
+          stepId: 'plan',
+          by: 'octocat',
+          via: 'plugin',
+          answers: [{ q: 'Why?', answer: 'Because' }],
+        },
+      ],
+      /step plan of batch b1 was never scheduled/,
+    ],
+    [
+      'a rewind to a step that never ran',
+      [
+        ordered,
+        { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+      ],
+      /step plan of batch b1 was never scheduled/,
+    ],
+  ];
+
+  for (const [name, events, message] of cases) {
+    it(`throws on ${name}`, () => {
+      assert.throws(() => fold(events), message);
+    });
+  }
+});
