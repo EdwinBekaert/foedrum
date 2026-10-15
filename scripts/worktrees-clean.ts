@@ -4,49 +4,25 @@
 // worktrees-clean/core.ts decides; this shell gathers the facts and carries out the plan (ADR 0021).
 // With --session-start (the SessionStart hook) it runs only in the main checkout. It never fails.
 
-import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive, stopOnSignals } from '../src/platform/processes.ts';
-import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
+import { removeTree } from '../src/platform/remove.ts';
+import { type GitOptions, runGit as runFoedrumGit } from '../src/workspace/git.ts';
+import { parseWorktreeList } from '../src/workspace/worktree-list.ts';
+import { readRecords } from '../src/workspace/worktree-records.ts';
 import {
-  type GitOptions,
-  runGit as runFoedrumGit,
-  type Git as WorkspaceGit,
-} from '../src/workspace/git.ts';
-import {
-  type Action,
-  type Facts,
-  type FolderState,
-  plan,
-  shouldRun,
-} from './worktrees-clean/core.ts';
-import { parseWorktreeList } from './worktrees-clean/porcelain.ts';
-import { readRecords } from './worktrees-clean/records.ts';
+  folderState,
+  gitThrough,
+  type OkGitResult,
+  removeWorktree,
+} from '../src/workspace/worktree-removal-git.ts';
+import { type Action, type Facts, plan, shouldRun } from './worktrees-clean/core.ts';
 
-interface GitResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-}
-export type Git = (cwd: string, args: string[], options?: GitOptions) => Promise<GitResult>;
+export type Git = (cwd: string, args: string[], options?: GitOptions) => Promise<OkGitResult>;
 
-// The cleanup's git on top of Foedrum's, with success as a flag.
-export const gitThrough =
-  (run: WorkspaceGit): Git =>
-  async (cwd, args, options) => {
-    const { code, stdout, stderr } = await run(cwd, args, options);
-    // A failure is printed with its reason, and git does not always give one.
-    const command = `git ${args[0] ?? ''}`;
-    const reason =
-      code === 0 || stderr !== ''
-        ? stderr
-        : code === null
-          ? `${command} ended without an exit code`
-          : `${command} exited with code ${code}`;
-    return { ok: code === 0, stdout, stderr: reason };
-  };
+export { gitThrough };
 
 // Foedrum's git never prompts and, at its deadline (60 s by default), kills git with every
 // process git started, such as a credential helper of a stalled fetch (#12).
@@ -55,7 +31,7 @@ export const runGit: Git = gitThrough(runFoedrumGit);
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
 // The output of a git call, or an error naming it when the call failed.
-const succeed = async (result: Promise<GitResult>, what = ''): Promise<string> => {
+const succeed = async (result: Promise<OkGitResult>, what = ''): Promise<string> => {
   const { ok, stdout, stderr } = await result;
   if (!ok) throw new Error(`${what && `git ${what} failed: `}${lines(stderr)[0] ?? 'git failed'}`);
   return stdout;
@@ -65,13 +41,6 @@ const mainCheckoutOf = async (git: Git, cwd: string): Promise<string | undefined
   const result = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   const commonDir = result.stdout.trim();
   return result.ok && /[\\/]\.git$/.test(commonDir) ? dirname(commonDir) : undefined;
-};
-
-const folderState = async (git: Git, path: string): Promise<FolderState> => {
-  if (!existsSync(path)) return 'gone';
-  if (!existsSync(join(path, '.git'))) return 'no-git';
-  const status = await git(path, ['status', '--porcelain']);
-  return status.ok && status.stdout.trim() === '' ? 'clean' : 'dirty';
 };
 
 // The facts for the core, and each branch's tip for deleting it only while it is still there.
@@ -127,26 +96,14 @@ const carryOut = async (
 ): Promise<string> => {
   switch (action.kind) {
     case 'remove':
-      for (const path of [action.path, action.record]) {
-        if (path !== undefined) await clearReadOnly(path).catch(() => undefined);
-      }
       if (action.unlock) await git(main, ['worktree', 'unlock', action.path]);
-      try {
-        await succeed(git(main, ['worktree', 'remove', action.path]));
-      } catch (error) {
-        // git deletes the .git file and the record even when it fails on a busy file, and no
-        // later run would see the folder again; with the .git file still there, it refused.
-        if (existsSync(join(action.path, '.git'))) throw error;
-        await removeTree(action.path);
-        if (action.record !== undefined) await removeTree(action.record);
-      }
+      await removeWorktree(git, main, action);
       return `removed worktree ${action.label}`;
     case 'finish':
-      await removeTree(action.path);
-      await removeTree(action.record);
+      await removeWorktree(git, main, action);
       return `finished removing worktree ${action.label}: its .git file was gone`;
     case 'prune':
-      await removeTree(action.record);
+      await removeWorktree(git, main, action);
       return `pruned stale worktree ${action.label}: folder is gone`;
     case 'drop-record':
       await removeTree(action.record);

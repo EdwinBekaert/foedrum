@@ -1,0 +1,188 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { beforeEach, describe, it } from 'node:test';
+import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
+import type { Git } from '../../src/workspace/git.ts';
+import {
+  BASE,
+  branch,
+  failed,
+  fakeGit,
+  ok,
+  porcelain,
+  suiteFolders,
+  TIP,
+} from '../helpers/attempt-worktrees.ts';
+
+describe('openAttemptWorktrees with a fake git', () => {
+  const nextFolder = suiteFolders('attempt-worktrees');
+  let dir: { path: string };
+  let clone: string;
+  let workRoot: string;
+  let root: string;
+  let path: string;
+
+  beforeEach(() => {
+    dir = { path: nextFolder() };
+    clone = join(dir.path, 'clone');
+    workRoot = join(dir.path, 'work');
+    root = join(workRoot, 'acme.app', 'attempts');
+    path = join(root, '12-1', 'implement', '1');
+    mkdirSync(join(clone, '.git', 'worktrees'), { recursive: true });
+  });
+
+  const open = (git: Git, now?: () => number) =>
+    openAttemptWorktrees({
+      git,
+      workRoot,
+      repo: 'acme/app',
+      clone,
+      ...(now === undefined ? {} : { now }),
+    });
+
+  // A worktree on disk with its record, as git leaves it.
+  const worktreeOnDisk = (folder: string, name: string): string => {
+    const record = join(clone, '.git', 'worktrees', name);
+    mkdirSync(folder, { recursive: true });
+    mkdirSync(record, { recursive: true });
+    writeFileSync(join(folder, '.git'), `gitdir: ${record}\n`);
+    writeFileSync(join(record, 'gitdir'), `${join(folder, '.git')}\n`);
+    return record;
+  };
+
+  describe('clean', () => {
+    const ended = { batches: new Map([['12-1', 'ended' as const]]), leased: [] };
+
+    it('removes the worktree, branch and batch folder of an ended batch', async () => {
+      worktreeOnDisk(path, 'implement1');
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(
+            porcelain([
+              { path: clone, branch: 'main' },
+              { path, branch },
+            ]),
+          );
+        }
+        if (args[0] === 'for-each-ref') return ok(`${branch}\0${TIP}\nfoedrum/state\0${BASE}\n`);
+        if (args[0] === 'worktree' && args[1] === 'remove') {
+          rmSync(args[2] ?? '', { recursive: true });
+          rmSync(join(clone, '.git', 'worktrees', 'implement1'), { recursive: true });
+        }
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.deepEqual(calls, [
+        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+        [clone, 'worktree', 'list', '--porcelain', '-z'],
+        // Against the record, never the repository the folder's own .git file names.
+        [
+          clone,
+          `--git-dir=${join(clone, '.git', 'worktrees', 'implement1')}`,
+          `--work-tree=${path}`,
+          'status',
+          '--porcelain',
+        ],
+        [
+          clone,
+          'for-each-ref',
+          '--format=%(refname:lstrip=2)%00%(objectname)',
+          'refs/heads/foedrum/',
+        ],
+        [clone, 'worktree', 'remove', path],
+        [clone, 'update-ref', '-d', `refs/heads/${branch}`, TIP],
+        [clone, 'config', '--remove-section', `branch.${branch}`],
+      ]);
+      assert.deepEqual(report, {
+        done: [
+          'removed worktree 12-1/implement/1',
+          `deleted branch ${branch}`,
+          'removed batch folder 12-1',
+        ],
+        kept: [],
+        failed: [],
+      });
+      assert.equal(existsSync(join(root, '12-1')), false);
+    });
+
+    it('reports a worktree it could not remove, and keeps its branch', async () => {
+      worktreeOnDisk(path, 'implement1');
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
+        if (args[0] === 'for-each-ref') return ok(`${branch}\0${TIP}\n`);
+        if (args[0] === 'worktree' && args[1] === 'remove') return failed('fatal: busy\n');
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.deepEqual(report.failed, ['could not clean 12-1/implement/1: fatal: busy']);
+      assert.ok(!calls.some(([, ...args]) => args[0] === 'update-ref'));
+      assert.ok(existsSync(join(root, '12-1')));
+    });
+
+    it('goes on after an item it could not remove, and reports each failure', async () => {
+      const review = join(root, '12-1', 'review', '1');
+      const reviewBranch = 'foedrum/12-1/review/1';
+      worktreeOnDisk(path, 'implement1');
+      worktreeOnDisk(review, 'review1');
+      const stray = 'foedrum/12-1/bottle';
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(
+            porcelain([
+              { path, branch },
+              { path: review, branch: reviewBranch },
+            ]),
+          );
+        }
+        if (args[0] === 'for-each-ref') {
+          return ok(`${branch}\0${TIP}\n${reviewBranch}\0${TIP}\n${stray}\0${BASE}\n`);
+        }
+        if (args[0] === 'worktree' && args[1] === 'remove' && args[2] === path) {
+          return failed('fatal: busy\n');
+        }
+        if (args[0] === 'update-ref' && args[2] === `refs/heads/${stray}`) {
+          return failed('fatal: cannot lock ref\n');
+        }
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.deepEqual(report.failed, [
+        'could not clean 12-1/implement/1: fatal: busy',
+        `could not clean branch ${stray}: git update-ref failed: fatal: cannot lock ref`,
+      ]);
+      assert.deepEqual(report.done, [
+        'removed worktree 12-1/review/1',
+        `deleted branch ${reviewBranch}`,
+      ]);
+      assert.ok(calls.some(([, ...args]) => args[0] === 'worktree' && args[2] === review));
+    });
+
+    it('removes a folder git does not know in an ended batch', async () => {
+      mkdirSync(join(path, 'leftover'), { recursive: true });
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list')
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.deepEqual(report.done, [
+        'removed folder 12-1/implement/1: git does not know it as a worktree',
+        'removed batch folder 12-1',
+      ]);
+      assert.equal(existsSync(join(root, '12-1')), false);
+    });
+  });
+});

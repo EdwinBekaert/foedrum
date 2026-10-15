@@ -1,6 +1,6 @@
 # 0012. Worktrees from local clones
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0029](0029-attempt-worktrees-layout-claims-and-repair.md)
 
 ## Context
 Enterprise repositories can be very large; cloning them per batch, or even once per tool, costs minutes and gigabytes. Developers usually already have the repositories cloned locally. Each attempt still needs an isolated working tree.

@@ -7,8 +7,8 @@
 import { realpath } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { removeTree } from '../src/platform/remove.ts';
+import { readRecords } from '../src/workspace/worktree-records.ts';
 import { planScratch } from './remove-scratch/core.ts';
-import { readRecords } from './worktrees-clean/records.ts';
 import { type Git, runGit } from './worktrees-clean.ts';
 
 export const removeScratch = async (
