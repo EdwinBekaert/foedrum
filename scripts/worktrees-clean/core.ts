@@ -1,17 +1,14 @@
 // Decides what the worktree cleanup removes, from facts gathered by the shell (ADR 0021).
 
 import type { RecordFact } from '../../src/workspace/worktree-records.ts';
+import { dirtyReason, type FolderState, removalOf } from '../../src/workspace/worktree-removal.ts';
 
-export type { RecordFact };
-
-// clean or dirty: the folder is a worktree; no-git: the folder is there without its .git
-// file; gone: only the record under .git/worktrees/ is left; unchecked: outside
-// .claude/worktrees/, so never looked at.
-export type FolderState = 'clean' | 'dirty' | 'no-git' | 'gone' | 'unchecked';
+export type { FolderState, RecordFact };
 
 export interface WorktreeFact {
   path: string;
-  // The path below .claude/worktrees/ with `/` separators, or undefined outside it.
+  // The path below .claude/worktrees/ with `/` separators, or undefined outside it, where its
+  // state is `unchecked`.
   inside: string | undefined;
   branch: string | undefined;
   lockReason: string | undefined;
@@ -103,19 +100,15 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
         ? undefined
         : `it contains the worktree .claude/worktrees/${nested.inside}`) ??
       lockKeepReason(worktree.lockReason, isPidAlive) ??
-      (state === 'dirty' ? 'it has uncommitted or untracked changes' : undefined) ??
+      dirtyReason(state) ??
       (state === 'gone' ? undefined : branchReason);
-    if (reason !== undefined) kept.push(`kept worktree ${label}: ${reason}`);
-    else if (state === 'gone' && record !== undefined) {
-      actions.push({ kind: 'prune', label, record, branch });
-    } else if (state === 'no-git' && record !== undefined) {
-      actions.push({ kind: 'finish', label, path, record, branch });
-    } else if (state === 'clean') {
+    const removal = reason === undefined ? removalOf({ path, record, state }) : undefined;
+    if (removal === undefined || removal.kind === 'keep') {
+      kept.push(`kept worktree ${label}: ${reason ?? removal?.reason}`);
+    } else if (removal.kind === 'remove') {
       const unlock = worktree.lockReason !== undefined;
-      actions.push({ kind: 'remove', label, path, record, unlock, branch });
-    } else {
-      kept.push(`kept worktree ${label}: no record under .git/worktrees/ points at it`);
-    }
+      actions.push({ ...removal, label, unlock, branch });
+    } else actions.push({ ...removal, label, branch });
   }
 
   // Records git no longer lists, or whose folder is gone, wherever their worktree was. The
