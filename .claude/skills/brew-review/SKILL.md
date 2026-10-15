@@ -77,7 +77,7 @@ Finish this stage before starting stage 3, never in parallel with it: the lenses
 
 ## Stage 3: lens reviews
 
-List the lens files in `<bundle>/criteria/defaults/lenses/*.md`. Start **one fresh `taster` per lens, all in one message**, each with [reviewer-prompt.md](reviewer-prompt.md) filled in for that lens. They return JSON (format in the prompt).
+List the lens files in `<bundle>/criteria/defaults/lenses/*.md`: the five default lenses, correctness, security, cross-platform, design conformance and test design ([ADR 0022](../../../docs/adr/0022-five-default-lenses.md)), plus any the criteria add. Start **one fresh `taster` per lens, all in one message**, each with [reviewer-prompt.md](reviewer-prompt.md) filled in for that lens. If one of the five is missing from the criteria (a branch from before that ADR), say so in the summary, so a skipped lens is visible; merging origin/main brings it in. They return JSON (format in the prompt).
 
 Then go through every finding yourself, including the simplify findings from stage 2, against the code at `<head>`:
 - **fix** it when it is right: a behaviour change gets a failing test commit first, then the fix (CLAUDE.md: red → green). Run the checks. Record the commit hashes.
