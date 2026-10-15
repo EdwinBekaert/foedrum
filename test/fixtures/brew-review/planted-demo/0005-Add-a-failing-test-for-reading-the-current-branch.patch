@@ -1,0 +1,50 @@
+From 5f9b779d40fa4a77b5fd629e151f79c4d495c004 Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 11:25:53 +0200
+Subject: [PATCH 5/8] Add a failing test for reading the current branch
+
+---
+ src/workspace/current-branch.ts  |  3 +++
+ test/unit/current-branch.test.ts | 20 ++++++++++++++++++++
+ 2 files changed, 23 insertions(+)
+ create mode 100644 src/workspace/current-branch.ts
+ create mode 100644 test/unit/current-branch.test.ts
+
+diff --git a/src/workspace/current-branch.ts b/src/workspace/current-branch.ts
+new file mode 100644
+index 0000000..0ea036c
+--- /dev/null
++++ b/src/workspace/current-branch.ts
+@@ -0,0 +1,3 @@
++export const currentBranch = (_worktree: string): string => {
++  throw new Error('not implemented');
++};
+diff --git a/test/unit/current-branch.test.ts b/test/unit/current-branch.test.ts
+new file mode 100644
+index 0000000..d730e8f
+--- /dev/null
++++ b/test/unit/current-branch.test.ts
+@@ -0,0 +1,20 @@
++import assert from 'node:assert/strict';
++import { execFileSync } from 'node:child_process';
++import { after, before, describe, it } from 'node:test';
++import { currentBranch } from '../../src/workspace/current-branch.ts';
++import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
++
++describe('currentBranch', () => {
++  let repo: TempDir;
++
++  before(() => {
++    repo = makeTempDir('current-branch');
++    execFileSync('git', ['init', '--quiet', '--initial-branch', '12-demo', repo.path]);
++  });
++
++  after(() => repo.remove());
++
++  it('names the branch checked out in the worktree', () => {
++    assert.equal(currentBranch(repo.path), '12-demo');
++  });
++});
+-- 
+2.56.0.windows.2
+
