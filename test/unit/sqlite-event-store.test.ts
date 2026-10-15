@@ -1189,7 +1189,16 @@ describe('SqliteEventStore read-only', () => {
   });
 
   it('creates no database where there is none', () => {
-    assert.throws(() => open(path, { readOnly: true }));
+    assert.throws(() => open(path, { readOnly: true }), /unable to open/i);
     assert.equal(existsSync(path), false);
+  });
+
+  it('refuses a newer schema version, which it could not read', () => {
+    open(path);
+    closeAll();
+    const db = raw(path);
+    db.exec('PRAGMA user_version = 3');
+    db.close();
+    assert.throws(() => open(path, { readOnly: true }), /schema version 3/);
   });
 });

@@ -406,6 +406,12 @@ describe('foedrum status', () => {
     await run(['status'], { openStore: () => watched.store });
     assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: brewery.length });
   });
+
+  it('closes the event store when the fold rejects its log', async () => {
+    const watched = watchedStore(invalidLog);
+    await run(['status'], { openStore: () => watched.store });
+    assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: invalidLog.length });
+  });
 });
 
 describe('foedrum replay', () => {
@@ -476,5 +482,11 @@ describe('foedrum replay', () => {
       await run(['replay', batch], { openStore: () => watched.store });
       assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: brewery.length });
     }
+  });
+
+  it('closes the event store when the fold rejects its log', async () => {
+    const watched = watchedStore(invalidLog);
+    await run(['replay', '11-1'], { openStore: () => watched.store });
+    assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: invalidLog.length });
   });
 });
