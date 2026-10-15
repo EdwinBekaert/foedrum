@@ -116,6 +116,14 @@ describe('outDocFrontmatter with brewer-specific fields', () => {
       false,
     );
   });
+
+  for (const field of ['status', 'summary', 'assumptions', 'questions', 'blockerKind']) {
+    it(`refuses a brewer-specific field that replaces ${field}`, () => {
+      assert.throws(() => outDocFrontmatter({ [field]: z.string().optional() }), {
+        message: new RegExp(field),
+      });
+    });
+  }
 });
 
 describe('readOutDoc', () => {

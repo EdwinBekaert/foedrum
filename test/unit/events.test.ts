@@ -256,6 +256,34 @@ describe('Event', () => {
       'a pull request URL with credentials',
       { ...valid['bottle.opened'], pullRequest: 'https://token@github.com/acme/lib-core/pull/7' },
     ],
+    ...[
+      'HTTPS://token@github.com/acme/lib-core/pull/7',
+      'https:\\\\token@github.com/acme/lib-core/pull/7',
+      'https:/token@github.com/acme/lib-core/pull/7',
+      'https://:secret@github.com/acme/lib-core/pull/7',
+    ].map((pullRequest): [string, unknown] => [
+      `the pull request URL ${pullRequest}`,
+      { ...valid['bottle.opened'], pullRequest },
+    ]),
+    [
+      'more than 100 sub-orders',
+      {
+        ...threeSubOrders,
+        subOrders: Array.from({ length: 101 }, (_, i) => ({ issue: i + 1, repo: 'acme/api' })),
+        dependencies: [],
+      },
+    ],
+    [
+      'more than 1000 dependencies',
+      {
+        ...threeSubOrders,
+        dependencies: Array.from({ length: 1001 }, () => ({
+          subOrder: 102,
+          blockedBy: 101,
+          kind: 'code',
+        })),
+      },
+    ],
     ...['../..', 'acme/..', 'acme/.', './lib-core', '-acme/lib-core', 'acme/-lib-core'].map(
       (repo): [string, unknown] => [
         `the repository ${repo}`,
