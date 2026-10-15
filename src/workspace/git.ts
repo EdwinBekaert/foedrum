@@ -21,10 +21,11 @@ export type Git = (
   options?: GitOptions,
 ) => Promise<GitResult>;
 
-// git never prompts, in the terminal or through Git Credential Manager's window; a missing
-// credential makes the command fail instead. The user's ssh choice (GIT_SSH, core.sshCommand)
-// stays: without a terminal, ssh cannot prompt either.
-/** The environment git runs in: it never prompts, in the terminal or in a credential window. */
+/**
+ * The environment git runs in: it never prompts, in the terminal or through Git Credential
+ * Manager's window; a missing credential makes the command fail instead. The user's ssh choice
+ * (GIT_SSH, core.sshCommand) stays: without a terminal, ssh cannot prompt either.
+ */
 export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
   ...env,
   GIT_TERMINAL_PROMPT: '0',
