@@ -1,6 +1,8 @@
-// Process checks that differ between operating systems (architecture §13).
+// Starting, checking and killing processes, which differs between operating systems
+// (architecture §13). The one process runner of Foedrum and its scripts lives here.
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import type { Readable } from 'node:stream';
 
 export type Kill = (pid: number, signal: 0) => void;
 
@@ -57,3 +59,106 @@ export const isPidAlive = (pid: number, kill: Kill = process.kill): boolean => {
     return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 };
+
+/** How the runner ended a process it killed: its deadline passed, or its signal aborted. */
+export type Killed = 'timed-out' | 'stopped';
+
+export interface ExecOptions {
+  cwd: string;
+  /** The process's environment; default this process's. */
+  env?: NodeJS.ProcessEnv | undefined;
+  /** Kills the process and every process it started after this long. */
+  timeoutMs?: number | undefined;
+  /** Kills the process and every process it started when it aborts. */
+  signal?: AbortSignal | undefined;
+}
+
+export interface ExecResult {
+  /** The exit code; `null` when the process could not start or was killed. */
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  /** stdout and stderr together, in the order they came. */
+  output: string;
+  /** Set when the runner killed the process and every process it started. */
+  killed?: Killed;
+}
+
+export type ExecProcess = (
+  file: string,
+  args: readonly string[],
+  options: ExecOptions,
+) => Promise<ExecResult>;
+
+/** The part of a started process the runner uses; a fake one in unit tests (ADR 0021). */
+export interface ChildHandle {
+  readonly pid?: number | undefined;
+  readonly stdout: Readable;
+  readonly stderr: Readable;
+  on(event: 'error', listener: (error: Error) => void): unknown;
+  on(event: 'close', listener: (code: number | null) => void): unknown;
+}
+
+export interface Spawner {
+  /** Starts a program without a shell; may throw when it cannot. */
+  spawn: (
+    file: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv },
+  ) => ChildHandle;
+  killTree: (pid: number) => void;
+}
+
+/**
+ * A runner that starts programs through the given spawner and collects their output. At the
+ * deadline, or when the signal aborts, it kills the whole tree and answers at once, without
+ * waiting for output pipes that a surviving grandchild may hold open.
+ */
+export const execProcessWith =
+  (_spawner: Spawner): ExecProcess =>
+  () => {
+    throw new Error('not implemented');
+  };
+
+/** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
+export const execProcess: ExecProcess = execProcessWith({
+  spawn: (file, args, { cwd, env }) =>
+    spawn(file, args, {
+      cwd,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...killableSpawnOptions(),
+    }),
+  killTree: (pid) => killProcessTree(pid),
+});
+
+// The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output
+// together. Unit tests pass a fake one.
+export interface ProcessOutcome {
+  /** The exit code; `null` when the process could not start or was killed. */
+  exitCode: number | null;
+  output: string;
+  killed?: Killed;
+}
+
+export interface RunOptions {
+  timeoutMs?: number | undefined;
+  signal?: AbortSignal | undefined;
+}
+
+export type RunProcess = (
+  file: string,
+  args: string[],
+  cwd: string,
+  options?: RunOptions,
+) => Promise<ProcessOutcome>;
+
+export const runProcessThrough =
+  (_exec: ExecProcess): RunProcess =>
+  () => {
+    throw new Error('not implemented');
+  };
+
+/** The real runner, with the output together. */
+export const spawnProcess: RunProcess = runProcessThrough(execProcess);

@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { cleanWorktrees, type Git } from '../../scripts/worktrees-clean.ts';
+import { cleanWorktrees, type Git, gitThrough } from '../../scripts/worktrees-clean.ts';
+import type {
+  Git as WorkspaceGit,
+  GitResult as WorkspaceGitResult,
+} from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // Captured from git 2.56 with machine paths and object ids replaced (see the fixture folder).
@@ -292,5 +296,39 @@ describe('cleanWorktrees with a fake git', () => {
         'kept worktree .claude/worktrees/7-merged: it has uncommitted or untracked changes',
       ),
     );
+  });
+});
+
+// The cleanup runs git through Foedrum's git, which kills git's whole tree at its deadline (#12).
+describe('gitThrough', () => {
+  const answering = (result: WorkspaceGitResult) => {
+    const calls: Parameters<WorkspaceGit>[] = [];
+    const run: WorkspaceGit = async (...call) => {
+      calls.push(call);
+      return result;
+    };
+    return { calls, git: gitThrough(run) };
+  };
+
+  it('runs git in the directory with the arguments and options, and passes on its output', async () => {
+    const { calls, git } = answering({ code: 0, stdout: 'main\n', stderr: 'note\n' });
+    const result = await git('/work/repo', ['branch', '--show-current'], { timeoutMs: 5 });
+    assert.deepEqual(calls, [['/work/repo', ['branch', '--show-current'], { timeoutMs: 5 }]]);
+    assert.deepEqual(result, { ok: true, stdout: 'main\n', stderr: 'note\n' });
+  });
+
+  it('fails when git exits non-zero', async () => {
+    const { git } = answering({ code: 128, stdout: '', stderr: 'fatal: not a git repository\n' });
+    assert.deepEqual(await git('/work/repo', ['status']), {
+      ok: false,
+      stdout: '',
+      stderr: 'fatal: not a git repository\n',
+    });
+  });
+
+  it('fails, saying so, when git was killed at its deadline', async () => {
+    const stderr = 'git timed out after 60000 ms';
+    const { git } = answering({ code: null, stdout: '', stderr });
+    assert.deepEqual(await git('/work/repo', ['fetch']), { ok: false, stdout: '', stderr });
   });
 });

@@ -2,15 +2,9 @@
 // and collects its exit code and output. Unit tests pass a fake runner instead.
 
 import { spawn } from 'node:child_process';
+import type { RunProcess } from '../src/platform/processes.ts';
 
-// The exit code of a finished process (null when it could not start or was killed) and its
-// stdout and stderr together.
-export interface ProcessOutcome {
-  exitCode: number | null;
-  output: string;
-}
-
-export type RunProcess = (file: string, args: string[], cwd: string) => Promise<ProcessOutcome>;
+export type { ProcessOutcome, RunOptions, RunProcess } from '../src/platform/processes.ts';
 
 export const spawnProcess: RunProcess = (file, args, cwd) =>
   new Promise((resolve) => {

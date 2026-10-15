@@ -27,6 +27,10 @@ export interface CheckOptions {
   runProcess: RunProcess;
   cwd: string;
   write: (text: string) => void;
+  /** Each step's deadline. */
+  stepTimeoutMs?: number;
+  /** Stops the check: every step still running is killed with the processes it started. */
+  signal?: AbortSignal;
 }
 
 const withNewline = (text: string): string =>

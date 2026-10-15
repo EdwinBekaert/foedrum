@@ -11,7 +11,7 @@ import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive } from '../src/platform/processes.ts';
 import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
-import { gitEnv } from '../src/workspace/git.ts';
+import { type GitOptions, gitEnv, type Git as WorkspaceGit } from '../src/workspace/git.ts';
 import {
   type Action,
   type Facts,
@@ -27,7 +27,14 @@ interface GitResult {
   stdout: string;
   stderr: string;
 }
-export type Git = (cwd: string, args: string[]) => Promise<GitResult>;
+export type Git = (cwd: string, args: string[], options?: GitOptions) => Promise<GitResult>;
+
+// The cleanup's git on top of Foedrum's: success as a flag.
+export const gitThrough =
+  (_run: WorkspaceGit): Git =>
+  () => {
+    throw new Error('not implemented');
+  };
 
 export const runGit: Git = (cwd, args) =>
   new Promise((done) => {
