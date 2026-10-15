@@ -62,7 +62,7 @@ Conditioning is entered before brewing starts, while a batch waits for a merge, 
 
 ## Consequences
 - I1 holds for Stuck batches without rewording it, and the supervisor (#10) has one mechanism, reminders, for Conditioning and Stuck.
-- `batch.stuck` changed shape. There is no stored state from before this change outside tests.
+- `batch.stuck` and `batch.recipe_chosen` changed shape (the latter twice: first split on `by`, then on `source` with the issuer's name in `by`, #79). There is no stored state from before these changes outside tests.
 - A rewind of a brewing batch takes two commands. The store needs no `batch.rewound` case, and no lease release is tied to it.
 - Recipe files (#52) can be written against a small interface; tests use a fake.
 - Entering Conditioning from brewing, and parallel groups (several attempts in flight in one batch), need their own transitions when recipes use them.
