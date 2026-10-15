@@ -216,7 +216,7 @@ describe('decide route: ordered or conditioning → brewing', () => {
     accepts(lanes.conditioning, route, routed);
   });
 
-  it('refuses a recipe the book does not have', () => {
+  it('refuses a recipe the Brewery does not have', () => {
     refuses(lanes.ordered, { ...route, recipe: 'stout' }, /the Brewery has no recipe stout/);
   });
 
@@ -420,7 +420,7 @@ describe('decide finish', () => {
     );
   });
 
-  it('refuses a recipe the book no longer has', () => {
+  it('refuses a recipe the Brewery no longer has', () => {
     refuses(brewing('plan', 1, 'stout'), finish(succeeded), /the Brewery has no recipe stout/);
   });
 
@@ -775,7 +775,7 @@ describe('decide recipe: a human chooses the recipe', () => {
     ]);
   });
 
-  it('refuses a recipe the book does not have', () => {
+  it('refuses a recipe the Brewery does not have', () => {
     refuses(lanes.stuck, { ...recipe, recipe: 'stout' }, /the Brewery has no recipe stout/);
   });
 
