@@ -14,14 +14,16 @@ export type Brewers = (name: string) => Pick<BrewerFrontmatter, 'produces'> | un
  * when the recipe names a brewer the Brewery does not have.
  */
 export function resolveRecipe(recipe: RecipeFile, brewers: Brewers): ResolvedRecipe {
-  const writes = [...walk(recipe.steps, ['steps'])].some(({ step }) => {
+  // Every brewer is looked up before any is judged, so a missing one is refused wherever it is.
+  const used = [...walk(recipe.steps, ['steps'])].flatMap(({ step }) => {
     const name = 'brewer' in step ? step.brewer : 'fallback' in step ? step.fallback : undefined;
-    if (name === undefined) return false;
+    if (name === undefined) return [];
     const brewer = brewers(name);
     if (brewer === undefined) {
       throw new Error(`Recipe ${recipe.name} names no brewer "${name}" the Brewery has`);
     }
-    return brewer.produces === 'commits';
+    return [brewer];
   });
+  const writes = used.some((brewer) => brewer.produces === 'commits');
   return { ...recipe, testFirst: recipe.testFirst ?? writes };
 }
