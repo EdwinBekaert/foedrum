@@ -13,8 +13,8 @@ import {
   type EffectKey,
   type EventStore,
   type EventStoreTransaction,
-  InvalidLogError,
   type Lease,
+  ReplayError,
 } from './event-store.ts';
 
 export interface SqliteEventStoreOptions {
@@ -318,7 +318,7 @@ export const openSqliteEventStore = (
           try {
             append(event as Event);
           } catch (error) {
-            throw new InvalidLogError(i, error);
+            throw new ReplayError(i, error);
           }
         });
       }),

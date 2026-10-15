@@ -8,7 +8,7 @@ import {
   DuplicateEffectError,
   type EffectKey,
   type EventStore,
-  InvalidLogError,
+  ReplayError,
 } from '../../src/engine/event-store.ts';
 import {
   openSqliteEventStore,
@@ -631,7 +631,7 @@ describe('SqliteEventStore in memory', () => {
       assert.throws(
         () => store.replay(log),
         (error) =>
-          error instanceof InvalidLogError &&
+          error instanceof ReplayError &&
           error.index === 3 &&
           error.cause instanceof DuplicateEffectError &&
           /Event 3 of the log/.test(error.message),
@@ -643,7 +643,7 @@ describe('SqliteEventStore in memory', () => {
     it('rejects a log with an invalid event, naming it', () => {
       assert.throws(
         () => store.replay([ordered('b1'), { type: 'batch.ordered', batchId: 'b2' }]),
-        (error) => error instanceof InvalidLogError && error.index === 1,
+        (error) => error instanceof ReplayError && error.index === 1,
       );
       assert.deepEqual(store.eventsAfter(0), []);
     });

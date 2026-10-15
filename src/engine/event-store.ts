@@ -56,7 +56,7 @@ export interface EventStore {
   currentLeases(now: Date): Lease[];
   /**
    * Rebuilds an empty store from a log (ADR 0011: the state branch is the durable record), in one
-   * transaction. Throws `InvalidLogError` naming the first event that cannot be appended.
+   * transaction. Throws `ReplayError` naming the first event that cannot be appended.
    */
   replay(log: readonly unknown[]): void;
   /** The recorded result of a side effect, or `undefined` when it was never applied. */
@@ -65,12 +65,12 @@ export interface EventStore {
 }
 
 /** A log that cannot be replayed; `index` is the position of the offending event in the log. */
-export class InvalidLogError extends Error {
+export class ReplayError extends Error {
   readonly index: number;
 
   constructor(index: number, cause: unknown) {
     super(`Event ${index} of the log cannot be replayed: ${String(cause)}`, { cause });
-    this.name = 'InvalidLogError';
+    this.name = 'ReplayError';
     this.index = index;
   }
 }
