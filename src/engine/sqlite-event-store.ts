@@ -263,6 +263,10 @@ export const openSqliteEventStore = (
         }),
       ),
 
+    replay: () => {
+      throw new Error('not implemented');
+    },
+
     findEffect: (key) => {
       const row = selectEffect.get(key.batchId, key.stepId, key.attempt, key.effect) as
         | { result: string }
