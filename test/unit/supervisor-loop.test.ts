@@ -510,6 +510,65 @@ describe('createSupervisor', () => {
       await restarted;
     });
 
+    it('never overlaps a tick of a new run with one still flushing', async () => {
+      const { timer, fire } = fakeTimer();
+      const settle = () => new Promise((resolve) => setImmediate(resolve));
+      let release = (): void => {};
+      let flushes = 0;
+      const stateBranch = {
+        flush: async (): Promise<FlushResult> => {
+          flushes++;
+          if (flushes === 1) await new Promise<void>((resolve) => (release = resolve));
+          return { kind: 'unchanged' };
+        },
+      };
+      const engine = supervisor({ timer, stateBranch });
+      const first = engine.run();
+      const slowTick = fire();
+      await settle();
+      engine.stop();
+      await first;
+      const second = engine.run();
+      const nextTick = fire();
+      await settle();
+      assert.equal(flushes, 1, 'the new run waits for the tick in flight');
+      release();
+      await slowTick;
+      await nextTick;
+      assert.equal(flushes, 2);
+      engine.stop();
+      await second;
+    });
+
+    it('settles the earlier run when run is called again', async () => {
+      const engine = supervisor();
+      let settled = false;
+      void engine.run().then(() => {
+        settled = true;
+      });
+      const second = engine.run();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(settled, 'the first run promise settles');
+      engine.stop();
+      await second;
+    });
+
+    it('keeps ticking when the report itself throws', async () => {
+      const { timer, pending, fire } = fakeTimer();
+      const engine = supervisor({
+        timer,
+        stateBranch: fakeBranch({ kind: 'failed', reason: 'could not resolve host' }),
+        report: () => {
+          throw new Error('the logger is down');
+        },
+      });
+      const running = engine.run();
+      await fire().catch(() => undefined);
+      assert.equal(pending.size, 1, 'the next tick is scheduled');
+      engine.stop();
+      await running;
+    });
+
     it('stops at a StateBranchStopError and rejects with it', async () => {
       const { timer, pending, fire } = fakeTimer();
       const stop = new StateBranchStopError('the branch was rewritten');
