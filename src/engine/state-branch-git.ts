@@ -152,9 +152,13 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const config = await git(worktree, ['config', '--type=bool', '--get', 'commit.gpgsign']);
     const signing = config.code === 0 && config.stdout.trim() === 'true';
     const tree = (await must(worktree, ['write-tree'])).trim();
-    const commit = await git(worktree, ['commit-tree', tree, '-m', 'Foedrum signing check'], {
-      timeoutMs: PROBE_TIMEOUT_MS,
-    });
+    // commit-tree does not read commit.gpgSign as git commit does, so it is asked to sign.
+    const sign = signing ? ['-S'] : [];
+    const commit = await git(
+      worktree,
+      ['commit-tree', ...sign, tree, '-m', 'Foedrum signing check'],
+      { timeoutMs: PROBE_TIMEOUT_MS },
+    );
     if (commit.code !== 0) {
       throw new StateBranchStopError(
         signing
