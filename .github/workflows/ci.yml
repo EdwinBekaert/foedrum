@@ -1,0 +1,85 @@
+# CI on all three platforms (ADR 0010); see issue #2.
+# From ADR 0004: npm ci, npm audit signatures and SHA-pinned actions. The lockfile
+# checker and Dependabot are tracked in #3.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Pull requests share a group per ref; pushes and nightly runs get one per commit, since a
+  # group keeps only one pending run and would drop a merge commit's run behind the next.
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  # Only superseded pull request runs: every merge commit on main must finish its run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["24", "lts/*"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          check-latest: true
+          cache: npm
+
+      # devEngines in package.json makes npm ci refuse an npm that is too old.
+      - name: Versions
+        run: |
+          node --version
+          npm --version
+
+      - run: npm ci
+      - run: npm audit signatures
+      - run: npm audit --omit=dev
+
+      # The same command contributors run locally; npm test enforces the coverage thresholds.
+      - name: npm run check
+        id: check
+        run: npm run check 2>&1 | tee "$RUNNER_TEMP/check.log"
+
+      - name: Coverage summary
+        if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
+        run: |
+          {
+            echo "### Coverage (${{ matrix.os }}, node ${{ matrix.node }})"
+            echo '```'
+            sed -n '/start of coverage report/,/end of coverage report/p' "$RUNNER_TEMP/check.log" | sed 's/^ℹ //'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The single required status check: green only when every matrix entry passed.
+  ci-ok:
+    if: ${{ always() }}
+    needs: [check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All checks passed
+        env:
+          RESULT: ${{ needs.check.result }}
+        run: |
+          echo "check: $RESULT"
+          test "$RESULT" = success
