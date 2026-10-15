@@ -62,8 +62,17 @@ describe('package.json', () => {
     assert.deepEqual(ranged, []);
   });
 
-  it('runs the dependency guard offline in check and in full as check:deps', () => {
-    assert.match(pkg.scripts?.check ?? '', /node scripts\/check-deps\.ts --offline/);
+  // The integration tests start git and npm, which would otherwise write to the system temp
+  // directory; the wrapper keeps their temp files in .foedrum/tmp/ (CLAUDE.md, Temporary files).
+  it('runs the integration tests through with-checkout-tmp', () => {
+    assert.equal(
+      pkg.scripts?.['test:integration'],
+      'node scripts/with-checkout-tmp.ts --test "test/integration/**/*.test.ts"',
+    );
+  });
+
+  // npm run check runs it offline: see scripts/check.ts and test/unit/check.test.ts.
+  it('runs the dependency guard in full as check:deps', () => {
     assert.equal(pkg.scripts?.['check:deps'], 'node scripts/check-deps.ts');
   });
 });
