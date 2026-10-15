@@ -2,8 +2,9 @@
 // carries out what state-branch.ts decides. Git runs only through the injected `Git`.
 
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
 import {
@@ -99,7 +100,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const file = onDisk(path);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(`${file}${TMP_SUFFIX}`, text);
-    await rename(`${file}${TMP_SUFFIX}`, file);
+    await replaceFile(`${file}${TMP_SUFFIX}`, file);
   };
   const read = (path: string): Promise<string | undefined> =>
     readFile(onDisk(path), 'utf8').catch((error: NodeJS.ErrnoException) => {
