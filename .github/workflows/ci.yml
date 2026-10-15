@@ -15,7 +15,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  # Pull requests share a group per ref; pushes and nightly runs get one per commit, since a
+  # group keeps only one pending run and would drop a merge commit's run behind the next.
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   # Only superseded pull request runs: every merge commit on main must finish its run.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
