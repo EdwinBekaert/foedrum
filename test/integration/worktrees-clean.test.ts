@@ -8,13 +8,17 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
+import { runGit } from '../../scripts/worktrees-clean.ts';
+import { isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { makeReadOnly } from './read-only.ts';
@@ -201,5 +205,39 @@ describe('worktrees-clean with real git', () => {
       result.stdout,
       /removed stale worktree record \.git\/worktrees\/tree: its gitdir file is missing/,
     );
+  });
+});
+
+// A stalled git (a fetch whose credential helper hangs) must not keep the cleanup, or the
+// processes git started, running past the deadline (#12).
+describe('worktrees-clean runGit with real git', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('clean-git');
+  });
+  // On Windows, git's killed tree can hold the folder a moment longer; removeTree retries.
+  afterEach(() => removeTree(dir.path));
+
+  it('ends git and the processes it started at the deadline, and fails saying so', async () => {
+    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
+    const pidFile = join(dir.path, 'pid').replaceAll('\\', '/');
+    const node = process.execPath.replaceAll('\\', '/');
+    const sleeper = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
+    const started = Date.now();
+
+    const result = await runGit(dir.path, ['-c', `alias.hang=!"${node}" -e "${sleeper}"`, 'hang'], {
+      timeoutMs: 3000,
+    });
+
+    const elapsed = Date.now() - started;
+    assert.equal(result.ok, false);
+    assert.match(result.stderr, /timed out after 3000 ms/);
+    assert.ok(elapsed < 10_000, `runGit returned after ${elapsed} ms`);
+    assert.ok(existsSync(pidFile), 'the child of git started');
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    for (let i = 0; i < 50 && isPidAlive(pid); i++) await delay(100);
+    const alive = isPidAlive(pid);
+    if (alive) process.kill(pid);
+    assert.equal(alive, false, 'the child of git was killed');
   });
 });

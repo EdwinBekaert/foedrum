@@ -165,10 +165,20 @@ import type { RunProcess } from './process-runner.ts';
 
 export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
+// The check's deadline: after its steps' own (300 s), so a hanging step is named there, and
+// before the hook's 600 s, which would end this process without killing the check.
+const CHECK_TIMEOUT_MS = 540_000;
+
 // `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
-// by this node, so the check starts without a shell.
+// by this node, so the check starts without a shell. Outside Windows the check leads a process
+// group of its own, which a Ctrl+C on the push does not reach: `stop` kills its tree.
 export const npmCheck =
-  (env: NodeJS.ProcessEnv, execPath: string, runProcess: RunProcess): RunCheck =>
+  (
+    env: NodeJS.ProcessEnv,
+    execPath: string,
+    runProcess: RunProcess,
+    stop?: AbortSignal,
+  ): RunCheck =>
   async (cwd) => {
     const npmCli = env.npm_execpath;
     if (npmCli === undefined || npmCli === '') {
@@ -177,8 +187,15 @@ export const npmCheck =
         output: 'npm_execpath is not set: run this hook as `npm run --silent hook:gate`.',
       };
     }
-    const { exitCode, output } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd);
-    return { ok: exitCode === 0, output };
+    const { exitCode, output, killed } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd, {
+      timeoutMs: CHECK_TIMEOUT_MS,
+      signal: stop,
+    });
+    const { whyKilled } = await import('../src/platform/processes.ts');
+    const why = whyKilled(killed, CHECK_TIMEOUT_MS);
+    if (why === undefined) return { ok: exitCode === 0, output };
+    const what = killed === 'stopped' ? 'npm run check was stopped' : `npm run check ${why}`;
+    return { ok: false, output: `${output.trimEnd()}\n${what}` };
   };
 
 const readStdin = async (): Promise<string> => {
@@ -189,7 +206,8 @@ const readStdin = async (): Promise<string> => {
 
 if (import.meta.main) {
   const { spawnProcess } = await import('./process-runner.ts');
-  const runCheck = npmCheck(process.env, process.execPath, spawnProcess);
+  const { stopOnSignals } = await import('../src/platform/processes.ts');
+  const runCheck = npmCheck(process.env, process.execPath, spawnProcess, stopOnSignals());
   // Loaded only for gated commands.
   const staleReason = async (cwd: string) => {
     const { outOfDate } = await import('./deps-sync.ts');

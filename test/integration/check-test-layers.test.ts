@@ -32,4 +32,19 @@ describe('check-test-layers command', () => {
       rmSync(probe, { force: true });
     }
   });
+
+  it('exits 1 naming a file under test/helpers/ that imports the real process runner', () => {
+    const probe = join(root, 'test', 'helpers', 'guard-probe.ts');
+    writeFileSync(probe, "export { spawnProcess } from '../../src/platform/processes.ts';\n");
+    try {
+      const result = runGuard();
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(
+        result.stdout,
+        /^test\/helpers\/guard-probe\.ts imports the real process runner/m,
+      );
+    } finally {
+      rmSync(probe, { force: true });
+    }
+  });
 });

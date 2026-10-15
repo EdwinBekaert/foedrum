@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { gitEnv } from '../../src/workspace/git.ts';
+import type { ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import { gitEnv, runGitWith } from '../../src/workspace/git.ts';
 
 describe('gitEnv', () => {
   it('keeps the environment and turns off every prompt, in the terminal and in a window', () => {
@@ -47,5 +48,72 @@ describe('gitEnv', () => {
     assert.equal(gitEnv({}).GIT_SSH_COMMAND, undefined);
     assert.equal(gitEnv({ GIT_SSH: 'plink.exe' }).GIT_SSH, 'plink.exe');
     assert.equal(gitEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
+  });
+});
+
+describe('runGitWith', () => {
+  const answering = (result: ExecResult) => {
+    const calls: Parameters<ExecProcess>[] = [];
+    const exec: ExecProcess = async (...call) => {
+      calls.push(call);
+      return result;
+    };
+    return { calls, git: runGitWith(exec) };
+  };
+  const exited = (exitCode: number, stdout = '', stderr = ''): ExecResult => ({
+    exitCode,
+    stdout,
+    stderr,
+    output: stdout + stderr,
+  });
+
+  it("runs git in the directory, in git's environment, with a 60 s deadline by default", async () => {
+    const { calls, git } = answering(exited(0));
+    await git('/work/repo', ['status', '--porcelain']);
+    const [file, args, options] = calls[0] ?? [];
+    assert.equal(file, 'git');
+    assert.deepEqual(args, ['status', '--porcelain']);
+    assert.equal(options?.cwd, '/work/repo');
+    assert.equal(options?.timeoutMs, 60_000);
+    assert.equal(options?.env?.GIT_TERMINAL_PROMPT, '0');
+  });
+
+  it("passes the call's deadline and configuration on", async () => {
+    const { calls, git } = answering(exited(0));
+    await git('/work/repo', ['commit'], { timeoutMs: 5, config: { 'user.name': 'Brewer' } });
+    const options = calls[0]?.[2];
+    assert.equal(options?.timeoutMs, 5);
+    assert.deepEqual(options?.env, gitEnv(process.env, { 'user.name': 'Brewer' }));
+  });
+
+  it("passes the call's stop signal on", async () => {
+    const { calls, git } = answering(exited(0));
+    const stop = new AbortController();
+    await git('/work/repo', ['fetch'], { signal: stop.signal });
+    assert.equal(calls[0]?.[2].signal, stop.signal);
+  });
+
+  it("answers with git's exit code and output", async () => {
+    const { git } = answering(exited(128, 'out', 'fatal: no\n'));
+    assert.deepEqual(await git('/work/repo', ['status']), {
+      code: 128,
+      stdout: 'out',
+      stderr: 'fatal: no\n',
+    });
+  });
+
+  it('answers without an exit code, saying so, when git was killed at its deadline', async () => {
+    const { git } = answering({
+      exitCode: null,
+      stdout: '',
+      stderr: 'remote: ',
+      output: 'remote: ',
+      killed: 'timed-out',
+    });
+    assert.deepEqual(await git('/work/repo', ['fetch'], { timeoutMs: 5 }), {
+      code: null,
+      stdout: '',
+      stderr: 'remote: git timed out after 5 ms',
+    });
   });
 });

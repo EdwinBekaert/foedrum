@@ -4,6 +4,7 @@
 // through npm's own CLI (npm_execpath, set by `npm run check`), so package.json stays the one
 // place for their commands and nothing starts a shell.
 
+import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export interface CheckStep {
@@ -27,7 +28,15 @@ export interface CheckOptions {
   runProcess: RunProcess;
   cwd: string;
   write: (text: string) => void;
+  /** Each step's deadline. */
+  stepTimeoutMs?: number;
+  /** Stops the check: every step still running is killed with the processes it started. */
+  signal?: AbortSignal;
 }
+
+// Each step's deadline: well under the local gate's 600 s, so a step that hangs fails here, named
+// and with its output so far, instead of the gate giving up on the whole check.
+const STEP_TIMEOUT_MS = 300_000;
 
 const withNewline = (text: string): string =>
   text === '' || text.endsWith('\n') ? text : `${text}\n`;
@@ -39,16 +48,19 @@ export const runCheck = async ({
   runProcess,
   cwd,
   write,
+  stepTimeoutMs = STEP_TIMEOUT_MS,
+  signal,
 }: CheckOptions): Promise<number> => {
   const npmCli = env.npm_execpath;
   if (npmCli === undefined || npmCli === '') {
     write('npm_execpath is not set: run this as `npm run check`.\n');
     return 1;
   }
-  // A runner that rejects counts as a failed step, so the other steps are still waited for.
+  // The runner kills a step's whole tree at the deadline or when the check is stopped. A runner
+  // that rejects counts as a failed step, so the other steps are still waited for.
   const running = checkSteps(npmCli).map(({ label, args }) => ({
     label,
-    outcome: runProcess(execPath, args, cwd).catch(
+    outcome: runProcess(execPath, args, cwd, { timeoutMs: stepTimeoutMs, signal }).catch(
       (error: unknown): ProcessOutcome => ({
         exitCode: null,
         output: error instanceof Error ? error.message : String(error),
@@ -59,10 +71,11 @@ export const runCheck = async ({
   // steps come last, just before the summary: the local gate shows only the end of the output.
   const failed: { label: string; output: string }[] = [];
   for (const { label, outcome } of running) {
-    const { exitCode, output } = await outcome;
-    const text = `> ${label}\n${withNewline(output)}`;
+    const { exitCode, output, killed } = await outcome;
+    const why = whyKilled(killed, stepTimeoutMs);
+    const text = `> ${label}\n${withNewline(output)}${why === undefined ? '' : `${why}\n`}`;
     if (exitCode === 0) write(text);
-    else failed.push({ label, output: text });
+    else failed.push({ label: why === undefined ? label : `${label} (${why})`, output: text });
   }
   if (failed.length === 0) return 0;
   for (const { output } of failed) write(output);
@@ -72,11 +85,16 @@ export const runCheck = async ({
 
 if (import.meta.main) {
   const { spawnProcess } = await import('./process-runner.ts');
+  // Outside Windows the steps lead process groups of their own, which a Ctrl+C in the terminal
+  // does not reach, and on Windows npm's children would outlive it: kill their trees instead.
+  // The gate stops the check with SIGTERM before SIGKILL (killProcessTree), so this process
+  // kills the steps' trees. Only a SIGKILL without that warning leaves them running.
   process.exitCode = await runCheck({
     env: process.env,
     execPath: process.execPath,
     runProcess: spawnProcess,
     cwd: process.cwd(),
     write: (text) => process.stdout.write(text),
+    signal: stopOnSignals(),
   });
 }

@@ -441,13 +441,13 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | CI | Every pull request, push to `main` and nightly run uses `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS. `npm test` fails below the coverage thresholds (Node's built-in coverage, still experimental). The single required check is `ci-ok` |
 | Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
 | Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
-| Spawning `claude` | On Windows only possible through a shell: every argument validated against a strict pattern; prompts and settings via stdin and files |
-| Spawning git and checks | `execFile` with argument arrays (no shell) for git; check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
-| Killing process trees | POSIX: process groups (`detached` + negative pid); Windows: `taskkill /T /F /PID` |
+| Spawning `claude` | On Windows only possible through a shell: every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files |
+| Spawning git and checks | Argument arrays and no shell for git, through the one process runner in `src/platform/processes.ts` (`execProcess`; `spawn`, not `execFile`, which answers only once every output pipe closes); check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
+| Killing process trees | POSIX: process groups (`detached` + negative pid), SIGTERM first so a process in the group can end its own children's groups, SIGKILL 2.5 s later; Windows: `taskkill /T /F /PID`. The runner kills the tree at the call's deadline or when its signal aborts, answers at once, and reports `timed-out` or `stopped` apart from an exit code |
 | Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
 | Line endings | `.gitattributes` with `eol=lf` in Foedrum; frontmatter parsing tolerates CRLF; a guard fails attempts whose diff is mostly line-ending churn |
-| File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff; stale `index.lock` cleanup after interrupted git commands |
-| Executables | Resolve `claude` and `git` via `PATH` and `PATHEXT` on Windows; `foedrum doctor` shows the resolved paths |
+| File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff; stale `index.lock` cleanup after interrupted git commands (`src/platform/index-lock.ts`: a lock older than a minute, in a worktree no Foedrum git command is running in) |
+| Executables | Resolve `claude` and `git` via `PATH` and `PATHEXT` on Windows (`src/platform/executables.ts`), never in the current directory or a `PATH` folder that is not absolute. The process runner starts the file it finds, so a repository cannot plant its own `git.exe`; `foedrum doctor` shows the resolved paths |
 
 ## 14. Layout
 
