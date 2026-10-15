@@ -80,7 +80,13 @@ describe('logPathOf', () => {
   const placed: Record<Event['type'], [Event, string]> = {
     'batch.ordered': [ordered('b1'), 'batches/b1/events.jsonl'],
     'batch.recipe_chosen': [
-      { type: 'batch.recipe_chosen', batchId: 'b2', recipe: 'pint', reason: 'label', by: 'label' },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b2',
+        recipe: 'pint',
+        reason: 'label',
+        source: 'label',
+      },
       'batches/b2/events.jsonl',
     ],
     'step.scheduled': [scheduled('b1'), 'batches/b1/events.jsonl'],
