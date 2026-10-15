@@ -2,8 +2,29 @@
 // attempts root, and carries out what attempt-worktrees.ts decides. Git runs only through the
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
-import type { AttemptRef, Claims } from './attempt-worktrees.ts';
-import type { Git } from './git.ts';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, rename, rmdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { removeStaleIndexLock } from '../platform/index-lock.ts';
+import { pathInside, samePath } from '../platform/paths.ts';
+import { errorCode, removeTree } from '../platform/remove.ts';
+import {
+  type Action,
+  type AttemptRef,
+  attemptBranch,
+  attemptFolder,
+  type BatchFolderFact,
+  type Claims,
+  type ListedFact,
+  planClean,
+  planWorktree,
+  repoFolder,
+  type Target,
+} from './attempt-worktrees.ts';
+import type { Git, GitOptions, GitResult } from './git.ts';
+import { parseWorktreeList } from './worktree-list.ts';
+import { readRecords } from './worktree-records.ts';
+import { folderState, gitThrough, removeWorktree } from './worktree-removal-git.ts';
 
 export interface AttemptWorktreesOptions {
   git: Git;
@@ -58,8 +79,206 @@ export interface AttemptWorktrees {
   clean(claims: Claims, scope?: { batchId?: string }): Promise<CleanReport>;
 }
 
-export const openAttemptWorktrees = (_options: AttemptWorktreesOptions): AttemptWorktrees => {
-  throw new Error('not implemented');
+/** A fetch of a large repository takes a while; a stalled one must still end. */
+const FETCH_TIMEOUT_MS = 300_000;
+/** The first clone of a large repository takes longer still. */
+const CLONE_TIMEOUT_MS = 1_800_000;
+
+const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
+
+const why = ({ code, stderr }: GitResult): string =>
+  lines(stderr)[0]?.trim() ??
+  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
+
+// The output of a git call that must succeed.
+const must = async (
+  git: Git,
+  cwd: string,
+  args: string[],
+  options?: GitOptions,
+): Promise<string> => {
+  const result = await git(cwd, args, options);
+  // `worktree list` or `worktree add`, not just `worktree`.
+  const command = args.slice(0, args[0] === 'worktree' ? 2 : 1).join(' ');
+  if (result.code !== 0) throw new Error(`git ${command} failed: ${why(result)}`);
+  return result.stdout;
+};
+
+const entriesOf = (path: string) =>
+  readdir(path, { withFileTypes: true }).catch((error: unknown) => {
+    if (errorCode(error) === 'ENOENT') return [];
+    throw error;
+  });
+
+// The folders below the attempts root: `<stepId>/<attempt>` per batch, and whatever is not a
+// step folder as it is.
+const readBatchFolders = async (root: string): Promise<BatchFolderFact[]> => {
+  const folders: BatchFolderFact[] = [];
+  for (const batch of await entriesOf(root)) {
+    if (!batch.isDirectory()) continue;
+    const attempts: string[] = [];
+    for (const step of await entriesOf(join(root, batch.name))) {
+      if (!step.isDirectory()) attempts.push(step.name);
+      else {
+        for (const attempt of await entriesOf(join(root, batch.name, step.name))) {
+          attempts.push(`${step.name}/${attempt.name}`);
+        }
+      }
+    }
+    folders.push({ batchId: batch.name, attempts });
+  }
+  return folders;
+};
+
+// Removes a folder and the empty folders below it; false, removing nothing more, when anything
+// else is in it.
+const removeEmptyFolders = async (path: string): Promise<boolean> => {
+  for (const entry of await entriesOf(path)) {
+    if (!entry.isDirectory() || !(await removeEmptyFolders(join(path, entry.name)))) return false;
+  }
+  await rmdir(path);
+  return true;
+};
+
+export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptWorktrees => {
+  const { git, workRoot, repo, clone, remote = 'origin', now = Date.now } = options;
+  const root = join(workRoot, repoFolder(repo), 'attempts');
+  const okGit = gitThrough(git);
+  const pathOf = (inside: string): string => join(root, ...inside.split('/'));
+  const listWorktrees = async () =>
+    parseWorktreeList(await must(git, clone, ['worktree', 'list', '--porcelain', '-z']));
+  const readRecordsOfClone = async () => {
+    const args = ['rev-parse', '--path-format=absolute', '--git-common-dir'];
+    return readRecords((await must(git, clone, args)).trim());
+  };
+  const recordOf = (records: { dir: string; folder: string | undefined }[], path: string) =>
+    records.find(({ folder }) => folder !== undefined && samePath(folder, path))?.dir;
+
+  const attach = async (ref: AttemptRef, target: Target): Promise<AttemptWorktree> => {
+    const branch = attemptBranch(ref);
+    const inside = attemptFolder(ref);
+    const path = pathOf(inside);
+    const worktrees = await listWorktrees();
+    const tip = await git(clone, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+    const branchTip = tip.code === 0 ? tip.stdout.trim() : undefined;
+    const here = worktrees.find((worktree) => samePath(worktree.path, path));
+    let listed: ListedFact | undefined;
+    if (here !== undefined) {
+      const state = await folderState(okGit, here.path);
+      // Only a record whose folder is gone is pruned; finding it takes another git call.
+      const record = state === 'gone' ? recordOf(await readRecordsOfClone(), here.path) : undefined;
+      listed = { ...here, inside, state, record };
+    }
+    const checkedOutAt = worktrees.find(
+      (worktree) => worktree.branch === branch && !samePath(worktree.path, path),
+    )?.path;
+    const facts = { listed, folderExists: existsSync(path), branchTip, checkedOutAt };
+    const plan = planWorktree(ref, facts, target);
+    switch (plan.kind) {
+      case 'reuse':
+        return { path, branch, commit: branchTip ?? '' };
+      case 'refuse':
+        throw new Error(`Attempt ${inside} cannot get its worktree: ${plan.reason}`);
+      case 'add': {
+        if (plan.prune !== undefined) {
+          await removeWorktree(okGit, clone, { kind: 'prune', record: plan.prune });
+        }
+        const args = plan.newBranch ? ['-b', branch, path, plan.at] : [path, branch];
+        await must(git, clone, ['worktree', 'add', ...args]);
+        return { path, branch, commit: plan.newBranch ? plan.at : (branchTip ?? '') };
+      }
+      default: {
+        const unknown: never = plan;
+        throw new Error(`Unknown plan ${JSON.stringify(unknown)}`);
+      }
+    }
+  };
+
+  // Carries out one action; the line it reports, if any.
+  const carryOut = async (action: Action): Promise<string | undefined> => {
+    switch (action.kind) {
+      case 'remove':
+        await removeWorktree(okGit, clone, action);
+        return `removed worktree ${action.label}`;
+      case 'finish':
+        await removeWorktree(okGit, clone, action);
+        return `finished removing worktree ${action.label}: its .git file was gone`;
+      case 'prune':
+        await removeWorktree(okGit, clone, action);
+        return `pruned stale worktree ${action.label}: folder is gone`;
+      case 'remove-folder':
+        await removeTree(action.path);
+        return `removed folder ${action.label}: git does not know it as a worktree`;
+      case 'remove-batch-folder':
+        return (await removeEmptyFolders(action.path))
+          ? `removed batch folder ${action.label}`
+          : undefined;
+      case 'delete-branch':
+        // Only while it still points where the facts saw it; its config section goes too.
+        await must(git, clone, ['update-ref', '-d', `refs/heads/${action.branch}`, action.tip]);
+        await git(clone, ['config', '--remove-section', `branch.${action.branch}`]);
+        return `deleted branch ${action.branch}`;
+      case 'index-lock':
+        return (await removeStaleIndexLock(action.gitDir, { now })) === 'removed'
+          ? `removed a stale index.lock of worktree ${action.label}`
+          : undefined;
+      default: {
+        const unknown: never = action;
+        throw new Error(`Unknown action ${JSON.stringify(unknown)}`);
+      }
+    }
+  };
+
+  return {
+    root,
+    async create(ref, base) {
+      attemptBranch(ref);
+      await must(git, clone, ['fetch', '--quiet', remote], { timeoutMs: FETCH_TIMEOUT_MS });
+      const resolved = await git(clone, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]);
+      if (resolved.code !== 0) throw new Error(`The base ${base} is no commit in ${clone}`);
+      return attach(ref, { kind: 'new', base: resolved.stdout.trim() });
+    },
+    recreate: (ref, commit) => attach(ref, { kind: 'resume', commit }),
+    async clean(claims, scope = {}) {
+      const records = await readRecordsOfClone();
+      const worktrees: ListedFact[] = [];
+      for (const worktree of await listWorktrees()) {
+        const inside = pathInside(root, worktree.path);
+        const state = inside === undefined ? 'unchecked' : await folderState(okGit, worktree.path);
+        const record = recordOf(records, worktree.path);
+        worktrees.push({ ...worktree, inside, state, record });
+      }
+      const format = '--format=%(refname:lstrip=2)%00%(objectname)';
+      const refs = await must(git, clone, ['for-each-ref', format, 'refs/heads/foedrum/']);
+      const branches = lines(refs).map((line) => {
+        const [name = '', tip = ''] = line.split('\0');
+        return { name, tip };
+      });
+      const folders = await readBatchFolders(root);
+      const plan = planClean({ worktrees, branches, folders }, claims, root, scope);
+
+      const report: CleanReport = { done: [], kept: plan.kept, failed: [] };
+      for (const action of plan.actions) {
+        // A worktree's branch is deleted only once the worktree is gone.
+        const steps: Action[] = [action];
+        if ('branch' in action && action.kind !== 'delete-branch' && action.branch !== undefined) {
+          const { name, tip } = action.branch;
+          steps.push({ kind: 'delete-branch', branch: name, tip });
+        }
+        for (const step of steps) {
+          try {
+            const line = await carryOut(step);
+            if (line !== undefined) report.done.push(line);
+          } catch (error) {
+            const item = step.kind === 'delete-branch' ? `branch ${step.branch}` : step.label;
+            report.failed.push(`could not clean ${item}: ${(error as Error).message}`);
+            break;
+          }
+        }
+      }
+      return report;
+    },
+  };
 };
 
 export interface ManagedCloneOptions {
@@ -76,6 +295,29 @@ export interface ManagedCloneOptions {
  * The repository's managed clone (`source: managed`, ADR 0012): a bare partial clone in the work
  * root, made once. Returns its path.
  */
-export const ensureManagedClone = async (_options: ManagedCloneOptions): Promise<string> => {
-  throw new Error('not implemented');
+export const ensureManagedClone = async (options: ManagedCloneOptions): Promise<string> => {
+  const { git, workRoot, repo, url, reference } = options;
+  const folder = join(workRoot, repoFolder(repo));
+  const path = join(folder, 'clone.git');
+  if (existsSync(path)) return path;
+  // Cloned next to its place and renamed when done, so a crash never leaves half a clone there.
+  const partial = join(folder, 'clone.partial');
+  await removeTree(partial);
+  await mkdir(folder, { recursive: true });
+  const borrow = reference === undefined ? [] : ['--reference', reference];
+  const args = ['clone', '--bare', '--filter=blob:none', ...borrow, url, partial];
+  const cloned = await git(folder, args, { timeoutMs: CLONE_TIMEOUT_MS });
+  if (cloned.code !== 0) {
+    await removeTree(partial);
+    throw new Error(`git clone of ${url} failed: ${why(cloned)}`);
+  }
+  // A bare clone fetches into nothing by default; into origin/* like any clone, so a fetch
+  // never moves Foedrum's own branches.
+  await must(git, partial, [
+    'config',
+    'remote.origin.fetch',
+    '+refs/heads/*:refs/remotes/origin/*',
+  ]);
+  await rename(partial, path);
+  return path;
 };
