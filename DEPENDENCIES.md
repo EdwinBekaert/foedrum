@@ -86,7 +86,7 @@ Local tarballs and directories are still allowed (`allow-file` and `allow-direct
 
 [`scripts/check-deps.ts`](scripts/check-deps.ts) checks `package-lock.json` and fails when:
 
-- a `resolved` URL is not the registry tarball of the entry's own name and version (`https://registry.npmjs.org/<name>/-/<name>-<version>.tgz`), or an entry is a link;
+- an entry has a malformed package name or version, its `resolved` URL is not the registry tarball of its own name and version (`https://registry.npmjs.org/<name>/-/<name>-<version>.tgz`), or it is a link;
 - an entry has no `sha512-` integrity;
 - any package in the tree has an install script;
 - the package budget is exceeded (runtime ≤ 2, total ≤ 10). It counts the installed tree, as [ADR 0004](docs/adr/0004-built-in-first-dependency-policy.md) intends ("about 7 packages in `node_modules`"): every package name in the lockfile once, transitive ones included, except platform binaries (entries marked `optional` with an `os` or `cpu` restriction, of which npm installs only the one for the machine). Runtime counts the packages not marked `dev` or `devOptional`;
@@ -96,5 +96,5 @@ Local tarballs and directories are still allowed (`allow-file` and `allow-direct
 The budget above and the admitted-packages table are read by the checker; keep their format.
 
 - `npm run check` runs it with `--offline` (no publish dates), so it stays fast and works without a network.
-- `npm run check:deps` runs every rule, including publish dates; CI runs it on every pull request (the workflow comes with #2).
+- `npm run check:deps` runs every rule, including publish dates. The CI workflow (#2) will run it on every pull request; until then, run it yourself after changing the lockfile.
 - [Dependabot](.github/dependabot.yml) proposes npm and GitHub Actions updates weekly, grouped, with a 7-day cooldown.
