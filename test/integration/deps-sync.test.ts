@@ -1,0 +1,56 @@
+// scripts/deps-sync.ts started by node with a stub npm (ADR 0021). Its decisions are unit tests
+// in test/unit/deps-sync-core.test.ts and deps-sync-shell.test.ts.
+
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+
+const root = join(import.meta.dirname, '..', '..');
+const script = join(root, 'scripts', 'deps-sync.ts');
+const npmStub = join(root, 'test', 'fixtures', 'npm-cli-stub.ts');
+
+const zod = { version: '4.6.5', integrity: 'sha512-z' };
+
+// The environment without npm's own variables, so the test controls which npm the script sees.
+const env = (npmExecpath: string): NodeJS.ProcessEnv => ({
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key))),
+  npm_execpath: npmExecpath,
+});
+
+const runScript = (cwd: string) =>
+  spawnSync(process.execPath, [script], { cwd, env: env(npmStub), encoding: 'utf8' });
+
+describe('scripts/deps-sync.ts with a stub npm', () => {
+  let project: TempDir;
+  before(() => {
+    project = makeTempDir('deps-sync');
+    writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
+    const packages = { '': {}, 'node_modules/zod': zod };
+    writeFileSync(join(project.path, 'package-lock.json'), JSON.stringify({ packages }));
+    mkdirSync(join(project.path, 'src'));
+  });
+  after(() => project.remove());
+
+  it('runs npm ci in the package root when node_modules is stale, and never fails', () => {
+    const { status, stdout, stderr } = runScript(join(project.path, 'src'));
+    assert.equal(status, 0, stderr);
+    // The stub npm echoes its arguments and exits 3.
+    assert.match(stdout, /^deps:sync: node_modules is out of date .* npm ci failed \(exit 3\)/);
+    assert.match(stdout, /stub npm: ci\n/);
+  });
+
+  it('prints nothing when node_modules matches', () => {
+    mkdirSync(join(project.path, 'node_modules'), { recursive: true });
+    const installed = { packages: { 'node_modules/zod': zod } };
+    writeFileSync(
+      join(project.path, 'node_modules', '.package-lock.json'),
+      JSON.stringify(installed),
+    );
+    const { status, stdout, stderr } = runScript(project.path);
+    assert.equal(status, 0, stderr);
+    assert.equal(stdout, '');
+  });
+});

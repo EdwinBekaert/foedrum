@@ -118,7 +118,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const lastChars = (text: string): string =>
   text.length > MAX_OUTPUT_CHARS ? `…\n${text.slice(-MAX_OUTPUT_CHARS)}` : text;
 
-export const precheck = async (input: string, runCheck: RunCheck): Promise<HookResult> => {
+// Why node_modules in the checkout around `cwd` is out of date, or undefined.
+export type StaleReason = (cwd: string) => Promise<string | undefined>;
+
+export const precheck = async (
+  input: string,
+  runCheck: RunCheck,
+  _staleReason?: StaleReason,
+): Promise<HookResult> => {
   if (!MAY_NAME_GIT_OR_GH.test(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {

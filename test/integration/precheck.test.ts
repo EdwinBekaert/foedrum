@@ -75,6 +75,28 @@ describe('scripts/precheck.ts with a stub npm', () => {
     assert.match(stderr, /café/);
     assert.doesNotMatch(stderr, /�/);
   });
+
+  it('blocks a push from a checkout whose node_modules is out of date, before npm runs', async () => {
+    const project = makeTempDir('stale-project');
+    try {
+      writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
+      const packages = { '': {}, 'node_modules/zod': { version: '4.6.5', integrity: 'sha512-z' } };
+      writeFileSync(join(project.path, 'package-lock.json'), JSON.stringify({ packages }));
+      const { code, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', project.path),
+        { cwd: root, env: envWithoutNpm({ npm_execpath: npmStub }) },
+      );
+      assert.equal(code, 2);
+      assert.equal(
+        stderr,
+        'node_modules is out of date with package-lock.json (node_modules/.package-lock.json is missing); run npm ci\n',
+      );
+    } finally {
+      project.remove();
+    }
+  });
 });
 
 describe('the configured hook command', () => {
