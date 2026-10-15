@@ -223,7 +223,13 @@ export const planClean = (
     } else removal = removalOf(worktree);
 
     if (removal !== undefined && removal.kind !== 'keep') {
-      const branch = worktree.branch === undefined ? undefined : tips.get(worktree.branch);
+      // The branch goes too only when its batch has ended. A batch the state does not know may
+      // have committed work nobody pushed (a store rebuilt without its last events, two
+      // Breweries on one work root): its branch stays for the branch pass to report.
+      const known = claims.batches.has(batchId);
+      if (!known && worktree.branch !== undefined) branchesDone.delete(worktree.branch);
+      const branch =
+        worktree.branch === undefined || !known ? undefined : tips.get(worktree.branch);
       actions.push({ ...removal, label: inside, branch });
       removed.add(inside);
       continue;
