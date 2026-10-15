@@ -405,7 +405,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 
 | Area | Rule |
 |---|---|
-| CI | Every pull request runs on `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS |
+| CI | Every pull request, push to `main` and nightly run uses `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS. `npm test` fails below the coverage thresholds (Node's built-in coverage, still experimental). The single required check is `ci-ok` |
 | Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
 | Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
 | Spawning `claude` | On Windows only possible through a shell: every argument validated against a strict pattern; prompts and settings via stdin and files |
