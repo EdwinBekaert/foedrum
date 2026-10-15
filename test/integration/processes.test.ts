@@ -175,3 +175,23 @@ describe('windowsCommandLine through cmd.exe', { skip: process.platform !== 'win
     assert.deepEqual(await argsThrough(printArgs.replaceAll('\\', '/'), ['-p']), ['-p']);
   });
 });
+
+describe('execProcess and a .cmd file', { skip: process.platform !== 'win32' }, () => {
+  // npm.cmd and npm's claude.cmd cannot start without cmd.exe; the runner goes through it.
+  const printArgs = join(import.meta.dirname, '..', 'fixtures', 'processes', 'print-args.cmd');
+
+  it('starts it through cmd.exe with every argument intact', async () => {
+    const args = ['--version', 'C:\\Program Files (x86)\\nodejs', 'José', ''];
+    const { exitCode, stdout } = await execProcess(printArgs, args, { cwd: import.meta.dirname });
+    assert.equal(exitCode, 0);
+    assert.deepEqual(JSON.parse(stdout), args);
+  });
+
+  it('refuses an argument cmd.exe would read as syntax, without starting anything', async () => {
+    const { exitCode, stderr } = await execProcess(printArgs, ['a & calc'], {
+      cwd: import.meta.dirname,
+    });
+    assert.equal(exitCode, null);
+    assert.match(stderr, /cannot go through the Windows shell/);
+  });
+});

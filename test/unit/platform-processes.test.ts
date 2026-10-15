@@ -12,6 +12,7 @@ import {
   killProcessTree,
   runProcessThrough,
   type Spawner,
+  spawnCommand,
   stopOnSignals,
   type Timers,
 } from '../../src/platform/processes.ts';
@@ -507,5 +508,49 @@ describe('runProcessThrough', () => {
       exitCode: 0,
       output: 'a',
     });
+  });
+});
+
+describe('spawnCommand', () => {
+  it('starts a program directly, without a shell', () => {
+    assert.deepEqual(spawnCommand('/usr/bin/git', ['--version'], 'linux'), {
+      file: '/usr/bin/git',
+      args: ['--version'],
+      shell: false,
+    });
+    assert.deepEqual(spawnCommand('C:\\Git\\cmd\\git.exe', ['--version'], 'win32'), {
+      file: 'C:\\Git\\cmd\\git.exe',
+      args: ['--version'],
+      shell: false,
+    });
+  });
+
+  it('starts a .cmd or .bat file on Windows through cmd.exe, every part quoted', () => {
+    // npm.cmd and npm's claude.cmd cannot start without a shell (architecture §13).
+    assert.deepEqual(spawnCommand('C:\\Program Files\\nodejs\\npm.cmd', ['--version'], 'win32'), {
+      file: '"C:\\Program Files\\nodejs\\npm.cmd" "--version"',
+      args: [],
+      shell: true,
+    });
+    assert.deepEqual(spawnCommand('C:\\tools\\RUN.BAT', [], 'win32'), {
+      file: '"C:\\tools\\RUN.BAT"',
+      args: [],
+      shell: true,
+    });
+  });
+
+  it('starts a .cmd file elsewhere as any other file', () => {
+    assert.deepEqual(spawnCommand('/opt/tools/run.cmd', ['a'], 'darwin'), {
+      file: '/opt/tools/run.cmd',
+      args: ['a'],
+      shell: false,
+    });
+  });
+
+  it('refuses an argument cmd.exe would read as syntax', () => {
+    assert.throws(
+      () => spawnCommand('C:\\nodejs\\npm.cmd', ['a & calc'], 'win32'),
+      /argument 1 "a & calc" cannot go through the Windows shell/,
+    );
   });
 });

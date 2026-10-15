@@ -26,6 +26,21 @@ export const killableSpawnOptions = (
   detached: platform !== 'win32',
 });
 
+/** What the runner passes to `spawn`: a program and its arguments, or a shell command line. */
+export interface SpawnCommand {
+  file: string;
+  args: string[];
+  shell: boolean;
+}
+
+export const spawnCommand = (
+  _file: string,
+  _args: readonly string[],
+  _platform: NodeJS.Platform = process.platform,
+): SpawnCommand => {
+  throw new Error('not implemented');
+};
+
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
 const GRACE_MS = 2500;
