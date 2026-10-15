@@ -1,6 +1,9 @@
 // Part of `npm run check`: fails when a file under test/unit/ imports node:child_process, because
 // unit tests start no processes (ADR 0021). Tests that run real tools belong in
 // test/integration/. Exit 0: clean. Exit 1: one line per problem on stdout.
+// It sees direct imports only: a unit test that starts a process through a helper or a script it
+// imports is not caught here; the per-file time budget (scripts/test-budget-reporter.ts) and
+// review are the backstops.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
