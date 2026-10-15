@@ -14,7 +14,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
-- `npm run check` — typecheck, lint, test, the test-layer guard (`scripts/check-test-layers.ts`: no file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`) and the offline dependency guard in one command; run it before every push
+- `npm run check` — typecheck, lint, test, the test-layer guard (`scripts/check-test-layers.ts`: no file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`) and the offline dependency guard in one command (`scripts/check.ts` starts them together and prints each step's output in order, with the failed steps last so the gate's shortened message still shows them, then names the steps that failed); run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test` (fails below the coverage thresholds set in the `test` script in `package.json`, which you only ever raise, and when one test file takes more than 5 s, per `scripts/test-budget-reporter.ts`)
 - `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
 - `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
@@ -64,6 +64,7 @@ Everything a session or a test creates stays inside the checkout, so it is visib
 - Never write to the system temp directory (`%TEMP%`, `/tmp`, `os.tmpdir()`, or a tool's own scratch directory) while working on Foedrum.
 - Use `.foedrum/tmp/` at the root of the current checkout or worktree (git-ignored); create it when missing. Group files per issue: `.foedrum/tmp/<issue-number>/` for scripts, scratch files, captured output and logs.
 - Tests that need a directory create it under `.foedrum/tmp/tests/`, through a shared test helper, and remove it afterwards.
+- `npm test` and `npm run test:integration` run through `scripts/with-checkout-tmp.ts`, which points `TEMP`, `TMP` and `TMPDIR` at a fresh `.foedrum/tmp/tests/tmpdir-*` folder and removes it afterwards, so node's coverage files, the temp files of the git and npm processes the integration tests start, and anything that uses `os.tmpdir()` stay in the checkout. `NODE_V8_COVERAGE` would not do this: the test runner always works in `os.tmpdir()` and only copies the files there at the end.
 - Delete what you no longer need before opening the pull request.
 
 ## Dependencies
