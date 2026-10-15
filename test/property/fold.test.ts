@@ -8,6 +8,10 @@ import { generateEvents } from '../helpers/event-sequences.ts';
 // A fresh seed per run explores new sequences; FOEDRUM_SEED replays a failing one.
 const firstSeed = Number(process.env.FOEDRUM_SEED ?? randomInt(2 ** 31));
 const runs = process.env.FOEDRUM_SEED === undefined ? 200 : 1;
+// Otherwise a mistyped seed runs no case at all, and every property passes.
+if (!Number.isSafeInteger(firstSeed)) {
+  throw new Error(`FOEDRUM_SEED must be an integer, got ${process.env.FOEDRUM_SEED}`);
+}
 
 const forEachSeed = (property: (seed: number) => void): void => {
   for (let seed = firstSeed; seed < firstSeed + runs; seed++) {
