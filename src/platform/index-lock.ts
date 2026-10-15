@@ -4,6 +4,10 @@
 // index then fails with "Unable to create '…/index.lock': File exists". Run this only for a
 // worktree no git command of this Foedrum is running in; the age guards against another one.
 
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { errorCode, removeTree } from './remove.ts';
+
 export type IndexLockCleanup = 'none' | 'fresh' | 'removed';
 
 export interface IndexLockOptions {
@@ -14,8 +18,18 @@ export interface IndexLockOptions {
 
 /** Removes `<gitDir>/index.lock` when it is older than maxAgeMs, through removeTree. */
 export const removeStaleIndexLock = async (
-  _gitDir: string,
-  _options: IndexLockOptions = {},
+  gitDir: string,
+  { maxAgeMs = 60_000, now = Date.now }: IndexLockOptions = {},
 ): Promise<IndexLockCleanup> => {
-  throw new Error('not implemented');
+  const lock = join(gitDir, 'index.lock');
+  let written: number;
+  try {
+    written = (await stat(lock)).mtimeMs;
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return 'none';
+    throw error;
+  }
+  if (now() - written < maxAgeMs) return 'fresh';
+  await removeTree(lock);
+  return 'removed';
 };

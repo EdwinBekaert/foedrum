@@ -3,6 +3,9 @@
 // what runs. Unlike cmd.exe, it never looks in the current directory unless PATH names it, so a
 // repository cannot plant its own `git.exe`.
 
+import { accessSync, constants, statSync } from 'node:fs';
+import { posix, win32 } from 'node:path';
+
 export interface ResolveExecutableOptions {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -10,10 +13,58 @@ export interface ResolveExecutableOptions {
   isExecutable?: (path: string) => boolean;
 }
 
-/** The absolute path of the file the command name runs, or undefined when none is found. */
+const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
+
+// A regular file; outside Windows also one this process may run.
+const runnableFile =
+  (platform: NodeJS.Platform) =>
+  (path: string): boolean => {
+    try {
+      if (!statSync(path).isFile()) return false;
+      if (platform !== 'win32') accessSync(path, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+// Windows reads environment names whatever their case (Path, PATHEXT).
+const variable = (env: NodeJS.ProcessEnv, name: string, platform: NodeJS.Platform) =>
+  platform === 'win32'
+    ? Object.entries(env).find(([key]) => key.toUpperCase() === name)?.[1]
+    : env[name];
+
+/**
+ * The path of the file the command name runs, or undefined when none is found. A name with a
+ * folder in it is checked as it is, without PATH.
+ */
 export const resolveExecutable = (
-  _name: string,
-  _options: ResolveExecutableOptions = {},
+  name: string,
+  options: ResolveExecutableOptions = {},
 ): string | undefined => {
-  throw new Error('not implemented');
+  const { env = process.env, platform = process.platform } = options;
+  const { isExecutable = runnableFile(platform) } = options;
+  const path = platform === 'win32' ? win32 : posix;
+  // On Windows a name gets each PATHEXT extension, unless it already ends in one.
+  const extensions = (variable(env, 'PATHEXT', platform) || DEFAULT_PATHEXT)
+    .split(';')
+    .filter((extension) => extension !== '')
+    .map((extension) => extension.toLowerCase());
+  const candidates = (base: string): string[] =>
+    platform !== 'win32' || extensions.includes(path.extname(base).toLowerCase())
+      ? [base]
+      : extensions.map((extension) => `${base}${extension}`);
+  const folders =
+    name.includes(path.sep) || name.includes('/')
+      ? ['']
+      : (variable(env, 'PATH', platform) ?? '')
+          .split(path.delimiter)
+          .map((folder) => folder.replace(/^"(.*)"$/, '$1'))
+          .filter((folder) => folder !== '');
+  for (const folder of folders) {
+    const base = folder === '' ? name : path.join(folder, name);
+    const found = candidates(base).find(isExecutable);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 };

@@ -115,10 +115,61 @@ export interface Spawner {
  * waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
-  (_spawner: Spawner): ExecProcess =>
-  () => {
-    throw new Error('not implemented');
-  };
+  ({ spawn, killTree }: Spawner): ExecProcess =>
+  (file, args, { cwd, env = process.env, timeoutMs, signal }) =>
+    new Promise((done) => {
+      let stdout = '';
+      let stderr = '';
+      let output = '';
+      const ended = (exitCode: number | null, killed?: Killed): ExecResult =>
+        killed === undefined
+          ? { exitCode, stdout, stderr, output }
+          : { exitCode, stdout, stderr, output, killed };
+      const failed = (error: unknown): ExecResult => {
+        const message = error instanceof Error ? error.message : String(error);
+        return { exitCode: null, stdout, stderr: stderr || message, output: output || message };
+      };
+      if (signal?.aborted) {
+        done(ended(null, 'stopped'));
+        return;
+      }
+      let child: ChildHandle;
+      try {
+        child = spawn(file, [...args], { cwd, env });
+      } catch (error) {
+        done(failed(error));
+        return;
+      }
+      let finished = false;
+      const finish = (result: ExecResult): void => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', stop);
+        done(result);
+      };
+      const kill = (killed: Killed): void => {
+        if (finished) return;
+        if (child.pid !== undefined) killTree(child.pid);
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(ended(null, killed));
+      };
+      const stop = (): void => kill('stopped');
+      const timer = timeoutMs === undefined ? undefined : setTimeout(kill, timeoutMs, 'timed-out');
+      signal?.addEventListener('abort', stop, { once: true });
+      // Decode as a stream, so a multi-byte character split across chunks stays intact.
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+        stdout += chunk;
+        output += chunk;
+      });
+      child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+        stderr += chunk;
+        output += chunk;
+      });
+      child.on('error', (error) => finish(failed(error)));
+      child.on('close', (code) => finish(ended(code)));
+    });
 
 /** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
 export const execProcess: ExecProcess = execProcessWith({
@@ -155,9 +206,10 @@ export type RunProcess = (
 ) => Promise<ProcessOutcome>;
 
 export const runProcessThrough =
-  (_exec: ExecProcess): RunProcess =>
-  () => {
-    throw new Error('not implemented');
+  (exec: ExecProcess): RunProcess =>
+  async (file, args, cwd, { timeoutMs, signal } = {}) => {
+    const { exitCode, output, killed } = await exec(file, args, { cwd, timeoutMs, signal });
+    return killed === undefined ? { exitCode, output } : { exitCode, output, killed };
   };
 
 /** The real runner, with the output together. */

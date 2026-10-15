@@ -4,14 +4,17 @@
 // worktrees-clean/core.ts decides; this shell gathers the facts and carries out the plan (ADR 0021).
 // With --session-start (the SessionStart hook) it runs only in the main checkout. It never fails.
 
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive } from '../src/platform/processes.ts';
 import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
-import { type GitOptions, gitEnv, type Git as WorkspaceGit } from '../src/workspace/git.ts';
+import {
+  type GitOptions,
+  runGit as runFoedrumGit,
+  type Git as WorkspaceGit,
+} from '../src/workspace/git.ts';
 import {
   type Action,
   type Facts,
@@ -29,21 +32,17 @@ interface GitResult {
 }
 export type Git = (cwd: string, args: string[], options?: GitOptions) => Promise<GitResult>;
 
-// The cleanup's git on top of Foedrum's: success as a flag.
+// The cleanup's git on top of Foedrum's, with success as a flag.
 export const gitThrough =
-  (_run: WorkspaceGit): Git =>
-  () => {
-    throw new Error('not implemented');
+  (run: WorkspaceGit): Git =>
+  async (cwd, args, options) => {
+    const { code, stdout, stderr } = await run(cwd, args, options);
+    return { ok: code === 0, stdout, stderr };
   };
 
-export const runGit: Git = (cwd, args) =>
-  new Promise((done) => {
-    const env = gitEnv(process.env);
-    const options = { cwd, encoding: 'utf8', timeout: 60_000, windowsHide: true, env } as const;
-    execFile('git', args, options, (error, stdout, stderr) =>
-      done({ ok: error === null, stdout, stderr: stderr || (error?.message ?? '') }),
-    );
-  });
+// Foedrum's git never prompts and, at its deadline (60 s by default), kills git with every
+// process git started, such as a credential helper of a stalled fetch (#12).
+export const runGit: Git = gitThrough(runFoedrumGit);
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
