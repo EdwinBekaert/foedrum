@@ -4,11 +4,31 @@ import { gitEnv } from '../../src/workspace/git.ts';
 
 describe('gitEnv', () => {
   it('keeps the environment and turns off every prompt, in the terminal and in a window', () => {
-    assert.deepEqual(gitEnv({ PATH: '/bin', GIT_TERMINAL_PROMPT: '1' }), {
-      PATH: '/bin',
-      GIT_TERMINAL_PROMPT: '0',
-      GCM_INTERACTIVE: 'never',
+    const env = gitEnv({ PATH: '/bin', GIT_TERMINAL_PROMPT: '1' });
+    assert.equal(env.PATH, '/bin');
+    assert.equal(env.GIT_TERMINAL_PROMPT, '0');
+    assert.equal(env.GCM_INTERACTIVE, 'never');
+  });
+
+  // Out docs on the state branch can be deep; Windows git refuses paths over 260 characters.
+  it('turns on long paths through the environment, after any configuration already there', () => {
+    const fresh = gitEnv({});
+    assert.equal(fresh.GIT_CONFIG_COUNT, '1');
+    assert.equal(fresh.GIT_CONFIG_KEY_0, 'core.longpaths');
+    assert.equal(fresh.GIT_CONFIG_VALUE_0, 'true');
+
+    const given = gitEnv({
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'a.b',
+      GIT_CONFIG_VALUE_0: '1',
+      GIT_CONFIG_KEY_1: 'c.d',
+      GIT_CONFIG_VALUE_1: '2',
     });
+    assert.equal(given.GIT_CONFIG_COUNT, '3');
+    assert.equal(given.GIT_CONFIG_KEY_0, 'a.b');
+    assert.equal(given.GIT_CONFIG_KEY_1, 'c.d');
+    assert.equal(given.GIT_CONFIG_KEY_2, 'core.longpaths');
+    assert.equal(given.GIT_CONFIG_VALUE_2, 'true');
   });
 
   // An ssh command of its own would override GIT_SSH and core.sshCommand, such as Windows'
