@@ -924,6 +924,26 @@ describe('SqliteEventStore on a file', () => {
     assert.deepEqual(second.findEffect(key), { result: 'r' });
   });
 
+  it('upgrades a schema version 1 database and keeps its events', () => {
+    const first = open(path);
+    first.withTransaction((tx) => tx.append(ordered('b1')));
+    first.close();
+    // What version 1 left: no pushed table.
+    const db = raw(path);
+    db.exec('DROP TABLE pushed; PRAGMA user_version = 1');
+    db.close();
+
+    const upgraded = open(path);
+    assert.deepEqual(
+      upgraded.eventsAfter(0).map((stored) => stored.event),
+      [ordered('b1')],
+    );
+    assert.equal(upgraded.pushedThrough(), undefined);
+    upgraded.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: 'e'.repeat(40) }));
+    assert.deepEqual(upgraded.pushedThrough(), { eventId: 1, commit: 'e'.repeat(40) });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 2 });
+  });
+
   it('keeps the pushed-through marker across a reopen', () => {
     const first = open(path);
     first.restore([{ id: 4, event: ordered('b1') }], 'e'.repeat(40));

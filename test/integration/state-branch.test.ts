@@ -116,6 +116,11 @@ describe('the state branch with real git', () => {
       chmodSync(join(hooks, hook), 0o755);
     }
     assert.deepEqual(await a.state.start(), { decision: 'ready' });
+    // The signing check's test commit made its ref and deleted it again.
+    assert.throws(
+      () => git(a.clone, ['show-ref', '--verify', 'refs/foedrum/signing-check']),
+      /not a valid ref/,
+    );
 
     await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
     await record(a, { type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } });

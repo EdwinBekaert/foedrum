@@ -338,6 +338,15 @@ export const unsafeEntries = (lsTree: string): string[] =>
     .filter((entry) => /^(?:120000|160000) /.test(entry))
     .map((entry) => entry.slice(entry.indexOf('\t') + 1));
 
+/**
+ * The commit of exactly `ref` in `git ls-remote` output, or undefined when it is not there.
+ * ls-remote matches patterns against the end of a ref, so `refs/heads/x/refs/heads/<branch>`
+ * also matches; only the exact ref counts. Throws when its object name is not a full sha.
+ */
+export const remoteCommitOf = (_lsRemote: string, _ref: string): string | undefined => {
+  throw new Error('not implemented');
+};
+
 export type PushOutcome = 'pushed' | 'rejected' | 'failed';
 
 /** Reads `git push --porcelain`: rejected means the remote moved (non-fast-forward). */

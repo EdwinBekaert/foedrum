@@ -416,6 +416,36 @@ describe('openStateBranch with a fake git', () => {
       ]);
     });
 
+    it('uses only the exact state branch from ls-remote, not a ref that ends like it', async () => {
+      fake.answer = (args) =>
+        args[0] === 'ls-remote'
+          ? ok(`${sha(66)}\trefs/heads/x/refs/heads/foedrum/state\n`)
+          : undefined;
+      assert.deepEqual(await branch().start(), { decision: 'ready' });
+      assert.equal(fake.find('fetch'), undefined);
+      assert.ok(fake.calls.every((call) => !call.args.includes(sha(66))));
+    });
+
+    it('fails when the worktree cannot be listed, instead of seeing no batches', async () => {
+      fake.remote = sha(5);
+      fake.files = { batches: 'a file where a folder belongs\n' };
+      await assert.rejects(branch().start(), /ENOTDIR/);
+      assert.equal(store.pushedThrough(), undefined);
+    });
+
+    it("fails with git's error when it cannot read the worktree's head", async () => {
+      append(ordered('b1'));
+      fake.remote = sha(5);
+      fake.answer = (args) =>
+        args[0] === 'rev-parse' && args.includes('HEAD')
+          ? exit(null, 'git timed out after 60000 ms')
+          : undefined;
+      await assert.rejects(
+        branch().start(),
+        (error) => !(error instanceof StateBranchStopError) && /timed out/.test(String(error)),
+      );
+    });
+
     it('fails when the remote cannot be reached', async () => {
       fake.answer = (args) =>
         args[0] === 'ls-remote' ? exit(128, 'fatal: unable to access origin\n') : undefined;
@@ -525,6 +555,8 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(store.pushedThrough(), { eventId: 3, commit: sha(100) });
       const args = (command: string) => fake.find(command)?.args;
       assert.deepEqual(args('commit'), ['commit', '--no-verify', '-q', '-m', 'Record events 1–3']);
+      // Temporary files a crash left behind never go into a state commit.
+      assert.deepEqual(args('add'), ['add', '-A', '--', '.', ':(exclude,glob)**/*.foedrum-tmp']);
       assert.deepEqual(args('push'), [
         'push',
         '--porcelain',
@@ -554,6 +586,19 @@ describe('openStateBranch with a fake git', () => {
         line(1, ordered('b1')) + line(2, scheduled('b1')),
       );
       assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(101) });
+    });
+
+    it('reports a failed commit, pushes nothing and keeps the marker', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      fake.answer = (args) =>
+        args[0] === 'commit' ? exit(128, 'fatal: cannot lock ref HEAD\n') : undefined;
+      assert.deepEqual(await state.flush(), {
+        kind: 'failed',
+        reason: 'fatal: cannot lock ref HEAD',
+      });
+      assert.equal(fake.find('push'), undefined);
+      assert.equal(store.pushedThrough(), undefined);
     });
 
     it('does nothing without new events', async () => {

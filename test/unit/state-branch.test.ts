@@ -14,6 +14,7 @@ import {
   parseLog,
   planCatchUp,
   planFlush,
+  remoteCommitOf,
   type StartFacts,
   StateBranchStopError,
   unsafeEntries,
@@ -560,6 +561,31 @@ describe('unsafeEntries', () => {
     const output = entry('100644', 'blob', 'events.jsonl') + entry('100644', 'blob', 'a\tb\nc.md');
     assert.deepEqual(unsafeEntries(output), []);
     assert.deepEqual(unsafeEntries(''), []);
+  });
+});
+
+describe('remoteCommitOf', () => {
+  const ref = 'refs/heads/foedrum/state';
+  const a = 'a'.repeat(40);
+  const b = 'b'.repeat(40);
+
+  it('takes the commit of exactly the ref, not of a ref that only ends like it', () => {
+    const output = `${a}\trefs/heads/x/refs/heads/foedrum/state\n${b}\t${ref}\n`;
+    assert.equal(remoteCommitOf(output, ref), b);
+  });
+
+  it('is undefined when only a look-alike ref is there, or nothing', () => {
+    assert.equal(remoteCommitOf(`${a}\trefs/heads/x/${ref}\n`, ref), undefined);
+    assert.equal(remoteCommitOf('', ref), undefined);
+  });
+
+  it('accepts CRLF and a SHA-256 commit', () => {
+    const long = 'c'.repeat(64);
+    assert.equal(remoteCommitOf(`${long}\t${ref}\r\n`, ref), long);
+  });
+
+  it('refuses an object name that is not a full commit sha', () => {
+    assert.throws(() => remoteCommitOf(`abc123\t${ref}\n`, ref), /abc123/);
   });
 });
 
