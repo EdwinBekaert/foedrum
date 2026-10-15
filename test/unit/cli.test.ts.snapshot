@@ -1,0 +1,129 @@
+exports[`foedrum doctor > reports every tool, a sandbox and a container runtime on Linux, and exits 0 1`] = `
+Foedrum doctor
+
+  node    24.20.0
+  npm     11.6.2   /usr/bin/npm
+  git     2.47.1   /usr/bin/git
+  claude  2.1.300  /home/brewer/.local/bin/claude
+  bwrap   0.9.0    /usr/bin/bwrap
+  socat   1.7.4.4  /usr/bin/socat
+
+Isolation: sandboxed (bubblewrap and socat)
+Container: podman 5.2.0 at /usr/bin/podman; the container level is available
+
+Foedrum has everything it needs.
+
+`;
+
+exports[`foedrum doctor > reports permissions only on native Windows, recommends WSL2, and exits 0 1`] = `
+Foedrum doctor
+
+  node    24.20.0
+  npm     11.6.2   C:\\Program Files\\nodejs\\npm.cmd
+  git     2.47.1   C:\\Program Files\\Git\\cmd\\git.exe
+  claude  2.1.300  C:\\Users\\brewer\\.local\\bin\\claude.exe
+
+Isolation: permissions only (native Windows has no sandbox for shell commands)
+  For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.
+Container: no Podman or Docker (optional)
+
+Foedrum has everything it needs.
+
+`;
+
+exports[`foedrum doctor > reports what is missing, and exits 1 when a required tool is 1`] = `
+Foedrum doctor
+
+  node    24.20.0
+  npm     11.6.2   /usr/bin/npm
+  git     2.47.1   /usr/bin/git
+  claude  missing
+  bwrap   missing
+  socat   1.7.4.4  /usr/bin/socat
+
+Isolation: permissions only (the sandbox needs bubblewrap and socat)
+Container: no Podman or Docker (optional)
+
+Problems:
+  claude not found (required): install Claude Code, https://code.claude.com/docs/en/setup
+  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level
+
+Foedrum cannot run brewers until the required problems are fixed.
+
+`;
+
+exports[`foedrum replay > shows a batch's events, with their store ids, and its folded state 1`] = `
+Batch 12-1, issue #12
+
+Events
+   2  batch.ordered        {"order":{"issue":12}}
+   3  batch.recipe_chosen  {"recipe":"feature","reason":"label recipe:feature","source":"label"}
+   4  step.scheduled       {"stepId":"plan","attempt":1,"deadlineAt":"2026-10-15T10:00:00.000Z"}
+   5  step.started         {"stepId":"plan","attempt":1}
+   6  step.finished        {"stepId":"plan","attempt":1,"outcome":{"kind":"failed","retryable":true,"reason":"the out doc is missing"}}
+   7  step.scheduled       {"stepId":"plan","attempt":2,"deadlineAt":"2026-10-15T10:00:00.000Z"}
+   8  step.started         {"stepId":"plan","attempt":2}
+   9  step.finished        {"stepId":"plan","attempt":2,"outcome":{"kind":"succeeded","output":{}}}
+  10  step.scheduled       {"stepId":"implement","attempt":1,"deadlineAt":"2026-10-15T12:00:00.000Z"}
+  11  step.started         {"stepId":"implement","attempt":1}
+  12  effect.applied       {"key":"[\\"12-1\\",\\"implement\\",1,\\"push\\"]","result":{"commit":"4b825dc642cb6eb9a060e54bf8d69288fbee4904"}}
+
+State
+  lane    brewing: implement #1 started
+  recipe  feature, chosen by label: label recipe:feature
+  steps
+    plan       #1 finished: failed: the out doc is missing; #2 finished: succeeded
+    implement  #1 started
+
+`;
+
+exports[`foedrum replay > shows a sub-order batch's parent, a human's recipe choice, a rewind and an abandoned attempt 1`] = `
+Batch 14-1, issue #14
+
+Events
+  15  batch.ordered        {"order":{"issue":14},"parentBatchId":"12-1"}
+  16  batch.recipe_chosen  {"recipe":"bugfix","reason":"a smaller fix will do","source":"human","by":"alice","via":"terminal"}
+  17  step.scheduled       {"stepId":"plan","attempt":1,"deadlineAt":"2026-10-15T10:00:00.000Z"}
+  18  batch.stuck          {"reason":{"kind":"deadline_passed","stepId":"plan","deadlineAt":"2026-10-15T10:00:00.000Z"},"options":["retry","rewind","cancel"],"remindAt":"2026-10-17T09:00:00.000Z"}
+  19  batch.rewound        {"toStepId":"plan","by":"alice","via":"plugin","shas":{"acme/app":"4b825dc642cb6eb9a060e54bf8d69288fbee4904"}}
+
+State
+  lane    brewing: between steps
+  parent  12-1
+  recipe  bugfix, chosen by alice via terminal: a smaller fix will do
+  steps
+    plan  #1 scheduled, abandoned
+  rewinds
+    to plan by alice via plugin
+
+`;
+
+exports[`foedrum status > lists every batch with its issue, lane and what it waits for 1`] = `
+14 batches
+
+  11-1  #11  ordered
+  12-1  #12  brewing       implement #1 started
+  13-1  #13  conditioning  waiting for @acme/lib 2.4.0 or later in acme/lib; reminder 2026-10-17T09:00:00.000Z
+  14-1  #14  brewing       between steps
+  15-1  #15  stuck         needs input at plan; reminder 2026-10-17T09:00:00.000Z
+  16-1  #16  on tap        https://github.com/acme/app/pull/7
+  17-1  #17  cancelled     by bob via comment
+  18-1  #18  conditioning  waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-17T09:00:00.000Z
+  19-1  #19  conditioning  waiting for batch 13-1; reminder 2026-10-17T09:00:00.000Z
+  20-1  #20  stuck         blocked at review (environment): denied Bash(curl); reminder 2026-10-17T09:00:00.000Z
+  21-1  #21  stuck         attempts exhausted at test after 3: tests fail; reminder 2026-10-17T09:00:00.000Z
+  22-1  #22  stuck         waiting for a session at analyze; reminder 2026-10-17T09:00:00.000Z
+  23-1  #23  stuck         stalled at implement since 2026-10-15T11:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
+  24-1  #24  stuck         deadline passed at plan (2026-10-15T10:00:00.000Z); reminder 2026-10-17T09:00:00.000Z
+
+`;
+
+exports[`foedrum: the command line > lists the commands for --help and -h 1`] = `
+Usage: foedrum <command> [arguments]
+
+Commands:
+  doctor          Check the tools Foedrum needs and the isolation level
+  status          List the batches and their lanes
+  replay <batch>  Show a batch's events and its folded state
+
+`;

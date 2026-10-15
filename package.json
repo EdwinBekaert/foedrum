@@ -5,6 +5,9 @@
   "description": "GitHub-native orchestrator that runs Claude brewers through recipes and turns issues into pull requests",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "bin": {
+    "foedrum": "src/cli/main.ts"
+  },
   "engines": {
     "node": ">=24.15"
   },

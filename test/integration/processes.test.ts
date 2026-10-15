@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -173,5 +173,48 @@ describe('windowsCommandLine through cmd.exe', { skip: process.platform !== 'win
 
   it('starts a .cmd file named with forward slashes', async () => {
     assert.deepEqual(await argsThrough(printArgs.replaceAll('\\', '/'), ['-p']), ['-p']);
+  });
+});
+
+describe('execProcess and a .cmd file', { skip: process.platform !== 'win32' }, () => {
+  // npm.cmd and npm's claude.cmd cannot start without cmd.exe; the runner goes through it.
+  const printArgs = join(import.meta.dirname, '..', 'fixtures', 'processes', 'print-args.cmd');
+
+  it('starts it through cmd.exe with every argument intact', async () => {
+    const args = ['--version', 'C:\\Program Files (x86)\\nodejs', 'José', ''];
+    const { exitCode, stdout } = await execProcess(printArgs, args, { cwd: import.meta.dirname });
+    assert.equal(exitCode, 0);
+    assert.deepEqual(JSON.parse(stdout), args);
+  });
+
+  it('refuses an argument cmd.exe would read as syntax, without starting anything', async () => {
+    const { exitCode, stderr } = await execProcess(printArgs, ['a & calc'], {
+      cwd: import.meta.dirname,
+    });
+    assert.equal(exitCode, null);
+    assert.match(stderr, /cannot go through the Windows shell/);
+  });
+
+  it('runs the node on PATH, not one planted in the working directory (#12)', async () => {
+    // print-args.cmd runs a bare `node`, as npm's shims do; cmd.exe would look in the working
+    // directory first.
+    const planted = makeTempDir('planted');
+    try {
+      for (const name of ['node.cmd', 'node.bat']) {
+        writeFileSync(join(planted.path, name), '@echo planted\r\n');
+      }
+      // Whatever the caller's environment says: some (a Claude Code session) set it already.
+      const env = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([key]) => key.toLowerCase() !== 'nodefaultcurrentdirectoryinexepath',
+        ),
+      );
+      const { exitCode, stdout } = await execProcess(printArgs, ['a'], { cwd: planted.path, env });
+      // The real node printed the arguments as JSON; a planted one would print `planted`.
+      assert.equal(stdout, '["a"]');
+      assert.equal(exitCode, 0);
+    } finally {
+      planted.remove();
+    }
   });
 });

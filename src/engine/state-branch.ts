@@ -27,7 +27,7 @@ const NEVER_REWRITTEN =
   'database aside (the next start rebuilds it from the branch), or stop the other engine first.';
 
 /** The batch an event belongs to; `undefined` for events without one. */
-const batchOf = (event: Event): string | undefined => {
+export const batchOf = (event: Event): string | undefined => {
   switch (event.type) {
     case 'effect.applied':
       return effectKey.decode(event.key).batchId;
