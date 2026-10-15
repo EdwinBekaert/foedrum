@@ -312,7 +312,7 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
     },
     () => ({
       type: 'effect.applied',
-      key: `b${random.int(nextId)}:effect${random.int(5)}`,
+      key: `effect${nextId++}`,
       result: { ok: random.chance(0.5) },
     }),
   ];

@@ -210,8 +210,8 @@ describe('fold', () => {
     assert.deepStrictEqual(
       state.subOrders,
       new Map([
-        [101, { issue: 101, repo: 'acme/lib-core', order: 100 }],
-        [102, { issue: 102, repo: 'acme/api', order: 100 }],
+        [101, { issue: 101, repo: 'acme/lib-core', order: 100, batchIds: [] }],
+        [102, { issue: 102, repo: 'acme/api', order: 100, batchIds: [] }],
       ]),
     );
   });
@@ -234,8 +234,49 @@ describe('fold', () => {
     assert.deepStrictEqual(state.orders.get(100)?.subOrders, [102]);
     assert.deepStrictEqual(
       state.subOrders,
-      new Map([[102, { issue: 102, repo: 'acme/web', order: 100 }]]),
+      new Map([[102, { issue: 102, repo: 'acme/web', order: 100, batchIds: [] }]]),
     );
+  });
+
+  it('lists the batches of a sub-order on the sub-order, not as an order', () => {
+    const state = fold([
+      ordered,
+      {
+        type: 'order.decomposed',
+        batchId: 'b1',
+        subOrders: [{ issue: 101, repo: 'acme/api' }],
+        dependencies: [],
+      },
+      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+    ]);
+    assert.deepStrictEqual([...state.orders.keys()], [100]);
+    assert.deepStrictEqual(state.subOrders.get(101), {
+      issue: 101,
+      repo: 'acme/api',
+      order: 100,
+      batchIds: ['b2'],
+    });
+  });
+
+  it('keeps the batches of a sub-order that a new breakdown keeps', () => {
+    const decomposed = (repo: string): Event => ({
+      type: 'order.decomposed',
+      batchId: 'b1',
+      subOrders: [{ issue: 101, repo }],
+      dependencies: [],
+    });
+    const state = fold([
+      ordered,
+      decomposed('acme/api'),
+      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      decomposed('acme/web'),
+    ]);
+    assert.deepStrictEqual(state.subOrders.get(101), {
+      issue: 101,
+      repo: 'acme/web',
+      order: 100,
+      batchIds: ['b2'],
+    });
   });
 
   it('keeps the sub-orders of other orders when one order is decomposed again', () => {
@@ -415,6 +456,42 @@ describe('fold of an inconsistent log', () => {
         { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
       ],
       /step plan of batch b1 was never scheduled/,
+    ],
+    [
+      'a sub-order that already belongs to another order',
+      [
+        ordered,
+        { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+        {
+          type: 'order.decomposed',
+          batchId: 'b1',
+          subOrders: [{ issue: 101, repo: 'acme/api' }],
+          dependencies: [],
+        },
+        {
+          type: 'order.decomposed',
+          batchId: 'b2',
+          subOrders: [{ issue: 101, repo: 'acme/api' }],
+          dependencies: [],
+        },
+      ],
+      /sub-order 101 already belongs to order 100/,
+    ],
+    [
+      'a bottle opened twice',
+      [
+        { type: 'bottle.opened', bottleId: 'k1', repo: 'acme/api', subOrders: [101], pullRequest },
+        { type: 'bottle.opened', bottleId: 'k1', repo: 'acme/api', subOrders: [101], pullRequest },
+      ],
+      /bottle k1 was already opened/,
+    ],
+    [
+      'an effect applied twice',
+      [
+        { type: 'effect.applied', key: 'b1:plan:1:pr', result: { number: 7 } },
+        { type: 'effect.applied', key: 'b1:plan:1:pr', result: { number: 8 } },
+      ],
+      /effect b1:plan:1:pr was already applied/,
     ],
   ];
 
