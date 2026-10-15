@@ -15,9 +15,10 @@ const anyCase = (word: string): string =>
 const device = `(?:${['con', 'prn', 'aux', 'nul'].map(anyCase).join('|')}|(?:${anyCase('com')}|${anyCase('lpt')})[1-9])`;
 // A file name every OS can create as written: none of the characters Windows reserves (`\` and
 // `:` also rule out drive letters and alternate data streams), no line breaks, no trailing dot or
-// space (Windows drops them, which also rules out `.` and `..`), and no device name.
-const char = String.raw`[^/\\:*?"<>|\r\n\t]`;
-const segment = String.raw`(?!${device}(?:\.|/|$))${char}*[^/\\:*?"<>|\r\n\t. ]`;
+// space (Windows drops them, which also rules out `.` and `..`), and no device name. Control
+// characters (NUL included) are invalid in Windows file names, and NUL everywhere.
+const char = String.raw`[^/\\:*?"<>|\x00-\x1f]`;
+const segment = String.raw`(?!${device}(?:\.|/|$))${char}*[^/\\:*?"<>|\x00-\x1f. ]`;
 
 /** A path inside the worktree: relative, with forward slashes, never leaving it. */
 export const RelativePath = z
@@ -60,15 +61,24 @@ export const AllowedTool = ToolRule.refine(
 // (gitignore-style, where `*` stays within one folder and `**` crosses folders).
 const commandTools = new Set(['Bash', 'PowerShell']);
 const pathTools = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
-const shellOperator = /[;&|`$<>]/;
+// Operators, substitutions, redirections, and the grouping PowerShell evaluates as a command
+// (`(…)`, `{…}`); a star fails closed on all of them.
+const shellOperator = /[;&|`$<>(){}]/;
 const parentSegment = /(?:^|[/\\])\.\.(?:[/\\]|$)/;
+// Claude Code reads `//path` as absolute, `/path` from the settings file, `~/path` from home.
+const anchoredPath = /^[/~]/;
+
+/** Whether a specifier may reach outside what a glob of the ceiling seems to cover. */
+const escapes = (tool: string, specifier: string): boolean =>
+  parentSegment.test(specifier) || (pathTools.has(tool) && anchoredPath.test(specifier));
 
 /**
  * Whether an allowlist entry stays within the ceiling, failing closed: a ceiling rule covers the
  * same tool when it has no specifier, when its specifier is the entry's, or when its specifier,
  * read as a glob, matches the entry's specifier as written. A star never stands for a shell
  * operator in a command rule, a single star never stands for `/` or `*` in a path rule, and an
- * entry with a `..` segment is only covered by the same specifier.
+ * entry with a `..` segment, or a path rule anchored at `/` or `~`, is only covered by the same
+ * specifier.
  */
 export function withinCeiling(entry: string, ceiling: readonly string[]): boolean {
   const wanted = parseRule(entry);
@@ -78,7 +88,7 @@ export function withinCeiling(entry: string, ceiling: readonly string[]): boolea
     if (limit.specifier === undefined || limit.specifier === wanted.specifier) {
       return true;
     }
-    if (wanted.specifier === undefined || parentSegment.test(wanted.specifier)) return false;
+    if (wanted.specifier === undefined || escapes(wanted.tool, wanted.specifier)) return false;
     return globMatches(globOf(limit.tool, limit.specifier), wanted.specifier);
   });
 }

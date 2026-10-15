@@ -251,7 +251,14 @@ export const Recipe = RecipeFields.superRefine((recipe, ctx) => {
   const places = new Map<string, Place>();
   for (const [order, { step, path }] of steps.entries()) {
     const id = stepId(step);
-    if (places.has(id)) {
+    if (id === 'recipe') {
+      // A brewer named recipe, without an id of its own (StepId already rejects an explicit one).
+      ctx.addIssue({
+        code: 'custom',
+        message: '"recipe" is reserved: give this step another id',
+        path: [...path, 'id'],
+      });
+    } else if (places.has(id)) {
       ctx.addIssue({
         code: 'custom',
         message: `Step id "${id}" is used twice`,
