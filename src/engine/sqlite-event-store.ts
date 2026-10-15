@@ -7,7 +7,7 @@ import {
   type StatementSync,
 } from 'node:sqlite';
 import { Event } from '../schemas/events.ts';
-import { Lease } from '../schemas/store.ts';
+import { Lease, PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import {
   DuplicateEffectError,
@@ -69,6 +69,14 @@ const migrations = [
   -- of its event, which leaves no row behind.
   CREATE TRIGGER events_index_effects AFTER INSERT ON events WHEN NEW.type = 'effect.applied'
     BEGIN INSERT INTO effects (key, event_id) VALUES (json_extract(NEW.body, '$.key'), NEW.id); END;
+  `,
+  `
+  -- How far the state branch has the log (ADR 0024): one row once something was pushed.
+  CREATE TABLE pushed (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    event_id INTEGER NOT NULL,
+    commit_sha TEXT NOT NULL
+  ) STRICT;
   `,
 ];
 
@@ -148,6 +156,14 @@ export const openSqliteEventStore = (
   }
 
   const insertEvent = db.prepare('INSERT INTO events (type, body) VALUES (?, ?)');
+  // An id from the state branch; AUTOINCREMENT continues after it.
+  const insertEventWithId = db.prepare('INSERT INTO events (id, type, body) VALUES (?, ?, ?)');
+  const selectLastId = db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM events');
+  const selectPushed = db.prepare('SELECT event_id, commit_sha FROM pushed');
+  const putPushed = db.prepare(
+    'INSERT INTO pushed (singleton, event_id, commit_sha) VALUES (1, ?, ?) ' +
+      'ON CONFLICT (singleton) DO UPDATE SET event_id = excluded.event_id, commit_sha = excluded.commit_sha',
+  );
   const setDeadline = db.prepare(
     'INSERT INTO deadlines (batch_id, step_id, attempt, deadline_at) VALUES (?, ?, ?, ?) ' +
       'ON CONFLICT (batch_id, step_id) DO UPDATE ' +
@@ -215,13 +231,19 @@ export const openSqliteEventStore = (
     }
   };
 
-  const append = (event: Event, key?: EffectKey): number => {
+  /** Appends `event`, with the given id when it comes from the state branch. */
+  const append = (event: Event, key?: EffectKey, withId?: number): number => {
     const valid = Event.parse(event);
     const applied =
       valid.type === 'effect.applied' ? (key ?? effectKey.decode(valid.key)) : undefined;
     let id: number;
     try {
-      id = Number(insertEvent.run(valid.type, JSON.stringify(valid)).lastInsertRowid);
+      const body = JSON.stringify(valid);
+      const result =
+        withId === undefined
+          ? insertEvent.run(valid.type, body)
+          : insertEventWithId.run(withId, valid.type, body);
+      id = Number(result.lastInsertRowid);
     } catch (error) {
       if (applied && (error as { errcode?: unknown }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
         throw new DuplicateEffectError(applied);
@@ -230,6 +252,28 @@ export const openSqliteEventStore = (
     }
     index(valid);
     return id;
+  };
+
+  const lastEventId = (): number => (selectLastId.get() as { id: number }).id;
+
+  const pushedThrough = (): PushedThrough | undefined => {
+    const row = selectPushed.get() as { event_id: number; commit_sha: string } | undefined;
+    return row === undefined ? undefined : { eventId: row.event_id, commit: row.commit_sha };
+  };
+
+  const markPushed = (marker: PushedThrough): void => {
+    const { eventId, commit } = PushedThrough.parse(marker);
+    const current = pushedThrough();
+    if (current !== undefined && eventId < current.eventId) {
+      throw new Error(
+        `The pushed-through marker cannot move back from ${current.eventId} to ${eventId}`,
+      );
+    }
+    const last = lastEventId();
+    if (eventId > last) {
+      throw new Error(`Event ${eventId} cannot be pushed: the last event is ${last}`);
+    }
+    putPushed.run(eventId, commit);
   };
 
   const transaction = (): { tx: EventStoreTransaction; end: () => void } => {
@@ -256,6 +300,10 @@ export const openSqliteEventStore = (
       recordEffect: (key, result) => {
         ensureLive();
         append({ type: 'effect.applied', key: effectKey.encode(key), result: result ?? null }, key);
+      },
+      markPushed: (marker) => {
+        ensureLive();
+        markPushed(marker);
       },
     };
     return {
@@ -324,6 +372,33 @@ export const openSqliteEventStore = (
             throw new ReplayError(i, error);
           }
         });
+      }),
+
+    lastEventId,
+
+    pushedThrough,
+
+    restore: (log, commit) =>
+      withTransaction(() => {
+        let previous = lastEventId();
+        const pushed = pushedThrough()?.eventId ?? 0;
+        if (previous > pushed) {
+          throw new Error(
+            `restore needs every stored event pushed; events after ${pushed} are not pushed`,
+          );
+        }
+        log.forEach(({ id, event }, i) => {
+          try {
+            if (!Number.isSafeInteger(id) || id <= previous) {
+              throw new Error(`id ${id} must be an integer greater than ${previous}`);
+            }
+            append(event as Event, undefined, id);
+          } catch (error) {
+            throw new ReplayError(i, error);
+          }
+          previous = id;
+        });
+        markPushed({ eventId: previous, commit });
       }),
 
     findEffect: (key) => {

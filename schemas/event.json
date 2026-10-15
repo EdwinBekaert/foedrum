@@ -10,7 +10,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "order": {
           "type": "object",
@@ -28,7 +28,7 @@
         },
         "parentBatchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         }
       },
       "required": [
@@ -47,7 +47,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "recipe": {
           "type": "string",
@@ -84,11 +84,11 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "stepId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "attempt": {
           "type": "integer",
@@ -119,11 +119,11 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "stepId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "attempt": {
           "type": "integer",
@@ -175,11 +175,11 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "stepId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "attempt": {
           "type": "integer",
@@ -343,11 +343,11 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "stepId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "by": {
           "type": "string",
@@ -404,7 +404,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "reason": {
           "oneOf": [
@@ -417,7 +417,7 @@
                 },
                 "stepId": {
                   "type": "string",
-                  "pattern": "\\S"
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                 },
                 "questions": {
                   "minItems": 1,
@@ -472,7 +472,7 @@
                 },
                 "stepId": {
                   "type": "string",
-                  "pattern": "\\S"
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                 },
                 "blockerKind": {
                   "type": "string",
@@ -504,7 +504,7 @@
                 },
                 "stepId": {
                   "type": "string",
-                  "pattern": "\\S"
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                 },
                 "attempts": {
                   "type": "integer",
@@ -533,7 +533,7 @@
                 },
                 "stepId": {
                   "type": "string",
-                  "pattern": "\\S"
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                 },
                 "deadlineAt": {
                   "type": "string",
@@ -557,7 +557,7 @@
                 },
                 "stepId": {
                   "type": "string",
-                  "pattern": "\\S"
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                 }
               },
               "required": [
@@ -601,7 +601,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "by": {
           "type": "string",
@@ -644,7 +644,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "subOrders": {
           "minItems": 1,
@@ -720,7 +720,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "on": {
           "oneOf": [
@@ -779,7 +779,7 @@
                 },
                 "batchId": {
                   "type": "string",
-                  "pattern": "\\S"
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                 }
               },
               "required": [
@@ -879,11 +879,11 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "toStepId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "by": {
           "type": "string",
@@ -919,7 +919,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "pullRequests": {
           "minItems": 1,
@@ -946,7 +946,7 @@
         },
         "batchId": {
           "type": "string",
-          "pattern": "\\S"
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
         },
         "by": {
           "type": "string",

@@ -19,7 +19,7 @@ interface RemoveTreeOptions {
 
 const RETRYABLE_CODES = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY']);
 
-const errorCode = (error: unknown): string | undefined =>
+export const errorCode = (error: unknown): string | undefined =>
   error instanceof Error && 'code' in error && typeof error.code === 'string'
     ? error.code
     : undefined;

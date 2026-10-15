@@ -3,14 +3,20 @@
 // (ADR 0002: `better-sqlite3` is the fallback for `node:sqlite`).
 
 import type { Event } from '../schemas/events.ts';
-import type { EffectKey, Lease } from '../schemas/store.ts';
+import type { EffectKey, Lease, PushedThrough } from '../schemas/store.ts';
 
-export type { EffectKey, Lease };
+export type { EffectKey, Lease, PushedThrough };
 
 /** An event as stored: `id` grows with every append and is never reused. */
 export interface StoredEvent {
   id: number;
   event: Event;
+}
+
+/** An event as read from the state branch, with the id it had in the store that wrote it. */
+export interface LoggedEvent {
+  id: number;
+  event: unknown;
 }
 
 /** A batch whose pending deadline (a step's `deadlineAt` or a Conditioning `remindAt`) is due. */
@@ -28,6 +34,11 @@ export interface EventStoreTransaction {
   releaseLease(attemptKey: string): void;
   /** Records an applied side effect; throws `DuplicateEffectError` when the key is already recorded. */
   recordEffect(key: EffectKey, result: unknown): void;
+  /**
+   * Records that the state branch has every event up to `marker.eventId`, in `marker.commit`
+   * (ADR 0024). Throws when the marker would move back or past the last event.
+   */
+  markPushed(marker: PushedThrough): void;
 }
 
 export interface EventStore {
@@ -47,6 +58,17 @@ export interface EventStore {
    * transaction. Throws `ReplayError` naming the first event that cannot be appended.
    */
   replay(log: readonly unknown[]): void;
+  /** The id of the last committed event; 0 when there is none. */
+  lastEventId(): number;
+  /** How far the state branch has the log, or `undefined` when nothing was ever pushed. */
+  pushedThrough(): PushedThrough | undefined;
+  /**
+   * Appends events read from the state branch, keeping their ids, and marks everything up to the
+   * last one pushed in `commit` (ADR 0024), in one transaction. The ids must grow and come after
+   * every stored event, and every stored event must be pushed already. Throws `ReplayError`
+   * naming the first event that cannot be appended.
+   */
+  restore(log: readonly LoggedEvent[], commit: string): void;
   /** The recorded result of a side effect, or `undefined` when it was never applied. */
   findEffect(key: EffectKey): { result: unknown } | undefined;
   close(): void;

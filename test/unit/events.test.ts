@@ -160,6 +160,26 @@ describe('Event', () => {
     ['no type', { batchId: 'b1' }],
     ['an unknown field', { ...valid['batch.cancelled'], note: 'x' }],
     ['an empty batch id', { ...valid['batch.cancelled'], batchId: '' }],
+    // Batch and step ids are path segments on the state branch (ADR 0024).
+    ['an upper-case batch id', { ...valid['batch.cancelled'], batchId: 'B1' }],
+    ['a batch id with a slash', { ...valid['batch.ordered'], batchId: 'a/b' }],
+    ['a reserved batch id', { ...valid['batch.on_tap'], batchId: 'nul' }],
+    ['an unsafe parent batch id', { ...valid['batch.ordered'], parentBatchId: '..' }],
+    ['an unsafe step id', { ...valid['step.scheduled'], stepId: 'Plan' }],
+    ['an unsafe step id in an answer', { ...valid['input.received'], stepId: 'a b' }],
+    ['an unsafe rewind target', { ...valid['batch.rewound'], toStepId: 'plan/..' }],
+    [
+      'an unsafe step id in a stuck reason',
+      { ...valid['batch.stuck'], reason: { kind: 'waiting_for_session', stepId: 'con' } },
+    ],
+    [
+      'an unsafe sibling batch id',
+      { ...valid['batch.waiting'], on: { kind: 'sibling', batchId: 'B2' } },
+    ],
+    [
+      'an unsafe batch id in an effect key',
+      { ...valid['effect.applied'], key: '["a/b","brew",1,"pr"]' },
+    ],
     ['attempt 0', { ...valid['step.scheduled'], attempt: 0 }],
     ['a fractional attempt', { ...valid['step.scheduled'], attempt: 1.5 }],
     [
