@@ -20,7 +20,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
 - `npm run test:integration` — the tests against real tools in `test/integration/` (not part of `npm run check`; CI runs them)
 - `npm run worktrees:clean` — remove worktrees and branches of merged pull requests (runs automatically at session start, see Worktree cleanup)
-- `node scripts/remove-scratch.ts <scratch>` — remove a /brew-review scratch folder and only the record of its tree under `.git/worktrees/`, through `removeTree`; it refuses a folder outside the checkout's `.foedrum/tmp/` and exits 1 when something could not be removed (the review skill runs it before and after a review)
+- `node scripts/remove-scratch.ts <scratch>` — remove a /brew-review scratch folder and only the record of its tree under `.git/worktrees/`, through `removeTree`; it accepts only `.foedrum/tmp/<folder>/scratch` in the checkout, refuses anything else, and exits 1 when something could not be removed (the review skill runs it before and after a review)
 - CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm run test:integration` and `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
