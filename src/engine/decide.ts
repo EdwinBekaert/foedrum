@@ -13,7 +13,7 @@ import type {
 } from '../schemas/events.ts';
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
-import { check, type Decision, laneRefusal, notAllowed } from './admit.ts';
+import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
 import type { Batch, Lane, State } from './fold.ts';
 import type { Recipe, RecipeBook } from './recipes.ts';
 
@@ -96,7 +96,6 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
 }
 
 const withoutAnswer: readonly StuckOption[] = ['retry', 'skip', 'recipe', 'rewind', 'cancel'];
-const nonTerminal: readonly Lane['kind'][] = ['ordered', 'brewing', 'conditioning', 'stuck'];
 
 /** The events `command` appends to `state`, or why it is refused. */
 export function decide(state: State, command: Command, context: Context): Decision {
@@ -157,7 +156,7 @@ function run(draft: Draft, command: Command): Event[] {
       const { batchId, recipe, reason, by, via } = command;
       const batch = draft.batch(batchId);
       requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
-      if (batch.lane.kind === 'stuck') requireOffer(batch, 'recipe');
+      requireOffer(batch, 'recipe');
       const { firstStep } = find(draft, recipe);
       draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by: 'human' });
       if (batch.lane.kind === 'stuck') {

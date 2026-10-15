@@ -62,7 +62,7 @@ export function notAllowed(batch: Batch, what: string, allowed: readonly Lane['k
   return `batch ${batch.id} is ${batch.lane.kind}; ${what} needs it ${list}`;
 }
 
-const nonTerminal: readonly Lane['kind'][] = ['ordered', 'brewing', 'conditioning', 'stuck'];
+export const nonTerminal: readonly Lane['kind'][] = ['ordered', 'brewing', 'conditioning', 'stuck'];
 
 /** Why `event` is not allowed in `state`, beyond what the fold checks; `undefined` when it is. */
 function rule(state: State, event: Event): string | undefined {
