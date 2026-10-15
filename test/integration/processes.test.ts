@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { execProcess, isPidAlive, spawnProcess } from '../../src/platform/processes.ts';
+import { removeTree } from '../../src/platform/remove.ts';
 import { windowsCommandLine } from '../../src/platform/shell.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -48,7 +49,8 @@ describe('execProcess with a real tree of processes', () => {
     dir = makeTempDir('processes');
     pidFile = join(dir.path, 'pids');
   });
-  afterEach(() => dir.remove());
+  // On Windows, a killed tree can hold the folder a moment longer; removeTree retries.
+  afterEach(() => removeTree(dir.path));
 
   it('answers with the exit code and the output of a process that ends by itself', async () => {
     const script = "process.stdout.write('out'); process.stderr.write('err'); process.exit(3)";

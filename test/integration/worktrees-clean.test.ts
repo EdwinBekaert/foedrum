@@ -215,7 +215,8 @@ describe('worktrees-clean runGit with real git', () => {
   beforeEach(() => {
     dir = makeTempDir('clean-git');
   });
-  afterEach(() => dir.remove());
+  // On Windows, git's killed tree can hold the folder a moment longer; removeTree retries.
+  afterEach(() => removeTree(dir.path));
 
   it('ends git and the processes it started at the deadline, and fails saying so', async () => {
     // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
