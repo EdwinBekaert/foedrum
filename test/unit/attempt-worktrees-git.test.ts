@@ -218,6 +218,7 @@ describe('openAttemptWorktrees with a fake git', () => {
     it('gives back the worktree that is there', async () => {
       worktreeOnDisk(path, 'implement1');
       const { calls, git } = fakeGit((_cwd, args) => {
+        if (args.includes('--git-common-dir')) return ok(`${join(clone, '.git')}\n`);
         if (args[0] === 'rev-parse') return ok(`${TIP}\n`);
         if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
         if (args.includes('status')) return ok(' M file.txt\n');

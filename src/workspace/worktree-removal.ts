@@ -2,8 +2,9 @@
 // worktree cleanup and the attempt worktree manager share. worktree-removal-git.ts carries it out.
 
 // clean or dirty: the folder is a worktree; no-git: the folder is there without its .git
-// file; gone: only the record under .git/worktrees/ is left; unchecked: never looked at.
-export type FolderState = 'clean' | 'dirty' | 'no-git' | 'gone' | 'unchecked';
+// file; gone: only the record under .git/worktrees/ is left; foreign: its .git file names
+// another git folder than its record, so git is not run there; unchecked: never looked at.
+export type FolderState = 'clean' | 'dirty' | 'no-git' | 'gone' | 'foreign' | 'unchecked';
 
 export type Removal =
   // git worktree remove, then whatever a busy file left behind.
@@ -31,5 +32,8 @@ export const removalOf = (worktree: {
   if (state === 'gone' && record !== undefined) return { kind: 'prune', record };
   if (state === 'no-git' && record !== undefined) return { kind: 'finish', path, record };
   if (state === 'clean') return { kind: 'remove', path, record };
+  if (state === 'foreign') {
+    return { kind: 'keep', reason: 'its .git file does not point at its record under the clone' };
+  }
   return { kind: 'keep', reason: 'no record under .git/worktrees/ points at it' };
 };

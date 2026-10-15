@@ -3,8 +3,8 @@
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, realpath, rmdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
 import { errorCode, removeTree } from '../platform/remove.ts';
@@ -25,7 +25,8 @@ import {
 import type { Git, GitOptions, GitResult } from './git.ts';
 import { parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
-import { folderState, gitThrough, removeWorktree } from './worktree-removal-git.ts';
+import type { FolderState } from './worktree-removal.ts';
+import { gitThrough, removeWorktree } from './worktree-removal-git.ts';
 
 export interface AttemptWorktreesOptions {
   git: Git;
@@ -168,6 +169,38 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
   };
   const recordOf = (records: { dir: string; folder: string | undefined }[], path: string) =>
     records.find(({ folder }) => folder !== undefined && samePath(folder, path))?.dir;
+  // Whether the folder's .git file names its record. A brewer can rewrite that file, and git
+  // run there would read the repository it names, core.fsmonitor and all.
+  const pointsAt = async (path: string, record: string): Promise<boolean> => {
+    const dotGit = join(path, '.git');
+    if (!(await lstat(dotGit)).isFile()) return false;
+    const gitdir = /^gitdir: (.+)$/m.exec(await readFile(dotGit, 'utf8'))?.[1]?.trim();
+    return gitdir !== undefined && samePath(resolve(path, gitdir), record);
+  };
+  // The state of a worktree folder, with git run against its record only, never by
+  // discovery from inside the folder.
+  const stateOf = async (path: string, record: string | undefined): Promise<FolderState> => {
+    if (!existsSync(path)) return 'gone';
+    if (!existsSync(join(path, '.git'))) return 'no-git';
+    if (record === undefined || !(await pointsAt(path, record))) return 'foreign';
+    const args = [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'];
+    const status = await git(clone, args, { config: { 'core.fsmonitor': 'false' } });
+    return status.code === 0 && status.stdout.trim() === '' ? 'clean' : 'dirty';
+  };
+  // One fetch at a time: concurrent fetches in one clone fail on git's ref locks.
+  let fetching: Promise<unknown> = Promise.resolve();
+  const fetchOnce = (): Promise<string> => {
+    const fetched = fetching.then(() =>
+      must(git, clone, ['fetch', '--quiet', remote], { timeoutMs: FETCH_TIMEOUT_MS }),
+    );
+    fetching = fetched.catch(() => undefined);
+    return fetched;
+  };
+  const commitOf = async (revision: string): Promise<string | undefined> => {
+    const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', `${revision}^{commit}`];
+    const resolved = await git(clone, args);
+    return resolved.code === 0 ? resolved.stdout.trim() : undefined;
+  };
 
   const attach = async (ref: AttemptRef, target: Target): Promise<AttemptWorktree> => {
     const branch = attemptBranch(ref);
@@ -179,10 +212,8 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     const here = worktrees.find((worktree) => samePath(worktree.path, path));
     let listed: ListedFact | undefined;
     if (here !== undefined) {
-      const state = await folderState(okGit, here.path);
-      // Only a record whose folder is gone is pruned; finding it takes another git call.
-      const record = state === 'gone' ? recordOf(await readRecordsOfClone(), here.path) : undefined;
-      listed = { ...here, inside, state, record };
+      const record = recordOf(await readRecordsOfClone(), here.path);
+      listed = { ...here, inside, state: await stateOf(here.path, record), record };
     }
     const checkedOutAt = worktrees.find(
       (worktree) => worktree.branch === branch && !samePath(worktree.path, path),
@@ -198,7 +229,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
         if (plan.prune !== undefined) {
           await removeWorktree(okGit, clone, { kind: 'prune', record: plan.prune });
         }
-        const args = plan.newBranch ? ['-b', branch, path, plan.at] : [path, branch];
+        const args = plan.newBranch ? ['-b', branch, '--', path, plan.at] : ['--', path, branch];
         await must(git, clone, ['worktree', 'add', ...args], { timeoutMs: FETCH_TIMEOUT_MS });
         return { path, branch, commit: plan.newBranch ? plan.at : (branchTip ?? '') };
       }
@@ -248,26 +279,26 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     root,
     async create(ref, base) {
       attemptBranch(ref);
-      await must(git, clone, ['fetch', '--quiet', remote], { timeoutMs: FETCH_TIMEOUT_MS });
-      const resolved = await git(clone, [
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        '--end-of-options',
-        `${base}^{commit}`,
-      ]);
-      if (resolved.code !== 0) throw new Error(`The base ${base} is no commit in ${clone}`);
-      return attach(ref, { kind: 'new', base: resolved.stdout.trim() });
+      await fetchOnce();
+      const resolved = await commitOf(base);
+      if (resolved === undefined) throw new Error(`The base ${base} is no commit in ${clone}`);
+      return attach(ref, { kind: 'new', base: resolved });
     },
-    recreate: (ref, commit) => attach(ref, { kind: 'resume', commit }),
+    async recreate(ref, commit) {
+      attemptBranch(ref);
+      // A recorded commit comes from the state branch: never let it pass as an option.
+      const resolved = await commitOf(commit);
+      if (resolved === undefined) throw new Error(`The commit ${commit} is no commit in ${clone}`);
+      return attach(ref, { kind: 'resume', commit: resolved });
+    },
     async clean(claims, scope = {}) {
       const root = await realRoot();
       const records = await readRecordsOfClone();
       const worktrees: ListedFact[] = [];
       for (const worktree of await listWorktrees()) {
         const inside = pathInside(root, worktree.path);
-        const state = inside === undefined ? 'unchecked' : await folderState(okGit, worktree.path);
         const record = recordOf(records, worktree.path);
+        const state = inside === undefined ? 'unchecked' : await stateOf(worktree.path, record);
         worktrees.push({ ...worktree, inside, state, record });
       }
       const format = '--format=%(refname:lstrip=2)%00%(objectname)';
@@ -337,6 +368,13 @@ export const ensureManagedClone = async (options: ManagedCloneOptions): Promise<
   const partial = join(folder, 'clone.partial');
   await removeTree(partial);
   await mkdir(folder, { recursive: true });
+  // Credentials in the URL would be in the process list and in the clone's config; a
+  // credential helper provides them instead.
+  if (withoutCredentials(url) !== url) {
+    throw new Error(
+      `The clone URL ${withoutCredentials(url)} must not carry credentials; use a credential helper`,
+    );
+  }
   const borrow = reference === undefined ? [] : ['--reference', reference];
   const args = ['clone', '--bare', '--filter=blob:none', ...borrow, '--', url, partial];
   const cloned = await git(folder, args, { timeoutMs: CLONE_TIMEOUT_MS });

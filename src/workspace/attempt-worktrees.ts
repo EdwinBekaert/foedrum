@@ -197,9 +197,16 @@ export const planClean = (
     const ref = parseAttemptFolder(inside);
     if (ref === undefined) {
       // A record whose folder is gone holds nothing, wherever it was in the attempts root.
-      if (state === 'gone' && record !== undefined && !live(batchId)) {
+      if (
+        state === 'gone' &&
+        record !== undefined &&
+        !live(batchId) &&
+        worktree.lockReason === undefined
+      ) {
         actions.push({ kind: 'prune', record, label: inside, branch: undefined });
         removed.add(inside);
+      } else if (worktree.lockReason !== undefined && !live(batchId)) {
+        kept.push(`kept worktree ${inside}: locked: ${worktree.lockReason || 'no reason given'}`);
       } else kept.push(`kept worktree ${inside}: not an attempt folder`);
       continue;
     }
@@ -329,7 +336,7 @@ export const planWorktree = (
   const refuse = (reason: string): WorktreePlan => ({ kind: 'refuse', reason });
   if (listed !== undefined && listed.state !== 'gone') {
     if (listed.state !== 'clean' && listed.state !== 'dirty') {
-      return refuse(`the worktree ${label} has no .git file: a removal stopped part-way`);
+      return refuse(`the worktree ${label} cannot be used as it is (${listed.state})`);
     }
     if (listed.branch !== branch) {
       return refuse(`the worktree ${label} is on ${listed.branch ?? 'no branch'}, not ${branch}`);
