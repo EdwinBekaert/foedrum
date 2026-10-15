@@ -314,6 +314,26 @@ describe('admit lane rules (ADR 0025)', () => {
     );
   });
 
+  it('refuses a late start or finish of an attempt abandoned when the batch got Stuck (ADR 0025)', () => {
+    const moved: Event[] = [
+      ...lanes.brewing,
+      { ...scheduled, stepId: 'tests' },
+      stuck,
+      resumed,
+      { ...scheduled, stepId: 'review' },
+    ];
+    refused(moved, succeeded, /attempt plan#1 of batch b1 was abandoned when the batch got stuck/);
+    refused(
+      moved,
+      { ...started, stepId: 'tests' },
+      /attempt tests#1 of batch b1 was abandoned when the batch got stuck/,
+    );
+  });
+
+  it('refuses a rewind without commits (ADR 0025)', () => {
+    refused(lanes.stuck, { ...rewound, shas: {} }, /rewind needs the commit of each repository/);
+  });
+
   it('accepts a release and an effect whatever the lanes', () => {
     const release: Event = {
       type: 'release.observed',
@@ -366,6 +386,24 @@ describe('admit keeps a sub-order in its repository', () => {
   it('accepts a breakdown that keeps the repository of a sub-order with batches', () => {
     const events = [ordered, breakdown('acme/api'), subOrderBatch];
     assert.equal(admit(fold(events), [breakdown('acme/api')]).kind, 'accepted');
+  });
+
+  it('rewinds the batch of a sub-order only to commits of its repository (ADR 0025)', () => {
+    const stuckSubOrder: Event[] = [
+      ordered,
+      breakdown('acme/api'),
+      subOrderBatch,
+      ...[chosen, scheduled, started, stuck].map((event) => ({ ...event, batchId: 'b2' }) as Event),
+    ];
+    const rewind = (shas: Record<string, string>): Event => ({ ...rewound, batchId: 'b2', shas });
+    const sha = 'a'.repeat(40);
+    assert.equal(admit(fold(stuckSubOrder), [rewind({ 'acme/api': sha })]).kind, 'accepted');
+    refused(stuckSubOrder, rewind({ 'acme/web': sha }), /sub-order 101 writes only in acme\/api/);
+    refused(
+      stuckSubOrder,
+      rewind({ 'acme/api': sha, 'acme/web': sha }),
+      /sub-order 101 writes only in acme\/api/,
+    );
   });
 
   it('accepts a breakdown that moves a sub-order without batches', () => {

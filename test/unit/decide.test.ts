@@ -424,6 +424,24 @@ describe('decide expire: brewing → Stuck (invariant I5)', () => {
     refuses(brewing(), { ...expire, attempt: 3 }, /attempt plan#3 of batch b1 is not running/);
   });
 
+  it('refuses, after a skip, the attempt that expired, and its late finish (ADR 0025)', () => {
+    let state = fold(brewing());
+    for (const command of [expire, { kind: 'skip', batchId: 'b1', ...by }] as Command[]) {
+      const decision = decide(state, command, context);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      if (decision.kind === 'accepted') state = fold(decision.events, state);
+    }
+    refuses(state, expire, /attempt plan#1 of batch b1 is not running/);
+    const late: Command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'succeeded', output: null },
+    };
+    refuses(state, late, /attempt plan#1 of batch b1 was abandoned when the batch got stuck/);
+  });
+
   for (const [lane, events] of otherLanes('brewing')) {
     it(`refuses a batch that is ${lane}`, () => {
       refuses(events, expire, new RegExp(`batch b1 is ${lane}; expire needs it brewing`));
