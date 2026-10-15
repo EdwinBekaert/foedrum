@@ -26,6 +26,9 @@ export interface BudgetOptions {
   budgetMs: number;
   // Files are printed relative to this directory.
   cwd: string;
+  // The folder, relative to cwd and ending in '/', whose files are held to the budget; test/unit/
+  // by default.
+  budgetedDir?: string;
   // How many of the slowest files to list.
   slowest: number;
   // Marks the run as failed.

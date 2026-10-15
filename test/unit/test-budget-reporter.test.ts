@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { budgetReporter, type TestEvent } from '../../scripts/test-budget-reporter.ts';
+import {
+  type BudgetOptions,
+  budgetReporter,
+  type TestEvent,
+} from '../../scripts/test-budget-reporter.ts';
 
 const cwd = join(import.meta.dirname, 'repo');
 const fileA = join(cwd, 'test', 'unit', 'a.test.ts');
@@ -20,12 +24,18 @@ const passed = (file: string, ms: number): TestEvent =>
   ({ type: 'test:pass', data: { nesting: 0, file, details: { duration_ms: ms } } }) as TestEvent;
 
 // Runs the reporter over the events and returns what it printed and whether it failed the run.
-const report = async (events: TestEvent[], budgetMs = 5000, slowest = 5) => {
+const report = async (
+  events: TestEvent[],
+  budgetMs = 5000,
+  slowest = 5,
+  options: Partial<BudgetOptions> = {},
+) => {
   let failed = false;
   const reporter = budgetReporter({
     budgetMs,
     cwd,
     slowest,
+    ...options,
     fail: () => {
       failed = true;
     },
@@ -121,6 +131,48 @@ describe('budgetReporter', () => {
     assert.deepEqual(over.length, 1);
     assert.match(over[0] ?? '', /^✖ test\/unit\/a\.test\.ts took 5\.10 s, over the 5 s budget/);
   });
+
+  it('holds the files of the folder it is given to the budget, instead of test/unit/', async () => {
+    const fixture = join(cwd, 'test', 'fixtures', 'budget', 'e.test.ts');
+    const { lines, failed } = await report(
+      [summary(fixture, 3500), summary(fileA, 9000)],
+      3000,
+      5,
+      { budgetedDir: 'test/fixtures/budget/' },
+    );
+    assert.equal(failed, true);
+    assert.equal(
+      lines[0],
+      'test file times (budget 3 s per file in test/fixtures/budget/, ADR 0021)',
+    );
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith('✖')).map((line) => line.split(' took')[0]),
+      ['✖ test/fixtures/budget/e.test.ts'],
+    );
+  });
+
+  // A ceiling well above any load's stretch, so a property or chaos file whose run count grew too
+  // large still fails, while a parallel check's load cannot fail it (#87).
+  for (const [layer, file] of [
+    ['property', fileC],
+    ['chaos', fileD],
+  ] as const) {
+    it(`fails the run for a ${layer} file over the 15 s ceiling, naming it`, async () => {
+      const { lines, failed } = await report([summary(fileA, 1000), summary(file, 15_100)]);
+      assert.equal(failed, true);
+      const over = lines.filter((line) => line.startsWith('✖'));
+      assert.equal(over.length, 1);
+      assert.match(
+        over[0] ?? '',
+        new RegExp(`^✖ test/${layer}/[cd]\\.test\\.ts took 15\\.10 s, over the 15 s ceiling`),
+      );
+    });
+
+    it(`lets a ${layer} file that takes exactly the 15 s ceiling pass`, async () => {
+      const { failed } = await report([summary(file, 15_000)]);
+      assert.equal(failed, false);
+    });
+  }
 
   it('lets a file that takes exactly the budget pass', async () => {
     const { failed } = await report([summary(fileA, 3000)], 3000);
