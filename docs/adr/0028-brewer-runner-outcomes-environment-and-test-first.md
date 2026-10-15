@@ -34,7 +34,7 @@ Two follow-ups of #52 land here too. A brewer's `env` adds variables on top of a
 - A process that dies together with the runner that ran it leaves no facts: nobody renews its lease, and the supervisor loses and retries it (ADR 0027).
 
 ### The environment of a brewer
-`buildBrewerEnv` (`src/engine/brewer-env.ts`) merges three layers in order: the minimal base (never the engine's own `process.env`), the brewer's `env`, and the runner's forced variables last. A later layer replaces a name of an earlier one. On Windows names are compared without case, and the later layer's spelling is kept, so neither `Path` from the base nor `path` from a brewer can shadow the forced `PATH`. On other platforms names that differ by case are different variables, and both stay. The platform is passed in, so every platform is tested on every platform.
+`buildBrewerEnv` (`src/engine/brewer-env.ts`) merges three layers in order: the minimal base (never the engine's own `process.env`), the brewer's `env`, and the runner's forced variables last. A later layer replaces a name of an earlier one. On Windows names are compared without case (`envNameKey`, in the platform layer: `src/platform/env.ts`), and the later layer's spelling is kept, so neither `Path` from the base nor `path` from a brewer can shadow the forced `PATH`. On other platforms names that differ by case are different variables, and both stay. The platform is passed in, so every platform is tested on every platform.
 
 ### testFirst when a recipe does not say
 `resolveRecipe` (`src/engine/resolve-recipe.ts`) turns a recipe file into the recipe a batch uses, with a required `testFirst`: the recipe's own value when it has one, else `true` when any brewer it names, including those in loops and parallel groups and a session step's fallback, produces `commits`, else `false`. A recipe that names a brewer the Brewery does not have is refused. An unset value therefore never reaches the engine, as off or otherwise. The router's override with its reason (ADR 0017) is recorded when routing writes it.
@@ -48,6 +48,8 @@ The fake runner (`test/helpers/fake-brewer-runner.ts`) plays a script per step: 
 - Retrying a non-retryable failure is a human's `retry` from Stuck.
 - Who renews leases in production, the runner or the driver, is settled with the real runner; the test driver renews them while the runner reports the attempt, as a live process would.
 - Sessions (resume on `retryMode` and on `answer`) are left to the real runner, which learns the session id from the stream.
+- Nothing loads a recipe for a batch yet, so nothing calls `resolveRecipe`: the recipe loader must, when it lands (with the test-first recipes of #25 at the latest), and nothing may read `testFirst` from a recipe file directly.
+- The out doc is model output, and its text reaches the event log (a `succeeded` output, a reason, a Stuck summary). The real runner must cap the size of the out doc it reads, so an oversized one is invalid before `settleAttempt` sees it; only the garbage line, which comes from the stream, is cut here.
 
 ## Alternatives considered
 - **The fake returns endings directly:** simpler, but the engine tests would then prove nothing about how a real crash, missing out doc or denial storm ends.
