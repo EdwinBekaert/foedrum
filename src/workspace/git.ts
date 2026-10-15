@@ -1,7 +1,8 @@
 // Runs git for Foedrum: non-interactive, with a timeout, through an argument array (architecture
 // §13). Code that drives git takes a `Git` so unit tests can pass a fake one (ADR 0021).
 
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { killProcessTree } from '../platform/processes.ts';
 
 export interface GitResult {
   /** The exit code; `null` when git was killed, for example by the timeout. */
@@ -40,20 +41,42 @@ export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
   };
 };
 
-/** The real git. */
+/**
+ * The real git. The timeout is a hard deadline: it kills git and every process git started (a
+ * credential helper, ssh, gpg) and answers at once, without waiting for their output to close.
+ */
 export const runGit: Git = (cwd, args, { timeoutMs = 60_000 } = {}) =>
   new Promise((done) => {
-    const options = {
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+    const finish = (result: GitResult): void => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      done(result);
+    };
+    const child = spawn('git', [...args], {
       cwd,
-      encoding: 'utf8',
-      timeout: timeoutMs,
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
       env: gitEnv(process.env),
-    } as const;
-    execFile('git', [...args], options, (error, stdout, stderr) => {
-      // A number is git's exit code; a killed git (timeout) has none, nor has a missing one.
-      const code = error === null ? 0 : typeof error.code === 'number' ? error.code : null;
-      done({ code, stdout, stderr: stderr || (error?.message ?? '') });
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      // Its own process group outside Windows, so the timeout can kill the whole tree.
+      detached: process.platform !== 'win32',
     });
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    const timer = setTimeout(() => {
+      if (child.pid !== undefined) killProcessTree(child.pid);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish({ code: null, stdout, stderr: `${stderr}git timed out after ${timeoutMs} ms` });
+    }, timeoutMs);
+    // A git that cannot start (not installed) has no exit code either.
+    child.on('error', (error) => finish({ code: null, stdout, stderr: stderr || error.message }));
+    child.on('close', (code) => finish({ code, stdout, stderr }));
   });

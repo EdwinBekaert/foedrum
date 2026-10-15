@@ -1,5 +1,7 @@
 // Process checks that differ between operating systems (architecture §13).
 
+import { execFile } from 'node:child_process';
+
 export type Kill = (pid: number, signal: 0) => void;
 
 export interface KillTreeOptions {
@@ -14,8 +16,27 @@ export interface KillTreeOptions {
  * Kills a process and every process it started. On Windows through taskkill; elsewhere the
  * process must lead its own process group (spawned with `detached: true`), which is killed.
  */
-export const killProcessTree = (_pid: number, _options: KillTreeOptions = {}): void => {
-  throw new Error('not implemented');
+export const killProcessTree = (pid: number, options: KillTreeOptions = {}): void => {
+  const {
+    platform = process.platform,
+    signal = (target, name) => process.kill(target, name),
+    taskkill = (target) => {
+      execFile('taskkill', ['/PID', String(target), '/T', '/F'], { windowsHide: true }, () => {});
+    },
+  } = options;
+  if (platform === 'win32') {
+    taskkill(pid);
+    return;
+  }
+  // The group first; a process that leads no group is killed on its own. Gone is fine.
+  for (const target of [-pid, pid]) {
+    try {
+      signal(target, 'SIGKILL');
+      return;
+    } catch {
+      // try the next target
+    }
+  }
 };
 
 // Signal 0 checks that a process exists without touching it. EPERM means it exists but
