@@ -16,19 +16,20 @@ import {
 } from './event-sequences.ts';
 import { type Engine, openEngine, runScenario, t0 } from './simulation.ts';
 
-const integer = (name: string, value: string | undefined): number | undefined => {
+const integer = (name: string, value: string | undefined, min: number): number | undefined => {
   if (value === undefined) return undefined;
   const parsed = Number(value);
   // Otherwise a mistyped number runs no case at all, and every property passes.
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative integer, got ${value}`);
+  if (!Number.isSafeInteger(parsed) || parsed < min) {
+    throw new Error(`${name} must be an integer of at least ${min}, got ${value}`);
   }
   return parsed;
 };
 
-const replayed = integer('FOEDRUM_SEED', process.env.FOEDRUM_SEED);
+const replayed = integer('FOEDRUM_SEED', process.env.FOEDRUM_SEED, 0);
 const firstSeed = replayed ?? randomInt(2 ** 31);
-const runsSet = integer('FOEDRUM_RUNS', process.env.FOEDRUM_RUNS);
+// Zero runs would let every property pass without trying a single case.
+const runsSet = integer('FOEDRUM_RUNS', process.env.FOEDRUM_RUNS, 1);
 
 /** How many seeds a property runs: one when replaying a seed, else FOEDRUM_RUNS or `runs`. */
 const runCount = (runs: number): number => (replayed === undefined ? (runsSet ?? runs) : 1);
@@ -48,6 +49,9 @@ const noted = (error: unknown, text: string): unknown => {
   if (error.stack?.includes(message)) error.stack = error.stack.replace(message, error.message);
   return error;
 };
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 /** Runs `property` for `runs` seeds; a failure's message gains the seed. */
 export const forEachSeed = (runs: number, property: (seed: number) => void): void => {
@@ -84,8 +88,14 @@ export const holdsInScenarios = async (invariant: Invariant): Promise<void> => {
     const scenario: Scenario = { moves: [], plays: [] };
     const failed = await trial(recording(generateScenario(seed), scenario), invariant);
     if (failed === undefined) continue;
+    const first = messageOf(failed.error);
     const shrunk = await shrink(scenario, invariant, failed);
-    throw noted(shrunk.failure.error, counterexample(seed, scenario, shrunk));
+    const report = counterexample(seed, scenario, shrunk);
+    // Shrinking keeps any failure, which may not be the one first found.
+    throw noted(
+      shrunk.failure.error,
+      messageOf(shrunk.failure.error) === first ? report : `${report}\nFirst found as: ${first}`,
+    );
   }
 };
 
