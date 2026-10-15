@@ -263,6 +263,50 @@ describe('createSupervisor', () => {
       assert.equal(batchOf(store, 'b1').lane.kind, 'stuck');
     });
 
+    it('keeps deciding the other commands when one throws, and still flushes', async () => {
+      append(...brewing('b1', 60), ...brewing('b2', 60));
+      // An invalid date from the runner makes decide throw for b1's stall.
+      progress.set(attemptKey.encode(plan('b1')), {
+        lastProgressAt: new Date(Number.NaN),
+        turnsWithoutProgress: 60,
+      });
+      progress.set(attemptKey.encode(plan('b2')), {
+        lastProgressAt: at(1),
+        turnsWithoutProgress: 60,
+      });
+      const stateBranch = fakeBranch();
+      now = at(2);
+      const report = await supervisor({ stateBranch })
+        .tick()
+        .catch((error: unknown) => error);
+      assert.deepStrictEqual(report, { appended: 1, flush: { kind: 'unchanged' } });
+      assert.equal(batchOf(store, 'b1').lane.kind, 'brewing');
+      assert.equal(batchOf(store, 'b2').lane.kind, 'stuck');
+      assert.equal(stateBranch.calls, 1);
+      const [failed, ...others] = notices;
+      assert.deepStrictEqual(others, []);
+      assert.ok(
+        failed?.kind === 'command_failed' &&
+          failed.command.kind === 'stall' &&
+          failed.command.batchId === 'b1' &&
+          failed.error instanceof RangeError,
+        String(failed?.kind),
+      );
+    });
+
+    it('flushes even when the tick fails', async () => {
+      const failure = new Error('database is locked');
+      const broken: EventStore = {
+        ...store,
+        batchesPastDeadline: () => {
+          throw failure;
+        },
+      };
+      const stateBranch = fakeBranch();
+      await assert.rejects(supervisor({ store: broken, stateBranch }).tick(), failure);
+      assert.equal(stateBranch.calls, 1);
+    });
+
     it('reports a command decide refuses, and still releases the expired leases', async () => {
       append(...brewing('b1', 60, 'gone'));
       const key = attemptKey.encode(plan('b1'));
@@ -441,6 +485,29 @@ describe('createSupervisor', () => {
       await fire();
       assert.equal(pending.size, 0);
       await running;
+    });
+
+    it('runs one chain of ticks when run follows a stop while a tick runs', async () => {
+      const { timer, pending, fire } = fakeTimer();
+      let engine: Supervisor | undefined;
+      let restarted: Promise<void> | undefined;
+      const stateBranch = {
+        flush: async (): Promise<FlushResult> => {
+          if (restarted === undefined) {
+            engine?.stop();
+            restarted = engine?.run();
+          }
+          return { kind: 'unchanged' };
+        },
+      };
+      engine = supervisor({ timer, stateBranch });
+      const first = engine.run();
+      await fire();
+      await first;
+      assert.equal(pending.size, 1, 'only the new run schedules a tick');
+      engine.stop();
+      assert.equal(pending.size, 0);
+      await restarted;
     });
 
     it('stops at a StateBranchStopError and rejects with it', async () => {

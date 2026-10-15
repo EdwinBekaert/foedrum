@@ -15,6 +15,8 @@ import { type FlushWatch, type ProgressSource, planTick, watchFlush } from './su
 export type Notice =
   /** decide refused a command of the tick; the core and decide disagree, which is a bug. */
   | { kind: 'refused'; command: EngineCommand; reason: string }
+  /** Deciding or appending a command threw; the tick goes on with the other commands. */
+  | { kind: 'command_failed'; command: EngineCommand; error: unknown }
   /** The flush of the state branch failed; the next tick retries it. */
   | { kind: 'flush_failed'; reason: string }
   /** The flushes have failed since `since`, for longer than the flush deadline (ADR 0024). */
