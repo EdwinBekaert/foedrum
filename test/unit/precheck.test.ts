@@ -181,6 +181,17 @@ describe('precheck on a stale node_modules', () => {
     assert.deepEqual(stale.calls, ['/work/tree']);
     assert.deepEqual(calls, ['/work/tree']);
   });
+
+  // Every Bash and PowerShell call goes through the gate, so only gated commands read files;
+  // forbidden ones are blocked for their own reason first.
+  for (const command of ['git status', 'git push --force']) {
+    it(`does not look at node_modules for: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const stale = fakeStale(REASON);
+      await precheck(hookInput(command), runCheck, stale.staleReason);
+      assert.deepEqual(stale.calls, []);
+    });
+  }
 });
 
 describe('precheck on pushes inside compound commands', () => {
