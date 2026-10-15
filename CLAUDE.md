@@ -133,6 +133,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 ## Git and pull requests
 
 - One branch per issue: `<issue-number>-<short-slug>`, or `docs/…`, `ci/…` for non-feature work.
+- Work in a worktree under `.claude/worktrees/` and run `npm ci` in it right after creating it. Without its own `node_modules`, Node falls back to the main checkout's packages, which may not match the worktree's `package-lock.json` (#86).
 - Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
 - Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.
@@ -140,6 +141,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - To update a summary or reply, post a new comment with `gh pr comment <n> --body-file` (or `gh issue comment`) that says what it replaces. Never edit or delete a comment: `gh api` writes ask for approval by design (#48), and `--edit-last` edits the account's last comment, which may be someone else's review posted from the same account.
 - Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
+- Merge origin/main right before choosing a new ADR's number, and again before the push. Sessions work in parallel and number ADRs too: #78 and #82 both took 0026.
 
 ## Restarting a session
 
