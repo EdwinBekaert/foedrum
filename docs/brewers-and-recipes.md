@@ -73,7 +73,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 |---|---|
 | `deadline` | Wall-clock limit per attempt |
 | `maxTurns` | Turn limit |
-| `stall` | No file write or commit for N turns or M minutes → abort |
+| `stall` | No file write or commit for N turns or M minutes → abort; the batch becomes Stuck (`stalled`, [ADR 0026](adr/0026-supervisor-lost-and-stalled-attempts.md)) |
 | `maxAttempts` | Attempts before the batch becomes Stuck |
 | `retryMode` | `resume` (same session) or `fresh` (new session with the same in-docs) |
 | `maxDenials` | Permission denials per attempt before aborting with `blocker_kind: environment` |

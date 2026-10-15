@@ -1,6 +1,6 @@
 # 0025. Batch lifecycle: a reminder on Stuck, rewind only from Stuck
 
-Date: 2026-10-15 · Status: Accepted
+Date: 2026-10-15 · Status: Accepted · Amended by [0026](0026-supervisor-lost-and-stalled-attempts.md)
 
 ## Context
 Invariant I1 says every non-terminal batch has exactly one pending action with a deadline. Stuck is not terminal, but the event store (#6) clears every deadline of a batch on `batch.stuck`: a Stuck batch had no deadline at all. The engine rules say every wait has a deadline and a batch must never be able to sit silently, and [ADR 0019](0019-interactive-sessions-and-one-command-layer.md) already promises "a reminder and a deadline" for a session step waiting in the Stuck lane. Either the store's behaviour or I1 had to change.
