@@ -301,6 +301,18 @@ describe('Event', () => {
       },
     ],
     [
+      'a human recipe choice with a blank issuer',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'human',
+        by: ' ',
+        via: 'terminal',
+      },
+    ],
+    [
       'a recipe choice by the router with an issuer',
       {
         type: 'batch.recipe_chosen',
