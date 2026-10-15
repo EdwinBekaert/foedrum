@@ -122,8 +122,8 @@ export const emptyState: State = {
 };
 
 /**
- * A log the fold cannot replay, and where it broke. The command layer (#9) must refuse such
- * events before they are appended; the fold's check is the last line of defence, and lets
+ * A log the fold cannot replay, and where it broke. The command layer refuses such events
+ * before they are appended (`admit`); the fold's check is the last line of defence, and lets
  * replay and `foedrum doctor` point at the event.
  */
 export class InvalidLogError extends Error {

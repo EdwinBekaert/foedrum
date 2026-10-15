@@ -13,9 +13,9 @@ import type {
 } from '../schemas/events.ts';
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
-import type { Decision } from './admit.ts';
-import type { State } from './fold.ts';
-import type { RecipeBook } from './recipes.ts';
+import { check, type Decision, laneRefusal, notAllowed } from './admit.ts';
+import type { Batch, Lane, State } from './fold.ts';
+import type { Recipe, RecipeBook } from './recipes.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
 interface Issuer {
@@ -79,11 +79,398 @@ export interface Context {
 }
 
 /** The options a Stuck batch offers for `reason`. */
-export function stuckOptions(_reason: StuckReason): StuckOption[] {
-  throw new Error('not implemented');
+export function stuckOptions(reason: StuckReason): StuckOption[] {
+  switch (reason.kind) {
+    case 'needs_input':
+      return ['answer', ...withoutAnswer];
+    case 'blocked':
+    case 'attempts_exhausted':
+    case 'deadline_passed':
+    case 'waiting_for_session':
+      return [...withoutAnswer];
+    default: {
+      const unhandled: never = reason;
+      throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
+    }
+  }
 }
 
+const withoutAnswer: readonly StuckOption[] = ['retry', 'skip', 'recipe', 'rewind', 'cancel'];
+const nonTerminal: readonly Lane['kind'][] = ['ordered', 'brewing', 'conditioning', 'stuck'];
+
 /** The events `command` appends to `state`, or why it is refused. */
-export function decide(_state: State, _command: Command, _context: Context): Decision {
-  throw new Error('not implemented');
+export function decide(state: State, command: Command, context: Context): Decision {
+  try {
+    return { kind: 'accepted', events: run(new Draft(state, context), command) };
+  } catch (error) {
+    if (error instanceof Refusal) return { kind: 'refused', reason: error.message };
+    throw error;
+  }
+}
+
+/** Why a command is refused; `decide` returns it as a refusal. */
+class Refusal extends Error {}
+
+/** The events decided so far, each checked against the state the ones before it lead to. */
+class Draft {
+  state: State;
+  readonly events: Event[] = [];
+  readonly context: Context;
+
+  constructor(state: State, context: Context) {
+    this.state = state;
+    this.context = context;
+  }
+
+  push(event: Event): void {
+    const checked = check(this.state, event);
+    if (checked.kind === 'refused') throw new Refusal(checked.reason);
+    this.state = checked.state;
+    this.events.push(event);
+  }
+
+  batch(batchId: string): Batch {
+    const batch = this.state.batches.get(batchId);
+    if (batch === undefined) throw new Refusal(`batch ${batchId} was never ordered`);
+    return batch;
+  }
+
+  /** `ms` from now, as the events write times. */
+  after(ms: number): string {
+    return new Date(this.context.now.getTime() + ms).toISOString();
+  }
+}
+
+function run(draft: Draft, command: Command): Event[] {
+  switch (command.kind) {
+    case 'record':
+      draft.push(command.event);
+      break;
+    case 'route': {
+      requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
+      const { batchId, recipe, reason, by } = command;
+      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by });
+      schedule(draft, batchId, find(draft, recipe).firstStep);
+      break;
+    }
+    case 'recipe': {
+      const { batchId, recipe, reason, by, via } = command;
+      const batch = draft.batch(batchId);
+      requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
+      if (batch.lane.kind === 'stuck') requireOffer(batch, 'recipe');
+      const { firstStep } = find(draft, recipe);
+      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by: 'human' });
+      if (batch.lane.kind === 'stuck') {
+        draft.push({ type: 'batch.resumed', batchId, by, via, action: 'recipe' });
+      }
+      schedule(draft, batchId, firstStep);
+      break;
+    }
+    case 'finish':
+      finish(draft, command);
+      break;
+    case 'expire':
+      expire(draft, command);
+      break;
+    case 'wait': {
+      const { batchId, on } = command;
+      requireLane(draft.batch(batchId), 'wait', ['ordered', 'conditioning']);
+      if (on.kind === 'sibling') {
+        if (on.batchId === batchId) throw new Refusal(`batch ${batchId} cannot wait for itself`);
+        if (!draft.state.batches.has(on.batchId)) {
+          throw new Refusal(`sibling batch ${on.batchId} was never ordered`);
+        }
+      }
+      draft.push({
+        type: 'batch.waiting',
+        batchId,
+        on,
+        remindAt: draft.after(draft.context.reminderMs),
+      });
+      break;
+    }
+    case 'remind':
+      remind(draft, command.batchId);
+      break;
+    case 'retry': {
+      const { batchId, by, via } = command;
+      const { reason } = stuckLane(draft.batch(batchId), 'retry');
+      draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
+      schedule(draft, batchId, reason.stepId);
+      break;
+    }
+    case 'skip': {
+      const { batchId, by, via } = command;
+      const { reason } = stuckLane(draft.batch(batchId), 'skip');
+      draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
+      continueAfter(draft, batchId, reason.stepId);
+      break;
+    }
+    case 'answer':
+      answer(draft, command);
+      break;
+    case 'rewind':
+      rewind(draft, command);
+      break;
+    case 'cancel': {
+      const { batchId, by } = command;
+      requireLane(draft.batch(batchId), 'cancel', nonTerminal);
+      draft.push({ type: 'batch.cancelled', batchId, by });
+      break;
+    }
+    default: {
+      const unhandled: never = command;
+      throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);
+    }
+  }
+  return draft.events;
+}
+
+/** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
+function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
+  const { batchId, stepId, attempt, ending, usage } = command;
+  const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
+  // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
+  const outcome: StepOutcome =
+    ending.kind === 'blocked'
+      ? {
+          kind: 'failed',
+          retryable: false,
+          reason: `blocked (${ending.blockerKind}): ${ending.summary}`,
+        }
+      : ending;
+  draft.push({
+    type: 'step.finished',
+    batchId,
+    stepId,
+    attempt,
+    outcome,
+    ...(usage === undefined ? {} : { usage }),
+  });
+  const batch = draft.batch(batchId);
+  const attempts = batch.steps.get(stepId)?.attempts.size ?? attempt;
+  /** Another attempt while the step has some left, then the route back, then Stuck. */
+  const failure = (retryable: boolean, lastReason: string, routed: boolean): void => {
+    if (retryable && recipe.mayRetry(batch, stepId)) {
+      schedule(draft, batchId, stepId);
+      return;
+    }
+    const back = routed ? recipe.routeBack(batch, stepId, 'failed') : undefined;
+    if (back === undefined) {
+      stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
+    } else {
+      schedule(draft, batchId, back);
+    }
+  };
+  switch (ending.kind) {
+    case 'succeeded':
+      continueAfter(draft, batchId, stepId);
+      return;
+    case 'failed':
+      failure(ending.retryable, ending.reason, true);
+      return;
+    case 'cancelled':
+      failure(true, 'the attempt was cancelled', false);
+      return;
+    case 'needs_input':
+      stick(draft, batchId, { kind: 'needs_input', stepId, questions: ending.questions });
+      return;
+    case 'blocked': {
+      const { blockerKind, summary } = ending;
+      const blocked: StuckReason = { kind: 'blocked', stepId, blockerKind, summary };
+      switch (blockerKind) {
+        case 'findings': {
+          // The next round, until the route's rounds are used up (brewers-and-recipes §2).
+          const back = recipe.routeBack(batch, stepId, 'findings');
+          if (back === undefined) stick(draft, batchId, blocked);
+          else schedule(draft, batchId, back);
+          return;
+        }
+        // Another round would hit the same wall, or the plan does not match reality.
+        case 'environment':
+        case 'divergence':
+          stick(draft, batchId, blocked);
+          return;
+        default: {
+          const unhandled: never = blockerKind;
+          throw new Error(`Unhandled blocker kind ${JSON.stringify(unhandled)}`);
+        }
+      }
+    }
+    default: {
+      const unhandled: never = ending;
+      throw new Error(`Unhandled ending ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
+/** A running attempt past its deadline makes the batch Stuck (invariant I5). */
+function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): void {
+  const { batchId, stepId, attempt } = command;
+  const batch = requireLane(draft.batch(batchId), 'expire', ['brewing']);
+  const attempts = batch.steps.get(stepId)?.attempts;
+  const current = attempts?.get(attempt);
+  const name = `attempt ${stepId}#${attempt} of batch ${batchId}`;
+  if (
+    current === undefined ||
+    current.phase === 'finished' ||
+    attempt < Math.max(...(attempts?.keys() ?? []))
+  ) {
+    throw new Refusal(`${name} is not running`);
+  }
+  if (draft.context.now.getTime() < Date.parse(current.deadlineAt)) {
+    throw new Refusal(`${name} is not due until ${current.deadlineAt}`);
+  }
+  stick(draft, batchId, { kind: 'deadline_passed', stepId, deadlineAt: current.deadlineAt });
+}
+
+/** The next reminder of a Conditioning or Stuck batch, once the current one is due (ADR 0025). */
+function remind(draft: Draft, batchId: string): void {
+  const batch = draft.batch(batchId);
+  const { lane } = batch;
+  const due = (remindAt: string): void => {
+    if (draft.context.now.getTime() < Date.parse(remindAt)) {
+      throw new Refusal(`the reminder of batch ${batchId} is not due until ${remindAt}`);
+    }
+  };
+  const remindAt = draft.after(draft.context.reminderMs);
+  switch (lane.kind) {
+    case 'conditioning':
+      due(lane.remindAt);
+      draft.push({ type: 'batch.waiting', batchId, on: lane.on, remindAt });
+      return;
+    case 'stuck':
+      due(lane.remindAt);
+      draft.push({
+        type: 'batch.stuck',
+        batchId,
+        reason: lane.reason,
+        options: [...lane.options],
+        remindAt,
+      });
+      return;
+    case 'ordered':
+    case 'brewing':
+    case 'on_tap':
+    case 'cancelled':
+      throw new Refusal(notAllowed(batch, 'remind', ['conditioning', 'stuck']));
+    default: {
+      const unhandled: never = lane;
+      throw new Error(`Unhandled lane ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
+/** The answers to the questions that made the batch Stuck resume the step that asked them. */
+function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): void {
+  const { batchId, by, via, answers } = command;
+  const { reason } = stuckLane(draft.batch(batchId), 'answer');
+  if (reason.kind !== 'needs_input') {
+    throw new Refusal(`batch ${batchId} is not waiting for answers`);
+  }
+  const asked = new Set(reason.questions.map((question) => question.q));
+  const answered = new Set<string>();
+  for (const { q } of answers) {
+    if (!asked.has(q)) throw new Refusal(`no question "${q}" was asked`);
+    if (answered.has(q)) throw new Refusal(`question "${q}" has two answers`);
+    answered.add(q);
+  }
+  for (const q of asked) {
+    if (!answered.has(q)) throw new Refusal(`question "${q}" has no answer`);
+  }
+  const { stepId } = reason;
+  draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
+  draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
+  schedule(draft, batchId, stepId);
+}
+
+/**
+ * Goes back to an earlier step, only from Stuck (ADR 0025): the attempts in flight were abandoned
+ * there and the batch's deadlines replaced by its reminder.
+ */
+function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): void {
+  const { batchId, by, toStepId, shas } = command;
+  const batch = draft.batch(batchId);
+  stuckLane(batch, 'rewind');
+  const repos = Object.keys(shas);
+  if (repos.length === 0) throw new Refusal('rewind needs the commit of each repository');
+  const subOrder = draft.state.subOrders.get(batch.issue);
+  if (subOrder !== undefined && (repos.length !== 1 || repos[0] !== subOrder.repo)) {
+    throw new Refusal(`sub-order ${subOrder.issue} writes only in ${subOrder.repo}`);
+  }
+  draft.push({ type: 'batch.rewound', batchId, toStepId, by, shas: { ...shas } });
+  schedule(draft, batchId, toStepId);
+}
+
+/** Schedules the next attempt of `stepId`, with the deadline its recipe gives it. */
+function schedule(draft: Draft, batchId: string, stepId: string): void {
+  const batch = draft.batch(batchId);
+  const attempts = [...(batch.steps.get(stepId)?.attempts.keys() ?? [])];
+  draft.push({
+    type: 'step.scheduled',
+    batchId,
+    stepId,
+    attempt: Math.max(0, ...attempts) + 1,
+    deadlineAt: draft.after(recipeOf(draft, batch).deadlineMs(stepId)),
+  });
+}
+
+/** Schedules what follows `stepId` in the batch's recipe, or puts the batch on tap. */
+function continueAfter(draft: Draft, batchId: string, stepId: string): void {
+  const batch = draft.batch(batchId);
+  const next = recipeOf(draft, batch).after(batch, stepId);
+  switch (next.kind) {
+    case 'step':
+      schedule(draft, batchId, next.stepId);
+      return;
+    case 'done':
+      draft.push({ type: 'batch.on_tap', batchId, pullRequests: [...next.pullRequests] });
+      return;
+    default: {
+      const unhandled: never = next;
+      throw new Error(`Unhandled continuation ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
+/** Makes the batch Stuck with the options its reason offers and a reminder (ADR 0025). */
+function stick(draft: Draft, batchId: string, reason: StuckReason): void {
+  draft.push({
+    type: 'batch.stuck',
+    batchId,
+    reason,
+    options: stuckOptions(reason),
+    remindAt: draft.after(draft.context.reminderMs),
+  });
+}
+
+function requireLane(batch: Batch, what: string, allowed: readonly Lane['kind'][]): Batch {
+  const refusal = laneRefusal(batch, what, allowed);
+  if (refusal !== undefined) throw new Refusal(refusal);
+  return batch;
+}
+
+function requireOffer(batch: Batch, option: StuckOption): void {
+  if (batch.lane.kind === 'stuck' && !batch.lane.options.includes(option)) {
+    throw new Refusal(`batch ${batch.id} does not offer ${option}`);
+  }
+}
+
+/** The Stuck lane of `batch`, when it is Stuck and offers `option`. */
+function stuckLane(batch: Batch, option: StuckOption): Extract<Lane, { kind: 'stuck' }> {
+  const { lane } = batch;
+  if (lane.kind !== 'stuck') throw new Refusal(notAllowed(batch, option, ['stuck']));
+  requireOffer(batch, option);
+  return lane;
+}
+
+function find(draft: Draft, name: string): Recipe {
+  const recipe = draft.context.recipes.find(name);
+  if (recipe === undefined) throw new Refusal(`recipe ${name} is not in the recipe book`);
+  return recipe;
+}
+
+function recipeOf(draft: Draft, batch: Batch): Recipe {
+  if (batch.recipe === undefined) throw new Refusal(`batch ${batch.id} has no recipe`);
+  return find(draft, batch.recipe.name);
 }
