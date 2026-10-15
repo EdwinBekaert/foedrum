@@ -203,7 +203,7 @@ The zod schemas in `src/schemas/` are the source of these types. Every object is
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
-Current state is a pure fold over events. Crash recovery is replay.
+Current state is a pure fold over events (`src/engine/fold.ts`): orders and sub-orders (one repository each) with their dependencies, batches with their lane, steps, attempts, rewinds, bottles, observed releases and the idempotency ledger. The fold records what the events say and leaves the allowed transitions to the state machine; an event that refers to a batch, step or attempt the log never created, or repeats one, makes it throw, because such a log is corrupt. Crash recovery is replay.
 
 ### 4.2 Step outcome — the single contract
 
@@ -318,7 +318,7 @@ Stability is proven, not claimed.
 
 1. **Unit tests** (`node:test`) for the fold, state machine, recipe parsing, GitHub client (injected `fetch`). They start no processes: git, npm and other tools are reached through an injected process runner, and `npm run check` stays under 20 s ([ADR 0021](adr/0021-unit-tests-spawn-no-processes.md)). **Integration tests** (`test/integration/`, `npm run test:integration`, CI and nightly) are a few per tool boundary, running the real git, npm or shell to prove the thin shells and the captured fixtures still match the real tools.
 2. **Fake brewer runner** with scripted behaviours: succeed, fail, hang, garbage output, no output, exceed budget, crash mid-step, ask a question.
-3. **Property tests** on the state machine: random event sequences must keep invariants I1–I6.
+3. **Property tests** on the state machine: random event sequences must keep invariants I1–I6. A seeded generator (`test/helpers/event-sequences.ts`, no dependency) writes the sequences; each run starts from a fresh seed, a failure names it, and `FOEDRUM_SEED=<seed>` replays it.
 4. **Chaos tests:** run many batches with the fake runner, kill the engine at random points, restart, and assert every batch reaches a terminal or Stuck state with no duplicated side effect.
 5. **Contract tests** against a real GitHub test repository (opt-in, CI only).
 6. **End-to-end tests** (from M1): a real test Brewery and target repository on GitHub, driven by the fake brewer runner — issue → batch → pull request, fast and deterministic. A **nightly smoke test** uses the real `claude` CLI to catch changes in its stream format.
