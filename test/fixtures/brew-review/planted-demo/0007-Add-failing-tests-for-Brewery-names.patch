@@ -1,0 +1,45 @@
+From c484d7ffb8188c714e6d3edbaf89c944ba1d462a Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 11:26:15 +0200
+Subject: [PATCH 7/8] Add failing tests for Brewery names
+
+---
+ src/workspace/brewery-name.ts  |  1 +
+ test/unit/brewery-name.test.ts | 17 +++++++++++++++++
+ 2 files changed, 18 insertions(+)
+ create mode 100644 src/workspace/brewery-name.ts
+ create mode 100644 test/unit/brewery-name.test.ts
+
+diff --git a/src/workspace/brewery-name.ts b/src/workspace/brewery-name.ts
+new file mode 100644
+index 0000000..5409778
+--- /dev/null
++++ b/src/workspace/brewery-name.ts
+@@ -0,0 +1 @@
++export const isBreweryName = (_name: string): boolean => false;
+diff --git a/test/unit/brewery-name.test.ts b/test/unit/brewery-name.test.ts
+new file mode 100644
+index 0000000..2527a19
+--- /dev/null
++++ b/test/unit/brewery-name.test.ts
+@@ -0,0 +1,17 @@
++import assert from 'node:assert/strict';
++import { describe, it } from 'node:test';
++import { isBreweryName } from '../../src/workspace/brewery-name.ts';
++
++describe('isBreweryName', () => {
++  it('rejects a name that leaves the Brewery directory', () => {
++    assert.equal(isBreweryName('../other'), false);
++  });
++
++  it('rejects an empty name', () => {
++    assert.equal(isBreweryName(''), false);
++  });
++
++  it('rejects upper case and spaces', () => {
++    assert.equal(isBreweryName('My Brewery'), false);
++  });
++});
+-- 
+2.56.0.windows.2
+

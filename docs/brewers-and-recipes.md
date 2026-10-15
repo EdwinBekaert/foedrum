@@ -197,6 +197,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
           { "id": "tasting", "parallel": [                   // approve = every verdict approves
               { "id": "correctness", "brewer": "taster", "lens": "correctness" },
               { "id": "security", "brewer": "taster", "lens": "security" },
+              { "id": "test-design", "brewer": "taster", "lens": "test-design" },
               { "id": "mutants", "brewer": "brett" }         // advisory unless "blocking": true
           ] },
           { "id": "fix", "brewer": "cooper", "when": "tasting.verdict != 'approve'" },
@@ -279,4 +280,4 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Lab tech | Verifies a fix in a real environment | sonnet | high |
 | Tasting panel | Runs evaluations | — (uses the model under test) | — |
 
-Default **tasting lenses** (`defaults/lenses/*.md`): correctness, security, cross-platform, design conformance. A Brewery adds or overrides lenses by committing files to `lenses/`. Test-first and lenses: [ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md).
+Default **tasting lenses** (`defaults/lenses/*.md`): correctness, security, cross-platform, design conformance, test design. A Brewery adds or overrides lenses by committing files to `lenses/`. Test-first and lenses: [ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md); the fifth lens: [ADR 0022](adr/0022-five-default-lenses.md).

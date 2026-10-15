@@ -24,7 +24,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Gravity reading** | A deterministic check: tests, lint, types, diff limits. Measured, not judged |
 | **Red proof** | A gravity reading that must fail: the tests committed by the Gauger (or Microbiologist) fail because the behaviour is missing (an assertion or an error from the code under test, not a load error), read from a structured test report |
 | **Tasting** | An AI review. Judged, not measured |
-| **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, or a Brewery's own |
+| **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, test design, or a Brewery's own |
 | **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |
 | **Stuck** 🔔 | A batch that needs a human. Always visible, never silent |
 | **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |

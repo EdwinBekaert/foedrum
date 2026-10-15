@@ -15,13 +15,13 @@ Review the change against the decisions the repository has already made: its con
 
 **Language and structure rules.** The coding rules the instructions state, for example forbidden language features, import conventions, where schemas or types must be defined, how state may change, which module owns operating-system-specific code, which mechanism every side effect must go through.
 
-**Testing conventions.** The repository's rules on how tests are written: dependency injection instead of module mocking, testing through public interfaces, which test kinds an area of code requires, and whether the change comes with tests at all.
+**Testing conventions.** The repository's rules on how tests are written: dependency injection instead of module mocking, which test kinds an area of code requires, and whether the change comes with tests at all.
 
 **Scope.** The change does one thing and matches what its description and linked issue ask for; unrelated changes, drive-by refactoring and files outside the stated scope are findings.
 
 ## Leave to other lenses
 
-Logic errors and missing deadlines (correctness); injection, secrets and permissions (security); portability (cross-platform). Style that no written rule covers is out of scope for every lens.
+Logic errors and missing deadlines (correctness); injection, secrets and permissions (security); portability (cross-platform); whether the tests would catch a bug, test through public interfaces, start processes, run slowly or use hand-written fixtures (test design). Style that no written rule covers is out of scope for every lens.
 
 ## Reporting
 
