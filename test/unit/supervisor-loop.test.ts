@@ -253,18 +253,13 @@ describe('createSupervisor', () => {
     });
 
     it('sees the events others appended since the last tick', async () => {
-      append(...brewing('b1', 30));
       const engine = supervisor();
       await engine.tick();
-      append({
-        type: 'step.finished',
-        batchId: 'b1',
-        stepId: 'plan',
-        attempt: 1,
-        outcome: { kind: 'succeeded', output: null },
-      });
+      // Only a state that folded these events knows b1, so only it can make b1 Stuck.
+      append(...brewing('b1', 30));
       now = at(45);
-      assert.equal((await engine.tick()).appended, 0);
+      assert.equal((await engine.tick()).appended, 1);
+      assert.equal(batchOf(store, 'b1').lane.kind, 'stuck');
     });
 
     it('reports a command decide refuses, and still releases the expired leases', async () => {
@@ -404,7 +399,16 @@ describe('createSupervisor', () => {
     it('ticks every interval until stopped', async () => {
       append(...brewing('b1', 30));
       const { timer, pending, fire } = fakeTimer();
-      const stateBranch = fakeBranch();
+      // How many ticks are scheduled while a tick runs: none, or ticks could overlap.
+      const scheduledDuringTick: number[] = [];
+      const stateBranch = {
+        flush: async (): Promise<FlushResult> => {
+          // Counted after an await, as a real flush would be still running then.
+          await Promise.resolve();
+          scheduledDuringTick.push(pending.size);
+          return { kind: 'unchanged' };
+        },
+      };
       const engine = supervisor({ timer, stateBranch, intervalMs: 5000 });
       const running = engine.run();
       assert.deepStrictEqual(
@@ -415,8 +419,8 @@ describe('createSupervisor', () => {
       await fire();
       assert.equal(batchOf(store, 'b1').lane.kind, 'stuck');
       await fire();
-      assert.equal(stateBranch.calls, 2);
-      assert.equal(pending.size, 1, 'the next tick is scheduled after the last one finished');
+      assert.deepStrictEqual(scheduledDuringTick, [0, 0], 'no tick is scheduled while one runs');
+      assert.equal(pending.size, 1, 'the next tick is scheduled once the last one finished');
       engine.stop();
       assert.equal(pending.size, 0);
       await running;
