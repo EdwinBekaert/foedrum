@@ -89,6 +89,23 @@ describe('removeScratch with a fake git', () => {
     });
   }
 
+  it("removes the tree's record when its gitdir file names the tree through a link", async () => {
+    const links = makeTempDir('link');
+    try {
+      const link = join(links.path, 'checkout');
+      symlinkSync(dir.path, link, 'junction');
+      const linkedTree = join(link, '.foedrum', 'tmp', '61', 'scratch', 'tree');
+      writeFileSync(join(record('tree'), 'gitdir'), `${join(linkedTree, '.git')}\n`);
+
+      const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', git);
+
+      assert.equal(existsSync(record('tree')), false, result.lines.join('\n'));
+      assert.ok(result.lines.includes('removed worktree record .git/worktrees/tree'));
+    } finally {
+      links.remove();
+    }
+  });
+
   it('refuses a folder outside .foedrum/tmp/ and removes nothing', async () => {
     const result = await removeScratch(dir.path, '.foedrum', git);
 
