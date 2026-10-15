@@ -433,6 +433,9 @@ export const scenarioRecipes: Readonly<Record<string, FakeRecipe>> = {
 /** The limits of every attempt, so a denial storm and an exceeded budget end it (ADR 0028). */
 export const scenarioLimits = { maxTurns: 40, maxDenials: 5 } as const;
 
+/** A human issuing commands in a scenario. */
+export const human = { by: 'octocat', via: 'terminal' } as const;
+
 const minute = 60_000;
 const advances = [1, 4, 6, 15, 25, 59, 61, 125].map((minutes) => minutes * minute);
 
@@ -462,7 +465,6 @@ export const generateScenario = (seed: number, length = 40): MoveSource => {
 
   const command = (cmd: Command): Move => ({ kind: 'command', command: cmd });
   const record = (event: RecordedEvent): Move => command({ kind: 'record', event });
-  const human = { by: 'octocat', via: 'terminal' } as const;
   const sha = (): string => (random.int(0xfffffff) + 1).toString(16).padStart(40, '0');
   const release = {
     kind: 'release',

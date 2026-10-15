@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { type Command, decide } from '../../src/engine/decide.ts';
 import type { Lane } from '../../src/engine/fold.ts';
+import { human } from '../helpers/event-sequences.ts';
 import { holdsInScenarios } from '../helpers/property.ts';
-import { type Engine, human, isLive, recipes, reminderMs } from '../helpers/simulation.ts';
+import { type Engine, isLive, recipes, reminderMs } from '../helpers/simulation.ts';
 
 const minute = 60_000;
 

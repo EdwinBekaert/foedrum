@@ -31,7 +31,7 @@ const firstSeed = replayed ?? randomInt(2 ** 31);
 const runsSet = integer('FOEDRUM_RUNS', process.env.FOEDRUM_RUNS);
 
 /** How many seeds a property runs: one when replaying a seed, else FOEDRUM_RUNS or `runs`. */
-export const runCount = (runs: number): number => (replayed === undefined ? (runsSet ?? runs) : 1);
+const runCount = (runs: number): number => (replayed === undefined ? (runsSet ?? runs) : 1);
 
 const replayHint = (seed: number): string =>
   `Seed ${seed}: set the environment variable FOEDRUM_SEED to ${seed} to replay it.`;
@@ -68,12 +68,8 @@ export interface Invariant {
   atEnd?(engine: Engine): Promise<void> | void;
 }
 
-export interface ScenarioOptions {
-  /** Seeds to run; default 15. */
-  runs?: number;
-  /** Moves per scenario; default 40. */
-  length?: number;
-}
+/** Seeds per invariant in npm run check, where the property layer has a time ceiling. */
+const scenarioRuns = 15;
 
 /** How many scenarios shrinking may replay before it reports what it has. */
 const shrinkBudget = 400;
@@ -83,13 +79,10 @@ const shrinkBudget = 400;
  * fewer moves and simpler plays that still fail, and reported with the seed, the moves, the plays
  * and the events they appended.
  */
-export const holdsInScenarios = async (
-  invariant: Invariant,
-  { runs = 15, length = 40 }: ScenarioOptions = {},
-): Promise<void> => {
-  for (let seed = firstSeed; seed < firstSeed + runCount(runs); seed++) {
+export const holdsInScenarios = async (invariant: Invariant): Promise<void> => {
+  for (let seed = firstSeed; seed < firstSeed + runCount(scenarioRuns); seed++) {
     const scenario: Scenario = { moves: [], plays: [] };
-    const failed = await trial(recording(generateScenario(seed, length), scenario), invariant);
+    const failed = await trial(recording(generateScenario(seed), scenario), invariant);
     if (failed === undefined) continue;
     const shrunk = await shrink(scenario, invariant, failed);
     throw noted(shrunk.failure.error, counterexample(seed, scenario, shrunk));
@@ -202,7 +195,7 @@ const describePlay = ({ attempt, play }: Scenario['plays'][number]): string =>
   `${attempt.batchId} ${attempt.stepId}#${attempt.attempt}: ${play.kind}${rest(play, ['kind'])}`;
 
 /** One event on one line: its type, batch, step and attempt, then its other fields. */
-export const describeEvent = (event: Event): string => {
+const describeEvent = (event: Event): string => {
   const parts: string[] = [event.type];
   if ('batchId' in event) parts.push(event.batchId);
   if ('stepId' in event && 'attempt' in event) parts.push(`${event.stepId}#${event.attempt}`);

@@ -95,13 +95,12 @@ export const openEngine = (plays: (attempt: AttemptRef) => Play): Engine => {
     limits: () => ({ ...defaultLimits, ...scenarioLimits }),
     reminderMs,
   });
-  const events = (): Event[] => brewing.events();
   return {
     store,
     brewing,
     now: () => now,
-    state: () => brewing.state(),
-    events,
+    state: brewing.state,
+    events: brewing.events,
     command: async (command) => {
       const accepted = brewing.command(command);
       await brewing.drive();
@@ -117,9 +116,6 @@ export const openEngine = (plays: (attempt: AttemptRef) => Play): Engine => {
     close: () => store.close(),
   };
 };
-
-/** A human issuing commands in a scenario. */
-export const human = { by: 'octocat', via: 'terminal' } as const;
 
 /** Later than any deadline. */
 export const farFuture = new Date(8.64e15);
