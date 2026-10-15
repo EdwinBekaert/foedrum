@@ -401,6 +401,13 @@ describe('openStateBranch with a fake git', () => {
       for (const call of fake.calls) assert.equal(call.cwd, worktree);
     });
 
+    it('adds a .gitattributes that keeps git from converting line ends', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      await state.flush();
+      assert.equal(read('.gitattributes'), '* -text\n');
+    });
+
     it('appends to the files of earlier flushes', async () => {
       const state = await started();
       append(ordered('b1'));
