@@ -110,8 +110,9 @@ describe('cleanWorktrees with a fake git', () => {
       commands.some((command) => command.includes('refs/heads/7-merged')),
       false,
     );
+    // Nothing writes the branch's upstream or config (reading them with for-each-ref is fine).
     assert.equal(
-      commands.some((command) => command.includes('upstream')),
+      commands.some((c) => c.includes('--set-upstream-to') || c.includes('branch.7-merged')),
       false,
     );
     assert.ok(
