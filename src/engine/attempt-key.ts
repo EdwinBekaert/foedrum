@@ -1,8 +1,7 @@
 // The canonical text of an attempt: the `attemptKey` of its lease (ADR 0027), so the supervisor can
 // tell which attempt a lease holds.
 
-import { PathSafeId } from '../schemas/ids.ts';
-import { z } from '../schemas/zod.ts';
+import { AttemptKeyParts } from '../schemas/store.ts';
 
 /** One attempt of a step of a batch. */
 export interface AttemptRef {
@@ -11,12 +10,10 @@ export interface AttemptRef {
   attempt: number;
 }
 
-const Parts = z.tuple([PathSafeId, PathSafeId, z.int().positive()]);
-
 const encode = (ref: AttemptRef): string => {
   // Only the three parts: an attempt taken from a larger object may carry other fields.
   const parts = [ref.batchId, ref.stepId, ref.attempt];
-  if (!Parts.safeParse(parts).success) {
+  if (!AttemptKeyParts.safeParse(parts).success) {
     throw new Error(`Invalid attempt key: ${JSON.stringify(parts)}`);
   }
   return JSON.stringify(parts);
@@ -29,7 +26,7 @@ const decode = (text: string): AttemptRef | undefined => {
   } catch {
     return undefined;
   }
-  const parts = Parts.safeParse(json);
+  const parts = AttemptKeyParts.safeParse(json);
   // One attempt, one text: a lease under another spelling holds no attempt the engine knows.
   if (!parts.success || JSON.stringify(parts.data) !== text) return undefined;
   const [batchId, stepId, attempt] = parts.data;
