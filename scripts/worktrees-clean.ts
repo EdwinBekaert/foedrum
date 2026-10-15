@@ -128,6 +128,14 @@ const listWorktrees = async (ctx: Context): Promise<Worktree[]> => {
 const isMerged = async (ctx: Context, ref: string): Promise<boolean> =>
   (await runGit(ctx.main, ['merge-base', '--is-ancestor', ref, `refs/remotes/${ctx.base}`])).ok;
 
+// Why a lock keeps the worktree, or undefined when there is no lock or its session is gone.
+const lockKeepReason = (ctx: Context, lockReason: string | undefined): string | undefined => {
+  if (lockReason === undefined) return undefined;
+  const pid = SESSION_LOCK.exec(lockReason)?.[1];
+  if (pid === undefined) return `locked: ${lockReason || 'no reason given'}`;
+  return ctx.isPidAlive(Number(pid)) ? `locked by a live session (pid ${pid})` : undefined;
+};
+
 // Why the worktree must stay, or undefined when it may be removed.
 const keepReason = async (
   ctx: Context,
@@ -141,29 +149,33 @@ const keepReason = async (
   if (!(await isMerged(ctx, `refs/heads/${worktree.branch}`))) {
     return `not merged into ${ctx.base}`;
   }
-  if (worktree.lockReason !== undefined) {
-    const pid = SESSION_LOCK.exec(worktree.lockReason)?.[1];
-    if (pid === undefined) return `locked: ${worktree.lockReason || 'no reason given'}`;
-    if (ctx.isPidAlive(Number(pid))) return `locked by a live session (pid ${pid})`;
-  }
-  if (!existsSync(worktree.path)) return undefined;
+  const locked = lockKeepReason(ctx, worktree.lockReason);
+  if (locked !== undefined) return locked;
   const status = await runGit(worktree.path, ['status', '--porcelain']);
   if (!status.ok) return `git status failed: ${firstLine(status.stderr)}`;
   if (status.stdout.trim() !== '') return 'it has uncommitted or untracked changes';
   return undefined;
 };
 
-// The worktree's record under .git/worktrees/, found through the `gitdir` file in each.
-const recordDir = async (ctx: Context, worktree: Worktree): Promise<string | undefined> => {
+interface WorktreeRecord {
+  // The record's folder under .git/worktrees/.
+  dir: string;
+  // The worktree folder it points at, through its `gitdir` file.
+  folder: string;
+  lockReason: string | undefined;
+}
+
+const listRecords = async (ctx: Context): Promise<WorktreeRecord[]> => {
   const records = join(ctx.main, '.git', 'worktrees');
-  const names = await readdir(records).catch(() => []);
-  for (const name of names) {
-    const gitdir = await readFile(join(records, name, 'gitdir'), 'utf8').catch(() => '');
-    if (gitdir !== '' && samePath(dirname(gitdir.trim()), worktree.path)) {
-      return join(records, name);
-    }
+  const result: WorktreeRecord[] = [];
+  for (const name of await readdir(records).catch(() => [])) {
+    const dir = join(records, name);
+    const gitdir = await readFile(join(dir, 'gitdir'), 'utf8').catch(() => '');
+    if (gitdir.trim() === '') continue;
+    const locked = await readFile(join(dir, 'locked'), 'utf8').catch(() => undefined);
+    result.push({ dir, folder: dirname(gitdir.trim()), lockReason: locked?.trim() });
   }
-  return undefined;
+  return result;
 };
 
 const deletePath = async (ctx: Context, path: string, label: string): Promise<boolean> => {
@@ -182,33 +194,32 @@ const removeWorktree = async (
   worktree: Worktree,
   label: string,
 ): Promise<boolean> => {
-  const record = await recordDir(ctx, worktree);
-  const folderExists = existsSync(worktree.path);
-  for (const path of [worktree.path, record]) {
+  const record = (await listRecords(ctx)).find(({ folder }) => samePath(folder, worktree.path));
+  for (const path of [worktree.path, record?.dir]) {
     if (path !== undefined) await clearReadOnly(path).catch(() => undefined);
   }
   if (worktree.lockReason !== undefined) {
     await runGit(ctx.main, ['worktree', 'unlock', worktree.path]);
   }
-  if (folderExists) {
-    const removed = await runGit(ctx.main, ['worktree', 'remove', worktree.path]);
-    // git checks the worktree before it deletes anything, so an intact .git file means it
-    // refused; otherwise it failed part-way and the rest of the folder can go.
-    if (!removed.ok && existsSync(join(worktree.path, '.git'))) {
-      ctx.lines.push(
-        `kept worktree ${label}: git worktree remove failed: ${firstLine(removed.stderr)}`,
-      );
-      return false;
-    }
-    if (!removed.ok && !(await deletePath(ctx, worktree.path, label))) return false;
-  }
-  // `git worktree prune`, for this worktree only.
-  if (record !== undefined && existsSync(record) && !(await deletePath(ctx, record, label))) {
+  const removed = await runGit(ctx.main, ['worktree', 'remove', worktree.path]);
+  // git checks the worktree before it deletes anything, so an intact .git file means it
+  // refused; otherwise it failed part-way and the rest of the folder can go.
+  if (!removed.ok && existsSync(join(worktree.path, '.git'))) {
+    ctx.lines.push(
+      `kept worktree ${label}: git worktree remove failed: ${firstLine(removed.stderr)}`,
+    );
     return false;
   }
-  ctx.lines.push(
-    folderExists ? `removed worktree ${label}` : `pruned stale worktree ${label}: folder is gone`,
-  );
+  if (!removed.ok && !(await deletePath(ctx, worktree.path, label))) return false;
+  // `git worktree prune`, for this worktree only.
+  if (
+    record !== undefined &&
+    existsSync(record.dir) &&
+    !(await deletePath(ctx, record.dir, label))
+  ) {
+    return false;
+  }
+  ctx.lines.push(`removed worktree ${label}`);
   return true;
 };
 
@@ -233,6 +244,23 @@ const deleteBranch = async (ctx: Context, branch: string): Promise<void> => {
       ? `deleted remote branch origin/${branch}`
       : `kept remote branch origin/${branch}: ${firstLine(pushed.stderr)}`,
   );
+};
+
+// `git worktree prune`, limited to records of worktrees anywhere under .claude/worktrees/
+// (direct children and scratch trees nested in them) whose folder is gone. Their branches are
+// then free, and the branch pass deletes the merged ones.
+const pruneStaleRecords = async (ctx: Context): Promise<void> => {
+  const root = join(ctx.main, '.claude', 'worktrees');
+  for (const record of await listRecords(ctx)) {
+    const inside = pathInside(root, record.folder);
+    if (inside === undefined || existsSync(record.folder)) continue;
+    const label = `.claude/worktrees/${inside}`;
+    const locked = lockKeepReason(ctx, record.lockReason);
+    if (locked !== undefined) ctx.lines.push(`kept stale worktree ${label}: ${locked}`);
+    else if (await deletePath(ctx, record.dir, label)) {
+      ctx.lines.push(`pruned stale worktree ${label}: folder is gone`);
+    }
+  }
 };
 
 const cleanClaudeWorktrees = async (ctx: Context): Promise<void> => {
@@ -292,6 +320,7 @@ export const cleanWorktrees = async (options: CleanOptions): Promise<string[]> =
     remove: options.remove ?? {},
     lines: [],
   };
+  await pruneStaleRecords(ctx);
   await cleanClaudeWorktrees(ctx);
   await cleanBranchesWithoutWorktree(ctx);
   return ctx.lines;
