@@ -240,6 +240,25 @@ describe('precheck on a detached HEAD', () => {
     assert.deepEqual(calls, ['/work/tree']);
   });
 
+  it('blocks a detached push before looking at node_modules', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const staleCalls: string[] = [];
+    const stale = async (cwd: string): Promise<string | undefined> => {
+      staleCalls.push(cwd);
+      return 'node_modules/.package-lock.json is missing';
+    };
+    const head = fakeHead(true);
+    const result = await precheck(
+      hookInput('git push', '/work/tree'),
+      runCheck,
+      stale,
+      head.headIsDetached,
+    );
+    assert.match(result.stderr, /^git push is blocked: HEAD is detached/);
+    assert.deepEqual(staleCalls, []);
+    assert.deepEqual(calls, []);
+  });
+
   // Only a push is blocked: opening a pull request pushes nothing.
   for (const command of ['git status', 'git push --force', 'gh pr create --draft']) {
     it(`does not look at HEAD for: ${command}`, async () => {
