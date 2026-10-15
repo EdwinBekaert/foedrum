@@ -23,7 +23,7 @@
   "scripts": {
     "typecheck": "tsc",
     "lint": "biome check",
-    "test": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-budget-reporter.ts --test-reporter-destination=stdout \"test/{unit,property,chaos}/**/*.test.ts\"",
+    "test": "node scripts/with-checkout-tmp.ts --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-budget-reporter.ts --test-reporter-destination=stdout \"test/{unit,property,chaos}/**/*.test.ts\"",
     "test:integration": "node --test \"test/integration/**/*.test.ts\"",
     "check": "node scripts/check.ts",
     "check:deps": "node scripts/check-deps.ts",
