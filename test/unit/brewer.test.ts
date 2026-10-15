@@ -149,6 +149,15 @@ describe('BrewerFrontmatter', () => {
       'a trusted order, which is always untrusted',
       { ...taster, inputs: [{ name: 'o', from: 'order', trusted: true }] },
     ],
+    // Out docs are model output that read the order; a trusted source needs an ADR first.
+    [
+      'a trusted step input',
+      { ...taster, inputs: [{ name: 'plan', from: 'step:plan', trusted: true }] },
+    ],
+    [
+      'a trusted repository file, which is repository content (ADR 0018)',
+      { ...taster, inputs: [{ name: 'readme', from: 'file:README.md', trusted: true }] },
+    ],
     [
       'an input name that is not a variable name',
       { ...taster, inputs: [{ name: 'the plan', from: 'order' }] },

@@ -381,6 +381,55 @@ describe('step references', () => {
     });
   }
 
+  // A route goes back: to an earlier step at the same level or in an enclosing loop, never into
+  // another loop's body. A red proof reads the tests of a step that already ran.
+  const misplaced: [string, unknown[], (string | number)[]][] = [
+    [
+      'a goto to a later step',
+      [
+        { id: 'green', check: 'test', onFail: { goto: 'build', maxRounds: 1 } },
+        { id: 'build', brewer: 'cellarman' },
+      ],
+      ['steps', 0, 'onFail', 'goto'],
+    ],
+    [
+      'a goto to its own step',
+      [plan, { id: 'green', check: 'test', onFail: { goto: 'green', maxRounds: 1 } }],
+      ['steps', 1, 'onFail', 'goto'],
+    ],
+    [
+      'a goto into the body of an earlier loop',
+      [
+        {
+          id: 'r',
+          loop: { maxRounds: 1, until: 'fix.done', steps: [{ id: 'fix', brewer: 'cooper' }] },
+        },
+        { id: 'green', check: 'test', onFail: { goto: 'fix', maxRounds: 1 } },
+      ],
+      ['steps', 1, 'onFail', 'goto'],
+    ],
+    [
+      'an onBlocked route to a later step',
+      [{ brewer: 'cellarman', onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } } }, gauge],
+      ['steps', 0, 'onBlocked', 'findings', 'goto'],
+    ],
+    [
+      'a red proof of a later step',
+      [{ id: 'red', check: 'test', expect: 'fail', of: 'gauge' }, gauge],
+      ['steps', 0, 'of'],
+    ],
+  ];
+  for (const [what, steps, path] of misplaced) {
+    it(`rejects ${what}, pointing at the reference`, () => {
+      const result = Recipe.safeParse(recipe(steps));
+      assert.equal(result.success, false);
+      assert.deepEqual(
+        result.error?.issues.map((issue) => issue.path),
+        [path],
+      );
+    });
+  }
+
   const malformed = [
     'tasting',
     'tasting.verdict = approve',
