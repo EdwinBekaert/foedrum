@@ -31,6 +31,24 @@ const storeWith = (events: readonly Event[]): EventStore => {
   return store;
 };
 
+// A store whose close is counted instead of done, so the test can still read it afterwards.
+const watchedStore = (events: readonly Event[]) => {
+  const inner = storeWith(events);
+  let closed = 0;
+  const store: EventStore = {
+    ...inner,
+    close: () => {
+      closed++;
+    },
+  };
+  const afterRun = () => {
+    const lastEventId = inner.lastEventId();
+    inner.close();
+    return { closed, lastEventId };
+  };
+  return { store, afterRun };
+};
+
 const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   cwd,
   gatherDoctorFacts: async () => linux(),
@@ -350,10 +368,10 @@ describe('foedrum status', () => {
     );
   });
 
-  it('closes the event store', async () => {
-    const store = storeWith(brewery);
-    await run(['status'], { openStore: () => store });
-    assert.throws(() => store.lastEventId());
+  it('closes the event store, and appends nothing to it (ADR 0029)', async () => {
+    const watched = watchedStore(brewery);
+    await run(['status'], { openStore: () => watched.store });
+    assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: brewery.length });
   });
 });
 
@@ -419,9 +437,11 @@ describe('foedrum replay', () => {
     assert.match(result.stderr, /^foedrum replay: Invalid event log at event 1 [^\n]+\n$/);
   });
 
-  it('closes the event store', async () => {
-    const store = storeWith(brewery);
-    await run(['replay', '99-1'], { openStore: () => store });
-    assert.throws(() => store.lastEventId());
+  it('closes the event store, and appends nothing to it (ADR 0029)', async () => {
+    for (const batch of ['12-1', '99-1']) {
+      const watched = watchedStore(brewery);
+      await run(['replay', batch], { openStore: () => watched.store });
+      assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: brewery.length });
+    }
   });
 });

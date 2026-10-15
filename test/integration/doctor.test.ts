@@ -30,6 +30,17 @@ describe('foedrum doctor on this machine', () => {
     const linux = process.platform === 'linux';
     assert.equal(row('bwrap') !== undefined, linux);
     assert.equal(row('socat') !== undefined, linux);
+    // Where the machine has them, the parser reads a version from what they really print.
+    for (const name of ['bwrap', 'socat']) {
+      const line = row(name);
+      if (line !== undefined && !/ missing$/.test(line)) {
+        assert.match(line, new RegExp(`^  ${name} +${VERSION} +\\S`));
+      }
+    }
+    const container = lines.find((line) => line.startsWith('Container: '));
+    if (container !== undefined && !container.startsWith('Container: no ')) {
+      assert.match(container, new RegExp(`^Container: (?:podman|docker) ${VERSION} at \\S`));
+    }
     const isolation = lines.find((line) => line.startsWith('Isolation: '));
     const expected = { win32: 'permissions only', darwin: 'sandboxed' }[process.platform as string];
     assert.match(isolation ?? '', /^Isolation: (?:sandboxed|permissions only) \(.+\)$/);

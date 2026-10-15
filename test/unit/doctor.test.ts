@@ -108,6 +108,7 @@ describe('diagnose: isolation (ADR 0010)', () => {
       assert.equal(diagnosis.ok, true, 'the sandbox is not required');
       assert.equal(diagnosis.problems.length, 1);
       assert.equal(diagnosis.problems[0]?.required, false);
+      assert.match(diagnosis.problems[0]?.what ?? '', new RegExp(`\\b${missing}\\b`));
     }
   });
 
