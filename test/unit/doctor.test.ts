@@ -80,6 +80,12 @@ describe('diagnose: required tools', () => {
     assert.equal(problem?.fix, `\`claude --version\` failed: ${refused}`);
   });
 
+  it('asks to check the version command when it failed without a word', () => {
+    const facts = linux({ git: ran('/usr/bin/git', '\n', 1) });
+    const [problem] = diagnose(facts).problems;
+    assert.equal(problem?.fix, 'check that `git --version` works');
+  });
+
   it('is not ok on a Node older than 24.15', () => {
     assert.deepEqual(required({ ...linux(), node: '24.14.9' }), ['node 24.14.9 is too old']);
     assert.deepEqual(required({ ...linux(), node: '22.20.0' }), ['node 22.20.0 is too old']);

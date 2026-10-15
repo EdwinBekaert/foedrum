@@ -1146,6 +1146,17 @@ describe('SqliteEventStore read-only', () => {
 
   const version = (): unknown => ({ ...raw(path).prepare('PRAGMA user_version').get() });
 
+  it('reads what a writer stored, while the writer still has it open', () => {
+    const writer = open(path);
+    writer.withTransaction((tx) => tx.append(ordered('b1')));
+    const reader = open(path, { readOnly: true });
+    writer.withTransaction((tx) => tx.append(ordered('b2')));
+    assert.deepEqual(
+      reader.eventsAfter(0).map((stored) => stored.event),
+      [ordered('b1'), ordered('b2')],
+    );
+  });
+
   it('refuses to append', () => {
     open(path).withTransaction((tx) => tx.append(ordered('b1')));
     closeAll();
