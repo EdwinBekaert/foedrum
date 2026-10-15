@@ -71,4 +71,14 @@ describe('resolveRecipe', () => {
       /no brewer "gauger"/,
     );
   });
+
+  it('refuses an unknown brewer after one that produces commits, whatever testFirst says', () => {
+    for (const testFirst of [undefined, true, false]) {
+      assert.throws(
+        () => resolveRecipe(recipe([implement, { brewer: 'gauger' }], testFirst), brewers),
+        /no brewer "gauger"/,
+        `testFirst ${testFirst}`,
+      );
+    }
+  });
 });
