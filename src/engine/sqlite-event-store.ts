@@ -134,7 +134,11 @@ export const openSqliteEventStore = (
   path: string,
   options: SqliteEventStoreOptions = {},
 ): EventStore => {
-  const db = new DatabaseSync(path, { timeout: options.busyTimeoutMs ?? 5000 });
+  const {
+    busyTimeoutMs = 5000,
+    openDatabase = (file, settings) => new DatabaseSync(file, settings),
+  } = options;
+  const db = openDatabase(path, { timeout: busyTimeoutMs });
   try {
     db.exec('PRAGMA journal_mode = WAL');
     migrate(db);
