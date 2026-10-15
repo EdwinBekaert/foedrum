@@ -5,6 +5,7 @@ import { execFile, spawn } from 'node:child_process';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 import { resolveExecutable } from './executables.ts';
+import { windowsCommandLine } from './shell.ts';
 
 export type Kill = (pid: number, signal: 0) => void;
 
@@ -33,13 +34,20 @@ export interface SpawnCommand {
   shell: boolean;
 }
 
+/**
+ * How to start a file. On Windows a `.cmd` or `.bat` file (npm.cmd, npm's claude.cmd) cannot
+ * start without cmd.exe, so it becomes a command line for the shell, every part checked and quoted
+ * (windowsCommandLine; throws on a part cmd.exe could read as syntax). Anything else starts
+ * directly, without a shell.
+ */
 export const spawnCommand = (
-  _file: string,
-  _args: readonly string[],
-  _platform: NodeJS.Platform = process.platform,
-): SpawnCommand => {
-  throw new Error('not implemented');
-};
+  file: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): SpawnCommand =>
+  platform === 'win32' && /\.(?:cmd|bat)$/i.test(file)
+    ? { file: windowsCommandLine(file, args), args: [], shell: true }
+    : { file, args: [...args], shell: false };
 
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
@@ -234,14 +242,17 @@ export const execProcessWith =
 
 /** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
 export const execProcess: ExecProcess = execProcessWith({
-  spawn: (file, args, { cwd, env }) =>
-    spawn(file, args, {
+  spawn: (file, args, { cwd, env }) => {
+    const command = spawnCommand(file, args);
+    return spawn(command.file, command.args, {
       cwd,
       env,
+      shell: command.shell,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       ...killableSpawnOptions(),
-    }),
+    });
+  },
   killTree: killProcessTree,
   // Never the working directory or a relative PATH folder, where a repository could plant its
   // own git.exe (#12).
