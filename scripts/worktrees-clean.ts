@@ -1,8 +1,10 @@
 // `npm run worktrees:clean`: removes Claude Code worktrees under .claude/worktrees/ and local
-// branches whose work is merged into origin/main, and deletes their remote branches.
+// branches whose work is merged into origin/main and whose remote branch is gone. It never
+// deletes remote branches: GitHub deletes head branches on merge.
 // Pull requests are merged with a merge commit, so "merged" is exact: the branch tip is an
-// ancestor of origin/main but not on its first-parent line (a branch with no commits of its
-// own is not merged). No GitHub API call is needed.
+// ancestor of origin/main but not on its first-parent line. A branch started from main with no
+// commits of its own is therefore never merged; one started from another branch that is merged
+// counts as merged, and holds no work of its own. No GitHub API call is needed.
 //
 // It never touches the main checkout, a worktree outside .claude/worktrees/ (or nested inside
 // another one), the current worktree, a worktree with uncommitted or untracked changes, or one
@@ -15,7 +17,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readdir, readFile, realpath } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { clearReadOnly, type RemoveTreeOptions, removeTree } from '../src/platform/remove.ts';
@@ -136,21 +138,31 @@ const listWorktrees = async (ctx: Context): Promise<Worktree[]> => {
 
 const defaultBranch = (ctx: Context): string => ctx.base.replace(/^origin\//, '');
 
-// The ref's tip when its work is merged into the base, otherwise undefined. Merged means an
-// ancestor of the base that is not on its first-parent line: a merged pull request's tip is
-// the second parent of its merge commit, while a branch with no commits of its own points at
-// a commit of main itself.
-const mergedTip = async (ctx: Context, ref: string): Promise<string | undefined> => {
-  const tip = await runGit(ctx.main, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+// Merged means an ancestor of the base that is not on its first-parent line: a merged pull
+// request's tip is the second parent of its merge commit, while a branch started from main
+// with no commits of its own points at a commit of main itself.
+const isMerged = async (ctx: Context, branch: string): Promise<boolean> => {
+  const ref = `refs/heads/${branch}^{commit}`;
+  const tip = await runGit(ctx.main, ['rev-parse', '--verify', '--quiet', ref]);
   const sha = tip.stdout.trim();
-  if (!tip.ok || ctx.firstParents.has(sha)) return undefined;
-  const merged = await runGit(ctx.main, [
-    'merge-base',
-    '--is-ancestor',
-    sha,
-    `refs/remotes/${ctx.base}`,
+  if (!tip.ok || ctx.firstParents.has(sha)) return false;
+  return (await runGit(ctx.main, ['merge-base', '--is-ancestor', sha, `refs/remotes/${ctx.base}`]))
+    .ok;
+};
+
+// Why a merged branch must stay, or undefined when it may go: only once its remote branch is
+// gone, as GitHub leaves it after a merge. The repository deletes head branches on merge and
+// `git fetch --prune` drops the remote-tracking ref, so a long-lived branch such as develop,
+// whose remote branch stays, is never deleted.
+const remoteKeepReason = async (ctx: Context, branch: string): Promise<string | undefined> => {
+  const upstream = await runGit(ctx.main, [
+    'for-each-ref',
+    '--format=%(upstream)%00%(upstream:track)',
+    `refs/heads/${branch}`,
   ]);
-  return merged.ok ? sha : undefined;
+  const [ref = '', track = ''] = upstream.stdout.trim().split('\0');
+  if (ref === '') return 'it has no upstream branch';
+  return track === '[gone]' ? undefined : 'its remote branch still exists';
 };
 
 // Why a lock keeps the worktree, or undefined when there is no lock or its session is gone.
@@ -172,9 +184,9 @@ const keepReason = async (
   if (samePath(worktree.path, ctx.current)) return 'it is the current worktree';
   if (worktree.branch === undefined) return 'detached HEAD';
   if (worktree.branch === defaultBranch(ctx)) return 'it has the default branch checked out';
-  if ((await mergedTip(ctx, `refs/heads/${worktree.branch}`)) === undefined) {
-    return `not merged into ${ctx.base}`;
-  }
+  if (!(await isMerged(ctx, worktree.branch))) return `not merged into ${ctx.base}`;
+  const remote = await remoteKeepReason(ctx, worktree.branch);
+  if (remote !== undefined) return remote;
   const locked = lockKeepReason(ctx, worktree.lockReason);
   if (locked !== undefined) return locked;
   // Without its own .git file, git would run in the main checkout and find nothing to keep.
@@ -204,7 +216,9 @@ const listRecords = async (ctx: Context): Promise<WorktreeRecord[]> => {
     const gitdir = await readFile(join(dir, 'gitdir'), 'utf8').catch(() => '');
     if (gitdir.trim() === '') continue;
     const locked = await readFile(join(dir, 'locked'), 'utf8').catch(() => undefined);
-    result.push({ dir, folder: dirname(gitdir.trim()), lockReason: locked?.trim() });
+    // With worktree.useRelativePaths the gitdir is relative to the record's folder.
+    const folder = dirname(resolve(dir, gitdir.trim()));
+    result.push({ dir, folder, lockReason: locked?.trim() });
   }
   return result;
 };
@@ -267,23 +281,6 @@ const deleteBranch = async (ctx: Context, branch: string): Promise<void> => {
     return;
   }
   ctx.lines.push(`deleted branch ${branch}`);
-
-  const remoteTip = await mergedTip(ctx, `refs/remotes/origin/${branch}`);
-  if (remoteTip === undefined) return;
-  // The lease deletes the remote branch only while it is still at the merged tip, so a commit
-  // pushed after the fetch survives.
-  const pushed = await runGit(ctx.main, [
-    'push',
-    '--quiet',
-    `--force-with-lease=refs/heads/${branch}:${remoteTip}`,
-    'origin',
-    `:refs/heads/${branch}`,
-  ]);
-  ctx.lines.push(
-    pushed.ok
-      ? `deleted remote branch origin/${branch}`
-      : `kept remote branch origin/${branch}: ${firstLine(pushed.stderr)}`,
-  );
 };
 
 // `git worktree prune`, limited to records of worktrees anywhere under .claude/worktrees/
@@ -331,9 +328,11 @@ const cleanBranchesWithoutWorktree = async (ctx: Context): Promise<void> => {
     .map((ref) => ref.slice('refs/heads/'.length));
   for (const branch of branches) {
     if (branch === defaultBranch(ctx) || checkedOut.has(branch)) continue;
-    if ((await mergedTip(ctx, `refs/heads/${branch}`)) !== undefined) {
-      await deleteBranch(ctx, branch);
-    } else ctx.lines.push(`kept branch ${branch}: not merged into ${ctx.base}`);
+    const reason = (await isMerged(ctx, branch))
+      ? await remoteKeepReason(ctx, branch)
+      : `not merged into ${ctx.base}`;
+    if (reason === undefined) await deleteBranch(ctx, branch);
+    else ctx.lines.push(`kept branch ${branch}: ${reason}`);
   }
 };
 
