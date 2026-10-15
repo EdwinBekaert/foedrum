@@ -192,3 +192,38 @@ describe('BrewerFrontmatter', () => {
     });
   }
 });
+
+// Names that would undo the brewer's minimal environment, its sandbox or its credentials. The
+// runner applies its own variables last (the real guarantee); the schema catches mistakes early.
+describe('BrewerFrontmatter env', () => {
+  const reserved: [string, string][] = [
+    ['NODE_*', 'NODE_OPTIONS'],
+    ['npm_config_*', 'NPM_CONFIG_IGNORE_SCRIPTS'],
+    ['PATH', 'Path'],
+    ['PATHEXT', 'PATHEXT'],
+    ['COMSPEC', 'ComSpec'],
+    ['SYSTEMROOT', 'SystemRoot'],
+    ['HOME', 'HOME'],
+    ['USERPROFILE', 'USERPROFILE'],
+    ['APPDATA', 'APPDATA'],
+    ['ANTHROPIC_*', 'ANTHROPIC_BASE_URL'],
+    ['CLAUDE_*', 'CLAUDE_CONFIG_DIR'],
+    ['GIT_*', 'GIT_SSH_COMMAND'],
+    ['SSH_*', 'SSH_AUTH_SOCK'],
+    ['LD_*', 'LD_PRELOAD'],
+    ['DYLD_*', 'DYLD_INSERT_LIBRARIES'],
+    ['BASH_ENV', 'BASH_ENV'],
+    ['ENV', 'env'],
+    ['*_PROXY', 'https_proxy'],
+    ['*_PROXY without a scheme', 'NO_PROXY'],
+  ];
+  for (const [family, name] of reserved) {
+    it(`rejects ${family} (${name})`, () => {
+      assert.equal(accepted({ ...taster, env: { [name]: 'x' } }), false);
+    });
+  }
+
+  it('rejects names that differ only in case', () => {
+    assert.equal(accepted({ ...taster, env: { MY_VAR: '1', My_Var: '2' } }), false);
+  });
+});
