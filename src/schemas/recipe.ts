@@ -168,7 +168,7 @@ export function stepId(step: Step): string {
 type Path = (string | number)[];
 
 /** Every step with its path in the recipe, nested loop and parallel steps included. */
-function* walk(steps: readonly Step[], path: Path): Generator<{ step: Step; path: Path }> {
+export function* walk(steps: readonly Step[], path: Path): Generator<{ step: Step; path: Path }> {
   for (const [index, step] of steps.entries()) {
     const at = [...path, index];
     yield { step, path: at };
