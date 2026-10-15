@@ -5,12 +5,13 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { cleanWorktrees } from '../../scripts/worktrees-clean.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -89,7 +90,8 @@ const makeRepo = (): Repo => {
       if (push) git(path, ['push', '-q', '-u', 'origin', name]);
       return path;
     },
-    mergeOnHub: (branch, { deleteBranch = false } = {}) => {
+    // The repository deletes head branches on merge, so by default the remote branch goes too.
+    mergeOnHub: (branch, { deleteBranch = true } = {}) => {
       git(hub, ['fetch', '-q', 'origin']);
       git(hub, ['merge', '-q', '--no-ff', '-m', `Merge ${branch}`, `origin/${branch}`]);
       git(hub, ['push', '-q', 'origin', 'main']);
@@ -129,29 +131,28 @@ describe('cleanWorktrees', () => {
   });
   afterEach(() => removeTree(repo.dir.path));
 
-  it('removes a merged worktree with its local and remote branch', async () => {
+  it('keeps a merged worktree and its branch while the remote branch still exists', async () => {
     const path = repo.worktree('7-merged');
-    repo.mergeOnHub('7-merged');
+    repo.mergeOnHub('7-merged', { deleteBranch: false });
 
     const lines = await cleanWorktrees({ cwd: repo.main });
 
-    assert.equal(existsSync(path), false);
-    assert.deepEqual(repo.worktreePaths().length, 1);
-    assert.deepEqual(repo.localBranches(), ['main']);
-    assert.deepEqual(repo.remoteBranches(), ['main']);
-    assert.ok(hasLine(lines, 'removed worktree', '7-merged'), lines.join('\n'));
-    assert.ok(hasLine(lines, 'deleted branch 7-merged'), lines.join('\n'));
-    assert.ok(hasLine(lines, 'deleted remote branch origin/7-merged'), lines.join('\n'));
+    assert.ok(existsSync(path), lines.join('\n'));
+    assert.deepEqual(repo.localBranches(), ['7-merged', 'main']);
+    assert.deepEqual(repo.remoteBranches(), ['7-merged', 'main']);
+    assert.ok(hasLine(lines, 'kept worktree', '7-merged', 'remote branch'), lines.join('\n'));
   });
 
-  it('removes a merged worktree whose remote branch GitHub already deleted', async () => {
+  it('removes a merged worktree and its branch once the remote branch is gone', async () => {
     const path = repo.worktree('8-auto-deleted');
-    repo.mergeOnHub('8-auto-deleted', { deleteBranch: true });
+    repo.mergeOnHub('8-auto-deleted');
 
     const lines = await cleanWorktrees({ cwd: repo.main });
 
     assert.equal(existsSync(path), false);
+    assert.equal(repo.worktreePaths().length, 1);
     assert.deepEqual(repo.localBranches(), ['main']);
+    assert.ok(hasLine(lines, 'removed worktree', '8-auto-deleted'), lines.join('\n'));
     assert.ok(hasLine(lines, 'deleted branch 8-auto-deleted'), lines.join('\n'));
   });
 
@@ -276,26 +277,6 @@ describe('cleanWorktrees', () => {
     assert.ok(hasLine(lines, 'kept worktree', '36-main'), lines.join('\n'));
   });
 
-  it('keeps a remote branch that moved on after it was fetched', async () => {
-    const path = repo.worktree('35-moved-on');
-    repo.mergeOnHub('35-moved-on');
-    const merged = git(path, ['rev-parse', 'HEAD']).trim();
-    // Someone pushes a follow-up to the branch. The main checkout fetches only main, so its
-    // origin/35-moved-on still points at the merged tip, as after a push that lands just
-    // after the cleanup's own fetch.
-    git(repo.hub, ['switch', '-q', '-c', 'follow-up', 'origin/35-moved-on']);
-    commitFile(repo.hub, 'follow-up.txt', 'Follow up');
-    git(repo.hub, ['push', '-q', 'origin', 'follow-up:35-moved-on']);
-    git(repo.main, ['config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main']);
-    git(repo.main, ['update-ref', 'refs/remotes/origin/35-moved-on', merged]);
-
-    const lines = await cleanWorktrees({ cwd: repo.main });
-
-    assert.equal(existsSync(path), false, lines.join('\n'));
-    assert.deepEqual(repo.remoteBranches(), ['35-moved-on', 'main'], lines.join('\n'));
-    assert.ok(hasLine(lines, 'kept remote branch origin/35-moved-on'), lines.join('\n'));
-  });
-
   it('finishes a removal that git leaves half done', {
     skip: process.platform !== 'win32' && 'only Windows refuses to delete a busy folder',
   }, async () => {
@@ -341,18 +322,40 @@ describe('cleanWorktrees', () => {
   });
 
   it('deletes merged local branches without a worktree and keeps the rest', async () => {
-    const merged = repo.worktree('15-merged');
-    repo.worktree('16-open', { push: false });
-    git(repo.main, ['worktree', 'remove', merged]);
-    git(repo.main, ['worktree', 'remove', join(repo.main, '.claude', 'worktrees', '16-open')]);
+    for (const name of ['15-merged', '16-open', '38-develop']) {
+      const path = repo.worktree(name, { push: name !== '16-open' });
+      git(repo.main, ['worktree', 'remove', path]);
+    }
     repo.mergeOnHub('15-merged');
+    // A long-lived branch merged into main whose remote branch stays.
+    repo.mergeOnHub('38-develop', { deleteBranch: false });
 
     const lines = await cleanWorktrees({ cwd: repo.main });
 
-    assert.deepEqual(repo.localBranches(), ['16-open', 'main']);
-    assert.deepEqual(repo.remoteBranches(), ['main']);
+    assert.deepEqual(repo.localBranches(), ['16-open', '38-develop', 'main']);
+    assert.deepEqual(repo.remoteBranches(), ['38-develop', 'main']);
     assert.ok(hasLine(lines, 'deleted branch 15-merged'), lines.join('\n'));
     assert.ok(hasLine(lines, 'kept branch 16-open', 'not merged'), lines.join('\n'));
+    assert.ok(hasLine(lines, 'kept branch 38-develop', 'remote branch'), lines.join('\n'));
+  });
+
+  it('prunes a stale record whose gitdir is relative', async (t) => {
+    git(repo.main, ['config', 'worktree.useRelativePaths', 'true']);
+    const path = repo.worktree('39-relative', { push: false });
+    const gitdir = readFileSync(
+      join(repo.main, '.git', 'worktrees', '39-relative', 'gitdir'),
+      'utf8',
+    );
+    if (isAbsolute(gitdir.trim())) {
+      t.skip('this git writes absolute gitdir paths (worktree.useRelativePaths needs git 2.48)');
+      return;
+    }
+    rmSync(path, { recursive: true, force: true });
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.equal(repo.worktreePaths().length, 1, lines.join('\n'));
+    assert.ok(hasLine(lines, '39-relative', 'folder is gone'), lines.join('\n'));
   });
 
   it('never touches the main checkout or worktrees outside .claude/worktrees/', async () => {
