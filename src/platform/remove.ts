@@ -9,13 +9,12 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export type RemovePath = (path: string) => Promise<void>;
-export type Sleep = (ms: number) => Promise<void>;
 
 export interface RemoveTreeOptions {
   attempts?: number;
   delayMs?: number;
   removePath?: RemovePath;
-  sleep?: Sleep;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const RETRYABLE_CODES = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY']);

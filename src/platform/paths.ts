@@ -21,12 +21,12 @@ export const pathInside = (
   child: string,
   platform = process.platform,
 ): string | undefined => {
-  const { relative, sep, isAbsolute } = pathModule(platform);
+  const { relative, resolve, sep, isAbsolute } = pathModule(platform);
   const path = relative(comparable(parent, platform), comparable(child, platform));
   if (path === '' || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) {
     return undefined;
   }
   // Take the segments from the original child, so the result keeps its case.
   const segments = path.split(sep).length;
-  return pathModule(platform).resolve(child).split(sep).slice(-segments).join('/');
+  return resolve(child).split(sep).slice(-segments).join('/');
 };
