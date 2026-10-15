@@ -16,10 +16,11 @@ The lifecycle diagram in architecture §4.3 also leaves open which lanes each co
 - The store replaces a batch's deadlines with that reminder on `batch.stuck`: the step deadlines go, the reminder row is set. `step.scheduled` ends it, as it ends a Conditioning reminder.
 - When the reminder is due, the supervisor issues `remind`: the batch is Stuck again with the same reason and options and the next reminder (default every 2 days, like Conditioning). A Stuck batch is visible and nags; it is never silent.
 - I1 keeps its wording; its note now reads "for Conditioning and Stuck batches: a reminder deadline".
+- Getting Stuck **abandons** every attempt of the batch that has not finished: the fold marks it, and the guard refuses a late `step.started` or `step.finished` of it. Whatever moves the batch on (retry, skip, answer, recipe, rewind) schedules new attempts, so a brewer process that returns after its deadline cannot move the batch a second time.
 
 ### Rewind only from Stuck
 - `rewind` is allowed only while the batch is Stuck and the Stuck event offers it. It is refused in every other lane. In Stuck the attempts in flight are already abandoned and the batch's deadlines already replaced, so `batch.rewound` needs no deadline or lease handling in the store.
-- A rewind names the commit of each repository it resets (`shas`, at least one). A sub-order's batch names exactly its own repository. It appends `batch.rewound` and schedules the next attempt of the step it goes back to.
+- A rewind names the commit of each repository it resets (`shas`, at least one). A sub-order's batch names exactly its own repository; the guard checks both. It appends `batch.rewound` and schedules the next attempt of the step it goes back to.
 - To rewind a batch that is brewing, a human first gets it Stuck (or cancels it). That costs one extra step for a rare action, and keeps one place where in-flight attempts are abandoned.
 
 ### Lanes and transitions
@@ -29,10 +30,10 @@ The lifecycle diagram in architecture §4.3 also leaves open which lanes each co
 |---|---|
 | `batch.recipe_chosen` | ordered, conditioning, stuck |
 | `step.scheduled` | ordered, brewing, conditioning |
-| `step.started`, `step.finished` | brewing, and only for the step's latest attempt |
+| `step.started`, `step.finished` | brewing, and only for the step's latest attempt, when Stuck did not abandon it |
 | `input.received` | stuck on `needs_input` for that step |
 | `batch.stuck` | brewing, stuck |
-| `batch.resumed`, `batch.rewound` | stuck, when its options offer the action |
+| `batch.resumed`, `batch.rewound` | stuck, when its options offer the action; a rewind with its commits as above |
 | `batch.waiting` | ordered, conditioning |
 | `batch.on_tap` | brewing |
 | `batch.cancelled`, `order.decomposed` | any lane but on tap and cancelled |
@@ -41,6 +42,7 @@ Conditioning is entered before brewing starts, while a batch waits for a merge, 
 
 ### One decision layer
 - `decide(state, command, context)` (`src/engine/decide.ts`) is the core of the command layer ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)). It takes the folded state and one command and returns the events to append, or a refusal. Each event goes through the guard against the state the events before it lead to, so no command can produce what the guard refuses. It is pure: the caller passes the time and the reminder interval.
+- Commands are TypeScript types of the engine. The surfaces that parse untrusted input into them (#37) give them zod schemas in `src/schemas/`; until then nothing outside the engine builds one, and every event a command produces is still parsed by the guard.
 - Commands: the human commands `retry`, `skip`, `answer`, `recipe`, `rewind` and `cancel`, and the engine's `route`, `finish`, `expire` (a deadline passed, invariant I5), `wait`, `remind` and `record` (events that decide nothing, such as `batch.ordered` or `effect.applied`). Every `switch` over commands, endings, blocker kinds, stuck reasons, continuations and lanes ends in a `never` check, so a new kind does not compile until it is handled.
 - A recipe is asked only what it knows, through a small `Recipe` interface (`src/engine/recipes.ts`): the first step, a step's deadline, what follows a step, whether a step may retry, and where an `onFail` or `onBlocked: findings` route goes. The state machine handles the outcomes itself:
 
