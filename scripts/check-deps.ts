@@ -15,6 +15,11 @@ export interface LockEntry {
   integrity?: string;
   hasInstallScript?: boolean;
   link?: boolean;
+  dev?: boolean;
+  optional?: boolean;
+  devOptional?: boolean;
+  os?: string[];
+  cpu?: string[];
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;

@@ -30,20 +30,27 @@ const entry = (name: string, version: string, extra: Partial<LockEntry> = {}): L
   };
 };
 
-type Direct = Pick<LockEntry, 'dependencies' | 'devDependencies'>;
-
-const lockOf = (direct: Direct, entries: Record<string, LockEntry>): Lockfile => ({
+const lockOf = (entries: Record<string, LockEntry>): Lockfile => ({
   packages: {
-    '': { name: 'demo', version: '0.0.0', ...direct },
+    '': { name: 'demo', version: '0.0.0' },
     ...Object.fromEntries(Object.entries(entries).map(([key, e]) => [`node_modules/${key}`, e])),
   },
 });
 
 const okLock = (): Lockfile =>
-  lockOf(
-    { dependencies: { zod: '4.6.5' }, devDependencies: { typescript: '7.0.2' } },
-    { zod: entry('zod', '4.6.5'), typescript: entry('typescript', '7.0.2') },
-  );
+  lockOf({
+    zod: entry('zod', '4.6.5'),
+    typescript: entry('typescript', '7.0.2', { dev: true }),
+  });
+
+// A prebuilt binary for one platform: npm installs only the one that matches.
+const platformBinary = (name: string): LockEntry =>
+  entry(name, '1.0.0', { dev: true, optional: true, os: ['linux'], cpu: ['x64'] });
+
+const packagesOf = (names: string[], extra: Partial<LockEntry> = {}): Record<string, LockEntry> =>
+  Object.fromEntries(names.map((n) => [n, entry(n, '1.0.0', extra)]));
+
+const DEV = ['c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
 
 const policy: Policy = {
   runtimeBudget: 2,
@@ -118,66 +125,116 @@ describe('checkLockfile', () => {
     lock.packages['node_modules/zod/node_modules/helper'] = entry('helper', '1.0.0', {
       hasInstallScript: true,
     });
-    const problems = checkLockfile(lock, policy);
+    const problems = checkLockfile(lock, {
+      ...policy,
+      admitted: new Set([...policy.admitted, 'helper']),
+    });
     assert.equal(problems.length, 1);
     assert.match(problems[0] ?? '', /node_modules\/zod\/node_modules\/helper.*install script/);
   });
 
+  it('reports a resolved tarball of another version than the entry', () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod'] = entry('zod', '4.6.5', {
+      resolved: `${registry}/zod/-/zod-4.6.6.tgz`,
+    });
+    const problems = checkLockfile(lock, policy);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /node_modules\/zod.*zod@4\.6\.5/);
+  });
+
+  it('reports a resolved tarball of another package than the entry', () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod'] = entry('zod', '4.6.5', {
+      name: 'zod',
+      resolved: `${registry}/evilpkg/-/evilpkg-4.6.5.tgz`,
+    });
+    const problems = checkLockfile(lock, policy);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /node_modules\/zod.*zod@4\.6\.5/);
+  });
+
+  it('reports an entry without a version', () => {
+    const lock = okLock();
+    const { version: _, ...rest } = entry('zod', '4.6.5');
+    lock.packages['node_modules/zod'] = rest;
+    assert.match(checkLockfile(lock, policy).join('\n'), /node_modules\/zod.*version/);
+  });
+
+  it('accepts the tarball URL of a scoped package', () => {
+    const lock = okLock();
+    lock.packages['node_modules/@types/node'] = entry('@types/node', '24.19.1', { dev: true });
+    const admitted = new Set([...policy.admitted, '@types/node']);
+    assert.deepEqual(checkLockfile(lock, { ...policy, admitted }), []);
+  });
+
   it('reports a direct package missing from DEPENDENCIES.md', () => {
-    const lock = lockOf(
-      { dependencies: { zod: '4.6.5', 'left-pad': '1.3.0' } },
-      { zod: entry('zod', '4.6.5'), 'left-pad': entry('left-pad', '1.3.0') },
-    );
+    const lock = okLock();
+    lock.packages['node_modules/left-pad'] = entry('left-pad', '1.3.0');
     const problems = checkLockfile(lock, policy);
     assert.equal(problems.length, 1);
     assert.match(problems[0] ?? '', /left-pad.*DEPENDENCIES\.md/);
   });
 
-  it('does not require transitive packages to be listed', () => {
+  it('reports a transitive package missing from DEPENDENCIES.md', () => {
     const lock = okLock();
-    lock.packages['node_modules/undici-types'] = entry('undici-types', '7.0.0');
+    lock.packages['node_modules/zod/node_modules/undici-types'] = entry('undici-types', '7.0.0');
+    const problems = checkLockfile(lock, policy);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /undici-types.*DEPENDENCIES\.md/);
+  });
+
+  it('does not require platform binaries to be listed', () => {
+    const lock = okLock();
+    lock.packages['node_modules/@biomejs/cli-linux-x64'] = platformBinary('@biomejs/cli-linux-x64');
     assert.deepEqual(checkLockfile(lock, policy), []);
   });
 
   it('reports more runtime packages than the budget allows', () => {
     const names = ['a', 'b', 'c'];
-    const lock = lockOf(
-      { dependencies: Object.fromEntries(names.map((n) => [n, '1.0.0'])) },
-      Object.fromEntries(names.map((n) => [n, entry(n, '1.0.0')])),
-    );
-    const problems = checkLockfile(lock, { ...policy, admitted: new Set(names) });
+    const problems = checkLockfile(lockOf(packagesOf(names)), {
+      ...policy,
+      admitted: new Set(names),
+    });
     assert.equal(problems.length, 1);
     assert.match(problems[0] ?? '', /runtime.*3.*2/);
   });
 
-  it('reports more packages in total than the budget allows', () => {
-    const runtime = ['a', 'b'];
-    const dev = ['c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k'];
-    const all = [...runtime, ...dev];
-    const lock = lockOf(
-      {
-        dependencies: Object.fromEntries(runtime.map((n) => [n, '1.0.0'])),
-        devDependencies: Object.fromEntries(dev.map((n) => [n, '1.0.0'])),
-      },
-      Object.fromEntries(all.map((n) => [n, entry(n, '1.0.0')])),
-    );
-    const problems = checkLockfile(lock, { ...policy, admitted: new Set(all) });
+  it('counts an optional package without a platform as a runtime package', () => {
+    const lock = lockOf({ ...packagesOf(['a', 'b']), ...packagesOf(['c'], { optional: true }) });
+    const problems = checkLockfile(lock, { ...policy, admitted: new Set(['a', 'b', 'c']) });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /runtime.*3.*2/);
+  });
+
+  it('counts a devOptional package as a dev package', () => {
+    const lock = lockOf({ ...packagesOf(['a', 'b']), ...packagesOf(['c'], { devOptional: true }) });
+    assert.deepEqual(checkLockfile(lock, { ...policy, admitted: new Set(['a', 'b', 'c']) }), []);
+  });
+
+  it('reports more packages in total than the budget allows, transitive ones included', () => {
+    const lock = lockOf({ ...packagesOf(['a', 'b']), ...packagesOf(DEV, { dev: true }) });
+    lock.packages['node_modules/c/node_modules/k'] = entry('k', '1.0.0', { dev: true });
+    const admitted = new Set(['a', 'b', ...DEV, 'k']);
+    const problems = checkLockfile(lock, { ...policy, admitted });
     assert.equal(problems.length, 1);
     assert.match(problems[0] ?? '', /total.*11.*10/);
   });
 
-  it('accepts exactly the budget', () => {
-    const runtime = ['a', 'b'];
-    const dev = ['c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
-    const all = [...runtime, ...dev];
-    const lock = lockOf(
-      {
-        dependencies: Object.fromEntries(runtime.map((n) => [n, '1.0.0'])),
-        devDependencies: Object.fromEntries(dev.map((n) => [n, '1.0.0'])),
-      },
-      Object.fromEntries(all.map((n) => [n, entry(n, '1.0.0')])),
-    );
-    assert.deepEqual(checkLockfile(lock, { ...policy, admitted: new Set(all) }), []);
+  it('accepts exactly the budget, without counting platform binaries', () => {
+    const lock = lockOf({
+      ...packagesOf(['a', 'b']),
+      ...packagesOf(DEV, { dev: true }),
+      'cli-linux-x64': platformBinary('cli-linux-x64'),
+      'cli-win32-x64': platformBinary('cli-win32-x64'),
+    });
+    assert.deepEqual(checkLockfile(lock, { ...policy, admitted: new Set(['a', 'b', ...DEV]) }), []);
+  });
+
+  it('counts a package installed at two paths once', () => {
+    const lock = lockOf({ ...packagesOf(['a', 'b']), ...packagesOf(DEV, { dev: true }) });
+    lock.packages['node_modules/c/node_modules/a'] = entry('a', '2.0.0');
+    assert.deepEqual(checkLockfile(lock, { ...policy, admitted: new Set(['a', 'b', ...DEV]) }), []);
   });
 });
 
@@ -211,6 +268,22 @@ describe('parseLockfile', () => {
     );
     assert.throws(() => parseLockfile(text), /hasInstallScript/);
   });
+
+  for (const [field, value] of [
+    ['dev', '"yes"'],
+    ['optional', '1'],
+    ['devOptional', '"true"'],
+    ['os', '"linux"'],
+    ['cpu', '[64]'],
+  ] as const) {
+    it(`rejects ${field} of the wrong type, which would change what the budget counts`, () => {
+      const text = JSON.stringify({ lockfileVersion: 3, ...okLock() }).replace(
+        '"integrity":',
+        `"${field}":${value},"integrity":`,
+      );
+      assert.throws(() => parseLockfile(text), new RegExp(field));
+    });
+  }
 });
 
 describe('readPolicy', () => {
@@ -341,13 +414,10 @@ describe('checkPublishDates', () => {
   });
 
   it('asks the registry once per package name, with scoped names encoded', async () => {
-    const lock = lockOf(
-      { devDependencies: { '@types/node': '24.19.1' } },
-      {
-        '@types/node': entry('@types/node', '24.19.1'),
-        'a/node_modules/@types/node': entry('@types/node', '24.0.0'),
-      },
-    );
+    const lock = lockOf({
+      '@types/node': entry('@types/node', '24.19.1'),
+      'a/node_modules/@types/node': entry('@types/node', '24.0.0'),
+    });
     const { fetch, asked } = registryOf({
       '@types/node': { '24.19.1': daysAgo(30), '24.0.0': daysAgo(90) },
     });
@@ -356,10 +426,7 @@ describe('checkPublishDates', () => {
   });
 
   it('uses the real name of an aliased package', async () => {
-    const lock = lockOf(
-      { dependencies: { z: 'npm:zod@4.6.5' } },
-      { z: entry('zod', '4.6.5', { name: 'zod' }) },
-    );
+    const lock = lockOf({ z: entry('zod', '4.6.5', { name: 'zod' }) });
     const { fetch, asked } = registryOf({ zod: { '4.6.5': daysAgo(30) } });
     assert.deepEqual(await checkPublishDates(lock, { fetch, now, minReleaseAgeDays: 7 }), []);
     assert.deepEqual(asked, [`${registry}/zod`]);
