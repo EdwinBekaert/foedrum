@@ -390,7 +390,12 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
  */
 function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): void {
   const { batchId, by, toStepId, shas } = command;
-  stuckLane(draft.batch(batchId), 'rewind');
+  const batch = draft.batch(batchId);
+  stuckLane(batch, 'rewind');
+  // A step of an earlier recipe: the current one could not tell its deadline or what follows it.
+  if (batch.recipe !== undefined && !recipeOf(draft, batch).has(toStepId)) {
+    throw new Refusal(`recipe ${batch.recipe.name} has no step ${toStepId}`);
+  }
   draft.push({ type: 'batch.rewound', batchId, toStepId, by, shas: { ...shas } });
   schedule(draft, batchId, toStepId);
 }
@@ -459,7 +464,7 @@ function stuckLane(batch: Batch, option: StuckOption): Extract<Lane, { kind: 'st
 
 function find(draft: Draft, name: string): Recipe {
   const recipe = draft.context.recipes.find(name);
-  if (recipe === undefined) throw new Refusal(`recipe ${name} is not in the recipe book`);
+  if (recipe === undefined) throw new Refusal(`the Brewery has no recipe ${name}`);
   return recipe;
 }
 
