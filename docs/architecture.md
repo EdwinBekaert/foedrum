@@ -237,6 +237,8 @@ type StepOutcome =
 
 Every step kind (brewer, check, human gate, action, fan-out) ends in exactly one of these. An exhaustive `switch` makes an unhandled outcome a compile error ([ADR 0005](adr/0005-typed-step-outcomes-and-out-docs.md)).
 
+A brewer attempt runs through the `BrewerRunner` interface (`src/engine/brewer-runner.ts`), which also reports progress to the supervisor. One pure rule, `settleAttempt`, shared by the real runner and the fake, turns what the runner saw (exit, stream, denials, turns, out doc) into the ending: a reached limit first, then a crash, garbage in the stream, and a missing or invalid out doc, each a failure, and only then the out doc's status ([ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)).
+
 ### 4.3 Batch lifecycle
 
 ```
@@ -343,7 +345,7 @@ On GitHub, for the autonomous driver and asynchronous teammates:
 Stability is proven, not claimed.
 
 1. **Unit tests** (`node:test`) for the fold, state machine, recipe parsing, GitHub client (injected `fetch`). They start no processes: git, npm and other tools are reached through an injected process runner, and `npm run check` stays under 20 s ([ADR 0021](adr/0021-unit-tests-spawn-no-processes.md)). The check enforces both: it fails when a file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`, or when one test file takes more than 5 s, and CI reports how long it took. **Integration tests** (`test/integration/`, `npm run test:integration`, CI and nightly) are a few per tool boundary, running the real git, npm or shell to prove the thin shells and the captured fixtures still match the real tools.
-2. **Fake brewer runner** with scripted behaviours: succeed, fail, hang, garbage output, no output, exceed budget, crash mid-step, ask a question.
+2. **Fake brewer runner** (`test/helpers/fake-brewer-runner.ts`) with scripted behaviours: succeed, fail (retryable or not), hang, crash mid-step, garbage output, no out doc, exceed budget, ask a question, a storm of permission denials. Each has an end-to-end test through `decide`, the supervisor and a small test driver against an in-memory store with a controllable clock ([ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)).
 3. **Property tests** on the state machine: random event sequences must keep invariants I1–I6. A seeded generator (`test/helpers/event-sequences.ts`, no dependency) writes the sequences; each run starts from a fresh seed, a failure names it, and setting the environment variable `FOEDRUM_SEED` to that seed replays it.
 4. **Chaos tests:** run many batches with the fake runner, kill the engine at random points, restart, and assert every batch reaches a terminal or Stuck state with no duplicated side effect.
 5. **Contract tests** against a real GitHub test repository (opt-in, CI only).
