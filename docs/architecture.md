@@ -208,7 +208,7 @@ Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lea
 The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps five tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024). `restore` appends events read from the state branch keeping their ids, after every stored event, and marks them pushed in the same transaction:
 
 - `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A trigger on `events` fills it, so the database itself refuses a second event for a key (the failed insert leaves no row), and `replay` refuses a log that contains one.
-- `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning reminder; `batch.waiting` sets the reminder; `batch.stuck` replaces every deadline of the batch with its reminder ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)); `step.finished` clears its own attempt's deadline; `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
+- `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning or Stuck reminder; `batch.waiting` sets the reminder; `batch.stuck` replaces every deadline of the batch with its reminder ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)); `step.finished` clears its own attempt's deadline; `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
 
 Events are validated against the zod schemas when appended and when read. All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout. The store reads no clock: callers pass `now`.
 
@@ -239,14 +239,19 @@ Every step kind (brewer, check, human gate, action, fan-out) ends in exactly one
 ### 4.3 Batch lifecycle
 
 ```
-ordered ──── route · recipe ────► brewing ──── done ────► on_tap
-   │                                ▲  │  ▲
-   │ wait                           │  │  │ retry · answer · skip · recipe · rewind
-   ▼                                │  ▼  │
-conditioning ── route · recipe ─────┘  stuck
+   ┌──── wait ──────────► conditioning   (waiting for a merge, a release or a sibling)
+   │                         │   ▲
+   │          route · recipe │   │ wait ¹
+   │                         ▼   │
+ordered ─ route · recipe ─► brewing ──── done ────► on_tap
+                             │   ▲
+                             │   │ retry · answer · skip
+                             ▼   │ recipe · rewind
+                             stuck
 
-(waiting for a merge,     ordered · brewing · conditioning · stuck ──► cancelled
- a release or a sibling)  conditioning and stuck repeat their reminder (remind)
+ordered · brewing · conditioning · stuck ──► cancelled
+conditioning and stuck repeat their reminder (remind)
+¹ between steps, once a recipe step needs it (ADR 0025); until then a batch enters conditioning only from ordered
 ```
 
 The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)). It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`). On tap and cancelled are terminal. A blocked out doc is recorded as a final failure and routed by its blocker kind (brewers-and-recipes §2). Rewind is allowed only from Stuck.
