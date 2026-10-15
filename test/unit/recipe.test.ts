@@ -44,9 +44,10 @@ describe('Recipe', () => {
     }
   });
 
-  it('defaults testFirst to true', () => {
+  // ADR 0017: the default is true only for recipes that write code, which the schema cannot see.
+  it('leaves testFirst unset when the recipe does not say', () => {
     const parsed = Recipe.parse(recipe([plan])) as { testFirst?: boolean };
-    assert.equal(parsed.testFirst, true);
+    assert.equal(parsed.testFirst, undefined);
   });
 
   it('defaults a check to expect a pass', () => {

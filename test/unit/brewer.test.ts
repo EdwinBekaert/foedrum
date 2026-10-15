@@ -71,7 +71,7 @@ describe('BrewerFrontmatter', () => {
   it('accepts inputs from the order, a step and a repository file', () => {
     const inputs = [
       { name: 'order', from: 'order' },
-      { name: 'plan', from: 'step:plan', trusted: true },
+      { name: 'plan', from: 'step:plan', trusted: false },
       { name: 'readme', from: 'file:docs/README.md' },
     ];
     assert.equal(accepted({ ...taster, inputs }), true);
