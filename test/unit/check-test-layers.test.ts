@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { checkTestLayer } from '../../scripts/check-test-layers.ts';
+import { checkTestLayer, checkTestLayers } from '../../scripts/check-test-layers.ts';
 
 // Source files that are scanned, never run (see the README in the folder).
 const fixtures = join(import.meta.dirname, '..', 'fixtures', 'test-layers');
 const clean = join(fixtures, 'clean');
 const spawning = join(fixtures, 'spawning');
+// A test/ folder in miniature: every subfolder but unit/ has a file that imports child_process.
+const testDir = join(fixtures, 'test-dir');
 
 const none: ReadonlyMap<string, string> = new Map();
 
@@ -60,5 +62,34 @@ describe('checkTestLayer', () => {
     for (const { problem } of stale) {
       assert.match(problem, /exception list.*does not import child_process/);
     }
+  });
+});
+
+describe('checkTestLayers', () => {
+  it('reports imports in property/, chaos/ and helpers/, relative to the test folder', () => {
+    const problems = checkTestLayers(testDir, none);
+    assert.deepEqual(
+      problems.map(({ file }) => file),
+      ['chaos/spawns.test.ts', 'helpers/real-runner.ts', 'property/spawns.test.ts'],
+    );
+    for (const { problem } of problems) assert.match(problem, /imports child_process/);
+  });
+
+  it('leaves out exceptions and reports stale ones, by path relative to the test folder', () => {
+    const exceptions = new Map([
+      ['helpers/real-runner.ts', 'a reason'],
+      ['unit/pure.test.ts', 'no longer needed'],
+    ]);
+    assert.deepEqual(
+      checkTestLayers(testDir, exceptions).map(({ file, problem }) => [
+        file,
+        /exception list/.test(problem),
+      ]),
+      [
+        ['chaos/spawns.test.ts', false],
+        ['property/spawns.test.ts', false],
+        ['unit/pure.test.ts', true],
+      ],
+    );
   });
 });

@@ -52,6 +52,17 @@ export const checkTestLayer = (
   return problems.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 };
 
+// The folders under test/ that npm test runs or that those tests import (ADR 0021).
+export const NO_PROCESS_FOLDERS = ['unit', 'property', 'chaos', 'helpers'] as const;
+
+// Scans NO_PROCESS_FOLDERS under testDir; files and exceptions are relative to testDir.
+export const checkTestLayers = (
+  _testDir: string,
+  _exceptions: ReadonlyMap<string, string>,
+): LayerProblem[] => {
+  throw new Error('not implemented');
+};
+
 if (import.meta.main) {
   const unit = join(import.meta.dirname, '..', 'test', 'unit');
   const problems = checkTestLayer(unit, EXCEPTIONS);
