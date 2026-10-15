@@ -114,11 +114,7 @@ export const createBrewing = (options: BrewingOptions) => {
       for (const { ref, end } of ended.splice(0)) {
         const key = attemptKey.encode(ref);
         runs.delete(key);
-        const { ending, usage } = end;
-        command(
-          { kind: 'finish', ...ref, ending, ...(usage === undefined ? {} : { usage }) },
-          (tx) => tx.releaseLease(key),
-        );
+        command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key));
         moved = true;
       }
       if (!moved) return;

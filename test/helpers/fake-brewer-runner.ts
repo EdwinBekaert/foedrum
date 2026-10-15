@@ -26,7 +26,8 @@ export type Behaviour =
 export const outDoc = (frontmatter: Record<string, unknown>): string =>
   `---\n${JSON.stringify(frontmatter, null, 2)}\n---\nThe brewer's notes.\n`;
 
-const clean = (doc: string | undefined, more: Partial<AttemptFacts> = {}): Behaviour => ({
+/** A process that ends at once: a clean exit with `doc`, unless `more` says otherwise. */
+const settle = (doc: string | undefined, more: Partial<AttemptFacts> = {}): Behaviour => ({
   kind: 'settle',
   facts: { exit: { kind: 'exited', code: 0 }, outDoc: doc, denials: 0, turns: 12, ...more },
 });
@@ -40,49 +41,33 @@ export const question: Question = {
 
 /** The behaviours a scripted attempt can have (#11). */
 export const behave = {
-  succeed: (summary = 'Done'): Behaviour => clean(outDoc({ status: 'done', summary })),
+  succeed: (summary = 'Done'): Behaviour => settle(outDoc({ status: 'done', summary })),
   /** A retryable failure is reported in the out doc; a non-retryable one never starts. */
   fail: (retryable: boolean): Behaviour =>
     retryable
-      ? clean(outDoc({ status: 'failed', summary: 'The migration does not apply' }))
-      : {
-          kind: 'settle',
-          facts: {
-            exit: { kind: 'unstartable', reason: 'claude was not found on PATH' },
-            outDoc: undefined,
-            denials: 0,
-            turns: 0,
-          },
-        },
+      ? settle(outDoc({ status: 'failed', summary: 'The migration does not apply' }))
+      : settle(undefined, {
+          exit: { kind: 'unstartable', reason: 'claude was not found on PATH' },
+          turns: 0,
+        }),
   hang: (progress: AttemptProgress): Behaviour => ({ kind: 'hang', progress }),
   /** The brewer process dies mid-step, after writing half an out doc. */
-  crash: (): Behaviour => ({
-    kind: 'settle',
-    facts: {
-      exit: { kind: 'killed', signal: 'SIGSEGV' },
-      outDoc: '---\n{ "status": "do',
-      denials: 0,
-      turns: 7,
-    },
-  }),
+  crash: (): Behaviour =>
+    settle('---\n{ "status": "do', { exit: { kind: 'killed', signal: 'SIGSEGV' }, turns: 7 }),
   lost: (): Behaviour => ({ kind: 'lost' }),
   /** The stream is not stream-json, whatever the out doc says. */
   garbage: (): Behaviour =>
-    clean(outDoc({ status: 'done', summary: 'Done' }), { garbage: '\u0000\u0007 Abort trap' }),
-  missingOutDoc: (): Behaviour => clean(undefined),
-  invalidOutDoc: (): Behaviour => clean(outDoc({ status: 'finished', summary: 'Done' })),
+    settle(outDoc({ status: 'done', summary: 'Done' }), { garbage: '\u0000\u0007 Abort trap' }),
+  missingOutDoc: (): Behaviour => settle(undefined),
+  invalidOutDoc: (): Behaviour => settle(outDoc({ status: 'finished', summary: 'Done' })),
   /** The runner stopped the brewer when it went past `maxTurns`. */
-  exceedBudget: (turns: number): Behaviour => ({
-    kind: 'settle',
-    facts: { exit: { kind: 'stopped' }, outDoc: undefined, denials: 0, turns },
-  }),
+  exceedBudget: (turns: number): Behaviour =>
+    settle(undefined, { exit: { kind: 'stopped' }, turns }),
   needInput: (questions: readonly Question[] = [question]): Behaviour =>
-    clean(outDoc({ status: 'needs_input', summary: 'Needs a decision', questions })),
+    settle(outDoc({ status: 'needs_input', summary: 'Needs a decision', questions })),
   /** The runner stopped the brewer when its permission denials reached `maxDenials`. */
-  denialStorm: (denials: number): Behaviour => ({
-    kind: 'settle',
-    facts: { exit: { kind: 'stopped' }, outDoc: undefined, denials, turns: denials },
-  }),
+  denialStorm: (denials: number): Behaviour =>
+    settle(undefined, { exit: { kind: 'stopped' }, denials, turns: denials }),
 };
 
 export interface FakeBrewerRunner extends BrewerRunner {
@@ -132,7 +117,7 @@ export const fakeBrewerRunner = (
             }
           };
         });
-        return { ended, stop: () => stop() };
+        return { ended, stop };
       }
       case 'lost':
         return { ended: new Promise<AttemptEnd>(() => {}), stop: () => {} };
