@@ -91,6 +91,18 @@ describe('withCheckoutTmp', () => {
     assert.match(written, /EBUSY: resource busy/);
   });
 
+  it('passes the run error on and still names the folder when it cannot be removed either', async () => {
+    const failure = new Error('spawn EACCES');
+    const { result, written } = await wrap(failure, {
+      removeDir: async () => {
+        throw new Error('EBUSY');
+      },
+    });
+    assert.deepEqual(result, { error: failure });
+    assert.ok(written.includes(dir), written);
+    assert.match(written, /EBUSY/);
+  });
+
   it('keeps a failing exit code when the folder cannot be removed either', async () => {
     const { result } = await wrap(3, {
       removeDir: async () => {

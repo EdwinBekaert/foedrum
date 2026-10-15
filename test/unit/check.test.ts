@@ -124,6 +124,26 @@ describe('runCheck', () => {
     });
   }
 
+  it('writes a passing step as soon as it and the steps before it are done', async () => {
+    const { calls, runProcess } = pendingProcesses();
+    let written = '';
+    const done = runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd: '/work/tree',
+      write: (text) => {
+        written += text;
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    calls[0]?.finish(green('types ok\n'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(written, '> npm run typecheck\ntypes ok\n');
+    for (const call of calls.slice(1)) call.finish(green(''));
+    assert.equal(await done, 0);
+  });
+
   it('writes only the label for a step without output', async () => {
     const { written } = await check(labels().map(() => green('')));
     assert.equal(
