@@ -12,7 +12,7 @@ import type {
 } from '../../src/engine/brewer-runner.ts';
 import { type Command, decide } from '../../src/engine/decide.ts';
 import type { EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
-import { type Batch, fold, type State } from '../../src/engine/fold.ts';
+import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -62,7 +62,19 @@ export const createBrewing = (options: BrewingOptions) => {
   });
 
   const events = (): Event[] => store.eventsAfter(0).map(({ event }) => event);
-  const state = (): State => fold(events());
+  // The folded state, kept up to date with whatever was appended since it was last read.
+  let folded = { state: emptyState, lastId: 0 };
+  const state = (): State => {
+    const stored = store.eventsAfter(folded.lastId);
+    folded = {
+      state: fold(
+        stored.map(({ event }) => event),
+        folded.state,
+      ),
+      lastId: stored.at(-1)?.id ?? folded.lastId,
+    };
+    return folded.state;
+  };
 
   /** Decides `command` and appends its events with `also`'s writes; false when it is refused. */
   const command = (cmd: Command, also: (tx: EventStoreTransaction) => void = () => {}) => {
@@ -114,7 +126,12 @@ export const createBrewing = (options: BrewingOptions) => {
       for (const { ref, end } of ended.splice(0)) {
         const key = attemptKey.encode(ref);
         runs.delete(key);
-        command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key));
+        // An attempt that ended holds its lease no longer, also when Stuck abandoned it and its
+        // finish is refused: a step runs one attempt at a time, so a second live lease of a step
+        // is an attempt that no longer runs (I2).
+        if (!command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
+          store.withTransaction((tx) => tx.releaseLease(key));
+        }
         moved = true;
       }
       if (!moved) return;
@@ -151,5 +168,5 @@ export const createBrewing = (options: BrewingOptions) => {
     return found;
   };
 
-  return { command, drive, tick, events, batch, refusals, notices };
+  return { command, drive, tick, events, state, batch, refusals, notices };
 };

@@ -79,6 +79,14 @@ jobs:
       - name: npm run test:integration
         run: npm run test:integration
 
+      # The properties of invariants I1–I6 with many more seeds than npm run check runs within its
+      # per-file budget (architecture §9): 500 scenarios per invariant on every leg. A failure
+      # names its seed; FOEDRUM_SEED replays it.
+      - name: Property tests, more seeds
+        env:
+          FOEDRUM_RUNS: "500"
+        run: node scripts/with-checkout-tmp.ts --test "test/property/**/*.test.ts"
+
       - name: Check summary
         if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
         run: |
