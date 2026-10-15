@@ -105,6 +105,15 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
 
+## Restarting a session
+
+Claude Code loads `.claude/settings.json`, skills and agents when a session starts, so a change to `.claude/` (including one merged in from origin/main) needs a restart. A session is stored under the folder it was started in, not the worktree it switched into, so `claude --continue` inside the worktree finds nothing. When you need a restart, ask the user to:
+
+1. `/exit` the session;
+2. run `git pull` on main in the main checkout, because settings are read from the folder the session starts in;
+3. run `claude --resume` there and pick this session by its name;
+4. tell the resumed session to switch back into its worktree.
+
 ## Security
 
 - Never commit secrets, tokens or personal data. Test fixtures use synthetic data.
