@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
@@ -234,12 +234,89 @@ describe('the state branch with real git', () => {
         error.message.includes(localHead) &&
         error.message.includes(pushedByB),
     );
+
+    // As the stop message says: move the database aside, and the next start rebuilds it.
+    close(restarted);
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(`${a.database}${suffix}`)) {
+        renameSync(`${a.database}${suffix}`, `${a.database}.aside${suffix}`);
+      }
+    }
+    const recovered = reopen(a);
+    assert.deepEqual(await recovered.state.start(), { decision: 'restore' });
+    assert.deepEqual(recovered.store.eventsAfter(0), b.store.eventsAfter(0));
+    assert.equal(git(a.worktree, ['rev-parse', 'HEAD']).trim(), pushedByB);
   });
 
-  it('checks commit signing at start with a throw-away ref that it deletes', async () => {
+  it('catches up a store that is behind with a fast-forward', async () => {
     const a = machine('a');
     await a.state.start();
-    assert.ok(existsSync(join(a.worktree, '.git')));
-    assert.throws(() => git(a.clone, ['show-ref', '--verify', 'refs/foedrum/signing-check']));
+    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+    const b = machine('b');
+    await b.state.start();
+    await record(b, { type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } });
+
+    close(a);
+    const restarted = reopen(a);
+    assert.deepEqual(await restarted.state.start(), { decision: 'restore' });
+    assert.deepEqual(restarted.store.eventsAfter(0), b.store.eventsAfter(0));
+    assert.equal(
+      git(a.worktree, ['rev-parse', 'HEAD']).trim(),
+      git(origin, ['rev-parse', 'foedrum/state']).trim(),
+    );
+  });
+
+  it('reports a push that a remote hook refuses, keeps the marker, and does not stop', async () => {
+    const a = machine('a');
+    await a.state.start();
+    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+    const hook = join(origin, 'hooks', 'pre-receive');
+    writeFileSync(hook, '#!/bin/sh\necho "state pushes are closed" >&2\nexit 1\n');
+    chmodSync(hook, 0o755);
+
+    a.store.withTransaction((tx) =>
+      tx.append({ type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } }),
+    );
+    const result = await a.state.flush();
+
+    assert.equal(result.kind, 'failed', JSON.stringify(result));
+    assert.equal(a.store.pushedThrough()?.eventId, 1);
+  });
+
+  it('refuses to start when the clone signs and signing cannot work, and leaves no ref', async () => {
+    const a = machine('a');
+    git(a.clone, ['config', 'commit.gpgsign', 'true']);
+    git(a.clone, ['config', 'gpg.program', join(dir.path, 'no-such-gpg')]);
+    await assert.rejects(
+      a.state.start(),
+      (error) => error instanceof StateBranchStopError && /commit\.gpgSign/.test(error.message),
+    );
+    assert.throws(
+      () => git(a.clone, ['show-ref', '--verify', 'refs/foedrum/signing-check']),
+      /not a valid ref/,
+    );
+  });
+
+  it('refuses a remote branch that holds a symbolic link', async () => {
+    // A commit on foedrum/state whose tree has batches/b1 as a link to a folder outside.
+    const seed = join(dir.path, 'seed');
+    const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+      cwd: seed,
+      input: '../../outside',
+      encoding: 'utf8',
+    }).trim();
+    git(seed, ['checkout', '-q', '--orphan', 'foedrum/state']);
+    git(seed, ['rm', '-rq', '--cached', '.']);
+    git(seed, ['update-index', '--add', '--cacheinfo', `120000,${blob},batches/b1`]);
+    const author = ['-c', 'user.name=Test', '-c', 'user.email=t@example.com'];
+    git(seed, [...author, 'commit', '-q', '-m', 'Link out']);
+    git(seed, ['push', '-q', origin, 'foedrum/state']);
+
+    const a = machine('a');
+    await assert.rejects(
+      a.state.start(),
+      (error) => error instanceof StateBranchStopError && /batches\/b1/.test(error.message),
+    );
+    assert.equal(existsSync(a.worktree), false);
   });
 });

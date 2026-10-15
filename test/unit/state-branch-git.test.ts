@@ -468,6 +468,19 @@ describe('openStateBranch with a fake git', () => {
       );
     });
 
+    // commit-tree does not read commit.gpgSign, so the check asks for a signature itself.
+    it('signs the test commit when the clone signs', async () => {
+      fake.signing = true;
+      await branch().start();
+      assert.deepEqual(fake.find('commit-tree')?.args, [
+        'commit-tree',
+        '-S',
+        sha(9),
+        '-m',
+        'Foedrum signing check',
+      ]);
+    });
+
     it('refuses to start when the test commit times out', async () => {
       fake.signing = true;
       fake.answer = (args) => (args[0] === 'commit-tree' ? exit(null, 'killed') : undefined);
