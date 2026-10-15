@@ -7,6 +7,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
@@ -130,7 +131,8 @@ describe('scripts/precheck.ts with a stub npm', () => {
       assert.match(stderr, /^git push is blocked: HEAD is detached in .*detached-head-/);
       assert.doesNotMatch(stderr, /stub npm/);
     } finally {
-      project.remove();
+      // A real repository: removeTree clears git's read-only objects and retries busy files.
+      await removeTree(project.path);
     }
   });
 });
