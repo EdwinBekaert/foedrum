@@ -202,6 +202,8 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       await Promise.all([...paths].map(async (path) => [path, await read(path)] as const)),
     );
     for (const file of planFlush(current, pending, from)) await write(file.path, file.text);
+    // The branch holds the same bytes on every machine, whatever core.autocrlf says.
+    if (!existsSync(onDisk('.gitattributes'))) await write('.gitattributes', '* -text\n');
 
     await must(worktree, ['add', '-A', '--', '.', `:(exclude,glob)**/*${TMP_SUFFIX}`]);
     const staged = await git(worktree, ['diff', '--cached', '--quiet']);
