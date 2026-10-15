@@ -223,6 +223,18 @@ describe('BrewerFrontmatter env', () => {
     });
   }
 
+  it('accepts names that only start or end like a reserved one', () => {
+    const env = {
+      NODEJS_LOG: '1',
+      HOMEPAGE: 'x',
+      ENVIRONMENT: 'ci',
+      GITHUB_REF: 'x',
+      PROXY: 'x',
+      PATHS: 'x',
+    };
+    assert.equal(accepted({ ...taster, env }), true);
+  });
+
   it('rejects names that differ only in case', () => {
     assert.equal(accepted({ ...taster, env: { MY_VAR: '1', My_Var: '2' } }), false);
   });
