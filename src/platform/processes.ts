@@ -181,7 +181,7 @@ export const execProcess: ExecProcess = execProcessWith({
       windowsHide: true,
       ...killableSpawnOptions(),
     }),
-  killTree: (pid) => killProcessTree(pid),
+  killTree: killProcessTree,
 });
 
 // The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output
@@ -193,10 +193,7 @@ export interface ProcessOutcome {
   killed?: Killed;
 }
 
-export interface RunOptions {
-  timeoutMs?: number | undefined;
-  signal?: AbortSignal | undefined;
-}
+export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal'>;
 
 export type RunProcess = (
   file: string,
