@@ -34,6 +34,10 @@ const installed = installedFile({
   'node_modules/@biomejs/biome': biome,
 });
 
+// The same file as written with a byte order mark and CRLF line endings.
+const withBomAndCrlf = (text: string): string =>
+  `${String.fromCharCode(0xfeff)}${JSON.stringify(JSON.parse(text), null, 2).replaceAll('\n', '\r\n')}`;
+
 describe('staleReason', () => {
   it('is up to date when every installed entry matches, skipping optional and peer packages', () => {
     assert.equal(staleReason(lock, installed), undefined);
@@ -99,9 +103,7 @@ describe('staleReason', () => {
   });
 
   it('reads files with a byte order mark and CRLF line endings', () => {
-    const crlf = (text: string): string =>
-      `﻿${JSON.stringify(JSON.parse(text), null, 2).replaceAll('\n', '\r\n')}`;
-    assert.equal(staleReason(crlf(lock), crlf(installed)), undefined);
+    assert.equal(staleReason(withBomAndCrlf(lock), withBomAndCrlf(installed)), undefined);
   });
 
   it('gives no verdict when package-lock.json cannot be parsed, leaving that to npm', () => {
