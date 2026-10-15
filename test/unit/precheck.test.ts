@@ -239,6 +239,16 @@ describe('precheck on a detached HEAD', () => {
     assert.deepEqual(head.calls, ['/work/tree']);
     assert.deepEqual(calls, ['/work/tree']);
   });
+
+  // Only a push is blocked: opening a pull request pushes nothing.
+  for (const command of ['git status', 'git push --force', 'gh pr create --draft']) {
+    it(`does not look at HEAD for: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const head = fakeHead(true);
+      await precheck(hookInput(command), runCheck, upToDate, head.headIsDetached);
+      assert.deepEqual(head.calls, []);
+    });
+  }
 });
 
 describe('isDetached', () => {
