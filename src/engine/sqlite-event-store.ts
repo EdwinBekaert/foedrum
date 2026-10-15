@@ -257,6 +257,9 @@ export const openSqliteEventStore = (
         ensureLive();
         append({ type: 'effect.applied', key: effectKey.encode(key), result: result ?? null }, key);
       },
+      markPushed: () => {
+        throw new Error('not implemented');
+      },
     };
     return {
       tx,
@@ -325,6 +328,18 @@ export const openSqliteEventStore = (
           }
         });
       }),
+
+    lastEventId: () => {
+      throw new Error('not implemented');
+    },
+
+    pushedThrough: () => {
+      throw new Error('not implemented');
+    },
+
+    restore: () => {
+      throw new Error('not implemented');
+    },
 
     findEffect: (key) => {
       const row = selectEffect.get(effectKey.encode(key)) as

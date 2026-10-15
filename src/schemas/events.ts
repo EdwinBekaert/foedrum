@@ -3,7 +3,7 @@
 import { PathSafeId } from './ids.ts';
 import { BlockerKind } from './out-doc.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
-import { EffectKeyText } from './store.ts';
+import { CommitSha, EffectKeyText } from './store.ts';
 import { z } from './zod.ts';
 
 const Id = NonEmpty;
@@ -25,7 +25,6 @@ const PullRequestUrl = z
     const parsed = URL.parse(url); // null when z.url already rejected it; zod runs this anyway
     return parsed?.username === '' && parsed.password === '';
   }, 'Must not contain credentials');
-const Sha = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
 
 /** Where a command or answer came from (ADR 0019). */
 export const Surface = z.enum(['plugin', 'terminal', 'comment', 'dashboard']);
@@ -224,7 +223,7 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     toStepId: StepId,
     by: NonEmpty,
-    shas: z.record(Repo, Sha),
+    shas: z.record(Repo, CommitSha),
   }),
   z.strictObject({
     type: z.literal('batch.on_tap'),

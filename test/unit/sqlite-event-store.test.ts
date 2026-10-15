@@ -668,6 +668,219 @@ describe('SqliteEventStore in memory', () => {
   it('finds no effect that was never recorded', () => {
     assert.equal(store.findEffect(key), undefined);
   });
+
+  // The state branch's outbox (ADR 0024).
+  const commit = 'c'.repeat(40);
+  const later = 'd'.repeat(64);
+  const appendAll = (events: Event[]): void =>
+    store.withTransaction((tx) => {
+      for (const event of events) tx.append(event);
+    });
+
+  describe('lastEventId', () => {
+    it('is 0 for an empty store', () => {
+      assert.equal(store.lastEventId(), 0);
+    });
+
+    it('is the id of the last committed event', () => {
+      appendAll([ordered('b1'), ordered('b2')]);
+      assert.throws(() =>
+        store.withTransaction((tx) => {
+          tx.append(ordered('b3'));
+          throw new Error('roll back');
+        }),
+      );
+      assert.equal(store.lastEventId(), 2);
+    });
+  });
+
+  describe('the pushed-through marker', () => {
+    it('is undefined until something was pushed', () => {
+      appendAll([ordered('b1')]);
+      assert.equal(store.pushedThrough(), undefined);
+    });
+
+    it('records the last pushed event and its commit, and moves forward', () => {
+      appendAll([ordered('b1'), ordered('b2'), ordered('b3')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 2, commit }));
+      assert.deepEqual(store.pushedThrough(), { eventId: 2, commit });
+      store.withTransaction((tx) => tx.markPushed({ eventId: 3, commit: later }));
+      assert.deepEqual(store.pushedThrough(), { eventId: 3, commit: later });
+    });
+
+    it('accepts event 0 on an empty store: a branch without events', () => {
+      store.withTransaction((tx) => tx.markPushed({ eventId: 0, commit }));
+      assert.deepEqual(store.pushedThrough(), { eventId: 0, commit });
+    });
+
+    it('keeps the event id and changes the commit for a push without new events', () => {
+      appendAll([ordered('b1')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit }));
+      store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: later }));
+      assert.deepEqual(store.pushedThrough(), { eventId: 1, commit: later });
+    });
+
+    it('rolls back with its transaction', () => {
+      appendAll([ordered('b1')]);
+      assert.throws(() =>
+        store.withTransaction((tx) => {
+          tx.markPushed({ eventId: 1, commit });
+          throw new Error('roll back');
+        }),
+      );
+      assert.equal(store.pushedThrough(), undefined);
+    });
+
+    it('refuses to move back', () => {
+      appendAll([ordered('b1'), ordered('b2')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 2, commit }));
+      assert.throws(
+        () => store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: later })),
+        /back/,
+      );
+      assert.deepEqual(store.pushedThrough(), { eventId: 2, commit });
+    });
+
+    it('refuses an event the store does not have', () => {
+      appendAll([ordered('b1')]);
+      assert.throws(
+        () => store.withTransaction((tx) => tx.markPushed({ eventId: 2, commit })),
+        /last event/,
+      );
+      assert.equal(store.pushedThrough(), undefined);
+    });
+
+    const invalid: [string, unknown][] = [
+      ['an abbreviated commit', { eventId: 1, commit: 'abc1234' }],
+      ['a negative event id', { eventId: -1, commit }],
+      ['a fractional event id', { eventId: 0.5, commit }],
+      ['an unknown field', { eventId: 1, commit, branch: 'foedrum/state' }],
+    ];
+    for (const [what, marker] of invalid) {
+      it(`refuses ${what}`, () => {
+        appendAll([ordered('b1')]);
+        assert.throws(() =>
+          store.withTransaction((tx) =>
+            tx.markPushed(marker as { eventId: number; commit: string }),
+          ),
+        );
+        assert.equal(store.pushedThrough(), undefined);
+      });
+    }
+  });
+
+  describe('restore', () => {
+    const now = at('2026-10-15T12:00:00Z');
+
+    it('appends the events with their ids and marks them pushed', () => {
+      const log = [
+        { id: 3, event: ordered('b1') },
+        { id: 7, event: scheduled('b1', '2026-10-15T11:00:00Z') },
+        { id: 8, event: applied('r') },
+      ];
+      store.restore(log, commit);
+      assert.deepEqual(store.eventsAfter(0), log);
+      assert.deepEqual(store.pushedThrough(), { eventId: 8, commit });
+      assert.deepEqual(store.batchesPastDeadline(now), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T11:00:00Z') },
+      ]);
+      assert.deepEqual(store.findEffect(key), { result: 'r' });
+    });
+
+    it('continues a store whose events are all pushed, and later appends follow', () => {
+      appendAll([ordered('b1'), ordered('b2')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 2, commit }));
+      store.restore([{ id: 5, event: ordered('b3') }], later);
+      const appended = store.withTransaction((tx) => tx.append(ordered('b4')));
+      assert.equal(appended, 6);
+      assert.deepEqual(
+        store.eventsAfter(0).map((stored) => stored.id),
+        [1, 2, 5, 6],
+      );
+      assert.deepEqual(store.pushedThrough(), { eventId: 5, commit: later });
+    });
+
+    it('moves only the commit for an empty log', () => {
+      appendAll([ordered('b1')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit }));
+      store.restore([], later);
+      assert.deepEqual(store.pushedThrough(), { eventId: 1, commit: later });
+      store.close();
+      store = open(':memory:');
+      store.restore([], commit);
+      assert.deepEqual(store.pushedThrough(), { eventId: 0, commit });
+    });
+
+    const refused: [string, { id: number; event: unknown }[], number][] = [
+      [
+        'a repeated id',
+        [
+          { id: 2, event: ordered('b1') },
+          { id: 2, event: ordered('b2') },
+        ],
+        1,
+      ],
+      [
+        'a smaller id',
+        [
+          { id: 4, event: ordered('b1') },
+          { id: 3, event: ordered('b2') },
+        ],
+        1,
+      ],
+      ['id 0', [{ id: 0, event: ordered('b1') }], 0],
+      ['a fractional id', [{ id: 1.5, event: ordered('b1') }], 0],
+      [
+        'an invalid event',
+        [
+          { id: 1, event: ordered('b1') },
+          { id: 2, event: { type: 'x' } },
+        ],
+        1,
+      ],
+      [
+        'a second effect for one key',
+        [
+          { id: 1, event: applied('first') },
+          { id: 2, event: applied('second') },
+        ],
+        1,
+      ],
+    ];
+    for (const [what, log, index] of refused) {
+      it(`refuses ${what}, naming the event, and writes nothing`, () => {
+        assert.throws(
+          () => store.restore(log, commit),
+          (error) => error instanceof ReplayError && error.index === index,
+        );
+        assert.deepEqual(store.eventsAfter(0), []);
+        assert.equal(store.pushedThrough(), undefined);
+      });
+    }
+
+    it('refuses an id that does not come after the stored events', () => {
+      appendAll([ordered('b1'), ordered('b2')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 2, commit }));
+      assert.throws(
+        () => store.restore([{ id: 2, event: ordered('b3') }], later),
+        (error) => error instanceof ReplayError && error.index === 0,
+      );
+      assert.equal(store.lastEventId(), 2);
+      assert.deepEqual(store.pushedThrough(), { eventId: 2, commit });
+    });
+
+    it('refuses a store with events that were never pushed', () => {
+      appendAll([ordered('b1'), ordered('b2')]);
+      store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit }));
+      assert.throws(() => store.restore([{ id: 5, event: ordered('b3') }], later), /not pushed/);
+      assert.equal(store.lastEventId(), 2);
+    });
+
+    it('refuses an invalid commit and writes nothing', () => {
+      assert.throws(() => store.restore([{ id: 1, event: ordered('b1') }], 'abc1234'));
+      assert.equal(store.lastEventId(), 0);
+    });
+  });
 });
 
 describe('SqliteEventStore on a file', () => {
@@ -682,11 +895,11 @@ describe('SqliteEventStore on a file', () => {
     dir.remove();
   });
 
-  it('uses WAL mode and records schema version 1', () => {
+  it('uses WAL mode and records schema version 2', () => {
     open(path);
     const db = raw(path);
     assert.deepEqual({ ...db.prepare('PRAGMA journal_mode').get() }, { journal_mode: 'wal' });
-    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 1 });
+    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 2 });
   });
 
   it('keeps events, leases and effects across a reopen', () => {
@@ -707,11 +920,20 @@ describe('SqliteEventStore on a file', () => {
     assert.deepEqual(second.findEffect(key), { result: 'r' });
   });
 
+  it('keeps the pushed-through marker across a reopen', () => {
+    const first = open(path);
+    first.restore([{ id: 4, event: ordered('b1') }], 'e'.repeat(40));
+    first.close();
+    const second = open(path);
+    assert.equal(second.lastEventId(), 4);
+    assert.deepEqual(second.pushedThrough(), { eventId: 4, commit: 'e'.repeat(40) });
+  });
+
   it('refuses a database written by a newer schema version', () => {
     const db = raw(path);
-    db.exec('PRAGMA user_version = 2');
+    db.exec('PRAGMA user_version = 3');
     db.close();
-    assert.throws(() => open(path), /schema version 2/);
+    assert.throws(() => open(path), /schema version 3/);
     // The refused connection is closed: on Windows an open file could not be removed.
     rmSync(path);
   });

@@ -45,6 +45,18 @@ export const EffectKeyText = z
     return parts.success && JSON.stringify(parts.data) === text;
   }, message);
 
+/** A full commit hash (SHA-1 or SHA-256). */
+export const CommitSha = z
+  .string()
+  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
+
+/**
+ * How far the state branch has the log (ADR 0024): every event up to `eventId` is on the remote
+ * branch, in `commit`. Kept in the store, never in the log, so it has no JSON Schema file.
+ */
+export const PushedThrough = z.strictObject({ eventId: z.int().nonnegative(), commit: CommitSha });
+export type PushedThrough = z.infer<typeof PushedThrough>;
+
 /**
  * Who holds an attempt (and its session) until when; alive while `expiresAt` is in the future.
  * Kept in the store's leases table, never in the log, so it has no JSON Schema file.
