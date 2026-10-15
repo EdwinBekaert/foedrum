@@ -106,7 +106,28 @@ describe('staleReason', () => {
     assert.equal(staleReason(withBomAndCrlf(lock), withBomAndCrlf(installed)), undefined);
   });
 
+  it('reads a stale record with a byte order mark and CRLF line endings as stale', () => {
+    const newer = lockFile({ 'node_modules/zod': { ...zod, version: '4.7.0' } });
+    assert.equal(
+      staleReason(
+        withBomAndCrlf(newer),
+        withBomAndCrlf(installedFile({ 'node_modules/zod': zod })),
+      ),
+      'node_modules/zod 4.6.5 is installed, package-lock.json has 4.7.0',
+    );
+  });
+
   it('gives no verdict when package-lock.json cannot be parsed, leaving that to npm', () => {
     assert.equal(staleReason('<<<<<<< HEAD', installed), undefined);
   });
+
+  for (const text of ['{}', 'null', '{"packages": null}']) {
+    it(`gives no verdict for a package-lock.json without packages: ${text}`, () => {
+      assert.equal(staleReason(text, installed), undefined);
+    });
+
+    it(`is stale when the installed record has no packages: ${text}`, () => {
+      assert.equal(staleReason(lock, text), 'node_modules/.package-lock.json cannot be parsed');
+    });
+  }
 });

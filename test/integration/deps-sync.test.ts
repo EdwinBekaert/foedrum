@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { outOfDate } from '../../scripts/deps-sync.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
@@ -22,6 +23,14 @@ const env = (npmExecpath: string): NodeJS.ProcessEnv => ({
 
 const runScript = (cwd: string) =>
   spawnSync(process.execPath, [script], { cwd, env: env(npmStub), encoding: 'utf8' });
+
+// The record a real npm ci wrote: CI installs with npm ci before these tests, so this checks the
+// core against what npm writes today, skipped optional and peer packages included.
+describe('outOfDate on this checkout', () => {
+  it('finds node_modules up to date after npm ci', async () => {
+    assert.equal(await outOfDate(root), undefined);
+  });
+});
 
 describe('scripts/deps-sync.ts with a stub npm', () => {
   let project: TempDir;
@@ -40,6 +49,7 @@ describe('scripts/deps-sync.ts with a stub npm', () => {
     // The stub npm echoes its arguments and exits 3.
     assert.match(stdout, /^deps:sync: node_modules is out of date .* npm ci failed \(exit 3\)/);
     assert.match(stdout, /stub npm: ci\n/);
+    assert.ok(stdout.includes(`stub npm cwd: ${project.path}\n`), stdout);
   });
 
   it('prints nothing when node_modules matches', () => {
