@@ -20,7 +20,7 @@ The lifecycle diagram in architecture §4.3 also leaves open which lanes each co
 
 ### Rewind only from Stuck
 - `rewind` is allowed only while the batch is Stuck and the Stuck event offers it. It is refused in every other lane. In Stuck the attempts in flight are already abandoned and the batch's deadlines already replaced, so `batch.rewound` needs no deadline or lease handling in the store.
-- A rewind names the commit of each repository it resets (`shas`, at least one). A sub-order's batch names exactly its own repository; the guard checks both. It appends `batch.rewound` and schedules the next attempt of the step it goes back to.
+- A rewind names the commit of each repository it resets (`shas`, at least one). A sub-order's batch names exactly its own repository; the guard checks both. The step must be one of the current recipe, which may differ from the recipe that ran it. It appends `batch.rewound` and schedules the next attempt of the step it goes back to.
 - To rewind a batch that is brewing, a human first gets it Stuck (or cancels it). That costs one extra step for a rare action, and keeps one place where in-flight attempts are abandoned.
 
 ### Lanes and transitions
@@ -44,7 +44,7 @@ Conditioning is entered before brewing starts, while a batch waits for a merge, 
 - `decide(state, command, context)` (`src/engine/decide.ts`) is the core of the command layer ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)). It takes the folded state and one command and returns the events to append, or a refusal. Each event goes through the guard against the state the events before it lead to, so no command can produce what the guard refuses. It is pure: the caller passes the time and the reminder interval.
 - Commands are TypeScript types of the engine. The surfaces that parse untrusted input into them (#37) give them zod schemas in `src/schemas/`; until then nothing outside the engine builds one, and every event a command produces is still parsed by the guard.
 - Commands: the human commands `retry`, `skip`, `answer`, `recipe`, `rewind` and `cancel`, and the engine's `route`, `finish`, `expire` (a deadline passed, invariant I5), `wait`, `remind` and `record` (events that decide nothing, such as `batch.ordered` or `effect.applied`). Every `switch` over commands, endings, blocker kinds, stuck reasons, continuations and lanes ends in a `never` check, so a new kind does not compile until it is handled.
-- A recipe is asked only what it knows, through a small `Recipe` interface (`src/engine/recipes.ts`): the first step, a step's deadline, what follows a step, whether a step may retry, and where an `onFail` or `onBlocked: findings` route goes. The state machine handles the outcomes itself:
+- A recipe is asked only what it knows, through a small `Recipe` interface (`src/engine/recipes.ts`): the first step, whether it has a step, a step's deadline, what follows a step, whether a step may retry, and where an `onFail` or `onBlocked: findings` route goes. The state machine handles the outcomes itself:
 
 | Ending | Next |
 |---|---|
@@ -63,7 +63,7 @@ Conditioning is entered before brewing starts, while a batch waits for a merge, 
 - I1 holds for Stuck batches without rewording it, and the supervisor (#10) has one mechanism, reminders, for Conditioning and Stuck.
 - `batch.stuck` changed shape. There is no stored state from before this change outside tests.
 - A rewind of a brewing batch takes two commands. The store needs no `batch.rewound` case, and no lease release is tied to it.
-- Recipe files (#52) can be written against a five-method interface; tests use a fake.
+- Recipe files (#52) can be written against a small interface; tests use a fake.
 - Entering Conditioning from brewing, and parallel groups (several attempts in flight in one batch), need their own transitions when recipes use them.
 
 ## Alternatives considered
