@@ -380,6 +380,16 @@ describe('SqliteEventStore in memory', () => {
       assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
     });
 
+    for (const field of ['owner', 'attemptKey'] as const) {
+      it(`rejects a lease with an empty ${field} and stores nothing`, () => {
+        assert.throws(
+          () => store.withTransaction((tx) => tx.putLease({ ...lease, [field]: '' })),
+          new RegExp(field),
+        );
+        assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
+      });
+    }
+
     it('rejects a lease with an invalid expiry', () => {
       assert.throws(
         () => store.withTransaction((tx) => tx.putLease({ ...lease, expiresAt: new Date('x') })),
