@@ -34,6 +34,12 @@ describe('secret-scan command', () => {
     assert.equal(result.status, 0, result.stdout + result.stderr);
   });
 
+  it('exits 1 for a long hex string that git does not know as a commit', () => {
+    const result = scan(`Base \`${'c0ffee'.repeat(6)}beef\`\n`);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stdout, /^line 1: long hexadecimal string/);
+  });
+
   it('exits 1 and names the line when it finds a secret', () => {
     const result = scan(`fine\n${githubToken}\n`);
     assert.equal(result.status, 1);
