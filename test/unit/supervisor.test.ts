@@ -134,6 +134,30 @@ describe('planTick: deadlines (invariant I5)', () => {
     assert.deepStrictEqual(tick.commands, [expire('b1')]);
   });
 
+  it('expires the running step, not an earlier step that finished, and loses nothing for it', () => {
+    const events: Event[] = [
+      ordered('b1'),
+      chosen('b1'),
+      scheduled('b1', '2026-10-15T10:00:00.000Z'),
+      started('b1'),
+      {
+        type: 'step.finished',
+        batchId: 'b1',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: null },
+      },
+      { type: 'step.scheduled', batchId: 'b1', stepId: 'implement', attempt: 1, deadlineAt: past },
+      { type: 'step.started', batchId: 'b1', stepId: 'implement', attempt: 1 },
+    ];
+    const lease = leaseOf(plan('b1'));
+    const tick = planTick(input(events, { due: [dueAt('b1')], expiredLeases: [lease] }));
+    assert.deepStrictEqual(tick, {
+      commands: [{ kind: 'expire', batchId: 'b1', stepId: 'implement', attempt: 1 }],
+      releaseLeases: [lease.attemptKey],
+    });
+  });
+
   it('follows the folded state when the index names a batch whose attempt is not due', () => {
     const tick = planTick(input(brewing('b1', ahead), { due: [dueAt('b1')] }));
     assert.deepStrictEqual(tick.commands, []);
