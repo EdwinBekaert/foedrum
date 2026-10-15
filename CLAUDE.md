@@ -38,6 +38,8 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
   - pushes that delete or mirror remote refs (`--delete`, `-d`, a `:branch` refspec, `--mirror`);
   - `gh pr merge`, also with `-R`/`--repo`.
 
+  The one exception is `npm run worktrees:clean` (see Worktree cleanup): it deletes remote branches whose tip is merged into `origin/main`, with a lease on that tip, and nothing else.
+
   The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f` or `gh -R owner/repo pr merge`.
 - Never bypass the gate. Fix the failure, or ask the user.
 - There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
@@ -46,7 +48,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 
 A `SessionStart` hook in `.claude/settings.json` runs `npm run worktrees:clean` in the background when a session starts or resumes in the main checkout (never inside a worktree), so worktrees and branches of merged pull requests disappear without a command typed by hand.
 
-- `scripts/worktrees-clean.ts` fetches with `--prune` and removes worktrees directly under `.claude/worktrees/` whose branch tip is an ancestor of `origin/main`, then deletes the branch with `git branch -d` (never `-D`) and the remote branch if it is merged too. Merged local branches without a worktree go the same way. Records under `.git/worktrees/` of any worktree inside `.claude/worktrees/` (at any depth, such as the review skill's scratch trees) whose folder is gone are deleted; there is no repository-wide `git worktree prune`.
+- `scripts/worktrees-clean.ts` fetches with `--prune` and removes worktrees directly under `.claude/worktrees/` whose branch tip is an ancestor of `origin/main` and not on its first-parent line (a branch with no commits of its own is never merged), then deletes the branch with `git branch -d` (never `-D`) and the remote branch if it is merged too. Merged local branches without a worktree go the same way. Records under `.git/worktrees/` of any worktree inside `.claude/worktrees/` (at any depth, such as the review skill's scratch trees) whose folder is gone are deleted; there is no repository-wide `git worktree prune`.
 - It keeps the main checkout, worktrees outside `.claude/worktrees/` or nested in another, the current worktree, worktrees with uncommitted or untracked changes, and worktrees locked by a live session (`claude session <name> (pid <n>)`); a lock whose pid is gone is unlocked first.
 - Deletes go through `src/platform/remove.ts` (read-only bits cleared, `EBUSY`/`EPERM`/`ENOTEMPTY` retried). Anything it cannot remove is printed with the reason and left alone; it never prompts and never fails the session.
 - Run it by hand with `npm run worktrees:clean` from any checkout of the repository.
