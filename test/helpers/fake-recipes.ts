@@ -1,9 +1,11 @@
 // A fake of the Brewery's recipes for state machine tests: steps in a line, with optional loops back.
 
-import type { Recipe, Recipes } from '../../src/engine/recipes.ts';
+import type { Recipe, Recipes, Stall } from '../../src/engine/recipes.ts';
 
 export interface FakeRecipe {
   steps: readonly string[];
+  /** The stall limit of every step; default none. */
+  stall?: Stall;
   /** Attempts per step before the batch is Stuck; default 2. */
   maxAttempts?: number;
   /** Where a failed check or a step blocked by findings goes back to, by step id. */
@@ -15,6 +17,7 @@ export const hour = 3_600_000;
 
 export const fakeRecipe = ({
   steps,
+  stall,
   maxAttempts = 2,
   routes = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
@@ -25,6 +28,7 @@ export const fakeRecipe = ({
     firstStep,
     has: (stepId) => steps.includes(stepId),
     deadlineMs: () => hour,
+    stall: () => stall,
     after: (_batch, stepId) => {
       const next = steps[steps.indexOf(stepId) + 1];
       return next === undefined ? { kind: 'done', pullRequests } : { kind: 'step', stepId: next };

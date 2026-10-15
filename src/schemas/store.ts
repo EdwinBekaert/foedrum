@@ -19,6 +19,9 @@ export type EffectKey = z.infer<typeof EffectKey>;
 /** The parts of an effect key in the order of its text. */
 export const EffectKeyParts = z.tuple([PathSafeId, PathSafeId, Attempt, Filled]);
 
+/** The parts of an attempt key, the `attemptKey` of a lease, in the order of its text (ADR 0027). */
+export const AttemptKeyParts = z.tuple([PathSafeId, PathSafeId, Attempt]);
+
 const parseJson = (text: string): unknown => {
   try {
     return JSON.parse(text);

@@ -157,6 +157,12 @@ describe('stuckOptions', () => {
     { kind: 'attempts_exhausted', stepId: 'plan', attempts: 2, lastReason: 'tests fail' },
     { kind: 'deadline_passed', stepId: 'plan', deadlineAt: inAnHour },
     { kind: 'waiting_for_session', stepId: 'plan' },
+    {
+      kind: 'stalled',
+      stepId: 'plan',
+      lastProgressAt: '2026-10-15T11:40:00.000Z',
+      turnsWithoutProgress: 60,
+    },
   ];
   for (const reason of others) {
     it(`offers every option but answer for ${reason.kind}`, () => {
@@ -512,6 +518,113 @@ describe('decide expire: brewing → Stuck (invariant I5)', () => {
   for (const [lane, events] of otherLanes('brewing')) {
     it(`refuses a batch that is ${lane}`, () => {
       refuses(events, expire, new RegExp(`batch b1 is ${lane}; expire needs it brewing`));
+    });
+  }
+});
+
+describe('decide lose: a lost attempt is retried (ADR 0027)', () => {
+  const lose = (stepId = 'plan', attempt = 1): Command => ({
+    kind: 'lose',
+    batchId: 'b1',
+    stepId,
+    attempt,
+    reason: 'the lease of runner-1 expired at 2026-10-15T11:59:00.000Z',
+  });
+  const lastReason =
+    'the attempt was lost: the lease of runner-1 expired at 2026-10-15T11:59:00.000Z';
+  const lost = (stepId = 'plan', attempt = 1): Event => ({
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId,
+    attempt,
+    outcome: { kind: 'failed', retryable: true, reason: lastReason },
+  });
+
+  it('records the attempt as a retryable failure and schedules the next attempt', () => {
+    accepts(brewing(), lose(), [lost(), next('plan', 2)]);
+  });
+
+  it('makes the batch Stuck when the step has no attempts left', () => {
+    accepts(brewing('plan', 2), lose('plan', 2), [
+      lost('plan', 2),
+      stuckOn({ kind: 'attempts_exhausted', stepId: 'plan', attempts: 2, lastReason }),
+    ]);
+  });
+
+  it('never sends a lost attempt along a route', () => {
+    accepts(brewing('green', 2), lose('green', 2), [
+      lost('green', 2),
+      stuckOn({ kind: 'attempts_exhausted', stepId: 'green', attempts: 2, lastReason }),
+    ]);
+  });
+
+  it('refuses an attempt that has not started', () => {
+    refuses(
+      [ordered, chosen(), scheduled('plan')],
+      lose(),
+      /attempt plan#1 of batch b1 has not started/,
+    );
+  });
+
+  it('refuses an attempt that finished', () => {
+    refuses(
+      [...brewing(), failed('plan', 1), scheduled('plan', 2)],
+      lose(),
+      /attempt plan#1 of batch b1 is not running/,
+    );
+  });
+
+  it('refuses an attempt that was never scheduled', () => {
+    refuses(brewing(), lose('plan', 3), /attempt plan#3 of batch b1 is not running/);
+  });
+
+  for (const [lane, events] of otherLanes('brewing')) {
+    it(`refuses a batch that is ${lane}`, () => {
+      refuses(events, lose(), new RegExp(`batch b1 is ${lane}; lose needs it brewing`));
+    });
+  }
+});
+
+describe('decide stall: brewing → Stuck (ADR 0027)', () => {
+  const stall: Command = {
+    kind: 'stall',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt: 1,
+    lastProgressAt: new Date('2026-10-15T11:40:00.000Z'),
+    turnsWithoutProgress: 60,
+  };
+
+  it('makes the batch Stuck, saying when the attempt last made progress', () => {
+    accepts(brewing(), stall, [
+      stuckOn({
+        kind: 'stalled',
+        stepId: 'plan',
+        lastProgressAt: '2026-10-15T11:40:00.000Z',
+        turnsWithoutProgress: 60,
+      }),
+    ]);
+  });
+
+  it('refuses an attempt that has not started', () => {
+    refuses(
+      [ordered, chosen(), scheduled('plan')],
+      stall,
+      /attempt plan#1 of batch b1 has not started/,
+    );
+  });
+
+  it('refuses an attempt that finished', () => {
+    refuses(
+      [...brewing(), failed('plan', 1), scheduled('plan', 2)],
+      stall,
+      /attempt plan#1 of batch b1 is not running/,
+    );
+  });
+
+  for (const [lane, events] of otherLanes('brewing')) {
+    it(`refuses a batch that is ${lane}`, () => {
+      refuses(events, stall, new RegExp(`batch b1 is ${lane}; stall needs it brewing`));
     });
   }
 });

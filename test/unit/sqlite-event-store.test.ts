@@ -372,6 +372,32 @@ describe('SqliteEventStore in memory', () => {
       assert.deepEqual(store.currentLeases(at('2026-10-15T10:02:00Z')), []);
     });
 
+    it('lists the leases that expired at or before now, earliest first', () => {
+      const later = {
+        attemptKey: 'b2/plan#1',
+        owner: 'session',
+        expiresAt: at('2026-10-15T10:02:00Z'),
+      };
+      store.withTransaction((tx) => {
+        tx.putLease(later);
+        tx.putLease(lease);
+      });
+
+      assert.deepEqual(store.expiredLeases(at('2026-10-15T10:00:00Z')), []);
+      assert.deepEqual(store.expiredLeases(at('2026-10-15T10:01:00Z')), [lease]);
+      assert.deepEqual(store.expiredLeases(at('2026-10-15T10:05:00Z')), [lease, later]);
+    });
+
+    it('no longer lists an expired lease once it is released', () => {
+      store.withTransaction((tx) => tx.putLease(lease));
+      store.withTransaction((tx) => tx.releaseLease(lease.attemptKey));
+      assert.deepEqual(store.expiredLeases(at('2026-10-15T10:05:00Z')), []);
+    });
+
+    it('refuses an invalid now for expired leases', () => {
+      assert.throws(() => store.expiredLeases(new Date(Number.NaN)), /now must be a valid date/);
+    });
+
     it('renews a lease in place and releases it', () => {
       const renewed = { ...lease, expiresAt: at('2026-10-15T10:05:00Z') };
       store.withTransaction((tx) => tx.putLease(lease));

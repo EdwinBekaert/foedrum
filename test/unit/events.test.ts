@@ -475,6 +475,12 @@ describe('StuckReason', () => {
       deadlineAt: '2026-10-15T12:00:00Z',
     },
     waiting_for_session: { kind: 'waiting_for_session', stepId: 'analyze' },
+    stalled: {
+      kind: 'stalled',
+      stepId: 'brew',
+      lastProgressAt: '2026-10-15T12:00:00Z',
+      turnsWithoutProgress: 60,
+    },
   };
   for (const [kind, reason] of Object.entries(reasons)) {
     it(`accepts ${kind}`, () => accepts(StuckReason, reason));
