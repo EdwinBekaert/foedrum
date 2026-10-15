@@ -161,7 +161,8 @@ State is derived from an append-only event log ([ADR 0002](adr/0002-event-source
 ```ts
 type Event =
   | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
-  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' | 'human' }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'human'; via: Surface }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
   | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef }  // required for brewer and session steps
   // SessionRef = { id: string; resumes?: string; worktree: string; claudeVersion: string }
@@ -173,9 +174,9 @@ type Event =
   | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
   | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: number[]; pullRequest: string }
   | { type: 'release.observed';    repo: string; package: string; version: string }
-  | { type: 'batch.rewound';       batchId: string; toStepId: string; by: string; shas: Record<string, string> }
+  | { type: 'batch.rewound';       batchId: string; toStepId: string; by: string; via: Surface; shas: Record<string, string> }
   | { type: 'batch.on_tap';        batchId: string; pullRequests: string[] }
-  | { type: 'batch.cancelled';     batchId: string; by: string }
+  | { type: 'batch.cancelled';     batchId: string; by: string; via: Surface }
   | { type: 'effect.applied';      key: string; result: unknown }   // idempotency ledger for external side effects
 ```
 
