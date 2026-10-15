@@ -274,6 +274,47 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.ok(existsSync(join(root, '12-1')));
     });
 
+    it('goes on after an item it could not remove, and reports each failure', async () => {
+      const review = join(root, '12-1', 'review', '1');
+      const reviewBranch = 'foedrum/12-1/review/1';
+      worktreeOnDisk(path, 'implement1');
+      worktreeOnDisk(review, 'review1');
+      const stray = 'foedrum/12-1/bottle';
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(
+            porcelain([
+              { path, branch },
+              { path: review, branch: reviewBranch },
+            ]),
+          );
+        }
+        if (args[0] === 'for-each-ref') {
+          return ok(`${branch}\0${TIP}\n${reviewBranch}\0${TIP}\n${stray}\0${BASE}\n`);
+        }
+        if (args[0] === 'worktree' && args[1] === 'remove' && args[2] === path) {
+          return failed('fatal: busy\n');
+        }
+        if (args[0] === 'update-ref' && args[2] === `refs/heads/${stray}`) {
+          return failed('fatal: cannot lock ref\n');
+        }
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended);
+
+      assert.deepEqual(report.failed, [
+        'could not clean 12-1/implement/1: fatal: busy',
+        `could not clean branch ${stray}: git update-ref failed: fatal: cannot lock ref`,
+      ]);
+      assert.deepEqual(report.done, [
+        'removed worktree 12-1/review/1',
+        `deleted branch ${reviewBranch}`,
+      ]);
+      assert.ok(calls.some(([, ...args]) => args[0] === 'worktree' && args[2] === review));
+    });
+
     it('knows its worktrees when the work root is reached through a link', async () => {
       // git lists worktrees by their real path; the work root here is a link to another folder.
       const real = join(dir.path, 'real-work');

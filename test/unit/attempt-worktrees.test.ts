@@ -149,6 +149,51 @@ describe('planClean', () => {
     });
   });
 
+  it('takes the branch of an unknown batch worktree along: checked out in the attempts root, it is ours', () => {
+    const worktree = listed(ended);
+
+    const plan = planClean(facts([worktree]), claims({}), root);
+
+    assert.deepEqual(plan.actions[0], {
+      kind: 'remove',
+      label: '12-1/implement/1',
+      path: worktree.path,
+      record: worktree.record,
+      branch: branchOf(ended),
+    });
+  });
+
+  it('removes a folder git does not know of a batch the state does not know', () => {
+    const folders = [{ batchId: '99-1', attempts: ['implement/1'] }];
+
+    const plan = planClean({ worktrees: [], branches: [], folders }, claims({}), root);
+
+    assert.deepEqual(
+      plan.actions.map((action) => ('label' in action ? `${action.kind} ${action.label}` : '')),
+      ['remove-folder 99-1/implement/1', 'remove-batch-folder 99-1'],
+    );
+  });
+
+  it('keeps a stale record below an attempt folder of a live batch', () => {
+    const stale = listed(ref('12-1', 'c'), {
+      path: join(root, '12-1', 'c', '1', 'sub'),
+      inside: '12-1/c/1/sub',
+      branch: undefined,
+      state: 'gone',
+    });
+
+    const plan = planClean(
+      { worktrees: [stale], branches: [], folders: [] },
+      claims({ '12-1': 'live' }),
+      root,
+    );
+
+    assert.deepEqual(plan, {
+      actions: [],
+      kept: ['kept worktree 12-1/c/1/sub: not an attempt folder'],
+    });
+  });
+
   it('removes the worktree of a batch the state does not know: the attempts root is ours', () => {
     const plan = planClean(facts([listed(ended)]), claims({}), root);
 
