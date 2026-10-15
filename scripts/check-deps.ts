@@ -47,9 +47,13 @@ const FETCH_TIMEOUT_MS = 60_000;
 const STRING_FIELDS = ['name', 'version', 'resolved', 'integrity'] as const;
 const BOOLEAN_FIELDS = ['hasInstallScript', 'link', 'dev', 'optional', 'devOptional'] as const;
 const LIST_FIELDS = ['os', 'cpu'] as const;
+const RECORD_FIELDS = ['optionalDependencies'] as const;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  isObject(value) && Object.values(value).every((v) => typeof v === 'string');
 
 const isStringList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((v) => typeof v === 'string');
@@ -69,6 +73,7 @@ export const parseLockfile = (text: string): Lockfile => {
       ...STRING_FIELDS.filter((f) => entry[f] !== undefined && typeof entry[f] !== 'string'),
       ...BOOLEAN_FIELDS.filter((f) => entry[f] !== undefined && typeof entry[f] !== 'boolean'),
       ...LIST_FIELDS.filter((f) => entry[f] !== undefined && !isStringList(entry[f])),
+      ...RECORD_FIELDS.filter((f) => entry[f] !== undefined && !isStringRecord(entry[f])),
     ];
     if (bad.length > 0) {
       throw new Error(`package-lock.json: ${key || '(root)'} has a malformed ${bad.join(', ')}`);
@@ -149,18 +154,34 @@ const isPlatformBinary = (entry: LockEntry): boolean =>
 
 const isDev = (entry: LockEntry): boolean => entry.dev === true || entry.devOptional === true;
 
+// The platform binaries that admitted packages ask for; they are admitted with their parent.
+const declaredBinaries = (lock: Lockfile, admitted: ReadonlySet<string>): Set<string> =>
+  new Set(
+    installed(lock)
+      .filter(([key, entry]) => admitted.has(packageName(key, entry)))
+      .flatMap(([, entry]) => Object.keys(entry.optionalDependencies ?? {})),
+  );
+
 // The budget and the admission list cover the installed tree (ADR 0004: "about 7 packages in
-// node_modules"), counting each package name once and leaving out platform binaries.
+// node_modules"), counting each package name once and leaving out platform binaries. Admission is
+// the human gate: a platform binary passes it only when an admitted package declares it.
 export const checkLockfile = (lock: Lockfile, policy: Policy): string[] => {
   const problems = installed(lock).flatMap(([key, entry]) => entryProblems(key, entry));
+  const declared = declaredBinaries(lock, policy.admitted);
+  const unlisted = new Set(
+    installed(lock)
+      .filter(([key, entry]) => {
+        const name = packageName(key, entry);
+        return !policy.admitted.has(name) && !(isPlatformBinary(entry) && declared.has(name));
+      })
+      .map(([key, entry]) => packageName(key, entry)),
+  );
+  for (const name of unlisted) problems.push(`${name}: not listed in DEPENDENCIES.md`);
   const counted = installed(lock).filter(([, entry]) => !isPlatformBinary(entry));
   const all = new Set(counted.map(([key, entry]) => packageName(key, entry)));
   const runtime = new Set(
     counted.filter(([, entry]) => !isDev(entry)).map(([key, entry]) => packageName(key, entry)),
   );
-  for (const name of all) {
-    if (!policy.admitted.has(name)) problems.push(`${name}: not listed in DEPENDENCIES.md`);
-  }
   if (runtime.size > policy.runtimeBudget) {
     problems.push(`runtime packages: ${runtime.size}, budget ${policy.runtimeBudget}`);
   }
