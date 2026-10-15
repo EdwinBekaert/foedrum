@@ -240,6 +240,28 @@ describe('SqliteEventStore in memory', () => {
       assert.equal(store.eventsAfter(0).length, 1);
     });
 
+    it('writes nothing for a rejected duplicate effect, even when the caller catches it', () => {
+      const tolerate = (write: () => void) => {
+        try {
+          write();
+        } catch (error) {
+          if (!(error instanceof DuplicateEffectError)) throw error;
+        }
+      };
+      store.withTransaction((tx) => tx.recordEffect(key, 'first'));
+      store.withTransaction((tx) => {
+        tolerate(() => tx.recordEffect(key, 'second'));
+        tolerate(() => tx.append(applied('third')));
+        tx.append(ordered('b1'));
+      });
+
+      assert.deepEqual(
+        store.eventsAfter(0).map((stored) => stored.event),
+        [applied('first'), ordered('b1')],
+      );
+      assert.deepEqual(store.findEffect(key), { result: 'first' });
+    });
+
     it('rejects an effect.applied event whose key is not a canonical effect key', () => {
       for (const text of ['open-pr', '["b1", "open-pr", 1, "pull_request"]']) {
         assert.throws(
@@ -480,6 +502,21 @@ describe('SqliteEventStore in memory', () => {
         'batch.rewound',
         { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
       ],
+      [
+        'bottle.opened',
+        {
+          type: 'bottle.opened',
+          bottleId: 'b1',
+          repo: 'o/r',
+          subOrders: [7],
+          pullRequest: 'https://github.com/o/r/pull/1',
+        },
+      ],
+      [
+        'release.observed',
+        { type: 'release.observed', repo: 'o/r', package: 'b1', version: '1.0.0' },
+      ],
+      ['effect.applied', applied('r')],
     ];
     for (const [type, event] of leavingAlone) {
       it(`keeps the deadline of a batch on ${type}`, () => {
@@ -676,6 +713,16 @@ describe('SqliteEventStore on a file', () => {
     assert.throws(() => db.exec('DELETE FROM events'), /append-only/);
     assert.throws(() => db.exec("UPDATE effects SET key = 'x'"), /append-only/);
     assert.throws(() => db.exec('DELETE FROM effects'), /append-only/);
+  });
+
+  it('lets the database refuse a second effect.applied event for a key', () => {
+    open(path).withTransaction((tx) => tx.recordEffect(key, 'r'));
+    const body = JSON.stringify(applied('again'));
+    assert.throws(
+      () =>
+        raw(path).prepare("INSERT INTO events (type, body) VALUES ('effect.applied', ?)").run(body),
+      /UNIQUE constraint failed: effects\.key/,
+    );
   });
 
   it('rejects a stored event that fails the schema when reading it', () => {
