@@ -3,7 +3,7 @@
 // Both turn what the process did into the outcome through settleAttempt, so the rules are shared.
 
 import type { Usage } from '../schemas/events.ts';
-import type { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
@@ -68,7 +68,72 @@ export interface AttemptFacts {
   turns: number;
 }
 
-/** The outcome of an attempt from what the runner saw (ADR 0005: no out doc is never success). */
-export function settleAttempt(_facts: AttemptFacts, _limits: AttemptLimits): Ending {
-  throw new Error('not implemented');
+/** How much of a garbage line a reason quotes: the stream is untrusted and may be huge. */
+const quoted = 120;
+
+const failed = (retryable: boolean, reason: string): Ending => ({
+  kind: 'failed',
+  retryable,
+  reason,
+});
+
+/**
+ * The outcome of an attempt from what the runner saw, the first rule that applies winning: a
+ * limit the runner enforced, then how the process ended, then the stream, then the out doc
+ * (ADR 0005: a missing or invalid out doc is a failure, never success).
+ */
+export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Ending {
+  const { exit, denials, turns } = facts;
+  const { maxDenials, maxTurns, outDoc } = limits;
+  if (exit.kind === 'unstartable') {
+    return failed(false, `the brewer could not start: ${exit.reason}`);
+  }
+  // Another attempt would hit the same wall (brewers-and-recipes §1.1).
+  if (maxDenials !== undefined && denials >= maxDenials) {
+    const summary = `${denials} permission denials, maxDenials is ${maxDenials}`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
+  // The same budget would run out again.
+  if (maxTurns !== undefined && turns > maxTurns) {
+    return failed(false, `budget exceeded: ${turns} turns, maxTurns is ${maxTurns}`);
+  }
+  switch (exit.kind) {
+    case 'stopped':
+      return { kind: 'cancelled' };
+    case 'killed':
+      return failed(true, `the brewer process was killed by ${exit.signal}`);
+    case 'exited':
+      if (exit.code !== 0) return failed(true, `the brewer process exited with code ${exit.code}`);
+      break;
+    default: {
+      const unhandled: never = exit;
+      throw new Error(`Unhandled exit ${JSON.stringify(unhandled)}`);
+    }
+  }
+  if (facts.garbage !== undefined) {
+    const line = JSON.stringify(facts.garbage.slice(0, quoted));
+    return failed(true, `the event stream is not stream-json: ${line}`);
+  }
+  if (facts.outDoc === undefined) return failed(true, `the out doc ${outDoc.file} is missing`);
+  const read = readOutDoc(facts.outDoc, outDoc.schema);
+  if (!read.valid) return failed(true, `the out doc ${outDoc.file} is invalid: ${read.reason}`);
+  const frontmatter = read.frontmatter;
+  switch (frontmatter.status) {
+    case 'done':
+      return { kind: 'succeeded', output: frontmatter };
+    case 'needs_input':
+      return { kind: 'needs_input', questions: frontmatter.questions };
+    case 'blocked':
+      return {
+        kind: 'blocked',
+        blockerKind: frontmatter.blockerKind,
+        summary: frontmatter.summary,
+      };
+    case 'failed':
+      return failed(true, `the brewer failed: ${frontmatter.summary}`);
+    default: {
+      const unhandled: never = frontmatter;
+      throw new Error(`Unhandled out-doc status ${JSON.stringify(unhandled)}`);
+    }
+  }
 }

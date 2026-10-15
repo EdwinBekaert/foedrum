@@ -15,6 +15,13 @@ export interface BrewerEnvLayers {
 }
 
 /** The layers merged in order; a later layer replaces a name of an earlier one. */
-export function buildBrewerEnv(_layers: BrewerEnvLayers): Record<string, string> {
-  throw new Error('not implemented');
+export function buildBrewerEnv(layers: BrewerEnvLayers): Record<string, string> {
+  const { base, brewer, forced, platform } = layers;
+  const key = platform === 'win32' ? (name: string) => name.toUpperCase() : (name: string) => name;
+  // By key, so on Windows a later `PATH` replaces an earlier `Path`, spelling included.
+  const merged = new Map<string, [string, string]>();
+  for (const layer of [base, brewer, forced]) {
+    for (const [name, value] of Object.entries(layer)) merged.set(key(name), [name, value]);
+  }
+  return Object.fromEntries(merged.values());
 }
