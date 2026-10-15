@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -109,6 +109,26 @@ describe('resolveExecutable on this machine', () => {
 
   it('finds nothing for a name that is not installed', () => {
     assert.equal(resolveExecutable('foedrum-no-such-tool'), undefined);
+  });
+});
+
+// A repository's own git.exe in the working directory must not run instead of the installed
+// git (#12). The decoy is a copy of node, which answers --version with its own version.
+describe('execProcess and a planted git.exe', { skip: process.platform !== 'win32' }, () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('decoy');
+    copyFileSync(process.execPath, join(dir.path, 'git.exe'));
+    copyFileSync(process.execPath, join(dir.path, 'git.com'));
+  });
+  afterEach(() => removeTree(dir.path));
+
+  // A relative PATH folder means the working directory of the process that starts.
+  it('runs the git on PATH, not the one a relative PATH folder points at', async () => {
+    const env = { ...process.env, PATH: `.;${process.env.PATH ?? ''}` };
+    const result = await execProcess('git', ['--version'], { cwd: dir.path, env });
+    assert.equal(result.exitCode, 0, result.output);
+    assert.match(result.stdout, /^git version /);
   });
 });
 

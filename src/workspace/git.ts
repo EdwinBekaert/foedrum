@@ -15,6 +15,8 @@ export interface GitOptions {
   timeoutMs?: number;
   /** Configuration for this call only, given through the environment (`GIT_CONFIG_COUNT`). */
   config?: Readonly<Record<string, string>>;
+  /** Kills git and every process it started when it aborts. */
+  signal?: AbortSignal;
 }
 
 export type Git = (

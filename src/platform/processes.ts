@@ -12,6 +12,8 @@ export interface KillTreeOptions {
   signal?: (pid: number, signal: NodeJS.Signals) => void;
   /** Runs `taskkill /PID <pid> /T /F` (Windows). */
   taskkill?: (pid: number) => void;
+  /** The clock for the grace period between SIGTERM and SIGKILL (POSIX). */
+  timers?: Timers;
 }
 
 /** Spawn options a process needs so that killProcessTree can end its whole tree. */
@@ -118,6 +120,11 @@ export interface Spawner {
     options: { cwd: string; env: NodeJS.ProcessEnv },
   ) => ChildHandle;
   killTree: (pid: number) => void;
+  /**
+   * The file a command name runs, or undefined when there is none. The runner spawns what this
+   * returns; without it, the name as given.
+   */
+  resolve?: (file: string, env: NodeJS.ProcessEnv) => string | undefined;
 }
 
 /**

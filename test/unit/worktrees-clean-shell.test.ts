@@ -336,6 +336,15 @@ describe('gitThrough', () => {
     });
   });
 
+  it('says git ended without an exit code when it was stopped without a word', async () => {
+    const { git } = answering({ code: null, stdout: '', stderr: '' });
+    assert.deepEqual(await git('/work/repo', ['fetch', '--prune']), {
+      ok: false,
+      stdout: '',
+      stderr: 'git fetch ended without an exit code',
+    });
+  });
+
   it('fails, saying so, when git was killed at its deadline', async () => {
     const stderr = 'git timed out after 60000 ms';
     const { git } = answering({ code: null, stdout: '', stderr });

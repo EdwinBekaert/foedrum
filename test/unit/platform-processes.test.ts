@@ -60,40 +60,82 @@ describe('killProcessTree', () => {
     };
   };
 
+  // A clock whose timers run only when the test says so.
+  const clock = () => {
+    const pending: { callback: () => void; ms: number }[] = [];
+    const timers: Timers = {
+      set: (callback, ms) => {
+        pending.push({ callback, ms });
+        return pending.length;
+      },
+      clear: () => {},
+    };
+    const fire = () => {
+      for (const { callback } of pending.splice(0)) callback();
+    };
+    return { pending, timers, fire };
+  };
+
   it('runs taskkill for the whole tree on Windows', () => {
     const r = recorder();
-    killProcessTree(42, { platform: 'win32', signal: r.signal, taskkill: r.taskkill });
+    const c = clock();
+    killProcessTree(42, {
+      platform: 'win32',
+      signal: r.signal,
+      taskkill: r.taskkill,
+      timers: c.timers,
+    });
     assert.deepEqual(r.taskkills, [42]);
     assert.deepEqual(r.signals, []);
+    assert.deepEqual(c.pending, []);
   });
 
+  // A process that leads a group asks no one else to stop: npm run check, killed by the gate,
+  // kills its own steps' groups on SIGTERM, which SIGKILL would not let it do.
   for (const platform of ['linux', 'darwin'] as const) {
-    it(`kills the process group on ${platform}`, () => {
+    it(`asks the process group to stop on ${platform}, and kills it after 2 to 3 s`, () => {
       const r = recorder();
-      killProcessTree(42, { platform, signal: r.signal, taskkill: r.taskkill });
-      assert.deepEqual(r.signals, [[-42, 'SIGKILL']]);
+      const c = clock();
+      killProcessTree(42, { platform, signal: r.signal, taskkill: r.taskkill, timers: c.timers });
+      assert.deepEqual(r.signals, [[-42, 'SIGTERM']]);
+      assert.equal(c.pending.length, 1);
+      const graceMs = c.pending[0]?.ms ?? 0;
+      assert.ok(graceMs >= 2000 && graceMs <= 3000, String(graceMs));
+      c.fire();
+      assert.deepEqual(r.signals, [
+        [-42, 'SIGTERM'],
+        [-42, 'SIGKILL'],
+      ]);
       assert.deepEqual(r.taskkills, []);
     });
   }
 
-  it('kills the process itself when it leads no group', () => {
+  it('signals the process itself when it leads no group', () => {
     const r = recorder();
+    const c = clock();
     const signal = (pid: number, name: NodeJS.Signals) => {
       r.signal(pid, name);
       if (pid < 0) throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
     };
-    killProcessTree(42, { platform: 'linux', signal, taskkill: r.taskkill });
+    killProcessTree(42, { platform: 'linux', signal, taskkill: r.taskkill, timers: c.timers });
     assert.deepEqual(r.signals, [
+      [-42, 'SIGTERM'],
+      [42, 'SIGTERM'],
+    ]);
+    c.fire();
+    assert.deepEqual(r.signals.slice(2), [
       [-42, 'SIGKILL'],
       [42, 'SIGKILL'],
     ]);
   });
 
   it('ignores a process that is already gone', () => {
+    const c = clock();
     const signal = () => {
       throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
     };
-    assert.doesNotThrow(() => killProcessTree(42, { platform: 'linux', signal }));
+    assert.doesNotThrow(() => killProcessTree(42, { platform: 'linux', signal, timers: c.timers }));
+    assert.deepEqual(c.pending, []);
   });
 });
 
@@ -202,6 +244,42 @@ describe('execProcessWith', () => {
     const result = await exec('claude.cmd', [], { cwd: '/work/tree' });
     assert.equal(result.exitCode, null);
     assert.equal(result.output, 'spawn EINVAL');
+  });
+
+  // On Windows a bare name would be looked up in the child's working directory first, where a
+  // repository can plant its own git.exe (#12).
+  it('starts the file the spawner resolves the name to, in its environment', async () => {
+    const child = new FakeChild();
+    const { spawned, spawner } = fakeSpawner(child);
+    const resolved: [string, NodeJS.ProcessEnv][] = [];
+    const exec = execProcessWith({
+      ...spawner,
+      resolve: (file, env) => {
+        resolved.push([file, env]);
+        return 'C:\\Program Files\\Git\\cmd\\git.exe';
+      },
+    });
+    const env = { PATH: 'C:\\Program Files\\Git\\cmd' };
+    const done = exec('git', ['status'], { cwd: 'D:\\work\\tree', env });
+    child.close(0);
+    await done;
+    assert.deepEqual(resolved, [['git', env]]);
+    assert.equal(spawned[0]?.file, 'C:\\Program Files\\Git\\cmd\\git.exe');
+  });
+
+  it('starts nothing, and says so, when the name resolves to no file', async () => {
+    const child = new FakeChild();
+    const { spawned, spawner } = fakeSpawner(child);
+    const exec = execProcessWith({ ...spawner, resolve: () => undefined });
+    const done = exec('git', ['status'], { cwd: '/work/tree' });
+    // Ends a child that was started all the same, so the test fails instead of waiting.
+    await settle();
+    child.close(0);
+    const result = await done;
+    assert.deepEqual(spawned, []);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /git: not found on PATH/);
+    assert.equal(result.stderr, result.output);
   });
 
   describe('with a deadline', () => {

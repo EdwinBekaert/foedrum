@@ -90,6 +90,13 @@ describe('runGitWith', () => {
     );
   });
 
+  it("passes the call's stop signal on", async () => {
+    const { calls, git } = answering(exited(0));
+    const stop = new AbortController();
+    await git('/work/repo', ['fetch'], { signal: stop.signal });
+    assert.equal(calls[0]?.[2].signal, stop.signal);
+  });
+
   it("answers with git's exit code and output", async () => {
     const { git } = answering(exited(128, 'out', 'fatal: no\n'));
     assert.deepEqual(await git('/work/repo', ['status']), {
