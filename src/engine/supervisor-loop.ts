@@ -114,53 +114,78 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     return result;
   };
 
+  /** Decides `command` and appends its events in a transaction of its own. */
+  const apply = (command: EngineCommand, now: Date): number => {
+    try {
+      const decision = decide(state, command, { now, recipes, reminderMs });
+      if (decision.kind === 'refused') {
+        report({ kind: 'refused', command, reason: decision.reason });
+        return 0;
+      }
+      store.withTransaction((tx) => {
+        for (const event of decision.events) tx.append(event);
+      });
+      refresh();
+      return decision.events.length;
+    } catch (error) {
+      // One broken command must not keep the other batches from their deadlines (I5).
+      report({ kind: 'command_failed', command, error });
+      return 0;
+    }
+  };
+
   const tick = async (): Promise<TickReport> => {
     const now = clock();
-    const { commands, releaseLeases } = planTick({
-      state: refresh(),
-      due: store.batchesPastDeadline(now),
-      expiredLeases: store.expiredLeases(now),
-      progress,
-      recipes,
-      now,
-    });
     let appended = 0;
-    if (commands.length > 0 || releaseLeases.length > 0) {
-      store.withTransaction((tx) => {
-        let current = state;
-        for (const command of commands) {
-          const decision = decide(current, command, { now, recipes, reminderMs });
-          if (decision.kind === 'refused') {
-            report({ kind: 'refused', command, reason: decision.reason });
-            continue;
-          }
-          for (const event of decision.events) tx.append(event);
-          appended += decision.events.length;
-          current = fold(decision.events, current);
-        }
-        for (const key of releaseLeases) tx.releaseLease(key);
+    let failure: { error: unknown } | undefined;
+    try {
+      const { commands, releaseLeases } = planTick({
+        state: refresh(),
+        due: store.batchesPastDeadline(now),
+        expiredLeases: store.expiredLeases(now),
+        progress,
+        recipes,
+        now,
       });
+      for (const command of commands) appended += apply(command, now);
+      if (releaseLeases.length > 0) {
+        store.withTransaction((tx) => {
+          for (const key of releaseLeases) tx.releaseLease(key);
+        });
+      }
+    } catch (error) {
+      failure = { error };
     }
-    return { appended, flush: await flush(now) };
+    // Unpushed events never wait for a tick that works (ADR 0024).
+    const flushed = await flush(now);
+    if (failure !== undefined) throw failure.error;
+    return { appended, flush: flushed };
   };
 
   let handle: unknown;
   let stopped = true;
+  // Each run has its own number, so a tick of an earlier run never schedules another.
+  let current = 0;
   let finish: { resolve: () => void; reject: (error: unknown) => void } | undefined;
 
-  const loop = async (): Promise<void> => {
-    try {
-      await tick();
-    } catch (error) {
-      if (error instanceof StateBranchStopError) {
-        stopped = true;
-        finish?.reject(error);
-        return;
+  const loopOf = (run: number) => {
+    const loop = async (): Promise<void> => {
+      try {
+        await tick();
+      } catch (error) {
+        if (error instanceof StateBranchStopError) {
+          if (run === current) {
+            stopped = true;
+            finish?.reject(error);
+          }
+          return;
+        }
+        report({ kind: 'tick_failed', error });
       }
-      report({ kind: 'tick_failed', error });
-    }
-    // The next tick waits for this one, so ticks never overlap.
-    if (!stopped) handle = timer.set(loop, intervalMs);
+      // The next tick waits for this one, so ticks never overlap.
+      if (!stopped && run === current) handle = timer.set(loop, intervalMs);
+    };
+    return loop;
   };
 
   return {
@@ -169,7 +194,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
       new Promise<void>((resolve, reject) => {
         finish = { resolve, reject };
         stopped = false;
-        handle = timer.set(loop, intervalMs);
+        handle = timer.set(loopOf(++current), intervalMs);
       }),
     stop: () => {
       stopped = true;
