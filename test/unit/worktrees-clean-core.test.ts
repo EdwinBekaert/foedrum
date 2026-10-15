@@ -47,8 +47,12 @@ describe('plan: worktrees under .claude/worktrees/', () => {
     assert.deepEqual(result.kept, []);
   });
 
+  // A detached worktree has no branch, so there is no branch fact for it either.
   const keptFor = (fact: Partial<WorktreeFact>, branchFact: Partial<BranchFact> = {}) =>
-    run({ worktrees: [worktree('7-a', fact)], branches: [branch('7-a', branchFact)] });
+    run({
+      worktrees: [worktree('7-a', fact)],
+      branches: 'branch' in fact && fact.branch === undefined ? [] : [branch('7-a', branchFact)],
+    });
 
   for (const [title, fact, branchFact, reason] of [
     ['unmerged', {}, { merged: false }, 'not merged'],
