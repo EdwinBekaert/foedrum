@@ -173,6 +173,7 @@ function apply(state: State, event: Event): State {
     }
     case 'step.started':
       return updateAttempt(state, event, (current) => {
+        if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');
         return {
           phase: 'started',
           attempt: current.attempt,
@@ -183,6 +184,7 @@ function apply(state: State, event: Event): State {
     case 'step.finished':
       return updateAttempt(state, event, (current) => {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
+        if (current.phase === 'finished') throw attemptError(event, 'was already finished');
         return {
           ...current,
           phase: 'finished',
