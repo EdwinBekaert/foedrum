@@ -199,7 +199,10 @@ describe('SqliteEventStore in memory', () => {
         (error) => error instanceof DuplicateEffectError && error.key === key,
       );
 
-      assert.deepEqual(store.eventsAfter(0), []);
+      assert.deepEqual(
+        store.eventsAfter(0).map((stored) => stored.event),
+        [applied('first')],
+      );
       assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
       assert.deepEqual(store.findEffect(key), { result: 'first' });
     });
