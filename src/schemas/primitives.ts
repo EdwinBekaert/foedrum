@@ -46,11 +46,9 @@ export const ToolRule = z
 
 /** An allowlist entry: never AskUserQuestion, which is always denied (ADR 0006). */
 export const AllowedTool = ToolRule.refine(
-  (rule) => toolOf(rule) !== 'AskUserQuestion',
+  (rule) => parseRule(rule).tool !== 'AskUserQuestion',
   'AskUserQuestion is always denied',
 );
-
-const toolOf = (rule: string): string => rule.split('(', 1)[0] ?? rule;
 
 /**
  * Whether an allowlist entry stays within the ceiling: a ceiling entry covers the same tool when

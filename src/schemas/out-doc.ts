@@ -43,9 +43,7 @@ export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) 
 export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
 export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 
-export type OutDocResult<T> = DocResult<T>;
-
 /** Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the reason. */
-export function readOutDoc<T>(text: string, schema: z.ZodType<T>): OutDocResult<T> {
+export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> {
   return readDoc(text, schema);
 }
