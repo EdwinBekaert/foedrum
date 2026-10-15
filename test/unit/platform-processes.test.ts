@@ -123,10 +123,23 @@ describe('killProcessTree', () => {
       [42, 'SIGTERM'],
     ]);
     c.fire();
-    assert.deepEqual(r.signals.slice(2), [
-      [-42, 'SIGKILL'],
-      [42, 'SIGKILL'],
-    ]);
+    // Only the process that took the SIGTERM: the group was never there.
+    assert.deepEqual(r.signals.slice(2), [[42, 'SIGKILL']]);
+  });
+
+  // By the time of the SIGKILL the system may have given the pid to an unrelated process.
+  it('sends SIGKILL to nothing else when the group that took the SIGTERM is gone', () => {
+    const r = recorder();
+    const c = clock();
+    let groupGone = false;
+    const signal = (pid: number, name: NodeJS.Signals) => {
+      if (pid < 0 && groupGone) throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
+      r.signal(pid, name);
+    };
+    killProcessTree(42, { platform: 'linux', signal, timers: c.timers });
+    groupGone = true;
+    c.fire();
+    assert.deepEqual(r.signals, [[-42, 'SIGTERM']]);
   });
 
   it('ignores a process that is already gone', () => {
