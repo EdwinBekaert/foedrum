@@ -1,16 +1,57 @@
-// Out-doc frontmatter (brewers-and-recipes §2, ADR 0005). Stub: not implemented yet.
+// Out-doc frontmatter: how a brewer reports its outcome (brewers-and-recipes §2, ADR 0005).
 
+import { parseFrontmatter } from '../formats/frontmatter.ts';
+import { NonEmpty, Question } from './step-outcome.ts';
 import { z } from './zod.ts';
 
-export const OutDocFrontmatter = z.never();
-export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
+export const BlockerKind = z.enum(['findings', 'environment', 'divergence']);
+export type BlockerKind = z.infer<typeof BlockerKind>;
 
-export const outDocFrontmatter = (_fields: z.ZodRawShape) => z.never();
+const shared = {
+  summary: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line'),
+  assumptions: z.array(NonEmpty).default([]),
+};
+
+// `questions` only with needs_input and `blockerKind` only with blocked: strict objects reject them elsewhere.
+const variants = [
+  z.strictObject({ status: z.literal('done'), ...shared }),
+  z.strictObject({
+    status: z.literal('needs_input'),
+    ...shared,
+    questions: z.array(Question).min(1),
+  }),
+  z.strictObject({ status: z.literal('blocked'), ...shared, blockerKind: BlockerKind }),
+  z.strictObject({ status: z.literal('failed'), ...shared }),
+] as const;
+
+/** The out-doc frontmatter with a brewer's own fields (for example a review verdict) added to every status. */
+export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) =>
+  z.discriminatedUnion('status', [
+    variants[0].extend(fields),
+    variants[1].extend(fields),
+    variants[2].extend(fields),
+    variants[3].extend(fields),
+  ]);
+
+export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
+export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 
 export type OutDocResult<T> =
   | { valid: true; frontmatter: T; body: string }
   | { valid: false; reason: string };
 
-export function readOutDoc<T>(_text: string, _schema: z.ZodType<T>): OutDocResult<T> {
-  throw new Error('not implemented');
+/** Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the reason. */
+export function readOutDoc<T>(text: string, schema: z.ZodType<T>): OutDocResult<T> {
+  let parsed: ReturnType<typeof parseFrontmatter>;
+  try {
+    parsed = parseFrontmatter(text);
+  } catch (error) {
+    // ParseError, or JSON.parse's own SyntaxError when the reader cannot locate the error.
+    if (error instanceof SyntaxError) return { valid: false, reason: error.message };
+    throw error;
+  }
+  const result = schema.safeParse(parsed.data);
+  return result.success
+    ? { valid: true, frontmatter: result.data, body: parsed.body }
+    : { valid: false, reason: z.prettifyError(result.error) };
 }

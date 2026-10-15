@@ -25,7 +25,8 @@
     "lint": "biome check",
     "test": "node --test \"test/**/*.test.ts\"",
     "check": "npm run typecheck && npm run lint && npm test",
-    "hook:gate": "node scripts/precheck.ts"
+    "hook:gate": "node scripts/precheck.ts",
+    "schemas": "node scripts/generate-schemas.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
