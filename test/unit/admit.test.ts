@@ -214,6 +214,12 @@ describe('admit refuses what the fold throws on', () => {
       /effect \["b1","plan",1,"pr"\] was already applied/,
     ],
     [
+      'an effect of an attempt that was never scheduled',
+      [ordered],
+      { type: 'effect.applied', key: prKey, result: { number: 7 } },
+      /attempt plan#1 of batch b1 was never scheduled/,
+    ],
+    [
       'a breakdown of a sub-order',
       [
         ordered,
