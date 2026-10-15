@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { parseJsonc } from '../../src/formats/jsonc.ts';
 import { writeJsonSchemas } from '../../src/schemas/json-schema.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
@@ -26,7 +27,46 @@ describe('writeJsonSchemas', () => {
   const generated = readAll(first.path);
 
   it('writes one JSON Schema file per schema', () => {
-    assert.deepEqual(Object.keys(generated), ['event.json', 'out-doc.json', 'step-outcome.json']);
+    assert.deepEqual(Object.keys(generated), [
+      'brewer.json',
+      'event.json',
+      'foedrum.json',
+      'house-yeast.json',
+      'models.json',
+      'out-doc.json',
+      'recipe.json',
+      'step-outcome.json',
+    ]);
+  });
+
+  // Editors offer completion for a JSONC file through its "$schema" (ADR 0007).
+  for (const [file, schema] of [
+    ['config/foedrum.jsonc', 'foedrum.json'],
+    ['config/models.jsonc', 'models.json'],
+    ['recipes/half-pint.jsonc', 'recipe.json'],
+  ] as const) {
+    it(`lets ${file} name ${schema} as its $schema`, () => {
+      const fixture = join(import.meta.dirname, '..', 'fixtures', ...file.split('/'));
+      const { $schema } = parseJsonc(readFileSync(fixture, 'utf8')) as { $schema: string };
+      assert.equal(resolve(dirname(fixture), $schema), join(committed, schema));
+      const json = JSON.parse(generated[schema] ?? '{}') as {
+        properties?: { $schema?: { type?: string } };
+      };
+      assert.equal(json.properties?.$schema?.type, 'string');
+    });
+  }
+
+  it('describes the fields of foedrum.jsonc for editor tooltips', () => {
+    const json = JSON.parse(generated['foedrum.json'] ?? '{}') as {
+      properties?: Record<string, { description?: string }>;
+    };
+    for (const field of ['permissionCeiling', 'repositories']) {
+      assert.ok(json.properties?.[field]?.description, field);
+    }
+  });
+
+  it('describes a recipe step as exactly one kind of step', () => {
+    assert.match(generated['recipe.json'] ?? '', /"oneOf"/);
   });
 
   it('writes 2020-12 JSON Schemas as LF-terminated JSON', () => {
