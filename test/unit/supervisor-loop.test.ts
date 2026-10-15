@@ -542,7 +542,7 @@ describe('createSupervisor', () => {
       await running;
     });
 
-    it('runs on the real timer by default', async () => {
+    it('runs on the real timer by default', { timeout: 2000 }, async () => {
       const stateBranch = fakeBranch();
       const engine = createSupervisor({
         store,
