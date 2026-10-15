@@ -189,6 +189,19 @@ export const openSqliteEventStore = (
     'SELECT attempt_key, owner, expires_at FROM leases WHERE expires_at > ? ' +
       'ORDER BY expires_at, attempt_key',
   );
+  const selectExpiredLeases = db.prepare(
+    'SELECT attempt_key, owner, expires_at FROM leases WHERE expires_at <= ? ' +
+      'ORDER BY expires_at, attempt_key',
+  );
+  const leasesFrom = (statement: StatementSync, now: Date): Lease[] =>
+    rows<{ attempt_key: string; owner: string; expires_at: number }>(
+      statement,
+      timeOf(now, 'now'),
+    ).map((row) => ({
+      attemptKey: row.attempt_key,
+      owner: row.owner,
+      expiresAt: new Date(row.expires_at),
+    }));
   const selectEffect = db.prepare(
     'SELECT events.id, events.body FROM effects JOIN events ON events.id = effects.event_id ' +
       'WHERE effects.key = ?',
@@ -354,21 +367,9 @@ export const openSqliteEventStore = (
         deadlineAt: new Date(row.deadline_at),
       })),
 
-    currentLeases: (now) =>
-      rows<{ attempt_key: string; owner: string; expires_at: number }>(
-        selectLeases,
-        timeOf(now, 'now'),
-      ).map(
-        (row): Lease => ({
-          attemptKey: row.attempt_key,
-          owner: row.owner,
-          expiresAt: new Date(row.expires_at),
-        }),
-      ),
+    currentLeases: (now) => leasesFrom(selectLeases, now),
 
-    expiredLeases: () => {
-      throw new Error('not implemented');
-    },
+    expiredLeases: (now) => leasesFrom(selectExpiredLeases, now),
 
     replay: (log) =>
       withTransaction(() => {
