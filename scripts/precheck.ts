@@ -121,10 +121,14 @@ const lastChars = (text: string): string =>
 // Why node_modules in the checkout around `cwd` is out of date, or undefined.
 export type StaleReason = (cwd: string) => Promise<string | undefined>;
 
+// Whether HEAD in the checkout around `cwd` is detached.
+export type HeadIsDetached = (cwd: string) => Promise<boolean>;
+
 export const precheck = async (
   input: string,
   runCheck: RunCheck,
   staleReason: StaleReason = async () => undefined,
+  _headIsDetached: HeadIsDetached = async () => false,
 ): Promise<HookResult> => {
   if (!MAY_NAME_GIT_OR_GH.test(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -161,7 +165,7 @@ export const precheck = async (
 };
 
 // Type-only, so erased: the module still has no static imports.
-import type { RunProcess } from './process-runner.ts';
+import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
@@ -179,6 +183,16 @@ export const npmCheck =
     }
     const { exitCode, output } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd);
     return { ok: exitCode === 0, output };
+  };
+
+export const isDetached = (_outcome: ProcessOutcome): boolean => {
+  throw new Error('not implemented');
+};
+
+export const gitHeadIsDetached =
+  (_runProcess: RunProcess): HeadIsDetached =>
+  async () => {
+    throw new Error('not implemented');
   };
 
 const readStdin = async (): Promise<string> => {

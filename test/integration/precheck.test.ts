@@ -3,7 +3,7 @@
 // The gate's decisions are unit tests in test/unit/precheck.test.ts.
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -104,6 +104,31 @@ describe('scripts/precheck.ts with a stub npm', () => {
         stderr,
         'node_modules is out of date with package-lock.json (node_modules/.package-lock.json is missing); run npm ci\n',
       );
+    } finally {
+      project.remove();
+    }
+  });
+
+  it('blocks a push from a checkout whose HEAD is detached, asking real git', async () => {
+    const project = makeTempDir('detached-head');
+    try {
+      const git = (args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          stdio: 'ignore',
+        });
+      git(['init', '-q', '-b', 'main']);
+      git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      git(['checkout', '-q', '--detach']);
+      const { code, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', project.path),
+        { cwd: root, env: envWithoutNpm({ npm_execpath: npmStub }) },
+      );
+      assert.equal(code, 2);
+      assert.match(stderr, /^git push is blocked: HEAD is detached in .*detached-head-/);
+      assert.doesNotMatch(stderr, /stub npm/);
     } finally {
       project.remove();
     }

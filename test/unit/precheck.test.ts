@@ -8,6 +8,8 @@ import { describe, it } from 'node:test';
 import {
   type CheckResult,
   forbiddenReason,
+  gitHeadIsDetached,
+  isDetached,
   isGatedCommand,
   npmCheck,
   type ProcessOutcome,
@@ -192,6 +194,92 @@ describe('precheck on a stale node_modules', () => {
       assert.deepEqual(stale.calls, []);
     });
   }
+});
+
+describe('precheck on a detached HEAD', () => {
+  // A HEAD check that records where it looked and answers with the given state.
+  const fakeHead = (detached: boolean) => {
+    const calls: string[] = [];
+    const headIsDetached = async (cwd: string): Promise<boolean> => {
+      calls.push(cwd);
+      return detached;
+    };
+    return { calls, headIsDetached };
+  };
+  const upToDate = async (): Promise<string | undefined> => undefined;
+
+  it('blocks a push with one line, without running the check', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const head = fakeHead(true);
+    const result = await precheck(
+      hookInput('git add . && git push', '/work/tree'),
+      runCheck,
+      upToDate,
+      head.headIsDetached,
+    );
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr:
+        'git push is blocked: HEAD is detached in /work/tree, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n',
+    });
+    assert.deepEqual(head.calls, ['/work/tree']);
+    assert.deepEqual(calls, []);
+  });
+
+  it('runs the check when HEAD is on a branch', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const head = fakeHead(false);
+    const result = await precheck(
+      hookInput('git push -u origin 80-scratch', '/work/tree'),
+      runCheck,
+      upToDate,
+      head.headIsDetached,
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(head.calls, ['/work/tree']);
+    assert.deepEqual(calls, ['/work/tree']);
+  });
+});
+
+describe('isDetached', () => {
+  // `git symbolic-ref -q HEAD` exits 1 without output only when HEAD is detached.
+  const outcomes: [name: string, outcome: ProcessOutcome, detached: boolean][] = [
+    ['on a branch', { exitCode: 0, output: 'refs/heads/main\n' }, false],
+    ['detached', { exitCode: 1, output: '' }, true],
+    [
+      'outside a repository',
+      { exitCode: 128, output: 'fatal: not a git repository (or any of the parent directories)' },
+      false,
+    ],
+    ['when git could not start', { exitCode: null, output: 'spawn git ENOENT' }, false],
+  ];
+  for (const [name, outcome, detached] of outcomes) {
+    it(`is ${detached} ${name}`, () => {
+      assert.equal(isDetached(outcome), detached);
+    });
+  }
+});
+
+describe('gitHeadIsDetached', () => {
+  const fakeGit = (outcome: ProcessOutcome) => {
+    const calls: [file: string, args: string[], cwd: string][] = [];
+    const runProcess: RunProcess = async (file, args, cwd) => {
+      calls.push([file, args, cwd]);
+      return outcome;
+    };
+    return { calls, runProcess };
+  };
+
+  it('asks git symbolic-ref in the given directory', async () => {
+    const { calls, runProcess } = fakeGit({ exitCode: 1, output: '' });
+    assert.equal(await gitHeadIsDetached(runProcess)('/work/tree'), true);
+    assert.deepEqual(calls, [['git', ['symbolic-ref', '-q', 'HEAD'], '/work/tree']]);
+  });
+
+  it('answers false on a branch', async () => {
+    const { runProcess } = fakeGit({ exitCode: 0, output: 'refs/heads/main\n' });
+    assert.equal(await gitHeadIsDetached(runProcess)('/work/tree'), false);
+  });
 });
 
 describe('precheck on pushes inside compound commands', () => {
