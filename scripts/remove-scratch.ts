@@ -22,15 +22,19 @@ export const removeScratch = async (
   if (!dirs.ok || !checkout || !commonDir) {
     return { ok: false, lines: ['refused: not inside a git repository'] };
   }
-  // The working directory may reach the checkout through a junction, link or subst drive that
-  // git has resolved; compare both in their real form.
+  // The working directory, the checkout git prints and the folders git wrote into the records
+  // may each go through a junction, link or subst drive; compare them in their real form.
   const real = (path: string): Promise<string> => realpath(path).catch(() => path);
   const folder = resolve(await real(cwd), scratch);
   const decided = planScratch({
     checkout: await real(checkout),
     scratch: folder,
     dotGit: await readFile(join(folder, 'tree', '.git'), 'utf8').catch(() => undefined),
-    records: await readRecords(commonDir),
+    records: await Promise.all(
+      (await readRecords(commonDir)).map(async (record) =>
+        record.folder === undefined ? record : { ...record, folder: await real(record.folder) },
+      ),
+    ),
   });
   if (!decided.ok) return { ok: false, lines: [`refused: ${decided.reason}`] };
 
