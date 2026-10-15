@@ -12,7 +12,8 @@ const root = join(import.meta.dirname, '..', '..');
 const withoutNpm = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
   Object.fromEntries(
     Object.entries(env)
-      .filter(([key]) => !/^npm_/i.test(key))
+      // NODE_TEST_CONTEXT would make the child a nested run that skips its files.
+      .filter(([key]) => !/^npm_/i.test(key) && key !== 'NODE_TEST_CONTEXT')
       .map(([key, value]) =>
         /^path$/i.test(key)
           ? [
