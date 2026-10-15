@@ -82,4 +82,26 @@ describe('planScratch', () => {
       assert.match(result.ok ? '' : result.reason, /is not inside/);
     });
   }
+
+  // The script deletes recursively, so only the shape the review skill uses is accepted:
+  // .foedrum/tmp/<one folder>/scratch, never another issue's folder or the tests' folder.
+  const tmp = join(checkout, '.foedrum', 'tmp');
+  for (const path of [join(tmp, '58'), join(tmp, 'tests'), join(tmp, '58', 'review')]) {
+    const name = path.slice(checkout.length + 1).replaceAll('\\', '/');
+    it(`refuses ${name}, which is not <folder>/scratch`, () => {
+      const result = planScratch(facts({ scratch: path, records: [record('tree', tree)] }));
+
+      assert.equal(result.ok, false);
+      assert.match(result.ok ? '' : result.reason, /is not inside .* as <folder>\/scratch/);
+    });
+  }
+
+  it('accepts .foedrum/tmp/58/scratch, the folder of another issue’s review', () => {
+    const other = join(tmp, '58', 'scratch');
+    const result = planScratch(
+      facts({ scratch: other, records: [record('tree', join(other, 'tree'))] }),
+    );
+
+    assert.deepEqual(result, { ok: true, records: [join(records, 'tree')] });
+  });
 });
