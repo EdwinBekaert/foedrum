@@ -1,0 +1,27 @@
+// Quick fix: no plan, one tasting.
+{
+  "$schema": "../../../schemas/recipe.json",
+  "name": "nip",
+  "description": "Quick fix in one repository",
+  "match": { "labels": ["quick-fix"] },
+  "budget": { "minutes": 30 },
+  "steps": [
+    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    {
+      "id": "red",
+      "check": "test",
+      "expect": "fail",
+      "of": "gauge",
+      "when": "recipe.testFirst",
+      "onFail": { "goto": "gauge", "maxRounds": 1 }
+    },
+    { "id": "implement", "brewer": "cellarman" },
+    {
+      "id": "green",
+      "check": ["build", "lint", "format", "test"],
+      "onFail": { "goto": "implement", "maxRounds": 1 }
+    },
+    { "brewer": "taster", "lens": "correctness" },
+    { "action": "openPullRequest" }
+  ]
+}

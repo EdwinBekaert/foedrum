@@ -1,4 +1,4 @@
-# 0026. The supervisor: lost and stalled attempts, reminders and the flush retry
+# 0027. The supervisor: lost and stalled attempts, reminders and the flush retry
 
 Date: 2026-10-15 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) and [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md)
 

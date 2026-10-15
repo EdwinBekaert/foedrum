@@ -1,0 +1,13 @@
+// Model aliases, and a blind-tasting candidate for one brewer.
+{
+  "$schema": "../../../schemas/models.json",
+  "models": {
+    "router": "haiku",
+    "builder": "claude-sonnet-5-5",
+    "reviewer": "claude-opus-5-5",
+    "candidate": "claude-opus-5-5[1m]"
+  },
+  "brewers": {
+    "cellarman": "candidate"
+  }
+}

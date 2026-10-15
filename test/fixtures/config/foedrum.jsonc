@@ -1,0 +1,36 @@
+// A Brewery with a TypeScript and a .NET repository (ADR 0023).
+{
+  "$schema": "../../../schemas/foedrum.json",
+  // The most any repository may add to its brewers' allowlists.
+  "permissionCeiling": ["Bash(npm *)", "Bash(npx tsc*)", "Bash(dotnet *)"],
+  "repositories": {
+    "acme/web": {
+      "checks": {
+        "build": null, // nothing to build
+        "typecheck": "npx tsc --noEmit",
+        "lint": "npm run lint",
+        "format": "npm run format:check",
+        "test": "npm test -- --test-reporter=tap"
+      },
+      "testReport": { "format": "tap" },
+      "setup": { "command": "npm ci", "timeout": "10m" },
+      "tools": ["Bash(npm test*)", "Bash(npm run lint*)", "Bash(npx tsc*)"]
+    },
+    "acme/billing": {
+      "checks": {
+        "build": "dotnet build",
+        "typecheck": null,
+        "lint": null,
+        "format": {
+          "run": "dotnet format --verify-no-changes",
+          "windows": "dotnet format --verify-no-changes --no-restore"
+        },
+        "test": "dotnet test --logger junit"
+      },
+      "testReport": { "format": "junit", "path": "tests/TestResults/results.xml" },
+      "setup": { "command": { "run": "dotnet restore" }, "timeout": "15m" },
+      "tools": ["Bash(dotnet test*)", "Bash(dotnet build*)"],
+      "houseYeast": "brewery"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 // Out-doc frontmatter: how a brewer reports its outcome (brewers-and-recipes §2, ADR 0005).
 
-import { parseFrontmatter } from '../formats/frontmatter.ts';
+import { type DocResult, readDoc } from './read.ts';
 import { NonEmpty, Question } from './step-outcome.ts';
 import { z } from './zod.ts';
 
@@ -43,22 +43,7 @@ export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) 
 export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
 export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 
-export type OutDocResult<T> =
-  | { valid: true; frontmatter: T; body: string }
-  | { valid: false; reason: string };
-
 /** Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the reason. */
-export function readOutDoc<T>(text: string, schema: z.ZodType<T>): OutDocResult<T> {
-  let parsed: ReturnType<typeof parseFrontmatter>;
-  try {
-    parsed = parseFrontmatter(text);
-  } catch (error) {
-    // ParseError, or JSON.parse's own SyntaxError when the reader cannot locate the error.
-    if (error instanceof SyntaxError) return { valid: false, reason: error.message };
-    throw error;
-  }
-  const result = schema.safeParse(parsed.data);
-  return result.success
-    ? { valid: true, frontmatter: result.data, body: parsed.body }
-    : { valid: false, reason: z.prettifyError(result.error) };
+export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> {
+  return readDoc(text, schema);
 }
