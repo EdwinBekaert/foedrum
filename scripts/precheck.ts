@@ -1,5 +1,6 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
-// `gh pr merge`, and runs `npm run check` before `git push` and `gh pr create`.
+// `gh pr merge` and pushes from a detached HEAD, and runs `npm run check` before `git push` and
+// `gh pr create`.
 // Wired in .claude/settings.json as `npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate
 // || exit 2`, so npm provides npm_execpath and the check itself runs without a shell.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
@@ -96,6 +97,9 @@ const DELETE_PUSH_BLOCKED =
 const PR_MERGE_BLOCKED =
   '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
 
+const isGitPush = (command: string): boolean =>
+  invocations(command).some((invocation) => gitPushArgs(invocation) !== undefined);
+
 export const isGatedCommand = (command: string): boolean =>
   invocations(command).some((invocation) => {
     const action = ghPrAction(invocation);
@@ -128,7 +132,7 @@ export const precheck = async (
   input: string,
   runCheck: RunCheck,
   staleReason: StaleReason = async () => undefined,
-  _headIsDetached: HeadIsDetached = async () => false,
+  headIsDetached: HeadIsDetached = async () => false,
 ): Promise<HookResult> => {
   if (!MAY_NAME_GIT_OR_GH.test(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -148,6 +152,13 @@ export const precheck = async (
   if (!isGatedCommand(command)) return { exitCode: 0, stderr: '' };
 
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
+  // A session pushes a branch; commits made on a detached HEAD are on none (#80).
+  if (isGitPush(command) && (await headIsDetached(cwd))) {
+    return {
+      exitCode: 2,
+      stderr: `git push is blocked: HEAD is detached in ${cwd}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
+    };
+  }
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(cwd);
   if (stale !== undefined) {
@@ -185,15 +196,14 @@ export const npmCheck =
     return { ok: exitCode === 0, output };
   };
 
-export const isDetached = (_outcome: ProcessOutcome): boolean => {
-  throw new Error('not implemented');
-};
+// `git symbolic-ref -q HEAD` exits 1, silently, only when HEAD is detached. It exits 0 on a branch
+// and 128 outside a repository, where git push fails by itself.
+export const isDetached = ({ exitCode }: ProcessOutcome): boolean => exitCode === 1;
 
 export const gitHeadIsDetached =
-  (_runProcess: RunProcess): HeadIsDetached =>
-  async () => {
-    throw new Error('not implemented');
-  };
+  (runProcess: RunProcess): HeadIsDetached =>
+  async (cwd) =>
+    isDetached(await runProcess('git', ['symbolic-ref', '-q', 'HEAD'], cwd));
 
 const readStdin = async (): Promise<string> => {
   const chunks: Buffer[] = [];
@@ -209,7 +219,12 @@ if (import.meta.main) {
     const { outOfDate } = await import('./deps-sync.ts');
     return (await outOfDate(cwd))?.reason;
   };
-  const { exitCode, stderr } = await precheck(await readStdin(), runCheck, staleReason);
+  const { exitCode, stderr } = await precheck(
+    await readStdin(),
+    runCheck,
+    staleReason,
+    gitHeadIsDetached(spawnProcess),
+  );
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;
 }
