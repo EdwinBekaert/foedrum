@@ -2,13 +2,36 @@
 // `npm run check` and in CI (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { checkSteps, runCheck } from '../../scripts/check.ts';
+import type { ReadText } from '../../scripts/deps-sync.ts';
 import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 
 const execPath = '/usr/local/bin/node';
 const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
 const env = { npm_execpath: npmCli };
+const cwd = '/work/tree';
+
+// The checkout at cwd, read through the injected reader: its package.json, its lock file and,
+// unless it is undefined, npm's record of what it installed.
+const lock = JSON.stringify({
+  packages: {
+    '': { name: 'foedrum' },
+    'node_modules/zod': { version: '4.6.5', integrity: 'sha512-z' },
+  },
+});
+const installed = (version: string): string =>
+  JSON.stringify({ packages: { 'node_modules/zod': { version, integrity: 'sha512-z' } } });
+const checkout =
+  (record: string | undefined): ReadText =>
+  async (path) =>
+    ({
+      [join(cwd, 'package.json')]: '{}',
+      [join(cwd, 'package-lock.json')]: lock,
+      [join(cwd, 'node_modules', '.package-lock.json')]: record,
+    })[path];
+const upToDate = checkout(installed('4.6.5'));
 
 // A fake process runner whose processes finish only when the test says so.
 const pendingProcesses = () => {
@@ -42,7 +65,8 @@ const check = async (
     env,
     execPath,
     runProcess,
-    cwd: '/work/tree',
+    cwd,
+    read: upToDate,
     write: (text) => {
       written += text;
     },
@@ -82,11 +106,11 @@ describe('runCheck', () => {
 
   it('starts every step before any finishes, with this node in the given directory', async () => {
     const { calls, runProcess } = pendingProcesses();
-    const done = runCheck({ env, execPath, runProcess, cwd: '/work/tree', write: () => {} });
+    const done = runCheck({ env, execPath, runProcess, cwd, read: upToDate, write: () => {} });
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(
       calls.map(({ file, args, cwd }) => ({ file, args, cwd })),
-      checkSteps(npmCli).map(({ args }) => ({ file: execPath, args, cwd: '/work/tree' })),
+      checkSteps(npmCli).map(({ args }) => ({ file: execPath, args, cwd })),
     );
     for (const call of calls) call.finish(green(''));
     assert.equal(await done, 0);
@@ -132,7 +156,8 @@ describe('runCheck', () => {
       env,
       execPath,
       runProcess,
-      cwd: '/work/tree',
+      cwd,
+      read: upToDate,
       write: (text) => {
         written += text;
       },
@@ -191,7 +216,7 @@ describe('runCheck', () => {
   // The local gate's hook ends after 600 s, without killing the steps or showing their output.
   it('gives every step a deadline well before the gate gives up on the check', async () => {
     const { calls, runProcess } = pendingProcesses();
-    const done = runCheck({ env, execPath, runProcess, cwd: '/work/tree', write: () => {} });
+    const done = runCheck({ env, execPath, runProcess, cwd, read: upToDate, write: () => {} });
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(calls.length, labels().length);
     for (const { options } of calls) {
@@ -209,7 +234,8 @@ describe('runCheck', () => {
       env,
       execPath,
       runProcess,
-      cwd: '/work/tree',
+      cwd,
+      read: upToDate,
       write: () => {},
       stepTimeoutMs: 90_000,
       signal: stop.signal,
@@ -234,7 +260,8 @@ describe('runCheck', () => {
         env,
         execPath,
         runProcess,
-        cwd: '/work/tree',
+        cwd,
+        read: upToDate,
         write: (text) => {
           written += text;
         },
@@ -251,6 +278,73 @@ describe('runCheck', () => {
     });
   }
 
+  // A worktree without node_modules of its own would otherwise run every step against the
+  // packages of the checkout above it (#86).
+  for (const [name, record, reason] of [
+    ['missing', undefined, 'node_modules/.package-lock.json is missing'],
+    [
+      'stale',
+      installed('4.6.4'),
+      'node_modules/zod 4.6.4 is installed, package-lock.json has 4.6.5',
+    ],
+  ] as const) {
+    it(`fails at once with the gate's line when node_modules is ${name}, starting no step`, async () => {
+      // Steps that finish at once, so a check that starts them anyway ends, and fails here.
+      const calls: string[][] = [];
+      const runProcess: RunProcess = async (_file, args) => {
+        calls.push(args);
+        return green('');
+      };
+      let written = '';
+      const exitCode = await runCheck({
+        env,
+        execPath,
+        runProcess,
+        cwd,
+        read: checkout(record),
+        write: (text) => {
+          written += text;
+        },
+      });
+      assert.equal(exitCode, 1);
+      assert.equal(
+        written,
+        `node_modules is out of date with package-lock.json (${reason}); run npm ci\n`,
+      );
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  it('fails for a worktree without node_modules even when the checkout above it is up to date', async () => {
+    const worktree = join(cwd, '.claude', 'worktrees', '86-slug');
+    const calls: string[][] = [];
+    const runProcess: RunProcess = async (_file, args) => {
+      calls.push(args);
+      return green('');
+    };
+    let written = '';
+    const exitCode = await runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd: worktree,
+      read: async (path) =>
+        ({
+          [join(worktree, 'package.json')]: '{}',
+          [join(worktree, 'package-lock.json')]: lock,
+        })[path] ?? (await upToDate(path)),
+      write: (text) => {
+        written += text;
+      },
+    });
+    assert.equal(exitCode, 1);
+    assert.equal(
+      written,
+      'node_modules is out of date with package-lock.json (node_modules/.package-lock.json is missing); run npm ci\n',
+    );
+    assert.deepEqual(calls, []);
+  });
+
   for (const [name, badEnv] of [
     ['missing', {}],
     ['empty', { npm_execpath: '' }],
@@ -262,7 +356,8 @@ describe('runCheck', () => {
         env: badEnv,
         execPath,
         runProcess,
-        cwd: '/work/tree',
+        cwd,
+        read: upToDate,
         write: (text) => {
           written += text;
         },
