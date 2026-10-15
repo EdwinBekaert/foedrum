@@ -163,6 +163,10 @@ describe('withinCeiling', () => {
     ['a narrower double star', 'Read(./src/schemas/**)', ['Read(./src/**)']],
     ['a parent segment the ceiling names exactly', 'Read(../shared/**)', ['Read(../shared/**)']],
     ['a parent segment under a bare tool', 'Read(../x)', ['Read']],
+    ['an absolute path the ceiling names exactly', 'Read(//etc/hosts)', ['Read(//etc/hosts)']],
+    ['a home path under a bare tool', 'Edit(~/.gitconfig)', ['Edit']],
+    ['a glob of another kind of tool', 'WebFetch(domain:docs.example.com)', ['WebFetch(domain:*)']],
+    ['a scoped npm package', 'Bash(npm install @acme/lib)', ['Bash(npm install *)']],
   ];
   for (const [what, entry, ceiling] of covered) {
     it(`covers ${what}`, () => {
@@ -206,6 +210,7 @@ describe('withinCeiling', () => {
     ['an absolute path under a double star', 'Edit(//etc/cron.d/x.ts)', ['Edit(**/*.ts)']],
     ['a home path under a double star', 'Edit(~/.config/evil.ts)', ['Edit(**/*.ts)']],
     ['a root path under a double star', 'Read(/etc/passwd)', ['Read(**)']],
+    ['a backslash under a single star', 'Edit(docs/a\\b.md)', ['Edit(docs/*)']],
   ];
   for (const [what, entry, ceiling] of outside) {
     it(`does not cover ${what}`, () => {

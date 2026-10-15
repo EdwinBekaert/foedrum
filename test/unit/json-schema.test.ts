@@ -69,6 +69,16 @@ describe('writeJsonSchemas', () => {
     assert.match(generated['recipe.json'] ?? '', /"oneOf"/);
   });
 
+  it('defines a step as exactly one of its nine shapes, and every step list uses it', () => {
+    const recipe = JSON.parse(generated['recipe.json'] ?? '{}') as {
+      properties?: { steps?: { items?: { $ref?: string } } };
+      $defs?: { step?: { oneOf?: unknown[]; anyOf?: unknown[] } };
+    };
+    assert.equal(recipe.$defs?.step?.oneOf?.length, 9);
+    assert.equal(recipe.$defs?.step?.anyOf, undefined);
+    assert.equal(recipe.properties?.steps?.items?.$ref, '#/$defs/step');
+  });
+
   it('writes 2020-12 JSON Schemas as LF-terminated JSON', () => {
     for (const [name, text] of Object.entries(generated)) {
       assert.ok(text.endsWith('}\n') && !text.includes('\r'), name);

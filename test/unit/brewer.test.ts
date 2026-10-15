@@ -66,6 +66,15 @@ describe('BrewerFrontmatter', () => {
     assert.deepEqual((parsed as { git?: unknown }).git, { commit: false });
   });
 
+  it('accepts environment variables', () => {
+    assert.equal(accepted({ ...taster, env: { DEBUG: '1', MY_VAR: 'x', _UNDER: '' } }), true);
+  });
+
+  it('accepts a stall rule with one limit', () => {
+    assert.equal(accepted({ ...taster, stall: { turns: 10 } }), true);
+    assert.equal(accepted({ ...taster, stall: { minutes: 5 } }), true);
+  });
+
   it('accepts every tree for a read-only brewer', () => {
     for (const tree of ['task', 'integration', 'checkout', 'scratch']) {
       assert.equal(accepted({ ...taster, tree }), true, tree);
