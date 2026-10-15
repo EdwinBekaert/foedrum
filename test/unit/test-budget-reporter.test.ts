@@ -7,6 +7,7 @@ const cwd = join(import.meta.dirname, 'repo');
 const fileA = join(cwd, 'test', 'unit', 'a.test.ts');
 const fileB = join(cwd, 'test', 'unit', 'b.test.ts');
 const fileC = join(cwd, 'test', 'property', 'c.test.ts');
+const fileD = join(cwd, 'test', 'chaos', 'd.test.ts');
 
 // The runner's summary of one test file, or of the whole run when there is no file.
 const summary = (file: string | undefined, ms: number): TestEvent => ({
@@ -50,7 +51,7 @@ describe('budgetReporter', () => {
       { type: 'test:diagnostic', data: { nesting: 0 } },
     ]);
     assert.deepEqual(lines, [
-      'test file times (budget 5 s per file, ADR 0021)',
+      'test file times (budget 5 s per file in test/unit/, ADR 0021)',
       '  1.20 s  test/unit/b.test.ts',
       '  0.90 s  test/property/c.test.ts',
       '  0.70 s  test/unit/a.test.ts',
@@ -82,6 +83,32 @@ describe('budgetReporter', () => {
     assert.match(over[0] ?? '', /^✖ test\/unit\/b\.test\.ts took 5\.10 s, over the 3 s budget/);
     assert.match(over[1] ?? '', /^✖ test\/unit\/a\.test\.ts took 3\.50 s, over the 3 s budget/);
     assert.match(over[0] ?? '', /test\/integration\//);
+  });
+
+  // Their time is set by their run count and grows with the load of a parallel check (#87).
+  it('lists property and chaos files over the budget but does not fail the run', async () => {
+    const { lines, failed } = await report(
+      [summary(fileA, 1000), summary(fileC, 9000), summary(fileD, 7000)],
+      5000,
+    );
+    assert.equal(failed, false);
+    assert.deepEqual(lines.slice(1, -1), [
+      '  9.00 s  test/property/c.test.ts',
+      '  7.00 s  test/chaos/d.test.ts',
+      '  1.00 s  test/unit/a.test.ts',
+    ]);
+    assert.equal(lines.filter((line) => line.startsWith('✖')).length, 0);
+  });
+
+  it('still fails for a unit file over the budget, naming only that file', async () => {
+    const { lines, failed } = await report(
+      [summary(fileA, 5100), summary(fileC, 9000), summary(fileD, 7000)],
+      5000,
+    );
+    assert.equal(failed, true);
+    const over = lines.filter((line) => line.startsWith('✖'));
+    assert.deepEqual(over.length, 1);
+    assert.match(over[0] ?? '', /^✖ test\/unit\/a\.test\.ts took 5\.10 s, over the 5 s budget/);
   });
 
   it('lets a file that takes exactly the budget pass', async () => {

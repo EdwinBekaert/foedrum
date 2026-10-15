@@ -5,6 +5,7 @@
 // place for their commands and nothing starts a shell.
 
 import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
+import type { ReadText } from './deps-sync.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export interface CheckStep {
@@ -27,6 +28,9 @@ export interface CheckOptions {
   execPath: string;
   runProcess: RunProcess;
   cwd: string;
+  // Reads the checkout's lock files, to tell whether node_modules is up to date; the real file
+  // system by default.
+  read?: ReadText;
   write: (text: string) => void;
   /** Each step's deadline. */
   stepTimeoutMs?: number;
