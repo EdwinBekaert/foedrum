@@ -1,5 +1,6 @@
 // The event store's own records: effect keys (invariant I4) and leases (ADR 0002).
 
+import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';
 
 const Filled = z.string().min(1);
@@ -7,15 +8,15 @@ const Attempt = z.int().positive();
 
 /** The key of an external side effect: applied at most once (invariant I4). */
 export const EffectKey = z.strictObject({
-  batchId: Filled,
-  stepId: Filled,
+  batchId: PathSafeId,
+  stepId: PathSafeId,
   attempt: Attempt,
   effect: Filled,
 });
 export type EffectKey = z.infer<typeof EffectKey>;
 
 /** The parts of an effect key in the order of its text. */
-export const EffectKeyParts = z.tuple([Filled, Filled, Attempt, Filled]);
+export const EffectKeyParts = z.tuple([PathSafeId, PathSafeId, Attempt, Filled]);
 
 const parseJson = (text: string): unknown => {
   try {

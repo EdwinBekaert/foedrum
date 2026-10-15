@@ -1,11 +1,15 @@
 // Events: the append-only log that state is folded from (architecture §4.1, ADR 0002, ADR 0019).
 
+import { PathSafeId } from './ids.ts';
 import { BlockerKind } from './out-doc.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { EffectKeyText } from './store.ts';
 import { z } from './zod.ts';
 
 const Id = NonEmpty;
+// Batch and step ids are path segments on the state branch (ADR 0024).
+const BatchId = PathSafeId;
+const StepId = PathSafeId;
 const Attempt = z.int().positive();
 const Count = z.int().nonnegative();
 const Timestamp = z.iso.datetime();
@@ -66,23 +70,23 @@ export type Answer = z.infer<typeof Answer>;
 export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('needs_input'),
-    stepId: Id,
+    stepId: StepId,
     questions: z.array(Question).min(1),
   }),
   z.strictObject({
     kind: z.literal('blocked'),
-    stepId: Id,
+    stepId: StepId,
     blockerKind: BlockerKind,
     summary: NonEmpty,
   }),
   z.strictObject({
     kind: z.literal('attempts_exhausted'),
-    stepId: Id,
+    stepId: StepId,
     attempts: Attempt,
     lastReason: NonEmpty,
   }),
-  z.strictObject({ kind: z.literal('deadline_passed'), stepId: Id, deadlineAt: Timestamp }),
-  z.strictObject({ kind: z.literal('waiting_for_session'), stepId: Id }),
+  z.strictObject({ kind: z.literal('deadline_passed'), stepId: StepId, deadlineAt: Timestamp }),
+  z.strictObject({ kind: z.literal('waiting_for_session'), stepId: StepId }),
 ]);
 export type StuckReason = z.infer<typeof StuckReason>;
 
@@ -99,16 +103,16 @@ export const WaitCondition = z.discriminatedUnion('kind', [
     package: NonEmpty,
     minVersion: NonEmpty,
   }),
-  z.strictObject({ kind: z.literal('sibling'), batchId: Id }),
+  z.strictObject({ kind: z.literal('sibling'), batchId: BatchId }),
 ]);
 export type WaitCondition = z.infer<typeof WaitCondition>;
 
-const step = { batchId: Id, stepId: Id, attempt: Attempt };
+const step = { batchId: BatchId, stepId: StepId, attempt: Attempt };
 
 const orderDecomposed = z
   .strictObject({
     type: z.literal('order.decomposed'),
-    batchId: Id,
+    batchId: BatchId,
     // Limits for a model-written breakdown; they also bound the cost of the checks below.
     subOrders: z.array(SubOrderRef).min(1).max(100),
     dependencies: z.array(Dependency).max(1000),
@@ -151,13 +155,13 @@ function hasCycle(dependencies: Dependency[]): boolean {
 export const Event = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('batch.ordered'),
-    batchId: Id,
+    batchId: BatchId,
     order: OrderRef,
-    parentBatchId: Id.optional(),
+    parentBatchId: BatchId.optional(),
   }),
   z.strictObject({
     type: z.literal('batch.recipe_chosen'),
-    batchId: Id,
+    batchId: BatchId,
     recipe: NonEmpty,
     reason: NonEmpty,
     by: z.enum(['label', 'router', 'human']),
@@ -173,15 +177,15 @@ export const Event = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     type: z.literal('input.received'),
-    batchId: Id,
-    stepId: Id,
+    batchId: BatchId,
+    stepId: StepId,
     by: NonEmpty,
     via: Surface,
     answers: z.array(Answer).min(1),
   }),
   z.strictObject({
     type: z.literal('batch.stuck'),
-    batchId: Id,
+    batchId: BatchId,
     reason: StuckReason,
     options: z
       .array(StuckOption)
@@ -190,7 +194,7 @@ export const Event = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     type: z.literal('batch.resumed'),
-    batchId: Id,
+    batchId: BatchId,
     by: NonEmpty,
     via: Surface,
     action: z.enum(['retry', 'skip', 'recipe', 'answer']),
@@ -198,7 +202,7 @@ export const Event = z.discriminatedUnion('type', [
   orderDecomposed,
   z.strictObject({
     type: z.literal('batch.waiting'),
-    batchId: Id,
+    batchId: BatchId,
     on: WaitCondition,
     remindAt: Timestamp,
   }),
@@ -217,17 +221,17 @@ export const Event = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     type: z.literal('batch.rewound'),
-    batchId: Id,
-    toStepId: Id,
+    batchId: BatchId,
+    toStepId: StepId,
     by: NonEmpty,
     shas: z.record(Repo, Sha),
   }),
   z.strictObject({
     type: z.literal('batch.on_tap'),
-    batchId: Id,
+    batchId: BatchId,
     pullRequests: z.array(PullRequestUrl).min(1),
   }),
-  z.strictObject({ type: z.literal('batch.cancelled'), batchId: Id, by: NonEmpty }),
+  z.strictObject({ type: z.literal('batch.cancelled'), batchId: BatchId, by: NonEmpty }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),
 ]);
