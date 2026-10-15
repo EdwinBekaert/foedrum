@@ -192,8 +192,7 @@ describe('brewing with the fake brewer runner', () => {
         attemptKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1 }),
       ]);
       // The stopped attempt ends as cancelled, too late: Stuck abandoned it (ADR 0025).
-      assert.equal(brewing.refusals.length, 1);
-      assert.match(brewing.refusals[0] ?? '', /plan#1/);
+      assert.deepStrictEqual(brewing.refusals, ['batch b1 is stuck; finish needs it brewing']);
     });
 
     it('without progress for the stall limit: Stuck as stalled', async () => {
