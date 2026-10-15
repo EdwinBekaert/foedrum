@@ -6,9 +6,11 @@ import { EffectKey, EffectKeyParts, EffectKeyText } from '../schemas/store.ts';
 const invalid = (detail: string): Error => new Error(`Invalid effect key: ${detail}`);
 
 const encode = (key: EffectKey): string => {
-  const parsed = EffectKey.safeParse(key);
-  if (!parsed.success) throw invalid(JSON.stringify(key));
-  const { batchId, stepId, attempt, effect } = parsed.data;
+  // Only the four parts: a key built by spreading a larger object may carry other fields.
+  const { batchId, stepId, attempt, effect } = key;
+  if (!EffectKey.safeParse({ batchId, stepId, attempt, effect }).success) {
+    throw invalid(JSON.stringify(key));
+  }
   return JSON.stringify([batchId, stepId, attempt, effect]);
 };
 
