@@ -7,13 +7,13 @@ import {
   type StatementSync,
 } from 'node:sqlite';
 import { Event } from '../schemas/events.ts';
+import { Lease } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import {
   DuplicateEffectError,
   type EffectKey,
   type EventStore,
   type EventStoreTransaction,
-  type Lease,
   ReplayError,
 } from './event-store.ts';
 
@@ -244,7 +244,10 @@ export const openSqliteEventStore = (
       },
       putLease: (lease) => {
         ensureLive();
-        putLease.run(lease.attemptKey, lease.owner, timeOf(lease.expiresAt, 'Lease expiresAt'));
+        // The date first, so an invalid expiry gets the store's own message.
+        const expiresAt = timeOf(lease.expiresAt, 'Lease expiresAt');
+        const valid = Lease.parse(lease);
+        putLease.run(valid.attemptKey, valid.owner, expiresAt);
       },
       releaseLease: (attemptKey) => {
         ensureLive();

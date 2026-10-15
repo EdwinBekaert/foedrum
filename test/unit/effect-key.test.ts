@@ -20,6 +20,14 @@ describe('effectKey', () => {
     for (const k of [key, awkward]) assert.deepEqual(effectKey.decode(effectKey.encode(k)), k);
   });
 
+  it('encodes only the four parts of a key that carries other fields', () => {
+    const attempt = { batchId: 'b1', stepId: 'open-pr', attempt: 1, deadlineAt: '2026-10-15' };
+    assert.equal(
+      effectKey.encode({ ...attempt, effect: 'pull_request' }),
+      '["b1","open-pr",1,"pull_request"]',
+    );
+  });
+
   it('gives different texts to keys whose parts would join to the same text', () => {
     const pairs: [EffectKey, EffectKey][] = [
       [

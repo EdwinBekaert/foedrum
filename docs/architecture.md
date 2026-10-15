@@ -199,7 +199,7 @@ type WaitCondition =
   | { kind: 'sibling'; batchId: string }
 ```
 
-The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
+The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, an effect key is the canonical JSON text `["batchId","stepId",attempt,"effect"]` exactly as `JSON.stringify` writes it, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 

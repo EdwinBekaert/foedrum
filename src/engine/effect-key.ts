@@ -1,39 +1,25 @@
 // The canonical text of an effect key: the `key` of an `effect.applied` event and of the effects
-// index. A JSON array, so no part can collide with a separator.
+// index. Validated by the schemas in src/schemas/store.ts.
 
-import type { EffectKey } from './event-store.ts';
+import { EffectKey, EffectKeyParts, EffectKeyText } from '../schemas/store.ts';
 
-const isPart = (value: unknown): value is string => typeof value === 'string' && value !== '';
-const isAttempt = (value: unknown): value is number =>
-  Number.isSafeInteger(value) && (value as number) > 0;
 const invalid = (detail: string): Error => new Error(`Invalid effect key: ${detail}`);
 
 const encode = (key: EffectKey): string => {
+  // Only the four parts: a key built by spreading a larger object may carry other fields.
   const { batchId, stepId, attempt, effect } = key;
-  if (!isPart(batchId) || !isPart(stepId) || !isAttempt(attempt) || !isPart(effect)) {
+  if (!EffectKey.safeParse({ batchId, stepId, attempt, effect }).success) {
     throw invalid(JSON.stringify(key));
   }
   return JSON.stringify([batchId, stepId, attempt, effect]);
 };
 
 const decode = (text: string): EffectKey => {
-  let parts: unknown;
-  try {
-    parts = JSON.parse(text);
-  } catch {
-    throw invalid(`${text} is not JSON`);
+  if (!EffectKeyText.safeParse(text).success) {
+    throw invalid(`${text} is not a canonical [batchId, stepId, attempt, effect]`);
   }
-  if (!Array.isArray(parts) || parts.length !== 4) {
-    throw invalid(`${text} is not [batchId, stepId, attempt, effect]`);
-  }
-  const [batchId, stepId, attempt, effect] = parts as unknown[];
-  if (!isPart(batchId) || !isPart(stepId) || !isAttempt(attempt) || !isPart(effect)) {
-    throw invalid(`${text} has an invalid part`);
-  }
-  const key = { batchId, stepId, attempt, effect };
-  // One key, one text: otherwise two spellings of a key would both pass the UNIQUE index.
-  if (encode(key) !== text) throw invalid(`${text} is not in canonical form`);
-  return key;
+  const [batchId, stepId, attempt, effect] = EffectKeyParts.parse(JSON.parse(text));
+  return { batchId, stepId, attempt, effect };
 };
 
 export const effectKey = {
