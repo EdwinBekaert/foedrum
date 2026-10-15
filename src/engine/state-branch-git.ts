@@ -2,8 +2,9 @@
 // carries out what state-branch.ts decides. Git runs only through the injected `Git`.
 
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { removeTree } from '../platform/remove.ts';
 import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
 import type { EventStore } from './event-store.ts';
@@ -17,6 +18,7 @@ import {
   outDocPath,
   planCatchUp,
   planFlush,
+  remoteCommitOf,
   type StartDecision,
   StateBranchStopError,
   unsafeEntries,
@@ -65,6 +67,8 @@ export interface StateBranch {
   /**
    * Commits and pushes every event after the pushed-through marker; call it at every step
    * boundary. Throws `StateBranchStopError` when the push is rejected: another engine wrote.
+   * A `failed` flush leaves events only in the local store, so the caller retries it on its own
+   * deadline (the supervisor tick), not only at the next boundary, which may never come.
    */
   flush(): Promise<FlushResult>;
 }
@@ -110,22 +114,28 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     });
   /** The log files in the worktree. */
   const logFiles = async (): Promise<string[]> => {
-    const names = await readdir(onDisk('batches')).catch(() => []);
+    // No batches folder yet is no batches; any other failure must not look like none.
+    const names = await readdir(onDisk('batches')).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
     return ['events.jsonl', ...names.map((name) => `batches/${name}/events.jsonl`)].filter(
       (path) => isLogPath(path) && existsSync(onDisk(path)),
     );
   };
+  /** The worktree's commit; undefined before its first commit (git answers 1, nothing else). */
   const head = async (): Promise<string | undefined> => {
     const result = await git(worktree, ['rev-parse', '--verify', '-q', 'HEAD']);
-    return result.code === 0 ? result.stdout.trim() : undefined;
+    if (result.code === 1) return undefined;
+    if (result.code !== 0) throw new Error(`Cannot read the state worktree's head: ${why(result)}`);
+    return result.stdout.trim();
   };
   /** The remote branch's commit, or undefined when it does not exist. */
   const remoteHead = async (cwd: string): Promise<string | undefined> => {
     const result = await git(cwd, ['ls-remote', '--exit-code', remote, ref]);
     if (result.code === 2) return undefined;
-    const sha = result.stdout.split(/\s/)[0];
-    if (result.code !== 0 || !sha) throw new Error(`Cannot read ${remoteBranch}: ${why(result)}`);
-    return sha;
+    if (result.code !== 0) throw new Error(`Cannot read ${remoteBranch}: ${why(result)}`);
+    return remoteCommitOf(result.stdout, ref);
   };
 
   const openWorktree = async (remoteSha: string | undefined): Promise<void> => {
@@ -197,7 +207,9 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       // touched, and a diverged local commit stays in the reflog.
       await must(worktree, ['reset', '-q', '--hard', remoteSha]);
       for (const entry of entries) {
-        if (entry.startsWith('?? ') && isLogPath(entry.slice(3))) await rm(onDisk(entry.slice(3)));
+        if (entry.startsWith('?? ') && isLogPath(entry.slice(3))) {
+          await removeTree(onDisk(entry.slice(3)));
+        }
       }
     } else {
       // Untracked out docs may stay; anything else would be lost or mixed into the logs.

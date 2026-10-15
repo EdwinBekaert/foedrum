@@ -5,7 +5,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { Event } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
-import type { PushedThrough } from '../schemas/store.ts';
+import { CommitSha, type PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import type { LoggedEvent, StoredEvent } from './event-store.ts';
 import type { State } from './fold.ts';
@@ -343,8 +343,18 @@ export const unsafeEntries = (lsTree: string): string[] =>
  * ls-remote matches patterns against the end of a ref, so `refs/heads/x/refs/heads/<branch>`
  * also matches; only the exact ref counts. Throws when its object name is not a full sha.
  */
-export const remoteCommitOf = (_lsRemote: string, _ref: string): string | undefined => {
-  throw new Error('not implemented');
+export const remoteCommitOf = (lsRemote: string, ref: string): string | undefined => {
+  for (const line of lsRemote.split(/\r?\n/)) {
+    const [commit = '', name] = line.split('\t');
+    if (name !== ref) continue;
+    if (!CommitSha.safeParse(commit).success) {
+      throw new Error(
+        `git ls-remote names ${ref} with ${JSON.stringify(commit)}, not a commit sha`,
+      );
+    }
+    return commit;
+  }
+  return undefined;
 };
 
 export type PushOutcome = 'pushed' | 'rejected' | 'failed';

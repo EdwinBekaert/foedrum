@@ -12,6 +12,14 @@ export interface KillTreeOptions {
   taskkill?: (pid: number) => void;
 }
 
+/** Spawn options a process needs so that killProcessTree can end its whole tree. */
+export const killableSpawnOptions = (
+  platform: NodeJS.Platform = process.platform,
+): { detached: boolean } => ({
+  // Its own process group outside Windows; taskkill finds the tree on Windows.
+  detached: platform !== 'win32',
+});
+
 /**
  * Kills a process and every process it started. On Windows through taskkill; elsewhere the
  * process must lead its own process group (spawned with `detached: true`), which is killed.

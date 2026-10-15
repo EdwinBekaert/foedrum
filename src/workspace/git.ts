@@ -2,7 +2,7 @@
 // §13). Code that drives git takes a `Git` so unit tests can pass a fake one (ADR 0021).
 
 import { spawn } from 'node:child_process';
-import { killProcessTree } from '../platform/processes.ts';
+import { killableSpawnOptions, killProcessTree } from '../platform/processes.ts';
 
 export interface GitResult {
   /** The exit code; `null` when git was killed, for example by the timeout. */
@@ -56,13 +56,14 @@ export const runGit: Git = (cwd, args, { timeoutMs = 60_000 } = {}) =>
       clearTimeout(timer);
       done(result);
     };
+    // spawn rather than execFile, still with an argument array and no shell: execFile answers
+    // only once every output pipe closes, which a surviving child of git can hold off forever.
     const child = spawn('git', [...args], {
       cwd,
       env: gitEnv(process.env),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      // Its own process group outside Windows, so the timeout can kill the whole tree.
-      detached: process.platform !== 'win32',
+      ...killableSpawnOptions(),
     });
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
       stdout += chunk;
