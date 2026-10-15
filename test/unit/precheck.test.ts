@@ -522,10 +522,31 @@ describe('.claude/settings.json permissions', () => {
     assert.ok((permissions?.allow ?? []).includes('Bash(gh repo view *)'));
   });
 
-  it('asks before pushing, opening a pull request or calling the GitHub API', () => {
+  it('allows pushing, opening a pull request and commenting without asking', () => {
+    const allow = permissions?.allow ?? [];
     const ask = permissions?.ask ?? [];
-    for (const rule of ['git push *', 'gh pr create *', 'gh api *']) {
-      assert.ok(ask.includes(`Bash(${rule})`), `ask is missing Bash(${rule})`);
+    for (const rule of ['git push *', 'gh pr create *', 'gh pr comment *', 'gh issue comment *']) {
+      for (const tool of ['Bash', 'PowerShell']) {
+        assert.ok(allow.includes(`${tool}(${rule})`), `allow is missing ${tool}(${rule})`);
+        assert.ok(!ask.includes(`${tool}(${rule})`), `ask still has ${tool}(${rule})`);
+      }
+    }
+  });
+
+  it('asks before npm install and GitHub API writes, not before every GitHub API call', () => {
+    const ask = permissions?.ask ?? [];
+    const flags = ['-X', '--method', '-f', '-F', '--field', '--raw-field', '--input'];
+    const rules = [
+      'npm install *',
+      ...flags.flatMap((flag) => [`gh api ${flag}*`, `gh api * ${flag}*`]),
+    ];
+    for (const rule of rules) {
+      for (const tool of ['Bash', 'PowerShell']) {
+        assert.ok(ask.includes(`${tool}(${rule})`), `ask is missing ${tool}(${rule})`);
+      }
+    }
+    for (const tool of ['Bash', 'PowerShell']) {
+      assert.ok(!ask.includes(`${tool}(gh api *)`), `ask still has ${tool}(gh api *)`);
     }
   });
 
