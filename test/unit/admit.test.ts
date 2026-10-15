@@ -44,7 +44,7 @@ const waiting: Event = {
   remindAt,
 };
 const onTap: Event = { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] };
-const cancelled: Event = { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' };
+const cancelled: Event = { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' };
 const resumed: Event = {
   type: 'batch.resumed',
   batchId: 'b1',
@@ -57,6 +57,7 @@ const rewound: Event = {
   batchId: 'b1',
   toStepId: 'plan',
   by: 'octocat',
+  via: 'plugin',
   shas: { 'acme/api': 'a'.repeat(40) },
 };
 const answered: Event = {

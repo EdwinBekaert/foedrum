@@ -132,7 +132,14 @@ describe('logPathOf', () => {
     'bottle.opened': [bottled, 'events.jsonl'],
     'release.observed': [released, 'events.jsonl'],
     'batch.rewound': [
-      { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+      {
+        type: 'batch.rewound',
+        batchId: 'b1',
+        toStepId: 'plan',
+        by: 'octocat',
+        via: 'plugin',
+        shas: {},
+      },
       'batches/b1/events.jsonl',
     ],
     'batch.on_tap': [
@@ -140,7 +147,7 @@ describe('logPathOf', () => {
       'batches/b1/events.jsonl',
     ],
     'batch.cancelled': [
-      { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
+      { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
       'batches/b1/events.jsonl',
     ],
     'effect.applied': [applied('b4'), 'batches/b4/events.jsonl'],
@@ -416,7 +423,10 @@ describe('isStepBoundary', () => {
       remindAt: '2026-10-17T10:00:00Z',
     };
     assert.equal(boundary(stuck), true);
-    assert.equal(boundary({ type: 'batch.cancelled', batchId: 'b1', by: 'octocat' }), true);
+    assert.equal(
+      boundary({ type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' }),
+      true,
+    );
     // The first schedule moves an ordered batch to brewing.
     assert.equal(boundary(scheduled('b1'), [ordered('b1')]), true);
   });

@@ -466,7 +466,10 @@ describe('SqliteEventStore in memory', () => {
           pullRequests: ['https://github.com/o/r/pull/1'],
         }),
       ],
-      ['batch.cancelled', (batchId) => ({ type: 'batch.cancelled', batchId, by: 'octocat' })],
+      [
+        'batch.cancelled',
+        (batchId) => ({ type: 'batch.cancelled', batchId, by: 'octocat', via: 'plugin' }),
+      ],
     ];
     for (const [type, event] of settling) {
       it(`clears the deadline of a batch on ${type}`, () => {
@@ -515,7 +518,14 @@ describe('SqliteEventStore in memory', () => {
       ],
       [
         'batch.rewound',
-        { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+        {
+          type: 'batch.rewound',
+          batchId: 'b1',
+          toStepId: 'plan',
+          by: 'octocat',
+          via: 'plugin',
+          shas: {},
+        },
       ],
       [
         'bottle.opened',

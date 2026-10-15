@@ -109,7 +109,7 @@ const onTap: Event[] = [
 ];
 const cancelled: Event[] = [
   ...brewing(),
-  { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
+  { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
 ];
 /** A log that leaves batch b1 in each lane. */
 const lanes: Record<Lane['kind'], Event[]> = {
@@ -741,6 +741,7 @@ describe('decide recipe: a human chooses the recipe', () => {
     recipe: 'nip',
     reason: 'one file',
     by: 'human',
+    via: 'comment',
   };
 
   it('routes an ordered batch', () => {
@@ -811,7 +812,7 @@ describe('decide rewind: only from Stuck (ADR 0025)', () => {
         type: 'batch.rewound',
         batchId: 'b1',
         toStepId: 'plan',
-        by: 'octocat',
+        ...by,
         shas: { 'acme/api': sha },
       },
       next('plan', 2),
@@ -877,18 +878,57 @@ describe('decide rewind: only from Stuck (ADR 0025)', () => {
   }
 });
 
+describe('decide records who issued a human command and from where (ADR 0019)', () => {
+  const from = { by: 'hubot', via: 'dashboard' } as const;
+  const issuers = (events: readonly Event[]) =>
+    events.flatMap((event) => ('via' in event ? [[event.type, event.by, event.via]] : []));
+
+  it('on the recipe choice of an ordered batch', () => {
+    const decision = decide(
+      fold(lanes.ordered),
+      { kind: 'recipe', batchId: 'b1', ...from, recipe: 'nip', reason: 'x' },
+      context,
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
+      ['batch.recipe_chosen', 'human', 'dashboard'],
+    ]);
+  });
+
+  it('on a rewind', () => {
+    const decision = decide(
+      fold(lanes.stuck),
+      { kind: 'rewind', batchId: 'b1', ...from, toStepId: 'plan', shas: { 'acme/api': sha } },
+      context,
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
+      ['batch.rewound', 'hubot', 'dashboard'],
+    ]);
+  });
+
+  it('on a cancel', () => {
+    const decision = decide(
+      fold(lanes.brewing),
+      { kind: 'cancel', batchId: 'b1', ...from },
+      context,
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
+      ['batch.cancelled', 'hubot', 'dashboard'],
+    ]);
+  });
+});
+
 describe('decide cancel', () => {
   const cancel: Command = { kind: 'cancel', batchId: 'b1', ...by };
 
   for (const lane of ['ordered', 'brewing', 'conditioning', 'stuck'] as const) {
     it(`cancels a batch that is ${lane}`, () => {
-      accepts(lanes[lane], cancel, [{ type: 'batch.cancelled', batchId: 'b1', by: 'octocat' }]);
+      accepts(lanes[lane], cancel, [{ type: 'batch.cancelled', batchId: 'b1', ...by }]);
     });
   }
 
   it('cancels a Stuck batch that does not list cancel', () => {
     accepts(stuck(needsInput, ['answer']), cancel, [
-      { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
+      { type: 'batch.cancelled', batchId: 'b1', ...by },
     ]);
   });
 
