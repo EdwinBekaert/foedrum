@@ -18,6 +18,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `npm run typecheck` · `npm run lint` · `npm test` (fails below the coverage thresholds set in the `test` script in `package.json`; only ever raise them)
 - `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
 - `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
+- `npm run test:integration` — the tests against real tools in `test/integration/` (not part of `npm run check`; CI runs them)
 - `npm run worktrees:clean` — remove worktrees and branches of merged pull requests (runs automatically at session start, see Worktree cleanup)
 - CI (`.github/workflows/ci.yml`) runs `npm run check` plus `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
@@ -46,10 +47,11 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 
 A `SessionStart` hook in `.claude/settings.json` runs `npm run worktrees:clean` in the background when a session starts or resumes in the main checkout (never inside a worktree), so worktrees and branches of merged pull requests disappear without a command typed by hand.
 
-- `scripts/worktrees-clean.ts` fetches with `--prune` and removes worktrees directly under `.claude/worktrees/` whose branch is merged into `origin/main` and whose remote branch is gone, then deletes the branch with `git branch -d` (never `-D`). Local branches without a worktree go the same way. It never deletes remote branches: the repository deletes head branches on merge, so a long-lived branch whose remote branch stays (such as `develop`) is kept.
-- Merged means the branch tip is an ancestor of `origin/main` and not on its first-parent line. A branch started from main with no commits of its own is never merged; one started from another branch that has been merged counts as merged, but holds no work of its own.
-- Records under `.git/worktrees/` of any worktree inside `.claude/worktrees/` (at any depth, such as the review skill's scratch trees) whose folder is gone are deleted; there is no repository-wide `git worktree prune`.
-- It keeps the main checkout, worktrees outside `.claude/worktrees/` or nested in another, the current worktree, worktrees with uncommitted or untracked changes, and worktrees locked by a live session (`claude session <name> (pid <n>)`); a lock whose pid is gone is unlocked first.
+- `scripts/worktrees-clean.ts` (the shell) gathers facts from git; `scripts/worktrees-clean/core.ts` decides (ADR 0021).
+- A branch may go when it is merged into `origin/main` (its tip is an ancestor) and it has an upstream of its own (not `origin/main`) whose remote ref is gone. The repository deletes head branches on merge and `git fetch --prune` drops the ref, so that is what a merged pull request leaves; a branch that was never pushed, or a long-lived one whose remote branch stays (such as `develop`), is kept. It never deletes remote branches.
+- A worktree directly under `.claude/worktrees/` whose branch may go is removed with `git worktree remove`, then the branch with `git branch -d` (never `-D`). Local branches without a worktree go the same way.
+- It is idempotent: a folder whose record exists but whose `.git` file is gone (a removal that stopped part-way) is finished off when its branch may go. Records of worktrees anywhere inside `.claude/worktrees/` whose folder is gone are deleted; there is no repository-wide `git worktree prune`.
+- It keeps worktrees outside `.claude/worktrees/`, worktrees with uncommitted or untracked changes, and worktrees locked by a live session (`claude session <name> (pid <n>)`); a lock whose pid is gone is unlocked first.
 - Deletes go through `src/platform/remove.ts` (read-only bits cleared, `EBUSY`/`EPERM`/`ENOTEMPTY` retried). Anything it cannot remove is printed with the reason and left alone; it never prompts and never fails the session.
 - Run it by hand with `npm run worktrees:clean` from any checkout of the repository.
 
