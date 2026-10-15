@@ -14,8 +14,8 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
-- `npm run check` — typecheck, lint, test and the offline dependency guard in one command; run it before every push
-- `npm run typecheck` · `npm run lint` · `npm test` (fails below the coverage thresholds set in the `test` script in `package.json`; only ever raise them)
+- `npm run check` — typecheck, lint, test, the test-layer guard (`scripts/check-test-layers.ts`: no file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`) and the offline dependency guard in one command; run it before every push
+- `npm run typecheck` · `npm run lint` · `npm test` (fails below the coverage thresholds set in the `test` script in `package.json`, which you only ever raise, and when one test file takes more than 5 s, per `scripts/test-budget-reporter.ts`)
 - `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
 - `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
 - `npm run test:integration` — the tests against real tools in `test/integration/` (not part of `npm run check`; CI runs them)
@@ -108,7 +108,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
   - Exempt: spikes (throwaway code), scaffolding, documentation and CI configuration. Say so in the pull request.
   - Prompts (skills, agent definitions, lens and brewer files) are exempt from red proof, but not from verification: a change to a prompt is exercised before merging — for the review skill and lenses by a /brew-review run against the planted-defect sample (test/fixtures/brew-review/planted-demo), later by the Flight (architecture §11).
 - `node:test` and `node:assert`. Inject dependencies (clock, `fetch`, process runner, brewer runner) instead of mocking modules.
-- Unit tests never start a process (git, npm, node, bash, `claude`, `gh`) ([ADR 0021](docs/adr/0021-unit-tests-spawn-no-processes.md)). Put the decisions in a pure core tested with plain data, and the commands in a thin shell tested with a fake process runner and captured tool output. Real tools run only in `test/integration/` (`npm run test:integration`): a few tests per tool boundary, run by CI, not by `npm run check`. Keep `npm run check` under 20 s.
+- Unit tests, and the property and chaos tests that `npm test` also runs, never start a process (git, npm, node, bash, `claude`, `gh`) ([ADR 0021](docs/adr/0021-unit-tests-spawn-no-processes.md)). Put the decisions in a pure core tested with plain data, and the commands in a thin shell tested with a fake process runner and captured tool output. Real tools run only in `test/integration/` (`npm run test:integration`): a few tests per tool boundary, run by CI, not by `npm run check`. Keep `npm run check` under 20 s. The exception list in `scripts/check-test-layers.ts` stays empty unless a reviewer accepts the reason.
 - While working, run only the test file you are changing (`node --test test/unit/<file>.test.ts`); run the full `npm run check` before the green commit and the push.
 - Test behaviour through public interfaces, not implementation details; a test should fail when the behaviour breaks and survive a refactor.
 - Every change comes with tests. Engine changes must keep the property tests (invariants I1–I6) and the chaos tests green.

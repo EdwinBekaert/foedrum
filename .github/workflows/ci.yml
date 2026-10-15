@@ -62,20 +62,32 @@ jobs:
       - run: npm audit signatures
       - run: npm audit --omit=dev
 
-      # The same command contributors run locally; npm test enforces the coverage thresholds.
+      # The same command contributors run locally; npm test enforces the coverage thresholds and
+      # fails when one test file takes more than 5 s (scripts/test-budget-reporter.ts). The time
+      # it took goes to the summary: it should stay under 20 s on a developer machine (ADR 0021).
       - name: npm run check
         id: check
-        run: npm run check 2>&1 | tee "$RUNNER_TEMP/check.log"
+        run: |
+          start=$(date +%s)
+          status=0
+          npm run check 2>&1 | tee "$RUNNER_TEMP/check.log" || status=$?
+          echo "npm run check took $(( $(date +%s) - start )) s" | tee "$RUNNER_TEMP/check-time.txt"
+          exit "$status"
 
-      # Tests against the real tools, kept out of npm run check (ADR 0021).
+      # Tests against the real tools, kept out of npm run check (ADR 0021). The nightly run is
+      # this same job, so they run there on every leg too.
       - name: npm run test:integration
         run: npm run test:integration
 
-      - name: Coverage summary
+      - name: Check summary
         if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
         run: |
           {
-            echo "### Coverage (${{ matrix.os }}, node ${{ matrix.node }})"
+            echo "### npm run check (${{ matrix.os }}, node ${{ matrix.node }})"
+            cat "$RUNNER_TEMP/check-time.txt" 2>/dev/null || echo "npm run check did not finish"
+            echo '```'
+            sed -n '/^test file times/,/^end of test file times/p;/^✖ .* over the .* budget/p' "$RUNNER_TEMP/check.log"
+            echo '```'
             echo '```'
             sed -n '/start of coverage report/,/end of coverage report/p' "$RUNNER_TEMP/check.log" | sed 's/^ℹ //'
             echo '```'

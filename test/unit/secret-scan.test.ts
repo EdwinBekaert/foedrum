@@ -1,13 +1,9 @@
-import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { after, before, describe, it } from 'node:test';
-import { findSecrets, type IsCommit } from '../../scripts/secret-scan.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+// The secret scan's matching and its exit codes, with file reading and the commit lookup
+// injected. The script with real node and git runs in test/integration/secret-scan.test.ts.
 
-const root = join(import.meta.dirname, '..', '..');
-const script = join(root, 'scripts', 'secret-scan.ts');
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { findSecrets, type IsCommit, run } from '../../scripts/secret-scan.ts';
 
 // Synthetic secrets, built at run time so the source never holds a token-shaped string.
 const githubToken = `ghp${'_'}${'a1B2'.repeat(9)}`;
@@ -85,34 +81,66 @@ describe('findSecrets', () => {
   });
 });
 
-describe('secret-scan command', () => {
-  let dir: TempDir;
-  before(() => {
-    dir = makeTempDir('secret-scan');
-  });
-  after(() => dir.remove());
-
-  const scan = (content: string) => {
-    const file = join(dir.path, 'summary.md');
-    writeFileSync(file, content);
-    return spawnSync(process.execPath, [script, file], { cwd: root, encoding: 'utf8' });
+describe('run', () => {
+  const runWith = (args: string[], files: Record<string, string>, isCommit = noCommits) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const read: string[] = [];
+    const readFile = (file: string): string => {
+      read.push(file);
+      const text = files[file];
+      if (text === undefined) throw new Error(`ENOENT: no such file, open '${file}'`);
+      return text;
+    };
+    const status = run(args, {
+      readFile,
+      isCommit,
+      out: (text) => out.push(text),
+      err: (text) => err.push(text),
+    });
+    return { status, out: out.join(''), err: err.join(''), read };
   };
 
-  it('exits 0 for a summary whose only long hex string is a commit of this repository', () => {
-    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-    const result = scan(`Base \`${head}\`\n`);
-    assert.equal(result.status, 0, result.stderr);
+  it('exits 0 silently for a summary without secrets, reading the named file', () => {
+    const result = runWith(['summary.md'], { 'summary.md': '## Review\n\nAll good.\n' });
+    assert.deepEqual(result, { status: 0, out: '', err: '', read: ['summary.md'] });
   });
 
-  it('exits 1 and names the line when it finds a secret', () => {
-    const result = scan(`fine\n${githubToken}\n`);
+  it('exits 0 when the only long hex string is a commit of this repository', () => {
+    const result = runWith(['summary.md'], { 'summary.md': `Base \`${fortyHex}\`\n` }, allCommits);
+    assert.equal(result.status, 0);
+    assert.equal(result.out, '');
+  });
+
+  it('exits 1 for a long hex string that is not a commit of this repository', () => {
+    const result = runWith(['summary.md'], { 'summary.md': `Base \`${fortyHex}\`\n` }, noCommits);
     assert.equal(result.status, 1);
-    assert.match(result.stdout, /line 2/);
-    assert.ok(!result.stdout.includes(githubToken));
+    assert.match(result.out, /^line 1: long hexadecimal string/);
   });
 
-  it('exits 2 when no file is given', () => {
-    const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' });
+  it('exits 1 and prints one line per secret, naming its line without the secret', () => {
+    const result = runWith(['summary.md'], { 'summary.md': `fine\n${githubToken}\n${apiKey}\n` });
+    assert.equal(result.status, 1);
+    assert.deepEqual(result.out.split('\n'), [
+      'line 2: GitHub token ghp_… (40 characters)',
+      'line 3: API key sk-a… (43 characters)',
+      '',
+    ]);
+    assert.ok(!result.out.includes(githubToken));
+    assert.equal(result.err, '');
+  });
+
+  it('exits 2 with usage on stderr when no file is given', () => {
+    const result = runWith([], {});
     assert.equal(result.status, 2);
+    assert.match(result.err, /^usage: node scripts\/secret-scan\.ts <file>/);
+    assert.deepEqual(result.read, []);
+  });
+
+  it('exits 2 naming the file when it cannot be read', () => {
+    const result = runWith(['missing.md'], {});
+    assert.equal(result.status, 2);
+    assert.match(result.err, /cannot read missing\.md: ENOENT/);
+    assert.equal(result.out, '');
   });
 });
