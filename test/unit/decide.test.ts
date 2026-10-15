@@ -176,6 +176,14 @@ describe('decide record', () => {
     accepts([], { kind: 'record', event: ordered }, [ordered]);
   });
 
+  it('refuses an event the lane does not allow', () => {
+    refuses(
+      lanes.stuck,
+      { kind: 'record', event: started('plan', 1) as Extract<Event, { type: 'step.started' }> },
+      /batch b1 is stuck; step.started needs it brewing/,
+    );
+  });
+
   it('refuses an event the fold would throw on', () => {
     refuses([ordered], { kind: 'record', event: ordered }, /batch b1 was already ordered/);
   });
@@ -280,6 +288,33 @@ describe('decide finish', () => {
     accepts(brewing('green'), finish(final, 'green'), [
       finished(final, 'green'),
       next('implement'),
+    ]);
+  });
+
+  it('retries a retryable failure of a step with a route while it has attempts left', () => {
+    accepts(brewing('green'), finish(retryable, 'green'), [
+      finished(retryable, 'green'),
+      next('green', 2),
+    ]);
+  });
+
+  it('sends a retryable failure back along its route once the attempts are used up', () => {
+    accepts(brewing('green', 2), finish(retryable, 'green', 2), [
+      finished(retryable, 'green', 2),
+      next('implement'),
+    ]);
+  });
+
+  it('never sends a cancelled attempt along a route', () => {
+    const cancel = { kind: 'cancelled' } as const;
+    accepts(brewing('green', 2), finish(cancel, 'green', 2), [
+      finished(cancel, 'green', 2),
+      stuckOn({
+        kind: 'attempts_exhausted',
+        stepId: 'green',
+        attempts: 2,
+        lastReason: 'the attempt was cancelled',
+      }),
     ]);
   });
 
@@ -420,6 +455,29 @@ describe('decide expire: brewing → Stuck (invariant I5)', () => {
     );
   });
 
+  it('refuses the latest attempt of a step once it finished', () => {
+    const succeeded: Event = {
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: null },
+    };
+    refuses(
+      [...brewing(), succeeded, next('implement')],
+      expire,
+      /attempt plan#1 of batch b1 is not running/,
+    );
+  });
+
+  it('refuses an attempt a later attempt of its step replaced', () => {
+    refuses(
+      [ordered, chosen(), scheduled('plan', 1), scheduled('plan', 2)],
+      expire,
+      /attempt plan#1 of batch b1 is not running/,
+    );
+  });
+
   it('refuses an attempt that was never scheduled', () => {
     refuses(brewing(), { ...expire, attempt: 3 }, /attempt plan#3 of batch b1 is not running/);
   });
@@ -523,6 +581,15 @@ describe('decide remind (ADR 0025)', () => {
       { ...stuckEvent(needsInput, ['answer', 'cancel']), remindAt: '2026-10-15T11:00:00.000Z' },
     ];
     accepts(events, remind, [stuckOn(needsInput, ['answer', 'cancel'])]);
+  });
+
+  it('refuses a Conditioning reminder that is not due', () => {
+    const waiting: Event = { type: 'batch.waiting', batchId: 'b1', on: merge, remindAt: inAnHour };
+    refuses(
+      [ordered, waiting],
+      remind,
+      /the reminder of batch b1 is not due until 2026-10-15T13:00:00.000Z/,
+    );
   });
 
   it('refuses a reminder that is not due', () => {

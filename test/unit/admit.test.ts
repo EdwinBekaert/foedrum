@@ -269,6 +269,21 @@ describe('admit lane rules (ADR 0025)', () => {
     }
   }
 
+  // An attempt can be scheduled or started in any lane; it starts and finishes only while brewing.
+  for (const [event, events] of [
+    [started, lanes.brewing.slice(0, 3)],
+    [succeeded, lanes.brewing],
+  ] as const) {
+    it(`accepts ${event.type} when the batch is brewing`, () => {
+      assert.equal(admit(fold([...events]), [event]).kind, 'accepted');
+    });
+    for (const [lane, prefix] of Object.entries(lanes).filter(([lane]) => lane !== 'brewing')) {
+      it(`refuses ${event.type} when the batch is ${lane}`, () => {
+        refused(prefix, event, new RegExp(`batch b1 is ${lane}; ${event.type} needs it brewing`));
+      });
+    }
+  }
+
   it('names the lanes an event is allowed from', () => {
     refused(
       lanes.ordered,
