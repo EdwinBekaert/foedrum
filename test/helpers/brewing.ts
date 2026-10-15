@@ -126,8 +126,9 @@ export const createBrewing = (options: BrewingOptions) => {
       for (const { ref, end } of ended.splice(0)) {
         const key = attemptKey.encode(ref);
         runs.delete(key);
-        // An attempt that ended holds its worktree no longer, also when Stuck abandoned it and
-        // its finish is refused: the next attempt of its step may resume in that worktree (I2).
+        // An attempt that ended holds its lease no longer, also when Stuck abandoned it and its
+        // finish is refused: a step runs one attempt at a time, so a second live lease of a step
+        // is an attempt that no longer runs (I2).
         if (!command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
           store.withTransaction((tx) => tx.releaseLease(key));
         }

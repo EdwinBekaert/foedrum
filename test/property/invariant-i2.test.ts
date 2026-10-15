@@ -8,10 +8,9 @@ import { holdsInScenarios } from '../helpers/property.ts';
 it('I2: at most one live lease per attempt and per worktree', () =>
   holdsInScenarios({
     afterMove: (engine) => {
-      // The store keys leases by attempt, so one per attempt holds by construction. An attempt
-      // works in its own worktree (ADR 0012), but the next attempt of its step may resume its
-      // session, in that session's worktree (retryMode, ADR 0027): two live leases of one step
-      // would be two attempts in one worktree.
+      // The store keys leases by attempt, so one per attempt holds by construction, and every
+      // attempt works in its own worktree (ADR 0012). A step runs one attempt at a time, so a
+      // second live lease of a step is an attempt that no longer runs.
       const byStep = new Map<string, string[]>();
       for (const lease of engine.store.currentLeases(engine.now())) {
         const ref = attemptKey.decode(lease.attemptKey);
