@@ -7,6 +7,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -44,7 +45,8 @@ interface Repo {
   dir: TempDir;
   main: string;
   origin: string;
-  worktree: (name: string, options?: { push?: boolean; path?: string }) => string;
+  hub: string;
+  worktree: (name: string, options?: { push?: boolean; commit?: boolean; path?: string }) => string;
   mergeOnHub: (branch: string, options?: { deleteBranch?: boolean }) => void;
   localBranches: () => string[];
   remoteBranches: () => string[];
@@ -77,9 +79,13 @@ const makeRepo = (): Repo => {
     dir,
     main,
     origin,
-    worktree: (name, { push = true, path = join(main, '.claude', 'worktrees', name) } = {}) => {
+    hub,
+    worktree: (
+      name,
+      { push = true, commit = true, path = join(main, '.claude', 'worktrees', name) } = {},
+    ) => {
       git(main, ['worktree', 'add', '-q', '-b', name, path, 'origin/main']);
-      commitFile(path, `${name.replaceAll('/', '-')}.txt`, `Work on ${name}`);
+      if (commit) commitFile(path, `${name.replaceAll('/', '-')}.txt`, `Work on ${name}`);
       if (push) git(path, ['push', '-q', '-u', 'origin', name]);
       return path;
     },
@@ -231,6 +237,94 @@ describe('cleanWorktrees', () => {
     assert.ok(hasLine(lines, 'kept stale worktree', '30-moved', 'live session'), lines.join('\n'));
   });
 
+  it('keeps a fresh worktree and branches with no commits of their own', async () => {
+    // A session that started a worktree and exited before its first commit.
+    const path = repo.worktree('31-fresh', { commit: false, push: false });
+    lock(repo, path, `claude session 31-fresh (pid ${deadPid()})`);
+    git(repo.main, ['branch', '32-placeholder', 'origin/main']);
+    git(repo.main, ['push', '-q', 'origin', '32-placeholder']);
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.ok(existsSync(path), lines.join('\n'));
+    assert.deepEqual(repo.localBranches(), ['31-fresh', '32-placeholder', 'main']);
+    assert.deepEqual(repo.remoteBranches(), ['32-placeholder', 'main']);
+  });
+
+  it('keeps a worktree folder whose .git file is missing', async () => {
+    const path = repo.worktree('33-broken');
+    repo.mergeOnHub('33-broken');
+    writeFileSync(join(path, 'notes.txt'), 'not committed\n');
+    rmSync(join(path, '.git'));
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.ok(existsSync(join(path, 'notes.txt')), lines.join('\n'));
+    assert.ok(hasLine(lines, 'kept worktree', '33-broken'), lines.join('\n'));
+  });
+
+  it('keeps a worktree that has the default branch checked out', async () => {
+    git(repo.main, ['switch', '-q', '-c', 'side']);
+    const path = join(repo.main, '.claude', 'worktrees', '36-main');
+    git(repo.main, ['worktree', 'add', '-q', path, 'main']);
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.ok(existsSync(path), lines.join('\n'));
+    assert.ok(repo.localBranches().includes('main'));
+    assert.deepEqual(repo.remoteBranches(), ['main']);
+    assert.ok(hasLine(lines, 'kept worktree', '36-main'), lines.join('\n'));
+  });
+
+  it('keeps a remote branch that moved on after it was fetched', async () => {
+    const path = repo.worktree('35-moved-on');
+    repo.mergeOnHub('35-moved-on');
+    const merged = git(path, ['rev-parse', 'HEAD']).trim();
+    // Someone pushes a follow-up to the branch. The main checkout fetches only main, so its
+    // origin/35-moved-on still points at the merged tip, as after a push that lands just
+    // after the cleanup's own fetch.
+    git(repo.hub, ['switch', '-q', '-c', 'follow-up', 'origin/35-moved-on']);
+    commitFile(repo.hub, 'follow-up.txt', 'Follow up');
+    git(repo.hub, ['push', '-q', 'origin', 'follow-up:35-moved-on']);
+    git(repo.main, ['config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main']);
+    git(repo.main, ['update-ref', 'refs/remotes/origin/35-moved-on', merged]);
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.equal(existsSync(path), false, lines.join('\n'));
+    assert.deepEqual(repo.remoteBranches(), ['35-moved-on', 'main'], lines.join('\n'));
+    assert.ok(hasLine(lines, 'kept remote branch origin/35-moved-on'), lines.join('\n'));
+  });
+
+  it('finishes a removal that git leaves half done', {
+    skip: process.platform !== 'win32' && 'only Windows refuses to delete a busy folder',
+  }, async () => {
+    const path = repo.worktree('34-half');
+    repo.mergeOnHub('34-half');
+    // An ignored folder that sorts before .git, held by a process: git deletes part of the
+    // worktree, fails on this folder and leaves the .git file in place.
+    const held = join(path, '.claude', 'worktrees', 'held');
+    mkdirSync(held, { recursive: true });
+    const holder: ChildProcess = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      cwd: held,
+      stdio: 'ignore',
+    });
+    const exited = new Promise((resolve) => holder.once('exit', resolve));
+    // The holder lets go while removeTree waits before its first retry.
+    const release = async (): Promise<void> => {
+      holder.kill();
+      await exited;
+    };
+    try {
+      const lines = await cleanWorktrees({ cwd: repo.main, remove: { sleep: release } });
+
+      assert.equal(existsSync(path), false, lines.join('\n'));
+      assert.ok(hasLine(lines, 'removed worktree', '34-half'), lines.join('\n'));
+    } finally {
+      await release();
+    }
+  });
+
   it('prunes the record of a nested scratch worktree whose folder is gone', async () => {
     const parent = repo.worktree('29-parent', { push: false });
     // Like the brew-review skill's scratch tree: detached, deep inside another worktree.
@@ -375,6 +469,18 @@ describe('worktrees-clean --session-start', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(path), false);
     assert.match(result.stdout, /removed worktree/);
+  });
+
+  it('cleans up when the main checkout is opened through a symbolic link', () => {
+    const path = repo.worktree('37-linked');
+    repo.mergeOnHub('37-linked');
+    const link = join(repo.dir.path, 'linked');
+    symlinkSync(repo.main, link, 'junction');
+
+    const result = runSessionStart(link);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(path), false, result.stdout);
   });
 
   it('does nothing when the session starts inside a worktree', () => {
