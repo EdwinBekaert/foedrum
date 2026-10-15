@@ -45,6 +45,13 @@ export interface Plan {
   kept: string[];
 }
 
+export const shouldRun = (
+  _sessionStart: boolean,
+  _dirs: { gitDir: string; commonDir: string } | undefined,
+): boolean => {
+  throw new Error('not implemented');
+};
+
 const BASE = 'origin/main';
 // The lock reason Claude Code writes for a session's worktree.
 const SESSION_LOCK = /^claude session .+ \(pid (\d+)\)$/;

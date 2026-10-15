@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { cleanWorktrees, type Git } from '../../scripts/worktrees-clean.ts';
+import { cleanWorktrees, type Git, gitEnv } from '../../scripts/worktrees-clean.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // Captured from git 2.56 with machine paths and object ids replaced (see the fixture folder).
@@ -20,12 +20,18 @@ const TIP_10 = '0000000000000000000000000000000000000001';
 type Call = [cwd: string, ...args: string[]];
 
 // A fake git that answers from the captured output and records every call. `fail` names the
-// calls that fail, by their arguments.
-const fakeGit = (main: string, fail: (args: string[]) => boolean = () => false) => {
+// calls that fail, by their arguments; `answer` replaces the output of some calls.
+const fakeGit = (
+  main: string,
+  fail: (args: string[]) => boolean = () => false,
+  answer: (cwd: string, args: string[]) => string | undefined = () => undefined,
+) => {
   const calls: Call[] = [];
   const git: Git = async (cwd, args) => {
     calls.push([cwd, ...args]);
     if (fail(args)) return { ok: false, stdout: '', stderr: 'fatal: simulated failure\n' };
+    const answered = answer(cwd, args);
+    if (answered !== undefined) return { ok: true, stdout: answered, stderr: '' };
     const [command] = args;
     const stdout =
       command === 'rev-parse'
@@ -132,5 +138,92 @@ describe('cleanWorktrees with a fake git', () => {
     );
     assert.equal(lines.length, 1);
     assert.match(lines[0] ?? '', /^skipped: git fetch --prune origin failed/);
+  });
+
+  // Without the list, no branch counts as checked out, and update-ref -d does not refuse one.
+  for (const failing of ['worktree', 'for-each-ref'] as const) {
+    it(`deletes nothing when git ${failing} fails`, async () => {
+      const { calls, git } = fakeGit(main, (args) => args[0] === failing);
+
+      const lines = await cleanWorktrees(main, git);
+
+      const commands = calls.map(([, ...args]) => args.join(' '));
+      assert.equal(
+        commands.some((c) => /^(update-ref|worktree remove|config)/.test(c)),
+        false,
+      );
+      assert.ok(existsSync(record('10-gone')));
+      assert.equal(lines.length, 1, lines.join('\n'));
+      assert.match(lines[0] ?? '', new RegExp(`^skipped: git ${failing} .*failed`));
+    });
+  }
+
+  it('unlocks a worktree whose session has ended before removing it', async () => {
+    const lock = `locked claude session 7-merged (pid ${process.pid})\0`;
+    const list = (args: string[]) => args[0] === 'worktree' && args[1] === 'list';
+    const { calls, git } = fakeGit(main, undefined, (_cwd, args) =>
+      list(args)
+        ? worktreeList
+            .replaceAll('/work/repo', main)
+            .replace('branch refs/heads/7-merged\0', `branch refs/heads/7-merged\0${lock}`)
+        : undefined,
+    );
+
+    await cleanWorktrees(main, git, () => false);
+
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    const unlock = commands.indexOf(`worktree unlock ${wt('7-merged')}`);
+    assert.ok(unlock >= 0, commands.join('\n'));
+    assert.ok(unlock < commands.indexOf(`worktree remove ${wt('7-merged')}`));
+  });
+
+  it('keeps the branch when the worktree cannot be removed', async () => {
+    const { calls, git } = fakeGit(main, (args) => args[0] === 'worktree' && args[1] === 'remove');
+
+    const lines = await cleanWorktrees(main, git);
+
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    assert.equal(
+      commands.some((c) => c.includes('refs/heads/7-merged')),
+      false,
+    );
+    assert.equal(
+      commands.some((c) => c.includes('branch.7-merged')),
+      false,
+    );
+    assert.ok(
+      lines.includes('could not clean .claude/worktrees/7-merged: fatal: simulated failure'),
+    );
+  });
+
+  it('keeps a worktree whose status shows changes', async () => {
+    const { calls, git } = fakeGit(main, undefined, (cwd, args) =>
+      args[0] === 'status' && cwd === wt('7-merged') ? refs.statusDirty : undefined,
+    );
+
+    const lines = await cleanWorktrees(main, git);
+
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    assert.equal(commands.includes(`worktree remove ${wt('7-merged')}`), false);
+    assert.ok(
+      lines.includes(
+        'kept worktree .claude/worktrees/7-merged: it has uncommitted or untracked changes',
+      ),
+    );
+  });
+});
+
+describe('gitEnv', () => {
+  it('turns off every credential prompt, in the terminal and in a window', () => {
+    const env = gitEnv({ PATH: '/bin' });
+
+    assert.equal(env.PATH, '/bin');
+    assert.equal(env.GIT_TERMINAL_PROMPT, '0');
+    assert.equal(env.GCM_INTERACTIVE, 'never');
+    assert.equal(env.GIT_SSH_COMMAND, 'ssh -o BatchMode=yes');
+  });
+
+  it('keeps an SSH command the user set', () => {
+    assert.equal(gitEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
   });
 });

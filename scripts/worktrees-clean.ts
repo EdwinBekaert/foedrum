@@ -20,6 +20,10 @@ interface GitResult {
 }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>;
 
+export const gitEnv = (_env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  throw new Error('not implemented');
+};
+
 const runGit: Git = (cwd, args) =>
   new Promise((done) => {
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
@@ -144,7 +148,11 @@ const carryOut = async (
 };
 
 // One line per removed or kept item, with the reason.
-export const cleanWorktrees = async (cwd: string, git: Git = runGit): Promise<string[]> => {
+export const cleanWorktrees = async (
+  cwd: string,
+  git: Git = runGit,
+  _isPidAlive?: (pid: number) => boolean,
+): Promise<string[]> => {
   const main = await mainCheckoutOf(git, cwd);
   if (main === undefined) return ['skipped: not inside a git repository'];
   const fetched = await git(main, ['fetch', '--prune', '--quiet', 'origin']);

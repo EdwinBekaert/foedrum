@@ -4,6 +4,7 @@ import {
   type BranchFact,
   type Facts,
   plan,
+  shouldRun,
   type WorktreeFact,
 } from '../../scripts/worktrees-clean/core.ts';
 
@@ -168,6 +169,59 @@ describe('plan: worktrees under .claude/worktrees/', () => {
     });
 
     assert.deepEqual(result, { actions: [], kept: [] });
+  });
+
+  it('keeps a worktree while a worktree nested in it still has its folder', () => {
+    const result = run({
+      worktrees: [
+        worktree('7-a'),
+        worktree('7-a/.foedrum/tmp/7/scratch/tree', { branch: undefined }),
+      ],
+      branches: [branch('7-a')],
+    });
+
+    assert.deepEqual(result.actions, []);
+    assert.deepEqual(result.kept, [
+      'kept worktree .claude/worktrees/7-a: it contains the worktree .claude/worktrees/7-a/.foedrum/tmp/7/scratch/tree',
+    ]);
+  });
+
+  it('removes the worktree once the folder of the worktree nested in it is gone', () => {
+    const nested = worktree('7-a/.foedrum/tmp/7/scratch/tree', {
+      branch: undefined,
+      state: 'gone',
+    });
+    const result = run({ worktrees: [worktree('7-a'), nested], branches: [branch('7-a')] });
+
+    assert.deepEqual(
+      result.actions.map((action) => action.kind),
+      ['remove', 'prune'],
+    );
+  });
+});
+
+describe('shouldRun', () => {
+  const main = { gitDir: '/repo/.git', commonDir: '/repo/.git' };
+
+  it('always runs by hand inside a repository', () => {
+    assert.equal(shouldRun(false, main), true);
+    assert.equal(
+      shouldRun(false, { gitDir: '/repo/.git/worktrees/7-a', commonDir: '/repo/.git' }),
+      true,
+    );
+  });
+
+  it('runs at session start only in the main checkout, as git reports it', () => {
+    assert.equal(shouldRun(true, main), true);
+    assert.equal(
+      shouldRun(true, { gitDir: '/repo/.git/worktrees/7-a', commonDir: '/repo/.git' }),
+      false,
+    );
+  });
+
+  it('never runs outside a repository', () => {
+    assert.equal(shouldRun(false, undefined), false);
+    assert.equal(shouldRun(true, undefined), false);
   });
 });
 

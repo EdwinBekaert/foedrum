@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { clearReadOnly, type RemovePath, removeTree } from '../../src/platform/remove.ts';
@@ -53,6 +53,25 @@ describe('clearReadOnly', () => {
 
   it('accepts a path that does not exist', async () => {
     await clearReadOnly(join(dir.path, 'missing'));
+  });
+
+  it('leaves the target of a symbolic link inside the tree alone', async (t) => {
+    const outside = join(dir.path, 'outside.txt');
+    const top = join(dir.path, 'top');
+    writeFileSync(outside, 'x');
+    chmodSync(outside, 0o444);
+    mkdirSync(top);
+    try {
+      symlinkSync(outside, join(top, 'link'), 'file');
+    } catch {
+      t.skip('this account cannot create symbolic links');
+      return;
+    }
+
+    await clearReadOnly(top);
+
+    assert.equal(isWritable(outside), false);
+    chmodSync(outside, 0o666);
   });
 });
 
