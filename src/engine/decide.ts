@@ -65,6 +65,17 @@ export type EngineCommand =
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
+  /** The supervisor found the lease of a running attempt expired: its process is lost (ADR 0026). */
+  | { kind: 'lose'; batchId: string; stepId: string; attempt: number; reason: string }
+  /** The runner reported no progress for the recipe's stall limit (ADR 0026). */
+  | {
+      kind: 'stall';
+      batchId: string;
+      stepId: string;
+      attempt: number;
+      lastProgressAt: Date;
+      turnsWithoutProgress: number;
+    }
   | { kind: 'wait'; batchId: string; on: WaitCondition }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string };
@@ -88,6 +99,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'deadline_passed':
     case 'waiting_for_session':
       return [...withoutAnswer];
+    case 'stalled':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -171,6 +184,9 @@ function run(draft: Draft, command: Command): Event[] {
     case 'expire':
       expire(draft, command);
       break;
+    case 'lose':
+    case 'stall':
+      throw new Error('not implemented');
     case 'wait': {
       const { batchId, on } = command;
       requireLane(draft.batch(batchId), 'wait', ['ordered', 'conditioning']);

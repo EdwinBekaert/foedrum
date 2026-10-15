@@ -86,6 +86,16 @@ export const StuckReason = z.discriminatedUnion('kind', [
   }),
   z.strictObject({ kind: z.literal('deadline_passed'), stepId: StepId, deadlineAt: Timestamp }),
   z.strictObject({ kind: z.literal('waiting_for_session'), stepId: StepId }),
+  z
+    .strictObject({
+      kind: z.literal('stalled'),
+      stepId: StepId,
+      lastProgressAt: Timestamp,
+      turnsWithoutProgress: Count,
+    })
+    .refine(() => {
+      throw new Error('not implemented');
+    }),
 ]);
 export type StuckReason = z.infer<typeof StuckReason>;
 
