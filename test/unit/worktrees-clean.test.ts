@@ -219,6 +219,21 @@ describe('cleanWorktrees', () => {
     assert.ok(hasLine(lines, '14-stale', 'folder is gone'), lines.join('\n'));
   });
 
+  it('prunes the record of a nested scratch worktree whose folder is gone', async () => {
+    const parent = repo.worktree('29-parent', { push: false });
+    // Like the brew-review skill's scratch tree: detached, deep inside another worktree.
+    const scratch = join(parent, '.foedrum', 'tmp', '51', 'scratch', 'tree');
+    git(repo.main, ['worktree', 'add', '-q', '--detach', scratch, 'origin/main']);
+    rmSync(scratch, { recursive: true, force: true });
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.ok(existsSync(parent));
+    assert.equal(repo.worktreePaths().length, 2, lines.join('\n'));
+    assert.deepEqual(readdirSync(join(repo.main, '.git', 'worktrees')), ['29-parent']);
+    assert.ok(hasLine(lines, 'scratch/tree', 'folder is gone'), lines.join('\n'));
+  });
+
   it('deletes merged local branches without a worktree and keeps the rest', async () => {
     const merged = repo.worktree('15-merged');
     repo.worktree('16-open', { push: false });
