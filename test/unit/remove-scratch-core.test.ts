@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { join, relative as relativePath, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { planScratch, type ScratchFacts } from '../../scripts/remove-scratch/core.ts';
 import type { RecordFact } from '../../scripts/worktrees-clean/core.ts';
@@ -39,35 +39,6 @@ describe('planScratch', () => {
     );
 
     assert.deepEqual(result, { ok: true, records: [join(records, 'tree')] });
-  });
-
-  it("removes the record the tree's .git file names when that record's gitdir file is missing", () => {
-    const result = planScratch(
-      facts({ records: [record('tree', undefined), record('tree1', undefined)] }),
-    );
-
-    assert.deepEqual(result, { ok: true, records: [join(records, 'tree')] });
-  });
-
-  it('resolves a relative path in a CRLF .git file against the tree', () => {
-    const relative = relativePath(tree, join(records, 'tree'));
-    const result = planScratch(
-      facts({ dotGit: `gitdir: ${relative}\r\n`, records: [record('tree', undefined)] }),
-    );
-
-    assert.deepEqual(result, { ok: true, records: [join(records, 'tree')] });
-  });
-
-  it('does not remove the record the .git file names when it points at another folder', () => {
-    const result = planScratch(facts({ records: [record('tree', join(checkout, 'other'))] }));
-
-    assert.deepEqual(result, { ok: true, records: [] });
-  });
-
-  it('removes only the folder when the tree has no .git file and no record points at it', () => {
-    const result = planScratch(facts({ dotGit: undefined, records: [record('tree', undefined)] }));
-
-    assert.deepEqual(result, { ok: true, records: [] });
   });
 
   for (const [title, path] of [

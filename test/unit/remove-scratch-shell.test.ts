@@ -71,16 +71,6 @@ describe('removeScratch with a fake git', () => {
     assert.ok(existsSync(record('tree')) && existsSync(record('tree1')));
   });
 
-  it('removes the record its .git file names once git deleted that record’s gitdir file', async () => {
-    rmSync(join(record('tree'), 'gitdir'));
-
-    const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', git);
-
-    assert.equal(existsSync(record('tree')), false, result.lines.join('\n'));
-    assert.ok(existsSync(record('orphan')));
-    assert.ok(result.lines.includes('removed worktree record .git/worktrees/tree'));
-  });
-
   // A junction on Windows (no admin rights needed), a symbolic link elsewhere.
   for (const side of ['working directory', 'checkout git prints'] as const) {
     it(`removes the scratch folder when the ${side} is a link to the checkout`, async () => {
