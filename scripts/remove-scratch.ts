@@ -1,10 +1,11 @@
-// `node scripts/remove-scratch.ts <scratch>`: removes a brew-review scratch folder and the record
-// under .git/worktrees/ of its tree through the platform removal, which clears the read-only
-// bits git trips over on Windows (issue #61). remove-scratch/core.ts decides which records are
-// the tree's; no other record is touched. Exits 1 when something could not be removed.
+// `node scripts/remove-scratch.ts <scratch>`: removes a brew-review scratch folder through the
+// platform removal, which clears read-only bits and retries busy files (issue #61). The scratch
+// tree is a clone; a record under .git/worktrees/ that still points at it, left by a run from
+// when it was a worktree, goes too. remove-scratch/core.ts decides; no other record is touched.
+// Exits 1 when it refuses the folder or could not remove something.
 
-import { readFile, realpath } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, resolve } from 'node:path';
 import { removeTree } from '../src/platform/remove.ts';
 import { planScratch } from './remove-scratch/core.ts';
 import { readRecords } from './worktrees-clean/records.ts';
@@ -29,7 +30,6 @@ export const removeScratch = async (
   const decided = planScratch({
     checkout: await real(checkout),
     scratch: folder,
-    dotGit: await readFile(join(folder, 'tree', '.git'), 'utf8').catch(() => undefined),
     records: await Promise.all(
       (await readRecords(commonDir)).map(async (record) =>
         record.folder === undefined ? record : { ...record, folder: await real(record.folder) },

@@ -20,7 +20,6 @@ const record = (name: string, folder: string | undefined): RecordFact => ({
 const facts = (fact: Partial<ScratchFacts> = {}): ScratchFacts => ({
   checkout,
   scratch,
-  dotGit: `gitdir: ${join(records, 'tree')}\n`,
   records: [],
   ...fact,
 });
