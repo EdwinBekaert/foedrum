@@ -274,7 +274,9 @@ describe('Event', () => {
     // A Stuck batch waits for a human with a reminder, never silently (ADR 0025).
     [
       'batch.stuck without a reminder',
-      Object.fromEntries(Object.entries(valid['batch.stuck']).filter(([key]) => key !== 'remindAt')),
+      Object.fromEntries(
+        Object.entries(valid['batch.stuck']).filter(([key]) => key !== 'remindAt'),
+      ),
     ],
     ['a stuck option listed twice', { ...valid['batch.stuck'], options: ['retry', 'retry'] }],
     [

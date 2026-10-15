@@ -19,7 +19,7 @@ export type Lane =
   | { kind: 'ordered' }
   | { kind: 'brewing' }
   | { kind: 'conditioning'; on: WaitCondition; remindAt: string }
-  | { kind: 'stuck'; reason: StuckReason; options: readonly StuckOption[] }
+  | { kind: 'stuck'; reason: StuckReason; options: readonly StuckOption[]; remindAt: string }
   | { kind: 'on_tap'; pullRequests: readonly string[] }
   | { kind: 'cancelled'; by: string };
 
@@ -253,8 +253,8 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'batch.stuck': {
-      const { reason, options } = event;
-      return setLane(state, event.batchId, { kind: 'stuck', reason, options });
+      const { reason, options, remindAt } = event;
+      return setLane(state, event.batchId, { kind: 'stuck', reason, options, remindAt });
     }
     case 'batch.resumed':
       return setLane(state, event.batchId, { kind: 'brewing' });

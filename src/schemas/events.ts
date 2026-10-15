@@ -190,6 +190,8 @@ export const Event = z.discriminatedUnion('type', [
       .array(StuckOption)
       .min(1)
       .refine((options) => new Set(options).size === options.length, 'Must be unique'),
+    // A Stuck batch waits for a human, never silently: the reminder is its deadline (ADR 0025).
+    remindAt: Timestamp,
   }),
   z.strictObject({
     type: z.literal('batch.resumed'),
