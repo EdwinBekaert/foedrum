@@ -84,7 +84,7 @@ describe('brewing with the fake brewer runner', () => {
         batchId: 'b1',
         recipe: 'pint',
         reason: 'feature label',
-        by: 'label',
+        source: 'label',
       }),
     );
     await brewing.drive();
