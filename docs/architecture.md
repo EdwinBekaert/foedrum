@@ -121,9 +121,10 @@ Issues filed in target repositories (bug reports, user requests) are a **triage 
 
 The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 0011](adr/0011-state-in-the-brewery-repository.md)):
 
-- On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history.
-- State is committed at **every step boundary** and pushed. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
-- **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging.
+- On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history. Events without a batch (bottles, releases) go to a top-level `events.jsonl`. Every line carries the store's event id, so a rebuild merges the files by id and gets the same ids and state ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)). Batch and step ids are path segments: lower case, a letter or digit at both ends, at most 100 characters, no Windows device names (`src/schemas/ids.ts`).
+- State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed. SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
+- The branch has its own worktree of the Brewery clone in the work root. Commits and pushes skip the user's git hooks; signing follows the clone, and a test commit at start-up refuses to start when signing cannot work unattended.
+- **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging. At start-up a missing or behind database is rebuilt from the branch; unpushed local events while the branch moved stop the engine with an error naming both heads. Foedrum never merges or rewrites state history.
 - **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>` resets the batch's branches to those SHAs and appends a "resumed from step" event. History is never rewritten; work continues from an earlier point. An already open bottle is **updated in place**: its branch is force-pushed to the rewound state and a comment on the pull request explains the rewind.
 - **No duplicate pull requests after a crash:** branch names are deterministic (`foedrum/<batch>/<repo>`), so Foedrum looks up an existing pull request before creating one, even if the last event never reached the state branch.
 
@@ -199,11 +200,11 @@ type WaitCondition =
   | { kind: 'sibling'; batchId: string }
 ```
 
-The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, an effect key is the canonical JSON text `["batchId","stepId",attempt,"effect"]` exactly as `JSON.stringify` writes it, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
+The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), batch and step ids are path segments ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, an effect key is the canonical JSON text `["batchId","stepId",attempt,"effect"]` exactly as `JSON.stringify` writes it, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
-The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps four tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; and two indexes of the events, maintained on append, so `replay` rebuilds them from a log (ADR 0011):
+The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps five tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024). `restore` appends events read from the state branch keeping their ids, after every stored event, and marks them pushed in the same transaction:
 
 - `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A trigger on `events` fills it, so the database itself refuses a second event for a key (the failed insert leaves no row), and `replay` refuses a log that contains one.
 - `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning reminder; `batch.waiting` sets the reminder; `step.finished` clears its own attempt's deadline; `batch.stuck`, `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
@@ -438,11 +439,11 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 ```
 src/
   cli/          entry point and commands
-  engine/       events, fold, store, scheduler, supervisor, executor
+  engine/       events, fold, store, state branch, scheduler, supervisor, executor
   brewers/      brewer loading, prompt rendering, CLI invocation
   recipes/      schema and loading
   github/       client, auth, intake, projection
-  workspace/    git and worktrees
+  workspace/    git (a non-interactive runner with timeouts) and worktrees
   platform/     OS differences: removal, path comparison, process trees (§13)
   checks/       gravity readings
   evals/        flight, blind tasting, model watcher
@@ -467,7 +468,7 @@ house-yeast/      Brewery-layer rules, and repository-layer rules for repositori
 
 Work root (outside the checkout, default ~/.foedrum/<brewery>/): worktrees, managed clones
 
-Branch foedrum/state: batches/<id>/events.jsonl and out docs, committed at every step boundary
+Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.md), events.jsonl for events without a batch; committed at every step boundary (ADR 0024)
 ```
 
 **A target repository** receives only what its bottles bring, plus:

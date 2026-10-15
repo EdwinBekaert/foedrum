@@ -11,6 +11,7 @@ Date: 2026-10-15 · Status: Accepted · Amends [0011](0011-state-in-the-brewery-
 - Each line of a log file is one stored event: `{"id":<store id>,"event":<event>}`, as `JSON.stringify` writes it, ending in LF. Readers tolerate CRLF and a BOM.
 - An event with a batch lives in `batches/<batchId>/events.jsonl`. `effect.applied` belongs to the batch of its effect key. Events without a batch (`bottle.opened`, `release.observed`, and any later one) live in the top-level `events.jsonl`, in the same line format. Which file an event belongs to is one exhaustive function of the event, so a new event type must be placed before it compiles.
 - **Global order:** a rebuild reads every log file, merges the lines by id and appends them keeping their ids, so the rebuilt store has identical ids, events, indexes and folded state. A duplicate id, ids out of order within a file, or an event in a file it does not belong to makes the branch invalid; the rebuild refuses it, naming the file and line.
+- The branch carries a `.gitattributes` with `* -text`, added by the first flush, so git never converts line ends: every machine reads the same bytes, whatever its `core.autocrlf`.
 - **Out docs** go to `batches/<batchId>/<stepId>-<attempt>.md`, next to `events.jsonl`. The engine writes an out doc into the state worktree before it appends the event that refers to it, so the doc is committed with that event. A crash in between leaves at worst a doc without its event, committed at the next boundary; never an event without its doc.
 
 ### Ids are path segments
