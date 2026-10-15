@@ -11,6 +11,7 @@ import {
   type Policy,
   parseLockfile,
   readPolicy,
+  run as runCheck,
 } from '../../scripts/check-deps.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -159,6 +160,35 @@ describe('checkLockfile', () => {
     const { version: _, ...rest } = entry('zod', '4.6.5');
     lock.packages['node_modules/zod'] = rest;
     assert.match(checkLockfile(lock, policy).join('\n'), /node_modules\/zod.*version/);
+  });
+
+  // Dot segments make the expected URL match the resolved one character for character, while
+  // URL normalisation sends npm ci to another package.
+  it('reports a version with dot segments, even when resolved matches it', () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod'] = entry('zod', '1.0.0/../../../evil/-/evil-1.0.0');
+    assert.match(checkLockfile(lock, policy).join('\n'), /node_modules\/zod.*version/);
+  });
+
+  it('reports a name with dot segments, even when resolved matches it', () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod'] = entry('zod', '4.6.5', {
+      name: 'zod/../evil',
+      resolved: `${registry}/zod/../evil/-/../evil-4.6.5.tgz`,
+    });
+    assert.match(checkLockfile(lock, policy).join('\n'), /node_modules\/zod.*name/);
+  });
+
+  it('reports a lockfile key that ends in a dot segment', () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod/node_modules/..'] = entry('..', '4.6.5');
+    assert.match(checkLockfile(lock, policy).join('\n'), /node_modules\/\.\..*name/);
+  });
+
+  it('accepts a prerelease version with build metadata', () => {
+    const lock = okLock();
+    lock.packages['node_modules/zod'] = entry('zod', '4.7.0-beta.1+sha.5114f85');
+    assert.deepEqual(checkLockfile(lock, policy), []);
   });
 
   it('accepts the tarball URL of a scoped package', () => {
@@ -474,5 +504,45 @@ describe('check-deps CLI', () => {
   it('exits 2 on an unknown argument', () => {
     write(okLock());
     assert.equal(run('--online').status, 2);
+  });
+
+  describe('run, with the registry injected', () => {
+    const now = new Date('2026-10-15T12:00:00Z');
+    const youngZod = (async (input: string | URL | Request) => {
+      const name = decodeURIComponent(String(input).slice(registry.length + 1));
+      const published = name === 'zod' ? now.getTime() - DAY : now.getTime() - 30 * DAY;
+      return Response.json({
+        time: {
+          '4.6.5': new Date(published).toISOString(),
+          '7.0.2': new Date(published).toISOString(),
+        },
+      });
+    }) as typeof fetch;
+
+    const runWith = async (...args: string[]) => {
+      const out: string[] = [];
+      const err: string[] = [];
+      const status = await runCheck(args, {
+        cwd: dir.path,
+        fetch: youngZod,
+        now,
+        out: (line) => out.push(line),
+        err: (line) => err.push(line),
+      });
+      return { status, out: out.join(''), err: err.join('') };
+    };
+
+    it('checks publish dates without --offline', async () => {
+      write(okLock());
+      const result = await runWith();
+      assert.equal(result.status, 1, result.err);
+      assert.match(result.out, /zod@4\.6\.5.*7 days/);
+    });
+
+    it('skips publish dates with --offline', async () => {
+      write(okLock());
+      const result = await runWith('--offline');
+      assert.equal(result.status, 0, result.out + result.err);
+    });
   });
 });

@@ -214,6 +214,18 @@ export const checkPublishDates = async (
   return results.flat();
 };
 
+export interface RunDeps {
+  cwd: string;
+  fetch: typeof fetch;
+  now: Date;
+  out: (text: string) => void;
+  err: (text: string) => void;
+}
+
+export const run = async (_args: string[], _deps: RunDeps): Promise<number> => {
+  throw new Error('not implemented');
+};
+
 const USAGE = 'usage: node scripts/check-deps.ts [--offline]\n';
 
 const main = async (args: string[]): Promise<number> => {
