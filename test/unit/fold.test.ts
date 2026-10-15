@@ -29,7 +29,16 @@ const batch = (state: State, id = 'b1'): Batch => {
 
 describe('fold', () => {
   it('starts from the empty state', () => {
-    assert.deepStrictEqual(fold([]), emptyState);
+    const empty = {
+      orders: new Map(),
+      subOrders: new Map(),
+      batches: new Map(),
+      bottles: new Map(),
+      releases: [],
+      effects: new Map(),
+    };
+    assert.deepStrictEqual(fold([]), empty);
+    assert.deepStrictEqual(emptyState, empty);
   });
 
   it('orders a batch for an issue', () => {
