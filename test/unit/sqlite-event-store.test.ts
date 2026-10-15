@@ -611,6 +611,9 @@ describe('SqliteEventStore in memory', () => {
         tx.append(stuck('b1', '2026-10-15T13:00:00Z'));
       });
       assert.deepEqual(store.batchesPastDeadline(now), []);
+      assert.deepEqual(store.batchesPastDeadline(at('2026-10-15T14:00:00Z')), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T13:00:00Z') },
+      ]);
     });
 
     it('ends the Conditioning reminder when a step is scheduled', () => {
