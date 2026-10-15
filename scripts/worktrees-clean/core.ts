@@ -45,6 +45,62 @@ export interface Plan {
   kept: string[];
 }
 
-export const plan = (_facts: Facts, _isPidAlive: (pid: number) => boolean): Plan => {
-  throw new Error('not implemented');
+const BASE = 'origin/main';
+// The lock reason Claude Code writes for a session's worktree.
+const SESSION_LOCK = /^claude session .+ \(pid (\d+)\)$/;
+
+// A branch may go once it is merged and GitHub has deleted its remote branch, which it does
+// on merge. Without an upstream of its own (never pushed, or tracking origin/main) it stays,
+// so main and long-lived local branches are never deleted.
+const branchKeepReason = (branch: BranchFact | undefined): string | undefined => {
+  if (branch === undefined) return 'no branch';
+  if (!branch.merged) return `not merged into ${BASE}`;
+  if (branch.upstream === undefined || branch.upstream === BASE) {
+    return 'no upstream branch of its own';
+  }
+  return branch.upstreamGone ? undefined : 'its remote branch still exists';
+};
+
+const lockKeepReason = (lock: string | undefined, isPidAlive: (pid: number) => boolean) => {
+  if (lock === undefined) return undefined;
+  const pid = SESSION_LOCK.exec(lock)?.[1];
+  if (pid === undefined) return `locked: ${lock || 'no reason given'}`;
+  return isPidAlive(Number(pid)) ? `locked by a live session (pid ${pid})` : undefined;
+};
+
+export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan => {
+  const branches = new Map(facts.branches.map((branch) => [branch.name, branch]));
+  const actions: Action[] = [];
+  const kept: string[] = [];
+
+  for (const worktree of facts.worktrees) {
+    const { inside, path, record, state } = worktree;
+    // Nested worktrees, such as review scratch trees, only have their stale records pruned.
+    if (inside === undefined || (inside.includes('/') && state !== 'gone')) continue;
+    const label = `.claude/worktrees/${inside}`;
+    const branchReason = branchKeepReason(branches.get(worktree.branch ?? ''));
+    const branch = branchReason === undefined ? worktree.branch : undefined;
+    const reason =
+      lockKeepReason(worktree.lockReason, isPidAlive) ??
+      (state === 'dirty' ? 'it has uncommitted or untracked changes' : undefined) ??
+      (state === 'gone' ? undefined : branchReason);
+    if (reason !== undefined) kept.push(`kept worktree ${label}: ${reason}`);
+    else if (state === 'gone' && record !== undefined) {
+      actions.push({ kind: 'prune', label, record, branch });
+    } else if (state === 'no-git' && record !== undefined) {
+      actions.push({ kind: 'finish', label, path, record, branch });
+    } else if (state === 'clean') {
+      const unlock = worktree.lockReason !== undefined;
+      actions.push({ kind: 'remove', label, path, record, unlock, branch });
+    }
+  }
+
+  const checkedOut = new Set(facts.worktrees.map((worktree) => worktree.branch));
+  for (const branch of facts.branches) {
+    if (checkedOut.has(branch.name)) continue;
+    const reason = branchKeepReason(branch);
+    if (reason === undefined) actions.push({ kind: 'delete-branch', branch: branch.name });
+    else kept.push(`kept branch ${branch.name}: ${reason}`);
+  }
+  return { actions, kept };
 };
