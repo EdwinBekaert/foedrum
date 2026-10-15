@@ -65,9 +65,9 @@ export type EngineCommand =
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
-  /** The supervisor found the lease of a running attempt expired: its process is lost (ADR 0026). */
+  /** The supervisor found the lease of a running attempt expired: its process is lost (ADR 0027). */
   | { kind: 'lose'; batchId: string; stepId: string; attempt: number; reason: string }
-  /** The runner reported no progress for the recipe's stall limit (ADR 0026). */
+  /** The runner reported no progress for the recipe's stall limit (ADR 0027). */
   | {
       kind: 'stall';
       batchId: string;
@@ -356,7 +356,7 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
 }
 
 /**
- * A started attempt whose lease expired is lost (ADR 0026): it is recorded as a retryable failure,
+ * A started attempt whose lease expired is lost (ADR 0027): it is recorded as a retryable failure,
  * and retried like a cancelled attempt, never along an `onFail` route, which is for failed checks.
  */
 function lose(draft: Draft, command: Extract<Command, { kind: 'lose' }>): void {

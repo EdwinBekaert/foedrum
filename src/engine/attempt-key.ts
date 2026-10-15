@@ -1,4 +1,4 @@
-// The canonical text of an attempt: the `attemptKey` of its lease (ADR 0026), so the supervisor can
+// The canonical text of an attempt: the `attemptKey` of its lease (ADR 0027), so the supervisor can
 // tell which attempt a lease holds.
 
 import { PathSafeId } from '../schemas/ids.ts';

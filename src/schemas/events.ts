@@ -86,7 +86,7 @@ export const StuckReason = z.discriminatedUnion('kind', [
   }),
   z.strictObject({ kind: z.literal('deadline_passed'), stepId: StepId, deadlineAt: Timestamp }),
   z.strictObject({ kind: z.literal('waiting_for_session'), stepId: StepId }),
-  // No file write or commit since `lastProgressAt`, for `turnsWithoutProgress` turns (ADR 0026).
+  // No file write or commit since `lastProgressAt`, for `turnsWithoutProgress` turns (ADR 0027).
   z.strictObject({
     kind: z.literal('stalled'),
     stepId: StepId,

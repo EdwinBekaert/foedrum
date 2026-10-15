@@ -1,4 +1,4 @@
-// The supervisor's pure core (architecture §4.4, ADR 0025, ADR 0026): from the folded state, the
+// The supervisor's pure core (architecture §4.4, ADR 0025, ADR 0027): from the folded state, the
 // due deadlines and the expired leases, the engine commands one tick issues. It never builds events:
 // decide does, so the supervisor cannot do what the state machine refuses.
 
@@ -145,7 +145,7 @@ export type FlushWatch = { failingSince: Date; reported: boolean } | undefined;
 
 /**
  * Follows the state branch's flushes: `overdueSince` is set once, on the first flush that still
- * fails `deadlineMs` after the first failure, so the engine raises attention once (ADR 0024).
+ * fails `deadlineMs` after the first failure, so the engine raises attention once (ADR 0024 as amended by ADR 0027).
  */
 export const watchFlush = (
   watch: FlushWatch,

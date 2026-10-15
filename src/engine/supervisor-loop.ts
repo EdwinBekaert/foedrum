@@ -1,4 +1,4 @@
-// The supervisor's thin shell (ADR 0021, ADR 0026): runs the tick on an interval. It reads the
+// The supervisor's thin shell (ADR 0021, ADR 0027): runs the tick on an interval. It reads the
 // store, asks the core (supervisor.ts) for commands, has decide turn them into events, appends them,
 // releases expired leases and retries the state branch's flush. The clock, timer and store are
 // injected.
@@ -19,7 +19,7 @@ export type Notice =
   | { kind: 'command_failed'; command: EngineCommand; error: unknown }
   /** The flush of the state branch failed; the next tick retries it. */
   | { kind: 'flush_failed'; reason: string }
-  /** The flushes have failed since `since`, for longer than the flush deadline (ADR 0024). */
+  /** The flushes have failed since `since`, for longer than the flush deadline (ADR 0024 as amended by ADR 0027). */
   | { kind: 'flush_overdue'; since: Date }
   /** A tick threw; the next tick runs anyway. */
   | { kind: 'tick_failed'; error: unknown };
