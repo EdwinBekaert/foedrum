@@ -9,9 +9,13 @@ const Attempt = z.int().positive();
 const Count = z.int().nonnegative();
 const Timestamp = z.iso.datetime();
 const IssueNumber = z.int().positive();
-/** `owner/name` of a GitHub repository. */
-const Repo = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'Must be owner/name');
-const PullRequestUrl = z.url({ protocol: /^https$/ });
+/** `owner/name` of a GitHub repository; neither part may be `.`, `..` or start with `-`. */
+const Repo = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[\w.][\w.-]*$/, 'Must be owner/name');
+const PullRequestUrl = z
+  .url({ protocol: /^https$/ })
+  .refine((url) => !/^https:\/\/[^/]*@/.test(url), 'Must not contain credentials');
 const Sha = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
 
 /** Where a command or answer came from (ADR 0019). */
@@ -115,15 +119,28 @@ const orderDecomposed = z
           message: 'Must name sub-orders of this breakdown',
           path: ['dependencies', i],
         });
-      } else if (subOrder === blockedBy) {
-        ctx.addIssue({
-          code: 'custom',
-          message: 'A sub-order cannot depend on itself',
-          path: ['dependencies', i],
-        });
       }
     });
+    if (hasCycle(dependencies)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Must not form a cycle: those sub-orders would wait for each other forever',
+        path: ['dependencies'],
+      });
+    }
   });
+
+// Removes sub-orders that wait for nothing still pending until none are left; whatever remains waits in a cycle.
+function hasCycle(dependencies: Dependency[]): boolean {
+  let pending = dependencies;
+  for (;;) {
+    const waiting = new Set(pending.map((dependency) => dependency.subOrder));
+    const next = pending.filter((dependency) => waiting.has(dependency.blockedBy));
+    if (next.length === 0) return false;
+    if (next.length === pending.length) return true;
+    pending = next;
+  }
+}
 
 export const Event = z.discriminatedUnion('type', [
   z.strictObject({
@@ -160,7 +177,10 @@ export const Event = z.discriminatedUnion('type', [
     type: z.literal('batch.stuck'),
     batchId: Id,
     reason: StuckReason,
-    options: z.array(StuckOption),
+    options: z
+      .array(StuckOption)
+      .min(1)
+      .refine((options) => new Set(options).size === options.length, 'Must be unique'),
   }),
   z.strictObject({
     type: z.literal('batch.resumed'),

@@ -19,7 +19,8 @@ export const Question = z
 export type Question = z.infer<typeof Question>;
 
 export const StepOutcome = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('succeeded'), output: z.unknown() }),
+  // JSON, because outcomes are stored in the event log.
+  z.strictObject({ kind: z.literal('succeeded'), output: z.json() }),
   z.strictObject({ kind: z.literal('failed'), retryable: z.boolean(), reason: NonEmpty }),
   z.strictObject({ kind: z.literal('needs_input'), questions: z.array(Question).min(1) }),
   z.strictObject({ kind: z.literal('cancelled') }),
