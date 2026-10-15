@@ -16,10 +16,10 @@ import {
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
 import { runGit } from '../../scripts/worktrees-clean.ts';
 import { isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { parseWorktreeList } from '../../src/workspace/worktree-list.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { makeReadOnly } from './read-only.ts';
 

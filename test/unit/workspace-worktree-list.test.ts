@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
+import { parseWorktreeList } from '../../src/workspace/worktree-list.ts';
 
 // Captured from git 2.56 with machine paths and object ids replaced.
 const captured: string = JSON.parse(

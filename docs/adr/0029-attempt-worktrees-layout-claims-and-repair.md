@@ -1,0 +1,66 @@
+# 0029. Attempt worktrees: layout, claims and repair
+
+Date: 2026-10-15 · Status: Accepted · Amends [0012](0012-worktrees-from-local-clones.md) (attempts of a step that resume a session hand a worktree on, one after the other)
+
+## Context
+[ADR 0012](0012-worktrees-from-local-clones.md) gives every attempt its own git worktree in a work root outside the Brewery checkout, from the user's clone (`source: local`) or a managed bare partial clone (`source: managed`), and asks Foedrum to clean up when a batch ends and to repair after crashes. It leaves open where in the work root a worktree goes, what its branch is called, what decides that a worktree may go, and how a cleanup stays out of the user's way when the user's clone is shared with Foedrum, possibly by more than one Brewery. A cleanup that guesses wrong deletes someone's work; one that is too careful leaves debris on every crash.
+
+## Decision
+
+### Layout
+- A repository's folder in the work root is `<owner>.<name>`, in lower case; the managed clone is `clone.git` in it, and the attempt worktrees are below `attempts/`: `<workRoot>/<owner>.<name>/attempts/<batchId>/<stepId>/<attempt>`. The branch of an attempt is `foedrum/<batchId>/<stepId>/<attempt>`.
+- Every segment Foedrum builds passes `PathSafeId` (ADR 0024). The ids must also be parts of a branch name, so an id with `..` or a `.lock` ending is refused, and so is a batch called `state`: `foedrum/state` is the state branch. A repository whose folder name would not pass (longer than 64 characters, or a name that ends in `-` or `.`) is refused with that reason.
+- One folder per repository keeps each clone's cleanup to its own worktrees: a folder in the attempts root that the clone's `git worktree list` does not show is that clone's debris, not another repository's.
+- A managed clone is cloned into `clone.partial` and renamed when done, so a crash leaves no half clone in its place. A clone URL that carries credentials is refused: they would be in the process list and the clone's config; a credential helper provides them. Its fetch refspec maps branches to `origin/*`, as in any clone, so a fetch never moves Foedrum's own branches.
+
+### Creating
+- `create` fetches the remote (no prune; one fetch at a time per manager, since git locks the refs it updates), resolves the base to a commit and adds the worktree with `git worktree add -b`. Values git might read as options get `--end-of-options` or `--`. It never touches the user's checked-out branch, and never resets a branch (`-B`).
+- A start that crashed before the brewer ran leaves the same attempt's worktree: `create` reuses it when it is clean, on the attempt's branch and at the base. It refuses anything else in the way (a folder git does not know, a worktree with changes or at another commit, the branch checked out elsewhere or at another commit), and the engine schedules a new attempt, whose names are new.
+- `recreate` gives a resumed attempt its worktree back (ADR 0019): the one that is there, or the attempt's branch checked out again, or a new branch at the recorded commit when the branch is gone.
+
+### Claims
+- A cleanup gets the claims of the state: each batch it knows is **live** (Ordered, Brewing, Conditioning or Stuck) or **ended** (on tap or cancelled), and the attempts that hold a **live lease**.
+- A worktree with a live lease is never removed, and its `index.lock` is never touched. Leases are renewed by the driver (the interactive session, later the Cellar), not by the brewer runner (#37): a lease says that a driver still owns the attempt, so it expires when the driver dies, even while an orphaned brewer process still runs. After that the attempt is lost (ADR 0027), and its worktree may go once its batch has ended; the removal's retries and the next repair deal with files the orphan still holds.
+- A Stuck batch is live: a human may take over or resume, so it keeps its worktrees.
+- In the attempts root, which is Foedrum's, everything of an ended batch goes, and so do the folders and clean worktrees of a batch the state does not know (an engine that died before the batch was pushed). Outside it nothing is looked at.
+- Branches in a batch's namespace (`foedrum/<batchId>/…`, attempt branches and the local copy of a pushed bottle branch) go with an ended batch, unless a worktree outside the attempts root has one checked out or its attempt is leased. A branch that goes with its worktree is deleted only after the worktree is gone, and only while it still points at the commit the cleanup saw (`update-ref -d <ref> <tip>`).
+- The branches of a batch the state does not know stay, and are reported (`kept branch …: no batch <id> in this Brewery`), also when its worktree in the attempts root goes. They may hold the only copy of committed work nobody pushed: a store rebuilt from the state branch without its last events, or two Breweries on one work root. Another Brewery may also share the user's clone and use the same batch ids. A branch goes with its worktree only when its batch has ended; a kept branch lets `recreate` bring the worktree back, or a human recover or delete the commits.
+
+### Resuming a session (`retryMode: resume`, `answer`)
+A retry with `retryMode: resume`, and the attempt an `answer` starts, continue the previous attempt's Claude Code session (ADR 0019). Claude Code keeps a session under the folder it ran in, and the session's history names that folder's paths, so where the new attempt runs is part of resuming it.
+
+- **Decision: the new attempt runs in the worktree of the attempt whose session it continues.** It does not get a worktree of its own. Its commits continue on that attempt's branch, and `recreate` gives the worktree back, at the recorded commit, when it is gone (ADR 0019's fallback covers a worktree that cannot be recreated). The worktree keeps the name and branch of the attempt that made it; the new attempt's `step.started` records it as its `session.worktree`.
+- **The new attempt's lease covers that worktree.** ADR 0019 already makes a lease cover the session as well as the attempt. So a live lease claims its own attempt's folder and the folder of every attempt whose session it continues (followed through `session.resumes`). `worktreeClaims` must add those attempts to the leased ones before a cleanup can run while such an attempt is live. Until it does, only the batch's claim protects that worktree, which covers every case but a batch that ends while the resuming attempt still runs.
+- **Never two processes in one worktree.** The new attempt starts there only once the previous attempt's process is known to be gone: it finished, or the runner of this machine stopped it. A lost attempt's process may outlive its driver (#37). When the runner cannot tell that it is gone (another machine, no recorded process), the new attempt starts fresh, in a worktree of its own (ADR 0019's fallback, with the reason recorded).
+- This refines ADR 0012's "two Foedrum attempts never share a worktree" to "never at the same time": attempts of one step may hand a worktree on, one after the other.
+
+**Alternative: resume the session in a recreated worktree of its own** (the new attempt's folder and branch, at the previous attempt's last commit, with the session's transcript copied to where Claude Code looks for it). Every attempt would keep a worktree of its own and the claims would stay per attempt. But the session's history names the previous worktree's paths: the brewer would read and write there, outside its own worktree, which its per-attempt settings deny. Uncommitted work of the previous attempt would be lost too, and copying a transcript depends on how Claude Code stores sessions, which Foedrum does not control.
+
+### Cleaning up and repair
+- One cleanup serves both: at engine start, before new work, over every batch (crash repair), and when a batch ends, over that batch only.
+- How a worktree goes is the rule the worktree cleanup script already uses (`src/workspace/worktree-removal.ts`): remove a clean one with `git worktree remove`, finish a removal that stopped after deleting the `.git` file, prune a record whose folder is gone; robust removal through `removeTree` (read-only bits, `EBUSY`/`EPERM`/`ENOTEMPTY` retries).
+- Kept and reported: worktrees with uncommitted or untracked changes, locked ones, ones that hold another worktree, and folders below the attempts root that are no attempt folder. A folder that git does not know as a worktree is removed with its ended batch, unless it has a `.git` file or holds a worktree git lists; a stale record below an attempt folder is pruned.
+- The attempts root is compared with the paths git lists after resolving links (`realpath`): git lists a worktree by its real path, so a work root on a link (macOS `/var` for `/private/var`) would otherwise make every worktree look unknown. A batch folder goes once nothing but empty folders is left in it.
+- Records are pruned only for worktrees in the attempts root, one by one. Foedrum never runs `git worktree prune` in the user's clone: it would drop the user's own stale records too.
+- A brewer writes in its worktree, its `.git` file included, and git run in a folder reads the repository that file names, with its configuration (`core.fsmonitor` runs a command). So Foedrum never runs git by discovery from inside an attempt worktree: it reads the worktree's state with git pointed at the record under the clone (`--git-dir`, `--work-tree`, `core.fsmonitor` off), and keeps and reports a folder whose `.git` file does not name its record.
+- Kept worktrees that no attempt runs in (no live lease) get their stale `index.lock` removed (`removeStaleIndexLock`: older than a minute).
+- Nothing it cannot remove stops the cleanup: it reports the reason and goes on; the next cleanup tries again. Facts it cannot gather (the worktree list, the branches) stop it, since a partial list would free what is in use.
+- The pure core (`src/workspace/attempt-worktrees.ts`) decides from facts; the shell (`src/workspace/attempt-worktrees-git.ts`) gathers them and runs git through the injected runner (ADR 0021). `worktreeClaims` (`src/engine/worktree-claims.ts`) turns the folded state and the live leases into claims, so the workspace layer does not depend on the engine.
+
+### Hooks
+- `git worktree add` runs the clone's `post-checkout` hook. Unlike the state branch (ADR 0024), attempt worktrees keep the repository's hooks: brewers work and commit in them as a developer would.
+
+## Consequences
+- Two Breweries must not share a work root: each would see the other's batches as unknown and remove their clean worktrees, though their branches stay. Refusing such a work root at engine start (batch folders a freshly initialised store does not know) goes with the follow-up that runs the cleanup there.
+- No batch that has ended leaves a worktree, a local branch or a worktree record behind, once its cleanup or the next repair has run, unless a human's changes are in it; those are reported.
+- The user's checkout, its branches, its own worktrees and their records are never changed. Worktree folders of a repository are deeper by one level than the bare minimum, but stay well inside Windows' path limit for engine-made ids.
+- Resuming a session in the previous attempt's worktree needs the claims of a lease to follow `session.resumes`, and the runner to record the brewer's process so a resume can tell it is gone. Both are follow-ups with the runner (#11) and the driver (#37).
+- Recording the worktree (path, branch, commit) in the attempt's events, wiring the cleanup into engine start and the end of a batch, and the chaos cases (#15) are follow-ups; the manager returns what to record.
+- A bottle branch's name must not look like a step: `foedrum/<batchId>/<stepId>/…` belongs to attempts.
+
+## Alternatives considered
+- **Worktrees by batch only (`<batchId>/<stepId>-<attempt>`):** shallower, but the folder name could pass 64 characters and would not pass `PathSafeId`.
+- **One attempts root for all repositories:** shorter paths, but a cleanup of one clone could not tell another repository's worktree from debris.
+- **Remove everything unclaimed, also branches of unknown batches:** fewer leftovers, but deletes another Brewery's work in a shared clone.
+- **Reset or delete what is in the way on `create`:** always succeeds, but may destroy work that is not the attempt's; a new attempt is cheap.
+- **`git worktree prune` after removals:** simpler, but also prunes the user's own stale records.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { readRecords } from '../../scripts/worktrees-clean/records.ts';
+import { readRecords } from '../../src/workspace/worktree-records.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('readRecords', () => {
