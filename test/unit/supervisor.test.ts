@@ -158,6 +158,16 @@ describe('planTick: deadlines (invariant I5)', () => {
     });
   });
 
+  it('expires the attempt that was due first when two attempts of a batch are late', () => {
+    const events: Event[] = [
+      ...brewing('b1', '2026-10-15T10:30:00.000Z'),
+      { type: 'step.scheduled', batchId: 'b1', stepId: 'implement', attempt: 1, deadlineAt: past },
+      { type: 'step.started', batchId: 'b1', stepId: 'implement', attempt: 1 },
+    ];
+    const tick = planTick(input(events, { due: [dueAt('b1', '2026-10-15T10:30:00.000Z')] }));
+    assert.deepStrictEqual(tick.commands, [expire('b1')]);
+  });
+
   it('follows the folded state when the index names a batch whose attempt is not due', () => {
     const tick = planTick(input(brewing('b1', ahead), { due: [dueAt('b1')] }));
     assert.deepStrictEqual(tick.commands, []);
