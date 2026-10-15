@@ -328,6 +328,14 @@ export const decideStart = (facts: StartFacts): StartDecision => {
   };
 };
 
+/**
+ * The paths in `git ls-tree -r -z` output that are not plain files: symbolic links and
+ * submodules, which could lead reads and writes outside the state worktree (ADR 0024).
+ */
+export const unsafeEntries = (_lsTree: string): string[] => {
+  throw new Error('not implemented');
+};
+
 export type PushOutcome = 'pushed' | 'rejected' | 'failed';
 
 /** Reads `git push --porcelain`: rejected means the remote moved (non-fast-forward). */

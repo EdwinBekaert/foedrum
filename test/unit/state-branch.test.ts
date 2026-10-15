@@ -16,6 +16,7 @@ import {
   planFlush,
   type StartFacts,
   StateBranchStopError,
+  unsafeEntries,
 } from '../../src/engine/state-branch.ts';
 import type { Event } from '../../src/schemas/events.ts';
 
@@ -539,6 +540,27 @@ describe('decideStart', () => {
       assert.match(decision.kind === 'stop' ? decision.reason : '', reason);
     });
   }
+});
+
+describe('unsafeEntries', () => {
+  // `git ls-tree -r -z` output: "<mode> <type> <object>\t<path>\0" per entry.
+  const entry = (mode: string, type: string, path: string): string =>
+    `${mode} ${type} ${'a'.repeat(40)}\t${path}\0`;
+
+  it('lists symbolic links and submodules', () => {
+    const output =
+      entry('100644', 'blob', 'events.jsonl') +
+      entry('120000', 'blob', 'batches/b1') +
+      entry('100755', 'blob', 'batches/b2/plan-1.md') +
+      entry('160000', 'commit', 'batches/b3/events.jsonl');
+    assert.deepEqual(unsafeEntries(output), ['batches/b1', 'batches/b3/events.jsonl']);
+  });
+
+  it('accepts a tree of plain files, also with tabs or newlines in names', () => {
+    const output = entry('100644', 'blob', 'events.jsonl') + entry('100644', 'blob', 'a\tb\nc.md');
+    assert.deepEqual(unsafeEntries(output), []);
+    assert.deepEqual(unsafeEntries(''), []);
+  });
 });
 
 describe('classifyPush', () => {

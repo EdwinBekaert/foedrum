@@ -83,6 +83,10 @@ class FakeGit {
       case 'update-ref':
       case 'add':
       case 'status':
+      case 'ls-tree':
+        return ok();
+      case 'reset':
+        this.head = rest.at(-1);
         return ok();
       case 'rev-parse':
         if (rest.includes('refs/heads/foedrum/state'))
@@ -245,12 +249,99 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(6) });
     });
 
-    it('refuses to rebuild over changed log files in the worktree', async () => {
+    // A store that is behind keeps its events, so the worktree must hold nothing of its own.
+    const behind = (status: string) => {
+      append(ordered('b1'));
+      store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: sha(4) }));
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
+      fake.head = sha(4);
+      fake.remote = sha(5);
+      fake.answer = (args) => {
+        if (args[0] === 'status') return ok(status);
+        if (args[0] !== 'merge') return undefined;
+        mkdirSync(join(worktree, 'batches', 'b1'), { recursive: true });
+        writeFileSync(join(worktree, 'batches', 'b1', 'events.jsonl'), line(1, ordered('b1')));
+        fake.head = args.at(-1);
+        return ok();
+      };
+    };
+
+    it('refuses to catch up over changed log files in the worktree', async () => {
+      behind(' M batches/b1/events.jsonl\0');
+      await assert.rejects(branch().start(), StateBranchStopError);
+      assert.equal(store.lastEventId(), 1);
+      assert.equal(fake.find('merge'), undefined);
+    });
+
+    it('refuses to catch up over an untracked log file, which the rebuild would read', async () => {
+      behind('?? batches/b9/events.jsonl\0');
+      await assert.rejects(branch().start(), StateBranchStopError);
+      assert.equal(fake.find('merge'), undefined);
+    });
+
+    it('catches up next to an untracked out doc', async () => {
+      behind('?? batches/b1/plan-1.md\0');
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+      assert.deepEqual(store.pushedThrough(), { eventId: 1, commit: sha(5) });
+    });
+
+    it('rebuilds a moved-aside database over a diverged worktree, resetting only the local branch', async () => {
+      // The engine stopped after a rejected push; a human moved the database aside.
+      mkdirSync(join(worktree, 'batches', 'b9'), { recursive: true });
+      writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
+      writeFileSync(join(worktree, 'batches', 'b9', 'events.jsonl'), line(2, ordered('b9')));
+      writeFileSync(join(worktree, 'batches', 'b9', 'plan-1.md'), '# Plan\n');
+      fake.head = sha(7);
+      fake.remote = sha(8);
+      fake.answer = (args) => {
+        if (args[0] === 'status') {
+          return ok(' M events.jsonl\0?? batches/b9/events.jsonl\0?? batches/b9/plan-1.md\0');
+        }
+        if (args[0] === 'reset') {
+          writeFileSync(join(worktree, 'events.jsonl'), line(1, released));
+          fake.head = args.at(-1);
+          return ok();
+        }
+        return undefined;
+      };
+
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+
+      assert.deepEqual(fake.find('reset')?.args, ['reset', '-q', '--hard', sha(8)]);
+      assert.equal(fake.find('merge'), undefined);
+      assert.equal(fake.find('push'), undefined);
+      assert.equal(existsSync(join(worktree, 'batches', 'b9', 'events.jsonl')), false);
+      assert.equal(existsSync(join(worktree, 'batches', 'b9', 'plan-1.md')), true);
+      assert.deepEqual(store.eventsAfter(0), [{ id: 1, event: released }]);
+      assert.deepEqual(store.pushedThrough(), { eventId: 1, commit: sha(8) });
+    });
+
+    it('refuses a remote branch with a symbolic link before checking anything out', async () => {
       fake.remote = sha(5);
       fake.answer = (args) =>
-        args[0] === 'status' ? ok(' M batches/b1/events.jsonl\0') : undefined;
-      await assert.rejects(branch().start(), StateBranchStopError);
-      assert.equal(store.lastEventId(), 0);
+        args[0] === 'ls-tree' ? ok(`120000 blob ${sha(3)}\tbatches/b1\0`) : undefined;
+      await assert.rejects(
+        branch().start(),
+        (error) => error instanceof StateBranchStopError && /batches\/b1/.test(error.message),
+      );
+      assert.deepEqual(fake.find('ls-tree')?.args, ['ls-tree', '-r', '-z', sha(5)]);
+      assert.equal(fake.find('worktree'), undefined);
+    });
+
+    it("fails with git's error when it cannot tell whether the branch contains the marker", async () => {
+      append(ordered('b1'));
+      store.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: sha(4) }));
+      fake.remote = sha(8);
+      fake.answer = (args) =>
+        args[0] === 'merge-base'
+          ? exit(128, `fatal: Not a valid commit name ${sha(4)}\n`)
+          : undefined;
+      await assert.rejects(
+        branch().start(),
+        (error) =>
+          !(error instanceof StateBranchStopError) && /Not a valid commit name/.test(String(error)),
+      );
     });
 
     it('flushes events that were never pushed', async () => {
