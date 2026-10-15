@@ -158,7 +158,7 @@ function run(draft: Draft, command: Command): Event[] {
       requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
       requireOffer(batch, 'recipe');
       const { firstStep } = find(draft, recipe);
-      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by: 'human' });
+      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by: 'human', via });
       if (batch.lane.kind === 'stuck') {
         draft.push({ type: 'batch.resumed', batchId, by, via, action: 'recipe' });
       }
@@ -212,9 +212,9 @@ function run(draft: Draft, command: Command): Event[] {
       rewind(draft, command);
       break;
     case 'cancel': {
-      const { batchId, by } = command;
+      const { batchId, by, via } = command;
       requireLane(draft.batch(batchId), 'cancel', nonTerminal);
-      draft.push({ type: 'batch.cancelled', batchId, by });
+      draft.push({ type: 'batch.cancelled', batchId, by, via });
       break;
     }
     default: {
@@ -389,14 +389,14 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
  * there and the batch's deadlines replaced by its reminder.
  */
 function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): void {
-  const { batchId, by, toStepId, shas } = command;
+  const { batchId, by, via, toStepId, shas } = command;
   const batch = draft.batch(batchId);
   stuckLane(batch, 'rewind');
   // A step of an earlier recipe: the current one could not tell its deadline or what follows it.
   if (batch.recipe !== undefined && !recipeOf(draft, batch).has(toStepId)) {
     throw new Refusal(`recipe ${batch.recipe.name} has no step ${toStepId}`);
   }
-  draft.push({ type: 'batch.rewound', batchId, toStepId, by, shas: { ...shas } });
+  draft.push({ type: 'batch.rewound', batchId, toStepId, by, via, shas: { ...shas } });
   schedule(draft, batchId, toStepId);
 }
 

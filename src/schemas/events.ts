@@ -151,6 +151,18 @@ function hasCycle(dependencies: Dependency[]): boolean {
   }
 }
 
+// A human's choice records the surface it came from (ADR 0019); a label's or the router's has none.
+const chosen = {
+  type: z.literal('batch.recipe_chosen'),
+  batchId: BatchId,
+  recipe: NonEmpty,
+  reason: NonEmpty,
+};
+const recipeChosen = z.discriminatedUnion('by', [
+  z.strictObject({ ...chosen, by: z.enum(['label', 'router']) }),
+  z.strictObject({ ...chosen, by: z.literal('human'), via: Surface }),
+]);
+
 export const Event = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('batch.ordered'),
@@ -158,13 +170,7 @@ export const Event = z.discriminatedUnion('type', [
     order: OrderRef,
     parentBatchId: BatchId.optional(),
   }),
-  z.strictObject({
-    type: z.literal('batch.recipe_chosen'),
-    batchId: BatchId,
-    recipe: NonEmpty,
-    reason: NonEmpty,
-    by: z.enum(['label', 'router', 'human']),
-  }),
+  recipeChosen,
   z.strictObject({ type: z.literal('step.scheduled'), ...step, deadlineAt: Timestamp }),
   // `session` is required for brewer and session steps; the schema cannot tell the step kind.
   z.strictObject({ type: z.literal('step.started'), ...step, session: SessionRef.optional() }),
@@ -225,6 +231,7 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     toStepId: StepId,
     by: NonEmpty,
+    via: Surface,
     shas: z.record(Repo, CommitSha),
   }),
   z.strictObject({
@@ -232,7 +239,12 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     pullRequests: z.array(PullRequestUrl).min(1),
   }),
-  z.strictObject({ type: z.literal('batch.cancelled'), batchId: BatchId, by: NonEmpty }),
+  z.strictObject({
+    type: z.literal('batch.cancelled'),
+    batchId: BatchId,
+    by: NonEmpty,
+    via: Surface,
+  }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),
 ]);

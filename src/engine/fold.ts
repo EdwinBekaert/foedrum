@@ -21,7 +21,7 @@ export type Lane =
   | { kind: 'conditioning'; on: WaitCondition; remindAt: string }
   | { kind: 'stuck'; reason: StuckReason; options: readonly StuckOption[]; remindAt: string }
   | { kind: 'on_tap'; pullRequests: readonly string[] }
-  | { kind: 'cancelled'; by: string };
+  | { kind: 'cancelled'; by: string; via: Surface };
 
 /**
  * An attempt that had not finished when its batch got Stuck is `abandoned` (ADR 0025): whatever
@@ -61,6 +61,7 @@ export interface Step {
 export interface Rewind {
   toStepId: string;
   by: string;
+  via: Surface;
   shas: Readonly<Record<string, string>>;
 }
 
@@ -69,11 +70,11 @@ export interface Batch {
   /** The issue this batch brews: an order or a sub-order. */
   issue: number;
   parentBatchId?: string;
-  recipe?: {
-    name: string;
-    reason: string;
-    by: Extract<Event, { type: 'batch.recipe_chosen' }>['by'];
-  };
+  /** Who chose the recipe; a human's choice also records the surface it came from. */
+  recipe?: { name: string; reason: string } & (
+    | { by: 'label' | 'router' }
+    | { by: 'human'; via: Surface }
+  );
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
   rewinds: readonly Rewind[];
@@ -208,10 +209,13 @@ function apply(state: State, event: Event): State {
       };
     }
     case 'batch.recipe_chosen': {
-      const { recipe: name, reason, by } = event;
+      const { recipe: name, reason } = event;
       return updateBatch(state, event.batchId, (batch) => ({
         ...batch,
-        recipe: { name, reason, by },
+        recipe:
+          event.by === 'human'
+            ? { name, reason, by: event.by, via: event.via }
+            : { name, reason, by: event.by },
       }));
     }
     case 'step.scheduled': {
@@ -327,20 +331,20 @@ function apply(state: State, event: Event): State {
       return { ...state, releases: [...state.releases, { repo, package: name, version }] };
     }
     case 'batch.rewound': {
-      const { batchId, toStepId, by, shas } = event;
+      const { batchId, toStepId, by, via, shas } = event;
       return updateBatch(state, batchId, (batch) => {
         stepOf(batch, toStepId);
         return {
           ...batch,
           lane: { kind: 'brewing' },
-          rewinds: [...batch.rewinds, { toStepId, by, shas }],
+          rewinds: [...batch.rewinds, { toStepId, by, via, shas }],
         };
       });
     }
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.cancelled':
-      return setLane(state, event.batchId, { kind: 'cancelled', by: event.by });
+      return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
     case 'effect.applied':
       // Invariant I4: an effect is applied at most once.
       if (state.effects.has(event.key)) {
