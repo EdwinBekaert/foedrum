@@ -112,6 +112,12 @@ describe('run', () => {
     assert.equal(result.out, '');
   });
 
+  it('exits 1 for a long hex string that is not a commit of this repository', () => {
+    const result = runWith(['summary.md'], { 'summary.md': `Base \`${fortyHex}\`\n` }, noCommits);
+    assert.equal(result.status, 1);
+    assert.match(result.out, /^line 1: long hexadecimal string/);
+  });
+
   it('exits 1 and prints one line per secret, naming its line without the secret', () => {
     const result = runWith(['summary.md'], { 'summary.md': `fine\n${githubToken}\n${apiKey}\n` });
     assert.equal(result.status, 1);

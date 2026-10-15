@@ -111,12 +111,17 @@ describe('the configured hook command', () => {
     for (const dir of dirs) dir.remove();
   });
 
-  it('fails closed: blocks a push with exit 2 when the project has no package.json', async () => {
-    const project = tempDir('no-package-json');
-    const { code, stderr } = await runHook(project, project, gatedPush);
-    assert.equal(code, 2);
-    assert.ok(stderr.includes('Foedrum gate could not run (npm failed)'), `stderr: ${stderr}`);
-  });
+  for (const [name, packageJson] of [
+    ['has no package.json', undefined],
+    ['has no hook:gate script', { private: true, scripts: {} }],
+  ] as const) {
+    it(`fails closed: blocks a push with exit 2 when the project ${name}`, async () => {
+      const project = tempDir('fail-closed', packageJson);
+      const { code, stderr } = await runHook(project, project, gatedPush);
+      assert.equal(code, 2);
+      assert.ok(stderr.includes('Foedrum gate could not run (npm failed)'), `stderr: ${stderr}`);
+    });
+  }
 
   it("runs the project's gate from a directory with another package.json and lets a passing push through", async () => {
     const elsewhere = tempDir('other-package', { private: true, scripts: {} });
