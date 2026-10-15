@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
 import { errorCode, removeTree } from '../platform/remove.ts';
+import type { Rename } from '../platform/replace-file.ts';
 import {
   type Action,
   type AttemptRef,
@@ -289,6 +290,8 @@ export interface ManagedCloneOptions {
   url: string;
   /** A local clone to borrow objects from (`--reference`). */
   reference?: string;
+  /** The rename that moves the finished clone into place; default the file system's. */
+  rename?: Rename;
 }
 
 /**

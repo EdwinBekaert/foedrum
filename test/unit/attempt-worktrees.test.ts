@@ -350,6 +350,64 @@ describe('planClean', () => {
     );
   });
 
+  it('never removes a folder with a .git file as one git does not know', () => {
+    // git lists the worktree under another spelling of its path, for example through a link.
+    const folders = [{ batchId: '12-1', attempts: ['implement/1'], withGit: ['implement/1'] }];
+
+    const plan = planClean(
+      { worktrees: [], branches: [], folders },
+      claims({ '12-1': 'ended' }),
+      root,
+    );
+
+    assert.deepEqual(plan, {
+      actions: [],
+      kept: [
+        'kept folder 12-1/implement/1: it has a .git file, but git does not list it as a worktree of this clone',
+      ],
+    });
+  });
+
+  it('keeps a folder git does not know while a worktree git lists is inside it', () => {
+    const inner = listed(ended, {
+      path: join(root, '12-1', 'implement', '1', 'sub'),
+      inside: '12-1/implement/1/sub',
+      branch: undefined,
+    });
+    const folders = [{ batchId: '12-1', attempts: ['implement/1'] }];
+
+    const plan = planClean(
+      { worktrees: [inner], branches: [], folders },
+      claims({ '12-1': 'ended' }),
+      root,
+    );
+
+    assert.deepEqual(plan.kept, [
+      'kept worktree 12-1/implement/1/sub: not an attempt folder',
+      'kept folder 12-1/implement/1: it contains the worktree 12-1/implement/1/sub',
+    ]);
+    assert.deepEqual(plan.actions, []);
+  });
+
+  it('prunes a stale record below an attempt folder, and then removes the attempt worktree', () => {
+    const outer = listed(ref('12-1', 'c'));
+    const stale = listed(ref('12-1', 'c'), {
+      path: join(outer.path, 'sub'),
+      inside: '12-1/c/1/sub',
+      branch: undefined,
+      state: 'gone',
+      record: '/repo/.git/worktrees/sub',
+    });
+
+    const plan = planClean(facts([outer, stale]), claims({ '12-1': 'ended' }), root);
+
+    assert.deepEqual(plan.kept, []);
+    assert.deepEqual(
+      plan.actions.map((action) => ('label' in action ? `${action.kind} ${action.label}` : '')),
+      ['remove 12-1/c/1', 'prune 12-1/c/1/sub', 'remove-batch-folder 12-1'],
+    );
+  });
+
   it('keeps the empty folder of a live batch', () => {
     const plan = planClean(
       { worktrees: [], branches: [], folders: [{ batchId: '13-1', attempts: [] }] },

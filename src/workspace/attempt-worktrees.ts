@@ -113,6 +113,8 @@ export interface BatchFolderFact {
   batchId: string;
   /** `<stepId>/<attempt>` of every folder two levels below the batch folder. */
   attempts: string[];
+  /** The entries of `attempts` that hold a `.git` file or folder. */
+  withGit?: string[];
 }
 
 export interface Facts {
