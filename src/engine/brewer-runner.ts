@@ -13,7 +13,7 @@ import type { ProgressSource } from './supervisor.ts';
 export interface AttemptLimits {
   /** The out doc the brewer must write (`output.doc`), and the schema of its frontmatter. */
   outDoc: { file: string; schema: z.ZodType<OutDocFrontmatter> };
-  /** Turns before the runner stops the brewer: its budget is exceeded. */
+  /** Turns the brewer may take; the runner stops it on the first turn past them: its budget is exceeded. */
   maxTurns?: number;
   /** Permission denials before the runner stops the brewer: it is blocked by its environment. */
   maxDenials?: number;

@@ -1,6 +1,8 @@
 // The environment of a brewer's process (#81, brewers-and-recipes §1.1): a minimal base, the
 // brewer's own `env` on top, and the runner's forced variables last, so a brewer cannot undo them.
 
+import { envNameKey } from '../platform/env.ts';
+
 export type Env = Readonly<Record<string, string>>;
 
 export interface BrewerEnvLayers {
@@ -17,7 +19,7 @@ export interface BrewerEnvLayers {
 /** The layers merged in order; a later layer replaces a name of an earlier one. */
 export function buildBrewerEnv(layers: BrewerEnvLayers): Record<string, string> {
   const { base, brewer, forced, platform } = layers;
-  const key = platform === 'win32' ? (name: string) => name.toUpperCase() : (name: string) => name;
+  const key = envNameKey(platform);
   // By key, so on Windows a later `PATH` replaces an earlier `Path`, spelling included.
   const merged = new Map<string, [string, string]>();
   for (const layer of [base, brewer, forced]) {
