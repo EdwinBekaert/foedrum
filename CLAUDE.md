@@ -14,7 +14,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
-- `npm run check` — typecheck, lint, test, the test-layer guard (`scripts/check-test-layers.ts`: no file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`) and the offline dependency guard in one command (`scripts/check.ts` starts them together and prints each step's output in order, then names the steps that failed); run it before every push
+- `npm run check` — typecheck, lint, test, the test-layer guard (`scripts/check-test-layers.ts`: no file under `test/unit/`, `test/property/`, `test/chaos/` or `test/helpers/` imports `node:child_process`) and the offline dependency guard in one command (`scripts/check.ts` starts them together and prints each step's output in order, with the failed steps last so the gate's shortened message still shows them, then names the steps that failed); run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test` (fails below the coverage thresholds set in the `test` script in `package.json`, which you only ever raise, and when one test file takes more than 5 s, per `scripts/test-budget-reporter.ts`)
 - `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
 - `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
