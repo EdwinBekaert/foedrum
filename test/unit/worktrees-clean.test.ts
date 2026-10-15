@@ -52,7 +52,7 @@ interface Repo {
 }
 
 const makeRepo = (): Repo => {
-  const dir = makeTempDir('clean', '49');
+  const dir = makeTempDir('clean');
   const origin = join(dir.path, 'origin.git');
   const main = join(dir.path, 'main');
   const hub = join(dir.path, 'hub');

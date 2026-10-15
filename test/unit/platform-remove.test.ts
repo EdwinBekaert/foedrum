@@ -34,7 +34,7 @@ const isWritable = (path: string): boolean => (statSync(path).mode & 0o200) !== 
 describe('clearReadOnly', () => {
   let dir: TempDir;
   beforeEach(() => {
-    dir = makeTempDir('remove', '49');
+    dir = makeTempDir('remove');
   });
   afterEach(() => dir.remove());
 
@@ -59,7 +59,7 @@ describe('clearReadOnly', () => {
 describe('removeTree', () => {
   let dir: TempDir;
   beforeEach(() => {
-    dir = makeTempDir('remove', '49');
+    dir = makeTempDir('remove');
   });
   afterEach(() => dir.remove());
 
