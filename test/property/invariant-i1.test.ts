@@ -20,11 +20,17 @@ it('I1: every non-terminal batch has exactly one pending action with a deadline'
         const deadline = pending.get(batch.id);
         switch (lane.kind) {
           case 'brewing': {
-            const [attempt, ...more] = running(batch);
-            assert.equal(more.length, 0, `brewing batch ${batch.id} runs one attempt`);
+            // One attempt in flight per batch until parallel groups have their transitions
+            // (ADR 0025); none at all would be a batch sitting silently.
+            const attempts = running(batch);
+            const [attempt] = attempts;
+            assert.ok(
+              attempt !== undefined && attempts.length === 1,
+              `brewing batch ${batch.id} runs one attempt, not ${attempts.length}`,
+            );
             assert.equal(
               deadline,
-              attempt && iso(attempt.deadlineAt),
+              iso(attempt.deadlineAt),
               `the deadline of batch ${batch.id} is its attempt's`,
             );
             break;
