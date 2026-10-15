@@ -124,6 +124,16 @@ describe('runCheck', () => {
     });
   }
 
+  it('writes only the label for a step without output', async () => {
+    const { written } = await check(labels().map(() => green('')));
+    assert.equal(
+      written,
+      labels()
+        .map((label) => `> ${label}\n`)
+        .join(''),
+    );
+  });
+
   // The local gate shows only the end of the output, so a failure must not scroll out of it.
   it('writes the failed steps last, just before the summary, after the passing ones', async () => {
     const outcomes = allGreen();
