@@ -516,7 +516,7 @@ describe('decide expire: brewing → Stuck (invariant I5)', () => {
   }
 });
 
-describe('decide lose: a lost attempt is retried (ADR 0026)', () => {
+describe('decide lose: a lost attempt is retried (ADR 0027)', () => {
   const lose = (stepId = 'plan', attempt = 1): Command => ({
     kind: 'lose',
     batchId: 'b1',
@@ -579,7 +579,7 @@ describe('decide lose: a lost attempt is retried (ADR 0026)', () => {
   }
 });
 
-describe('decide stall: brewing → Stuck (ADR 0026)', () => {
+describe('decide stall: brewing → Stuck (ADR 0027)', () => {
   const stall: Command = {
     kind: 'stall',
     batchId: 'b1',

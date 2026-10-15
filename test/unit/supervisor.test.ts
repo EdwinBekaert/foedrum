@@ -180,7 +180,7 @@ describe('planTick: reminders (ADR 0025)', () => {
   });
 });
 
-describe('planTick: expired leases (ADR 0026)', () => {
+describe('planTick: expired leases (ADR 0027)', () => {
   it('loses the started attempt whose lease expired, and releases the lease', () => {
     const lease = leaseOf(plan('b1'));
     const tick = planTick(input(brewing('b1'), { expiredLeases: [lease] }));
@@ -234,7 +234,7 @@ describe('planTick: expired leases (ADR 0026)', () => {
   });
 });
 
-describe('planTick: stalls (ADR 0026)', () => {
+describe('planTick: stalls (ADR 0027)', () => {
   const stalled = (lastProgressAt: Date, turnsWithoutProgress: number) =>
     ({
       kind: 'stall',
