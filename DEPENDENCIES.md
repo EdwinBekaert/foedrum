@@ -19,7 +19,7 @@ Versions are pinned exactly when a package is first installed, after the 7-day m
 |---|---|---|---|---|---|---|
 | `zod` | runtime | Schemas: TypeScript types, runtime validation, generated JSON Schema; wrapped by `src/schemas/zod.ts` | 0 deps | none | yes | MIT |
 | `typescript` | dev | Type checking and emitting `.js` for publishing | wrapper + 1 platform binary | none | no — verified via registry signatures, diff review on bumps | Apache-2.0 |
-| `@types/node` | dev | Types for Node's built-in APIs | 1 dep (`undici-types`) | none | partial | MIT |
+| `@types/node` | dev | Types for Node's built-in APIs. Its major version follows the lowest supported Node (24), so the types never offer an API that Node lacks; it is raised together with `engines`, and Dependabot ignores its major updates | 1 dep (`undici-types`) | none | partial | MIT |
 | `@biomejs/biome` | dev | Lint and format | wrapper + 1 platform binary | none | yes | MIT OR Apache-2.0 |
 | `undici-types` | dev (transitive, from `@types/node`) | Types for `fetch` and the other undici APIs in Node | 0 deps | none | yes | MIT |
 
