@@ -145,14 +145,10 @@ export const precheck = async (input: string, runCheck: RunCheck): Promise<HookR
   };
 };
 
-// The exit code of a finished process (null when it could not start or was killed) and its
-// stdout and stderr together.
-export interface ProcessOutcome {
-  exitCode: number | null;
-  output: string;
-}
+// Type-only, so erased: the module still has no static imports.
+import type { RunProcess } from './process-runner.ts';
 
-export type RunProcess = (file: string, args: string[], cwd: string) => Promise<ProcessOutcome>;
+export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 // `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
 // by this node, so the check starts without a shell.
@@ -170,24 +166,6 @@ export const npmCheck =
     return { ok: exitCode === 0, output };
   };
 
-const spawnProcess: RunProcess = async (file, args, cwd) => {
-  const { spawn } = await import('node:child_process');
-  return new Promise((resolve) => {
-    const child = spawn(file, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = '';
-    const collect = (chunk: string): void => {
-      output += chunk;
-    };
-    // Decode as a stream, so a multi-byte character split across chunks stays intact.
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', collect);
-    child.stderr.on('data', collect);
-    child.on('error', (error) => resolve({ exitCode: null, output: error.message }));
-    child.on('close', (code) => resolve({ exitCode: code, output }));
-  });
-};
-
 const readStdin = async (): Promise<string> => {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
@@ -195,6 +173,7 @@ const readStdin = async (): Promise<string> => {
 };
 
 if (import.meta.main) {
+  const { spawnProcess } = await import('./process-runner.ts');
   const runCheck = npmCheck(process.env, process.execPath, spawnProcess);
   const { exitCode, stderr } = await precheck(await readStdin(), runCheck);
   if (stderr !== '') process.stderr.write(stderr);
