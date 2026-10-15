@@ -30,10 +30,7 @@ const entry = (name: string, version: string, extra: Partial<LockEntry> = {}): L
   };
 };
 
-interface Direct {
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-}
+type Direct = Pick<LockEntry, 'dependencies' | 'devDependencies'>;
 
 const lockOf = (direct: Direct, entries: Record<string, LockEntry>): Lockfile => ({
   packages: {
