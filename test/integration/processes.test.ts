@@ -123,6 +123,12 @@ describe('execProcess and a planted git.exe', { skip: process.platform !== 'win3
   });
   afterEach(() => removeTree(dir.path));
 
+  it('runs the git on PATH, not the git.exe or git.com in the working directory', async () => {
+    const result = await execProcess('git', ['--version'], { cwd: dir.path });
+    assert.equal(result.exitCode, 0, result.output);
+    assert.match(result.stdout, /^git version /);
+  });
+
   // A relative PATH folder means the working directory of the process that starts.
   it('runs the git on PATH, not the one a relative PATH folder points at', async () => {
     const env = { ...process.env, PATH: `.;${process.env.PATH ?? ''}` };

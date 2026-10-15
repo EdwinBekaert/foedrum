@@ -83,11 +83,7 @@ describe('runGitWith', () => {
     await git('/work/repo', ['commit'], { timeoutMs: 5, config: { 'user.name': 'Brewer' } });
     const options = calls[0]?.[2];
     assert.equal(options?.timeoutMs, 5);
-    assert.ok(
-      Object.entries(options?.env ?? {}).some(
-        ([key, value]) => key.startsWith('GIT_CONFIG_KEY_') && value === 'user.name',
-      ),
-    );
+    assert.deepEqual(options?.env, gitEnv(process.env, { 'user.name': 'Brewer' }));
   });
 
   it("passes the call's stop signal on", async () => {

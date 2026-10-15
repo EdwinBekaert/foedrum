@@ -57,4 +57,9 @@ describe('removeStaleIndexLock', () => {
     dir.remove();
     assert.equal(await removeStaleIndexLock(dir.path, { now: () => written + 120_000 }), 'none');
   });
+
+  // Windows answers ENOENT for a path through a file, so the error shows only elsewhere.
+  it('fails when the lock cannot be checked', { skip: process.platform === 'win32' }, async () => {
+    await assert.rejects(removeStaleIndexLock(lock), { code: 'ENOTDIR' });
+  });
 });

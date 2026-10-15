@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -132,6 +132,35 @@ describe('resolveExecutable on Windows', () => {
       'D:\\tools\\claude.cmd',
     );
   });
+});
+
+// Each kind of PATH folder that is skipped, on its own: an empty one, a relative one and ".",
+// all of which mean a folder relative to wherever the program starts.
+describe('resolveExecutable and the PATH folders it skips', () => {
+  for (const [platform, delimiter, bin, git] of [
+    ['linux', ':', '/usr/bin', 'git'],
+    ['win32', ';', 'C:\\Git\\cmd', 'git.exe'],
+  ] as const) {
+    const join = platform === 'win32' ? win32.join : posix.join;
+    for (const [kind, folder] of [
+      ['an empty', ''],
+      ['a relative', platform === 'win32' ? 'node_modules\\.bin' : 'node_modules/.bin'],
+      ['the "."', '.'],
+    ] as const) {
+      it(`skips ${kind} folder on ${platform}`, () => {
+        const env = { PATH: `${folder}${delimiter}${bin}`, PATHEXT: '.EXE' };
+        const planted = folder === '' ? git : join(folder, git);
+        assert.equal(
+          resolveExecutable('git', {
+            platform,
+            env,
+            isExecutable: (path) => path === planted || path === join(bin, git),
+          }),
+          join(bin, git),
+        );
+      });
+    }
+  }
 });
 
 describe('resolveExecutable on this machine', () => {

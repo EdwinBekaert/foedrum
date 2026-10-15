@@ -137,6 +137,17 @@ describe('killProcessTree', () => {
     assert.doesNotThrow(() => killProcessTree(42, { platform: 'linux', signal, timers: c.timers }));
     assert.deepEqual(c.pending, []);
   });
+
+  it('ignores a process that ends during the grace period', () => {
+    const c = clock();
+    let gone = false;
+    const signal = () => {
+      if (gone) throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
+    };
+    killProcessTree(42, { platform: 'linux', signal, timers: c.timers });
+    gone = true;
+    assert.doesNotThrow(() => c.fire());
+  });
 });
 
 // A started process that does what the test tells it to; no real process runs (ADR 0021).
