@@ -45,6 +45,8 @@ describe('StepOutcome', () => {
   const invalid: [string, unknown][] = [
     ['an unknown kind', { kind: 'skipped' }],
     ['no kind', { output: 1 }],
+    ['succeeded without output', { kind: 'succeeded' }],
+    ['succeeded with an output that is not JSON', { kind: 'succeeded', output: () => 1 }],
     ['failed without retryable', { kind: 'failed', reason: 'x' }],
     ['failed without a reason', { kind: 'failed', retryable: false, reason: '' }],
     ['needs_input without questions', { kind: 'needs_input', questions: [] }],

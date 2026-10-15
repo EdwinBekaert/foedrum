@@ -124,6 +124,16 @@ const rejects = (
   assert.equal(schema.safeParse(value).success, false);
 };
 
+const threeSubOrders = {
+  type: 'order.decomposed',
+  batchId: 'b1',
+  subOrders: [
+    { issue: 101, repo: 'acme/lib-core' },
+    { issue: 102, repo: 'acme/lib-core' },
+    { issue: 103, repo: 'acme/api' },
+  ],
+};
+
 describe('Event', () => {
   for (const [type, event] of Object.entries(valid)) {
     it(`accepts ${type}`, () => accepts(Event, event));
@@ -214,10 +224,63 @@ describe('Event', () => {
         dependencies: [],
       },
     ],
+    [
+      'a dependency cycle of two sub-orders',
+      {
+        ...threeSubOrders,
+        dependencies: [
+          { subOrder: 102, blockedBy: 101, kind: 'code' },
+          { subOrder: 101, blockedBy: 102, kind: 'code' },
+        ],
+      },
+    ],
+    [
+      'a dependency cycle of three sub-orders',
+      {
+        ...threeSubOrders,
+        dependencies: [
+          { subOrder: 102, blockedBy: 101, kind: 'code' },
+          { subOrder: 103, blockedBy: 102, kind: 'release' },
+          { subOrder: 101, blockedBy: 103, kind: 'code' },
+        ],
+      },
+    ],
+    ['batch.stuck without options', { ...valid['batch.stuck'], options: [] }],
+    ['a stuck option listed twice', { ...valid['batch.stuck'], options: ['retry', 'retry'] }],
+    ['effect.applied without a result', { type: 'effect.applied', key: 'b1/brew/1/pr' }],
+    [
+      'step.finished with a succeeded outcome without output',
+      { ...valid['step.finished'], outcome: { kind: 'succeeded' } },
+    ],
+    [
+      'a pull request URL with credentials',
+      { ...valid['bottle.opened'], pullRequest: 'https://token@github.com/acme/lib-core/pull/7' },
+    ],
+    ...['../..', 'acme/..', 'acme/.', './lib-core', '-acme/lib-core', 'acme/-lib-core'].map(
+      (repo): [string, unknown] => [
+        `the repository ${repo}`,
+        { ...valid['release.observed'], repo },
+      ],
+    ),
   ];
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(Event, value));
   }
+
+  it('accepts a repository name starting with a dot', () => {
+    accepts(Event, { ...valid['release.observed'], repo: 'acme/.github' });
+  });
+
+  it('accepts dependencies that form a chain, not a cycle', () => {
+    accepts(Event, {
+      ...threeSubOrders,
+      dependencies: [
+        { subOrder: 102, blockedBy: 101, kind: 'code' },
+        { subOrder: 103, blockedBy: 102, kind: 'release' },
+        { subOrder: 103, blockedBy: 101, kind: 'release' },
+      ],
+    });
+  });
 });
 
 describe('SessionRef', () => {
