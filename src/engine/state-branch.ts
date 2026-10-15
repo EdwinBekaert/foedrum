@@ -332,9 +332,11 @@ export const decideStart = (facts: StartFacts): StartDecision => {
  * The paths in `git ls-tree -r -z` output that are not plain files: symbolic links and
  * submodules, which could lead reads and writes outside the state worktree (ADR 0024).
  */
-export const unsafeEntries = (_lsTree: string): string[] => {
-  throw new Error('not implemented');
-};
+export const unsafeEntries = (lsTree: string): string[] =>
+  lsTree
+    .split('\0')
+    .filter((entry) => /^(?:120000|160000) /.test(entry))
+    .map((entry) => entry.slice(entry.indexOf('\t') + 1));
 
 export type PushOutcome = 'pushed' | 'rejected' | 'failed';
 

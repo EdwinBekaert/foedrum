@@ -2,7 +2,7 @@
 // carries out what state-branch.ts decides. Git runs only through the injected `Git`.
 
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
@@ -19,6 +19,7 @@ import {
   planFlush,
   type StartDecision,
   StateBranchStopError,
+  unsafeEntries,
 } from './state-branch.ts';
 
 export interface StateBranchOptions {
@@ -166,18 +167,46 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     await must(worktree, ['update-ref', '-d', PROBE_REF, sha]);
   };
 
-  const restore = async (localHead: string | undefined, remoteSha: string): Promise<void> => {
-    const status = await must(worktree, ['status', '--porcelain', '-z', '--untracked-files=all']);
-    // Untracked out docs may stay; anything else would be lost or mixed into the logs.
-    const changed = status
-      .split('\0')
-      .filter((entry) => entry !== '' && (!entry.startsWith('?? ') || isLogPath(entry.slice(3))));
-    if (changed.length > 0) {
+  // A symbolic link or submodule from the remote could lead reads and writes outside the
+  // worktree; refuse the branch before anything of it is checked out (ADR 0024).
+  const refuseLinks = async (remoteSha: string): Promise<void> => {
+    const unsafe = unsafeEntries(await must(clone, ['ls-tree', '-r', '-z', remoteSha]));
+    if (unsafe.length > 0) {
       throw new StateBranchStopError(
-        `The state worktree ${worktree} has changes that a rebuild would lose: ${changed.join(', ')}`,
+        `${remoteBranch} at ${remoteSha} holds symbolic links or submodules, which the state branch never has: ${unsafe.join(', ')}`,
       );
     }
-    if (localHead !== remoteSha) {
+  };
+
+  const isAncestor = async (commit: string, of: string): Promise<boolean> => {
+    const result = await git(worktree, ['merge-base', '--is-ancestor', commit, of]);
+    if (result.code === 0 || result.code === 1) return result.code === 0;
+    throw new Error(`Cannot tell whether ${of} contains ${commit}: ${why(result)}`);
+  };
+
+  const restore = async (localHead: string | undefined, remoteSha: string): Promise<void> => {
+    const status = await must(worktree, ['status', '--porcelain', '-z', '--untracked-files=all']);
+    const entries = status.split('\0').filter((entry) => entry !== '');
+    if (store.lastEventId() === 0 && store.pushedThrough() === undefined) {
+      // A rebuild (the database is missing or was moved aside after a stop): nothing in the
+      // worktree is needed any more. Its local branch moves to the remote; the remote is never
+      // touched, and a diverged local commit stays in the reflog.
+      await must(worktree, ['reset', '-q', '--hard', remoteSha]);
+      for (const entry of entries) {
+        if (entry.startsWith('?? ') && isLogPath(entry.slice(3))) await rm(onDisk(entry.slice(3)));
+      }
+    } else {
+      // Untracked out docs may stay; anything else would be lost or mixed into the logs.
+      const changed = entries.filter(
+        (entry) => !entry.startsWith('?? ') || isLogPath(entry.slice(3)),
+      );
+      if (changed.length > 0) {
+        throw new StateBranchStopError(
+          `The state worktree ${worktree} has changes that a rebuild would lose: ${changed.join(', ')}`,
+        );
+      }
+    }
+    if ((await head()) !== remoteSha) {
       const merged = await git(worktree, ['merge', '--ff-only', '-q', remoteSha]);
       if (merged.code !== 0) {
         throw new StateBranchStopError(
@@ -264,6 +293,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       if (remoteSha !== undefined) {
         await must(clone, ['fetch', '--no-tags', remote, `+${ref}:refs/remotes/${remoteBranch}`]);
       }
+      if (remoteSha !== undefined) await refuseLinks(remoteSha);
       await openWorktree(remoteSha);
       await checkSigning();
       const pushed = store.pushedThrough();
@@ -271,9 +301,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       const pushedReachesRemote =
         pushed !== undefined &&
         remoteSha !== undefined &&
-        (pushed.commit === remoteSha ||
-          (await git(worktree, ['merge-base', '--is-ancestor', pushed.commit, remoteSha])).code ===
-            0);
+        (pushed.commit === remoteSha || (await isAncestor(pushed.commit, remoteSha)));
       const decision = decideStart({
         branch: remoteBranch,
         lastEventId: store.lastEventId(),
