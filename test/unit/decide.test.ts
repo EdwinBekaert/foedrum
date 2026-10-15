@@ -211,7 +211,7 @@ describe('decide route: ordered or conditioning → brewing', () => {
   });
 
   it('refuses a recipe the book does not have', () => {
-    refuses(lanes.ordered, { ...route, recipe: 'stout' }, /recipe stout is not in the recipe book/);
+    refuses(lanes.ordered, { ...route, recipe: 'stout' }, /the Brewery has no recipe stout/);
   });
 
   for (const [lane, events] of otherLanes('ordered', 'conditioning')) {
@@ -415,11 +415,7 @@ describe('decide finish', () => {
   });
 
   it('refuses a recipe the book no longer has', () => {
-    refuses(
-      brewing('plan', 1, 'stout'),
-      finish(succeeded),
-      /recipe stout is not in the recipe book/,
-    );
+    refuses(brewing('plan', 1, 'stout'), finish(succeeded), /the Brewery has no recipe stout/);
   });
 
   for (const [lane, events] of otherLanes('brewing')) {
@@ -772,7 +768,7 @@ describe('decide recipe: a human chooses the recipe', () => {
   });
 
   it('refuses a recipe the book does not have', () => {
-    refuses(lanes.stuck, { ...recipe, recipe: 'stout' }, /recipe stout is not in the recipe book/);
+    refuses(lanes.stuck, { ...recipe, recipe: 'stout' }, /the Brewery has no recipe stout/);
   });
 
   it('refuses when the Stuck batch does not offer it', () => {
@@ -824,6 +820,18 @@ describe('decide rewind: only from Stuck (ADR 0025)', () => {
 
   it('refuses a rewind without commits', () => {
     refuses(lanes.stuck, rewind({}), /rewind needs the commit of each repository/);
+  });
+
+  it('refuses a step the current recipe does not have', () => {
+    const rerouted: Event[] = [
+      ...stuck(),
+      chosen('nip'),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'recipe' },
+      scheduled('patch'),
+      started('patch'),
+      stuckEvent({ ...needsInput, stepId: 'patch' }),
+    ];
+    refuses(rerouted, rewind(), /recipe nip has no step plan/);
   });
 
   it('refuses a step the batch never ran', () => {

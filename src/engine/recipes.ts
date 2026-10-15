@@ -13,6 +13,8 @@ export type Continuation =
 export interface Recipe {
   /** The step a batch starts with. */
   readonly firstStep: string;
+  /** Whether the recipe has a step `stepId`. */
+  has(stepId: string): boolean;
   /** How long an attempt at `stepId` may take, in milliseconds. */
   deadlineMs(stepId: string): number;
   /** What follows `stepId` in `batch` once it succeeded or was skipped. */

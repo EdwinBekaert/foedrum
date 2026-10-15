@@ -23,6 +23,7 @@ export const fakeRecipe = ({
   if (firstStep === undefined) throw new Error('A recipe needs a step');
   return {
     firstStep,
+    has: (stepId) => steps.includes(stepId),
     deadlineMs: () => hour,
     after: (_batch, stepId) => {
       const next = steps[steps.indexOf(stepId) + 1];
