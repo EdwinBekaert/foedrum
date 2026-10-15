@@ -10,7 +10,13 @@ import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
-import { type Action, type Facts, type FolderState, plan } from './worktrees-clean/core.ts';
+import {
+  type Action,
+  type Facts,
+  type FolderState,
+  plan,
+  shouldRun,
+} from './worktrees-clean/core.ts';
 import { parseWorktreeList } from './worktrees-clean/porcelain.ts';
 
 interface GitResult {
@@ -20,13 +26,18 @@ interface GitResult {
 }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>;
 
-export const gitEnv = (_env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
-  throw new Error('not implemented');
-};
+// git never prompts: not in the terminal, not through Git Credential Manager's window, not for
+// an ssh passphrase. A credential that is missing makes the fetch fail instead.
+export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
+  ...env,
+  GIT_TERMINAL_PROMPT: '0',
+  GCM_INTERACTIVE: 'never',
+  GIT_SSH_COMMAND: env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
+});
 
 const runGit: Git = (cwd, args) =>
   new Promise((done) => {
-    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    const env = gitEnv(process.env);
     const options = { cwd, encoding: 'utf8', timeout: 60_000, windowsHide: true, env } as const;
     execFile('git', args, options, (error, stdout, stderr) =>
       done({ ok: error === null, stdout, stderr: stderr || (error?.message ?? '') }),
@@ -34,6 +45,13 @@ const runGit: Git = (cwd, args) =>
   });
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
+
+// The output of a git call, or an error naming it when the call failed.
+const succeed = async (result: Promise<GitResult>, what = ''): Promise<string> => {
+  const { ok, stdout, stderr } = await result;
+  if (!ok) throw new Error(`${what && `git ${what} failed: `}${lines(stderr)[0] ?? 'git failed'}`);
+  return stdout;
+};
 
 const isPidAlive = (pid: number): boolean => {
   try {
@@ -72,25 +90,34 @@ const folderState = async (git: Git, path: string): Promise<FolderState> => {
 };
 
 // The facts for the core, and each branch's tip for deleting it only while it is still there.
+// It throws when a query fails: an incomplete list would make checked-out branches look free.
 type Gathered = Facts & { tips: Map<string, string> };
 
-export const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
+const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
   const root = join(main, '.claude', 'worktrees');
   const records = await listRecords(main);
-  const listed = await git(main, ['worktree', 'list', '--porcelain', '-z']);
+  const listed = await succeed(
+    git(main, ['worktree', 'list', '--porcelain', '-z']),
+    'worktree list',
+  );
   const worktrees = [];
-  for (const { path, branch, lockReason } of parseWorktreeList(listed.stdout)) {
+  for (const { path, branch, lockReason } of parseWorktreeList(listed)) {
     const inside = pathInside(root, path);
     const record = records.find(({ folder }) => samePath(folder, path))?.dir;
     const state = inside === undefined ? 'dirty' : await folderState(git, path);
     worktrees.push({ path, inside, branch, lockReason, state, record });
   }
   const fields = '%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)';
-  const heads = await git(main, ['for-each-ref', `--format=${fields}`, 'refs/heads']);
+  const heads = await succeed(
+    git(main, ['for-each-ref', `--format=${fields}`, 'refs/heads']),
+    'for-each-ref',
+  );
   const mergedArgs = ['for-each-ref', '--format=%(refname:short)', '--merged=origin/main'];
-  const merged = new Set(lines((await git(main, [...mergedArgs, 'refs/heads'])).stdout));
+  const merged = new Set(
+    lines(await succeed(git(main, [...mergedArgs, 'refs/heads']), 'for-each-ref')),
+  );
   const tips = new Map<string, string>();
-  const branches = lines(heads.stdout).map((line) => {
+  const branches = lines(heads).map((line) => {
     const [name = '', tip = '', upstream = '', track = ''] = line.split('\0');
     tips.set(name, tip);
     return {
@@ -101,11 +128,6 @@ export const gatherFacts = async (git: Git, main: string): Promise<Gathered> => 
     };
   });
   return { worktrees, branches, tips };
-};
-
-const succeed = async (result: Promise<GitResult>): Promise<void> => {
-  const { ok, stderr } = await result;
-  if (!ok) throw new Error(lines(stderr)[0] ?? 'git failed');
 };
 
 // Carries out one action and returns what it did; throws when it could not.
@@ -151,14 +173,19 @@ const carryOut = async (
 export const cleanWorktrees = async (
   cwd: string,
   git: Git = runGit,
-  _isPidAlive?: (pid: number) => boolean,
+  alive: (pid: number) => boolean = isPidAlive,
 ): Promise<string[]> => {
   const main = await mainCheckoutOf(git, cwd);
   if (main === undefined) return ['skipped: not inside a git repository'];
   const fetched = await git(main, ['fetch', '--prune', '--quiet', 'origin']);
   if (!fetched.ok) return [`skipped: git fetch --prune origin failed: ${fetched.stderr.trim()}`];
-  const facts = await gatherFacts(git, main);
-  const { actions, kept } = plan(facts, isPidAlive);
+  let facts: Gathered;
+  try {
+    facts = await gatherFacts(git, main);
+  } catch (error) {
+    return [`skipped: ${(error as Error).message}`];
+  }
+  const { actions, kept } = plan(facts, alive);
   const done = [...kept];
   for (const action of actions) {
     const steps: Action[] = [action];
@@ -181,9 +208,13 @@ export const cleanWorktrees = async (
 if (import.meta.main) {
   try {
     const { values } = parseArgs({ options: { 'session-start': { type: 'boolean' } } });
-    const cwd = (values['session-start'] && process.env.CLAUDE_PROJECT_DIR) || process.cwd();
-    const main = await mainCheckoutOf(runGit, cwd);
-    if (!values['session-start'] || (main !== undefined && samePath(main, cwd))) {
+    const sessionStart = values['session-start'] === true;
+    const cwd = (sessionStart && process.env.CLAUDE_PROJECT_DIR) || process.cwd();
+    const args = ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'];
+    const dirs = await runGit(cwd, args);
+    const [gitDir, commonDir] = lines(dirs.stdout);
+    const known = dirs.ok && gitDir !== undefined && commonDir !== undefined;
+    if (shouldRun(sessionStart, known ? { gitDir, commonDir } : undefined)) {
       for (const line of await cleanWorktrees(cwd)) console.log(`worktrees:clean: ${line}`);
     }
   } catch (error) {

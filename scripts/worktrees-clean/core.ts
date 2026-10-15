@@ -45,12 +45,12 @@ export interface Plan {
   kept: string[];
 }
 
+// By hand it always runs; at session start only in the main checkout. git says which that is
+// (its git dir is the common dir), whatever link, junction or subst drive it was opened through.
 export const shouldRun = (
-  _sessionStart: boolean,
-  _dirs: { gitDir: string; commonDir: string } | undefined,
-): boolean => {
-  throw new Error('not implemented');
-};
+  sessionStart: boolean,
+  dirs: { gitDir: string; commonDir: string } | undefined,
+): boolean => dirs !== undefined && (!sessionStart || dirs.gitDir === dirs.commonDir);
 
 const BASE = 'origin/main';
 // The lock reason Claude Code writes for a session's worktree.
@@ -87,7 +87,14 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
     const label = `.claude/worktrees/${inside}`;
     const branchReason = branchKeepReason(branches.get(worktree.branch ?? ''));
     const branch = branchReason === undefined ? worktree.branch : undefined;
+    // Removing the folder would take a nested worktree with it, dirty or in use.
+    const nested = facts.worktrees.find(
+      (other) => other.state !== 'gone' && other.inside?.startsWith(`${inside}/`),
+    );
     const reason =
+      (nested === undefined
+        ? undefined
+        : `it contains the worktree .claude/worktrees/${nested.inside}`) ??
       lockKeepReason(worktree.lockReason, isPidAlive) ??
       (state === 'dirty' ? 'it has uncommitted or untracked changes' : undefined) ??
       (state === 'gone' ? undefined : branchReason);
