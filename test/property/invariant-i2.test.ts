@@ -8,16 +8,19 @@ import { holdsInScenarios } from '../helpers/property.ts';
 it('I2: at most one live lease per attempt and per worktree', () =>
   holdsInScenarios({
     afterMove: (engine) => {
-      // Every attempt of a batch works in the batch's task worktree, never two at once
-      // (ADR 0012), so one live lease per batch is one per attempt and one per worktree.
-      const byBatch = new Map<string, string[]>();
+      // The store keys leases by attempt, so one per attempt holds by construction. An attempt
+      // works in its own worktree (ADR 0012), but the next attempt of its step may resume its
+      // session, in that session's worktree (retryMode, ADR 0027): two live leases of one step
+      // would be two attempts in one worktree.
+      const byStep = new Map<string, string[]>();
       for (const lease of engine.store.currentLeases(engine.now())) {
         const ref = attemptKey.decode(lease.attemptKey);
         assert.ok(ref, `lease ${lease.attemptKey} names an attempt`);
-        byBatch.set(ref.batchId, [...(byBatch.get(ref.batchId) ?? []), lease.attemptKey]);
+        const step = `${ref.batchId} ${ref.stepId}`;
+        byStep.set(step, [...(byStep.get(step) ?? []), lease.attemptKey]);
       }
-      for (const [batchId, keys] of byBatch) {
-        assert.equal(keys.length, 1, `batch ${batchId} has live leases ${keys.join(', ')}`);
+      for (const [step, keys] of byStep) {
+        assert.equal(keys.length, 1, `step ${step} has live leases ${keys.join(', ')}`);
       }
     },
   }));
