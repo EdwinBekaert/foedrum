@@ -19,9 +19,15 @@ interface ProcessResult {
   stderr: string;
 }
 
-// The environment without npm's own variables, so a test controls which npm a child sees.
+// The folder makeTempDir creates its folders in.
+const testsDir = join(root, '.foedrum', 'tmp', 'tests');
+
+// The environment without npm's own variables, so a test controls which npm a child sees. git
+// stops at the tests folder, so a hook run in a test folder never sees this checkout's state,
+// such as a detached HEAD in CI or in a review's scratch tree.
 const envWithoutNpm = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key))),
+  GIT_CEILING_DIRECTORIES: testsDir,
   ...extra,
 });
 
@@ -58,22 +64,27 @@ const hookInput = (command: string, cwd: string): string =>
 
 describe('scripts/precheck.ts with a stub npm', () => {
   it('blocks a push with exit 2 and npm output intact when npm run check fails', async () => {
-    const { code, stdout, stderr } = await run(
-      process.execPath,
-      [script],
-      hookInput('git push', root),
-      {
-        cwd: root,
-        env: envWithoutNpm({ npm_execpath: npmStub }),
-      },
-    );
-    assert.equal(code, 2);
-    assert.equal(stdout, '');
-    assert.match(stderr, /npm run check failed/);
-    assert.match(stderr, /stub npm: run check/);
-    // The stub splits "é" across two writes.
-    assert.match(stderr, /café/);
-    assert.doesNotMatch(stderr, /�/);
+    const pushFrom = makeTempDir('push-from');
+    try {
+      const { code, stdout, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', pushFrom.path),
+        {
+          cwd: root,
+          env: envWithoutNpm({ npm_execpath: npmStub }),
+        },
+      );
+      assert.equal(code, 2);
+      assert.equal(stdout, '');
+      assert.match(stderr, /npm run check failed/);
+      assert.match(stderr, /stub npm: run check/);
+      // The stub splits "é" across two writes.
+      assert.match(stderr, /café/);
+      assert.doesNotMatch(stderr, /�/);
+    } finally {
+      pushFrom.remove();
+    }
   });
 
   it('blocks a push from a checkout whose node_modules is out of date, before npm runs', async () => {
