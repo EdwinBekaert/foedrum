@@ -219,6 +219,18 @@ describe('cleanWorktrees', () => {
     assert.ok(hasLine(lines, '14-stale', 'folder is gone'), lines.join('\n'));
   });
 
+  it('keeps the record of a missing worktree that a live session still locks', async () => {
+    const path = repo.worktree('30-moved');
+    lock(repo, path, `claude session 30-moved (pid ${process.pid})`);
+    rmSync(path, { recursive: true, force: true });
+
+    const lines = await cleanWorktrees({ cwd: repo.main });
+
+    assert.equal(repo.worktreePaths().length, 2);
+    assert.deepEqual(repo.localBranches(), ['30-moved', 'main']);
+    assert.ok(hasLine(lines, 'kept stale worktree', '30-moved', 'live session'), lines.join('\n'));
+  });
+
   it('prunes the record of a nested scratch worktree whose folder is gone', async () => {
     const parent = repo.worktree('29-parent', { push: false });
     // Like the brew-review skill's scratch tree: detached, deep inside another worktree.
