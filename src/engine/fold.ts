@@ -156,11 +156,7 @@ function apply(state: State, event: Event): State {
       const { batchId, stepId, attempt, deadlineAt } = event;
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
-        if (step.attempts.has(attempt)) {
-          throw inconsistent(
-            `attempt ${stepId}#${attempt} of batch ${batchId} was already scheduled`,
-          );
-        }
+        if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
         return {
           ...batch,
           lane: { kind: 'brewing' },
@@ -175,9 +171,8 @@ function apply(state: State, event: Event): State {
       return updateAttempt(state, event, (current) => {
         if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');
         return {
+          ...current,
           phase: 'started',
-          attempt: current.attempt,
-          deadlineAt: current.deadlineAt,
           ...(event.session === undefined ? {} : { session: event.session }),
         };
       });
@@ -193,11 +188,17 @@ function apply(state: State, event: Event): State {
         };
       });
     case 'input.received': {
-      const { by, via, answers } = event;
-      return updateStep(state, event.batchId, event.stepId, (step) => ({
-        ...step,
-        inputs: [...step.inputs, { by, via, answers }],
-      }));
+      const { stepId, by, via, answers } = event;
+      return updateBatch(state, event.batchId, (batch) => {
+        const step = stepOf(batch, stepId);
+        return {
+          ...batch,
+          steps: put(batch.steps, stepId, {
+            ...step,
+            inputs: [...step.inputs, { by, via, answers }],
+          }),
+        };
+      });
     }
     case 'batch.stuck': {
       const { reason, options } = event;
@@ -264,8 +265,10 @@ const put = <K, V>(map: ReadonlyMap<K, V>, key: K, value: V): ReadonlyMap<K, V> 
 
 const inconsistent = (message: string): Error => new Error(`Inconsistent event log: ${message}`);
 
-const attemptError = ({ batchId, stepId, attempt }: AttemptEvent, what: string): Error =>
-  inconsistent(`attempt ${stepId}#${attempt} of batch ${batchId} ${what}`);
+const attemptError = (
+  { batchId, stepId, attempt }: Pick<AttemptEvent, 'batchId' | 'stepId' | 'attempt'>,
+  what: string,
+): Error => inconsistent(`attempt ${stepId}#${attempt} of batch ${batchId} ${what}`);
 
 /** The order of an issue, or a new one when it has no batches yet. */
 const orderOf = (state: State, issue: number): Order =>
@@ -291,18 +294,6 @@ function updateBatch(state: State, batchId: string, update: (batch: Batch) => Ba
 
 function setLane(state: State, batchId: string, lane: Lane): State {
   return updateBatch(state, batchId, (batch) => ({ ...batch, lane }));
-}
-
-function updateStep(
-  state: State,
-  batchId: string,
-  stepId: string,
-  update: (step: Step) => Step,
-): State {
-  return updateBatch(state, batchId, (batch) => ({
-    ...batch,
-    steps: put(batch.steps, stepId, update(stepOf(batch, stepId))),
-  }));
 }
 
 function updateAttempt(

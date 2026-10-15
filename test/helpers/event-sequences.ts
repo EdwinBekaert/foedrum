@@ -4,7 +4,7 @@
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 
-export interface Random {
+interface Random {
   /** An integer in [0, max). */
   int: (max: number) => number;
   pick: <T>(items: readonly T[]) => T;
@@ -12,7 +12,7 @@ export interface Random {
 }
 
 /** mulberry32: small, fast and good enough to explore event orders. */
-export const seededRandom = (seed: number): Random => {
+const seededRandom = (seed: number): Random => {
   let a = seed >>> 0;
   const next = (): number => {
     a = (a + 0x6d2b79f5) >>> 0;
