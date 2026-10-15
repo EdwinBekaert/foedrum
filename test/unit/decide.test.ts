@@ -883,16 +883,21 @@ describe('decide records who issued a human command and from where (ADR 0019)', 
   const issuers = (events: readonly Event[]) =>
     events.flatMap((event) => ('via' in event ? [[event.type, event.by, event.via]] : []));
 
-  it('on the recipe choice of an ordered batch', () => {
-    const decision = decide(
-      fold(lanes.ordered),
-      { kind: 'recipe', batchId: 'b1', ...from, recipe: 'nip', reason: 'x' },
-      context,
-    );
-    assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
-      ['batch.recipe_chosen', 'human', 'dashboard'],
-    ]);
-  });
+  for (const [name, events] of [
+    ['an ordered', lanes.ordered],
+    ['a Conditioning', lanes.conditioning],
+  ] as const) {
+    it(`by name on the recipe choice of ${name} batch`, () => {
+      const decision = decide(
+        fold(events),
+        { kind: 'recipe', batchId: 'b1', ...from, recipe: 'nip', reason: 'x' },
+        context,
+      );
+      assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
+        ['batch.recipe_chosen', 'hubot', 'dashboard'],
+      ]);
+    });
+  }
 
   it('on a rewind', () => {
     const decision = decide(

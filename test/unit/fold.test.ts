@@ -69,23 +69,31 @@ describe('fold', () => {
     assert.deepStrictEqual(state.orders.get(101)?.batchIds, ['b2']);
   });
 
-  it('records the chosen recipe, and a later choice replaces it', () => {
+  it('records the chosen recipe and who chose it, and a later choice replaces it', () => {
     const state = fold([
       ordered,
-      { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'router' },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'router',
+      },
       {
         type: 'batch.recipe_chosen',
         batchId: 'b1',
         recipe: 'pint',
         reason: 'size',
-        by: 'human',
+        source: 'human',
+        by: 'octocat',
         via: 'plugin',
       },
     ]);
     assert.deepStrictEqual(batch(state).recipe, {
       name: 'pint',
       reason: 'size',
-      by: 'human',
+      source: 'human',
+      by: 'octocat',
       via: 'plugin',
     });
   });
@@ -209,7 +217,7 @@ describe('fold', () => {
     assert.equal(lane.kind === 'stuck' && lane.remindAt, later);
   });
 
-  it('records where a human chose a recipe, rewound or cancelled from (ADR 0019)', () => {
+  it('records who chose a recipe, rewound or cancelled, and from where (ADR 0019)', () => {
     const state = fold([
       ordered,
       scheduled,
@@ -218,7 +226,8 @@ describe('fold', () => {
         batchId: 'b1',
         recipe: 'nip',
         reason: 'x',
-        by: 'human',
+        source: 'human',
+        by: 'octocat',
         via: 'comment',
       },
       {
@@ -234,7 +243,7 @@ describe('fold', () => {
     const { recipe, rewinds, lane } = batch(state);
     assert.deepStrictEqual(
       [
-        recipe?.by === 'human' && recipe.via,
+        recipe?.source === 'human' && recipe.via,
         rewinds[0]?.via,
         lane.kind === 'cancelled' && lane.via,
       ],
