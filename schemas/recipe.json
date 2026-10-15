@@ -1,0 +1,665 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema of this file, for editors",
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+    },
+    "description": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "match": {
+      "type": "object",
+      "properties": {
+        "labels": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        }
+      },
+      "required": [
+        "labels"
+      ],
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "minutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "minutes"
+      ],
+      "additionalProperties": false
+    },
+    "testFirst": {
+      "description": "Gauger and red proof before Cellarman; default true for recipes that write code, and the router may switch it off (ADR 0017)",
+      "type": "boolean"
+    },
+    "steps": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "Defaults to the brewer name",
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "brewer": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            },
+            "lens": {
+              "description": "Taster only: the lens file that sets the review focus",
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "blocking": {
+              "description": "Brett only: surviving mutants block the verdict",
+              "type": "boolean"
+            },
+            "onBlocked": {
+              "type": "object",
+              "properties": {
+                "findings": {
+                  "type": "object",
+                  "properties": {
+                    "goto": {
+                      "type": "string",
+                      "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                    },
+                    "maxRounds": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "goto",
+                    "maxRounds"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "findings"
+              ],
+              "additionalProperties": false
+            },
+            "deadline": {
+              "description": "Overrides the brewer's deadline",
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$"
+            }
+          },
+          "required": [
+            "brewer"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "session": {
+              "type": "string",
+              "enum": [
+                "refine",
+                "triage",
+                "review"
+              ]
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            },
+            "deadline": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$",
+              "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+            },
+            "fallback": {
+              "description": "A brewer that runs when the deadline passes",
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            }
+          },
+          "required": [
+            "id",
+            "session",
+            "deadline"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "check": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "build",
+                        "typecheck",
+                        "lint",
+                        "format",
+                        "test"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "run": {
+                          "type": "string",
+                          "allOf": [
+                            {
+                              "pattern": "\\S"
+                            },
+                            {
+                              "pattern": "^[^\\r\\n]*$"
+                            }
+                          ]
+                        },
+                        "windows": {
+                          "type": "string",
+                          "allOf": [
+                            {
+                              "pattern": "\\S"
+                            },
+                            {
+                              "pattern": "^[^\\r\\n]*$"
+                            }
+                          ]
+                        },
+                        "macos": {
+                          "type": "string",
+                          "allOf": [
+                            {
+                              "pattern": "\\S"
+                            },
+                            {
+                              "pattern": "^[^\\r\\n]*$"
+                            }
+                          ]
+                        },
+                        "linux": {
+                          "type": "string",
+                          "allOf": [
+                            {
+                              "pattern": "\\S"
+                            },
+                            {
+                              "pattern": "^[^\\r\\n]*$"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "run"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "build",
+                          "typecheck",
+                          "lint",
+                          "format",
+                          "test"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "run": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "windows": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "macos": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          },
+                          "linux": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "\\S"
+                              },
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "run"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "default": "pass",
+              "type": "string",
+              "const": "pass"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            },
+            "onFail": {
+              "type": "object",
+              "properties": {
+                "goto": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "maxRounds": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "goto",
+                "maxRounds"
+              ],
+              "additionalProperties": false
+            },
+            "deadline": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$",
+              "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+            }
+          },
+          "required": [
+            "id",
+            "check"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "check": {
+              "type": "string",
+              "const": "test"
+            },
+            "expect": {
+              "type": "string",
+              "const": "fail"
+            },
+            "of": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$",
+              "description": "The step whose committed tests must fail"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            },
+            "onFail": {
+              "type": "object",
+              "properties": {
+                "goto": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "maxRounds": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "goto",
+                "maxRounds"
+              ],
+              "additionalProperties": false
+            },
+            "deadline": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$",
+              "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+            }
+          },
+          "required": [
+            "id",
+            "check",
+            "expect",
+            "of"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "parallel": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "description": "Defaults to the brewer name",
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
+                  "brewer": {
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
+                  "when": {
+                    "description": "Run the step only when this expression is true",
+                    "type": "string",
+                    "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+                  },
+                  "lens": {
+                    "description": "Taster only: the lens file that sets the review focus",
+                    "type": "string",
+                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  },
+                  "blocking": {
+                    "description": "Brett only: surviving mutants block the verdict",
+                    "type": "boolean"
+                  },
+                  "onBlocked": {
+                    "type": "object",
+                    "properties": {
+                      "findings": {
+                        "type": "object",
+                        "properties": {
+                          "goto": {
+                            "type": "string",
+                            "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                          },
+                          "maxRounds": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "goto",
+                          "maxRounds"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "findings"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "deadline": {
+                    "description": "Overrides the brewer's deadline",
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*[smhd]$"
+                  }
+                },
+                "required": [
+                  "brewer"
+                ],
+                "additionalProperties": false
+              },
+              "description": "Brewers that run side by side"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            }
+          },
+          "required": [
+            "id",
+            "parallel"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "loop": {
+              "type": "object",
+              "properties": {
+                "maxRounds": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "until": {
+                  "type": "string",
+                  "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+                },
+                "steps": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/step"
+                  }
+                }
+              },
+              "required": [
+                "maxRounds",
+                "until",
+                "steps"
+              ],
+              "additionalProperties": false
+            },
+            "onExhausted": {
+              "default": "stuck",
+              "type": "string",
+              "const": "stuck"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            }
+          },
+          "required": [
+            "id",
+            "loop"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "gate": {
+              "type": "string",
+              "const": "human"
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            },
+            "deadline": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[smhd]$",
+              "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
+            }
+          },
+          "required": [
+            "id",
+            "gate",
+            "deadline"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "Defaults to the action name in kebab case",
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "openPullRequest",
+                "comment",
+                "label",
+                "blend"
+              ]
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            "fanOut": {
+              "type": "object",
+              "properties": {
+                "recipe": {
+                  "description": "The recipe of every sub-order; the router picks one",
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "approval": {
+                  "default": true,
+                  "description": "Brew only after /foedrum approve",
+                  "type": "boolean"
+                },
+                "bottling": {
+                  "default": "perSubOrder",
+                  "type": "string",
+                  "enum": [
+                    "perSubOrder",
+                    "perRepo",
+                    "manual"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "when": {
+              "description": "Run the step only when this expression is true",
+              "type": "string",
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+            }
+          },
+          "required": [
+            "id",
+            "fanOut"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Exactly one of brewer, session, check, parallel, loop, gate, action or fanOut"
+    }
+  }
+}

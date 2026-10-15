@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema of this file, for editors",
+      "type": "string"
+    },
+    "models": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}(?:\\[1m\\])?$"
+      },
+      "description": "The model id or family behind each alias that brewers name"
+    },
+    "brewers": {
+      "default": {},
+      "description": "An alias per brewer, replacing the brewer's own (blind tasting)",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      }
+    }
+  },
+  "required": [
+    "models"
+  ],
+  "additionalProperties": false
+}

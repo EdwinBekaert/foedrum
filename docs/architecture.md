@@ -381,7 +381,7 @@ Published metrics: chaos runs passed, stuck-without-transition count (target 0),
 ## 12. Extensibility
 
 1. **Files in the Brewery** — add or override brewers and recipes by committing files; review and evaluate them like code.
-2. **Packs** (later) — declarative bundles of brewers, recipes and checks; no code. Installed from a git repository pinned to a commit SHA, with a checksum and a **permission ceiling** set by the Brewery. Every pack ships evaluation samples.
+2. **Packs** (later) — declarative bundles of brewers, recipes and checks; no code. Installed from a git repository pinned to a commit SHA, with a checksum and a **permission ceiling** set by the Brewery, which covers a rule as [ADR 0026](adr/0026-how-a-permission-ceiling-covers-a-rule.md) decides. Every pack ships evaluation samples.
 3. **Visual** — recipes rendered as Mermaid early; a drag-and-drop recipe editor in the dashboard later, saving as a pull request to the Brewery.
 
 ## 12b. House yeast: the learning flywheel
@@ -466,8 +466,8 @@ docs/
 **A Brewery:**
 
 ```
-foedrum.jsonc     repositories (source, release signal, triage sources, check commands, test report, setup, toolchain allowlist; ADR 0023), allow-listed users, concurrency, budgets, permission ceiling
-models.jsonc      model per brewer (updated by blind-tasting pull requests)
+foedrum.jsonc     repositories (source, release signal, triage sources, check commands, test report, setup, toolchain allowlist; ADR 0023), allow-listed users, concurrency, budgets, permission ceiling (schema so far: checks, test report, setup, tools, house-yeast fallback and ceiling; brewers-and-recipes §6; the ceiling: ADR 0026)
+models.jsonc      model aliases, and an alias per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)

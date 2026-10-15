@@ -1,0 +1,18 @@
+// Large feature: decomposed into single-repository sub-orders, bottled per repository.
+{
+  "$schema": "../../../schemas/recipe.json",
+  "name": "growler",
+  "description": "Large feature, split into sub-orders",
+  "match": { "labels": ["feature", "large"] },
+  "budget": { "minutes": 600 },
+  "testFirst": false, // the sub-orders' own recipes write the tests
+  "steps": [
+    { "id": "context", "brewer": "maltster" },
+    { "id": "breakdown", "brewer": "brewmaster" },
+    {
+      "id": "brew",
+      "fanOut": { "recipe": "half-pint", "approval": true, "bottling": "perRepo" }
+    },
+    { "action": "comment" }
+  ]
+}
