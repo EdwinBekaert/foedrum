@@ -11,6 +11,7 @@ import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import { isPidAlive } from '../src/platform/processes.ts';
 import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
+import { gitEnv } from '../src/workspace/git.ts';
 import {
   type Action,
   type Facts,
@@ -26,15 +27,6 @@ interface GitResult {
   stderr: string;
 }
 export type Git = (cwd: string, args: string[]) => Promise<GitResult>;
-
-// git never prompts, in the terminal or through Git Credential Manager's window; a missing
-// credential makes the fetch fail instead. The user's ssh choice (GIT_SSH, core.sshCommand)
-// stays: the hook runs without a terminal, so ssh cannot prompt either.
-export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
-  ...env,
-  GIT_TERMINAL_PROMPT: '0',
-  GCM_INTERACTIVE: 'never',
-});
 
 const runGit: Git = (cwd, args) =>
   new Promise((done) => {

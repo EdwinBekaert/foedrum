@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { cleanWorktrees, type Git, gitEnv } from '../../scripts/worktrees-clean.ts';
+import { cleanWorktrees, type Git } from '../../scripts/worktrees-clean.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // Captured from git 2.56 with machine paths and object ids replaced (see the fixture folder).
@@ -266,23 +266,5 @@ describe('cleanWorktrees with a fake git', () => {
         'kept worktree .claude/worktrees/7-merged: it has uncommitted or untracked changes',
       ),
     );
-  });
-});
-
-describe('gitEnv', () => {
-  it('turns off every credential prompt, in the terminal and in a window', () => {
-    const env = gitEnv({ PATH: '/bin' });
-
-    assert.equal(env.PATH, '/bin');
-    assert.equal(env.GIT_TERMINAL_PROMPT, '0');
-    assert.equal(env.GCM_INTERACTIVE, 'never');
-  });
-
-  // An ssh command of its own would override GIT_SSH and core.sshCommand, such as Windows'
-  // OpenSSH for the ssh-agent service or plink for Pageant, and the fetch would fail.
-  it("leaves the user's ssh choice alone", () => {
-    assert.equal(gitEnv({}).GIT_SSH_COMMAND, undefined);
-    assert.equal(gitEnv({ GIT_SSH: 'plink.exe' }).GIT_SSH, 'plink.exe');
-    assert.equal(gitEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
   });
 });

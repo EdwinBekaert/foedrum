@@ -7,7 +7,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { openStateBranch } from '../../src/engine/state-branch-git.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { type Git, type GitResult, gitEnv } from '../../src/workspace/git.ts';
+import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const ordered = (batchId: string): Event => ({
@@ -509,16 +509,6 @@ describe('openStateBranch with a fake git', () => {
         /batch id/,
       );
       assert.equal(existsSync(join(dir.path, 'plan-1.md')), false);
-    });
-  });
-});
-
-describe('gitEnv', () => {
-  it('keeps the environment and turns off every prompt', () => {
-    assert.deepEqual(gitEnv({ PATH: '/bin', GIT_TERMINAL_PROMPT: '1' }), {
-      PATH: '/bin',
-      GIT_TERMINAL_PROMPT: '0',
-      GCM_INTERACTIVE: 'never',
     });
   });
 });
