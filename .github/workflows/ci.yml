@@ -48,10 +48,6 @@ jobs:
           node --version
           npm --version
 
-      - name: Deliberate failure (throwaway, reverted)
-        if: ${{ runner.os == 'Windows' }}
-        run: exit 1
-
       - run: npm ci
       - run: npm audit signatures
       - run: npm audit --omit=dev
