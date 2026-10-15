@@ -53,6 +53,24 @@ describe('removeScratch with a fake git', () => {
     ]);
   });
 
+  it('removes a scratch clone, which has a .git folder and no record of its own', async () => {
+    // The review skill clones the scratch tree (git clone --shared), so nothing is registered.
+    rmSync(join(tree, '.git'));
+    mkdirSync(join(tree, '.git', 'objects', 'info'), { recursive: true });
+    writeFileSync(
+      join(tree, '.git', 'objects', 'info', 'alternates'),
+      `${dir.path}/.git/objects\n`,
+    );
+    rmSync(join(record('tree'), 'gitdir'));
+
+    const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', git);
+
+    assert.equal(result.ok, true, result.lines.join('\n'));
+    assert.equal(existsSync(scratch), false);
+    assert.deepEqual(result.lines, [`removed ${scratch}`]);
+    assert.ok(existsSync(record('tree')) && existsSync(record('tree1')));
+  });
+
   it('removes the record its .git file names once git deleted that record’s gitdir file', async () => {
     rmSync(join(record('tree'), 'gitdir'));
 

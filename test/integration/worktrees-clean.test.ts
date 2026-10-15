@@ -114,6 +114,27 @@ describe('worktrees-clean with real git', () => {
     assert.match(result.stdout, /deleted branch 7-merged/);
   });
 
+  it('removes a merged worktree that holds a review scratch clone in its git-ignored .foedrum/', () => {
+    const merged = worktree('15-reviewed');
+    writeFileSync(join(merged, '.gitignore'), '.claude/worktrees/\n.foedrum/\n');
+    git(merged, ['commit', '-q', '-am', 'Ignore .foedrum/']);
+    git(merged, ['push', '-q', 'origin', '15-reviewed']);
+    merge('15-reviewed');
+    // The review skill's scratch tree: a shared clone, not a worktree, so no record exists.
+    const tree = join(merged, '.foedrum', 'tmp', '15', 'scratch', 'tree');
+    git(merged, ['clone', '-q', '--shared', '--no-checkout', merged, tree]);
+    git(tree, ['checkout', '-q', '--detach', 'HEAD']);
+    writeFileSync(join(tree, 'mutant.txt'), 'left behind by a review\n');
+    assert.equal(worktrees().length, 2);
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(merged), false, result.stdout);
+    assert.match(result.stdout, /removed worktree \.claude\/worktrees\/15-reviewed/);
+    assert.deepEqual(branches(), ['main']);
+  });
+
   it('finishes a worktree folder whose .git file is gone and whose branch may go', () => {
     const half = worktree('11-half');
     merge('11-half');
