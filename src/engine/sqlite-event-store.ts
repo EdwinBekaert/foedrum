@@ -366,6 +366,10 @@ export const openSqliteEventStore = (
         }),
       ),
 
+    expiredLeases: () => {
+      throw new Error('not implemented');
+    },
+
     replay: (log) =>
       withTransaction(() => {
         if (selectAnyEvent.get() !== undefined) throw new Error('replay needs an empty store');
