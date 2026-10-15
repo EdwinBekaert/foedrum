@@ -28,7 +28,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | Field | Purpose |
 |---|---|
 | `inputs[]` | Named documents (`name` is the `{variable}` in the body): `"from": "order"`, an earlier step's out doc (`"step:<id>"`) or a repository file (`"file:<relative path>"`) |
-| `inputs[].trusted` | Untrusted input is wrapped in delimiters and marked as data, never instructions. Default `false`; the order is never trusted |
+| `inputs[].trusted` | Untrusted input is wrapped in delimiters and marked as data, never instructions. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
 | `houseYeast` | Receive learned rules from all three layers (defaults, Brewery, repository), selected by scope within a token budget (architecture §12b) |
 | `toolbox` | A short brief of extra command-line tools this brewer may use |
 
@@ -215,7 +215,7 @@ A recipe is a JSONC file (`recipes/<name>.jsonc`) with a `$schema` reference for
 
 A step has exactly one of these kind fields. A `session` step needs a `deadline` and may name a `fallback` brewer.
 
-**Recipe fields:** `name`, `description`, `match` (`labels`), `budget` (`minutes`), `steps`, and `testFirst` (default `true`; the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+**Recipe fields:** `name`, `description`, `match` (`labels`), `budget` (`minutes`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded, since it depends on the brewers the recipe uses; the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
 
 **Step fields**
 
@@ -225,9 +225,9 @@ A step has exactly one of these kind fields. A `session` step needs a `deadline`
 | `when` | Run the step only when the expression is true; otherwise it is skipped and recorded as skipped. Expressions read step results by id (`tasting.verdict`, `mutants.survivors`) and the recipe's settings after routing (`recipe.testFirst`), optionally compared with a value in single quotes (`tasting.verdict != 'approve'`) |
 | `lens` | Taster only: the lens file (`lenses/<lens>.md`) that sets the review focus |
 | `expect` | `check` only: `"pass"` (default) or `"fail"`. `"fail"` is a **red proof**, which runs `"check": "test"` only, because it reads the test report |
-| `of` | Red proof only: the step whose committed tests must fail because the behaviour is missing (a failed assertion or an error thrown by the code under test); load, compile, import or collection errors do not count |
+| `of` | Red proof only: an earlier step whose committed tests must fail because the behaviour is missing (a failed assertion or an error thrown by the code under test); load, compile, import or collection errors do not count |
 | `blocking` | Brett only: `true` makes confirmed surviving mutants block the tasting verdict (default `false`, advisory) |
-| `onFail` | `check` only: `{ goto: <step id>, maxRounds }` |
+| `onFail` | `check` only: `{ goto: <step id>, maxRounds }`. Like `onBlocked`, it goes back to an earlier step at the same level or in an enclosing loop, never forward or into another loop's steps |
 | `onBlocked` | Brewer steps only: route a `findings` blocker outside a loop, e.g. `{ "findings": { "goto": "gauge", "maxRounds": 1 } }`; after `maxRounds` the batch becomes Stuck. `environment` and `divergence` blockers are always Stuck (§2), so they take no route |
 | `deadline` | Overrides the brewer's deadline for this step |
 
@@ -312,8 +312,8 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 ```
 
 - `checks` requires all five keys, so a missing check is always an explicit `null`. A command is one line, or `{ "run", "windows", "macos", "linux" }` with per-OS overrides.
-- `testReport` is `{ "format": "tap" }` (the test command writes TAP to standard output), `{ "format": "tap", "path": … }` or `{ "format": "junit", "path": … }`; the path is relative to the worktree and never leaves it. A test report needs a `test` command.
-- Every `tools` rule must stay within `permissionCeiling`: a ceiling rule covers the same tool when it has no specifier, or when its specifier, with `*` matching any text, matches the rule's specifier (`Bash(dotnet *)` covers `Bash(dotnet test*)`, not the other way round). Without a ceiling, a repository adds no tools. `AskUserQuestion` is never allowed.
+- `testReport` is `{ "format": "tap" }` (the test command writes TAP to standard output), `{ "format": "tap", "path": … }` or `{ "format": "junit", "path": … }`; the path is relative to the worktree, never leaves it, and uses only file names Windows can create (no device names such as `con`, no trailing dot or space, none of `<>:"|?*`). A test report needs a `test` command.
+- Every `tools` rule must stay within `permissionCeiling`, which fails closed. A ceiling rule covers the same tool when it has no specifier, when its specifier is the rule's, or when its specifier, read as a glob, matches the rule's specifier (`Bash(dotnet *)` covers `Bash(dotnet test*)`, not the other way round). In a `Bash` or `PowerShell` rule a `*` never stands for a shell operator (`;&|` backtick `$<>`), so `Bash(npm *)` does not cover `Bash(npm test && curl …)`. In a path rule (`Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`) a `*` stays within one folder and `**` crosses folders, so `Edit(docs/*)` does not cover `Edit(docs/**)`. A rule with a `..` segment is only covered by the same specifier or a bare tool. Without a ceiling, a repository adds no tools. `AskUserQuestion` is never allowed.
 - Repository keys are `owner/name`, unique regardless of case.
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 

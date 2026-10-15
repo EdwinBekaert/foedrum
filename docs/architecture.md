@@ -459,8 +459,8 @@ docs/
 **A Brewery:**
 
 ```
-foedrum.jsonc     repositories (source, release signal, triage sources, check commands, test report, setup, toolchain allowlist; ADR 0023), allow-listed users, concurrency, budgets, permission ceiling (schema so far: checks, test report, setup, tools and ceiling; brewers-and-recipes §6)
-models.jsonc      model aliases, and a model per brewer (updated by blind-tasting pull requests)
+foedrum.jsonc     repositories (source, release signal, triage sources, check commands, test report, setup, toolchain allowlist; ADR 0023), allow-listed users, concurrency, budgets, permission ceiling (schema so far: checks, test report, setup, tools, house-yeast fallback and ceiling; brewers-and-recipes §6)
+models.jsonc      model aliases, and an alias per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)
