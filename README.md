@@ -1,10 +1,12 @@
 # Foedrum
 
+[![CI](https://github.com/EdwinBekaert/foedrum/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EdwinBekaert/foedrum/actions/workflows/ci.yml)
+
 **Your issues, brewed into pull requests.**
 
 Foedrum is a GitHub-native orchestrator for Claude agents. You file an issue in a control repository (*the Brewery*); Foedrum runs it through a pipeline you define (*a Recipe*) made of specialised agents (*Brewers*), and delivers a pull request in the target repository — with quality gates, budgets, and a promise: **a batch is never silently stuck.**
 
-> 🚧 **Status: design phase.** Nothing runs yet. This repository currently holds the architecture, decisions and roadmap. See [ROADMAP.md](ROADMAP.md).
+> 🚧 **Status: early development.** The foundations are being built (milestone M0): formats, schemas, CI on Windows, macOS and Linux, and the dependency guard. There is nothing to install or run yet. See [ROADMAP.md](ROADMAP.md).
 
 ## Why Foedrum
 
@@ -36,6 +38,10 @@ flowchart LR
 - [Glossary](docs/glossary.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Dependencies](DEPENDENCIES.md)
+
+## Contributing
+
+Foedrum is not open to outside pull requests yet: they will be closed until the public launch (milestone M3), when the Contributor License Agreement and the contribution guide are published. Issues with questions, ideas or feedback are welcome now.
 
 ## Licence
 
