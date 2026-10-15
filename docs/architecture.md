@@ -203,7 +203,7 @@ The zod schemas in `src/schemas/` are the source of these types. Every object is
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
-Current state is a pure fold over events (`src/engine/fold.ts`): orders and sub-orders (one repository each) with their dependencies, batches with their lane, steps, attempts, rewinds, bottles, observed releases and the idempotency ledger. The fold records what the events say and leaves the allowed transitions to the state machine; an event that refers to a batch, step or attempt the log never created, or repeats one, makes it throw, because such a log is corrupt. Crash recovery is replay.
+Current state is a pure fold over events (`src/engine/fold.ts`): orders and sub-orders (one repository each) with their dependencies, batches with their lane, steps, attempts, rewinds, bottles, observed releases and the idempotency ledger. The fold records what the events say and leaves the allowed transitions to the state machine; an event that refers to a batch, step or attempt the log never created, or repeats one, opens a bottle or applies an effect twice (invariant I4), or moves a sub-order to another order, makes it throw, because such a log is corrupt. `orders` holds orders only; a sub-order keeps its own batches. Crash recovery is replay.
 
 ### 4.2 Step outcome — the single contract
 

@@ -59,13 +59,17 @@ export interface Batch {
   /** The issue this batch brews: an order or a sub-order. */
   issue: number;
   parentBatchId?: string;
-  recipe?: { name: string; reason: string; by: 'label' | 'router' | 'human' };
+  recipe?: {
+    name: string;
+    reason: string;
+    by: Extract<Event, { type: 'batch.recipe_chosen' }>['by'];
+  };
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
   rewinds: readonly Rewind[];
 }
 
-/** A Brewery issue with batches: an order or a sub-order. */
+/** An order: a Brewery issue with batches that is not a sub-order. */
 export interface Order {
   issue: number;
   batchIds: readonly string[];
@@ -80,6 +84,7 @@ export interface SubOrder {
   repo: string;
   /** The order it was split from. */
   order: number;
+  batchIds: readonly string[];
 }
 
 export interface Bottle {
@@ -116,7 +121,8 @@ export const emptyState: State = {
 
 /**
  * Folds `events` onto `state`; `fold(rest, fold(prefix))` equals `fold([...prefix, ...rest])`.
- * Throws when an event refers to a batch, step or attempt the log never created.
+ * Throws when an event refers to a batch, step or attempt the log never created, repeats one,
+ * opens a bottle or applies an effect twice, or moves a sub-order to another order.
  */
 export function fold(events: readonly Event[], state: State = emptyState): State {
   return events.reduce(apply, state);
@@ -128,6 +134,25 @@ function apply(state: State, event: Event): State {
       const { batchId, order, parentBatchId } = event;
       if (state.batches.has(batchId)) throw inconsistent(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
+      const batches = put(state.batches, batchId, {
+        id: batchId,
+        issue: order.issue,
+        ...(parentBatchId === undefined ? {} : { parentBatchId }),
+        lane: { kind: 'ordered' },
+        steps: new Map(),
+        rewinds: [],
+      });
+      const subOrder = state.subOrders.get(order.issue);
+      if (subOrder !== undefined) {
+        return {
+          ...state,
+          subOrders: put(state.subOrders, order.issue, {
+            ...subOrder,
+            batchIds: [...subOrder.batchIds, batchId],
+          }),
+          batches,
+        };
+      }
       const existing = orderOf(state, order.issue);
       return {
         ...state,
@@ -135,14 +160,7 @@ function apply(state: State, event: Event): State {
           ...existing,
           batchIds: [...existing.batchIds, batchId],
         }),
-        batches: put(state.batches, batchId, {
-          id: batchId,
-          issue: order.issue,
-          ...(parentBatchId === undefined ? {} : { parentBatchId }),
-          lane: { kind: 'ordered' },
-          steps: new Map(),
-          rewinds: [],
-        }),
+        batches,
       };
     }
     case 'batch.recipe_chosen': {
@@ -212,7 +230,16 @@ function apply(state: State, event: Event): State {
         [...state.subOrders].filter(([, subOrder]) => subOrder.order !== issue),
       );
       for (const { issue: subIssue, repo } of event.subOrders) {
-        subOrders.set(subIssue, { issue: subIssue, repo, order: issue });
+        const earlier = state.subOrders.get(subIssue);
+        if (earlier !== undefined && earlier.order !== issue) {
+          throw inconsistent(`sub-order ${subIssue} already belongs to order ${earlier.order}`);
+        }
+        subOrders.set(subIssue, {
+          issue: subIssue,
+          repo,
+          order: issue,
+          batchIds: earlier?.batchIds ?? [],
+        });
       }
       return {
         ...state,
@@ -230,6 +257,7 @@ function apply(state: State, event: Event): State {
     }
     case 'bottle.opened': {
       const { bottleId: id, repo, subOrders, pullRequest } = event;
+      if (state.bottles.has(id)) throw inconsistent(`bottle ${id} was already opened`);
       return { ...state, bottles: put(state.bottles, id, { id, repo, subOrders, pullRequest }) };
     }
     case 'release.observed': {
@@ -252,6 +280,10 @@ function apply(state: State, event: Event): State {
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by });
     case 'effect.applied':
+      // Invariant I4: an effect is applied at most once.
+      if (state.effects.has(event.key)) {
+        throw inconsistent(`effect ${event.key} was already applied`);
+      }
       return { ...state, effects: put(state.effects, event.key, event.result) };
     default:
       return unreachable(event);
