@@ -103,6 +103,7 @@ describe('logPathOf', () => {
         batchId: 'b1',
         reason: { kind: 'waiting_for_session', stepId: 'plan' },
         options: ['cancel'],
+        remindAt: '2026-10-17T10:00:00Z',
       },
       'batches/b1/events.jsonl',
     ],
@@ -412,6 +413,7 @@ describe('isStepBoundary', () => {
       batchId: 'b1',
       reason: { kind: 'waiting_for_session', stepId: 'plan' },
       options: ['cancel'],
+      remindAt: '2026-10-17T10:00:00Z',
     };
     assert.equal(boundary(stuck), true);
     assert.equal(boundary({ type: 'batch.cancelled', batchId: 'b1', by: 'octocat' }), true);

@@ -66,6 +66,7 @@ const valid: Record<Event['type'], Event> = {
     batchId: 'b1',
     reason: { kind: 'needs_input', stepId: 'brew', questions: [question] },
     options: ['answer', 'skip', 'cancel'],
+    remindAt: '2026-10-17T10:00:00Z',
   },
   'batch.resumed': {
     type: 'batch.resumed',
@@ -270,6 +271,11 @@ describe('Event', () => {
       },
     ],
     ['batch.stuck without options', { ...valid['batch.stuck'], options: [] }],
+    // A Stuck batch waits for a human with a reminder, never silently (ADR 0025).
+    [
+      'batch.stuck without a reminder',
+      Object.fromEntries(Object.entries(valid['batch.stuck']).filter(([key]) => key !== 'remindAt')),
+    ],
     ['a stuck option listed twice', { ...valid['batch.stuck'], options: ['retry', 'retry'] }],
     [
       'effect.applied without a result',

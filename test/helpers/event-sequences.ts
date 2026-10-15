@@ -238,6 +238,7 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         batchId: found[0].id,
         reason: stuckReason(found[1]),
         options: options.length === 0 ? ['cancel'] : options,
+        remindAt: timestamp(),
       };
     },
     () => {

@@ -42,6 +42,7 @@ const stuck = (batchId: string): Event => ({
   batchId,
   reason: { kind: 'deadline_passed', stepId: 'plan', deadlineAt: '2026-10-15T11:00:00Z' },
   options: ['retry'],
+  remindAt: '2026-10-17T11:00:00Z',
 });
 const waiting = (batchId: string, remindAt: string): Event => ({
   type: 'batch.waiting',

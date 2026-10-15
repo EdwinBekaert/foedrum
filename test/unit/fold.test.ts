@@ -149,8 +149,19 @@ describe('fold', () => {
     const on = { kind: 'merge', pullRequest } as const;
     const lanes = (events: Event[]) => batch(fold([ordered, scheduled, ...events])).lane;
 
-    const stuck: Event = { type: 'batch.stuck', batchId: 'b1', reason, options: ['answer'] };
-    assert.deepStrictEqual(lanes([stuck]), { kind: 'stuck', reason, options: ['answer'] });
+    const stuck: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason,
+      options: ['answer'],
+      remindAt: deadlineAt,
+    };
+    assert.deepStrictEqual(lanes([stuck]), {
+      kind: 'stuck',
+      reason,
+      options: ['answer'],
+      remindAt: deadlineAt,
+    });
     assert.deepStrictEqual(
       lanes([
         stuck,
@@ -172,6 +183,20 @@ describe('fold', () => {
     });
   });
 
+  it('keeps the reminder of a Stuck batch, and a later one replaces it (ADR 0025)', () => {
+    const reason: StuckReason = { kind: 'waiting_for_session', stepId: 'plan' };
+    const stuck = (remindAt: string): Event => ({
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason,
+      options: ['cancel'],
+      remindAt,
+    });
+    const later = '2026-10-17T10:00:00.000Z';
+    const lane = batch(fold([ordered, scheduled, stuck(deadlineAt), stuck(later)])).lane;
+    assert.equal(lane.kind === 'stuck' && lane.remindAt, later);
+  });
+
   it('records a rewind, and the batch brews again', () => {
     const rewind = { toStepId: 'plan', by: 'octocat', shas: { 'acme/api': 'a'.repeat(40) } };
     const state = fold([
@@ -182,6 +207,7 @@ describe('fold', () => {
         batchId: 'b1',
         reason: { kind: 'waiting_for_session', stepId: 'plan' },
         options: ['rewind'],
+        remindAt: deadlineAt,
       },
       { type: 'batch.rewound', batchId: 'b1', ...rewind },
     ]);
@@ -637,6 +663,7 @@ describe('fold of an inconsistent log', () => {
       batchId: 'b1',
       reason: { kind: 'waiting_for_session', stepId: 'plan' },
       options: ['cancel'],
+      remindAt: deadlineAt,
     },
     { type: 'batch.resumed', batchId: 'b1', by: 'octocat', via: 'plugin', action: 'retry' },
     {
