@@ -3,10 +3,11 @@
 // The gate's decisions are unit tests in test/unit/precheck.test.ts.
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
@@ -19,9 +20,15 @@ interface ProcessResult {
   stderr: string;
 }
 
-// The environment without npm's own variables, so a test controls which npm a child sees.
+// The folder makeTempDir creates its folders in.
+const testsDir = join(root, '.foedrum', 'tmp', 'tests');
+
+// The environment without npm's own variables, so a test controls which npm a child sees. git
+// stops at the tests folder, so a hook run in a test folder never sees this checkout's state,
+// such as a detached HEAD in CI or in a review's scratch tree.
 const envWithoutNpm = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key))),
+  GIT_CEILING_DIRECTORIES: testsDir,
   ...extra,
 });
 
@@ -58,22 +65,27 @@ const hookInput = (command: string, cwd: string): string =>
 
 describe('scripts/precheck.ts with a stub npm', () => {
   it('blocks a push with exit 2 and npm output intact when npm run check fails', async () => {
-    const { code, stdout, stderr } = await run(
-      process.execPath,
-      [script],
-      hookInput('git push', root),
-      {
-        cwd: root,
-        env: envWithoutNpm({ npm_execpath: npmStub }),
-      },
-    );
-    assert.equal(code, 2);
-    assert.equal(stdout, '');
-    assert.match(stderr, /npm run check failed/);
-    assert.match(stderr, /stub npm: run check/);
-    // The stub splits "é" across two writes.
-    assert.match(stderr, /café/);
-    assert.doesNotMatch(stderr, /�/);
+    const pushFrom = makeTempDir('push-from');
+    try {
+      const { code, stdout, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', pushFrom.path),
+        {
+          cwd: root,
+          env: envWithoutNpm({ npm_execpath: npmStub }),
+        },
+      );
+      assert.equal(code, 2);
+      assert.equal(stdout, '');
+      assert.match(stderr, /npm run check failed/);
+      assert.match(stderr, /stub npm: run check/);
+      // The stub splits "é" across two writes.
+      assert.match(stderr, /café/);
+      assert.doesNotMatch(stderr, /�/);
+    } finally {
+      pushFrom.remove();
+    }
   });
 
   it('blocks a push from a checkout whose node_modules is out of date, before npm runs', async () => {
@@ -95,6 +107,32 @@ describe('scripts/precheck.ts with a stub npm', () => {
       );
     } finally {
       project.remove();
+    }
+  });
+
+  it('blocks a push from a checkout whose HEAD is detached, asking real git', async () => {
+    const project = makeTempDir('detached-head');
+    try {
+      const git = (args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          stdio: 'ignore',
+        });
+      git(['init', '-q', '-b', 'main']);
+      git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      git(['checkout', '-q', '--detach']);
+      const { code, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', project.path),
+        { cwd: root, env: envWithoutNpm({ npm_execpath: npmStub }) },
+      );
+      assert.equal(code, 2);
+      assert.match(stderr, /^git push is blocked: HEAD is detached in .*detached-head-/);
+      assert.doesNotMatch(stderr, /stub npm/);
+    } finally {
+      // A real repository: removeTree clears git's read-only objects and retries busy files.
+      await removeTree(project.path);
     }
   });
 });
