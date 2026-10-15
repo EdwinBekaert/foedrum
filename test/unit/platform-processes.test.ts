@@ -550,6 +550,14 @@ describe('spawnCommand', () => {
     });
   });
 
+  it('reads SystemRoot whatever the case of its name, as Windows does', () => {
+    // Git Bash exports it as SYSTEMROOT; a copied environment keeps that spelling.
+    assert.equal(
+      spawnCommand('C:\\tools\\run.cmd', [], 'win32', { SYSTEMROOT: 'D:\\Windows' }).shell,
+      'D:\\Windows\\System32\\cmd.exe',
+    );
+  });
+
   it('finds cmd.exe in C:\\Windows when SystemRoot is not set', () => {
     assert.equal(
       spawnCommand('C:\\tools\\run.cmd', [], 'win32', { PATH: 'C:\\nodejs' }).shell,

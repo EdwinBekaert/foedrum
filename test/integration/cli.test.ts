@@ -48,7 +48,7 @@ describe('foedrum status and replay on store files', () => {
     const { exitCode, stdout, stderr } = await foedrum('status');
     assert.equal(exitCode, 1);
     assert.equal(stdout, '');
-    assert.match(stderr, /^foedrum: [^\n]*schema version 1[^\n]*\n$/);
+    assert.match(stderr, /^foedrum status: [^\n]*schema version 1[^\n]*\n$/);
     const after = new DatabaseSync(store, { readOnly: true });
     assert.deepEqual(
       {
@@ -66,6 +66,6 @@ describe('foedrum status and replay on store files', () => {
     const { exitCode, stdout, stderr } = await foedrum('status');
     assert.equal(exitCode, 1);
     assert.equal(stdout, '');
-    assert.match(stderr, /^foedrum: [^\n]+\n$/);
+    assert.match(stderr, /^foedrum status: [^\n]+\n$/);
   });
 });

@@ -93,7 +93,12 @@ describe('gatherDoctorFacts', () => {
     assert.deepEqual((await gatherDoctorFacts(shell)).tools, {
       npm: { path: '/usr/bin/npm', exitCode: 0, output: '11.6.2\n' },
       git: { path: '/usr/bin/git', exitCode: 0, output: 'git version 2.47.1\n' },
-      claude: { path: '/home/brewer/.local/bin/claude', exitCode: null, output: '' },
+      // A command the runner killed at its deadline says so first, so doctor can show why.
+      claude: {
+        path: '/home/brewer/.local/bin/claude',
+        exitCode: null,
+        output: 'timed out after 10 s\n',
+      },
       bwrap: undefined,
       socat: { path: '/usr/bin/socat', exitCode: 0, output: 'socat version 1.7.4.4\n' },
       podman: undefined,

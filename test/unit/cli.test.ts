@@ -391,6 +391,22 @@ describe('foedrum status', () => {
     assert.equal(result.stdout, '1 batch\n\n  11-1  #11  ordered\n');
   });
 
+  it('says in one line, escaped, and exits 1, when reading the store throws', async () => {
+    // A stored event that no longer validates: the message repeats text from the store.
+    // An error that escaped runCli becomes the result, so the assertion below shows it.
+    const result = await run(['status'], {
+      openStore: () => {
+        throw new Error('Stored event 3 is invalid: unrecognized key "\u001b]52;c;aGk=\u0007"');
+      },
+    }).catch((error: unknown) => ({ escaped: String(error) }));
+    assert.deepEqual(result, {
+      exitCode: 1,
+      stdout: '',
+      stderr:
+        'foedrum status: Stored event 3 is invalid: unrecognized key "\\u001b]52;c;aGk=\\u0007"\n',
+    });
+  });
+
   it('refuses an event log the fold rejects, in one line, and exits 1', async () => {
     const result = await run(['status'], { openStore: () => storeWith(invalidLog) });
     assert.equal(result.exitCode, 1);
