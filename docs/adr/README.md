@@ -29,6 +29,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0023](0023-language-independent-recipes.md) | Default recipes are language-independent | Accepted |
 | [0024](0024-state-branch-layout-outbox-and-divergence.md) | The state branch: layout, outbox and divergence (amends 0002 and 0011) | Accepted |
 | [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) | Batch lifecycle: a reminder on Stuck, rewind only from Stuck | Accepted |
+| [0026](0026-how-a-permission-ceiling-covers-a-rule.md) | How a permission ceiling covers a rule | Accepted |
 
 ## Template
 
