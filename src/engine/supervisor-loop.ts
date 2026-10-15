@@ -80,8 +80,14 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     intervalMs = 5000,
     reminderMs = 2 * 24 * 3_600_000,
     flushDeadlineMs = 10 * 60_000,
-    report = () => {},
+    report: reportTo = () => {},
   } = options;
+  // A report that throws must not stop the supervisor: deadlines and reminders still need it.
+  const report = (notice: Notice): void => {
+    try {
+      reportTo(notice);
+    } catch {}
+  };
   // The folded state, kept up to date with whatever was appended since the last tick.
   let state: State = emptyState;
   let lastId = 0;
@@ -134,7 +140,15 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     }
   };
 
-  const tick = async (): Promise<TickReport> => {
+  // One tick at a time, whoever starts it: a tick waits for the one in flight.
+  let inFlight: Promise<unknown> = Promise.resolve();
+  const tick = (): Promise<TickReport> => {
+    const next = inFlight.then(tickNow, tickNow);
+    inFlight = next.catch(() => {});
+    return next;
+  };
+
+  const tickNow = async (): Promise<TickReport> => {
     const now = clock();
     let appended = 0;
     let failure: { error: unknown } | undefined;
@@ -192,6 +206,8 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     tick,
     run: () =>
       new Promise<void>((resolve, reject) => {
+        // A new run replaces the one before; that one's promise settles, never left waiting.
+        finish?.resolve();
         finish = { resolve, reject };
         stopped = false;
         handle = timer.set(loopOf(++current), intervalMs);
