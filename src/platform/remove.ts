@@ -10,7 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 export type RemovePath = (path: string) => Promise<void>;
 
-export interface RemoveTreeOptions {
+interface RemoveTreeOptions {
   attempts?: number;
   delayMs?: number;
   removePath?: RemovePath;
