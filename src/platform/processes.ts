@@ -55,18 +55,19 @@ export const killProcessTree = (pid: number, options: KillTreeOptions = {}): voi
     return;
   }
   // The group first; a process that leads no group gets the signal on its own. Gone is fine.
-  const send = (name: NodeJS.Signals): boolean => {
-    for (const target of [-pid, pid]) {
-      try {
-        signal(target, name);
-        return true;
-      } catch {
-        // try the next target
-      }
+  const tryKill = (target: number, name: NodeJS.Signals): boolean => {
+    try {
+      signal(target, name);
+      return true;
+    } catch {
+      return false;
     }
-    return false;
   };
-  if (send('SIGTERM')) timers.set(() => send('SIGKILL'), GRACE_MS);
+  const target = [-pid, pid].find((candidate) => tryKill(candidate, 'SIGTERM'));
+  if (target === undefined) return;
+  // SIGKILL only where the SIGTERM went: once that is gone, the pid may belong to another
+  // process by now.
+  timers.set(() => tryKill(target, 'SIGKILL'), GRACE_MS);
 };
 
 // Signal 0 checks that a process exists without touching it. EPERM means it exists but
