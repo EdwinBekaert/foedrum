@@ -145,6 +145,55 @@ describe('precheck', () => {
   });
 });
 
+describe('precheck on a stale node_modules', () => {
+  const REASON = 'node_modules/zod 4.6.4 is installed, package-lock.json has 4.6.5';
+  // A staleness check that records where it looked and answers with the given reason.
+  const fakeStale = (reason: string | undefined) => {
+    const calls: string[] = [];
+    const staleReason = async (cwd: string): Promise<string | undefined> => {
+      calls.push(cwd);
+      return reason;
+    };
+    return { calls, staleReason };
+  };
+
+  it('blocks a push with one clear line, without running the check', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const stale = fakeStale(REASON);
+    const result = await precheck(hookInput('git push', '/work/tree'), runCheck, stale.staleReason);
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr: `node_modules is out of date with package-lock.json (${REASON}); run npm ci\n`,
+    });
+    assert.deepEqual(stale.calls, ['/work/tree']);
+    assert.deepEqual(calls, []);
+  });
+
+  it('runs the check in the hook cwd when node_modules is up to date', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const stale = fakeStale(undefined);
+    const result = await precheck(
+      hookInput('gh pr create', '/work/tree'),
+      runCheck,
+      stale.staleReason,
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(stale.calls, ['/work/tree']);
+    assert.deepEqual(calls, ['/work/tree']);
+  });
+
+  // Every Bash and PowerShell call goes through the gate, so only gated commands read files;
+  // forbidden ones are blocked for their own reason first.
+  for (const command of ['git status', 'git push --force']) {
+    it(`does not look at node_modules for: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const stale = fakeStale(REASON);
+      await precheck(hookInput(command), runCheck, stale.staleReason);
+      assert.deepEqual(stale.calls, []);
+    });
+  }
+});
+
 describe('precheck on pushes inside compound commands', () => {
   const pushes: [name: string, tool: string, command: string][] = [
     [
