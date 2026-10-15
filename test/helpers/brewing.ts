@@ -126,7 +126,11 @@ export const createBrewing = (options: BrewingOptions) => {
       for (const { ref, end } of ended.splice(0)) {
         const key = attemptKey.encode(ref);
         runs.delete(key);
-        command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key));
+        // An attempt that ended holds its worktree no longer, also when Stuck abandoned it and
+        // its finish is refused: the next attempt of the batch may start beside it (I2).
+        if (!command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
+          store.withTransaction((tx) => tx.releaseLease(key));
+        }
         moved = true;
       }
       if (!moved) return;
