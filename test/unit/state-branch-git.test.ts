@@ -344,6 +344,37 @@ describe('openStateBranch with a fake git', () => {
       );
     });
 
+    // The worktree was deleted, so start makes a new one from the remote: its head is the
+    // remote's, and the flush must check every log file in it (ADR 0024).
+    it("stops a recovery flush when the remote has another engine's event with our id", async () => {
+      append(ordered('b1'), scheduled('b1'));
+      fake.remote = sha(5);
+      fake.files = {
+        'batches/b1/events.jsonl': line(1, ordered('b1')),
+        'batches/b2/events.jsonl': line(2, ordered('b2')),
+      };
+      await assert.rejects(
+        branch().start(),
+        (error) => error instanceof StateBranchStopError && /event 2/.test(error.message),
+      );
+      assert.equal(fake.find('push'), undefined);
+      assert.equal(store.pushedThrough(), undefined);
+    });
+
+    it('finishes our own push whose marker was not written, without a new commit', async () => {
+      append(ordered('b1'), scheduled('b1'));
+      fake.remote = sha(5);
+      fake.files = { 'batches/b1/events.jsonl': line(1, ordered('b1')) + line(2, scheduled('b1')) };
+      fake.answer = (args) => (args[0] === 'diff' ? ok() : undefined);
+      const result = await branch().start();
+      assert.deepEqual(result, {
+        decision: 'flush',
+        flush: { kind: 'pushed', through: 2, commit: sha(5) },
+      });
+      assert.equal(fake.find('commit'), undefined);
+      assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(5) });
+    });
+
     it('flushes events that were never pushed', async () => {
       append(ordered('b1'), released);
       const result = await branch().start();
@@ -599,7 +630,9 @@ describe('openStateBranch with a fake git', () => {
         state.writeOutDoc({ batchId: '..', stepId: 'plan', attempt: 1 }, 'x'),
         /batch id/,
       );
-      assert.equal(existsSync(join(dir.path, 'plan-1.md')), false);
+      // Where an unchecked `batches/../plan-1.md` would land.
+      assert.equal(existsSync(join(worktree, 'plan-1.md')), false);
+      assert.equal(existsSync(join(worktree, 'batches')), false);
     });
   });
 });

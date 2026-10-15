@@ -15,6 +15,7 @@ import {
   type SqliteEventStoreOptions,
 } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import { z } from '../../src/schemas/zod.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const ordered = (batchId: string): Event => ({
@@ -759,10 +760,13 @@ describe('SqliteEventStore in memory', () => {
     for (const [what, marker] of invalid) {
       it(`refuses ${what}`, () => {
         appendAll([ordered('b1')]);
-        assert.throws(() =>
-          store.withTransaction((tx) =>
-            tx.markPushed(marker as { eventId: number; commit: string }),
-          ),
+        // The schema refuses it, not SQLite's column types.
+        assert.throws(
+          () =>
+            store.withTransaction((tx) =>
+              tx.markPushed(marker as { eventId: number; commit: string }),
+            ),
+          z.ZodError,
         );
         assert.equal(store.pushedThrough(), undefined);
       });
@@ -877,7 +881,7 @@ describe('SqliteEventStore in memory', () => {
     });
 
     it('refuses an invalid commit and writes nothing', () => {
-      assert.throws(() => store.restore([{ id: 1, event: ordered('b1') }], 'abc1234'));
+      assert.throws(() => store.restore([{ id: 1, event: ordered('b1') }], 'abc1234'), z.ZodError);
       assert.equal(store.lastEventId(), 0);
     });
   });
