@@ -38,6 +38,12 @@ const finished = (batchId: string): Event => ({
 });
 
 const key: EffectKey = { batchId: 'b1', stepId: 'open-pr', attempt: 1, effect: 'pull_request' };
+// The event recordEffect appends for `key`: the event log is the idempotency ledger.
+const applied = (result: unknown): Event => ({
+  type: 'effect.applied',
+  key: '["b1","open-pr",1,"pull_request"]',
+  result,
+});
 const lease = {
   attemptKey: 'b1/plan#1',
   owner: 'cellar',
@@ -132,7 +138,7 @@ describe('SqliteEventStore in memory', () => {
       assert.equal(result, 'done');
       assert.deepEqual(
         store.eventsAfter(0).map((stored) => stored.event),
-        [ordered('b1')],
+        [ordered('b1'), applied({ pullRequest: 'https://github.com/o/r/pull/1' })],
       );
       assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), [lease]);
       assert.deepEqual(store.findEffect(key), {
@@ -418,7 +424,7 @@ describe('SqliteEventStore on a file', () => {
     const second = open(path);
     assert.deepEqual(
       second.eventsAfter(0).map((stored) => stored.event),
-      [ordered('b1')],
+      [ordered('b1'), applied('r')],
     );
     assert.deepEqual(second.currentLeases(at('2026-10-15T10:00:00Z')), [lease]);
     assert.deepEqual(second.findEffect(key), { result: 'r' });
@@ -437,7 +443,7 @@ describe('SqliteEventStore on a file', () => {
     const db = raw(path);
     assert.throws(() => db.exec("UPDATE events SET body = '{}'"), /append-only/);
     assert.throws(() => db.exec('DELETE FROM events'), /append-only/);
-    assert.throws(() => db.exec("UPDATE effects SET result = '1'"), /append-only/);
+    assert.throws(() => db.exec("UPDATE effects SET key = 'x'"), /append-only/);
     assert.throws(() => db.exec('DELETE FROM effects'), /append-only/);
   });
 
@@ -473,7 +479,7 @@ describe('SqliteEventStore on a file', () => {
 
     assert.deepEqual(
       reader.eventsAfter(0).map((stored) => stored.event),
-      [ordered('b1'), ordered('b2')],
+      [ordered('b1'), ordered('b2'), applied('r')],
     );
     assert.deepEqual(reader.currentLeases(at('2026-10-15T10:00:00Z')), []);
     assert.deepEqual(reader.findEffect(key), { result: 'r' });
