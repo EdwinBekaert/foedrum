@@ -3,7 +3,7 @@
 // bits git trips over on Windows (issue #61). remove-scratch/core.ts decides which records are
 // the tree's; no other record is touched. Exits 1 when something could not be removed.
 
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { removeTree } from '../src/platform/remove.ts';
 import { planScratch } from './remove-scratch/core.ts';
@@ -22,9 +22,12 @@ export const removeScratch = async (
   if (!dirs.ok || !checkout || !commonDir) {
     return { ok: false, lines: ['refused: not inside a git repository'] };
   }
-  const folder = resolve(cwd, scratch);
+  // The working directory may reach the checkout through a junction, link or subst drive that
+  // git has resolved; compare both in their real form.
+  const real = (path: string): Promise<string> => realpath(path).catch(() => path);
+  const folder = resolve(await real(cwd), scratch);
   const decided = planScratch({
-    checkout,
+    checkout: await real(checkout),
     scratch: folder,
     dotGit: await readFile(join(folder, 'tree', '.git'), 'utf8').catch(() => undefined),
     records: await readRecords(commonDir),
