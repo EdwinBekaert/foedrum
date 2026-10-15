@@ -6,15 +6,17 @@
 //
 // The budget is wall time, the only time node:test reports per file, and it binds only files in
 // test/unit/. Property and chaos files are slow by design: their run count sets their time, and
-// under a parallel `npm run check` it grows with the machine's load (#87). They are listed, but
-// never fail the run.
+// under a parallel `npm run check` it grows with the machine's load (#87). They get a ceiling
+// instead, well above what that load adds, so only a run count grown too large fails them.
 
 import { relative, sep } from 'node:path';
 
 export const FILE_BUDGET_MS = 5000;
 
-// The folder, relative to cwd, whose files are held to the budget.
-const BUDGETED = 'test/unit/';
+export const LAYER_CEILING_MS = 15_000;
+
+// The folders, relative to cwd, whose files are held to the ceiling.
+const CEILING_DIRS = ['test/property/', 'test/chaos/'];
 
 // The fields of node:test's reporter events that this reporter reads.
 export interface TestEvent {
@@ -37,7 +39,13 @@ export interface BudgetOptions {
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(2)} s`;
 
-export const budgetReporter = ({ budgetMs, cwd, slowest, fail }: BudgetOptions) =>
+export const budgetReporter = ({
+  budgetMs,
+  cwd,
+  budgetedDir = 'test/unit/',
+  slowest,
+  fail,
+}: BudgetOptions) =>
   async function* (source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
     const times = new Map<string, number>();
     for await (const { type, data } of source) {
@@ -49,14 +57,20 @@ export const budgetReporter = ({ budgetMs, cwd, slowest, fail }: BudgetOptions) 
     const files = [...times]
       .map(([file, ms]) => ({ file: relative(cwd, file).split(sep).join('/'), ms }))
       .sort((a, b) => b.ms - a.ms);
-    yield `test file times (budget ${budgetMs / 1000} s per file in ${BUDGETED}, ADR 0021)\n`;
+    yield `test file times (budget ${budgetMs / 1000} s per file in ${budgetedDir}, ADR 0021)\n`;
     for (const { file, ms } of files.slice(0, slowest)) yield `  ${seconds(ms)}  ${file}\n`;
     yield 'end of test file times\n';
-    const over = files.filter(({ file, ms }) => file.startsWith(BUDGETED) && ms > budgetMs);
-    for (const { file, ms } of over) {
-      yield `✖ ${file} took ${seconds(ms)}, over the ${budgetMs / 1000} s budget for one test file: move processes and real tools to test/integration/ (ADR 0021)\n`;
+    let over = false;
+    for (const { file, ms } of files) {
+      if (file.startsWith(budgetedDir) && ms > budgetMs) {
+        over = true;
+        yield `✖ ${file} took ${seconds(ms)}, over the ${budgetMs / 1000} s budget for one test file: move processes and real tools to test/integration/ (ADR 0021)\n`;
+      } else if (CEILING_DIRS.some((dir) => file.startsWith(dir)) && ms > LAYER_CEILING_MS) {
+        over = true;
+        yield `✖ ${file} took ${seconds(ms)}, over the ${LAYER_CEILING_MS / 1000} s ceiling for a property or chaos file: lower its run count (#87)\n`;
+      }
     }
-    if (over.length > 0) fail();
+    if (over) fail();
   };
 
 export default budgetReporter({
