@@ -86,6 +86,13 @@ export const StuckReason = z.discriminatedUnion('kind', [
   }),
   z.strictObject({ kind: z.literal('deadline_passed'), stepId: StepId, deadlineAt: Timestamp }),
   z.strictObject({ kind: z.literal('waiting_for_session'), stepId: StepId }),
+  // No file write or commit since `lastProgressAt`, for `turnsWithoutProgress` turns (ADR 0027).
+  z.strictObject({
+    kind: z.literal('stalled'),
+    stepId: StepId,
+    lastProgressAt: Timestamp,
+    turnsWithoutProgress: Count,
+  }),
 ]);
 export type StuckReason = z.infer<typeof StuckReason>;
 
@@ -151,16 +158,16 @@ function hasCycle(dependencies: Dependency[]): boolean {
   }
 }
 
-// A human's choice records the surface it came from (ADR 0019); a label's or the router's has none.
+// A human's choice records who issued it and from where (ADR 0019); a label's or the router's has neither.
 const chosen = {
   type: z.literal('batch.recipe_chosen'),
   batchId: BatchId,
   recipe: NonEmpty,
   reason: NonEmpty,
 };
-const recipeChosen = z.discriminatedUnion('by', [
-  z.strictObject({ ...chosen, by: z.enum(['label', 'router']) }),
-  z.strictObject({ ...chosen, by: z.literal('human'), via: Surface }),
+const recipeChosen = z.discriminatedUnion('source', [
+  z.strictObject({ ...chosen, source: z.enum(['label', 'router']) }),
+  z.strictObject({ ...chosen, source: z.literal('human'), by: NonEmpty, via: Surface }),
 ]);
 
 export const Event = z.discriminatedUnion('type', [

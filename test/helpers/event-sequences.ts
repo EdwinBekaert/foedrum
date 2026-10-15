@@ -113,7 +113,7 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
     };
   };
   const stuckReason = (stepId: string): StuckReason => {
-    switch (random.int(5)) {
+    switch (random.int(6)) {
       case 0:
         return { kind: 'needs_input', stepId, questions: [question] };
       case 1:
@@ -122,6 +122,8 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         return { kind: 'attempts_exhausted', stepId, attempts: 3, lastReason: 'tests fail' };
       case 3:
         return { kind: 'deadline_passed', stepId, deadlineAt: timestamp() };
+      case 4:
+        return { kind: 'stalled', stepId, lastProgressAt: timestamp(), turnsWithoutProgress: 60 };
       default:
         return { kind: 'waiting_for_session', stepId };
     }
@@ -166,8 +168,8 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         reason: 'label',
       } as const;
       return random.chance(1 / 3)
-        ? { ...chosen, by: 'human', via: random.pick(surfaces) }
-        : { ...chosen, by: random.pick(['label', 'router'] as const) };
+        ? { ...chosen, source: 'human', by: 'octocat', via: random.pick(surfaces) }
+        : { ...chosen, source: random.pick(['label', 'router'] as const) };
     },
     () => {
       const batch = open();

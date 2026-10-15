@@ -10,6 +10,15 @@ export type Continuation =
   /** The recipe is done: the batch goes on tap with these pull requests. */
   | { kind: 'done'; pullRequests: readonly string[] };
 
+/**
+ * When a running attempt counts as stalled: no file write or commit for `turns` turns or for
+ * `minutes` minutes, whichever comes first (brewers-and-recipes §1).
+ */
+export interface Stall {
+  turns?: number;
+  minutes?: number;
+}
+
 export interface Recipe {
   /** The step a batch starts with. */
   readonly firstStep: string;
@@ -17,6 +26,8 @@ export interface Recipe {
   has(stepId: string): boolean;
   /** How long an attempt at `stepId` may take, in milliseconds. */
   deadlineMs(stepId: string): number;
+  /** When an attempt at `stepId` stalls, or `undefined` when it has no stall limit. */
+  stall(stepId: string): Stall | undefined;
   /** What follows `stepId` in `batch` once it succeeded or was skipped. */
   after(batch: Batch, stepId: string): Continuation;
   /** Whether `stepId` gets another attempt after a failed or cancelled one (`maxAttempts`). */

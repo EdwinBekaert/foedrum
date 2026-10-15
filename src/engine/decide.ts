@@ -14,7 +14,7 @@ import type {
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
-import type { Batch, Lane, State } from './fold.ts';
+import type { Attempt, Batch, Lane, State } from './fold.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
@@ -54,7 +54,7 @@ export type RecordedEvent = Extract<
 /** The commands the engine issues itself: the drivers and the supervisor. */
 export type EngineCommand =
   | { kind: 'record'; event: RecordedEvent }
-  | { kind: 'route'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' }
+  | { kind: 'route'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | {
       kind: 'finish';
       batchId: string;
@@ -65,6 +65,17 @@ export type EngineCommand =
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
+  /** The supervisor found the lease of a running attempt expired: its process is lost (ADR 0027). */
+  | { kind: 'lose'; batchId: string; stepId: string; attempt: number; reason: string }
+  /** The runner reported no progress for the recipe's stall limit (ADR 0027). */
+  | {
+      kind: 'stall';
+      batchId: string;
+      stepId: string;
+      attempt: number;
+      lastProgressAt: Date;
+      turnsWithoutProgress: number;
+    }
   | { kind: 'wait'; batchId: string; on: WaitCondition }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string };
@@ -87,6 +98,7 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'attempts_exhausted':
     case 'deadline_passed':
     case 'waiting_for_session':
+    case 'stalled':
       return [...withoutAnswer];
     default: {
       const unhandled: never = reason;
@@ -147,8 +159,8 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'route': {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
-      const { batchId, recipe, reason, by } = command;
-      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by });
+      const { batchId, recipe, reason, source } = command;
+      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, source });
       schedule(draft, batchId, find(draft, recipe).firstStep);
       break;
     }
@@ -158,7 +170,15 @@ function run(draft: Draft, command: Command): Event[] {
       requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
       requireOffer(batch, 'recipe');
       const { firstStep } = find(draft, recipe);
-      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by: 'human', via });
+      draft.push({
+        type: 'batch.recipe_chosen',
+        batchId,
+        recipe,
+        reason,
+        source: 'human',
+        by,
+        via,
+      });
       if (batch.lane.kind === 'stuck') {
         draft.push({ type: 'batch.resumed', batchId, by, via, action: 'recipe' });
       }
@@ -171,6 +191,20 @@ function run(draft: Draft, command: Command): Event[] {
     case 'expire':
       expire(draft, command);
       break;
+    case 'lose':
+      lose(draft, command);
+      break;
+    case 'stall': {
+      const { batchId, stepId, attempt, lastProgressAt, turnsWithoutProgress } = command;
+      started(requireLane(draft.batch(batchId), 'stall', ['brewing']), stepId, attempt);
+      stick(draft, batchId, {
+        kind: 'stalled',
+        stepId,
+        lastProgressAt: lastProgressAt.toISOString(),
+        turnsWithoutProgress,
+      });
+      break;
+    }
     case 'wait': {
       const { batchId, on } = command;
       requireLane(draft.batch(batchId), 'wait', ['ordered', 'conditioning']);
@@ -247,29 +281,15 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(usage === undefined ? {} : { usage }),
   });
   const batch = draft.batch(batchId);
-  const attempts = batch.steps.get(stepId)?.attempts.size ?? attempt;
-  /** Another attempt while the step has some left, then the route back, then Stuck. */
-  const failure = (retryable: boolean, lastReason: string, routed: boolean): void => {
-    if (retryable && recipe.mayRetry(batch, stepId)) {
-      schedule(draft, batchId, stepId);
-      return;
-    }
-    const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
-    if (back === undefined) {
-      stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
-    } else {
-      schedule(draft, batchId, back);
-    }
-  };
   switch (ending.kind) {
     case 'succeeded':
       continueAfter(draft, batchId, stepId);
       return;
     case 'failed':
-      failure(ending.retryable, ending.reason, true);
+      retryOrStick(draft, batchId, stepId, ending.retryable, ending.reason, true);
       return;
     case 'cancelled':
-      failure(true, 'the attempt was cancelled', false);
+      retryOrStick(draft, batchId, stepId, true, 'the attempt was cancelled', false);
       return;
     case 'needs_input':
       stick(draft, batchId, { kind: 'needs_input', stepId, questions: ending.questions });
@@ -303,25 +323,91 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
   }
 }
 
+/**
+ * Another attempt at `stepId` while it has some left, then (when `routed`) the `onFail` route back,
+ * then Stuck.
+ */
+function retryOrStick(
+  draft: Draft,
+  batchId: string,
+  stepId: string,
+  retryable: boolean,
+  lastReason: string,
+  routed: boolean,
+): void {
+  const batch = draft.batch(batchId);
+  const recipe = recipeOf(draft, batch);
+  if (retryable && recipe.mayRetry(batch, stepId)) {
+    schedule(draft, batchId, stepId);
+    return;
+  }
+  const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
+  if (back === undefined) {
+    const attempts = batch.steps.get(stepId)?.attempts.size ?? 0;
+    stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
+  } else {
+    schedule(draft, batchId, back);
+  }
+}
+
 /** A running attempt past its deadline makes the batch Stuck (invariant I5). */
 function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): void {
   const { batchId, stepId, attempt } = command;
   const batch = requireLane(draft.batch(batchId), 'expire', ['brewing']);
+  const current = running(batch, stepId, attempt);
+  if (draft.context.now.getTime() < Date.parse(current.deadlineAt)) {
+    throw new Refusal(
+      `${attemptName(batch, stepId, attempt)} is not due until ${current.deadlineAt}`,
+    );
+  }
+  stick(draft, batchId, { kind: 'deadline_passed', stepId, deadlineAt: current.deadlineAt });
+}
+
+/**
+ * A started attempt whose lease expired is lost (ADR 0027): it is recorded as a retryable failure,
+ * and retried like a cancelled attempt, never along an `onFail` route, which is for failed checks.
+ */
+function lose(draft: Draft, command: Extract<Command, { kind: 'lose' }>): void {
+  const { batchId, stepId, attempt } = command;
+  started(requireLane(draft.batch(batchId), 'lose', ['brewing']), stepId, attempt);
+  const reason = `the attempt was lost: ${command.reason}`;
+  draft.push({
+    type: 'step.finished',
+    batchId,
+    stepId,
+    attempt,
+    outcome: { kind: 'failed', retryable: true, reason },
+  });
+  retryOrStick(draft, batchId, stepId, true, reason, false);
+}
+
+const attemptName = (batch: Batch, stepId: string, attempt: number): string =>
+  `attempt ${stepId}#${attempt} of batch ${batch.id}`;
+
+/** The attempt, when it is the latest of its step and neither finished nor abandoned. */
+function running(
+  batch: Batch,
+  stepId: string,
+  attempt: number,
+): Exclude<Attempt, { phase: 'finished' }> {
   const attempts = batch.steps.get(stepId)?.attempts;
   const current = attempts?.get(attempt);
-  const name = `attempt ${stepId}#${attempt} of batch ${batchId}`;
   if (
     current === undefined ||
     current.phase === 'finished' ||
     current.abandoned === true ||
     attempt < Math.max(...(attempts?.keys() ?? []))
   ) {
-    throw new Refusal(`${name} is not running`);
+    throw new Refusal(`${attemptName(batch, stepId, attempt)} is not running`);
   }
-  if (draft.context.now.getTime() < Date.parse(current.deadlineAt)) {
-    throw new Refusal(`${name} is not due until ${current.deadlineAt}`);
+  return current;
+}
+
+/** The running attempt, when its brewer has started. */
+function started(batch: Batch, stepId: string, attempt: number): void {
+  if (running(batch, stepId, attempt).phase !== 'started') {
+    throw new Refusal(`${attemptName(batch, stepId, attempt)} has not started`);
   }
-  stick(draft, batchId, { kind: 'deadline_passed', stepId, deadlineAt: current.deadlineAt });
 }
 
 /** The next reminder of a Conditioning or Stuck batch, once the current one is due (ADR 0025). */

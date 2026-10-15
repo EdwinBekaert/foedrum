@@ -38,7 +38,7 @@ const valid: Record<Event['type'], Event> = {
     batchId: 'b1',
     recipe: 'pint',
     reason: 'label size:pint',
-    by: 'label',
+    source: 'label',
   },
   'step.scheduled': {
     type: 'step.scheduled',
@@ -191,7 +191,7 @@ describe('Event', () => {
       'a deadline that is not an ISO timestamp',
       { ...valid['step.scheduled'], deadlineAt: 'tomorrow' },
     ],
-    ['an unknown recipe chooser', { ...valid['batch.recipe_chosen'], by: 'model' }],
+    ['an unknown recipe chooser', { ...valid['batch.recipe_chosen'], source: 'model' }],
     ['an invalid outcome', { ...valid['step.finished'], outcome: { kind: 'done' } }],
     [
       'negative token usage',
@@ -280,7 +280,48 @@ describe('Event', () => {
     ['batch.rewound without where it came from', without(valid['batch.rewound'], 'via')],
     [
       'a human recipe choice without where it came from',
-      { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'human' },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'human',
+        by: 'octocat',
+      },
+    ],
+    [
+      'a human recipe choice without who issued it',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'human',
+        via: 'terminal',
+      },
+    ],
+    [
+      'a human recipe choice with a blank issuer',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'human',
+        by: ' ',
+        via: 'terminal',
+      },
+    ],
+    [
+      'a recipe choice by the router with an issuer',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'router',
+        by: 'octocat',
+      },
     ],
     [
       'a recipe choice by the router with a surface',
@@ -289,7 +330,7 @@ describe('Event', () => {
         batchId: 'b1',
         recipe: 'nip',
         reason: 'small',
-        by: 'router',
+        source: 'router',
         via: 'plugin',
       },
     ],
@@ -367,7 +408,8 @@ describe('Event', () => {
       batchId: 'b1',
       recipe: 'nip',
       reason: 'small',
-      by: 'human',
+      source: 'human',
+      by: 'octocat',
       via: 'terminal',
     };
     assert.equal(Event.safeParse(chosen).success, true);
@@ -433,6 +475,12 @@ describe('StuckReason', () => {
       deadlineAt: '2026-10-15T12:00:00Z',
     },
     waiting_for_session: { kind: 'waiting_for_session', stepId: 'analyze' },
+    stalled: {
+      kind: 'stalled',
+      stepId: 'brew',
+      lastProgressAt: '2026-10-15T12:00:00Z',
+      turnsWithoutProgress: 60,
+    },
   };
   for (const [kind, reason] of Object.entries(reasons)) {
     it(`accepts ${kind}`, () => accepts(StuckReason, reason));
