@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { removeScratch } from '../../scripts/remove-scratch.ts';
@@ -51,6 +51,16 @@ describe('removeScratch with a fake git', () => {
       `removed ${scratch}`,
       'removed worktree record .git/worktrees/tree',
     ]);
+  });
+
+  it('removes the record its .git file names once git deleted that record’s gitdir file', async () => {
+    rmSync(join(record('tree'), 'gitdir'));
+
+    const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', git);
+
+    assert.equal(existsSync(record('tree')), false, result.lines.join('\n'));
+    assert.ok(existsSync(record('orphan')));
+    assert.ok(result.lines.includes('removed worktree record .git/worktrees/tree'));
   });
 
   it('refuses a folder outside .foedrum/tmp/ and removes nothing', async () => {

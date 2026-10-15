@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
+import { join, relative as relativePath, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { planScratch, type ScratchFacts } from '../../scripts/remove-scratch/core.ts';
 import type { RecordFact } from '../../scripts/worktrees-clean/core.ts';
@@ -44,6 +44,15 @@ describe('planScratch', () => {
   it("removes the record the tree's .git file names when that record's gitdir file is missing", () => {
     const result = planScratch(
       facts({ records: [record('tree', undefined), record('tree1', undefined)] }),
+    );
+
+    assert.deepEqual(result, { ok: true, records: [join(records, 'tree')] });
+  });
+
+  it('resolves a relative path in a CRLF .git file against the tree', () => {
+    const relative = relativePath(tree, join(records, 'tree'));
+    const result = planScratch(
+      facts({ dotGit: `gitdir: ${relative}\r\n`, records: [record('tree', undefined)] }),
     );
 
     assert.deepEqual(result, { ok: true, records: [join(records, 'tree')] });
