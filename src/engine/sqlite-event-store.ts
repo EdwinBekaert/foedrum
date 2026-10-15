@@ -2,10 +2,13 @@
 
 import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
 import { Event } from '../schemas/events.ts';
+import { effectKey } from './effect-key.ts';
 import {
   DuplicateEffectError,
+  type EffectKey,
   type EventStore,
   type EventStoreTransaction,
+  InvalidLogError,
   type Lease,
 } from './event-store.ts';
 
@@ -16,6 +19,7 @@ export interface SqliteEventStoreOptions {
 
 // Migration n brings the database from schema version n to n + 1 (`PRAGMA user_version`).
 // Times are stored as epoch milliseconds, so they compare as times whatever their ISO precision.
+// `deadlines` and `effects` are indexes of the events, maintained on append (and so by `replay`).
 const migrations = [
   `
   CREATE TABLE events (
@@ -28,10 +32,13 @@ const migrations = [
   CREATE TRIGGER events_no_delete BEFORE DELETE ON events
     BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 
-  -- Index of each batch's pending deadline, maintained on append; rebuilt by replaying the events.
+  -- The pending deadline of each step of a batch; step_id '' holds a Conditioning reminder.
   CREATE TABLE deadlines (
-    batch_id TEXT PRIMARY KEY,
-    deadline_at INTEGER NOT NULL
+    batch_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    deadline_at INTEGER NOT NULL,
+    PRIMARY KEY (batch_id, step_id)
   ) STRICT;
   CREATE INDEX deadlines_by_time ON deadlines (deadline_at);
 
@@ -42,14 +49,10 @@ const migrations = [
   ) STRICT;
   CREATE INDEX leases_by_expiry ON leases (expires_at);
 
-  -- The idempotency ledger (invariant I4).
+  -- The idempotency ledger (invariant I4) is the effect.applied events; this is their UNIQUE index.
   CREATE TABLE effects (
-    batch_id TEXT NOT NULL,
-    step_id TEXT NOT NULL,
-    attempt INTEGER NOT NULL,
-    effect TEXT NOT NULL,
-    result TEXT NOT NULL,
-    UNIQUE (batch_id, step_id, attempt, effect)
+    key TEXT NOT NULL UNIQUE,
+    event_id INTEGER NOT NULL
   ) STRICT;
   CREATE TRIGGER effects_no_update BEFORE UPDATE ON effects
     BEGIN SELECT RAISE(ABORT, 'effects are append-only'); END;
@@ -60,36 +63,8 @@ const migrations = [
 
 // node:sqlite reports the extended result code in `errcode` (ADR 0002 verification).
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
-
-/** How an event changes its batch's pending deadline: set it, clear it, or leave it. */
-const deadlineChange = (event: Event): { batchId: string; at: string | null } | undefined => {
-  switch (event.type) {
-    case 'step.scheduled':
-      return { batchId: event.batchId, at: event.deadlineAt };
-    case 'batch.waiting':
-      return { batchId: event.batchId, at: event.remindAt };
-    case 'step.finished':
-    case 'batch.stuck':
-    case 'batch.on_tap':
-    case 'batch.cancelled':
-      return { batchId: event.batchId, at: null };
-    case 'batch.ordered':
-    case 'batch.recipe_chosen':
-    case 'step.started':
-    case 'input.received':
-    case 'batch.resumed':
-    case 'order.decomposed':
-    case 'bottle.opened':
-    case 'release.observed':
-    case 'batch.rewound':
-    case 'effect.applied':
-      return undefined;
-    default: {
-      const unhandled: never = event;
-      throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
-    }
-  }
-};
+// The deadlines row of a Conditioning reminder; step ids are never empty.
+const REMINDER = '';
 
 const timeOf = (date: Date, name: string): number => {
   const time = date.getTime();
@@ -100,8 +75,23 @@ const timeOf = (date: Date, name: string): number => {
 const rows = <T>(statement: StatementSync, ...params: SQLInputValue[]): T[] =>
   statement.all(...params) as T[];
 
-const isThenable = (value: unknown): boolean =>
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
   typeof (value as { then?: unknown } | null)?.then === 'function';
+
+// A body that is not JSON fails the schema like any other invalid event.
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+const parseStored = (id: number, body: string): Event => {
+  const parsed = Event.safeParse(parseJson(body));
+  if (!parsed.success) throw new Error(`Stored event ${id} is invalid: ${parsed.error}`);
+  return parsed.data;
+};
 
 const migrate = (db: DatabaseSync): void => {
   const version = (): number =>
@@ -122,7 +112,7 @@ const migrate = (db: DatabaseSync): void => {
       }
       db.exec('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      if (db.isTransaction) db.exec('ROLLBACK');
       throw error;
     }
   }
@@ -144,30 +134,91 @@ export const openSqliteEventStore = (
 
   const insertEvent = db.prepare('INSERT INTO events (type, body) VALUES (?, ?)');
   const setDeadline = db.prepare(
-    'INSERT INTO deadlines (batch_id, deadline_at) VALUES (?, ?) ' +
-      'ON CONFLICT (batch_id) DO UPDATE SET deadline_at = excluded.deadline_at',
+    'INSERT INTO deadlines (batch_id, step_id, attempt, deadline_at) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT (batch_id, step_id) DO UPDATE ' +
+      'SET attempt = excluded.attempt, deadline_at = excluded.deadline_at',
   );
-  const clearDeadline = db.prepare('DELETE FROM deadlines WHERE batch_id = ?');
+  const clearDeadline = db.prepare(
+    'DELETE FROM deadlines WHERE batch_id = ? AND step_id = ? AND attempt = ?',
+  );
+  const clearDeadlines = db.prepare('DELETE FROM deadlines WHERE batch_id = ?');
+  const insertEffect = db.prepare('INSERT INTO effects (key, event_id) VALUES (?, ?)');
   const putLease = db.prepare(
     'INSERT INTO leases (attempt_key, owner, expires_at) VALUES (?, ?, ?) ' +
       'ON CONFLICT (attempt_key) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at',
   );
   const releaseLease = db.prepare('DELETE FROM leases WHERE attempt_key = ?');
-  const insertEffect = db.prepare(
-    'INSERT INTO effects (batch_id, step_id, attempt, effect, result) VALUES (?, ?, ?, ?, ?)',
-  );
   const selectEvents = db.prepare('SELECT id, body FROM events WHERE id > ? ORDER BY id LIMIT ?');
+  const selectAnyEvent = db.prepare('SELECT 1 FROM events LIMIT 1');
+  // The earliest due deadline of a batch is its earliest pending deadline.
   const selectDue = db.prepare(
-    'SELECT batch_id, deadline_at FROM deadlines WHERE deadline_at <= ? ' +
-      'ORDER BY deadline_at, batch_id',
+    'SELECT batch_id, MIN(deadline_at) AS deadline_at FROM deadlines WHERE deadline_at <= ? ' +
+      'GROUP BY batch_id ORDER BY deadline_at, batch_id',
   );
   const selectLeases = db.prepare(
     'SELECT attempt_key, owner, expires_at FROM leases WHERE expires_at > ? ' +
       'ORDER BY expires_at, attempt_key',
   );
   const selectEffect = db.prepare(
-    'SELECT result FROM effects WHERE batch_id = ? AND step_id = ? AND attempt = ? AND effect = ?',
+    'SELECT events.id, events.body FROM effects JOIN events ON events.id = effects.event_id ' +
+      'WHERE effects.key = ?',
   );
+
+  /** Keeps the deadlines and effects indexes up to date with an appended event. */
+  const index = (event: Event, id: number, key?: EffectKey): void => {
+    switch (event.type) {
+      case 'step.scheduled':
+        // Scheduling a step ends Conditioning, and replaces the step's earlier attempt.
+        clearDeadline.run(event.batchId, REMINDER, 0);
+        setDeadline.run(event.batchId, event.stepId, event.attempt, Date.parse(event.deadlineAt));
+        return;
+      case 'batch.waiting':
+        setDeadline.run(event.batchId, REMINDER, 0, Date.parse(event.remindAt));
+        return;
+      case 'step.finished':
+        clearDeadline.run(event.batchId, event.stepId, event.attempt);
+        return;
+      case 'batch.stuck':
+      case 'batch.on_tap':
+      case 'batch.cancelled':
+        clearDeadlines.run(event.batchId);
+        return;
+      case 'effect.applied': {
+        const applied = key ?? effectKey.decode(event.key);
+        try {
+          insertEffect.run(event.key, id);
+        } catch (error) {
+          if ((error as { errcode?: unknown }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
+            throw new DuplicateEffectError(applied);
+          }
+          throw error;
+        }
+        return;
+      }
+      case 'batch.ordered':
+      case 'batch.recipe_chosen':
+      case 'step.started':
+      case 'input.received':
+      case 'batch.resumed':
+      case 'order.decomposed':
+      case 'bottle.opened':
+      case 'release.observed':
+      case 'batch.rewound':
+        return;
+      default: {
+        const unhandled: never = event;
+        throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
+      }
+    }
+  };
+
+  const append = (event: Event, key?: EffectKey): number => {
+    const valid = Event.parse(event);
+    if (valid.type === 'effect.applied' && key === undefined) effectKey.decode(valid.key);
+    const id = Number(insertEvent.run(valid.type, JSON.stringify(valid)).lastInsertRowid);
+    index(valid, id, key);
+    return id;
+  };
 
   const transaction = (): { tx: EventStoreTransaction; end: () => void } => {
     let live = true;
@@ -177,12 +228,7 @@ export const openSqliteEventStore = (
     const tx: EventStoreTransaction = {
       append: (event) => {
         ensureLive();
-        const valid = Event.parse(event);
-        const { lastInsertRowid } = insertEvent.run(valid.type, JSON.stringify(valid));
-        const change = deadlineChange(valid);
-        if (change?.at === null) clearDeadline.run(change.batchId);
-        else if (change) setDeadline.run(change.batchId, Date.parse(change.at));
-        return Number(lastInsertRowid);
+        return append(event);
       },
       putLease: (lease) => {
         ensureLive();
@@ -194,20 +240,7 @@ export const openSqliteEventStore = (
       },
       recordEffect: (key, result) => {
         ensureLive();
-        try {
-          insertEffect.run(
-            key.batchId,
-            key.stepId,
-            key.attempt,
-            key.effect,
-            JSON.stringify(result) ?? 'null',
-          );
-        } catch (error) {
-          if ((error as { errcode?: unknown }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
-            throw new DuplicateEffectError(key);
-          }
-          throw error;
-        }
+        append({ type: 'effect.applied', key: effectKey.encode(key), result: result ?? null }, key);
       },
     };
     return {
@@ -218,32 +251,35 @@ export const openSqliteEventStore = (
     };
   };
 
-  return {
-    withTransaction: (fn) => {
-      if (db.isTransaction) throw new Error('withTransaction cannot be nested');
-      db.exec('BEGIN IMMEDIATE');
-      const { tx, end } = transaction();
-      try {
-        const result = fn(tx);
-        if (isThenable(result)) {
-          throw new TypeError('The withTransaction callback must be synchronous');
-        }
-        db.exec('COMMIT');
-        return result;
-      } catch (error) {
-        if (db.isTransaction) db.exec('ROLLBACK');
-        throw error;
-      } finally {
-        end();
+  const withTransaction = <T>(fn: (tx: EventStoreTransaction) => T): T => {
+    if (db.isTransaction) throw new Error('withTransaction cannot be nested');
+    db.exec('BEGIN IMMEDIATE');
+    const { tx, end } = transaction();
+    try {
+      const result = fn(tx);
+      if (isThenable(result)) {
+        // Its later writes fail on the ended transaction; the caller already gets this error.
+        result.then(undefined, () => {});
+        throw new TypeError('The withTransaction callback must be synchronous');
       }
-    },
+      db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw error;
+    } finally {
+      end();
+    }
+  };
+
+  return {
+    withTransaction,
 
     eventsAfter: (afterId, limit = -1) =>
-      rows<{ id: number; body: string }>(selectEvents, afterId, limit).map(({ id, body }) => {
-        const parsed = Event.safeParse(parseJson(body));
-        if (!parsed.success) throw new Error(`Stored event ${id} is invalid: ${parsed.error}`);
-        return { id, event: parsed.data };
-      }),
+      rows<{ id: number; body: string }>(selectEvents, afterId, limit).map(({ id, body }) => ({
+        id,
+        event: parseStored(id, body),
+      })),
 
     batchesPastDeadline: (now) =>
       rows<{ batch_id: string; deadline_at: number }>(selectDue, timeOf(now, 'now')).map((row) => ({
@@ -263,26 +299,30 @@ export const openSqliteEventStore = (
         }),
       ),
 
-    replay: () => {
-      throw new Error('not implemented');
-    },
+    replay: (log) =>
+      withTransaction(() => {
+        if (selectAnyEvent.get() !== undefined) throw new Error('replay needs an empty store');
+        log.forEach((event, i) => {
+          try {
+            append(event as Event);
+          } catch (error) {
+            throw new InvalidLogError(i, error);
+          }
+        });
+      }),
 
     findEffect: (key) => {
-      const row = selectEffect.get(key.batchId, key.stepId, key.attempt, key.effect) as
-        | { result: string }
+      const row = selectEffect.get(effectKey.encode(key)) as
+        | { id: number; body: string }
         | undefined;
-      return row && { result: JSON.parse(row.result) as unknown };
+      if (row === undefined) return undefined;
+      const event = parseStored(row.id, row.body);
+      if (event.type !== 'effect.applied') {
+        throw new Error(`Stored event ${row.id} is indexed as an effect but is ${event.type}`);
+      }
+      return { result: event.result };
     },
 
     close: () => db.close(),
   };
-};
-
-// A body that is not JSON fails the schema like any other invalid event.
-const parseJson = (text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
 };

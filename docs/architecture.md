@@ -203,7 +203,12 @@ The zod schemas in `src/schemas/` are the source of these types. Every object is
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds and only matter while alive.
 
-The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps four tables under a schema version (`PRAGMA user_version`) with a migration per version: `events` and the `effects` ledger (`UNIQUE (batch, step, attempt, effect)`), both append-only through triggers; `leases`; and `deadlines`, an index of each batch's pending deadline maintained on append (`step.scheduled` and `batch.waiting` set it; `step.finished`, `batch.stuck`, `batch.on_tap` and `batch.cancelled` clear it), so "batches past their deadline" is one indexed query. Events are validated against the zod schemas when appended and when read. All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout. The store reads no clock: callers pass `now`.
+The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps four tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; and two indexes of the events, maintained on append, so `replay` rebuilds them from a log (ADR 0011):
+
+- `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A second event for a key is rejected, and so is a log that contains one.
+- `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning reminder; `batch.waiting` sets the reminder; `step.finished` clears its own attempt's deadline; `batch.stuck`, `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
+
+Events are validated against the zod schemas when appended and when read. All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout. The store reads no clock: callers pass `now`.
 
 Current state is a pure fold over events. Crash recovery is replay.
 
