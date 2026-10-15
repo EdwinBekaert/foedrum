@@ -14,9 +14,12 @@ const forEachSeed = (property: (seed: number) => void): void => {
     try {
       property(seed);
     } catch (error) {
-      throw new Error(`Failed for seed ${seed}; replay with FOEDRUM_SEED=${seed}`, {
-        cause: error,
-      });
+      // Rethrow the original error, so the report still shows the failed assertion or the
+      // code under test; only the message gains the seed.
+      if (error instanceof Error) {
+        error.message += `\nSeed ${seed}: set the environment variable FOEDRUM_SEED to ${seed} to replay it.`;
+      }
+      throw error;
     }
   }
 };
