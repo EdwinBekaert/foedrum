@@ -2,6 +2,7 @@
 
 import { BlockerKind } from './out-doc.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
+import { EffectKeyText } from './store.ts';
 import { z } from './zod.ts';
 
 const Id = NonEmpty;
@@ -228,6 +229,6 @@ export const Event = z.discriminatedUnion('type', [
   }),
   z.strictObject({ type: z.literal('batch.cancelled'), batchId: Id, by: NonEmpty }),
   // The idempotency ledger for external side effects (invariant I4).
-  z.strictObject({ type: z.literal('effect.applied'), key: NonEmpty, result: z.unknown() }),
+  z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),
 ]);
 export type Event = z.infer<typeof Event>;

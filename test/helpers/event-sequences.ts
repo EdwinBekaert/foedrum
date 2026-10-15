@@ -1,6 +1,7 @@
 // A seeded generator of valid event sequences for property tests (architecture §9).
 // The same seed always gives the same events, so a failing seed can be replayed.
 
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 
@@ -56,6 +57,7 @@ const allOptions: readonly StuckOption[] = [
   'cancel',
 ];
 const surfaces = ['plugin', 'terminal', 'comment', 'dashboard'] as const;
+const effects = ['pull_request', 'comment', 'label'];
 const question = {
   q: 'Keep the v1 endpoint?',
   options: ['keep', 'remove'],
@@ -75,6 +77,7 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
   const subOrders: { issue: number; parentBatchId: string }[] = [];
   /** The latest breakdown of each order, by its issue. */
   const breakdowns = new Map<number, { issue: number; repo: string }[]>();
+  const applied = new Set<string>();
   let nextIssue = 100;
   let nextId = 1;
   let tick = 0;
@@ -331,11 +334,21 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
       batch.open = false;
       return { type: 'batch.cancelled', batchId: batch.id, by: 'octocat' };
     },
-    () => ({
-      type: 'effect.applied',
-      key: `effect${nextId++}`,
-      result: { ok: random.chance(0.5) },
-    }),
+    () => {
+      // An effect of an attempt scheduled earlier, at most once per key (invariant I4).
+      const found = withStep();
+      if (found === undefined) return undefined;
+      const [batch, stepId, step] = found;
+      const key = effectKey.encode({
+        batchId: batch.id,
+        stepId,
+        attempt: random.int(step.attempt) + 1,
+        effect: random.pick(effects),
+      });
+      if (applied.has(key)) return undefined;
+      applied.add(key);
+      return { type: 'effect.applied', key, result: { ok: random.chance(0.5) } };
+    },
   ];
 
   const events: Event[] = [];

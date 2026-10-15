@@ -111,7 +111,11 @@ const valid: Record<Event['type'], Event> = {
   },
   'batch.on_tap': { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
   'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
-  'effect.applied': { type: 'effect.applied', key: 'b1/brew/1/pr', result: { number: 7 } },
+  'effect.applied': {
+    type: 'effect.applied',
+    key: '["b1","brew",1,"pull_request"]',
+    result: { number: 7 },
+  },
 };
 
 const accepts = (schema: { parse: (value: unknown) => unknown }, value: unknown): void => {
@@ -247,7 +251,19 @@ describe('Event', () => {
     ],
     ['batch.stuck without options', { ...valid['batch.stuck'], options: [] }],
     ['a stuck option listed twice', { ...valid['batch.stuck'], options: ['retry', 'retry'] }],
-    ['effect.applied without a result', { type: 'effect.applied', key: 'b1/brew/1/pr' }],
+    [
+      'effect.applied without a result',
+      { type: 'effect.applied', key: '["b1","brew",1,"pull_request"]' },
+    ],
+    ...[
+      'b1/brew/1/pr',
+      '["b1","brew",1]',
+      '["b1","brew",0,"pull_request"]',
+      '["b1", "brew", 1, "pull_request"]',
+    ].map((key): [string, unknown] => [
+      `the effect key ${key}`,
+      { ...valid['effect.applied'], key },
+    ]),
     [
       'step.finished with a succeeded outcome without output',
       { ...valid['step.finished'], outcome: { kind: 'succeeded' } },

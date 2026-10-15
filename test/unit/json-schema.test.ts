@@ -49,6 +49,32 @@ describe('writeJsonSchemas', () => {
     assert.deepEqual(done.required.sort(), ['status', 'summary']);
   });
 
+  it('gives the key of effect.applied the shape of a canonical effect key', () => {
+    const event = JSON.parse(generated['event.json'] ?? '{}') as {
+      oneOf?: { properties: { type: { const?: string }; key?: { pattern?: string } } }[];
+    };
+    const applied = event.oneOf?.find(
+      (variant) => variant.properties.type.const === 'effect.applied',
+    );
+    const pattern = applied?.properties.key?.pattern;
+    assert.ok(pattern, 'a pattern for the key of effect.applied');
+    const key = new RegExp(pattern);
+    for (const text of [
+      '["b1","open-pr",1,"pull_request"]',
+      JSON.stringify(['a"b', 'c\\d', 12, 'e\n']),
+    ]) {
+      assert.match(text, key);
+    }
+    for (const text of [
+      'b1/open-pr/1/pr',
+      '["b1","open-pr",0,"pr"]',
+      '["b1","open-pr",1]',
+      'x["b1","open-pr",1,"pr"]',
+    ]) {
+      assert.doesNotMatch(text, key);
+    }
+  });
+
   it('is reproducible', () => {
     assert.deepEqual(readAll(second.path), generated);
   });
