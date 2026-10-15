@@ -3,26 +3,14 @@
 // (ADR 0002: `better-sqlite3` is the fallback for `node:sqlite`).
 
 import type { Event } from '../schemas/events.ts';
+import type { EffectKey, Lease } from '../schemas/store.ts';
+
+export type { EffectKey, Lease };
 
 /** An event as stored: `id` grows with every append and is never reused. */
 export interface StoredEvent {
   id: number;
   event: Event;
-}
-
-/** Who holds an attempt (and its session) until when; alive while `expiresAt` is in the future. */
-export interface Lease {
-  attemptKey: string;
-  owner: string;
-  expiresAt: Date;
-}
-
-/** The key of an external side effect: applied at most once (invariant I4). */
-export interface EffectKey {
-  batchId: string;
-  stepId: string;
-  attempt: number;
-  effect: string;
 }
 
 /** A batch whose pending deadline (a step's `deadlineAt` or a Conditioning `remindAt`) is due. */

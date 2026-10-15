@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
 
 const deadlineAt = '2026-10-15T10:00:00.000Z';
 const pullRequest = 'https://github.com/acme/api/pull/7';
+const prKey = effectKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1, effect: 'pr' });
 const session = { id: 's1', worktree: 'work/b1/plan', claudeVersion: '2.1.300' };
 const question = {
   q: 'Keep the v1 endpoint?',
@@ -425,14 +427,14 @@ describe('fold', () => {
     const state = fold([
       { type: 'bottle.opened', ...bottle },
       { type: 'release.observed', ...release },
-      { type: 'effect.applied', key: 'b1:plan:1:pr', result: { number: 7 } },
+      { type: 'effect.applied', key: prKey, result: { number: 7 } },
     ]);
     assert.deepStrictEqual(
       state.bottles,
       new Map([['k1', { id: 'k1', repo: 'acme/api', subOrders: [101, 102], pullRequest }]]),
     );
     assert.deepStrictEqual(state.releases, [release]);
-    assert.deepStrictEqual(state.effects, new Map([['b1:plan:1:pr', { number: 7 }]]));
+    assert.deepStrictEqual(state.effects, new Map([[prKey, { number: 7 }]]));
   });
 
   it('continues from a given state', () => {
@@ -534,10 +536,10 @@ describe('fold of an inconsistent log', () => {
     [
       'an effect applied twice',
       [
-        { type: 'effect.applied', key: 'b1:plan:1:pr', result: { number: 7 } },
-        { type: 'effect.applied', key: 'b1:plan:1:pr', result: { number: 8 } },
+        { type: 'effect.applied', key: prKey, result: { number: 7 } },
+        { type: 'effect.applied', key: prKey, result: { number: 8 } },
       ],
-      /effect b1:plan:1:pr was already applied/,
+      /effect \["b1","plan",1,"pr"\] was already applied/,
     ],
     [
       'a breakdown of a sub-order',

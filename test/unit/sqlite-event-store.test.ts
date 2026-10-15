@@ -272,7 +272,7 @@ describe('SqliteEventStore in memory', () => {
             store.withTransaction((tx) =>
               tx.append({ type: 'effect.applied', key: text, result: 1 }),
             ),
-          /Invalid effect key/,
+          /Must be a canonical effect key/,
         );
       }
       assert.deepEqual(store.eventsAfter(0), []);
