@@ -234,20 +234,24 @@ describe('fold', () => {
         type: 'batch.rewound',
         batchId: 'b1',
         toStepId: 'plan',
-        by: 'octocat',
+        by: 'hubot',
         via: 'dashboard',
         shas: {},
       },
-      { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'terminal' },
+      { type: 'batch.cancelled', batchId: 'b1', by: 'monalisa', via: 'terminal' },
     ]);
     const { recipe, rewinds, lane } = batch(state);
     assert.deepStrictEqual(
       [
-        recipe?.source === 'human' && recipe.via,
-        rewinds[0]?.via,
-        lane.kind === 'cancelled' && lane.via,
+        recipe?.source === 'human' && [recipe.by, recipe.via],
+        [rewinds[0]?.by, rewinds[0]?.via],
+        lane.kind === 'cancelled' && [lane.by, lane.via],
       ],
-      ['comment', 'dashboard', 'terminal'],
+      [
+        ['octocat', 'comment'],
+        ['hubot', 'dashboard'],
+        ['monalisa', 'terminal'],
+      ],
     );
   });
 
