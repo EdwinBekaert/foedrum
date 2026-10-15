@@ -4,6 +4,7 @@ import {
   type BranchFact,
   type Facts,
   plan,
+  type RecordFact,
   shouldRun,
   type WorktreeFact,
 } from '../../scripts/worktrees-clean/core.ts';
@@ -29,7 +30,18 @@ const branch = (name: string, fact: Partial<BranchFact> = {}): BranchFact => ({
 
 const LIVE = 100;
 const isPidAlive = (pid: number): boolean => pid === LIVE;
-const run = (facts: Facts) => plan(facts, isPidAlive);
+const run = (facts: Omit<Facts, 'records'> & Partial<Pick<Facts, 'records'>>) =>
+  plan({ records: [], ...facts }, isPidAlive);
+
+// A record whose folder is gone; `folder: undefined` is a record whose gitdir file is missing.
+const record = (name: string, fact: Partial<RecordFact> = {}): RecordFact => ({
+  dir: `/repo/.git/worktrees/${name}`,
+  name,
+  folder: `/elsewhere/${name}`,
+  folderExists: false,
+  lockReason: undefined,
+  ...fact,
+});
 
 describe('plan: worktrees under .claude/worktrees/', () => {
   it('removes a clean worktree whose branch is merged and whose remote branch is gone', () => {
@@ -273,5 +285,100 @@ describe('plan: branches without a worktree', () => {
     });
 
     assert.deepEqual(result, { actions: [], kept: [] });
+  });
+});
+
+describe('plan: stale records under .git/worktrees/', () => {
+  it('drops records whose gitdir file is missing or whose folder is gone, wherever it was', () => {
+    const result = run({
+      worktrees: [],
+      branches: [],
+      records: [
+        record('tree', { folder: undefined }),
+        record('tree1', { folder: '/repo/.foedrum/tmp/49/scratch/tree' }),
+      ],
+    });
+
+    assert.deepEqual(result.actions, [
+      {
+        kind: 'drop-record',
+        label: '.git/worktrees/tree',
+        record: '/repo/.git/worktrees/tree',
+        reason: 'its gitdir file is missing',
+      },
+      {
+        kind: 'drop-record',
+        label: '.git/worktrees/tree1',
+        record: '/repo/.git/worktrees/tree1',
+        reason: 'its folder /repo/.foedrum/tmp/49/scratch/tree is gone',
+      },
+    ]);
+    assert.deepEqual(result.kept, []);
+  });
+
+  it('leaves records whose folder is still there', () => {
+    const result = run({
+      worktrees: [],
+      branches: [],
+      records: [record('outside', { folderExists: true })],
+    });
+
+    assert.deepEqual(result, { actions: [], kept: [] });
+  });
+
+  it('leaves the records of worktrees under .claude/worktrees/ to the worktree pass', () => {
+    const lockReason = `claude session 7-a (pid ${LIVE})`;
+    const result = run({
+      worktrees: [worktree('7-a', { state: 'gone', lockReason })],
+      branches: [],
+      records: [record('7-a', { folder: '/repo/.claude/worktrees/7-a', lockReason })],
+    });
+
+    assert.deepEqual(result.actions, []);
+    assert.equal(result.kept.length, 1, result.kept.join('\n'));
+    assert.match(result.kept[0] ?? '', /^kept worktree \.claude\/worktrees\/7-a: /);
+  });
+
+  it('drops the record of a gone worktree outside .claude/worktrees/ that git still lists', () => {
+    const result = run({
+      worktrees: [
+        worktree('outside', {
+          inside: undefined,
+          path: '/elsewhere/outside',
+          state: 'unchecked',
+          record: '/repo/.git/worktrees/outside',
+        }),
+      ],
+      branches: [],
+      records: [record('outside')],
+    });
+
+    assert.deepEqual(
+      result.actions.map((action) => action.kind),
+      ['drop-record'],
+    );
+  });
+
+  it('keeps a locked record unless the lock is a session that has ended', () => {
+    const result = run({
+      worktrees: [],
+      branches: [],
+      records: [
+        record('live', { lockReason: `claude session live (pid ${LIVE})` }),
+        record('initializing', { lockReason: 'initializing' }),
+        record('plain', { lockReason: '' }),
+        record('ended', { folder: undefined, lockReason: 'claude session ended (pid 7)' }),
+      ],
+    });
+
+    assert.deepEqual(result.kept, [
+      `kept worktree record .git/worktrees/live: locked by a live session (pid ${LIVE})`,
+      'kept worktree record .git/worktrees/initializing: locked: initializing',
+      'kept worktree record .git/worktrees/plain: locked: no reason given',
+    ]);
+    assert.deepEqual(
+      result.actions.map((action) => action.kind === 'drop-record' && action.label),
+      ['.git/worktrees/ended'],
+    );
   });
 });
