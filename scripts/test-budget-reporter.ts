@@ -3,6 +3,8 @@
 // A slow file is a sign that a process or a real file system tree slipped into a unit test
 // (ADR 0021). Tests within a file run one after another, so the sum is close to its wall time.
 
+import { relative, sep } from 'node:path';
+
 export const FILE_BUDGET_MS = 5000;
 
 // The fields of node:test's reporter events that this reporter reads.
@@ -21,10 +23,28 @@ export interface BudgetOptions {
   fail: () => void;
 }
 
-export const budgetReporter = (_options: BudgetOptions) =>
-  // biome-ignore lint/correctness/useYield: a stub until the reporter is implemented
-  async function* (_source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
-    throw new Error('not implemented');
+const seconds = (ms: number): string => `${(ms / 1000).toFixed(2)} s`;
+
+export const budgetReporter = ({ budgetMs, cwd, slowest, fail }: BudgetOptions) =>
+  async function* (source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
+    const times = new Map<string, number>();
+    for await (const { type, data } of source) {
+      if (type !== 'test:pass' && type !== 'test:fail') continue;
+      if (data?.nesting !== 0 || data.file === undefined) continue;
+      times.set(data.file, (times.get(data.file) ?? 0) + (data.details?.duration_ms ?? 0));
+    }
+    if (times.size === 0) return;
+    const files = [...times]
+      .map(([file, ms]) => ({ file: relative(cwd, file).split(sep).join('/'), ms }))
+      .sort((a, b) => b.ms - a.ms);
+    yield `test file times (budget ${budgetMs / 1000} s per file, ADR 0021)\n`;
+    for (const { file, ms } of files.slice(0, slowest)) yield `  ${seconds(ms)}  ${file}\n`;
+    yield 'end of test file times\n';
+    const over = files.filter(({ ms }) => ms > budgetMs);
+    for (const { file, ms } of over) {
+      yield `✖ ${file} took ${seconds(ms)}, over the ${budgetMs / 1000} s budget for one test file: move processes and real tools to test/integration/ (ADR 0021)\n`;
+    }
+    if (over.length > 0) fail();
   };
 
 export default budgetReporter({
