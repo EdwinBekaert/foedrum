@@ -1,7 +1,7 @@
 ---
 name: brew-review
 description: Review a Foedrum pull request (or local branch) before it leaves draft - red proof, simplify, lens reviews in fresh subagents, Brett mutation check, coverage delta, and a summary comment with a disposition for every finding.
-argument-hint: "[pr-number | branch] [--base <ref>] [--no-comment]"
+argument-hint: "[pr-number | branch] [--base <ref>] [--no-comment] [--red-proof]"
 ---
 
 # Review a Foedrum pull request
@@ -30,6 +30,7 @@ Arguments: `$ARGUMENTS`
    - a number: the pull request. `gh pr view <n> --json number,isDraft,baseRefName,headRefName,headRefOid,url,isCrossRepository,author`. If it is not a draft, stop and say so.
    - a branch name, or nothing: that branch, or the current branch. Look for an open pull request for it with `gh pr view <branch> --json number,isDraft,headRefOid,url,isCrossRepository,author`; if it is not a draft, stop and say so. If there is none, the run is **local**: the summary goes to a file instead of a comment.
    - `--no-comment`: write the summary to a file even when there is a pull request.
+   - `--red-proof`: a check before pushing (CLAUDE.md, Tests). Run stage 0 and stage 1 only, on the local branch against `<base>` (default `origin/main`), print the red proof result with each failing commit and the reason, clean up as in stage 6, and stop. No lenses, no summary comment, nothing leaves the machine. Unlike the review of a pull request, the commits it checks may not be pushed yet, so say for each failure how to redo it: which commits to reset and in which order to commit again.
    - `--base <ref>`: review only the commits after `<ref>`, and take the review criteria from it. Use it for a branch stacked on another unmerged branch, such as the planted-defect sample on top of the prompts it checks. `<ref>` must resolve with `git rev-parse --verify "<ref>^{commit}"` and be an ancestor of the target (`git merge-base --is-ancestor`); otherwise stop and say so.
 2. Check who wrote it before checking it out or running any of its code: for the author, `gh api repos/{owner}/{repo}/collaborators/<login>/permission --jq .permission`. If it comes from a fork or from an author without `write` or `admin`, the pull request is **untrusted**: stop and ask the user to confirm after reading the diff (`gh pr diff <n>`); the tests would run with the user's credentials.
 3. Check out the pull request (`gh pr checkout <n>`) unless the current branch already is its head. `git fetch origin` and set `<base>` to the commit `--base` names, or else `git merge-base origin/<baseRefName or main> HEAD`, and `<head>` to `git rev-parse HEAD`. The working tree must be clean; if it is not, stop and say so. For a pull request, `<head>` must equal its `headRefOid`; if it does not (the local branch is behind or ahead), stop and ask the user.
@@ -46,9 +47,11 @@ Arguments: `$ARGUMENTS`
 Proves that the tests were written first and failed for the right reason.
 
 1. Classify every commit in `git rev-list --reverse --no-merges <base>..<head>` by the files it changes (`git diff-tree --no-commit-id --name-only -r <sha>`). Leave out exempt files first, so a test commit that also updates a document is still a test commit; a commit with only exempt files is exempt.
-   - **test**: changes only files under `test/` (or `*.test.ts`), optionally with stubs in `src/` or `scripts/` that only throw `"not implemented"`;
+   - **test**: changes only files under `test/` (or `*.test.ts`), optionally with stubs in `src/` or `scripts/` that only throw `"not implemented"`, and with the types and schemas the new tests need to compile, when no new test tests those types or schemas directly (calls the schema itself or asserts what it accepts or rejects; reaching it only through a stub is not direct) (CLAUDE.md, Tests). Any other change in such a commit (a rename, a cleanup) makes it **mixed**. A new schema whose accept/reject behaviour a new test checks must be a stub that throws at that commit, or the commit is **mixed**;
    - **implementation**: changes `src/` or `scripts/` (beyond such stubs) and no test declarations;
    - **mixed**: adds or changes test declarations and implementation in the same commit;
+   - **refactor**: changes `src/` or `scripts/` but no test declarations or assertions, and its subject starts with "Refactor" (CLAUDE.md, Tests). Run the test files that cover the changed code at `R^` and at `R`: both must be all `ok`. Then it needs no red step. If a test fails at either, or the commit also touches test declarations, it is **implementation** or **mixed** as usual;
+   - **move**: only moves or renames existing tests (to another file or layer), with their assertions unchanged, and its message says so. Compare the removed and added test declarations; a move that also adds, drops or changes an assertion is **mixed**. A move is never the red step for anything and never fails the red proof;
    - **exempt**: documentation and prompts (`*.md` anywhere, including skills, agent definitions and lenses; CLAUDE.md, Tests), CI configuration (`.github/`) or `.gitkeep` scaffolding, the exemptions CLAUDE.md lists. A pull request whose description says it is a spike or scaffolding is exempt; quote that sentence in the summary;
    - **other**: every other change, for example scripts, hooks and settings under `.claude/`, `package.json`, tool configuration, or non-Markdown files under `defaults/`. Treat it as an implementation commit in step 3.
    If every commit is exempt, record *red proof: exempt (…)* and go to stage 2.
