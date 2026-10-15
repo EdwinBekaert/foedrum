@@ -45,6 +45,11 @@ describe('resolveRecipe', () => {
     assert.equal(resolveRecipe(recipe([plan, review]), brewers).testFirst, true);
   });
 
+  it('finds a brewer that produces commits inside a parallel group', () => {
+    const build = { id: 'build', parallel: [{ brewer: 'cellarman' }] };
+    assert.equal(resolveRecipe(recipe([plan, build]), brewers).testFirst, true);
+  });
+
   it('turns testFirst off when it is unset and no brewer produces commits', () => {
     const steps = [plan, { id: 'tasting', parallel: [{ brewer: 'taster', lens: 'security' }] }];
     assert.equal(resolveRecipe(recipe(steps), brewers).testFirst, false);

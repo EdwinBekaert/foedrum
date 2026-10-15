@@ -69,6 +69,15 @@ describe('settleAttempt', () => {
     assert.ok(ending.kind === 'failed' && ending.reason.length < 300, 'short reason');
   });
 
+  it('quotes the first 120 characters of a garbage line as JSON', () => {
+    const line = `\u001b[31m${'x'.repeat(200)}`;
+    assert.deepStrictEqual(settleAttempt(facts({ garbage: line }), limits), {
+      kind: 'failed',
+      retryable: true,
+      reason: `the event stream is not stream-json: "\\u001b[31m${'x'.repeat(115)}"`,
+    });
+  });
+
   it('routes a blocked out doc by its blocker kind', () => {
     const blocked = outDoc({
       status: 'blocked',

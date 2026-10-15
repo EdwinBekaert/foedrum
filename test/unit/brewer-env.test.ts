@@ -70,15 +70,17 @@ describe('buildBrewerEnv (#81)', () => {
     });
   });
 
-  it('keeps names that differ by case apart outside Windows: they are other variables', () => {
-    const env = buildBrewerEnv({
-      base: {},
-      brewer: { Path: 'brewer' },
-      forced: { PATH: '/usr/bin' },
-      platform: 'linux',
+  for (const platform of ['linux', 'darwin'] as const) {
+    it(`keeps names that differ by case apart on ${platform}: they are other variables`, () => {
+      const env = buildBrewerEnv({
+        base: {},
+        brewer: { Path: 'brewer' },
+        forced: { PATH: '/usr/bin' },
+        platform,
+      });
+      assert.deepStrictEqual(env, { Path: 'brewer', PATH: '/usr/bin' });
     });
-    assert.deepStrictEqual(env, { Path: 'brewer', PATH: '/usr/bin' });
-  });
+  }
 
   it('changes none of its layers', () => {
     const base = { Path: 'C:\\base' };
