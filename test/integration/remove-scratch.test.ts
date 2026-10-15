@@ -57,5 +57,10 @@ describe('remove-scratch with real git', () => {
     const listed = git(main, ['worktree', 'list', '--porcelain']);
     assert.equal(listed.split('\n').filter((line) => line.startsWith('worktree ')).length, 2);
     assert.match(result.stdout, new RegExp(`removed worktree record \\.git/worktrees/${own}`));
+
+    const refused = spawnSync(process.execPath, [script, '.'], { cwd: main, encoding: 'utf8' });
+    assert.equal(refused.status, 1, refused.stdout);
+    assert.match(refused.stdout, /refused: .* is not inside /);
+    assert.ok(existsSync(join(main, '.gitignore')));
   });
 });

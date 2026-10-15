@@ -63,23 +63,31 @@ describe('removeScratch with a fake git', () => {
     assert.ok(result.lines.includes('removed worktree record .git/worktrees/tree'));
   });
 
-  it('removes the scratch folder when the checkout is opened through a link git resolves', async () => {
-    // A junction on Windows (no admin rights needed), a symbolic link elsewhere; git prints
-    // the real path of the checkout, the session's working directory is the link.
-    const links = makeTempDir('link');
-    try {
-      const link = join(links.path, 'checkout');
-      symlinkSync(dir.path, link, 'junction');
+  // A junction on Windows (no admin rights needed), a symbolic link elsewhere.
+  for (const side of ['working directory', 'checkout git prints'] as const) {
+    it(`removes the scratch folder when the ${side} is a link to the checkout`, async () => {
+      const links = makeTempDir('link');
+      try {
+        const link = join(links.path, 'checkout');
+        symlinkSync(dir.path, link, 'junction');
+        const top = (side === 'working directory' ? dir.path : link).replaceAll('\\', '/');
+        const linkedGit: Git = async () => ({
+          ok: true,
+          stdout: `${top}\n${top}/.git\n`,
+          stderr: '',
+        });
+        const cwd = side === 'working directory' ? link : dir.path;
 
-      const result = await removeScratch(link, '.foedrum/tmp/61/scratch', git);
+        const result = await removeScratch(cwd, '.foedrum/tmp/61/scratch', linkedGit);
 
-      assert.equal(result.ok, true, result.lines.join('\n'));
-      assert.equal(existsSync(scratch), false);
-      assert.equal(existsSync(record('tree')), false);
-    } finally {
-      links.remove();
-    }
-  });
+        assert.equal(result.ok, true, result.lines.join('\n'));
+        assert.equal(existsSync(scratch), false);
+        assert.equal(existsSync(record('tree')), false);
+      } finally {
+        links.remove();
+      }
+    });
+  }
 
   it('refuses a folder outside .foedrum/tmp/ and removes nothing', async () => {
     const result = await removeScratch(dir.path, '.foedrum', git);
@@ -89,14 +97,17 @@ describe('removeScratch with a fake git', () => {
     assert.match(result.lines.join('\n'), /^refused: .* is not inside /);
   });
 
-  it('removes nothing outside a git repository', async () => {
-    const failing: Git = async () => ({ ok: false, stdout: '', stderr: 'fatal: not a git repo' });
+  for (const [title, answer] of [
+    ['fails', { ok: false, stdout: '', stderr: 'fatal: not a git repo' }],
+    ['prints too little', { ok: true, stdout: '', stderr: '' }],
+  ] as const) {
+    it(`removes nothing when rev-parse ${title}`, async () => {
+      const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', async () => answer);
 
-    const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', failing);
-
-    assert.deepEqual(result, { ok: false, lines: ['refused: not inside a git repository'] });
-    assert.ok(existsSync(scratch));
-  });
+      assert.deepEqual(result, { ok: false, lines: ['refused: not inside a git repository'] });
+      assert.ok(existsSync(scratch));
+    });
+  }
 
   it('reports a removal that fails and still removes the record', async () => {
     const result = await removeScratch(dir.path, '.foedrum/tmp/61/scratch', git, async (path) => {

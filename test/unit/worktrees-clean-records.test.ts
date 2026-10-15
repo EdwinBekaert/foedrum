@@ -28,13 +28,16 @@ describe('readRecords', () => {
     // worktree.useRelativePaths writes the gitdir relative to the record.
     record('relative', { gitdir: '../../../gone/.git\r\n', locked: 'initializing\n' });
     record('missing', { locked: '' });
+    record('crlf', { gitdir: `${there}/.git\r\n`, locked: 'claude session x (pid 7)\r\n' });
     record('empty', { gitdir: '\n' });
     writeFileSync(join(common, 'worktrees', 'stray-file'), 'not a record\n');
 
     const records = await readRecords(common);
 
     const byName = new Map(records.map((fact) => [fact.name, fact]));
-    assert.deepEqual([...byName.keys()].sort(), ['empty', 'missing', 'relative', 'there']);
+    assert.deepEqual([...byName.keys()].sort(), ['crlf', 'empty', 'missing', 'relative', 'there']);
+    assert.equal(byName.get('crlf')?.lockReason, 'claude session x (pid 7)');
+    assert.equal(byName.get('crlf')?.folder, there);
     assert.deepEqual(byName.get('there'), {
       dir: join(common, 'worktrees', 'there'),
       name: 'there',
