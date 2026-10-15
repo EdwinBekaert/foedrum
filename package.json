@@ -24,13 +24,18 @@
     "typecheck": "tsc",
     "lint": "biome check",
     "test": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 \"test/**/*.test.ts\"",
-    "check": "npm run typecheck && npm run lint && npm test",
+    "check": "npm run typecheck && npm run lint && npm test && node scripts/check-deps.ts --offline",
+    "check:deps": "node scripts/check-deps.ts",
     "hook:gate": "node scripts/precheck.ts",
+    "schemas": "node scripts/generate-schemas.ts",
     "worktrees:clean": "node scripts/worktrees-clean.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "24.19.1",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
   }
 }

@@ -14,9 +14,12 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 ## Commands
 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
-- `npm run check` — typecheck, lint and test in one command; run it before every push
+- `npm run check` — typecheck, lint, test and the offline dependency guard in one command; run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test` (fails below the coverage thresholds set in the `test` script in `package.json`; only ever raise them)
-- CI (`.github/workflows/ci.yml`) runs `npm run check` plus `npm audit` on Windows, macOS and Linux for every pull request; the required check is `ci-ok`
+- `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
+- `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
+- `npm run worktrees:clean` — remove worktrees and branches of merged pull requests (runs automatically at session start, see Worktree cleanup)
+- CI (`.github/workflows/ci.yml`) runs `npm run check` plus `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 
@@ -113,6 +116,15 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Pass multi-line text to git and gh through a file written with the file tool (`-F`, `--body-file`), never through a shell heredoc: text containing the delimiter ends the heredoc early and the rest runs as commands.
 - Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
 - Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
+
+## Restarting a session
+
+Claude Code loads `.claude/settings.json`, skills and agents when a session starts, so a change to `.claude/` (including one merged in from origin/main) needs a restart. A session is stored under the folder it was started in, not the worktree it switched into, so `claude --continue` inside the worktree finds nothing. When you need a restart, ask the user to:
+
+1. `/exit` the session;
+2. run `git pull` on main in the main checkout, because settings are read from the folder the session starts in;
+3. run `claude --resume` there and pick this session by its name;
+4. tell the resumed session to switch back into its worktree.
 
 ## Security
 

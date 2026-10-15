@@ -61,4 +61,9 @@ describe('package.json', () => {
     const ranged = Object.entries(all).filter(([, version]) => !/^\d+\.\d+\.\d+$/.test(version));
     assert.deepEqual(ranged, []);
   });
+
+  it('runs the dependency guard offline in check and in full as check:deps', () => {
+    assert.match(pkg.scripts?.check ?? '', /node scripts\/check-deps\.ts --offline/);
+    assert.equal(pkg.scripts?.['check:deps'], 'node scripts/check-deps.ts');
+  });
 });
