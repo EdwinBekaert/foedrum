@@ -124,7 +124,24 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
     }
   }
 
-  if (facts.records.length > 0) throw new Error('not implemented');
+  // Records git no longer lists, or whose folder is gone, wherever their worktree was. The
+  // records of worktrees under .claude/worktrees/ were decided above, with their branches.
+  const decided = new Set(
+    facts.worktrees.filter((w) => w.inside !== undefined).map((w) => w.record),
+  );
+  for (const record of facts.records) {
+    if (decided.has(record.dir) || record.folderExists) continue;
+    const label = `.git/worktrees/${record.name}`;
+    const reason = lockKeepReason(record.lockReason, isPidAlive);
+    if (reason !== undefined) kept.push(`kept worktree record ${label}: ${reason}`);
+    else {
+      const why =
+        record.folder === undefined
+          ? 'its gitdir file is missing'
+          : `its folder ${record.folder} is gone`;
+      actions.push({ kind: 'drop-record', label, record: record.dir, reason: why });
+    }
+  }
 
   const checkedOut = new Set(facts.worktrees.map((worktree) => worktree.branch));
   for (const branch of facts.branches) {
