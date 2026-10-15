@@ -7,8 +7,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { removeTree } from '../../src/platform/remove.ts';
-import { makeReadOnly } from '../helpers/read-only.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { makeReadOnly } from './read-only.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'remove-scratch.ts');
 

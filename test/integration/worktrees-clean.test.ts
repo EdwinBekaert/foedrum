@@ -16,8 +16,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { makeReadOnly } from '../helpers/read-only.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { makeReadOnly } from './read-only.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'worktrees-clean.ts');
 
