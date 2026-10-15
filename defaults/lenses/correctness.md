@@ -26,15 +26,9 @@ Review the change for code that does the wrong thing, or that can stop doing any
 
 **Determinism.** Code that should be deterministic but reads the wall clock, randomness or environment directly instead of through an injected dependency.
 
-**Tests.** For each behaviour the change adds or alters:
-- Is there a test that would fail if the behaviour broke? Name the behaviour that no test pins down.
-- Do the assertions check outcomes through a public interface, or only that some internal function was called?
-- Are the error paths and edge cases tested (empty input, the deadline expiring, a retry limit reached, a duplicate event)?
-- Can a test pass for the wrong reason (asserting inside a callback that never runs, a missing `await`, a condition that is always true)?
-
 ## Leave to other lenses
 
-Injection, secrets and permissions (security); paths, process spawning and line endings across operating systems (cross-platform); naming, documented decisions and dependency policy (design conformance). Style is out of scope for every lens.
+Injection, secrets and permissions (security); paths, process spawning and line endings across operating systems (cross-platform); naming, documented decisions and dependency policy (design conformance); the tests themselves: whether they would catch a bug, which behaviours and error paths they leave untested, and their speed (test design). Review the code under test, not its tests. Style is out of scope for every lens.
 
 ## Reporting
 
