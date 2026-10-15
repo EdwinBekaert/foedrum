@@ -250,6 +250,19 @@ describe('execProcessWith', () => {
     assert.equal(result.killed, undefined);
   });
 
+  it('keeps what the process wrote and adds the reason when it fails afterwards', async () => {
+    const child = new FakeChild();
+    const { exec } = fakeSpawner(child);
+    const done = exec('git', ['fetch'], { cwd: '/work/tree' });
+    child.stderr.write('remote: counting\n');
+    await settle();
+    child.emit('error', new Error('read EPIPE'));
+    const result = await done;
+    assert.equal(result.exitCode, null);
+    assert.equal(result.stderr, 'remote: counting\nread EPIPE');
+    assert.equal(result.output, 'remote: counting\nread EPIPE');
+  });
+
   it('answers without an exit code, with the reason, when spawn itself throws', async () => {
     const { exec } = fakeSpawner(new Error('spawn EINVAL'));
     const result = await exec('claude.cmd', [], { cwd: '/work/tree' });
