@@ -22,9 +22,20 @@ export interface BranchFact {
   upstreamGone: boolean;
 }
 
+// A record under .git/worktrees/. `folder` is the worktree folder its gitdir file names, or
+// undefined when that file is missing or empty; git no longer lists such a record.
+export interface RecordFact {
+  dir: string;
+  name: string;
+  folder: string | undefined;
+  folderExists: boolean;
+  lockReason: string | undefined;
+}
+
 export interface Facts {
   worktrees: WorktreeFact[];
   branches: BranchFact[];
+  records: RecordFact[];
 }
 
 // `branch` on a worktree action is deleted after the action succeeds.
@@ -39,6 +50,7 @@ export type Action =
     }
   | { kind: 'finish'; label: string; path: string; record: string; branch: string | undefined }
   | { kind: 'prune'; label: string; record: string; branch: string | undefined }
+  | { kind: 'drop-record'; label: string; record: string; reason: string }
   | { kind: 'delete-branch'; branch: string };
 
 export interface Plan {
@@ -111,6 +123,8 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
       kept.push(`kept worktree ${label}: no record under .git/worktrees/ points at it`);
     }
   }
+
+  if (facts.records.length > 0) throw new Error('not implemented');
 
   const checkedOut = new Set(facts.worktrees.map((worktree) => worktree.branch));
   for (const branch of facts.branches) {

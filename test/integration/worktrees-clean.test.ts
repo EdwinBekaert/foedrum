@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { makeReadOnly } from '../helpers/read-only.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'worktrees-clean.ts');
@@ -158,6 +159,26 @@ describe('worktrees-clean with real git', () => {
     assert.match(
       result.stdout,
       /kept worktree \.claude\/worktrees\/13-live: locked by a live session/,
+    );
+  });
+
+  it('removes read-only records git no longer lists, outside .claude/worktrees/ too', () => {
+    // A review run from the main checkout, whose removal stopped after deleting the gitdir file.
+    const scratch = join(main, '.foedrum', 'tmp', '14', 'scratch', 'tree');
+    git(main, ['worktree', 'add', '-q', '--detach', scratch, 'origin/main']);
+    const record = join(main, '.git', 'worktrees', 'tree');
+    rmSync(join(main, '.foedrum'), { recursive: true, force: true });
+    rmSync(join(record, 'gitdir'));
+    makeReadOnly(record);
+    assert.equal(worktrees().length, 1);
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(record), false, result.stdout);
+    assert.match(
+      result.stdout,
+      /removed stale worktree record \.git\/worktrees\/tree: its gitdir file is missing/,
     );
   });
 });

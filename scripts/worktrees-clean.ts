@@ -36,7 +36,7 @@ export const gitEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
   GCM_INTERACTIVE: 'never',
 });
 
-const runGit: Git = (cwd, args) =>
+export const runGit: Git = (cwd, args) =>
   new Promise((done) => {
     const env = gitEnv(process.env);
     const options = { cwd, encoding: 'utf8', timeout: 60_000, windowsHide: true, env } as const;
@@ -119,7 +119,7 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
       upstreamGone: track === '[gone]',
     };
   });
-  return { worktrees, branches, tips };
+  return { worktrees, branches, records: [], tips };
 };
 
 // Carries out one action and returns what it did; throws when it could not.
@@ -152,6 +152,8 @@ const carryOut = async (
     case 'prune':
       await removeTree(action.record);
       return `pruned stale worktree ${action.label}: folder is gone`;
+    case 'drop-record':
+      throw new Error('not implemented');
     case 'delete-branch': {
       // `git branch -d` would check against the main checkout's own main, which is usually
       // behind. Check the tip against origin/main instead, and delete the branch only while it
@@ -189,7 +191,7 @@ export const cleanWorktrees = async (
   const done = [...kept];
   for (const action of actions) {
     const steps: Action[] = [action];
-    if (action.kind !== 'delete-branch' && action.branch !== undefined) {
+    if ('branch' in action && action.kind !== 'delete-branch' && action.branch !== undefined) {
       steps.push({ kind: 'delete-branch', branch: action.branch });
     }
     for (const step of steps) {

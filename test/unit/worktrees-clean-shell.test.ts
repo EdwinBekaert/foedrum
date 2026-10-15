@@ -241,6 +241,32 @@ describe('cleanWorktrees with a fake git', () => {
     assert.deepEqual(lines, ['skipped: not inside a git repository']);
   });
 
+  it('removes records git does not list, wherever their worktree was, and reports each', async () => {
+    // Left by a review scratch tree that git removed part-way: no gitdir file at all.
+    mkdirSync(record('tree'), { recursive: true });
+    mkdirSync(record('tree1'), { recursive: true });
+    writeFileSync(join(record('tree1'), 'gitdir'), `${join(dir.path, 'gone', 'tree')}/.git\n`);
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.equal(existsSync(record('tree')), false, lines.join('\n'));
+    assert.equal(existsSync(record('tree1')), false, lines.join('\n'));
+    assert.ok(existsSync(record('9-plain-lock')));
+    assert.ok(
+      lines.includes(
+        'removed stale worktree record .git/worktrees/tree: its gitdir file is missing',
+      ),
+      lines.join('\n'),
+    );
+    assert.ok(
+      lines.includes(
+        `removed stale worktree record .git/worktrees/tree1: its folder ${join(dir.path, 'gone', 'tree')} is gone`,
+      ),
+      lines.join('\n'),
+    );
+  });
+
   it('matches a record whose path differs only in case', {
     skip: !['win32', 'darwin'].includes(process.platform) && 'case-sensitive file system',
   }, async () => {
