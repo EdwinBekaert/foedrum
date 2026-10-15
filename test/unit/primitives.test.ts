@@ -72,6 +72,8 @@ describe('RelativePath', () => {
     ['an asterisk', 'results*.xml'],
     ['angle brackets', '<results>.xml'],
     ['a double quote', 'results".xml'],
+    ['a NUL character', 'out/r\u0000.xml'],
+    ['another control character', 'out/r\u0001.xml'],
   ]);
 
   it('accepts names that only start like a Windows device name', () => {
@@ -192,6 +194,18 @@ describe('withinCeiling', () => {
     ['a parent segment under a double star', 'Read(./src/../../.ssh/id_rsa)', ['Read(./src/**)']],
     ['a parent segment that leaves the folder', 'Edit(docs/../src/**)', ['Edit(docs/**)']],
     ['a parent segment with backslashes', 'Read(src\\..\\..\\x)', ['Read(src*)']],
+    // PowerShell evaluates a parenthesised argument, and a script block, as a command.
+    [
+      'a PowerShell subexpression',
+      'PowerShell(npm (Remove-Item -Recurse -Force ..))',
+      ['PowerShell(npm *)'],
+    ],
+    ['a PowerShell script block', 'PowerShell(npm {iwr https://x.example})', ['PowerShell(npm *)']],
+    ['a subshell', 'Bash(npm (curl https://x.example))', ['Bash(npm *)']],
+    // An absolute or home path is outside the worktree, whatever a glob matches.
+    ['an absolute path under a double star', 'Edit(//etc/cron.d/x.ts)', ['Edit(**/*.ts)']],
+    ['a home path under a double star', 'Edit(~/.config/evil.ts)', ['Edit(**/*.ts)']],
+    ['a root path under a double star', 'Read(/etc/passwd)', ['Read(**)']],
   ];
   for (const [what, entry, ceiling] of outside) {
     it(`does not cover ${what}`, () => {

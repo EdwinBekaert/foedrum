@@ -266,6 +266,10 @@ describe('step ids', () => {
     assert.equal(accepted(recipe([{ id: 'recipe', brewer: 'brewmaster' }])), false);
   });
 
+  it('rejects a brewer named recipe without an id, which would default to the reserved id', () => {
+    assert.equal(accepted(recipe([{ brewer: 'recipe' }])), false);
+  });
+
   it('defaults the id of a brewer step to the brewer name', () => {
     assert.equal(stepId(Step.parse({ brewer: 'cellarman' })), 'cellarman');
   });
