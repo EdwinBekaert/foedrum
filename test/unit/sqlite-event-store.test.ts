@@ -37,11 +37,12 @@ const finishedStep = (batchId: string, stepId: string, attempt: number): Event =
   attempt,
   outcome: { kind: 'cancelled' },
 });
-const stuck = (batchId: string): Event => ({
+const stuck = (batchId: string, remindAt = '2026-10-17T11:00:00Z'): Event => ({
   type: 'batch.stuck',
   batchId,
   reason: { kind: 'deadline_passed', stepId: 'plan', deadlineAt: '2026-10-15T11:00:00Z' },
   options: ['retry'],
+  remindAt,
 });
 const waiting = (batchId: string, remindAt: string): Event => ({
   type: 'batch.waiting',
@@ -465,7 +466,10 @@ describe('SqliteEventStore in memory', () => {
           pullRequests: ['https://github.com/o/r/pull/1'],
         }),
       ],
-      ['batch.cancelled', (batchId) => ({ type: 'batch.cancelled', batchId, by: 'octocat' })],
+      [
+        'batch.cancelled',
+        (batchId) => ({ type: 'batch.cancelled', batchId, by: 'octocat', via: 'plugin' }),
+      ],
     ];
     for (const [type, event] of settling) {
       it(`clears the deadline of a batch on ${type}`, () => {
@@ -514,7 +518,14 @@ describe('SqliteEventStore in memory', () => {
       ],
       [
         'batch.rewound',
-        { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+        {
+          type: 'batch.rewound',
+          batchId: 'b1',
+          toStepId: 'plan',
+          by: 'octocat',
+          via: 'plugin',
+          shas: {},
+        },
       ],
       [
         'bottle.opened',
@@ -584,6 +595,35 @@ describe('SqliteEventStore in memory', () => {
         tx.append(stuck('b1'));
       });
       assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
+    it('takes the reminder of a Stuck batch as its deadline (ADR 0025)', () => {
+      store.withTransaction((tx) => {
+        tx.append(scheduled('b1', '2026-10-15T11:00:00Z'));
+        tx.append(stuck('b1', '2026-10-15T11:30:00Z'));
+      });
+      assert.deepEqual(store.batchesPastDeadline(now), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T11:30:00Z') },
+      ]);
+    });
+
+    it('ends the Stuck reminder when a step is scheduled', () => {
+      store.withTransaction((tx) => {
+        tx.append(stuck('b1', '2026-10-15T11:00:00Z'));
+        tx.append(scheduled('b1', '2026-10-15T13:00:00Z', 2));
+      });
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
+    it('replaces the Stuck reminder of a batch', () => {
+      store.withTransaction((tx) => {
+        tx.append(stuck('b1', '2026-10-15T11:00:00Z'));
+        tx.append(stuck('b1', '2026-10-15T13:00:00Z'));
+      });
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+      assert.deepEqual(store.batchesPastDeadline(at('2026-10-15T14:00:00Z')), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T13:00:00Z') },
+      ]);
     });
 
     it('ends the Conditioning reminder when a step is scheduled', () => {

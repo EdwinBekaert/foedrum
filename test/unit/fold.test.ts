@@ -73,9 +73,21 @@ describe('fold', () => {
     const state = fold([
       ordered,
       { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'router' },
-      { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'pint', reason: 'size', by: 'human' },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'pint',
+        reason: 'size',
+        by: 'human',
+        via: 'plugin',
+      },
     ]);
-    assert.deepStrictEqual(batch(state).recipe, { name: 'pint', reason: 'size', by: 'human' });
+    assert.deepStrictEqual(batch(state).recipe, {
+      name: 'pint',
+      reason: 'size',
+      by: 'human',
+      via: 'plugin',
+    });
   });
 
   it('follows an attempt from scheduled to started to finished, and the batch is brewing', () => {
@@ -149,8 +161,19 @@ describe('fold', () => {
     const on = { kind: 'merge', pullRequest } as const;
     const lanes = (events: Event[]) => batch(fold([ordered, scheduled, ...events])).lane;
 
-    const stuck: Event = { type: 'batch.stuck', batchId: 'b1', reason, options: ['answer'] };
-    assert.deepStrictEqual(lanes([stuck]), { kind: 'stuck', reason, options: ['answer'] });
+    const stuck: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason,
+      options: ['answer'],
+      remindAt: deadlineAt,
+    };
+    assert.deepStrictEqual(lanes([stuck]), {
+      kind: 'stuck',
+      reason,
+      options: ['answer'],
+      remindAt: deadlineAt,
+    });
     assert.deepStrictEqual(
       lanes([
         stuck,
@@ -166,14 +189,66 @@ describe('fold', () => {
       lanes([{ type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] }]),
       { kind: 'on_tap', pullRequests: [pullRequest] },
     );
-    assert.deepStrictEqual(lanes([{ type: 'batch.cancelled', batchId: 'b1', by: 'octocat' }]), {
-      kind: 'cancelled',
-      by: 'octocat',
+    assert.deepStrictEqual(
+      lanes([{ type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'dashboard' }]),
+      { kind: 'cancelled', by: 'octocat', via: 'dashboard' },
+    );
+  });
+
+  it('keeps the reminder of a Stuck batch, and a later one replaces it (ADR 0025)', () => {
+    const reason: StuckReason = { kind: 'waiting_for_session', stepId: 'plan' };
+    const stuck = (remindAt: string): Event => ({
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason,
+      options: ['cancel'],
+      remindAt,
     });
+    const later = '2026-10-17T10:00:00.000Z';
+    const lane = batch(fold([ordered, scheduled, stuck(deadlineAt), stuck(later)])).lane;
+    assert.equal(lane.kind === 'stuck' && lane.remindAt, later);
+  });
+
+  it('records where a human chose a recipe, rewound or cancelled from (ADR 0019)', () => {
+    const state = fold([
+      ordered,
+      scheduled,
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'x',
+        by: 'human',
+        via: 'comment',
+      },
+      {
+        type: 'batch.rewound',
+        batchId: 'b1',
+        toStepId: 'plan',
+        by: 'octocat',
+        via: 'dashboard',
+        shas: {},
+      },
+      { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'terminal' },
+    ]);
+    const { recipe, rewinds, lane } = batch(state);
+    assert.deepStrictEqual(
+      [
+        recipe?.by === 'human' && recipe.via,
+        rewinds[0]?.via,
+        lane.kind === 'cancelled' && lane.via,
+      ],
+      ['comment', 'dashboard', 'terminal'],
+    );
   });
 
   it('records a rewind, and the batch brews again', () => {
-    const rewind = { toStepId: 'plan', by: 'octocat', shas: { 'acme/api': 'a'.repeat(40) } };
+    const rewind = {
+      toStepId: 'plan',
+      by: 'octocat',
+      via: 'terminal',
+      shas: { 'acme/api': 'a'.repeat(40) },
+    } as const;
     const state = fold([
       ordered,
       scheduled,
@@ -182,6 +257,7 @@ describe('fold', () => {
         batchId: 'b1',
         reason: { kind: 'waiting_for_session', stepId: 'plan' },
         options: ['rewind'],
+        remindAt: deadlineAt,
       },
       { type: 'batch.rewound', batchId: 'b1', ...rewind },
     ]);
@@ -387,6 +463,7 @@ describe('fold', () => {
       batchId: 'b1',
       toStepId: 'plan',
       by,
+      via: 'plugin',
       shas: {},
     });
     const release = (version: string): Event => ({
@@ -501,7 +578,14 @@ describe('fold of an inconsistent log', () => {
       'a rewind to a step that never ran',
       [
         ordered,
-        { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+        {
+          type: 'batch.rewound',
+          batchId: 'b1',
+          toStepId: 'plan',
+          by: 'octocat',
+          via: 'plugin',
+          shas: {},
+        },
       ],
       /step plan of batch b1 was never scheduled/,
     ],
@@ -637,6 +721,7 @@ describe('fold of an inconsistent log', () => {
       batchId: 'b1',
       reason: { kind: 'waiting_for_session', stepId: 'plan' },
       options: ['cancel'],
+      remindAt: deadlineAt,
     },
     { type: 'batch.resumed', batchId: 'b1', by: 'octocat', via: 'plugin', action: 'retry' },
     {
@@ -651,9 +736,16 @@ describe('fold of an inconsistent log', () => {
       on: { kind: 'merge', pullRequest },
       remindAt: deadlineAt,
     },
-    { type: 'batch.rewound', batchId: 'b1', toStepId: 'plan', by: 'octocat', shas: {} },
+    {
+      type: 'batch.rewound',
+      batchId: 'b1',
+      toStepId: 'plan',
+      by: 'octocat',
+      via: 'plugin',
+      shas: {},
+    },
     { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
-    { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
+    { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
   ];
   for (const event of batchEvents) {
     it(`throws on ${event.type} for a batch that was never ordered`, () => {

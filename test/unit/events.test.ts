@@ -22,6 +22,9 @@ const session = {
   claudeVersion: '2.1.300',
 };
 
+const without = (value: object, key: string): unknown =>
+  Object.fromEntries(Object.entries(value).filter(([name]) => name !== key));
+
 // Typed as a record so that adding or removing an event type fails the typecheck until this list follows.
 const valid: Record<Event['type'], Event> = {
   'batch.ordered': {
@@ -66,6 +69,7 @@ const valid: Record<Event['type'], Event> = {
     batchId: 'b1',
     reason: { kind: 'needs_input', stepId: 'brew', questions: [question] },
     options: ['answer', 'skip', 'cancel'],
+    remindAt: '2026-10-17T10:00:00Z',
   },
   'batch.resumed': {
     type: 'batch.resumed',
@@ -107,10 +111,11 @@ const valid: Record<Event['type'], Event> = {
     batchId: 'b1',
     toStepId: 'gauge',
     by: 'octocat',
+    via: 'plugin',
     shas: { 'acme/lib-core': sha },
   },
   'batch.on_tap': { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
-  'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat' },
+  'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'comment' },
   'effect.applied': {
     type: 'effect.applied',
     key: '["b1","brew",1,"pull_request"]',
@@ -270,6 +275,31 @@ describe('Event', () => {
       },
     ],
     ['batch.stuck without options', { ...valid['batch.stuck'], options: [] }],
+    // Every command is recorded with who issued it and from where (ADR 0019).
+    ['batch.cancelled without where it came from', without(valid['batch.cancelled'], 'via')],
+    ['batch.rewound without where it came from', without(valid['batch.rewound'], 'via')],
+    [
+      'a human recipe choice without where it came from',
+      { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'human' },
+    ],
+    [
+      'a recipe choice by the router with a surface',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        by: 'router',
+        via: 'plugin',
+      },
+    ],
+    // A Stuck batch waits for a human with a reminder, never silently (ADR 0025).
+    [
+      'batch.stuck without a reminder',
+      Object.fromEntries(
+        Object.entries(valid['batch.stuck']).filter(([key]) => key !== 'remindAt'),
+      ),
+    ],
     ['a stuck option listed twice', { ...valid['batch.stuck'], options: ['retry', 'retry'] }],
     [
       'effect.applied without a result',
@@ -330,6 +360,18 @@ describe('Event', () => {
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(Event, value));
   }
+
+  it('accepts a human recipe choice with where it came from', () => {
+    const chosen = {
+      type: 'batch.recipe_chosen',
+      batchId: 'b1',
+      recipe: 'nip',
+      reason: 'small',
+      by: 'human',
+      via: 'terminal',
+    };
+    assert.equal(Event.safeParse(chosen).success, true);
+  });
 
   it('accepts a repository name starting with a dot', () => {
     accepts(Event, { ...valid['release.observed'], repo: 'acme/.github' });

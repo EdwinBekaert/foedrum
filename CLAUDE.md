@@ -19,6 +19,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
 - `npm run schemas` — regenerate the JSON Schema files in `schemas/` after changing a zod schema (a test fails until you do)
 - `npm run test:integration` — the tests against real tools in `test/integration/` (not part of `npm run check`; CI runs them)
+- `npm run deps:sync` — run `npm ci` when `node_modules` no longer matches `package-lock.json` (runs automatically at session start, see Node modules at session start)
 - `npm run worktrees:clean` — remove worktrees and branches of merged pull requests (runs automatically at session start, see Worktree cleanup)
 - `node scripts/remove-scratch.ts <scratch>` — remove a /brew-review scratch folder through `removeTree`. The scratch tree is a `git clone --shared` of the checkout, never a worktree, so nothing is registered in `.git/worktrees/`. A record that still points at `<scratch>/tree`, left by a run from before that change, goes too, and no other record is touched. It accepts only `.foedrum/tmp/<folder>/scratch` in the checkout, refuses anything else, and exits 1 when something could not be removed (the review skill runs it before and after a review)
 - CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm run test:integration` and `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
@@ -34,6 +35,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 - The hook fails closed. If npm, `package.json` or the `hook:gate` script is missing, `|| exit 2` blocks the command, and `onFailure: "block"` does the same on Claude Code ≥ 2.1.295.
 - The hook runs before every Bash and PowerShell call, with no `if` filter: a filter only sees the start of a compound command, so `mkdir x && git push` would slip through. precheck finds the push anywhere in the command, and exits at once when the input does not mention `git` or `gh`.
 - A check that times out (600 s) also blocks.
+- Before the check, the gate compares `node_modules` with `package-lock.json` in the checkout it runs in (the same check as `deps:sync`) and, when they differ, blocks with one line: `node_modules is out of date with package-lock.json (<why>); run npm ci`.
 - The check runs on the working tree in the hook's working directory, not on the commits being pushed. Commit everything before pushing, and push from the checkout you changed: `cd elsewhere && git push`, or pushing another branch, checks the wrong tree.
 - Always blocked, without running the check:
   - force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`);
@@ -43,6 +45,14 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
   The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f` or `gh -R owner/repo pr merge`.
 - Never bypass the gate. Fix the failure, or ask the user.
 - There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
+
+## Node modules at session start
+
+A `git pull` that changes `package-lock.json` leaves `node_modules` stale, and the gate then fails for every session. So the first `SessionStart` hook in `.claude/settings.json` runs `npm run deps:sync` in `${CLAUDE_PROJECT_DIR}` when a session starts or resumes, synchronously: the session waits for it, so no gate runs against a half-installed tree.
+
+- `scripts/deps-sync/core.ts` decides, `scripts/deps-sync.ts` reads the files and runs `npm ci` (ADR 0021). It compares the `packages` entries of `package-lock.json` (version and integrity, without the root entry) with npm's record of what it installed, `node_modules/.package-lock.json`. A missing record, a changed, added or removed package means stale. Entries marked `optional` or `peer` may be missing from the record, because `npm ci` skips optional packages for other platforms and peers under `omit=peer`.
+- It prints nothing when `node_modules` is up to date (hook output goes into the session's context), one line when it ran `npm ci`, the end of npm's output when that failed, and one line when it could not run npm (`npm_execpath` not set) or failed itself. It never fails the session, and it never runs `npm install` or changes the lock file.
+- Claude Code starts the hooks of one event together, so the background worktree cleanup may run while `npm ci` does; that is safe because the cleanup loads no package from `node_modules`.
 
 ## Worktree cleanup
 

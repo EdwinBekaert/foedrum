@@ -118,7 +118,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const lastChars = (text: string): string =>
   text.length > MAX_OUTPUT_CHARS ? `…\n${text.slice(-MAX_OUTPUT_CHARS)}` : text;
 
-export const precheck = async (input: string, runCheck: RunCheck): Promise<HookResult> => {
+// Why node_modules in the checkout around `cwd` is out of date, or undefined.
+export type StaleReason = (cwd: string) => Promise<string | undefined>;
+
+export const precheck = async (
+  input: string,
+  runCheck: RunCheck,
+  staleReason: StaleReason = async () => undefined,
+): Promise<HookResult> => {
   if (!MAY_NAME_GIT_OR_GH.test(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
@@ -137,6 +144,14 @@ export const precheck = async (input: string, runCheck: RunCheck): Promise<HookR
   if (!isGatedCommand(command)) return { exitCode: 0, stderr: '' };
 
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
+  // A stale tree fails the check deep in an import; say why in one line instead.
+  const stale = await staleReason(cwd);
+  if (stale !== undefined) {
+    return {
+      exitCode: 2,
+      stderr: `node_modules is out of date with package-lock.json (${stale}); run npm ci\n`,
+    };
+  }
   const { ok, output } = await runCheck(cwd);
   if (ok) return { exitCode: 0, stderr: '' };
   return {
@@ -175,7 +190,12 @@ const readStdin = async (): Promise<string> => {
 if (import.meta.main) {
   const { spawnProcess } = await import('./process-runner.ts');
   const runCheck = npmCheck(process.env, process.execPath, spawnProcess);
-  const { exitCode, stderr } = await precheck(await readStdin(), runCheck);
+  // Loaded only for gated commands.
+  const staleReason = async (cwd: string) => {
+    const { outOfDate } = await import('./deps-sync.ts');
+    return (await outOfDate(cwd))?.reason;
+  };
+  const { exitCode, stderr } = await precheck(await readStdin(), runCheck, staleReason);
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;
 }
