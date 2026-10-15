@@ -1,7 +1,8 @@
 // `npm run worktrees:clean`: removes Claude Code worktrees under .claude/worktrees/ and local
 // branches whose work is merged into origin/main, and deletes their remote branches.
 // Pull requests are merged with a merge commit, so "merged" is exact: the branch tip is an
-// ancestor of origin/main. No GitHub API call is needed.
+// ancestor of origin/main but not on its first-parent line (a branch with no commits of its
+// own is not merged). No GitHub API call is needed.
 //
 // It never touches the main checkout, a worktree outside .claude/worktrees/ (or nested inside
 // another one), the current worktree, a worktree with uncommitted or untracked changes, or one
@@ -13,7 +14,7 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
@@ -44,6 +45,8 @@ interface Context {
   current: string;
   // origin/main, or whatever origin/HEAD points at.
   base: string;
+  // The commits on the base's first-parent line: main's own history, never a merged branch tip.
+  firstParents: Set<string>;
   isPidAlive: (pid: number) => boolean;
   remove: RemoveTreeOptions;
   lines: string[];
@@ -62,8 +65,11 @@ const runGit = (cwd: string, args: string[]): Promise<GitResult> =>
         cwd,
         encoding: 'utf8',
         timeout: GIT_TIMEOUT_MS,
+        // rev-list --first-parent prints one 41-byte line per commit of main.
+        maxBuffer: 64 * 1024 * 1024,
         windowsHide: true,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        // LC_ALL=C keeps git's messages in English, so a part-way failure can be recognised.
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' },
       },
       (error, stdout, stderr) =>
         resolve({ ok: error === null, stdout, stderr: stderr || (error?.message ?? '') }),
@@ -98,9 +104,12 @@ const mainCheckoutOf = async (cwd: string): Promise<string | undefined> => {
   return /[\\/]\.git$/.test(commonDir) ? dirname(commonDir) : undefined;
 };
 
+// Resolves symbolic links, junctions and subst drives, so both sides of a comparison agree.
+const realPath = (path: string): Promise<string> => realpath(path).catch(() => path);
+
 export const isMainCheckout = async (dir: string): Promise<boolean> => {
   const main = await mainCheckoutOf(dir);
-  return main !== undefined && samePath(main, dir);
+  return main !== undefined && samePath(await realPath(main), await realPath(dir));
 };
 
 // `git worktree list --porcelain -z`: records of NUL-terminated fields, ended by an empty one.
@@ -125,8 +134,24 @@ const listWorktrees = async (ctx: Context): Promise<Worktree[]> => {
   return listed.ok ? parseWorktrees(listed.stdout) : [];
 };
 
-const isMerged = async (ctx: Context, ref: string): Promise<boolean> =>
-  (await runGit(ctx.main, ['merge-base', '--is-ancestor', ref, `refs/remotes/${ctx.base}`])).ok;
+const defaultBranch = (ctx: Context): string => ctx.base.replace(/^origin\//, '');
+
+// The ref's tip when its work is merged into the base, otherwise undefined. Merged means an
+// ancestor of the base that is not on its first-parent line: a merged pull request's tip is
+// the second parent of its merge commit, while a branch with no commits of its own points at
+// a commit of main itself.
+const mergedTip = async (ctx: Context, ref: string): Promise<string | undefined> => {
+  const tip = await runGit(ctx.main, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  const sha = tip.stdout.trim();
+  if (!tip.ok || ctx.firstParents.has(sha)) return undefined;
+  const merged = await runGit(ctx.main, [
+    'merge-base',
+    '--is-ancestor',
+    sha,
+    `refs/remotes/${ctx.base}`,
+  ]);
+  return merged.ok ? sha : undefined;
+};
 
 // Why a lock keeps the worktree, or undefined when there is no lock or its session is gone.
 const lockKeepReason = (ctx: Context, lockReason: string | undefined): string | undefined => {
@@ -146,11 +171,17 @@ const keepReason = async (
   if (nested !== undefined) return `contains the worktree ${nested.path}`;
   if (samePath(worktree.path, ctx.current)) return 'it is the current worktree';
   if (worktree.branch === undefined) return 'detached HEAD';
-  if (!(await isMerged(ctx, `refs/heads/${worktree.branch}`))) {
+  if (worktree.branch === defaultBranch(ctx)) return 'it has the default branch checked out';
+  if ((await mergedTip(ctx, `refs/heads/${worktree.branch}`)) === undefined) {
     return `not merged into ${ctx.base}`;
   }
   const locked = lockKeepReason(ctx, worktree.lockReason);
   if (locked !== undefined) return locked;
+  // Without its own .git file, git would run in the main checkout and find nothing to keep.
+  const top = await runGit(worktree.path, ['rev-parse', '--show-toplevel']);
+  if (!top.ok || !samePath(top.stdout.trim(), worktree.path)) {
+    return 'its .git file is missing or broken';
+  }
   const status = await runGit(worktree.path, ['status', '--porcelain']);
   if (!status.ok) return `git status failed: ${firstLine(status.stderr)}`;
   if (status.stdout.trim() !== '') return 'it has uncommitted or untracked changes';
@@ -202,9 +233,11 @@ const removeWorktree = async (
     await runGit(ctx.main, ['worktree', 'unlock', worktree.path]);
   }
   const removed = await runGit(ctx.main, ['worktree', 'remove', worktree.path]);
-  // git checks the worktree before it deletes anything, so an intact .git file means it
-  // refused; otherwise it failed part-way and the rest of the folder can go.
-  if (!removed.ok && existsSync(join(worktree.path, '.git'))) {
+  // git checks the worktree before it deletes anything. A refusal leaves it whole; a delete
+  // that fails part-way (a busy file on Windows) says "failed to delete", and the rest of the
+  // folder, already checked clean above, can go.
+  const partWay = /failed to delete/.test(removed.stderr);
+  if (!removed.ok && !partWay && existsSync(join(worktree.path, '.git'))) {
     ctx.lines.push(
       `kept worktree ${label}: git worktree remove failed: ${firstLine(removed.stderr)}`,
     );
@@ -235,10 +268,17 @@ const deleteBranch = async (ctx: Context, branch: string): Promise<void> => {
   }
   ctx.lines.push(`deleted branch ${branch}`);
 
-  const remoteRef = `refs/remotes/origin/${branch}`;
-  const remoteExists = (await runGit(ctx.main, ['show-ref', '--verify', '--quiet', remoteRef])).ok;
-  if (!remoteExists || !(await isMerged(ctx, remoteRef))) return;
-  const pushed = await runGit(ctx.main, ['push', '--quiet', 'origin', '--delete', branch]);
+  const remoteTip = await mergedTip(ctx, `refs/remotes/origin/${branch}`);
+  if (remoteTip === undefined) return;
+  // The lease deletes the remote branch only while it is still at the merged tip, so a commit
+  // pushed after the fetch survives.
+  const pushed = await runGit(ctx.main, [
+    'push',
+    '--quiet',
+    `--force-with-lease=refs/heads/${branch}:${remoteTip}`,
+    'origin',
+    `:refs/heads/${branch}`,
+  ]);
   ctx.lines.push(
     pushed.ok
       ? `deleted remote branch origin/${branch}`
@@ -284,16 +324,16 @@ const cleanClaudeWorktrees = async (ctx: Context): Promise<void> => {
 
 const cleanBranchesWithoutWorktree = async (ctx: Context): Promise<void> => {
   const checkedOut = new Set((await listWorktrees(ctx)).map((worktree) => worktree.branch));
-  const defaultBranch = ctx.base.replace(/^origin\//, '');
   const heads = await runGit(ctx.main, ['for-each-ref', '--format=%(refname)', 'refs/heads']);
   const branches = heads.stdout
     .split(/\r?\n/)
     .filter((ref) => ref.startsWith('refs/heads/'))
     .map((ref) => ref.slice('refs/heads/'.length));
   for (const branch of branches) {
-    if (branch === defaultBranch || checkedOut.has(branch)) continue;
-    if (await isMerged(ctx, `refs/heads/${branch}`)) await deleteBranch(ctx, branch);
-    else ctx.lines.push(`kept branch ${branch}: not merged into ${ctx.base}`);
+    if (branch === defaultBranch(ctx) || checkedOut.has(branch)) continue;
+    if ((await mergedTip(ctx, `refs/heads/${branch}`)) !== undefined) {
+      await deleteBranch(ctx, branch);
+    } else ctx.lines.push(`kept branch ${branch}: not merged into ${ctx.base}`);
   }
 };
 
@@ -312,10 +352,16 @@ export const cleanWorktrees = async (options: CleanOptions): Promise<string[]> =
     '--short',
     'refs/remotes/origin/HEAD',
   ]);
+  const base = head.ok ? head.stdout.trim() : 'origin/main';
+  const history = await runGit(main, ['rev-list', '--first-parent', `refs/remotes/${base}`]);
+  if (!history.ok) {
+    return [`skipped: git rev-list ${base} failed: ${firstLine(history.stderr)}`];
+  }
   const ctx: Context = {
     main,
     current: top.ok ? top.stdout.trim() : main,
-    base: head.ok ? head.stdout.trim() : 'origin/main',
+    base,
+    firstParents: new Set(history.stdout.split(/\r?\n/).filter((sha) => sha !== '')),
     isPidAlive: options.isPidAlive ?? defaultIsPidAlive,
     remove: options.remove ?? {},
     lines: [],
