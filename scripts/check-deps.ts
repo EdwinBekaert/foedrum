@@ -20,9 +20,6 @@ export interface LockEntry {
   devOptional?: boolean;
   os?: string[];
   cpu?: string[];
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
 }
 
 export interface Lockfile {
@@ -47,14 +44,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 60_000;
 
 const STRING_FIELDS = ['name', 'version', 'resolved', 'integrity'] as const;
-const BOOLEAN_FIELDS = ['hasInstallScript', 'link'] as const;
-const RECORD_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
+const BOOLEAN_FIELDS = ['hasInstallScript', 'link', 'dev', 'optional', 'devOptional'] as const;
+const LIST_FIELDS = ['os', 'cpu'] as const;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const isStringRecord = (value: unknown): value is Record<string, string> =>
-  isObject(value) && Object.values(value).every((v) => typeof v === 'string');
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((v) => typeof v === 'string');
 
 // The lockfile is untrusted input: check the shape of every field the guard reads.
 export const parseLockfile = (text: string): Lockfile => {
@@ -70,7 +67,7 @@ export const parseLockfile = (text: string): Lockfile => {
     const bad = [
       ...STRING_FIELDS.filter((f) => entry[f] !== undefined && typeof entry[f] !== 'string'),
       ...BOOLEAN_FIELDS.filter((f) => entry[f] !== undefined && typeof entry[f] !== 'boolean'),
-      ...RECORD_FIELDS.filter((f) => entry[f] !== undefined && !isStringRecord(entry[f])),
+      ...LIST_FIELDS.filter((f) => entry[f] !== undefined && !isStringList(entry[f])),
     ];
     if (bad.length > 0) {
       throw new Error(`package-lock.json: ${key || '(root)'} has a malformed ${bad.join(', ')}`);
@@ -113,11 +110,21 @@ const packageName = (key: string, entry: LockEntry): string =>
 const installed = (lock: Lockfile): Array<[string, LockEntry]> =>
   Object.entries(lock.packages).filter(([key]) => key !== '');
 
+// The tarball npm ci downloads must be the version the publish dates are checked for.
+const tarballUrl = (name: string, version: string): string =>
+  `${REGISTRY}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`;
+
 const entryProblems = (key: string, entry: LockEntry): string[] => {
   if (entry.link === true) return [`${key}: is a link, not a registry package`];
   const problems: string[] = [];
-  if (entry.resolved?.startsWith(`${REGISTRY}/`) !== true) {
-    problems.push(`${key}: resolved outside the npm registry (${entry.resolved ?? 'no URL'})`);
+  const name = packageName(key, entry);
+  if (entry.version === undefined) {
+    problems.push(`${key}: no version`);
+  } else if (entry.resolved !== tarballUrl(name, entry.version)) {
+    problems.push(
+      `${key}: resolved ${entry.resolved ?? 'nowhere'}, not the npm registry tarball of ` +
+        `${name}@${entry.version}`,
+    );
   }
   if (entry.integrity?.startsWith('sha512-') !== true) {
     problems.push(`${key}: no sha512 integrity`);
@@ -128,12 +135,21 @@ const entryProblems = (key: string, entry: LockEntry): string[] => {
   return problems;
 };
 
-// The budget and the admission list count direct dependencies; DEPENDENCIES.md records each tree.
+// A prebuilt binary for one platform: npm installs only the one matching the machine.
+const isPlatformBinary = (entry: LockEntry): boolean =>
+  entry.optional === true && (entry.os !== undefined || entry.cpu !== undefined);
+
+const isDev = (entry: LockEntry): boolean => entry.dev === true || entry.devOptional === true;
+
+// The budget and the admission list cover the installed tree (ADR 0004: "about 7 packages in
+// node_modules"), counting each package name once and leaving out platform binaries.
 export const checkLockfile = (lock: Lockfile, policy: Policy): string[] => {
   const problems = installed(lock).flatMap(([key, entry]) => entryProblems(key, entry));
-  const root = lock.packages[''] ?? {};
-  const runtime = new Set(Object.keys({ ...root.dependencies, ...root.optionalDependencies }));
-  const all = new Set([...runtime, ...Object.keys(root.devDependencies ?? {})]);
+  const counted = installed(lock).filter(([, entry]) => !isPlatformBinary(entry));
+  const all = new Set(counted.map(([key, entry]) => packageName(key, entry)));
+  const runtime = new Set(
+    counted.filter(([, entry]) => !isDev(entry)).map(([key, entry]) => packageName(key, entry)),
+  );
   for (const name of all) {
     if (!policy.admitted.has(name)) problems.push(`${name}: not listed in DEPENDENCIES.md`);
   }
