@@ -28,6 +28,16 @@ export interface CliResult {
 const HELP = new Set(['-h', '--help']);
 const SEE_HELP = 'run foedrum --help for the commands';
 
+// Every control character but the line feed, DEL and the C1 controls: model-written text in the
+// event log (a Stuck summary, a failure reason) must not move the cursor, rewrite earlier lines
+// or set the clipboard (OSC 52) when it is printed.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is its job
+const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+
+/** The text with each control character but the line feed shown as a `\uXXXX` escape. */
+const printable = (text: string): string =>
+  text.replace(CONTROL, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 const usageError = (line: string): CliResult => ({ exitCode: 2, stdout: '', stderr: `${line}\n` });
 
 const usage = (): CliResult => {
@@ -50,6 +60,11 @@ const invalid = (prefix: string, input: Record<string, string>, error: z.ZodErro
 
 /** Runs `foedrum <argv>`: exit 2 with one line on stderr when the command line is wrong. */
 export const runCli = async (argv: readonly string[], context: CliContext): Promise<CliResult> => {
+  const { exitCode, stdout, stderr } = await runCommand(argv, context);
+  return { exitCode, stdout: printable(stdout), stderr: printable(stderr) };
+};
+
+const runCommand = async (argv: readonly string[], context: CliContext): Promise<CliResult> => {
   const [name, ...rest] = argv;
   if (name === undefined) return usageError(`foedrum: no command given; ${SEE_HELP}`);
   if (HELP.has(name)) return usage();

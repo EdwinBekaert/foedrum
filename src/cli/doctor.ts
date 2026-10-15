@@ -80,11 +80,19 @@ const isTooOld = (node: string): boolean => {
 const requiredProblems = (name: 'git' | 'claude', run: ToolRun | undefined, fix: string) => {
   if (run === undefined) return [{ required: true, what: `${name} not found`, fix }];
   if (versionOf(run) === undefined) {
+    // What the tool, or the runner that could not start it, said first.
+    const said = run.output
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '');
     return [
       {
         required: true,
         what: `${name} at ${run.path} did not report a version`,
-        fix: `check that \`${name} --version\` works`,
+        fix:
+          said === undefined
+            ? `check that \`${name} --version\` works`
+            : `\`${name} --version\` failed: ${said}`,
       },
     ];
   }
@@ -111,9 +119,11 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
         [WSL2_ADVICE],
       );
     case 'linux': {
-      // WSL 1 runs Linux programs on the Windows kernel, which has no bubblewrap; WSL 2 has.
+      // WSL 1 runs Linux programs on the Windows kernel, which has no bubblewrap; WSL 2 has. WSL 1
+      // reports a release such as 4.4.0-19041-Microsoft; WSL 2 kernels say microsoft-standard,
+      // and later also WSL2.
       const wsl = /microsoft/i.test(kernelRelease);
-      if (wsl && !/wsl2/i.test(kernelRelease)) {
+      if (wsl && !/microsoft-standard|wsl2/i.test(kernelRelease)) {
         return level({ level: 'permissions only', why: 'WSL 1 has no sandbox' }, [WSL2_ADVICE]);
       }
       const missing: Problem[] = [];

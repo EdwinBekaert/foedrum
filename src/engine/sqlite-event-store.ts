@@ -149,12 +149,25 @@ export const openSqliteEventStore = (
 ): EventStore => {
   const {
     busyTimeoutMs = 5000,
+    readOnly = false,
     openDatabase = (file, settings) => new DatabaseSync(file, settings),
   } = options;
-  const db = openDatabase(path, { timeout: busyTimeoutMs });
+  const db = openDatabase(path, { timeout: busyTimeoutMs, readOnly });
   try {
-    db.exec('PRAGMA journal_mode = WAL');
-    migrate(db);
+    if (readOnly) {
+      // A reader changes nothing: a store at another version is for a Foedrum that knows it.
+      const { user_version: version } = db.prepare('PRAGMA user_version').get() as {
+        user_version: number;
+      };
+      if (version !== migrations.length) {
+        throw new Error(
+          `The event store has schema version ${version}; this Foedrum reads version ${migrations.length} only`,
+        );
+      }
+    } else {
+      db.exec('PRAGMA journal_mode = WAL');
+      migrate(db);
+    }
   } catch (error) {
     db.close();
     throw error;

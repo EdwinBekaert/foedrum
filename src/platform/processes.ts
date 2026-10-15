@@ -2,7 +2,7 @@
 // (architecture §13). The one process runner of Foedrum and its scripts lives here.
 
 import { execFile, spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import type { Readable } from 'node:stream';
 import { resolveExecutable } from './executables.ts';
 import { windowsCommandLine } from './shell.ts';
@@ -27,28 +27,39 @@ export const killableSpawnOptions = (
   detached: platform !== 'win32',
 });
 
-/** What the runner passes to `spawn`: a program and its arguments, or a shell command line. */
+/**
+ * What the runner passes to `spawn`: a program and its arguments, or a command line for the shell
+ * at the path `shell` names; and the environment to start it in.
+ */
 export interface SpawnCommand {
   file: string;
   args: string[];
-  shell: boolean;
+  shell: string | false;
+  env: NodeJS.ProcessEnv;
 }
 
 /**
  * How to start a file. On Windows a `.cmd` or `.bat` file (npm.cmd, npm's claude.cmd) cannot
  * start without cmd.exe, so it becomes a command line for the shell, every part checked and quoted
- * (windowsCommandLine; throws on a part cmd.exe could read as syntax). Anything else starts
- * directly, without a shell.
+ * (windowsCommandLine; throws on a part cmd.exe could read as syntax). cmd.exe is named by its full
+ * path, never through ComSpec or a lookup, and runs with NoDefaultCurrentDirectoryInExePath set,
+ * so the bare `node` in npm's shims is never one planted in the working directory (#12). Anything
+ * else starts directly, without a shell.
  */
 export const spawnCommand = (
   file: string,
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
-  _env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = process.env,
 ): SpawnCommand =>
   platform === 'win32' && /\.(?:cmd|bat)$/i.test(file)
-    ? { file: windowsCommandLine(file, args), args: [], shell: true }
-    : { file, args: [...args], shell: false };
+    ? {
+        file: windowsCommandLine(file, args),
+        args: [],
+        shell: win32.join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe'),
+        env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
+      }
+    : { file, args: [...args], shell: false, env };
 
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
@@ -244,10 +255,10 @@ export const execProcessWith =
 /** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
 export const execProcess: ExecProcess = execProcessWith({
   spawn: (file, args, { cwd, env }) => {
-    const command = spawnCommand(file, args);
+    const command = spawnCommand(file, args, process.platform, env);
     return spawn(command.file, command.args, {
       cwd,
-      env,
+      env: command.env,
       shell: command.shell,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
