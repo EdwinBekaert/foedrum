@@ -10,7 +10,12 @@ export const FILE_BUDGET_MS = 5000;
 // The fields of node:test's reporter events that this reporter reads.
 export interface TestEvent {
   type: string;
-  data?: { nesting?: number; file?: string; details?: { duration_ms?: number } };
+  data?: {
+    nesting?: number;
+    file?: string;
+    duration_ms?: number;
+    details?: { duration_ms?: number };
+  };
 }
 
 export interface BudgetOptions {

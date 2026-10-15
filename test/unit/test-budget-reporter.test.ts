@@ -8,14 +8,15 @@ const fileA = join(cwd, 'test', 'unit', 'a.test.ts');
 const fileB = join(cwd, 'test', 'unit', 'b.test.ts');
 const fileC = join(cwd, 'test', 'property', 'c.test.ts');
 
-const ended = (
-  file: string | undefined,
-  ms: number,
-  nesting = 0,
-  type: 'test:pass' | 'test:fail' = 'test:pass',
-): TestEvent => ({
-  type,
-  data: { nesting, ...(file === undefined ? {} : { file }), details: { duration_ms: ms } },
+// The runner's summary of one test file, or of the whole run when there is no file.
+const summary = (file: string | undefined, ms: number): TestEvent => ({
+  type: 'test:summary',
+  data: { ...(file === undefined ? {} : { file }), duration_ms: ms },
+});
+
+const passed = (file: string, ms: number): TestEvent => ({
+  type: 'test:pass',
+  data: { nesting: 0, file, details: { duration_ms: ms } },
 });
 
 // Runs the reporter over the events and returns what it printed and whether it failed the run.
@@ -38,14 +39,15 @@ const report = async (events: TestEvent[], budgetMs = 5000, slowest = 5) => {
 };
 
 describe('budgetReporter', () => {
-  it('adds up the top-level times per file and lists files slowest first', async () => {
+  it("lists each file's summary time, slowest first, leaving out the run's summary", async () => {
+    // The file summaries count hooks and setup that the tests' own times leave out.
     const { lines, failed } = await report([
-      ended(fileA, 300),
-      ended(fileA, 50, 1),
-      ended(fileB, 1200),
-      ended(fileA, 400, 0, 'test:fail'),
-      ended(fileC, 900),
-      ended(undefined, 9000),
+      passed(fileA, 300),
+      summary(fileA, 700),
+      passed(fileB, 100),
+      summary(fileB, 1200),
+      summary(fileC, 900),
+      summary(undefined, 9000),
       { type: 'test:diagnostic', data: { nesting: 0 } },
     ]);
     assert.deepEqual(lines, [
@@ -60,7 +62,7 @@ describe('budgetReporter', () => {
 
   it('lists only the slowest files', async () => {
     const { lines } = await report(
-      [ended(fileA, 100), ended(fileB, 300), ended(fileC, 200)],
+      [summary(fileA, 100), summary(fileB, 300), summary(fileC, 200)],
       5000,
       2,
     );
@@ -72,7 +74,7 @@ describe('budgetReporter', () => {
 
   it('fails the run and names every file over the budget', async () => {
     const { lines, failed } = await report(
-      [ended(fileA, 2000), ended(fileA, 1500), ended(fileB, 5100), ended(fileC, 3000)],
+      [summary(fileA, 3500), summary(fileB, 5100), summary(fileC, 3000)],
       3000,
     );
     assert.equal(failed, true);
@@ -84,7 +86,7 @@ describe('budgetReporter', () => {
   });
 
   it('lets a file that takes exactly the budget pass', async () => {
-    const { failed } = await report([ended(fileA, 3000)], 3000);
+    const { failed } = await report([summary(fileA, 3000)], 3000);
     assert.equal(failed, false);
   });
 
