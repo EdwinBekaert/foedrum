@@ -345,7 +345,7 @@ const readJson = <T>(path: string): T =>
 describe('local gate wiring', () => {
   it('package.json has a check script and the hook entry point', () => {
     const { scripts } = readJson<{ scripts?: Record<string, string> }>(join(root, 'package.json'));
-    assert.match(scripts?.check ?? '', /^npm run typecheck && npm run lint && npm test(?: && |$)/);
+    assert.equal(scripts?.check, 'node scripts/check.ts');
     assert.equal(scripts?.['hook:gate'], 'node scripts/precheck.ts');
   });
 
