@@ -4,7 +4,7 @@ import { type Command, type Context, decide, stuckOptions } from '../../src/engi
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
-import { fakeRecipe, fakeRecipeBook, hour } from '../helpers/fake-recipes.ts';
+import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 
 const day = 24 * hour;
 const now = new Date('2026-10-15T12:00:00.000Z');
@@ -24,7 +24,7 @@ const withoutAnswer = ['retry', 'skip', 'recipe', 'rewind', 'cancel'] as const;
 const context: Context = {
   now,
   reminderMs: 2 * day,
-  recipes: fakeRecipeBook({
+  recipes: fakeRecipes({
     pint: fakeRecipe({
       steps: ['plan', 'implement', 'green'],
       routes: { green: { failed: 'implement' }, implement: { findings: 'plan' } },

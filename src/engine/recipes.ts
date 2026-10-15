@@ -25,10 +25,10 @@ export interface Recipe {
    * The step an `onFail` route (a failed check) or an `onBlocked: findings` route sends `batch`
    * back to, or `undefined` when `stepId` has no such route or its rounds are used up.
    */
-  routeBack(batch: Batch, stepId: string, why: 'failed' | 'findings'): string | undefined;
+  loopBack(batch: Batch, stepId: string, why: 'failed' | 'findings'): string | undefined;
 }
 
-export interface RecipeBook {
+export interface Recipes {
   /** The recipe called `name`, or `undefined` when the Brewery has none. */
   find(name: string): Recipe | undefined;
 }

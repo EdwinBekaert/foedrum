@@ -1,6 +1,6 @@
-// A fake recipe book for state machine tests: steps in a line, with optional routes back.
+// A fake of the Brewery's recipes for state machine tests: steps in a line, with optional loops back.
 
-import type { Recipe, RecipeBook } from '../../src/engine/recipes.ts';
+import type { Recipe, Recipes } from '../../src/engine/recipes.ts';
 
 export interface FakeRecipe {
   steps: readonly string[];
@@ -30,10 +30,10 @@ export const fakeRecipe = ({
       return next === undefined ? { kind: 'done', pullRequests } : { kind: 'step', stepId: next };
     },
     mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
-    routeBack: (_batch, stepId, why) => routes[stepId]?.[why],
+    loopBack: (_batch, stepId, why) => routes[stepId]?.[why],
   };
 };
 
-export const fakeRecipeBook = (recipes: Readonly<Record<string, Recipe>>): RecipeBook => ({
+export const fakeRecipes = (recipes: Readonly<Record<string, Recipe>>): Recipes => ({
   find: (name) => recipes[name],
 });

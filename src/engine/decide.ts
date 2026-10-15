@@ -15,7 +15,7 @@ import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
 import type { Batch, Lane, State } from './fold.ts';
-import type { Recipe, RecipeBook } from './recipes.ts';
+import type { Recipe, Recipes } from './recipes.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
 interface Issuer {
@@ -73,7 +73,7 @@ export type Command = HumanCommand | EngineCommand;
 
 export interface Context {
   now: Date;
-  recipes: RecipeBook;
+  recipes: Recipes;
   /** How long a Conditioning or Stuck batch waits before the next reminder, in milliseconds. */
   reminderMs: number;
 }
@@ -254,7 +254,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
       schedule(draft, batchId, stepId);
       return;
     }
-    const back = routed ? recipe.routeBack(batch, stepId, 'failed') : undefined;
+    const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
     if (back === undefined) {
       stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
     } else {
@@ -280,7 +280,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
       switch (blockerKind) {
         case 'findings': {
           // The next round, until the route's rounds are used up (brewers-and-recipes §2).
-          const back = recipe.routeBack(batch, stepId, 'findings');
+          const back = recipe.loopBack(batch, stepId, 'findings');
           if (back === undefined) stick(draft, batchId, blocked);
           else schedule(draft, batchId, back);
           return;
