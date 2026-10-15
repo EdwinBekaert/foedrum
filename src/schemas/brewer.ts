@@ -13,24 +13,22 @@ const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase 
 
 const source = /^(?:order|step:(.+)|file:(.+))$/;
 
-const Input = z
-  .strictObject({
-    name: Identifier,
-    from: z
-      .string()
-      .regex(source, 'Must be "order", "step:<step id>" or "file:<path in the repository>"')
-      .refine((from) => {
-        const [, step, file] = source.exec(from) ?? [];
-        if (step !== undefined) return PathSafeId.safeParse(step).success;
-        return file === undefined || RelativePath.safeParse(file).success;
-      }, 'Must name a path-safe step id or a relative path'),
-    // Untrusted input is wrapped in delimiters and marked as data, never instructions.
-    trusted: z.boolean().default(false),
-  })
-  .refine((input) => !(input.from === 'order' && input.trusted), {
-    message: 'The order is always untrusted',
-    path: ['trusted'],
-  });
+const Input = z.strictObject({
+  name: Identifier,
+  from: z
+    .string()
+    .regex(source, 'Must be "order", "step:<step id>" or "file:<path in the repository>"')
+    .refine((from) => {
+      const [, step, file] = source.exec(from) ?? [];
+      if (step !== undefined) return PathSafeId.safeParse(step).success;
+      return file === undefined || RelativePath.safeParse(file).success;
+    }, 'Must name a path-safe step id or a relative path'),
+  // Untrusted input is wrapped in delimiters and marked as data, never instructions. Every
+  // source is untrusted for now; a trusted one needs an ADR (brewers-and-recipes §1.1).
+  trusted: z
+    .literal(false, 'Every input is untrusted for now (brewers-and-recipes §1.1)')
+    .default(false),
+});
 
 const Guard = z.enum([
   'requiresOutDoc',

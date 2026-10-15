@@ -177,21 +177,51 @@ function* walk(steps: readonly Step[], path: Path): Generator<{ step: Step; path
   }
 }
 
+/** How a step refers to another: reads its result, goes back to it, or proves its tests red. */
+type Reference = { id: string; path: Path; kind: 'read' | 'route' | 'proof' };
+
 /** The step ids a step refers to, with the path of each reference within the step. */
-function references(step: Step): [string, Path][] {
-  const found: [string, Path][] = [];
+function references(step: Step): Reference[] {
+  const found: Reference[] = [];
   const read = (text: string | undefined, path: Path): void => {
     const id = text === undefined ? undefined : expression.exec(text)?.[1];
-    if (id !== undefined && id !== 'recipe') found.push([id, path]);
+    if (id !== undefined && id !== 'recipe') found.push({ id, path, kind: 'read' });
   };
   read(step.when, ['when']);
   if ('loop' in step) read(step.loop.until, ['loop', 'until']);
-  if ('of' in step) found.push([step.of, ['of']]);
-  if ('onFail' in step && step.onFail) found.push([step.onFail.goto, ['onFail', 'goto']]);
+  if ('of' in step) found.push({ id: step.of, path: ['of'], kind: 'proof' });
+  if ('onFail' in step && step.onFail) {
+    found.push({ id: step.onFail.goto, path: ['onFail', 'goto'], kind: 'route' });
+  }
   if ('onBlocked' in step && step.onBlocked) {
-    found.push([step.onBlocked.findings.goto, ['onBlocked', 'findings', 'goto']]);
+    const path = ['onBlocked', 'findings', 'goto'];
+    found.push({ id: step.onBlocked.findings.goto, path, kind: 'route' });
   }
   return found;
+}
+
+/** Where a step is: its position in walk order and the path of the list that holds it. */
+type Place = { order: number; list: Path };
+
+const encloses = (outer: Path, inner: Path): boolean =>
+  outer.length <= inner.length && outer.every((part, index) => inner[index] === part);
+
+/** Why a reference from `from` to `to` is not allowed, or undefined when it is. */
+function misplaced(kind: Reference['kind'], from: Place, to: Place): string | undefined {
+  switch (kind) {
+    case 'read':
+      return undefined;
+    case 'proof':
+      return to.order < from.order ? undefined : 'A red proof reads the tests of an earlier step';
+    case 'route':
+      return to.order < from.order && encloses(to.list, from.list)
+        ? undefined
+        : 'A route goes back to an earlier step at the same level or in an enclosing loop';
+    default: {
+      const unknown: never = kind;
+      throw new Error(`Unknown reference kind: ${String(unknown)}`);
+    }
+  }
 }
 
 const RecipeFields = z.strictObject({
@@ -200,36 +230,47 @@ const RecipeFields = z.strictObject({
   description: NonEmpty,
   match: z.strictObject({ labels: z.array(NonEmpty).min(1) }).optional(),
   budget: z.strictObject({ minutes: z.int().positive() }).optional(),
+  // No default here: ADR 0017 defaults it to true for recipes that write code, which depends on
+  // the brewers the recipe uses, so the loader decides when it is absent.
   testFirst: z
     .boolean()
-    .default(true)
-    .describe('Gauger and red proof before Cellarman; the router may switch it off (ADR 0017)'),
+    .optional()
+    .describe(
+      'Gauger and red proof before Cellarman; default true for recipes that write code, and the router may switch it off (ADR 0017)',
+    ),
   steps: z.array(Step).min(1),
 });
 
-/** A recipe: step ids are unique, and every goto, red proof and expression names a step. */
+/**
+ * A recipe: step ids are unique, every goto, red proof and expression names a step, a route goes
+ * back to an earlier step at the same level or in an enclosing loop, and a red proof reads an
+ * earlier step's tests.
+ */
 export const Recipe = RecipeFields.superRefine((recipe, ctx) => {
   const steps = [...walk(recipe.steps, ['steps'])];
-  const ids = new Set<string>();
-  for (const { step, path } of steps) {
+  const places = new Map<string, Place>();
+  for (const [order, { step, path }] of steps.entries()) {
     const id = stepId(step);
-    if (ids.has(id)) {
+    if (places.has(id)) {
       ctx.addIssue({
         code: 'custom',
         message: `Step id "${id}" is used twice`,
         path: [...path, 'id'],
       });
+    } else {
+      places.set(id, { order, list: path.slice(0, -1) });
     }
-    ids.add(id);
   }
-  for (const { step, path } of steps) {
-    for (const [id, at] of references(step)) {
-      if (!ids.has(id)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `No step has the id "${id}"`,
-          path: [...path, ...at],
-        });
+  for (const [order, { step, path }] of steps.entries()) {
+    const from = { order, list: path.slice(0, -1) };
+    for (const reference of references(step)) {
+      const to = places.get(reference.id);
+      const problem =
+        to === undefined
+          ? `No step has the id "${reference.id}"`
+          : misplaced(reference.kind, from, to);
+      if (problem !== undefined) {
+        ctx.addIssue({ code: 'custom', message: problem, path: [...path, ...reference.path] });
       }
     }
   }

@@ -46,8 +46,7 @@
       "additionalProperties": false
     },
     "testFirst": {
-      "default": true,
-      "description": "Gauger and red proof before Cellarman; the router may switch it off (ADR 0017)",
+      "description": "Gauger and red proof before Cellarman; default true for recipes that write code, and the router may switch it off (ADR 0017)",
       "type": "boolean"
     },
     "steps": {
