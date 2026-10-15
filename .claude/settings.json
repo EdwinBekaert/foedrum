@@ -116,6 +116,20 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npm run --silent --prefix \"${CLAUDE_PROJECT_DIR}\" worktrees:clean -- --session-start || true",
+            "shell": "bash",
+            "async": true,
+            "timeout": 300
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
