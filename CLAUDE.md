@@ -36,6 +36,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 - The hook runs before every Bash and PowerShell call, with no `if` filter: a filter only sees the start of a compound command, so `mkdir x && git push` would slip through. precheck finds the push anywhere in the command, and exits at once when the input does not mention `git` or `gh`.
 - A check that times out (600 s) also blocks.
 - Before the check, the gate compares `node_modules` with `package-lock.json` in the checkout it runs in (the same check as `deps:sync`) and, when they differ, blocks with one line: `node_modules is out of date with package-lock.json (<why>); run npm ci`.
+- Before the check, a `git push` from a checkout whose HEAD is detached (`git symbolic-ref -q HEAD` exits 1 in the hook's working directory) is blocked with one line: commits made on a detached HEAD are on no branch, so the push would stop short (#80). Switch to the branch, move it to those commits, and push again.
 - The check runs on the working tree in the hook's working directory, not on the commits being pushed. Commit everything before pushing, and push from the checkout you changed: `cd elsewhere && git push`, or pushing another branch, checks the wrong tree.
 - Always blocked, without running the check:
   - force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`);
