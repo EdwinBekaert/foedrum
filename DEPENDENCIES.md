@@ -90,11 +90,11 @@ Local tarballs and directories are still allowed (`allow-file` and `allow-direct
 - an entry has no `sha512-` integrity;
 - any package in the tree has an install script;
 - the package budget is exceeded (runtime ≤ 2, total ≤ 10). It counts the installed tree, as [ADR 0004](docs/adr/0004-built-in-first-dependency-policy.md) intends ("about 7 packages in `node_modules`"): every package name in the lockfile once, transitive ones included, except platform binaries (entries marked `optional` with an `os` or `cpu` restriction, of which npm installs only the one for the machine). Runtime counts the packages not marked `dev` or `devOptional`;
-- a package in that same set has no row under [Admitted packages](#admitted-packages);
+- a package in that same set has no row under [Admitted packages](#admitted-packages). A platform binary is admitted with its parent: only when an admitted package in the lockfile declares it in its `optionalDependencies`; any other optional entry with `os` or `cpu` must be listed like any other package;
 - a locked version was published less than `min-release-age` days ago (read from `.npmrc`), because a version already in the lockfile skips that check in npm (spike #16). This needs the registry.
 
 The budget above and the admitted-packages table are read by the checker; keep their format.
 
 - `npm run check` runs it with `--offline` (no publish dates), so it stays fast and works without a network.
-- `npm run check:deps` runs every rule, including publish dates. The CI workflow (#2) will run it on every pull request; until then, run it yourself after changing the lockfile.
+- `npm run check:deps` runs every rule, including publish dates. CI runs it on one matrix leg (ubuntu, Node 24) after `npm ci`.
 - [Dependabot](.github/dependabot.yml) proposes npm and GitHub Actions updates weekly, grouped, with a 7-day cooldown.

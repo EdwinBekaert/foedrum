@@ -1,6 +1,6 @@
 # CI on all three platforms (ADR 0010); see issue #2.
-# From ADR 0004: npm ci, npm audit signatures and SHA-pinned actions. The lockfile
-# checker and Dependabot are tracked in #3.
+# From ADR 0004: npm ci, npm audit signatures, SHA-pinned actions and the lockfile
+# checker (scripts/check-deps.ts, #3).
 name: CI
 
 on:
@@ -52,6 +52,13 @@ jobs:
           npm --version
 
       - run: npm ci
+
+      # The dependency guard with publish dates (DEPENDENCIES.md): it reads the registry and does
+      # not depend on the platform, so one leg is enough. npm run check runs its offline rules.
+      - name: Dependency guard
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == '24' }}
+        run: npm run check:deps
+
       - run: npm audit signatures
       - run: npm audit --omit=dev
 
