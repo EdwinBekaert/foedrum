@@ -93,7 +93,11 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.resumed':
       return lanes(state, event, ['stuck']) ?? offered(state, event.batchId, event.action);
     case 'batch.rewound':
-      return lanes(state, event, ['stuck']) ?? offered(state, event.batchId, 'rewind');
+      return (
+        lanes(state, event, ['stuck']) ??
+        offered(state, event.batchId, 'rewind') ??
+        rewindable(state, event)
+      );
     case 'order.decomposed':
       return lanes(state, event, nonTerminal) ?? keepsRepositories(state, event);
     case 'batch.waiting':
@@ -128,15 +132,33 @@ function offered(state: State, batchId: string, option: string): string | undefi
     : undefined;
 }
 
-/** Only an attempt that no later attempt of its step replaced may start or finish. */
+/** Only an attempt that no later attempt replaced, and that Stuck did not abandon, may start or finish. */
 function latestAttempt(
   state: State,
   { batchId, stepId, attempt }: Extract<Event, { type: 'step.started' | 'step.finished' }>,
 ): string | undefined {
   const attempts = state.batches.get(batchId)?.steps.get(stepId)?.attempts;
-  if (attempts === undefined || !attempts.has(attempt)) return undefined;
-  return attempt < Math.max(...attempts.keys())
-    ? `attempt ${stepId}#${attempt} of batch ${batchId} is not the latest attempt of its step`
+  const current = attempts?.get(attempt);
+  if (attempts === undefined || current === undefined) return undefined;
+  const name = `attempt ${stepId}#${attempt} of batch ${batchId}`;
+  if (attempt < Math.max(...attempts.keys()))
+    return `${name} is not the latest attempt of its step`;
+  return current.phase !== 'finished' && current.abandoned
+    ? `${name} was abandoned when the batch got stuck`
+    : undefined;
+}
+
+/** A rewind names the commit of each repository it resets; a sub-order's batch only its own. */
+function rewindable(
+  state: State,
+  event: Extract<Event, { type: 'batch.rewound' }>,
+): string | undefined {
+  const repos = Object.keys(event.shas);
+  if (repos.length === 0) return 'rewind needs the commit of each repository';
+  const issue = state.batches.get(event.batchId)?.issue;
+  const subOrder = issue === undefined ? undefined : state.subOrders.get(issue);
+  return subOrder !== undefined && (repos.length !== 1 || repos[0] !== subOrder.repo)
+    ? `sub-order ${subOrder.issue} writes only in ${subOrder.repo}`
     : undefined;
 }
 

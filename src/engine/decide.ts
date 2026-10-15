@@ -313,6 +313,7 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
   if (
     current === undefined ||
     current.phase === 'finished' ||
+    current.abandoned === true ||
     attempt < Math.max(...(attempts?.keys() ?? []))
   ) {
     throw new Refusal(`${name} is not running`);
@@ -389,14 +390,7 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
  */
 function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): void {
   const { batchId, by, toStepId, shas } = command;
-  const batch = draft.batch(batchId);
-  stuckLane(batch, 'rewind');
-  const repos = Object.keys(shas);
-  if (repos.length === 0) throw new Refusal('rewind needs the commit of each repository');
-  const subOrder = draft.state.subOrders.get(batch.issue);
-  if (subOrder !== undefined && (repos.length !== 1 || repos[0] !== subOrder.repo)) {
-    throw new Refusal(`sub-order ${subOrder.issue} writes only in ${subOrder.repo}`);
-  }
+  stuckLane(draft.batch(batchId), 'rewind');
   draft.push({ type: 'batch.rewound', batchId, toStepId, by, shas: { ...shas } });
   schedule(draft, batchId, toStepId);
 }

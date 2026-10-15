@@ -23,9 +23,19 @@ export type Lane =
   | { kind: 'on_tap'; pullRequests: readonly string[] }
   | { kind: 'cancelled'; by: string };
 
+/**
+ * An attempt that had not finished when its batch got Stuck is `abandoned` (ADR 0025): whatever
+ * the batch does next, it schedules new attempts, and the abandoned one never starts or finishes.
+ */
 export type Attempt =
-  | { phase: 'scheduled'; attempt: number; deadlineAt: string }
-  | { phase: 'started'; attempt: number; deadlineAt: string; session?: SessionRef }
+  | { phase: 'scheduled'; attempt: number; deadlineAt: string; abandoned?: true }
+  | {
+      phase: 'started';
+      attempt: number;
+      deadlineAt: string;
+      session?: SessionRef;
+      abandoned?: true;
+    }
   | {
       phase: 'finished';
       attempt: number;
@@ -254,7 +264,11 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.stuck': {
       const { reason, options, remindAt } = event;
-      return setLane(state, event.batchId, { kind: 'stuck', reason, options, remindAt });
+      return updateBatch(state, event.batchId, (batch) => ({
+        ...batch,
+        lane: { kind: 'stuck', reason, options, remindAt },
+        steps: abandon(batch.steps),
+      }));
     }
     case 'batch.resumed':
       return setLane(state, event.batchId, { kind: 'brewing' });
@@ -395,6 +409,22 @@ function updateAttempt(
       }),
     };
   });
+}
+
+/** Marks every attempt that has not finished as abandoned. */
+function abandon(steps: ReadonlyMap<string, Step>): ReadonlyMap<string, Step> {
+  const abandoned = new Map<string, Step>();
+  for (const [id, step] of steps) {
+    const attempts = new Map<number, Attempt>();
+    for (const [number, attempt] of step.attempts) {
+      attempts.set(
+        number,
+        attempt.phase === 'finished' ? attempt : { ...attempt, abandoned: true },
+      );
+    }
+    abandoned.set(id, { ...step, attempts });
+  }
+  return abandoned;
 }
 
 function unreachable(event: never): never {
