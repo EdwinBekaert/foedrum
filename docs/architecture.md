@@ -68,6 +68,7 @@ Full list: [glossary](glossary.md).
 - **Brewers run as `claude` CLI child processes** that the engine spawns and owns: it streams their events live and kills the whole process tree on deadline, stall or cancel ([ADR 0003](adr/0003-drive-the-claude-cli.md)).
 - **Polling intake** with conditional requests: works on a laptop with zero infrastructure ([ADR 0008](adr/0008-polling-intake.md)).
 - **Always worktrees, never a clone per batch** ([ADR 0012](adr/0012-worktrees-from-local-clones.md)). Per repository, `source` is `local` (default: worktrees from the user's existing clone, in Foedrum's own branch namespace `foedrum/…`, never touching the checked-out branch) or `managed` (one bare partial clone per repository, created once, optionally borrowing objects from a local clone). Worktrees live in a **work root outside the Brewery checkout** (default `~/.foedrum/<brewery>/`, configurable; short on Windows), so a brewer only ever sees the target repository's own instruction files — never anything placed in the Brewery.
+- **Attempt worktrees** ([ADR 0029](adr/0029-attempt-worktrees-layout-claims-and-repair.md)) live at `<workRoot>/<owner>.<name>/attempts/<batchId>/<stepId>/<attempt>` on the branch `foedrum/<batchId>/<stepId>/<attempt>`; a managed clone is `<workRoot>/<owner>.<name>/clone.git`. One cleanup, at engine start (crash repair) and when a batch ends, removes what the state no longer claims: everything in the attempts root of an ended or unknown batch, and the local branches of an ended one. A Stuck batch, a worktree with a live lease, and a worktree with changes are kept; branches of a batch the state does not know stay, since another Brewery may share the clone. Removal uses `removeTree`, records are pruned one by one (never `git worktree prune` in the user's clone), and kept worktrees no attempt runs in lose a stale `index.lock`. A pure core (`src/workspace/attempt-worktrees.ts`) decides, the shell (`attempt-worktrees-git.ts`) runs git.
 
 ### 3.1 Trackers and code hosts
 
@@ -483,7 +484,7 @@ recipes/          custom and overriding recipes (*.jsonc)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)
 .foedrum/         local (git-ignored): SQLite index, logs
 
-Work root (outside the checkout, default ~/.foedrum/<brewery>/): worktrees, managed clones
+Work root (outside the checkout, default ~/.foedrum/<brewery>/): per repository <owner>.<name>/ with attempts/<batch>/<step>/<attempt> (worktrees) and clone.git (managed clone); ADR 0029
 
 Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.md), events.jsonl for events without a batch; committed at every step boundary (ADR 0024)
 ```
