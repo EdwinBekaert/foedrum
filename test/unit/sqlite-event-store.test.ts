@@ -10,7 +10,10 @@ import {
   type EventStore,
   InvalidLogError,
 } from '../../src/engine/event-store.ts';
-import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import {
+  openSqliteEventStore,
+  type SqliteEventStoreOptions,
+} from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -75,7 +78,7 @@ const at = (iso: string): Date => new Date(iso);
 
 // Every store a test opens, closed afterwards so its files can be removed (Windows keeps them open).
 const opened: (EventStore | DatabaseSync)[] = [];
-const open = (path: string, options?: { busyTimeoutMs?: number }): EventStore => {
+const open = (path: string, options?: SqliteEventStoreOptions): EventStore => {
   const store = openSqliteEventStore(path, options);
   opened.push(store);
   return store;
@@ -769,6 +772,27 @@ describe('SqliteEventStore on a file', () => {
     assert.deepEqual(reader.currentLeases(at('2026-10-15T10:00:00Z')), []);
     assert.deepEqual(reader.findEffect(key), { result: 'r' });
   });
+
+  for (const [what, options, expected] of [
+    ['5000 ms by default', {}, 5000],
+    ['the configured value', { busyTimeoutMs: 250 }, 250],
+  ] as const) {
+    it(`sets the connection's busy timeout to ${what}`, () => {
+      let connection: DatabaseSync | undefined;
+      open(path, {
+        ...options,
+        openDatabase: (file, databaseOptions) => {
+          connection = new DatabaseSync(file, databaseOptions);
+          return connection;
+        },
+      });
+      assert.ok(connection, 'the store opened its connection through openDatabase');
+      assert.deepEqual(
+        { ...connection.prepare('PRAGMA busy_timeout').get() },
+        { timeout: expected },
+      );
+    });
+  }
 
   it('waits the busy timeout for another writer, then fails', () => {
     const writer = open(path);

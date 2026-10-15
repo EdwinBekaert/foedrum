@@ -1,6 +1,11 @@
 // The EventStore on the built-in `node:sqlite` (ADR 0002). The only module that imports it.
 
-import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
+import {
+  DatabaseSync,
+  type DatabaseSyncOptions,
+  type SQLInputValue,
+  type StatementSync,
+} from 'node:sqlite';
 import { Event } from '../schemas/events.ts';
 import { effectKey } from './effect-key.ts';
 import {
@@ -15,6 +20,8 @@ import {
 export interface SqliteEventStoreOptions {
   /** How long a write waits for another connection's lock before failing; default 5000 ms. */
   busyTimeoutMs?: number;
+  /** Opens the connection; defaults to `new DatabaseSync`. Tests inject one to inspect it. */
+  openDatabase?: (path: string, options: DatabaseSyncOptions) => DatabaseSync;
 }
 
 // Migration n brings the database from schema version n to n + 1 (`PRAGMA user_version`).
