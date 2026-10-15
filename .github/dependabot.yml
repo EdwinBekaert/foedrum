@@ -1,5 +1,5 @@
 # Dependency updates — see DEPENDENCIES.md and docs/adr/0004
-# The 7-day cooldown matches min-release-age in .npmrc; scripts/check-deps.ts enforces it in CI.
+# The 7-day cooldown matches min-release-age in .npmrc; `npm run check:deps` enforces it once the CI workflow (#2) runs it.
 version: 2
 updates:
   - package-ecosystem: npm

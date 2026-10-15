@@ -21,6 +21,7 @@ Versions are pinned exactly when a package is first installed, after the 7-day m
 | `typescript` | dev | Type checking and emitting `.js` for publishing | wrapper + 1 platform binary | none | no — verified via registry signatures, diff review on bumps | Apache-2.0 |
 | `@types/node` | dev | Types for Node's built-in APIs | 1 dep (`undici-types`) | none | partial | MIT |
 | `@biomejs/biome` | dev | Lint and format | wrapper + 1 platform binary | none | yes | MIT OR Apache-2.0 |
+| `undici-types` | dev (transitive, from `@types/node`) | Types for `fetch` and the other undici APIs in Node | 0 deps | none | yes | MIT |
 
 ## Built-ins used instead of packages
 
@@ -85,11 +86,11 @@ Local tarballs and directories are still allowed (`allow-file` and `allow-direct
 
 [`scripts/check-deps.ts`](scripts/check-deps.ts) checks `package-lock.json` and fails when:
 
-- a `resolved` URL is not under `https://registry.npmjs.org/`, or an entry is a link;
+- a `resolved` URL is not the registry tarball of the entry's own name and version (`https://registry.npmjs.org/<name>/-/<name>-<version>.tgz`), or an entry is a link;
 - an entry has no `sha512-` integrity;
 - any package in the tree has an install script;
-- the package budget is exceeded (runtime ≤ 2, total ≤ 10), counting the direct dependencies in `package.json`; runtime counts `dependencies` and `optionalDependencies`;
-- a direct dependency has no row under [Admitted packages](#admitted-packages) (transitive packages are recorded in its Tree column);
+- the package budget is exceeded (runtime ≤ 2, total ≤ 10). It counts the installed tree, as [ADR 0004](docs/adr/0004-built-in-first-dependency-policy.md) intends ("about 7 packages in `node_modules`"): every package name in the lockfile once, transitive ones included, except platform binaries (entries marked `optional` with an `os` or `cpu` restriction, of which npm installs only the one for the machine). Runtime counts the packages not marked `dev` or `devOptional`;
+- a package in that same set has no row under [Admitted packages](#admitted-packages);
 - a locked version was published less than `min-release-age` days ago (read from `.npmrc`), because a version already in the lockfile skips that check in npm (spike #16). This needs the registry.
 
 The budget above and the admitted-packages table are read by the checker; keep their format.
