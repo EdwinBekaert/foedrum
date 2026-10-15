@@ -30,6 +30,17 @@ const Input = z.strictObject({
     .default(false),
 });
 
+// Names that would undo the brewer's minimal environment, its sandbox or its credentials, in any
+// case. The runner applies its own variables last, which is the real guarantee; this list only
+// catches mistakes when the brewer is loaded.
+const reservedEnv =
+  /^(?:(?:node|npm_config|anthropic|claude|git|ssh|ld|dyld)_.*|path|pathext|comspec|systemroot|home|userprofile|appdata|bash_env|env|.*_proxy)$/i;
+
+const EnvName = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Must be letters, digits and "_", not starting with a digit')
+  .refine((name) => !reservedEnv.test(name), 'Reserved: the brewer runner sets this variable');
+
 const Guard = z.enum([
   'requiresOutDoc',
   'requiresCommits',
@@ -64,7 +75,15 @@ const shared = {
   skills: z.array(NonEmpty).default([]),
   mcp: z.array(NonEmpty).default([]),
   context: z.enum(['lean', 'repo']).default('lean'),
-  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string()).default({}),
+  env: z
+    .record(EnvName, z.string())
+    .default({})
+    .refine(
+      (env) =>
+        new Set(Object.keys(env).map((name) => name.toUpperCase())).size ===
+        Object.keys(env).length,
+      'Each name may be used once, in any case: Windows does not tell them apart',
+    ),
   deadline: Duration,
   maxTurns: Count.optional(),
   stall: z
