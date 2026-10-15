@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
@@ -18,6 +18,23 @@ import {
 } from '../../src/workspace/attempt-worktrees-git.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+
+// One temp folder per suite, a fresh subfolder per test: removing a tree per test is slow on
+// Windows under the load of a full check (ADR 0021's budget).
+const suiteFolders = (prefix: string): (() => string) => {
+  let suite: TempDir | undefined;
+  let count = 0;
+  before(() => {
+    suite = makeTempDir(prefix);
+  });
+  after(() => suite?.remove());
+  return () => {
+    count += 1;
+    const path = join(suite?.path ?? '', String(count));
+    mkdirSync(path);
+    return path;
+  };
+};
 
 type Call = [cwd: string, ...args: string[]];
 type Answer = (cwd: string, args: readonly string[]) => GitResult | undefined;
@@ -54,21 +71,21 @@ const attempt: AttemptRef = { batchId: '12-1', stepId: 'implement', attempt: 1 }
 const branch = 'foedrum/12-1/implement/1';
 
 describe('openAttemptWorktrees with a fake git', () => {
-  let dir: TempDir;
+  const nextFolder = suiteFolders('attempt-worktrees');
+  let dir: { path: string };
   let clone: string;
   let workRoot: string;
   let root: string;
   let path: string;
 
   beforeEach(() => {
-    dir = makeTempDir('attempt-worktrees');
+    dir = { path: nextFolder() };
     clone = join(dir.path, 'clone');
     workRoot = join(dir.path, 'work');
     root = join(workRoot, 'acme.app', 'attempts');
     path = join(root, '12-1', 'implement', '1');
     mkdirSync(join(clone, '.git', 'worktrees'), { recursive: true });
   });
-  afterEach(() => dir.remove());
 
   const open = (git: Git, now?: () => number) =>
     openAttemptWorktrees({
@@ -494,11 +511,11 @@ describe('openAttemptWorktrees with a fake git', () => {
 });
 
 describe('ensureManagedClone with a fake git', () => {
-  let dir: TempDir;
+  const nextFolder = suiteFolders('managed-clone');
+  let dir: { path: string };
   beforeEach(() => {
-    dir = makeTempDir('managed-clone');
+    dir = { path: nextFolder() };
   });
-  afterEach(() => dir.remove());
 
   it('makes a bare partial clone once, through a folder it renames when the clone is done', async () => {
     const folder = join(dir.path, 'acme.app');
