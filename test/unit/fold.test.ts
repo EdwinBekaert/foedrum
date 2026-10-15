@@ -535,6 +535,8 @@ describe('fold', () => {
     const state = fold([
       { type: 'bottle.opened', ...bottle },
       { type: 'release.observed', ...release },
+      ordered,
+      scheduled,
       { type: 'effect.applied', key: prKey, result: { number: 7 } },
     ]);
     assert.deepStrictEqual(
@@ -651,6 +653,8 @@ describe('fold of an inconsistent log', () => {
     [
       'an effect applied twice',
       [
+        ordered,
+        scheduled,
         { type: 'effect.applied', key: prKey, result: { number: 7 } },
         { type: 'effect.applied', key: prKey, result: { number: 8 } },
       ],
