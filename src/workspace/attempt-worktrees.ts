@@ -200,9 +200,8 @@ export const planClean = (
     );
     // undefined: kept without a word, as every worktree of a live batch is.
     let removal: RemovalOrKeep | undefined;
-    if (isLeased) {
-      removal = live(batchId) ? undefined : { kind: 'keep', reason: LEASED };
-    } else if (live(batchId)) removal = undefined;
+    if (live(batchId)) removal = undefined;
+    else if (isLeased) removal = { kind: 'keep', reason: LEASED };
     else if (nested !== undefined) {
       removal = { kind: 'keep', reason: `it contains the worktree ${nested.inside}` };
     } else if (worktree.lockReason !== undefined) {
@@ -231,9 +230,9 @@ export const planClean = (
       if (inRoot.some((worktree) => worktree.inside === inside)) continue;
       const ref = parseAttemptFolder(inside);
       if (ref === undefined) kept.push(`kept folder ${inside}: not an attempt folder`);
-      else if (leased(ref)) {
-        if (!live(batchId)) kept.push(`kept folder ${inside}: ${LEASED}`);
-      } else if (!live(batchId)) {
+      else if (live(batchId)) continue;
+      else if (leased(ref)) kept.push(`kept folder ${inside}: ${LEASED}`);
+      else {
         const path = join(root, ...inside.split('/'));
         actions.push({ kind: 'remove-folder', label: inside, path });
         removed.add(inside);
