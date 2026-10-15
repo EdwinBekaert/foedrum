@@ -40,6 +40,7 @@ interface SimStep {
 interface SimBatch {
   id: string;
   issue: number;
+  subOrder: boolean;
   open: boolean;
   steps: Map<string, SimStep>;
 }
@@ -91,7 +92,13 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
     return [batch, stepId, step];
   };
   const order = (issue: number, parentBatchId?: string): Event => {
-    const batch = { id: `b${nextId++}`, issue, open: true, steps: new Map() };
+    const batch = {
+      id: `b${nextId++}`,
+      issue,
+      subOrder: parentBatchId !== undefined,
+      open: true,
+      steps: new Map(),
+    };
     batches.push(batch);
     return {
       type: 'batch.ordered',
@@ -240,14 +247,18 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
       };
     },
     () => {
-      const batch = open();
-      if (batch === undefined) return undefined;
+      // One level of breakdown (ADR 0013): only a batch of an order is decomposed.
+      const candidates = batches.filter((batch) => batch.open && !batch.subOrder);
+      if (candidates.length === 0) return undefined;
+      const batch = random.pick(candidates);
       const issues = Array.from({ length: random.int(3) + 1 }, () => nextIssue++);
       for (const issue of issues) subOrders.push({ issue, parentBatchId: batch.id });
+      // Sometimes every sub-order targets one repository, with or without dependencies.
+      const sameRepo = random.chance(0.3) ? random.pick(repos) : undefined;
       return {
         type: 'order.decomposed',
         batchId: batch.id,
-        subOrders: issues.map((issue) => ({ issue, repo: random.pick(repos) })),
+        subOrders: issues.map((issue) => ({ issue, repo: sameRepo ?? random.pick(repos) })),
         // Only on earlier sub-orders, so the breakdown never has a cycle.
         dependencies: issues.flatMap((subOrder, i) =>
           issues

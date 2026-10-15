@@ -67,3 +67,13 @@ describe('fold (invariant I3)', () => {
     });
   });
 });
+
+describe('fold state', () => {
+  it('keeps an issue in at most one of orders and sub-orders', () => {
+    forEachSeed((seed) => {
+      const state = fold(generateEvents(seed));
+      const both = [...state.orders.keys()].filter((issue) => state.subOrders.has(issue));
+      assert.deepStrictEqual(both, []);
+    });
+  });
+});

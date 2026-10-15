@@ -279,6 +279,25 @@ describe('fold', () => {
     });
   });
 
+  it('lets several sub-orders target one repository, with or without dependencies', () => {
+    const subOrders = [
+      { issue: 101, repo: 'acme/lib-core' },
+      { issue: 102, repo: 'acme/lib-core' },
+      { issue: 103, repo: 'acme/lib-core' },
+    ];
+    const dependencies = [{ subOrder: 102, blockedBy: 101, kind: 'code' }] as const;
+    const state = fold([
+      ordered,
+      { type: 'order.decomposed', batchId: 'b1', subOrders, dependencies: [...dependencies] },
+    ]);
+    assert.deepStrictEqual(state.orders.get(100)?.subOrders, [101, 102, 103]);
+    assert.deepStrictEqual(state.orders.get(100)?.dependencies, dependencies);
+    assert.deepStrictEqual(
+      [...state.subOrders.values()].map((subOrder) => subOrder.repo),
+      ['acme/lib-core', 'acme/lib-core', 'acme/lib-core'],
+    );
+  });
+
   it('keeps the sub-orders of other orders when one order is decomposed again', () => {
     const state = fold([
       ordered,
