@@ -160,6 +160,25 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.deepEqual(await open(git).recreate(attempt, BASE), { path, branch, commit: TIP });
       assert.ok(!calls.some(([, ...args]) => args[0] === 'worktree' && args[1] === 'add'));
     });
+
+    it('prunes the record a crash left at the folder before adding the worktree again', async () => {
+      // The folder is gone; only its record is left.
+      const record = worktreeOnDisk(path, 'implement1');
+      rmSync(path, { recursive: true });
+      let recordAtAdd: boolean | undefined;
+      const { git } = fakeGit((_cwd, args) => {
+        if (args.includes('--git-common-dir')) return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'rev-parse') return { code: 1, stdout: '', stderr: '' };
+        if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
+        if (args[0] === 'worktree' && args[1] === 'add') recordAtAdd = existsSync(record);
+        return undefined;
+      });
+
+      const worktree = await open(git).recreate(attempt, BASE);
+
+      assert.deepEqual(worktree, { path, branch, commit: BASE });
+      assert.equal(recordAtAdd, false);
+    });
   });
 
   describe('clean', () => {
@@ -332,5 +351,18 @@ describe('ensureManagedClone with a fake git', () => {
     const options = { git, workRoot: dir.path, repo: 'acme/app', url: 'https://x/acme/app.git' };
     await assert.rejects(ensureManagedClone(options), /clone/);
     assert.equal(existsSync(join(dir.path, 'acme.app', 'clone.git')), false);
+  });
+
+  it('removes what a failed clone left in its partial folder', async () => {
+    const { git } = fakeGit((_cwd, args) => {
+      if (args[0] !== 'clone') return undefined;
+      mkdirSync(join(args.at(-1) ?? '', 'objects'), { recursive: true });
+      return failed();
+    });
+    const options = { git, workRoot: dir.path, repo: 'acme/app', url: 'https://x/acme/app.git' };
+
+    await assert.rejects(ensureManagedClone(options), /git clone of .* failed/);
+
+    assert.equal(existsSync(join(dir.path, 'acme.app', 'clone.partial')), false);
   });
 });

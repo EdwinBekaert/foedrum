@@ -349,6 +349,16 @@ describe('planClean', () => {
       ['13-1/implement/1', '13-1'],
     );
   });
+
+  it('keeps the empty folder of a live batch', () => {
+    const plan = planClean(
+      { worktrees: [], branches: [], folders: [{ batchId: '13-1', attempts: [] }] },
+      claims({ '13-1': 'live' }),
+      root,
+    );
+
+    assert.deepEqual(plan, { actions: [], kept: [] });
+  });
 });
 
 describe('planWorktree', () => {
@@ -446,5 +456,14 @@ describe('planWorktree', () => {
         reason: `the branch ${branch} is checked out in /home/me/app`,
       });
     }
+  });
+
+  it('never hands a resumed attempt a folder whose removal stopped part-way', () => {
+    const halfRemoved: AttemptFacts = {
+      ...none,
+      listed: listed(attempt, { state: 'no-git' }),
+      folderExists: true,
+    };
+    assert.equal(planWorktree(attempt, halfRemoved, resumeAt).kind, 'refuse');
   });
 });
