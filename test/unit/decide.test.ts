@@ -41,7 +41,7 @@ const chosen = (recipe = 'pint'): Event => ({
   batchId: 'b1',
   recipe,
   reason: 'feature label',
-  by: 'label',
+  source: 'label',
 });
 const scheduled = (
   stepId: string,
@@ -195,10 +195,16 @@ describe('decide route: ordered or conditioning → brewing', () => {
     batchId: 'b1',
     recipe: 'pint',
     reason: 'small',
-    by: 'router',
+    source: 'router',
   };
   const routed: Event[] = [
-    { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'pint', reason: 'small', by: 'router' },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: 'b1',
+      recipe: 'pint',
+      reason: 'small',
+      source: 'router',
+    },
     next('plan'),
   ];
 
@@ -740,7 +746,8 @@ describe('decide recipe: a human chooses the recipe', () => {
     batchId: 'b1',
     recipe: 'nip',
     reason: 'one file',
-    by: 'human',
+    source: 'human',
+    by: 'octocat',
     via: 'comment',
   };
 

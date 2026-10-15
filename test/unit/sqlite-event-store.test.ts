@@ -489,7 +489,7 @@ describe('SqliteEventStore in memory', () => {
       ['batch.ordered', ordered('b1')],
       [
         'batch.recipe_chosen',
-        { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'r', reason: 'x', by: 'label' },
+        { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'r', reason: 'x', source: 'label' },
       ],
       ['step.started', started('b1')],
       [

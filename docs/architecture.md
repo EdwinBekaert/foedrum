@@ -161,8 +161,8 @@ State is derived from an append-only event log ([ADR 0002](adr/0002-event-source
 ```ts
 type Event =
   | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
-  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' }
-  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; by: 'human'; via: Surface }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
+  | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'human'; by: string; via: Surface }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
   | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef }  // required for brewer and session steps
   // SessionRef = { id: string; resumes?: string; worktree: string; claudeVersion: string }

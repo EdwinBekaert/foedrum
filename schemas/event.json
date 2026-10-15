@@ -59,7 +59,7 @@
               "type": "string",
               "pattern": "\\S"
             },
-            "by": {
+            "source": {
               "type": "string",
               "enum": [
                 "label",
@@ -72,7 +72,7 @@
             "batchId",
             "recipe",
             "reason",
-            "by"
+            "source"
           ],
           "additionalProperties": false
         },
@@ -95,9 +95,13 @@
               "type": "string",
               "pattern": "\\S"
             },
-            "by": {
+            "source": {
               "type": "string",
               "const": "human"
+            },
+            "by": {
+              "type": "string",
+              "pattern": "\\S"
             },
             "via": {
               "type": "string",
@@ -114,6 +118,7 @@
             "batchId",
             "recipe",
             "reason",
+            "source",
             "by",
             "via"
           ],

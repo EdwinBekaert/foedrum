@@ -713,7 +713,13 @@ describe('fold of an inconsistent log', () => {
   });
 
   const batchEvents: Event[] = [
-    { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'nip', reason: 'small', by: 'router' },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: 'b1',
+      recipe: 'nip',
+      reason: 'small',
+      source: 'router',
+    },
     scheduled,
     started,
     finished,
