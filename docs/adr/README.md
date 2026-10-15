@@ -24,6 +24,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0018](0018-house-yeast-layers.md) | House yeast in three layers: defaults, Brewery, repository | Accepted |
 | [0019](0019-interactive-sessions-and-one-command-layer.md) | Interactive sessions, the autonomous Cellar, and one command layer | Accepted |
 | [0020](0020-jsonc-frontmatter.md) | Frontmatter is read as JSONC (amends 0007) | Accepted |
+| [0021](0021-unit-tests-spawn-no-processes.md) | Unit tests start no processes | Accepted |
 
 ## Template
 
