@@ -315,6 +315,36 @@ describe('runCheck', () => {
     });
   }
 
+  it('fails for a worktree without node_modules even when the checkout above it is up to date', async () => {
+    const worktree = join(cwd, '.claude', 'worktrees', '86-slug');
+    const calls: string[][] = [];
+    const runProcess: RunProcess = async (_file, args) => {
+      calls.push(args);
+      return green('');
+    };
+    let written = '';
+    const exitCode = await runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd: worktree,
+      read: async (path) =>
+        ({
+          [join(worktree, 'package.json')]: '{}',
+          [join(worktree, 'package-lock.json')]: lock,
+        })[path] ?? (await upToDate(path)),
+      write: (text) => {
+        written += text;
+      },
+    });
+    assert.equal(exitCode, 1);
+    assert.equal(
+      written,
+      'node_modules is out of date with package-lock.json (node_modules/.package-lock.json is missing); run npm ci\n',
+    );
+    assert.deepEqual(calls, []);
+  });
+
   for (const [name, badEnv] of [
     ['missing', {}],
     ['empty', { npm_execpath: '' }],
