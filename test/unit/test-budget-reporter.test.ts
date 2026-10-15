@@ -100,6 +100,17 @@ describe('budgetReporter', () => {
     assert.equal(lines.filter((line) => line.startsWith('✖')).length, 0);
   });
 
+  it('holds no file outside test/unit/ to the budget, even one whose folder starts alike', async () => {
+    const { failed } = await report(
+      [
+        summary(join(cwd, 'test', 'units', 'e.test.ts'), 9000),
+        summary(join(cwd, 'test', 'integration', 'f.test.ts'), 9000),
+      ],
+      5000,
+    );
+    assert.equal(failed, false);
+  });
+
   it('still fails for a unit file over the budget, naming only that file', async () => {
     const { lines, failed } = await report(
       [summary(fileA, 5100), summary(fileC, 9000), summary(fileD, 7000)],
