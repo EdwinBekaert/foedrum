@@ -10,6 +10,7 @@ import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { linux, ran, windows } from '../helpers/doctor-facts.ts';
 
 const cwd = join(sep, 'work', 'brewery');
@@ -368,6 +369,31 @@ describe('foedrum replay', () => {
     const result = await run(['replay', '14-1'], { openStore: () => storeWith(brewery) });
     assert.equal(result.exitCode, 0);
     snapshot(t, result.stdout);
+  });
+
+  it('shows an attempt that needs input and one that was cancelled', async () => {
+    const step = { batchId: '11-1', stepId: 'plan' };
+    const finished = (attempt: number, outcome: StepOutcome): Event[] => [
+      { type: 'step.scheduled', ...step, attempt, deadlineAt: D1 },
+      { type: 'step.started', ...step, attempt },
+      { type: 'step.finished', ...step, attempt, outcome },
+    ];
+    const question = {
+      q: 'Which?',
+      options: ['a', 'b'],
+      recommended: 'a',
+      whyBlocking: 'It matters',
+    };
+    const events = [
+      ordered(11),
+      ...finished(1, { kind: 'needs_input', questions: [question] }),
+      ...finished(2, { kind: 'cancelled' }),
+    ];
+    const { stdout } = await run(['replay', '11-1'], { openStore: () => storeWith(events) });
+    assert.ok(
+      stdout.endsWith('  steps\n    plan  #1 finished: needs input; #2 finished: cancelled\n'),
+      stdout,
+    );
   });
 
   it('refuses an unknown batch in one line, and exits 1', async () => {
