@@ -119,6 +119,17 @@ describe('checkTestLayer and the real process runner', () => {
     }
   });
 
+  it('leaves out files that import only types, the runner with a fake spawner or other helpers', () => {
+    assert.deepEqual(checkTestLayer(join(runner, 'clean'), none), []);
+  });
+
+  it('reports an exception for a file that imports neither child_process nor the runner', () => {
+    const exceptions = new Map([['clean/fake-spawner.test.ts', 'no longer needed']]);
+    const stale = checkTestLayer(runner, exceptions).filter(({ file }) => exceptions.has(file));
+    assert.equal(stale.length, 1);
+    assert.match(stale[0]?.problem ?? '', /exception list/);
+  });
+
   it('leaves out the files on the exception list, which are then not stale', () => {
     const exceptions = new Map([['namespace.test.ts', 'a reason']]);
     assert.deepEqual(
