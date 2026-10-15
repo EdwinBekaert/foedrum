@@ -58,7 +58,7 @@ A run should report at least these. Line numbers are in `src/engine/wait-for-mer
 | Weak tests | Brett | mutants that survive despite 100% coverage, for example a dropped `await` on the sleep, a sleep of 0, swallowed `isMerged` errors, or a dropped `homedir()` |
 | | Coverage delta | 100% for both new files: coverage alone does not catch the defects |
 
-Findings that were not planted but are correct, and may appear: `backoffMs` accepts 0, negative numbers or NaN; the `eventStorePath` test only matches `/my-brewery/`; "the bottle's pull request" goes against the glossary (a bottle *is* a pull request); the branch mixes unrelated changes.
+Findings that were not planted but are correct, and may appear: `backoffMs` accepts 0, negative numbers or NaN; the `eventStorePath` test only matches `/my-brewery/`; "the bottle's pull request" goes against the glossary (a bottle *is* a pull request); the branch mixes unrelated changes; `isBreweryName` accepts Windows reserved names (`con`, `nul`, `aux`, `com1`); `currentBranch` returns an empty string on a detached HEAD and runs git without a timeout; the merge wait is an in-memory loop rather than Conditioning recorded as events.
 
 Correctness reviews the code, not its tests ([ADR 0022](../../../../docs/adr/0022-five-default-lenses.md)): a correctness finding about the tests (a missing test, a test that cannot fail) means the lenses overlap again.
 
