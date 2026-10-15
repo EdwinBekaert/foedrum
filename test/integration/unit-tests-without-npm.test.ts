@@ -38,5 +38,8 @@ describe('unit tests under plain node --test', () => {
       },
     );
     assert.equal(result.status, 0, result.stdout + result.stderr);
+    // A nested node --test skips its files and still exits 0, so check that the tests ran.
+    assert.match(result.stdout, /^ℹ pass [1-9]\d*$/m, result.stdout + result.stderr);
+    assert.match(result.stdout, /^ℹ fail 0$/m);
   });
 });
