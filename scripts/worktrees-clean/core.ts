@@ -22,9 +22,20 @@ export interface BranchFact {
   upstreamGone: boolean;
 }
 
+// A record under .git/worktrees/. `folder` is the worktree folder its gitdir file names, or
+// undefined when that file is missing or empty; git no longer lists such a record.
+export interface RecordFact {
+  dir: string;
+  name: string;
+  folder: string | undefined;
+  folderExists: boolean;
+  lockReason: string | undefined;
+}
+
 export interface Facts {
   worktrees: WorktreeFact[];
   branches: BranchFact[];
+  records: RecordFact[];
 }
 
 // `branch` on a worktree action is deleted after the action succeeds.
@@ -39,6 +50,7 @@ export type Action =
     }
   | { kind: 'finish'; label: string; path: string; record: string; branch: string | undefined }
   | { kind: 'prune'; label: string; record: string; branch: string | undefined }
+  | { kind: 'drop-record'; label: string; record: string; reason: string }
   | { kind: 'delete-branch'; branch: string };
 
 export interface Plan {
@@ -109,6 +121,25 @@ export const plan = (facts: Facts, isPidAlive: (pid: number) => boolean): Plan =
       actions.push({ kind: 'remove', label, path, record, unlock, branch });
     } else {
       kept.push(`kept worktree ${label}: no record under .git/worktrees/ points at it`);
+    }
+  }
+
+  // Records git no longer lists, or whose folder is gone, wherever their worktree was. The
+  // records of worktrees under .claude/worktrees/ were decided above, with their branches.
+  const decided = new Set(
+    facts.worktrees.filter((w) => w.inside !== undefined).map((w) => w.record),
+  );
+  for (const record of facts.records) {
+    if (decided.has(record.dir) || record.folderExists) continue;
+    const label = `.git/worktrees/${record.name}`;
+    const reason = lockKeepReason(record.lockReason, isPidAlive);
+    if (reason !== undefined) kept.push(`kept worktree record ${label}: ${reason}`);
+    else {
+      const why =
+        record.folder === undefined
+          ? 'its gitdir file is missing'
+          : `its folder ${record.folder} is gone`;
+      actions.push({ kind: 'drop-record', label, record: record.dir, reason: why });
     }
   }
 
