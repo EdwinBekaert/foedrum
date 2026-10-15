@@ -7,7 +7,10 @@ import {
   type CheckResult,
   forbiddenReason,
   isGatedCommand,
+  npmCheck,
+  type ProcessOutcome,
   precheck,
+  type RunProcess,
 } from '../../scripts/precheck.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -305,6 +308,58 @@ describe('precheck on forbidden commands', () => {
       assert.equal(result.exitCode, 2);
       assert.equal(result.stderr, `${forbiddenReason(command)}\n`);
       assert.match(result.stderr, /blocked/);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
+describe('npmCheck', () => {
+  const execPath = '/usr/local/bin/node';
+  const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
+
+  // A fake process runner that records each call and answers with the given outcome.
+  const fakeProcess = (outcome: ProcessOutcome) => {
+    const calls: [file: string, args: string[], cwd: string][] = [];
+    const runProcess: RunProcess = async (file, args, cwd) => {
+      calls.push([file, args, cwd]);
+      return outcome;
+    };
+    return { calls, runProcess };
+  };
+
+  it('runs npm run check with this node and npm_execpath in the given directory', async () => {
+    const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
+    await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(calls, [[execPath, [npmCli, 'run', 'check'], '/work/tree']]);
+  });
+
+  it('passes when npm exits 0, keeping its output', async () => {
+    const { runProcess } = fakeProcess({ exitCode: 0, output: 'all green\n' });
+    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: true, output: 'all green\n' });
+  });
+
+  it('fails when npm exits non-zero, keeping its output', async () => {
+    const { runProcess } = fakeProcess({ exitCode: 1, output: 'not ok 1 - café\n' });
+    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: false, output: 'not ok 1 - café\n' });
+  });
+
+  it('fails when npm could not start or was killed', async () => {
+    const { runProcess } = fakeProcess({ exitCode: null, output: 'spawn ENOENT' });
+    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: false, output: 'spawn ENOENT' });
+  });
+
+  for (const [name, env] of [
+    ['missing', {}],
+    ['empty', { npm_execpath: '' }],
+  ] as const) {
+    it(`fails without starting a process when npm_execpath is ${name}`, async () => {
+      const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
+      const result = await npmCheck(env, execPath, runProcess)('/work/tree');
+      assert.equal(result.ok, false);
+      assert.match(result.output, /npm_execpath is not set/);
       assert.deepEqual(calls, []);
     });
   }

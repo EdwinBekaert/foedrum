@@ -145,6 +145,23 @@ export const precheck = async (input: string, runCheck: RunCheck): Promise<HookR
   };
 };
 
+// The exit code of a finished process (null when it could not start or was killed) and its
+// stdout and stderr together.
+export interface ProcessOutcome {
+  exitCode: number | null;
+  output: string;
+}
+
+export type RunProcess = (file: string, args: string[], cwd: string) => Promise<ProcessOutcome>;
+
+// `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
+// by this node, so the check starts without a shell.
+export const npmCheck =
+  (_env: NodeJS.ProcessEnv, _execPath: string, _runProcess: RunProcess): RunCheck =>
+  async () => {
+    throw new Error('not implemented');
+  };
+
 const runNpmCheck: RunCheck = async (cwd) => {
   const { spawn } = await import('node:child_process');
   return new Promise((resolve) => {
