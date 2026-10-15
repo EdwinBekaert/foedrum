@@ -10,6 +10,7 @@ import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import {
   createSupervisor,
   type Notice,
+  type Supervisor,
   type SupervisorOptions,
   type Timer,
 } from '../../src/engine/supervisor-loop.ts';
@@ -422,6 +423,22 @@ describe('createSupervisor', () => {
       assert.deepStrictEqual(scheduledDuringTick, [0, 0], 'no tick is scheduled while one runs');
       assert.equal(pending.size, 1, 'the next tick is scheduled once the last one finished');
       engine.stop();
+      assert.equal(pending.size, 0);
+      await running;
+    });
+
+    it('schedules no tick after a stop that arrives while a tick runs', async () => {
+      const { timer, pending, fire } = fakeTimer();
+      let engine: Supervisor | undefined;
+      const stateBranch = {
+        flush: async (): Promise<FlushResult> => {
+          engine?.stop();
+          return { kind: 'unchanged' };
+        },
+      };
+      engine = supervisor({ timer, stateBranch });
+      const running = engine.run();
+      await fire();
       assert.equal(pending.size, 0);
       await running;
     });
