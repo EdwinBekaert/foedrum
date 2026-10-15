@@ -17,7 +17,7 @@ try {
     gatherDoctorFacts: () =>
       gatherDoctorFacts({
         exec: execProcess,
-        resolve: (name) => resolveExecutable(name),
+        resolve: resolveExecutable,
         platform: process.platform,
         kernelRelease: release(),
         node: process.versions.node,

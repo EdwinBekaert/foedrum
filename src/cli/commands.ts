@@ -44,7 +44,7 @@ const define = <S extends z.ZodType>({
 });
 
 /** The Brewery's event store: `.foedrum/index.db` in its root. */
-export const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
+const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
 
 const done = (stdout: string): CliResult => ({ exitCode: 0, stdout, stderr: '' });
 
