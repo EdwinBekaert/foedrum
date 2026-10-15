@@ -4,7 +4,6 @@ import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlit
 import { Event } from '../schemas/events.ts';
 import {
   DuplicateEffectError,
-  type EffectKey,
   type EventStore,
   type EventStoreTransaction,
   type Lease,
@@ -170,8 +169,6 @@ export const openSqliteEventStore = (
     'SELECT result FROM effects WHERE batch_id = ? AND step_id = ? AND attempt = ? AND effect = ?',
   );
 
-  let inTransaction = false;
-
   const transaction = (): { tx: EventStoreTransaction; end: () => void } => {
     let live = true;
     const ensureLive = () => {
@@ -223,9 +220,8 @@ export const openSqliteEventStore = (
 
   return {
     withTransaction: (fn) => {
-      if (inTransaction) throw new Error('withTransaction cannot be nested');
+      if (db.isTransaction) throw new Error('withTransaction cannot be nested');
       db.exec('BEGIN IMMEDIATE');
-      inTransaction = true;
       const { tx, end } = transaction();
       try {
         const result = fn(tx);
@@ -239,7 +235,6 @@ export const openSqliteEventStore = (
         throw error;
       } finally {
         end();
-        inTransaction = false;
       }
     },
 
@@ -268,7 +263,7 @@ export const openSqliteEventStore = (
         }),
       ),
 
-    findEffect: (key: EffectKey) => {
+    findEffect: (key) => {
       const row = selectEffect.get(key.batchId, key.stepId, key.attempt, key.effect) as
         | { result: string }
         | undefined;
