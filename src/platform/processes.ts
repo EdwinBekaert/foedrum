@@ -2,7 +2,9 @@
 // (architecture §13). The one process runner of Foedrum and its scripts lives here.
 
 import { execFile, spawn } from 'node:child_process';
+import { join } from 'node:path';
 import type { Readable } from 'node:stream';
+import { resolveExecutable } from './executables.ts';
 
 export type Kill = (pid: number, signal: 0) => void;
 
@@ -24,31 +26,47 @@ export const killableSpawnOptions = (
   detached: platform !== 'win32',
 });
 
+// Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
+// children's groups on SIGTERM, short enough that a stop still feels immediate.
+const GRACE_MS = 2500;
+
+// taskkill by its full path: a bare name would be looked up through PATH.
+const taskkillPath = (): string =>
+  join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+
 /**
  * Kills a process and every process it started. On Windows through taskkill; elsewhere the
- * process must lead its own process group (spawned with `detached: true`), which is killed.
+ * process must lead its own process group (spawned with `detached: true`). That group is asked
+ * to stop with SIGTERM, so a process in it can end the groups of its own children, and killed
+ * with SIGKILL after a grace period.
  */
 export const killProcessTree = (pid: number, options: KillTreeOptions = {}): void => {
   const {
     platform = process.platform,
     signal = (target, name) => process.kill(target, name),
     taskkill = (target) => {
-      execFile('taskkill', ['/PID', String(target), '/T', '/F'], { windowsHide: true }, () => {});
+      const args = ['/PID', String(target), '/T', '/F'];
+      execFile(taskkillPath(), args, { windowsHide: true }, () => {});
     },
+    timers = realTimers,
   } = options;
   if (platform === 'win32') {
     taskkill(pid);
     return;
   }
-  // The group first; a process that leads no group is killed on its own. Gone is fine.
-  for (const target of [-pid, pid]) {
-    try {
-      signal(target, 'SIGKILL');
-      return;
-    } catch {
-      // try the next target
+  // The group first; a process that leads no group gets the signal on its own. Gone is fine.
+  const send = (name: NodeJS.Signals): boolean => {
+    for (const target of [-pid, pid]) {
+      try {
+        signal(target, name);
+        return true;
+      } catch {
+        // try the next target
+      }
     }
-  }
+    return false;
+  };
+  if (send('SIGTERM')) timers.set(() => send('SIGKILL'), GRACE_MS);
 };
 
 // Signal 0 checks that a process exists without touching it. EPERM means it exists but
@@ -133,7 +151,7 @@ export interface Spawner {
  * waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
-  ({ spawn, killTree }: Spawner, timers: Timers = realTimers): ExecProcess =>
+  ({ spawn, killTree, resolve }: Spawner, timers: Timers = realTimers): ExecProcess =>
   (file, args, { cwd, env = process.env, timeoutMs, signal }) =>
     new Promise((done) => {
       let stdout = '';
@@ -143,17 +161,25 @@ export const execProcessWith =
         killed === undefined
           ? { exitCode, stdout, stderr, output }
           : { exitCode, stdout, stderr, output, killed };
+      // What the process wrote, then the reason it failed.
       const failed = (error: unknown): ExecResult => {
         const message = error instanceof Error ? error.message : String(error);
-        return { exitCode: null, stdout, stderr: stderr || message, output: output || message };
+        const after = (text: string): string =>
+          text === '' || text.endsWith('\n') ? `${text}${message}` : `${text}\n${message}`;
+        return { exitCode: null, stdout, stderr: after(stderr), output: after(output) };
       };
       if (signal?.aborted) {
         done(ended(null, 'stopped'));
         return;
       }
+      const program = resolve === undefined ? file : resolve(file, env);
+      if (program === undefined) {
+        done(failed(`${file}: not found on PATH (ENOENT)`));
+        return;
+      }
       let child: ChildHandle;
       try {
-        child = spawn(file, [...args], { cwd, env });
+        child = spawn(program, [...args], { cwd, env });
       } catch (error) {
         done(failed(error));
         return;
@@ -201,6 +227,9 @@ export const execProcess: ExecProcess = execProcessWith({
       ...killableSpawnOptions(),
     }),
   killTree: killProcessTree,
+  // Never the working directory or a relative PATH folder, where a repository could plant its
+  // own git.exe (#12).
+  resolve: (file, env) => resolveExecutable(file, { env }),
 });
 
 // The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output

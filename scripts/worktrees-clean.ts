@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
-import { isPidAlive } from '../src/platform/processes.ts';
+import { isPidAlive, stopOnSignals } from '../src/platform/processes.ts';
 import { clearReadOnly, removeTree } from '../src/platform/remove.ts';
 import {
   type GitOptions,
@@ -38,8 +38,13 @@ export const gitThrough =
   async (cwd, args, options) => {
     const { code, stdout, stderr } = await run(cwd, args, options);
     // A failure is printed with its reason, and git does not always give one.
+    const command = `git ${args[0] ?? ''}`;
     const reason =
-      code !== 0 && stderr === '' ? `git ${args[0] ?? ''} exited with code ${code}` : stderr;
+      code === 0 || stderr !== ''
+        ? stderr
+        : code === null
+          ? `${command} ended without an exit code`
+          : `${command} exited with code ${code}`;
     return { ok: code === 0, stdout, stderr: reason };
   };
 
@@ -204,12 +209,15 @@ if (import.meta.main) {
     const { values } = parseArgs({ options: { 'session-start': { type: 'boolean' } } });
     const sessionStart = values['session-start'] === true;
     const cwd = (sessionStart && process.env.CLAUDE_PROJECT_DIR) || process.cwd();
+    // Outside Windows git leads a process group of its own, which a Ctrl+C does not reach.
+    const signal = stopOnSignals();
+    const git: Git = (dir, gitArgs, options) => runGit(dir, gitArgs, { ...options, signal });
     const args = ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'];
-    const dirs = await runGit(cwd, args);
+    const dirs = await git(cwd, args);
     const [gitDir, commonDir] = lines(dirs.stdout);
     const known = dirs.ok && gitDir !== undefined && commonDir !== undefined;
     if (shouldRun(sessionStart, known ? { gitDir, commonDir } : undefined)) {
-      for (const line of await cleanWorktrees(cwd)) console.log(`worktrees:clean: ${line}`);
+      for (const line of await cleanWorktrees(cwd, git)) console.log(`worktrees:clean: ${line}`);
     }
   } catch (error) {
     console.error(`worktrees:clean failed: ${String(error)}`);

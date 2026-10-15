@@ -87,7 +87,8 @@ if (import.meta.main) {
   const { spawnProcess } = await import('./process-runner.ts');
   // Outside Windows the steps lead process groups of their own, which a Ctrl+C in the terminal
   // does not reach, and on Windows npm's children would outlive it: kill their trees instead.
-  // A kill that cannot be caught (SIGKILL) still leaves them to their deadline.
+  // The gate stops the check with SIGTERM before SIGKILL (killProcessTree), so this process
+  // kills the steps' trees. Only a SIGKILL without that warning leaves them running.
   process.exitCode = await runCheck({
     env: process.env,
     execPath: process.execPath,
