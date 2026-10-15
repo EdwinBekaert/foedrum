@@ -85,6 +85,8 @@ export interface SubOrder {
   /** The order it was split from. */
   order: number;
   batchIds: readonly string[];
+  /** Left out of the order's latest breakdown; a later breakdown that lists it again un-cancels it. */
+  cancelled: boolean;
 }
 
 export interface Bottle {
@@ -120,19 +122,51 @@ export const emptyState: State = {
 };
 
 /**
+ * A log the fold cannot replay, and where it broke. The command layer (#9) must refuse such
+ * events before they are appended; the fold's check is the last line of defence, and lets
+ * replay and `foedrum doctor` point at the event.
+ */
+export class InvalidLogError extends Error {
+  override readonly name = 'InvalidLogError';
+  /** The position of the event in the events passed to `fold`. */
+  readonly index: number;
+  readonly eventType: Event['type'];
+  readonly reason: string;
+
+  constructor(index: number, eventType: Event['type'], reason: string) {
+    super(`Invalid event log at event ${index} (${eventType}): ${reason}`);
+    this.index = index;
+    this.eventType = eventType;
+    this.reason = reason;
+  }
+}
+
+/**
  * Folds `events` onto `state`; `fold(rest, fold(prefix))` equals `fold([...prefix, ...rest])`.
- * Throws when an event refers to a batch, step or attempt the log never created, repeats one,
- * opens a bottle or applies an effect twice, or moves a sub-order to another order.
+ * Throws an InvalidLogError when an event refers to a batch, step or attempt the log never
+ * created, repeats one or takes an attempt out of order, opens a bottle or applies an effect
+ * twice, decomposes a sub-order, makes an order a sub-order, or moves a sub-order to another
+ * order.
  */
 export function fold(events: readonly Event[], state: State = emptyState): State {
-  return events.reduce(apply, state);
+  return events.reduce((current, event, index) => {
+    try {
+      return apply(current, event);
+    } catch (error) {
+      if (error instanceof Rejection) throw new InvalidLogError(index, event.type, error.message);
+      throw error;
+    }
+  }, state);
 }
+
+/** Why `apply` refuses an event; `fold` adds where it happened. */
+class Rejection extends Error {}
 
 function apply(state: State, event: Event): State {
   switch (event.type) {
     case 'batch.ordered': {
       const { batchId, order, parentBatchId } = event;
-      if (state.batches.has(batchId)) throw inconsistent(`batch ${batchId} was already ordered`);
+      if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
       const batches = put(state.batches, batchId, {
         id: batchId,
@@ -225,20 +259,34 @@ function apply(state: State, event: Event): State {
     case 'batch.resumed':
       return setLane(state, event.batchId, { kind: 'brewing' });
     case 'order.decomposed': {
-      const { issue } = batchOf(state, event.batchId);
-      const subOrders = new Map(
-        [...state.subOrders].filter(([, subOrder]) => subOrder.order !== issue),
-      );
+      const { id, issue } = batchOf(state, event.batchId);
+      // One level of breakdown (architecture §3.2, ADR 0013).
+      if (state.subOrders.has(issue)) {
+        throw reject(`batch ${id} brews sub-order ${issue}; only an order can be decomposed`);
+      }
+      const listed = new Set(event.subOrders.map((subOrder) => subOrder.issue));
+      const subOrders = new Map(state.subOrders);
+      // Sub-orders the new breakdown leaves out are cancelled, never deleted (ADR 0014); they
+      // keep their batches.
+      for (const [subIssue, subOrder] of state.subOrders) {
+        if (subOrder.order === issue && !listed.has(subIssue)) {
+          subOrders.set(subIssue, { ...subOrder, cancelled: true });
+        }
+      }
       for (const { issue: subIssue, repo } of event.subOrders) {
+        if (state.orders.has(subIssue)) {
+          throw reject(`issue ${subIssue} is an order, so it cannot be a sub-order`);
+        }
         const earlier = state.subOrders.get(subIssue);
         if (earlier !== undefined && earlier.order !== issue) {
-          throw inconsistent(`sub-order ${subIssue} already belongs to order ${earlier.order}`);
+          throw reject(`sub-order ${subIssue} already belongs to order ${earlier.order}`);
         }
         subOrders.set(subIssue, {
           issue: subIssue,
           repo,
           order: issue,
           batchIds: earlier?.batchIds ?? [],
+          cancelled: false,
         });
       }
       return {
@@ -257,7 +305,7 @@ function apply(state: State, event: Event): State {
     }
     case 'bottle.opened': {
       const { bottleId: id, repo, subOrders, pullRequest } = event;
-      if (state.bottles.has(id)) throw inconsistent(`bottle ${id} was already opened`);
+      if (state.bottles.has(id)) throw reject(`bottle ${id} was already opened`);
       return { ...state, bottles: put(state.bottles, id, { id, repo, subOrders, pullRequest }) };
     }
     case 'release.observed': {
@@ -282,7 +330,7 @@ function apply(state: State, event: Event): State {
     case 'effect.applied':
       // Invariant I4: an effect is applied at most once.
       if (state.effects.has(event.key)) {
-        throw inconsistent(`effect ${event.key} was already applied`);
+        throw reject(`effect ${event.key} was already applied`);
       }
       return { ...state, effects: put(state.effects, event.key, event.result) };
     default:
@@ -295,12 +343,12 @@ type AttemptEvent = Extract<Event, { type: 'step.started' | 'step.finished' }>;
 const put = <K, V>(map: ReadonlyMap<K, V>, key: K, value: V): ReadonlyMap<K, V> =>
   new Map(map).set(key, value);
 
-const inconsistent = (message: string): Error => new Error(`Inconsistent event log: ${message}`);
+const reject = (reason: string): Rejection => new Rejection(reason);
 
 const attemptError = (
   { batchId, stepId, attempt }: Pick<AttemptEvent, 'batchId' | 'stepId' | 'attempt'>,
   what: string,
-): Error => inconsistent(`attempt ${stepId}#${attempt} of batch ${batchId} ${what}`);
+): Rejection => reject(`attempt ${stepId}#${attempt} of batch ${batchId} ${what}`);
 
 /** The order of an issue, or a new one when it has no batches yet. */
 const orderOf = (state: State, issue: number): Order =>
@@ -308,14 +356,14 @@ const orderOf = (state: State, issue: number): Order =>
 
 function batchOf(state: State, batchId: string): Batch {
   const batch = state.batches.get(batchId);
-  if (batch === undefined) throw inconsistent(`batch ${batchId} was never ordered`);
+  if (batch === undefined) throw reject(`batch ${batchId} was never ordered`);
   return batch;
 }
 
 function stepOf(batch: Batch, stepId: string): Step {
   const step = batch.steps.get(stepId);
   if (step === undefined) {
-    throw inconsistent(`step ${stepId} of batch ${batch.id} was never scheduled`);
+    throw reject(`step ${stepId} of batch ${batch.id} was never scheduled`);
   }
   return step;
 }
