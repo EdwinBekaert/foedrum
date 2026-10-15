@@ -67,7 +67,10 @@ const folderState = async (git: Git, path: string): Promise<FolderState> => {
   return status.ok && status.stdout.trim() === '' ? 'clean' : 'dirty';
 };
 
-export const gatherFacts = async (git: Git, main: string): Promise<Facts> => {
+// The facts for the core, and each branch's tip for deleting it only while it is still there.
+type Gathered = Facts & { tips: Map<string, string> };
+
+export const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
   const root = join(main, '.claude', 'worktrees');
   const records = await listRecords(main);
   const listed = await git(main, ['worktree', 'list', '--porcelain', '-z']);
@@ -78,12 +81,14 @@ export const gatherFacts = async (git: Git, main: string): Promise<Facts> => {
     const state = inside === undefined ? 'dirty' : await folderState(git, path);
     worktrees.push({ path, inside, branch, lockReason, state, record });
   }
-  const format = '--format=%(refname:short)%00%(upstream:short)%00%(upstream:track)';
-  const heads = await git(main, ['for-each-ref', format, 'refs/heads']);
+  const fields = '%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)';
+  const heads = await git(main, ['for-each-ref', `--format=${fields}`, 'refs/heads']);
   const mergedArgs = ['for-each-ref', '--format=%(refname:short)', '--merged=origin/main'];
   const merged = new Set(lines((await git(main, [...mergedArgs, 'refs/heads'])).stdout));
+  const tips = new Map<string, string>();
   const branches = lines(heads.stdout).map((line) => {
-    const [name = '', upstream = '', track = ''] = line.split('\0');
+    const [name = '', tip = '', upstream = '', track = ''] = line.split('\0');
+    tips.set(name, tip);
     return {
       name,
       merged: merged.has(name),
@@ -91,7 +96,7 @@ export const gatherFacts = async (git: Git, main: string): Promise<Facts> => {
       upstreamGone: track === '[gone]',
     };
   });
-  return { worktrees, branches };
+  return { worktrees, branches, tips };
 };
 
 const succeed = async (result: Promise<GitResult>): Promise<void> => {
@@ -100,7 +105,12 @@ const succeed = async (result: Promise<GitResult>): Promise<void> => {
 };
 
 // Carries out one action and returns what it did; throws when it could not.
-const carryOut = async (git: Git, main: string, action: Action): Promise<string> => {
+const carryOut = async (
+  git: Git,
+  main: string,
+  tips: Map<string, string>,
+  action: Action,
+): Promise<string> => {
   switch (action.kind) {
     case 'remove':
       for (const path of [action.path, action.record]) {
@@ -116,12 +126,16 @@ const carryOut = async (git: Git, main: string, action: Action): Promise<string>
     case 'prune':
       await removeTree(action.record);
       return `pruned stale worktree ${action.label}: folder is gone`;
-    case 'delete-branch':
-      // `git branch -d` checks against the upstream, or HEAD without one, and the main
-      // checkout's own main is usually behind; origin/main is what made it a candidate.
-      await git(main, ['branch', '--set-upstream-to=origin/main', action.branch]);
-      await succeed(git(main, ['branch', '-d', action.branch]));
+    case 'delete-branch': {
+      // `git branch -d` would check against the main checkout's own main, which is usually
+      // behind. Check the tip against origin/main instead, and delete the branch only while it
+      // still points at that tip; its config section goes too, as with -d.
+      const tip = tips.get(action.branch) ?? '';
+      await succeed(git(main, ['merge-base', '--is-ancestor', tip, 'origin/main']));
+      await succeed(git(main, ['update-ref', '-d', `refs/heads/${action.branch}`, tip]));
+      await git(main, ['config', '--remove-section', `branch.${action.branch}`]);
       return `deleted branch ${action.branch}`;
+    }
     default: {
       const unknown: never = action;
       throw new Error(`unknown action ${JSON.stringify(unknown)}`);
@@ -135,7 +149,8 @@ export const cleanWorktrees = async (cwd: string, git: Git = runGit): Promise<st
   if (main === undefined) return ['skipped: not inside a git repository'];
   const fetched = await git(main, ['fetch', '--prune', '--quiet', 'origin']);
   if (!fetched.ok) return [`skipped: git fetch --prune origin failed: ${fetched.stderr.trim()}`];
-  const { actions, kept } = plan(await gatherFacts(git, main), isPidAlive);
+  const facts = await gatherFacts(git, main);
+  const { actions, kept } = plan(facts, isPidAlive);
   const done = [...kept];
   for (const action of actions) {
     const steps: Action[] = [action];
@@ -144,7 +159,7 @@ export const cleanWorktrees = async (cwd: string, git: Git = runGit): Promise<st
     }
     for (const step of steps) {
       try {
-        done.push(await carryOut(git, main, step));
+        done.push(await carryOut(git, main, facts.tips, step));
       } catch (error) {
         const item = step.kind === 'delete-branch' ? `branch ${step.branch}` : step.label;
         done.push(`could not clean ${item}: ${(error as Error).message}`);
