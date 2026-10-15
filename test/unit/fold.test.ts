@@ -253,6 +253,13 @@ describe('fold', () => {
 
 describe('fold of an inconsistent log', () => {
   const started: Event = { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1 };
+  const finished: Event = {
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt: 1,
+    outcome: { kind: 'cancelled' },
+  };
   const cases: [string, Event[], RegExp][] = [
     ['an event for a batch that was never ordered', [scheduled], /batch b1 was never ordered/],
     ['a batch ordered twice', [ordered, ordered], /batch b1 was already ordered/],
@@ -264,20 +271,25 @@ describe('fold of an inconsistent log', () => {
     ['an attempt started before it was scheduled', [ordered, started], /plan#1 .*never scheduled/],
     [
       'an attempt finished before it was started',
-      [
-        ordered,
-        scheduled,
-        {
-          type: 'step.finished',
-          batchId: 'b1',
-          stepId: 'plan',
-          attempt: 1,
-          outcome: { kind: 'cancelled' },
-        },
-      ],
+      [ordered, scheduled, finished],
       /plan#1 .*never started/,
     ],
     ['an attempt scheduled twice', [ordered, scheduled, scheduled], /plan#1 .*already scheduled/],
+    [
+      'an attempt started twice',
+      [ordered, scheduled, started, started],
+      /plan#1 .*already started/,
+    ],
+    [
+      'an attempt started after it finished',
+      [ordered, scheduled, started, finished, started],
+      /plan#1 .*already started/,
+    ],
+    [
+      'an attempt finished twice',
+      [ordered, scheduled, started, finished, finished],
+      /plan#1 .*already finished/,
+    ],
     [
       'input for a step that never ran',
       [
