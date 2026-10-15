@@ -290,6 +290,28 @@ describe('Event', () => {
       },
     ],
     [
+      'a human recipe choice without who issued it',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'human',
+        via: 'terminal',
+      },
+    ],
+    [
+      'a recipe choice by the router with an issuer',
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'small',
+        source: 'router',
+        by: 'octocat',
+      },
+    ],
+    [
       'a recipe choice by the router with a surface',
       {
         type: 'batch.recipe_chosen',
