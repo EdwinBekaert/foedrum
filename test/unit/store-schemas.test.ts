@@ -28,6 +28,9 @@ describe('EffectKey', () => {
     ['a missing effect', { batchId: 'b1', stepId: 'open-pr', attempt: 1 }],
     ['an unknown field', { ...key, extra: true }],
     ['a tuple', ['b1', 'open-pr', 1, 'pull_request']],
+    // Batch and step ids are path segments on the state branch (ADR 0024).
+    ['an upper-case batch id', { ...key, batchId: 'B1' }],
+    ['a step id with a slash', { ...key, stepId: 'open/pr' }],
   ];
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(EffectKey, value));
@@ -37,9 +40,13 @@ describe('EffectKey', () => {
 describe('EffectKeyText', () => {
   const canonical: [string, string][] = [
     ['a plain key', '["b1","open-pr",1,"pull_request"]'],
-    ['parts with separators and quotes', JSON.stringify(['a:b/c', '"],["#', 2, 'x\\y,z'])],
-    ['parts with control characters', JSON.stringify(['b\n1', 'step\t', 3, '\u0001'])],
-    ['parts outside ASCII and a lone surrogate', JSON.stringify(['bière', '\ud800', 9, '🍺'])],
+    ['ids with separators', JSON.stringify(['a.b-c', 'x_y.z', 2, 'pr'])],
+    ['an effect with separators and quotes', JSON.stringify(['b1', 'plan', 2, '"],["#:b/c'])],
+    ['an effect with control characters', JSON.stringify(['b1', 'plan', 3, 'x\n\t\u0001'])],
+    [
+      'an effect outside ASCII and a lone surrogate',
+      JSON.stringify(['b1', 'plan', 9, 'bière\ud800🍺']),
+    ],
     ['the largest safe attempt', JSON.stringify(['b1', 'open-pr', 2 ** 53 - 1, 'pr'])],
   ];
   for (const [name, text] of canonical) {
@@ -69,6 +76,8 @@ describe('EffectKeyText', () => {
     ['a non-canonical spelling (escaped slash)', '["b\\/1","open-pr",1,"pull_request"]'],
     ['a non-canonical spelling (control escape)', '["b\\u000a1","open-pr",1,"pull_request"]'],
     ['a trailing newline', '["b1","open-pr",1,"pull_request"]\n'],
+    ['an upper-case batch id', '["B1","open-pr",1,"pull_request"]'],
+    ['a step id with a slash', '["b1","open/pr",1,"pull_request"]'],
   ];
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(EffectKeyText, value));

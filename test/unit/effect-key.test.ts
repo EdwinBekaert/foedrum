@@ -12,10 +12,10 @@ describe('effectKey', () => {
 
   it('decodes what it encodes, also parts that contain separators or quotes', () => {
     const awkward: EffectKey = {
-      batchId: 'a:b/c',
-      stepId: '"],["#',
+      batchId: 'a.b-c',
+      stepId: 'x_y.z',
       attempt: 2,
-      effect: 'x\\y,z',
+      effect: '"],["#:b/c\\y,z',
     };
     for (const k of [key, awkward]) assert.deepEqual(effectKey.decode(effectKey.encode(k)), k);
   });
@@ -31,16 +31,12 @@ describe('effectKey', () => {
   it('gives different texts to keys whose parts would join to the same text', () => {
     const pairs: [EffectKey, EffectKey][] = [
       [
-        { ...key, batchId: 'a/b', stepId: 'c' },
-        { ...key, batchId: 'a', stepId: 'b/c' },
+        { ...key, batchId: 'a.b', stepId: 'c' },
+        { ...key, batchId: 'a', stepId: 'b.c' },
       ],
       [
-        { ...key, batchId: 'a:b', stepId: 'c' },
-        { ...key, batchId: 'a', stepId: 'b:c' },
-      ],
-      [
-        { ...key, batchId: 'a","b', stepId: 'c' },
-        { ...key, batchId: 'a', stepId: 'b","c' },
+        { ...key, batchId: 'a-b', stepId: 'c' },
+        { ...key, batchId: 'a', stepId: 'b-c' },
       ],
     ];
     for (const [one, other] of pairs) {
@@ -54,6 +50,9 @@ describe('effectKey', () => {
     ['an empty effect', { ...key, effect: '' }],
     ['attempt 0', { ...key, attempt: 0 }],
     ['a fractional attempt', { ...key, attempt: 1.5 }],
+    // Batch and step ids are path segments on the state branch (ADR 0024).
+    ['an upper-case batch id', { ...key, batchId: 'B1' }],
+    ['a step id with a slash', { ...key, stepId: 'open/pr' }],
   ];
   for (const [what, invalid] of invalidKeys) {
     it(`refuses to encode a key with ${what}`, () => {
