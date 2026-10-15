@@ -96,13 +96,14 @@ describe('killProcessTree', () => {
 });
 
 // A started process that does what the test tells it to; no real process runs (ADR 0021).
+// 'none' is a program that did not start, which has no pid.
 class FakeChild extends EventEmitter implements ChildHandle {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly pid: number | undefined;
-  constructor(pid: number | undefined = 4242) {
+  constructor(pid: number | 'none' = 4242) {
     super();
-    this.pid = pid;
+    this.pid = pid === 'none' ? undefined : pid;
   }
   close(code: number | null): void {
     this.stdout.end();
@@ -183,7 +184,7 @@ describe('execProcessWith', () => {
   });
 
   it('answers without an exit code, with the reason, when the program cannot start', async () => {
-    const child = new FakeChild(undefined);
+    const child = new FakeChild('none');
     const { exec } = fakeSpawner(child);
     const done = exec('nope', [], { cwd: '/work/tree' });
     child.emit('error', new Error('spawn nope ENOENT'));
@@ -253,7 +254,7 @@ describe('execProcessWith', () => {
     });
 
     it('kills nothing at the deadline when the program never started', async () => {
-      const child = new FakeChild(undefined);
+      const child = new FakeChild('none');
       const { killed, exec } = fakeSpawner(child);
       const done = exec('npm', ['test'], { cwd: '/work/tree', timeoutMs: 10 });
       mock.timers.tick(10);
