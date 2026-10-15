@@ -78,6 +78,22 @@ Local tarballs and directories are still allowed (`allow-file` and `allow-direct
 
 - `npm ci` only, with a committed lockfile.
 - `npm audit signatures` and `npm audit --omit=dev`.
-- A lockfile checker: registry URLs only, integrity present, no install scripts, every version published at least 7 days before the change (the lockfile bypasses `min-release-age`), package budget (runtime ≤ 2, total ≤ 10), every package listed in this file.
-- Dependabot with a 7-day cooldown; GitHub Actions pinned to commit SHAs.
+- GitHub Actions pinned to commit SHAs.
 - Releases published with npm trusted publishing and provenance.
+
+## Dependency guard
+
+[`scripts/check-deps.ts`](scripts/check-deps.ts) checks `package-lock.json` and fails when:
+
+- a `resolved` URL is not under `https://registry.npmjs.org/`, or an entry is a link;
+- an entry has no `sha512-` integrity;
+- any package in the tree has an install script;
+- the package budget is exceeded (runtime ≤ 2, total ≤ 10), counting the direct dependencies in `package.json`; runtime counts `dependencies` and `optionalDependencies`;
+- a direct dependency has no row under [Admitted packages](#admitted-packages) (transitive packages are recorded in its Tree column);
+- a locked version was published less than `min-release-age` days ago (read from `.npmrc`), because a version already in the lockfile skips that check in npm (spike #16). This needs the registry.
+
+The budget above and the admitted-packages table are read by the checker; keep their format.
+
+- `npm run check` runs it with `--offline` (no publish dates), so it stays fast and works without a network.
+- `npm run check:deps` runs every rule, including publish dates; CI runs it on every pull request (the workflow comes with #2).
+- [Dependabot](.github/dependabot.yml) proposes npm and GitHub Actions updates weekly, grouped, with a 7-day cooldown.

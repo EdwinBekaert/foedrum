@@ -1,0 +1,23 @@
+# Dependency updates — see DEPENDENCIES.md and docs/adr/0004
+# The 7-day cooldown matches min-release-age in .npmrc; scripts/check-deps.ts enforces it in CI.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]

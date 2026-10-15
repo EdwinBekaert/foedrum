@@ -16,6 +16,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `npm ci` — install (never `npm install` in CI; lifecycle scripts are disabled)
 - `npm run check` — typecheck, lint and test in one command; run it before every push
 - `npm run typecheck` · `npm run lint` · `npm test`
+- `npm run check:deps` — the dependency guard with publish dates (needs the registry; `npm run check` runs it offline)
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 
