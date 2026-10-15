@@ -1,7 +1,7 @@
 // `npm run deps:sync`: runs npm ci when node_modules no longer matches package-lock.json, as
 // after a `git pull` that changed the lock file. deps-sync/core.ts decides; this shell reads the
-// files and runs npm (ADR 0021). The SessionStart hook runs it, and the gate (precheck.ts) uses
-// `outOfDate` to block a push from a stale tree with one clear line. It never fails, and prints
+// files and runs npm (ADR 0021). The SessionStart hook runs it, and the gate (precheck.ts) and
+// `npm run check` (check.ts) use `outOfDate` to stop on a stale tree with one clear line. It never fails, and prints
 // nothing when node_modules is up to date: SessionStart output goes into the session's context.
 
 import { readFile } from 'node:fs/promises';

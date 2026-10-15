@@ -5,7 +5,7 @@
 // place for their commands and nothing starts a shell.
 
 import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
-import type { ReadText } from './deps-sync.ts';
+import { outOfDate, type ReadText } from './deps-sync.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export interface CheckStep {
@@ -51,10 +51,18 @@ export const runCheck = async ({
   execPath,
   runProcess,
   cwd,
+  read,
   write,
   stepTimeoutMs = STEP_TIMEOUT_MS,
   signal,
 }: CheckOptions): Promise<number> => {
+  // A worktree without node_modules of its own would run every step against the packages of the
+  // checkout above it (#86): say so in the gate's line before starting anything.
+  const stale = await outOfDate(cwd, read);
+  if (stale !== undefined) {
+    write(`node_modules is out of date with package-lock.json (${stale.reason}); run npm ci\n`);
+    return 1;
+  }
   const npmCli = env.npm_execpath;
   if (npmCli === undefined || npmCli === '') {
     write('npm_execpath is not set: run this as `npm run check`.\n');

@@ -3,10 +3,18 @@
 // over the budget. A slow file is a sign that a process or a real file system tree slipped into a
 // unit test (ADR 0021). The summary covers the file's tests and hooks, not the time it takes to
 // load the module; the test-layer guard (scripts/check-test-layers.ts) covers direct imports.
+//
+// The budget is wall time, the only time node:test reports per file, and it binds only files in
+// test/unit/. Property and chaos files are slow by design: their run count sets their time, and
+// under a parallel `npm run check` it grows with the machine's load (#87). They are listed, but
+// never fail the run.
 
 import { relative, sep } from 'node:path';
 
 export const FILE_BUDGET_MS = 5000;
+
+// The folder, relative to cwd, whose files are held to the budget.
+const BUDGETED = 'test/unit/';
 
 // The fields of node:test's reporter events that this reporter reads.
 export interface TestEvent {
@@ -38,10 +46,10 @@ export const budgetReporter = ({ budgetMs, cwd, slowest, fail }: BudgetOptions) 
     const files = [...times]
       .map(([file, ms]) => ({ file: relative(cwd, file).split(sep).join('/'), ms }))
       .sort((a, b) => b.ms - a.ms);
-    yield `test file times (budget ${budgetMs / 1000} s per file, ADR 0021)\n`;
+    yield `test file times (budget ${budgetMs / 1000} s per file in ${BUDGETED}, ADR 0021)\n`;
     for (const { file, ms } of files.slice(0, slowest)) yield `  ${seconds(ms)}  ${file}\n`;
     yield 'end of test file times\n';
-    const over = files.filter(({ ms }) => ms > budgetMs);
+    const over = files.filter(({ file, ms }) => file.startsWith(BUDGETED) && ms > budgetMs);
     for (const { file, ms } of over) {
       yield `✖ ${file} took ${seconds(ms)}, over the ${budgetMs / 1000} s budget for one test file: move processes and real tools to test/integration/ (ADR 0021)\n`;
     }
