@@ -74,8 +74,12 @@ export interface AttemptFacts {
 export type Denials = Pick<AttemptFacts, 'denials' | 'deniedTools'>;
 
 /** The denials after one more of `tool`: counted always, its name kept once. */
-export function noteDenial(_seen: Denials, _tool: string): Denials {
-  throw new Error('not implemented');
+export function noteDenial(seen: Denials, tool: string): Denials {
+  // Each name once, so a storm of the same denial cannot grow the list.
+  const deniedTools = seen.deniedTools.includes(tool)
+    ? seen.deniedTools
+    : [...seen.deniedTools, tool];
+  return { denials: seen.denials + 1, deniedTools };
 }
 
 /** How much of a garbage line a reason quotes: the stream is untrusted and may be huge. */
@@ -100,7 +104,9 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   }
   // Another attempt would hit the same wall (brewers-and-recipes §1.1).
   if (maxDenials !== undefined && denials >= maxDenials) {
-    const summary = `${denials} permission denials, maxDenials is ${maxDenials}`;
+    // The human needs to know what to allow (ADR 0006).
+    const tools = facts.deniedTools.length > 0 ? `; denied: ${facts.deniedTools.join(', ')}` : '';
+    const summary = `${denials} permission denials, maxDenials is ${maxDenials}${tools}`;
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
   // The same budget would run out again.
