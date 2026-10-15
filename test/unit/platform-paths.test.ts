@@ -34,4 +34,8 @@ describe('pathInside', () => {
     assert.equal(pathInside('/home/a/repo', '/home/a', 'linux'), undefined);
     assert.equal(pathInside('/home/a/Repo', '/home/a/repo/x', 'linux'), undefined);
   });
+
+  it('returns undefined for a path on another drive', () => {
+    assert.equal(pathInside('C:/code/repo', 'D:/code/repo/x', 'win32'), undefined);
+  });
 });

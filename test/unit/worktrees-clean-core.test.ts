@@ -171,6 +171,20 @@ describe('plan: worktrees under .claude/worktrees/', () => {
     assert.deepEqual(result, { actions: [], kept: [] });
   });
 
+  for (const state of ['gone', 'no-git'] as const) {
+    it(`reports a ${state} worktree whose record was not found`, () => {
+      const result = run({
+        worktrees: [worktree('7-a', { state, record: undefined })],
+        branches: [branch('7-a')],
+      });
+
+      assert.deepEqual(result.actions, []);
+      assert.deepEqual(result.kept, [
+        'kept worktree .claude/worktrees/7-a: no record under .git/worktrees/ points at it',
+      ]);
+    });
+  }
+
   it('keeps a worktree while a worktree nested in it still has its folder', () => {
     const result = run({
       worktrees: [

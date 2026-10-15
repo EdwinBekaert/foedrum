@@ -3,9 +3,18 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { parseWorktreeList } from '../../scripts/worktrees-clean/porcelain.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -69,6 +78,13 @@ describe('worktrees-clean with real git', () => {
 
   it('removes merged worktrees whose remote branch is gone, at session start in the main checkout only', () => {
     const merged = worktree('7-merged');
+    // A committed file in a subfolder: a read-only folder stops git from deleting what is in
+    // it on Linux and macOS, so the removal works only when the cleanup clears the bits first.
+    mkdirSync(join(merged, 'docs'));
+    writeFileSync(join(merged, 'docs', 'notes.md'), 'notes\n');
+    git(merged, ['add', 'docs']);
+    git(merged, ['commit', '-q', '-m', 'Add notes']);
+    git(merged, ['push', '-q', 'origin', '7-merged']);
     const develop = worktree('8-develop');
     const open = worktree('9-open');
     const dirty = worktree('10-dirty');
@@ -77,7 +93,7 @@ describe('worktrees-clean with real git', () => {
     merge('10-dirty');
     writeFileSync(join(dirty, 'notes.txt'), 'not committed\n');
     // Read-only files and folders, as Windows sometimes leaves them.
-    for (const entry of readdirSync(merged)) {
+    for (const entry of [join('docs', 'notes.md'), 'docs', ...readdirSync(merged)]) {
       const path = join(merged, entry);
       if (entry !== '.git') chmodSync(path, statSync(path).mode & ~0o222);
     }
@@ -125,6 +141,13 @@ describe('worktrees-clean with real git', () => {
       `claude session 13-live (pid ${process.pid})`,
       live,
     ]);
+    // The unit tests' fixture still matches what this git prints.
+    const listed = parseWorktreeList(git(main, ['worktree', 'list', '--porcelain', '-z']));
+    const liveEntry = listed.find(({ branch }) => branch === '13-live');
+    assert.equal(liveEntry?.lockReason, `claude session 13-live (pid ${process.pid})`);
+    assert.ok(
+      listed.some(({ path, branch }) => branch === undefined && path.endsWith('scratch/tree')),
+    );
 
     const result = clean(main);
 

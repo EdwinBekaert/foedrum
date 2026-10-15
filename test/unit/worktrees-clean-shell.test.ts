@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { cleanWorktrees, type Git, gitEnv } from '../../scripts/worktrees-clean.ts';
@@ -13,9 +13,9 @@ const worktreeList: string = JSON.parse(
 const refs: { forEachRef: string; merged: string; statusDirty: string } = JSON.parse(
   readFileSync(join(fixtures, 'refs.json'), 'utf8'),
 );
-// Object ids of 7-merged and 10-gone in refs.json.
-const TIP_7 = '0000000000000000000000000000000000000002';
-const TIP_10 = '0000000000000000000000000000000000000001';
+// Object ids of 7-merged and 10-gone in refs.json (the same ids as in the worktree list).
+const TIP_7 = '0000000000000000000000000000000000000003';
+const TIP_10 = '0000000000000000000000000000000000000002';
 
 type Call = [cwd: string, ...args: string[]];
 
@@ -75,8 +75,10 @@ describe('cleanWorktrees with a fake git', () => {
 
     const lines = await cleanWorktrees(main, git);
 
+    // lstrip=2, not :short: git disambiguates :short (a branch next to a tag of the same name
+    // becomes heads/<name>), and then it no longer matches the worktree list.
     const format =
-      '--format=%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)';
+      '--format=%(refname:lstrip=2)%00%(objectname)%00%(upstream:lstrip=2)%00%(upstream:track)';
     assert.deepEqual(calls, [
       [main, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
       [main, 'fetch', '--prune', '--quiet', 'origin'],
@@ -84,7 +86,7 @@ describe('cleanWorktrees with a fake git', () => {
       [wt('7-merged'), 'status', '--porcelain'],
       [wt('9-plain-lock'), 'status', '--porcelain'],
       [main, 'for-each-ref', format, 'refs/heads'],
-      [main, 'for-each-ref', '--format=%(refname:short)', '--merged=origin/main', 'refs/heads'],
+      [main, 'for-each-ref', '--format=%(refname:lstrip=2)', '--merged=origin/main', 'refs/heads'],
       // 10-gone: the record goes on disk, then the branch, only while it is still at the
       // checked tip and that tip is merged.
       [main, 'merge-base', '--is-ancestor', TIP_10, 'origin/main'],
@@ -196,6 +198,60 @@ describe('cleanWorktrees with a fake git', () => {
     );
   });
 
+  it('finishes a worktree that git removed part-way, once its .git file is gone', async () => {
+    // git deletes what it can, then fails on a busy file; it took the .git file and the record.
+    const { calls, git } = fakeGit(main, (args) => {
+      if (args[0] !== 'worktree' || args[1] !== 'remove') return false;
+      rmSync(join(wt('7-merged'), '.git'));
+      rmSync(record('7-merged'), { recursive: true });
+      return true;
+    });
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.equal(existsSync(wt('7-merged')), false, lines.join('\n'));
+    assert.ok(lines.includes('removed worktree .claude/worktrees/7-merged'), lines.join('\n'));
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    assert.ok(commands.includes(`update-ref -d refs/heads/7-merged ${TIP_7}`));
+  });
+
+  it('keeps the config and reports the branch when update-ref refuses it', async () => {
+    const { calls, git } = fakeGit(
+      main,
+      (args) => args[0] === 'update-ref' && args[2] === 'refs/heads/7-merged',
+    );
+
+    const lines = await cleanWorktrees(main, git);
+
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    assert.equal(commands.includes('config --remove-section branch.7-merged'), false);
+    assert.equal(lines.includes('deleted branch 7-merged'), false);
+    assert.ok(lines.some((line) => line.startsWith('could not clean branch 7-merged')));
+  });
+
+  it('runs nothing outside a git repository', async () => {
+    const { calls, git } = fakeGit(main, (args) => args[0] === 'rev-parse');
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.deepEqual(
+      calls.map(([, command]) => command),
+      ['rev-parse'],
+    );
+    assert.deepEqual(lines, ['skipped: not inside a git repository']);
+  });
+
+  it('matches a record whose path differs only in case', {
+    skip: !['win32', 'darwin'].includes(process.platform) && 'case-sensitive file system',
+  }, async () => {
+    writeFileSync(join(record('10-gone'), 'gitdir'), `${wt('10-gone').toUpperCase()}/.git\n`);
+    const { git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    assert.equal(existsSync(record('10-gone')), false, lines.join('\n'));
+  });
+
   it('keeps a worktree whose status shows changes', async () => {
     const { calls, git } = fakeGit(main, undefined, (cwd, args) =>
       args[0] === 'status' && cwd === wt('7-merged') ? refs.statusDirty : undefined,
@@ -220,10 +276,13 @@ describe('gitEnv', () => {
     assert.equal(env.PATH, '/bin');
     assert.equal(env.GIT_TERMINAL_PROMPT, '0');
     assert.equal(env.GCM_INTERACTIVE, 'never');
-    assert.equal(env.GIT_SSH_COMMAND, 'ssh -o BatchMode=yes');
   });
 
-  it('keeps an SSH command the user set', () => {
+  // An ssh command of its own would override GIT_SSH and core.sshCommand, such as Windows'
+  // OpenSSH for the ssh-agent service or plink for Pageant, and the fetch would fail.
+  it("leaves the user's ssh choice alone", () => {
+    assert.equal(gitEnv({}).GIT_SSH_COMMAND, undefined);
+    assert.equal(gitEnv({ GIT_SSH: 'plink.exe' }).GIT_SSH, 'plink.exe');
     assert.equal(gitEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
   });
 });
