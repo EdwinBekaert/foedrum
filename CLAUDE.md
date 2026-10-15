@@ -64,7 +64,7 @@ Everything a session or a test creates stays inside the checkout, so it is visib
 - Never write to the system temp directory (`%TEMP%`, `/tmp`, `os.tmpdir()`, or a tool's own scratch directory) while working on Foedrum.
 - Use `.foedrum/tmp/` at the root of the current checkout or worktree (git-ignored); create it when missing. Group files per issue: `.foedrum/tmp/<issue-number>/` for scripts, scratch files, captured output and logs.
 - Tests that need a directory create it under `.foedrum/tmp/tests/`, through a shared test helper, and remove it afterwards.
-- `npm test` runs through `scripts/with-checkout-tmp.ts`, which points `TEMP`, `TMP` and `TMPDIR` at a fresh `.foedrum/tmp/tests/tmpdir-*` folder and removes it afterwards, so node's coverage files (and anything that uses `os.tmpdir()`) stay in the checkout. `NODE_V8_COVERAGE` would not do this: the test runner always works in `os.tmpdir()` and only copies the files there at the end.
+- `npm test` and `npm run test:integration` run through `scripts/with-checkout-tmp.ts`, which points `TEMP`, `TMP` and `TMPDIR` at a fresh `.foedrum/tmp/tests/tmpdir-*` folder and removes it afterwards, so node's coverage files, the temp files of the git and npm processes the integration tests start, and anything that uses `os.tmpdir()` stay in the checkout. `NODE_V8_COVERAGE` would not do this: the test runner always works in `os.tmpdir()` and only copies the files there at the end.
 - Delete what you no longer need before opening the pull request.
 
 ## Dependencies
