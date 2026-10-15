@@ -442,6 +442,13 @@ describe('decide expire: brewing → Stuck (invariant I5)', () => {
     ]);
   });
 
+  it('makes the batch Stuck when the deadline is now, as the store counts it due', () => {
+    const atNow = now.toISOString();
+    accepts([ordered, chosen(), scheduled('plan', 1, atNow), started('plan')], expire, [
+      stuckOn({ kind: 'deadline_passed', stepId: 'plan', deadlineAt: atNow }),
+    ]);
+  });
+
   it('refuses an attempt whose deadline is still ahead', () => {
     const events = [ordered, chosen(), scheduled('plan', 1, inAnHour), started('plan')];
     refuses(events, expire, /attempt plan#1 of batch b1 is not due until 2026-10-15T13:00:00.000Z/);
@@ -581,6 +588,16 @@ describe('decide remind (ADR 0025)', () => {
       { ...stuckEvent(needsInput, ['answer', 'cancel']), remindAt: '2026-10-15T11:00:00.000Z' },
     ];
     accepts(events, remind, [stuckOn(needsInput, ['answer', 'cancel'])]);
+  });
+
+  it('sets the next reminder when the current one is due now', () => {
+    const waiting: Event = {
+      type: 'batch.waiting',
+      batchId: 'b1',
+      on: merge,
+      remindAt: now.toISOString(),
+    };
+    accepts([ordered, waiting], remind, [{ ...waiting, remindAt: inTwoDays }]);
   });
 
   it('refuses a Conditioning reminder that is not due', () => {
