@@ -59,6 +59,28 @@ describe('settleAttempt', () => {
     });
   });
 
+  it('puts a process that never started before every limit', () => {
+    const unstartable = { kind: 'unstartable', reason: 'claude was not found' } as const;
+    const ending = settleAttempt(
+      facts({ exit: unstartable, outDoc: undefined, denials: 9, turns: 101 }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the brewer could not start: claude was not found',
+    });
+  });
+
+  it('puts a crash before garbage in the stream', () => {
+    const killed = { kind: 'killed', signal: 'SIGSEGV' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ exit: killed, garbage: 'x' }), limits), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer process was killed by SIGSEGV',
+    });
+  });
+
   it('cancels an attempt the engine stopped within its limits', () => {
     assert.deepStrictEqual(settleAttempt(facts({ exit: { kind: 'stopped' } }), limits), {
       kind: 'cancelled',
