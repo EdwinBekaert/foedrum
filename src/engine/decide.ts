@@ -54,7 +54,7 @@ export type RecordedEvent = Extract<
 /** The commands the engine issues itself: the drivers and the supervisor. */
 export type EngineCommand =
   | { kind: 'record'; event: RecordedEvent }
-  | { kind: 'route'; batchId: string; recipe: string; reason: string; by: 'label' | 'router' }
+  | { kind: 'route'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | {
       kind: 'finish';
       batchId: string;
@@ -159,8 +159,8 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'route': {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
-      const { batchId, recipe, reason, by } = command;
-      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by });
+      const { batchId, recipe, reason, source } = command;
+      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, source });
       schedule(draft, batchId, find(draft, recipe).firstStep);
       break;
     }
@@ -170,7 +170,15 @@ function run(draft: Draft, command: Command): Event[] {
       requireLane(batch, 'recipe', ['ordered', 'conditioning', 'stuck']);
       requireOffer(batch, 'recipe');
       const { firstStep } = find(draft, recipe);
-      draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, by: 'human', via });
+      draft.push({
+        type: 'batch.recipe_chosen',
+        batchId,
+        recipe,
+        reason,
+        source: 'human',
+        by,
+        via,
+      });
       if (batch.lane.kind === 'stuck') {
         draft.push({ type: 'batch.resumed', batchId, by, via, action: 'recipe' });
       }

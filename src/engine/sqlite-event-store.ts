@@ -211,7 +211,7 @@ export const openSqliteEventStore = (
   const index = (event: Event): void => {
     switch (event.type) {
       case 'step.scheduled':
-        // Scheduling a step ends Conditioning, and replaces the step's earlier attempt.
+        // Scheduling a step ends a Conditioning or Stuck reminder, and replaces the step's earlier attempt.
         clearDeadline.run(event.batchId, REMINDER, 0);
         setDeadline.run(event.batchId, event.stepId, event.attempt, Date.parse(event.deadlineAt));
         return;

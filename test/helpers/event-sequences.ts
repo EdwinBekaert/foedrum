@@ -168,8 +168,8 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         reason: 'label',
       } as const;
       return random.chance(1 / 3)
-        ? { ...chosen, by: 'human', via: random.pick(surfaces) }
-        : { ...chosen, by: random.pick(['label', 'router'] as const) };
+        ? { ...chosen, source: 'human', by: 'octocat', via: random.pick(surfaces) }
+        : { ...chosen, source: random.pick(['label', 'router'] as const) };
     },
     () => {
       const batch = open();

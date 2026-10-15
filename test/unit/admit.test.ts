@@ -20,7 +20,7 @@ const chosen: Event = {
   batchId: 'b1',
   recipe: 'pint',
   reason: 'feature label',
-  by: 'label',
+  source: 'label',
 };
 const attempt = { batchId: 'b1', stepId: 'plan', attempt: 1 };
 const scheduled: Event = { type: 'step.scheduled', ...attempt, deadlineAt };

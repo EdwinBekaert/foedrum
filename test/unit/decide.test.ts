@@ -41,7 +41,7 @@ const chosen = (recipe = 'pint'): Event => ({
   batchId: 'b1',
   recipe,
   reason: 'feature label',
-  by: 'label',
+  source: 'label',
 });
 const scheduled = (
   stepId: string,
@@ -201,10 +201,16 @@ describe('decide route: ordered or conditioning → brewing', () => {
     batchId: 'b1',
     recipe: 'pint',
     reason: 'small',
-    by: 'router',
+    source: 'router',
   };
   const routed: Event[] = [
-    { type: 'batch.recipe_chosen', batchId: 'b1', recipe: 'pint', reason: 'small', by: 'router' },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: 'b1',
+      recipe: 'pint',
+      reason: 'small',
+      source: 'router',
+    },
     next('plan'),
   ];
 
@@ -216,7 +222,7 @@ describe('decide route: ordered or conditioning → brewing', () => {
     accepts(lanes.conditioning, route, routed);
   });
 
-  it('refuses a recipe the book does not have', () => {
+  it('refuses a recipe the Brewery does not have', () => {
     refuses(lanes.ordered, { ...route, recipe: 'stout' }, /the Brewery has no recipe stout/);
   });
 
@@ -420,7 +426,7 @@ describe('decide finish', () => {
     );
   });
 
-  it('refuses a recipe the book no longer has', () => {
+  it('refuses a recipe the Brewery no longer has', () => {
     refuses(brewing('plan', 1, 'stout'), finish(succeeded), /the Brewery has no recipe stout/);
   });
 
@@ -853,7 +859,8 @@ describe('decide recipe: a human chooses the recipe', () => {
     batchId: 'b1',
     recipe: 'nip',
     reason: 'one file',
-    by: 'human',
+    source: 'human',
+    by: 'octocat',
     via: 'comment',
   };
 
@@ -881,7 +888,7 @@ describe('decide recipe: a human chooses the recipe', () => {
     ]);
   });
 
-  it('refuses a recipe the book does not have', () => {
+  it('refuses a recipe the Brewery does not have', () => {
     refuses(lanes.stuck, { ...recipe, recipe: 'stout' }, /the Brewery has no recipe stout/);
   });
 
@@ -996,16 +1003,21 @@ describe('decide records who issued a human command and from where (ADR 0019)', 
   const issuers = (events: readonly Event[]) =>
     events.flatMap((event) => ('via' in event ? [[event.type, event.by, event.via]] : []));
 
-  it('on the recipe choice of an ordered batch', () => {
-    const decision = decide(
-      fold(lanes.ordered),
-      { kind: 'recipe', batchId: 'b1', ...from, recipe: 'nip', reason: 'x' },
-      context,
-    );
-    assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
-      ['batch.recipe_chosen', 'human', 'dashboard'],
-    ]);
-  });
+  for (const [name, events] of [
+    ['an ordered', lanes.ordered],
+    ['a Conditioning', lanes.conditioning],
+  ] as const) {
+    it(`by name on the recipe choice of ${name} batch`, () => {
+      const decision = decide(
+        fold(events),
+        { kind: 'recipe', batchId: 'b1', ...from, recipe: 'nip', reason: 'x' },
+        context,
+      );
+      assert.deepStrictEqual(decision.kind === 'accepted' && issuers(decision.events), [
+        ['batch.recipe_chosen', 'hubot', 'dashboard'],
+      ]);
+    });
+  }
 
   it('on a rewind', () => {
     const decision = decide(

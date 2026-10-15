@@ -1,6 +1,6 @@
 # 0025. Batch lifecycle: a reminder on Stuck, rewind only from Stuck
 
-Date: 2026-10-15 · Status: Accepted · Amended by [0027](0027-supervisor-lost-and-stalled-attempts.md)
+Date: 2026-10-15 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) · Amended by [0027](0027-supervisor-lost-and-stalled-attempts.md) · Corrected 2026-10-15 (#79): recipe_chosen split on source so ADR 0019 holds
 
 ## Context
 Invariant I1 says every non-terminal batch has exactly one pending action with a deadline. Stuck is not terminal, but the event store (#6) clears every deadline of a batch on `batch.stuck`: a Stuck batch had no deadline at all. The engine rules say every wait has a deadline and a batch must never be able to sit silently, and [ADR 0019](0019-interactive-sessions-and-one-command-layer.md) already promises "a reminder and a deadline" for a session step waiting in the Stuck lane. Either the store's behaviour or I1 had to change.
@@ -42,7 +42,7 @@ Conditioning is entered before brewing starts, while a batch waits for a merge, 
 
 ### One decision layer
 - `decide(state, command, context)` (`src/engine/decide.ts`) is the core of the command layer ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)). It takes the folded state and one command and returns the events to append, or a refusal. Each event goes through the guard against the state the events before it lead to, so no command can produce what the guard refuses. It is pure: the caller passes the time and the reminder interval.
-- Every human command is recorded with who issued it and from where ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)): `decide` copies `by` and `via` from the command onto its events. `batch.cancelled` and `batch.rewound` carry `via`, and `batch.recipe_chosen` is split on `by`, so a human's choice requires `via` and a label's or the router's has none. `retry`, `skip` and `answer` already record both in `batch.resumed`.
+- Every human command is recorded with who issued it and from where ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)): `decide` copies `by` and `via` from the command onto its events. `batch.cancelled` and `batch.rewound` carry `via`, and `batch.recipe_chosen` is split on `source` (`label`, `router` or `human`), so a human's choice requires `by` (the issuer's name, as on every event) and `via`, and a label's or the router's has neither. `retry`, `skip` and `answer` already record both in `batch.resumed`.
 - Commands are TypeScript types of the engine. The surfaces that parse untrusted input into them (#37) give them zod schemas in `src/schemas/`; until then nothing outside the engine builds one, and every event a command produces is still parsed by the guard.
 - Commands: the human commands `retry`, `skip`, `answer`, `recipe`, `rewind` and `cancel`, and the engine's `route`, `finish`, `expire` (a deadline passed, invariant I5), `wait`, `remind` and `record` (events that decide nothing, such as `batch.ordered` or `effect.applied`). Every `switch` over commands, endings, blocker kinds, stuck reasons, continuations and lanes ends in a `never` check, so a new kind does not compile until it is handled.
 - A recipe is asked only what it knows, through a small `Recipe` interface (`src/engine/recipes.ts`): the first step, whether it has a step, a step's deadline, what follows a step, whether a step may retry, and where an `onFail` or `onBlocked: findings` route goes. The state machine handles the outcomes itself:
@@ -62,7 +62,7 @@ Conditioning is entered before brewing starts, while a batch waits for a merge, 
 
 ## Consequences
 - I1 holds for Stuck batches without rewording it, and the supervisor (#10) has one mechanism, reminders, for Conditioning and Stuck.
-- `batch.stuck` changed shape. There is no stored state from before this change outside tests.
+- `batch.stuck` and `batch.recipe_chosen` changed shape (the latter twice: first split on `by`, then on `source` with the issuer's name in `by`, #79). There is no stored state from before these changes outside tests.
 - A rewind of a brewing batch takes two commands. The store needs no `batch.rewound` case, and no lease release is tied to it.
 - Recipe files (#52) can be written against a small interface; tests use a fake.
 - Entering Conditioning from brewing, and parallel groups (several attempts in flight in one batch), need their own transitions when recipes use them.

@@ -70,10 +70,10 @@ export interface Batch {
   /** The issue this batch brews: an order or a sub-order. */
   issue: number;
   parentBatchId?: string;
-  /** Who chose the recipe; a human's choice also records the surface it came from. */
+  /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string } & (
-    | { by: 'label' | 'router' }
-    | { by: 'human'; via: Surface }
+    | { source: 'label' | 'router' }
+    | { source: 'human'; by: string; via: Surface }
   );
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
@@ -213,9 +213,9 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, event.batchId, (batch) => ({
         ...batch,
         recipe:
-          event.by === 'human'
-            ? { name, reason, by: event.by, via: event.via }
-            : { name, reason, by: event.by },
+          event.source === 'human'
+            ? { name, reason, source: event.source, by: event.by, via: event.via }
+            : { name, reason, source: event.source },
       }));
     }
     case 'step.scheduled': {

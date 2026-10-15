@@ -35,7 +35,7 @@ const ordered = (batchId: string): Event => ({
 });
 const brewing = (batchId: string, deadline: number, recipe = 'pint'): Event[] => [
   ordered(batchId),
-  { type: 'batch.recipe_chosen', batchId, recipe, reason: 'feature label', by: 'label' },
+  { type: 'batch.recipe_chosen', batchId, recipe, reason: 'feature label', source: 'label' },
   { type: 'step.scheduled', batchId, stepId: 'plan', attempt: 1, deadlineAt: iso(deadline) },
   { type: 'step.started', batchId, stepId: 'plan', attempt: 1 },
 ];

@@ -29,7 +29,7 @@ const chosen = (batchId: string, recipe = 'pint'): Event => ({
   batchId,
   recipe,
   reason: 'feature label',
-  by: 'label',
+  source: 'label',
 });
 const scheduled = (batchId: string, deadlineAt = ahead, attempt = 1): Event => ({
   type: 'step.scheduled',
