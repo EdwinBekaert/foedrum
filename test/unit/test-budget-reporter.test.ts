@@ -14,10 +14,9 @@ const summary = (file: string | undefined, ms: number): TestEvent => ({
   data: { ...(file === undefined ? {} : { file }), duration_ms: ms },
 });
 
-const passed = (file: string, ms: number): TestEvent => ({
-  type: 'test:pass',
-  data: { nesting: 0, file, details: { duration_ms: ms } },
-});
+// A top-level test's own time, which the reporter does not read.
+const passed = (file: string, ms: number): TestEvent =>
+  ({ type: 'test:pass', data: { nesting: 0, file, details: { duration_ms: ms } } }) as TestEvent;
 
 // Runs the reporter over the events and returns what it printed and whether it failed the run.
 const report = async (events: TestEvent[], budgetMs = 5000, slowest = 5) => {

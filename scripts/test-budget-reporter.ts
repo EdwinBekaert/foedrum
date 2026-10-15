@@ -1,7 +1,8 @@
-// A node:test reporter that npm test runs next to spec: it adds up the top-level test times of
-// each test file, prints the slowest files, and fails the run when one file goes over the budget.
-// A slow file is a sign that a process or a real file system tree slipped into a unit test
-// (ADR 0021). Tests within a file run one after another, so the sum is close to its wall time.
+// A node:test reporter that npm test runs next to spec: it reads the time of each test file from
+// the runner's per-file summary, prints the slowest files, and fails the run when one file goes
+// over the budget. A slow file is a sign that a process or a real file system tree slipped into a
+// unit test (ADR 0021). The summary covers the file's tests and hooks, not the time it takes to
+// load the module; the test-layer guard (scripts/check-test-layers.ts) covers direct imports.
 
 import { relative, sep } from 'node:path';
 
@@ -10,12 +11,7 @@ export const FILE_BUDGET_MS = 5000;
 // The fields of node:test's reporter events that this reporter reads.
 export interface TestEvent {
   type: string;
-  data?: {
-    nesting?: number;
-    file?: string;
-    duration_ms?: number;
-    details?: { duration_ms?: number };
-  };
+  data?: { nesting?: number; file?: string; duration_ms?: number };
 }
 
 export interface BudgetOptions {
@@ -34,9 +30,9 @@ export const budgetReporter = ({ budgetMs, cwd, slowest, fail }: BudgetOptions) 
   async function* (source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
     const times = new Map<string, number>();
     for await (const { type, data } of source) {
-      if (type !== 'test:pass' && type !== 'test:fail') continue;
-      if (data?.nesting !== 0 || data.file === undefined) continue;
-      times.set(data.file, (times.get(data.file) ?? 0) + (data.details?.duration_ms ?? 0));
+      // The summary of the whole run has no file.
+      if (type !== 'test:summary' || data?.file === undefined) continue;
+      times.set(data.file, data.duration_ms ?? 0);
     }
     if (times.size === 0) return;
     const files = [...times]
