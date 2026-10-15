@@ -1,5 +1,5 @@
 // The commands of the command layer (ADR 0019): one schema each, the input its handler takes,
-// whichever surface it came from. doctor, status and replay are read-only (ADR 0029).
+// whichever surface it came from. doctor, status and replay are read-only (ADR 0030).
 
 import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';

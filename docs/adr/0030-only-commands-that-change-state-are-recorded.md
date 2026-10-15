@@ -1,4 +1,4 @@
-# 0029. Only commands that change state are recorded
+# 0030. Only commands that change state are recorded
 
 Date: 2026-10-15 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md)
 

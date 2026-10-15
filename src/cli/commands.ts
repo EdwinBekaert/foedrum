@@ -1,6 +1,6 @@
 // The command registry (ADR 0019): one schema and one handler per command. Surfaces turn their
 // input into a command's input and run it; run.ts is the terminal's. doctor, status and replay
-// only read, so they append nothing (ADR 0029). #37 adds the commands that change state.
+// only read, so they append nothing (ADR 0030). #37 adds the commands that change state.
 
 import { join } from 'node:path';
 import type { StoredEvent } from '../engine/event-store.ts';
@@ -55,7 +55,7 @@ const failed = (command: string, message: string): CliResult => ({
 });
 
 // Reads every event of the Brewery's store and folds them; one line when there is no store or the
-// fold refuses the log. Never writes (ADR 0029).
+// fold refuses the log. Never writes (ADR 0030).
 const readBrewery = (
   command: string,
   { cwd, openStore }: CliContext,

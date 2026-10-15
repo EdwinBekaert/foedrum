@@ -23,7 +23,7 @@ try {
         node: process.versions.node,
         cwd,
       }),
-    // Never creates or changes a store (ADR 0029): a read in the wrong folder says so instead of
+    // Never creates or changes a store (ADR 0030): a read in the wrong folder says so instead of
     // making an empty one, and an older Cellar's store is not migrated under it.
     openStore: (path) =>
       existsSync(path) ? openSqliteEventStore(path, { readOnly: true }) : undefined,

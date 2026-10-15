@@ -21,7 +21,7 @@ export interface SqliteEventStoreOptions {
   /** How long a write waits for another connection's lock before failing; default 5000 ms. */
   busyTimeoutMs?: number;
   /**
-   * Opens an existing store for reading only (ADR 0029): no journal mode change, no migration, and
+   * Opens an existing store for reading only (ADR 0030): no journal mode change, no migration, and
    * every write fails. A store at another schema version is refused.
    */
   readOnly?: boolean;
