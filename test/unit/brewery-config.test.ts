@@ -54,6 +54,34 @@ describe('BreweryConfig', () => {
     assert.equal(accepted(config({ tools: ['Bash(npm test*)', 'Bash(npm run lint*)'] })), true);
   });
 
+  it('accepts a repository whose issues the intake polls, under a short alias (ADR 0043)', () => {
+    const intake = { labels: ['foedrum', 'ready'], milestone: 'v2' };
+    assert.deepEqual(BreweryConfig.parse(config({ alias: 'web', intake })).repositories, {
+      'acme/web': { checks, alias: 'web', intake, tools: [], houseYeast: 'repo' },
+    });
+    assert.equal(accepted(config({ alias: 'w2', intake: { labels: ['foedrum'] } })), true);
+    assert.equal(accepted(config({ alias: 'a'.repeat(20) })), true);
+  });
+
+  it('refuses an alias two repositories share, pointing at the second', () => {
+    const result = BreweryConfig.safeParse({
+      repositories: {
+        'acme/web': { checks, alias: 'app' },
+        'acme/api': { checks, alias: 'app' },
+      },
+    });
+    assert.equal(result.success, false);
+    assert.deepEqual(
+      result.error?.issues.map(({ path, message }) => ({ path, message })),
+      [
+        {
+          path: ['repositories', 'acme/api', 'alias'],
+          message: 'The alias app is already the alias of acme/web',
+        },
+      ],
+    );
+  });
+
   const missingCheck = Object.fromEntries(
     Object.entries(checks).filter(([key]) => key !== 'format'),
   );
@@ -93,6 +121,18 @@ describe('BreweryConfig', () => {
     ['AskUserQuestion in the repository tools', config({ tools: ['AskUserQuestion'] })],
     ['an invalid tool rule', config({ tools: ['Bash(npm test*'] })],
     ['an invalid ceiling rule', config({}, { permissionCeiling: ['Bash('] })],
+    ['an alias in upper case', config({ alias: 'Web' })],
+    ['an alias that starts with a digit, as a Brewery batch id does', config({ alias: '1web' })],
+    ['an alias with a hyphen, which would split its batch ids', config({ alias: 'my-web' })],
+    ['an alias of more than 20 characters', config({ alias: 'a'.repeat(21) })],
+    ['an intake without an alias', config({ intake: { labels: ['foedrum'] } })],
+    ['an intake without labels', config({ alias: 'web', intake: { labels: [] } })],
+    ['an intake with an empty label', config({ alias: 'web', intake: { labels: [''] } })],
+    [
+      'an intake with an empty milestone',
+      config({ alias: 'web', intake: { labels: ['a'], milestone: '' } }),
+    ],
+    ['an unknown intake field', config({ alias: 'web', intake: { labels: ['a'], author: 'x' } })],
   ];
   for (const [what, value] of invalid) {
     it(`rejects ${what}`, () => {

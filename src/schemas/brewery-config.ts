@@ -37,6 +37,14 @@ const RepositoryConfig = z
       .enum(['repo', 'brewery'])
       .default('repo')
       .describe('Where repository-layer house-yeast rules are kept (ADR 0018)'),
+    alias: z.string().optional(),
+    intake: z.unknown().optional(),
+  })
+  .refine((repository) => {
+    if (repository.alias !== undefined || repository.intake !== undefined) {
+      throw new Error('not implemented');
+    }
+    return true;
   })
   .refine((repository) => !repository.testReport || repository.checks.test !== null, {
     message: 'A test report needs a test check',

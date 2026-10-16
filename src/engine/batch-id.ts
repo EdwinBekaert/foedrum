@@ -13,3 +13,8 @@ export const nextBatchId = (state: State, issue: number): string => {
     if (!state.batches.has(id)) return id;
   }
 };
+
+/** The id of the next batch of `issue` in the target repository named `alias` (ADR 0043). */
+export const targetBatchId = (_state: State, _alias: string, _issue: number): string => {
+  throw new Error('not implemented');
+};
