@@ -317,6 +317,41 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
+  it('blocks on each lasting refusal by itself, also without the login hint', async () => {
+    for (const said of [
+      'error: missing required argument "prompt"',
+      'Not logged in',
+      'Invalid API key',
+    ]) {
+      const { calls, waits, runner } = setup(
+        { lines: [], result: exited(1, said) },
+        { outDoc: undefined },
+      );
+      const end = await runner.start(attempt).ended;
+      assert.equal(end.ending.kind, 'blocked', said);
+      assert.equal(calls.length, 1, said);
+      assert.deepEqual(waits, [], said);
+    }
+  });
+
+  // ADR 0046, ADR 0048: only an exit before any stream line gets one more start.
+  it('never starts claude again after it wrote a line', async () => {
+    for (const [file, id, tools, result] of [
+      ['tool-removed-by-deny.jsonl', 14, ['Read', 'Bash'], exited(0)],
+      ['model-not-found.jsonl', 68, ['Read'], exited(1)],
+      ['success.jsonl', 1, ['Read'], exited(1, 'Error: connect ECONNRESET')],
+    ] as const) {
+      const lines = file === 'success.jsonl' ? fixture(file).slice(0, 2) : fixture(file);
+      const { calls, waits, runner } = setup(
+        { lines, result },
+        { plan: async () => plan(id, [...tools]), outDoc: undefined },
+      );
+      await runner.start(attempt).ended;
+      assert.equal(calls.length, 1, file);
+      assert.deepEqual(waits, [], file);
+    }
+  });
+
   it('cancels an attempt stopped while it waits to start claude again', async () => {
     const { calls, runner } = setup(
       { lines: [], result: exited(1, 'Error: connect ECONNRESET\n') },

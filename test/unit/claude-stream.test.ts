@@ -388,6 +388,28 @@ describe('readClaudeStream progress', () => {
     }
   });
 
+  it('skips the value of git options that take one as the next word', () => {
+    for (const [command, counts] of [
+      ['git --git-dir .git --work-tree . commit -m x', true],
+      ['git --namespace commit status', false],
+      ['git --config-env commit=X status', false],
+      ['git -c commit=x status', false],
+    ] as const) {
+      const progress = run([
+        init(),
+        assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
+        toolResult('t1'),
+      ]);
+      assert.deepEqual(
+        progress,
+        counts
+          ? { lastProgressAt: at(3), turnsWithoutProgress: 0 }
+          : { lastProgressAt: started, turnsWithoutProgress: 1 },
+        command,
+      );
+    }
+  });
+
   it('does not count commit as anything but the subcommand of git', () => {
     for (const command of [
       'git log --grep commit',
