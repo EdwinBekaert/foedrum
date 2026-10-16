@@ -332,7 +332,10 @@ export interface StreamOptions {
   timeoutMs?: number | undefined;
   /** Kills the process and every process it started when it aborts. */
   signal?: AbortSignal | undefined;
-  /** As ExecOptions.jobObject (ADR 0039). */
+  /**
+   * As ExecOptions.jobObject (ADR 0039), but required on Windows: without it nothing starts and
+   * the answer is "not started" (ADR 0047). Ignored elsewhere.
+   */
   jobObject?: boolean | undefined;
   /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
   stdin?: string | undefined;

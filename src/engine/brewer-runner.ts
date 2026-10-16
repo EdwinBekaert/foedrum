@@ -54,7 +54,7 @@ export type ProcessExit =
   | { kind: 'killed'; signal: string }
   /** The runner stopped it: a limit was reached, or the engine stopped the attempt. */
   | { kind: 'stopped' }
-  /** The process could not be started at all (the CLI is missing, an argument was refused). */
+  /** The process could not be started at all (the CLI is missing, the settings could not be written). */
   | { kind: 'unstartable'; reason: string }
   /** The runner stopped it because its output passed a limit: a stream line, or stderr. */
   | { kind: 'overflowed'; what: string };
@@ -62,8 +62,9 @@ export type ProcessExit =
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
   /**
-   * Why the session claude set up is not the one the runner asked for (its init event: tools,
-   * permission mode, MCP servers, skills); the runner stops the attempt when it sees it.
+   * Why claude did not set up the session the runner asked for: its init event (tools, permission
+   * mode, MCP servers, skills; the runner stops the attempt when it sees it), a result before
+   * init, a lasting error before the first model reply, or refused arguments (ADR 0046, ADR 0047).
    */
   environment?: string | undefined;
   exit: ProcessExit;
