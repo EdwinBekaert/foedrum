@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
@@ -320,5 +321,22 @@ describe('withoutCpuTimes', () => {
     const out: TestEvent[] = [];
     for await (const event of withoutCpuTimes(source)) out.push(event);
     assert.deepEqual(out, [passed(fileA, 1), fileDiagnostic, summary(fileA, 900), other]);
+  });
+});
+
+describe('npm test', () => {
+  // Without the preload every file would be held to its wall time again; with node's own spec,
+  // each file's reading would add a line to the output.
+  it('loads the CPU time preload and shows spec without the readings', () => {
+    const packageJson = join(import.meta.dirname, '..', '..', 'package.json');
+    const { scripts } = JSON.parse(readFileSync(packageJson, 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const args = (scripts?.test ?? '').split(' ');
+    assert.equal(args[args.indexOf('./scripts/test-cpu-time.ts') - 1], '--import');
+    assert.ok(args.indexOf('--import') < args.indexOf('--test'));
+    assert.ok(args.includes('--test-reporter=./scripts/spec-reporter.ts'));
+    assert.ok(args.includes('--test-reporter=./scripts/test-budget-reporter.ts'));
+    assert.ok(!args.includes('--test-reporter=spec'));
   });
 });
