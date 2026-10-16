@@ -40,8 +40,12 @@ export function isProvenClaude(version: string, range: VersionRange = PROVEN_CLA
 export const provenClaudeText = (range: VersionRange = PROVEN_CLAUDE): string =>
   range.from === range.to ? range.from : `${range.from} to ${range.to}`;
 
+/** What doctor and the runner say about a claude outside the proven range. */
+export const unprovenClaudeText = (version: string): string =>
+  `claude ${version} is not a version Foedrum proved its brewer settings on (${provenClaudeText()})`;
+
 /** The warning for a claude outside the proven range, or `undefined` inside it. */
 export function unprovenClaudeWarning(version: string): string | undefined {
   if (isProvenClaude(version)) return undefined;
-  return `claude ${version} is not a version Foedrum proved its brewer settings on (${provenClaudeText()}): a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)`;
+  return `${unprovenClaudeText(version)}: a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)`;
 }

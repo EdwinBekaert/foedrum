@@ -2,7 +2,7 @@
 // the tools Foedrum needs, the effective isolation level (ADR 0010, architecture §13) and what
 // is missing. doctor-facts.ts gathers the facts.
 
-import { isProvenClaude, provenClaudeText } from '../brewers/claude-version.ts';
+import { isProvenClaude, unprovenClaudeText } from '../brewers/claude-version.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
@@ -129,7 +129,7 @@ const claudeVersionProblems = (run: ToolRun | undefined): Problem[] => {
   return [
     {
       required: false,
-      what: `claude ${version} is not a version Foedrum proved its brewer settings on (${provenClaudeText()})`,
+      what: unprovenClaudeText(version),
       fix: 'until a Foedrum release proves it, keep permissions.allow and env out of your Claude Code user settings: they may widen what a brewer may do (ADR 0046)',
     },
   ];

@@ -206,8 +206,8 @@ const LASTING_REFUSALS = [
 /** Whether claude failed before its first line for a cause it does not name as lasting. */
 const passingPreStreamFailure = (seen: StreamFacts, result: StreamResult): boolean => {
   const exit = exitOf(result);
-  if (environmentOf(seen, exit, result.stderr) === undefined) return false;
   if (seen.environment !== undefined) return false;
+  if (environmentOf(seen, exit, result.stderr) === undefined) return false;
   return !LASTING_REFUSALS.some((refusal) => refusal.test(result.stderr));
 };
 
