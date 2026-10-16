@@ -112,6 +112,32 @@ describe('parseMutant allowlist edge cases', () => {
   it('rejects a non-ASCII identifier the original line does not contain', () => {
     assert.match(reasonOf(mutant({ original: 'let x = a;', replacement: 'let x = π;' })), /π/);
   });
+
+  it('rejects a replacement that only changes whitespace inside the line', () => {
+    assert.match(
+      reasonOf(mutant({ replacement: 'if (attempt<limit) return delay*2;' })),
+      /changes nothing/,
+    );
+  });
+
+  it('does not count the words of a comment as names the line already has', () => {
+    assert.match(
+      reasonOf(
+        mutant({ original: 'cleanup(); // rmSync(root)', replacement: 'cleanup(); rmSync(root)' }),
+      ),
+      /rmSync/,
+    );
+  });
+
+  it('rejects a replacement with a JavaScript line separator', () => {
+    assert.match(reasonOf(mutant({ replacement: 'a; b;' })), /one line/);
+  });
+
+  it('never repeats a control character of the file name in the reason', () => {
+    const reason = reasonOf(mutant({ file: 'src/a.ts\nmutants: mutant 1: valid src/b.ts:1' }));
+    assert.doesNotMatch(reason, /\n/);
+    assert.match(reason, /under src\//);
+  });
 });
 
 describe('editFile', () => {
@@ -168,6 +194,20 @@ describe('editFile', () => {
       ok: true,
       line: 2,
       content: crlf.replace('attempt < limit', 'attempt <= limit'),
+    });
+  });
+
+  it('keeps the byte order mark when it deletes the first line', () => {
+    const bom = `﻿${file}`;
+    const first = mutant({
+      line: 1,
+      original: 'export const next = (attempt, limit, delay) => {',
+      replacement: '',
+    });
+    assert.deepEqual(editFile(first, bom), {
+      ok: true,
+      line: 1,
+      content: `﻿${file.slice(file.indexOf('\n') + 1)}`,
     });
   });
 
