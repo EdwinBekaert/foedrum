@@ -132,13 +132,19 @@ export const readGuard = async (
     if (deps.platform === 'win32' && !rootDrives.has(windowsDrive(absolute))) {
       return `${name} is outside the checkout (${root}): it is on drive ${absolute.slice(0, 2)}; reviewers read only files inside it (ADR 0048).`;
     }
-    let real: string;
+    const resolved = (path_: string): string => path.resolve(deps.realPath(path_));
+    const readings: string[] = [];
     try {
-      real = path.resolve(deps.realPath(absolute));
+      readings.push(resolved(absolute));
+      // `..` after a link: POSIX reads it from the link's target, a tool that normalises the path
+      // first does not. Both readings must land inside.
+      if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(absolute))
+        readings.push(resolved(path.resolve(absolute)));
     } catch (error) {
       return `could not resolve ${name} (${error instanceof Error ? error.message : String(error)}).`;
     }
-    if (real === root || real.startsWith(rootPrefix)) return undefined;
+    const real = readings.find((reading) => reading !== root && !reading.startsWith(rootPrefix));
+    if (real === undefined) return undefined;
     const where =
       real === path.resolve(absolute) ? `${name} is` : `${name} resolves to ${quoted(real)},`;
     return `${where} outside the checkout (${root}); reviewers read only files inside it (ADR 0048).`;
@@ -162,7 +168,16 @@ export const readGuard = async (
     default: {
       const pattern = toolInput.pattern;
       if (typeof pattern !== 'string' || pattern === '') return no('no pattern to check.');
-      const segments = pattern.split(separators);
+      // A pattern into the checkout by its absolute path: the checkout's own folders are literal,
+      // whatever characters their names have (`c++`, `OneDrive (EU)`).
+      const anchor = [deps.root, root].find(
+        (dir) =>
+          pattern === dir ||
+          [...new Set([path.sep, '/'])].some((sep) =>
+            pattern.startsWith(dir.endsWith(sep) ? dir : `${dir}${sep}`),
+          ),
+      );
+      const segments = pattern.slice(anchor?.length ?? 0).split(separators);
       const magic = segments.findIndex((segment) => MAGIC.test(segment));
       const literal = magic < 0 ? segments : segments.slice(0, magic);
       if (magic >= 0 && REACHES_OUT.test(segments.slice(magic).join('/'))) {
@@ -174,7 +189,7 @@ export const readGuard = async (
       // The folder the wildcards start in, with its separator, so `/*` keeps its root and `D:\*`
       // its drive. It is checked first, so a pattern that names another drive touches nothing.
       if (literal.length > 0) {
-        const prefix = literal.join(path.sep) + (magic >= 0 ? path.sep : '');
+        const prefix = (anchor ?? '') + literal.join(path.sep) + (magic >= 0 ? path.sep : '');
         // A Windows drive without a folder (`E:x\*`) is not relative to the working directory.
         const fromRoot =
           path.isAbsolute(prefix) ||
