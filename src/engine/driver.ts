@@ -99,6 +99,10 @@ export interface Driver {
 const attemptOf = (state: State, ref: AttemptRef) =>
   state.batches.get(ref.batchId)?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
 
+/** Whether the log shows `attempt` over: finished, or abandoned by Stuck. */
+const isOver = (attempt: ReturnType<typeof attemptOf>): boolean =>
+  attempt?.phase === 'finished' || attempt?.abandoned === true;
+
 /**
  * Takes the driver's lock and starts it on the store (`startDriver`), then returns it. Rejects,
  * letting the lock go, when the start fails; nothing is driven before it.
@@ -222,9 +226,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         if (hold.kind === 'other') lose(batchId, hold.lease);
       }
       for (const [key, { ref }] of runs) {
-        const attempt = attemptOf(current, ref);
-        const over = attempt?.phase === 'finished' || attempt?.abandoned === true;
-        if (!over && runner.progress(ref) !== undefined) leaseAttempt(tx, key);
+        if (!isOver(attemptOf(current, ref)) && runner.progress(ref) !== undefined) {
+          leaseAttempt(tx, key);
+        }
       }
     });
   };
@@ -383,8 +387,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     for (const { ref, run } of runs.values()) {
       const attempt = attemptOf(current, ref);
       if (attempt === undefined) continue;
-      const lost = attempt.phase === 'finished';
-      if (lost || attempt.abandoned === true || batchIsOver(current, ref.batchId)) run.stop();
+      if (isOver(attempt) || batchIsOver(current, ref.batchId)) run.stop();
     }
     await drive();
     await applyEffects();

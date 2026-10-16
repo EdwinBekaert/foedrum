@@ -49,7 +49,6 @@ const noOverlap = ({ host }: ChaosRun): void => {
   assert.deepStrictEqual(host.overlaps, [], 'calls for one effect key overlapped');
 };
 
-/** What two drivers and a terminal writing to one store must keep: after every move, and at the end. */
 /** A driver that starts again under its owner holds the batches its owner's live leases name. */
 const drivesOnItsBatches = ({ engine }: ChaosRun): void => {
   for (const { driver, leased, held } of engine.resumes) {
@@ -57,6 +56,7 @@ const drivesOnItsBatches = ({ engine }: ChaosRun): void => {
   }
 };
 
+/** What two drivers and a terminal writing to one store must keep: after every move, and at the end. */
 const competing = (run: ChaosRun): void => {
   startsOnce(run);
   underItsLease(run);
@@ -162,7 +162,6 @@ describe('two drivers on one store', () => {
       { drivers },
     ));
 
-  let runs = 0;
   /** How many seeds the coverage test may try before it fails. */
   const maxSeeds = 30;
 
@@ -172,14 +171,17 @@ describe('two drivers on one store', () => {
     // Fixed seeds, the first ones until every goal is reached: what the harness reaches does not
     // depend on FOEDRUM_SEED.
     for (let seed = 1; seed <= maxSeeds && wanted.some((what) => !seen.has(what)); seed++) {
-      const path = join(dir.path, `run-${++runs}-seed-${seed}.sqlite`);
+      const path = join(dir.path, `coverage-seed-${seed}.sqlite`);
       const scenario: Scenario = { moves: [], plays: [] };
       const source = recording(generateScenario(seed), scenario);
       const host = fakeCodeHost();
-      const plays = (attempt: Parameters<typeof source.play>[0]) => source.play(attempt);
-      const engine: ChaosEngine = await openChaosEngine(path, plays, killPlan(seed), host, {
-        drivers,
-      });
+      const engine = await openChaosEngine(
+        path,
+        (attempt) => source.play(attempt),
+        killPlan(seed),
+        host,
+        { drivers },
+      );
       try {
         await runChaos({ engine, host, scenario, moves: [] }, source);
         for (const [what, reached] of Object.entries(goals)) if (reached(engine)) seen.add(what);

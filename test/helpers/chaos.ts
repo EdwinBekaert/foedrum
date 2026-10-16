@@ -494,8 +494,6 @@ export interface ChaosEngine {
   readonly found: number;
   /** When a driver started again after each kill. */
   readonly restarts: readonly Date[];
-  /** What the drivers reported, in order. */
-  readonly notices: readonly { driver: string; notice: DriverNotice }[];
   /** Every attempt the drivers started and every effect they applied, in order. */
   readonly acts: readonly Act[];
   /** Every time a driver found another's live lease on a batch it wanted. */
@@ -517,7 +515,6 @@ export interface ChaosEngine {
   close(): void;
 }
 
-/** A process of a driver: its life and the driver itself. */
 /** A process of a driver: its life, the driver itself, and the attempts its runner runs. */
 interface Process {
   life: Life;
@@ -539,7 +536,6 @@ export const openChaosEngine = async (
   const locks = fakeLocks();
   let now = t0;
   const restarts: Date[] = [];
-  const notices: { driver: string; notice: DriverNotice }[] = [];
   const losses: Loss[] = [];
   const stops: { driver: string; key: string }[] = [];
   const interjections: Interjection[] = [];
@@ -645,7 +641,6 @@ export const openChaosEngine = async (
       };
       const runner = runnerOf(life);
       const report = (notice: DriverNotice): void => {
-        notices.push({ driver: owner, notice });
         if (
           notice.kind === 'refused' &&
           interjections.some((i) => i.move === move && i.driver === owner)
@@ -805,7 +800,6 @@ export const openChaosEngine = async (
     },
     kills: kill.kills,
     restarts,
-    notices,
     acts,
     contests,
     takeovers,
