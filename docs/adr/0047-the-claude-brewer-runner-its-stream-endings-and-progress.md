@@ -12,9 +12,9 @@ Date: 2026-10-16 · Status: Accepted · Amends [0027](0027-supervisor-lost-and-s
   1. writes the attempt's settings file from `attemptSettings` (ADR 0046) and builds the command line with `claudeArgs`;
   2. starts `claude` through `streamProcess` with the prompt on stdin and `jobObject: true`. The prompt is a `BrewerPrompt`, a type only `assembleBrewerPrompt` makes (ADR 0041), so no other text can become a prompt;
   3. hands each line to the stream reader below, and stops the process at the line the reader says to stop at;
-  4. reads the out doc, at most 1 MiB and only a regular file (not a link, which could point the out doc, and so the event log, at any file), and settles through `settleAttempt`, as the fake does.
+  4. reads the out doc, at most 1 MiB, only a regular file and only inside the worktree, and settles through `settleAttempt`, as the fake does. A link, a linked folder on the path (a junction needs no privilege on Windows) or `..` could point the out doc, and so the event log, at any file of the machine: the runner refuses a link, compares the real paths of the out doc and the worktree, opens the file with `O_NOFOLLOW` where the platform has it, and checks the opened file again.
 - A plan that fails, a settings file or command line that cannot be built, or a stream process that throws is a process that could not start. A stop before the process started is a stop.
-- `AttemptEnd` carries the session the init showed (id, full model id, CLI version) next to the usage, for ADR 0019's resume. The session id is the one the plan chose, so the engine can record it before the attempt starts (ADR 0042).
+- `AttemptEnd` carries the session the init showed (id, full model id, CLI version) next to the usage, for ADR 0019's resume. The session id is the one the plan chose, so the engine can record it before the attempt starts. This amends ADR 0042's "the runner creates the session id" (and ADR 0046's "the one the runner chose"): the engine chooses it, because a resume needs it from the engine anyway.
 - The runner reports progress for each attempt it runs and nothing once it ended. It renews no lease: the driver does ([ADR 0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)).
 - A stream line may be 8 MiB: an event can hold a whole file the brewer read.
 
@@ -49,7 +49,7 @@ ADR 0028's table, as amended by ADR 0046, gains three facts. The first rule that
 | Denials reached `maxDenials` | `blocked` + `environment` |
 | Turns past `maxTurns` | `failed`, not retryable |
 | Stopped by the runner within its limits | `cancelled` |
-| Killed by a signal | `failed`, retryable |
+| Killed by a signal the runner did not send (on macOS and Linux a crash or the OOM killer closes the process with a signal and no exit code; `streamProcess` reports the signal) | `failed`, retryable |
 | **Output past a limit of the runner** (a stream line past 8 MiB, stderr past 4 MiB) | `failed`, retryable |
 | **The result reported an error** (`is_error`), whatever the exit code | `failed`, retryable |
 | Exited with another code than 0 | `failed`, retryable |
