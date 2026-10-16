@@ -107,6 +107,11 @@ describe('diagnose: required tools', () => {
     assert.deepEqual(diagnose(windows).problems, []);
   });
 
+  it('is not ok on Windows when the Job Object probe failed without a word', () => {
+    const facts = { ...windows, jobObject: { exitCode: 1, output: '' } };
+    assert.deepEqual(required(facts), ["Windows cannot hold a brewer's processes in a Job Object"]);
+  });
+
   it('is not ok on a Node older than 24.15', () => {
     assert.deepEqual(required({ ...linux(), node: '24.14.9' }), ['node 24.14.9 is too old']);
     assert.deepEqual(required({ ...linux(), node: '22.20.0' }), ['node 22.20.0 is too old']);

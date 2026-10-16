@@ -3,6 +3,7 @@
 // in test/integration/processes.test.ts.
 
 import assert from 'node:assert/strict';
+import { win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import { jobObjectCommand, jobObjectLine, windowsArgument } from '../../src/platform/job-object.ts';
 import { spawnCommand } from '../../src/platform/processes.ts';
@@ -125,6 +126,22 @@ describe('jobObjectCommand', () => {
       return decoded(base64);
     };
     assert.deepEqual({ application: value('file'), line: value('line') }, jobObjectLine(odd));
+  });
+
+  // As node's spawn has it: a relative working directory against this process's, and a relative
+  // program against the working directory, never against PowerShell's System32.
+  it('resolves a relative working directory and program as node would', () => {
+    const tool = spawnCommand('tools\\tool.exe', ['a'], 'win32', env);
+    const text = script(jobObjectCommand(tool, 'work\\tree').args);
+    const value = (name: string): string => {
+      const [, base64 = ''] = new RegExp(`^\\$${name} = .*'(.+)'.*$`, 'm').exec(text) ?? [];
+      return decoded(base64);
+    };
+    const cwd = win32.resolve('work\\tree');
+    assert.deepEqual(
+      { cwd: value('cwd'), file: value('file'), line: value('line') },
+      { cwd, file: win32.join(cwd, 'tools\\tool.exe'), line: 'tools\\tool.exe a' },
+    );
   });
 
   // Windows limits a command line to 32,767 characters; the helper must leave most of it to the

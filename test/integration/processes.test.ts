@@ -228,27 +228,34 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     );
   });
 
+  // The real spawner, with the helper's script edited first: how a test puts PowerShell in a state
+  // it cannot otherwise reach.
+  const editedHelper = (edit: (script: string) => string): Spawner => ({
+    ...processSpawner,
+    spawn: (file, args, { cwd, env }) => {
+      const helper = jobObjectCommand(spawnCommand(file, args, 'win32', env), cwd);
+      const script = Buffer.from(helper.args.at(-1) ?? '', 'base64').toString('utf16le');
+      const edited = edit(script);
+      assert.notEqual(edited, script, 'the edit must change the script');
+      return spawn(
+        helper.file,
+        [...helper.args.slice(0, -1), Buffer.from(edited, 'utf16le').toString('base64')],
+        {
+          cwd: helper.cwd,
+          env: helper.env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        },
+      );
+    },
+  });
+
   // Where a policy keeps PowerShell in Constrained Language Mode, no job can be made. The mode is
   // switched on at the start of the helper's own script, as such a policy would have it.
   it('starts nothing, and says why, in Constrained Language Mode', async () => {
-    const constrained: Spawner = {
-      ...processSpawner,
-      spawn: (file, args, { cwd, env }) => {
-        const helper = jobObjectCommand(spawnCommand(file, args, 'win32', env), cwd);
-        const script = Buffer.from(helper.args.at(-1) ?? '', 'base64').toString('utf16le');
-        const locked = `$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n${script}`;
-        return spawn(
-          helper.file,
-          [...helper.args.slice(0, -1), Buffer.from(locked, 'utf16le').toString('base64')],
-          {
-            cwd: helper.cwd,
-            env: helper.env,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            windowsHide: true,
-          },
-        );
-      },
-    };
+    const constrained = editedHelper(
+      (script) => `$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n${script}`,
+    );
     const result = await execProcessWith(constrained)(process.execPath, ['-e', ''], {
       cwd: dir.path,
       jobObject: true,
@@ -258,6 +265,29 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
       result.stderr,
       /cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode/,
     );
+  });
+
+  // A failure after the program exists but before it runs: the suspended program would hold the
+  // output open, so the helper ends it and the call answers at once, not at its deadline. Runs
+  // outside dir.path, whose removal such a program would block.
+  it('ends the program it could not let run, and answers at once', async () => {
+    const failing = editedHelper((script) =>
+      script.replace(
+        '$thread = & $read $started $size',
+        "$thread = & $read $started $size\nthrow 'injected'",
+      ),
+    );
+    const started = Date.now();
+    const result = await execProcessWith(failing)(process.execPath, ['-e', ''], {
+      cwd: import.meta.dirname,
+      timeoutMs: 30_000,
+      jobObject: true,
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.killed, undefined, `answered after ${elapsed} ms`);
+    assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /cannot run in a Job Object: injected/);
+    assert.ok(elapsed < 15_000, `answered after ${elapsed} ms`);
   });
 });
 

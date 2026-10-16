@@ -533,6 +533,24 @@ describe('execProcessWith', () => {
       assert.equal((await done).exitCode, 125);
     });
 
+    // Only the helper's own exit code makes its line a refusal.
+    it('keeps the answer of a program that wrote the refusal line itself and exited otherwise', async () => {
+      for (const code of [0, 1]) {
+        const child = new FakeChild();
+        const { exec } = jobSpawner(child);
+        const done = exec('C:\\tools\\tool.exe', [], { cwd: 'D:\\work', jobObject: true });
+        child.stdout.write(refusal);
+        await settle();
+        child.close(code);
+        assert.deepEqual(await done, {
+          exitCode: code,
+          stdout: refusal,
+          stderr: '',
+          output: refusal,
+        });
+      }
+    });
+
     // Elsewhere, and without the option, no helper runs, so nothing it could say is looked for.
     it('reads nothing as the helper when no job was asked for or none is held', async () => {
       for (const [jobObjects, jobObject] of [

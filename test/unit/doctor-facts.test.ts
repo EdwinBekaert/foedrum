@@ -150,6 +150,12 @@ describe('gatherDoctorFacts', () => {
     answers: { '/usr/bin/docker': timedOut },
   };
 
+  it('says first that the Job Object probe was killed at its deadline', async () => {
+    const { shell } = fakeShell({ onPath: {}, answers: { '/usr/bin/node': timedOut } });
+    const facts = await gatherDoctorFacts({ ...shell, platform: 'win32' });
+    assert.deepEqual(facts.jobObject, { exitCode: null, output: 'timed out after 10 s\n' });
+  });
+
   it('gives a container runtime a shorter deadline than the other tools', async () => {
     const { calls, shell } = fakeShell(hangingDocker);
     await gatherDoctorFacts(shell);
