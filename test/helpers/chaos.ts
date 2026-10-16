@@ -382,8 +382,9 @@ const brewing = (state: State): string[] =>
   [...state.batches.values()].filter((b) => b.lane.kind === 'brewing').map((b) => b.id);
 
 /**
- * Plays `source` with `plan`'s kills, then ticks until no batch is brewing and applies the effects
- * that are due, checking `checks` along the way.
+ * Plays `source` with `plan`'s kills, then ticks until no batch is brewing and the last tick was
+ * one the engine lived through, then applies the effects that are due, checking `checks` along
+ * the way.
  */
 export const runChaos = async (
   run: ChaosRun,
@@ -391,23 +392,27 @@ export const runChaos = async (
   checks: ChaosChecks = {},
 ): Promise<void> => {
   const { engine } = run;
-  const step = async (move: Move): Promise<void> => {
+  const step = async (move: Move): Promise<boolean> => {
     run.moves.push(move);
     const survived = await engine.play(move);
     checks.afterMove?.(run, move, survived);
+    return survived;
   };
   for (let move = source.move(engine.state()); move !== undefined; ) {
     await step(move);
     move = source.move(engine.state());
   }
-  for (let ticks = 0; brewing(engine.state()).length > 0; ticks++) {
+  // Until no batch is brewing, and at least once: the engine's last tick must be one it lived
+  // through, or a deadline that came due before a kill would never be seen.
+  let ticked = false;
+  for (let ticks = 0; !ticked || brewing(engine.state()).length > 0; ticks++) {
     if (ticks === maxSettleTicks) {
       throw new Error(
         `Batches still brewing after ${maxSettleTicks} ticks of ${settleMs / 60_000} min: ` +
           brewing(engine.state()).join(', '),
       );
     }
-    await step({ kind: 'tick', advanceMs: settleMs });
+    ticked = await step({ kind: 'tick', advanceMs: settleMs });
   }
   // A kill may have ended the last pass before an effect was recorded.
   await engine.applyEffects();

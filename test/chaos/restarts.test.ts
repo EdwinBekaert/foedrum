@@ -16,7 +16,7 @@ before(() => {
 });
 after(() => dir.remove());
 
-/** Every batch's pending deadline is ahead: its running attempts', or its reminder. */
+/** Every batch's pending deadline is ahead: its running attempts', its routing deadline or its reminder. */
 const nothingOverdue = ({ engine }: ChaosRun): void => {
   const now = engine.now().getTime();
   for (const batch of engine.state().batches.values()) {
@@ -37,11 +37,14 @@ const nothingOverdue = ({ engine }: ChaosRun): void => {
           `batch ${batch.id} is ${lane.kind} past its reminder, ${lane.remindAt}`,
         );
         break;
-      // An ordered batch has no deadline until it is routed (the open question of #95's I1). So
-      // a batch whose routing a kill lost, and that nothing routes again, sits silently in
-      // Ordered, and no check here sees it. Routing belongs to the intake, which does not exist
-      // yet; its deadline is the gap this harness does not cover.
+      // An Ordered batch waits to be routed by its routing deadline (ADR 0032), so one whose
+      // routing a kill lost gets Stuck instead of sitting silently.
       case 'ordered':
+        assert.ok(
+          Date.parse(lane.routeBy) > now,
+          `batch ${batch.id} is ordered past its routing deadline, ${lane.routeBy}`,
+        );
+        break;
       case 'on_tap':
       case 'cancelled':
         break;
@@ -78,10 +81,14 @@ it('every batch comes to rest, no effect is applied twice or lost, none sits pas
       const state = run.engine.state();
       // runChaos gets here only once no batch is brewing, and fails when they never stop: that
       // is the check that every batch comes to rest. This one guards against a lane added later.
+      const now = run.engine.now().getTime();
       for (const batch of state.batches.values()) {
+        const { lane } = batch;
+        // Ordered only while its routing deadline is ahead: past it, the batch is Stuck.
+        const waiting = lane.kind === 'ordered' && Date.parse(lane.routeBy) > now;
         assert.ok(
-          ['on_tap', 'cancelled', 'stuck', 'conditioning', 'ordered'].includes(batch.lane.kind),
-          `batch ${batch.id} is at rest, not ${batch.lane.kind}`,
+          waiting || ['on_tap', 'cancelled', 'stuck', 'conditioning'].includes(lane.kind),
+          `batch ${batch.id} is at rest, not ${lane.kind}`,
         );
       }
       for (const [key, results] of run.host.applied) {
