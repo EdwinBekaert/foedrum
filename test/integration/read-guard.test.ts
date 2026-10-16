@@ -181,8 +181,9 @@ interface StreamEvent {
   message?: { content?: { type: string; content?: unknown; is_error?: boolean }[] };
 }
 
-// The brewer runner's way (ADR 0048): a PreToolUse hook in the `--settings` file, under
-// `--setting-sources ""` and `--safe-mode`. The fake model reads a file next to the worktree.
+// The brewer runner's command line (ADR 0046) with a PreToolUse hook in its `--settings` file.
+// `--safe-mode` turns that file's hooks off too (ADR 0048), so the hook is tested without it.
+// The fake model reads a file next to the worktree.
 describe('claude with the read guard in its settings file', { skip: claude === undefined }, () => {
   let dir: TempDir;
   let api: FakeMessagesApi;
@@ -201,13 +202,13 @@ describe('claude with the read guard in its settings file', { skip: claude === u
   });
 
   /** The results of the brewer's tool calls, with the given hooks in its settings file. */
-  const toolResults = async (hooks: object | undefined) => {
+  const toolResults = async (hooks: object | undefined, { safeMode = true } = {}) => {
     const settingsFile = join(dir.path, 'attempt-settings.json');
     writeFileSync(
       settingsFile,
       JSON.stringify({ permissions: { allow: ['Read'], deny: [] }, ...(hooks ? { hooks } : {}) }),
     );
-    const args = claudeArgs({
+    const all = claudeArgs({
       model: 'claude-haiku-5-5',
       effort: 'low',
       maxTurns: 3,
@@ -215,6 +216,7 @@ describe('claude with the read guard in its settings file', { skip: claude === u
       tools: ['Read'],
       session: { kind: 'new', id: randomUUID() },
     });
+    const args = safeMode ? all : all.filter((arg) => arg !== '--safe-mode');
     const inherited = Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !/^(?:ANTHROPIC_|CLAUDE)/i.test(name)),
     );
@@ -262,8 +264,8 @@ describe('claude with the read guard in its settings file', { skip: claude === u
     ],
   });
 
-  it('blocks that read when the settings file has the read guard', async () => {
-    const results = await toolResults(guardHooks());
+  it('blocks that read when the settings file has the read guard, without --safe-mode', async () => {
+    const results = await toolResults(guardHooks(), { safeMode: false });
     assert.equal(results.length, 1);
     assert.equal(results[0]?.isError, true);
     assert.match(results[0]?.content ?? '', /outside the checkout/);
