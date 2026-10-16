@@ -178,10 +178,10 @@ class FakeChild extends EventEmitter implements ChildHandle {
     super();
     this.pid = pid === 'none' ? undefined : pid;
   }
-  close(code: number | null): void {
+  close(code: number | null, signal: NodeJS.Signals | null = null): void {
     this.stdout.end();
     this.stderr.end();
-    this.emit('close', code);
+    this.emit('close', code, signal);
   }
 }
 
@@ -999,6 +999,15 @@ describe('streamProcessWith', () => {
     assert.deepEqual(started, ['C:\\tools\\claude.exe']);
   });
 
+  // A crash or the OOM killer on macOS and Linux: the runner did not send it, so it is no kill.
+  it('answers with the signal that ended the process, when the runner did not end it', async () => {
+    const child = new FakeChild();
+    const { stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100 });
+    child.close(null, 'SIGKILL');
+    assert.deepEqual(await done, { exitCode: null, stderr: '', signal: 'SIGKILL' });
+  });
+
   it('answers without an exit code, with the reason, when the process fails', async () => {
     const child = new FakeChild();
     const { stream, options } = streamer(child);
@@ -1009,8 +1018,40 @@ describe('streamProcessWith', () => {
     assert.deepEqual(await done, { exitCode: null, stderr: 'partial\nread EPIPE' });
   });
 
+  // A program that runs without its prompt would answer something else (#128).
+  it('answers as not started, and ends the tree, when stdin was given but has no pipe', async () => {
+    const child = new FakeChild(77);
+    Object.assign(child, { stdin: null });
+    const { killed, lines, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100, stdin: 'prompt' });
+    child.stdout.write('{"type":"system"}\n');
+    await settle();
+    child.close(0);
+    const result = await done;
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.stderr, /^claude: no pipe to its stdin/);
+    assert.deepEqual(killed, [77]);
+    assert.deepEqual(lines, []);
+  });
+
   describe('in a Job Object', () => {
     const refusal = 'foedrum job object: PowerShell runs in ConstrainedLanguage mode\r\n';
+
+    // Between the direct child's exit and the close of its pipes, a kill would use an exited pid,
+    // which taskkill /T cannot follow to the grandchildren (#128).
+    it('starts nothing where the spawner holds jobs and none was asked for', async () => {
+      const child = new FakeChild();
+      const { spawned, stream, options } = streamer(child, true);
+      const done = stream('claude', [], { ...options, maxLineBytes: 1000 });
+      await settle();
+      child.close(0);
+      const result = await done;
+      assert.deepEqual(spawned, []);
+      assert.equal(result.exitCode, null);
+      assert.equal(result.killed, undefined);
+      assert.match(result.stderr, /^claude: streamProcess runs a program only in a Job Object/);
+    });
 
     // Fail closed (ADR 0039): the helper's refusal is not a line of the program's.
     it('answers as not started, and hands over no line, when the helper could not start it', async () => {
@@ -1053,17 +1094,6 @@ describe('streamProcessWith', () => {
       child.close(0);
       assert.deepEqual(await done, { exitCode: 0, stderr: '' });
       assert.deepEqual(lines, [refusal.trimEnd()]);
-    });
-
-    it('hands over the first line at once when no job was asked for', async () => {
-      const child = new FakeChild();
-      const { lines, stream, options } = streamer(child, true);
-      const done = stream('claude', [], { ...options, maxLineBytes: 1000 });
-      child.stdout.write(refusal);
-      await settle();
-      assert.deepEqual(lines, [refusal.trimEnd()]);
-      child.close(125);
-      assert.equal((await done).exitCode, 125);
     });
 
     // Outside Windows no helper exists to refuse anything (ADR 0039).
