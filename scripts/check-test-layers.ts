@@ -30,17 +30,17 @@ const SOURCE_FILE = /\.[cm]?[jt]s$/;
 // that contains an import statement, and `import type`, do: the guard errs on the side of failing.
 const CHILD_PROCESS_IMPORT = /\b(?:from|import|require)\s*\(?\s*(['"`])(?:node:)?child_process\1/;
 
-// The real process runner (#12): spawnProcess or execProcess from src/platform/processes.ts or
+// The real process runner (#12): spawnProcess, execProcess or streamProcess from src/platform/processes.ts or
 // scripts/process-runner.ts, imported by name, as a namespace, re-exported, or through `import()`
 // or `require()`, whose bindings it cannot see. `import type` and the runner with a fake spawner
-// (execProcessWith) do not match.
+// (execProcessWith, streamProcessWith) do not match.
 const RUNNER_MODULE = String.raw`(?<quote>['"\`])[^'"\`\n]*(?:platform/processes|process-runner)(?:\.[cm]?[jt]s)?\k<quote>`;
 const RUNNER_STATIC = new RegExp(
   String.raw`\b(?:import|export)\s+(?!type\b)(?<bindings>[^;]*?)\bfrom\s*${RUNNER_MODULE}`,
   'g',
 );
 const RUNNER_DYNAMIC = new RegExp(String.raw`\b(?:import|require)\s*\(\s*${RUNNER_MODULE}`);
-const RUNNER_BINDING = /\*|(?<!\btype\s+)\b(?:spawnProcess|execProcess)\b/;
+const RUNNER_BINDING = /\*|(?<!\btype\s+)\b(?:spawnProcess|execProcess|streamProcess)\b/;
 
 const importsRealRunner = (source: string): boolean =>
   RUNNER_DYNAMIC.test(source) ||

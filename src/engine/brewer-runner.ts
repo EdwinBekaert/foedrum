@@ -57,6 +57,11 @@ export type ProcessExit =
 
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
+  /**
+   * Why the session claude set up is not the one the runner asked for (its init event: tools,
+   * permission mode, MCP servers, skills); the runner stops the attempt when it sees it.
+   */
+  environment?: string | undefined;
   exit: ProcessExit;
   /** The out doc's text, or `undefined` when the brewer did not write it. */
   outDoc: string | undefined;
@@ -99,6 +104,11 @@ const failed = (retryable: boolean, reason: string): Ending => ({
 export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Ending {
   const { exit, denials, turns } = facts;
   const { maxDenials, maxTurns, outDoc } = limits;
+  // Another attempt would meet the same environment; a human must fix it (ADR 0046).
+  if (facts.environment !== undefined) {
+    const summary = `claude did not set up the session the runner asked for: ${facts.environment}`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
   if (exit.kind === 'unstartable') {
     return failed(false, `the brewer could not start: ${exit.reason}`);
   }

@@ -3,9 +3,9 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { environmentVariable, resolveExecutable } from './executables.ts';
-import { jobObjectCommand, jobObjectRefusal } from './job-object.ts';
+import { JOB_OBJECT_FAILED, jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
 
 export type Kill = (pid: number, signal: 0) => void;
@@ -172,6 +172,8 @@ export type ExecProcess = (
 /** The part of a started process the runner uses; a fake one in unit tests (ADR 0021). */
 export interface ChildHandle {
   readonly pid?: number | undefined;
+  /** Set when the runner asked for a pipe to the program's stdin. */
+  readonly stdin?: Writable | null | undefined;
   readonly stdout: Readable;
   readonly stderr: Readable;
   on(event: 'error', listener: (error: Error) => void): unknown;
@@ -194,7 +196,7 @@ export interface Spawner {
   spawn: (
     file: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean },
+    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean; stdin?: boolean },
   ) => ChildHandle;
   killTree: (pid: number) => void;
   /** Whether `spawn` holds a process in a Job Object when asked to (the real one on Windows). */
@@ -205,6 +207,12 @@ export interface Spawner {
    */
   resolve?: (file: string, env: NodeJS.ProcessEnv) => string | undefined;
 }
+
+// What a process wrote, then the reason it failed.
+const withReason = (text: string, error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  return text === '' || text.endsWith('\n') ? `${text}${message}` : `${text}\n${message}`;
+};
 
 /**
  * A runner that starts programs through the given spawner and collects their output. At the
@@ -237,13 +245,12 @@ export const execProcessWith =
         killed === undefined
           ? { exitCode, stdout, stderr, output }
           : { exitCode, stdout, stderr, output, killed };
-      // What the process wrote, then the reason it failed.
-      const failed = (error: unknown): ExecResult => {
-        const message = error instanceof Error ? error.message : String(error);
-        const after = (text: string): string =>
-          text === '' || text.endsWith('\n') ? `${text}${message}` : `${text}\n${message}`;
-        return { exitCode: null, stdout, stderr: after(stderr), output: after(output) };
-      };
+      const failed = (error: unknown): ExecResult => ({
+        exitCode: null,
+        stdout,
+        stderr: withReason(stderr, error),
+        output: withReason(output, error),
+      });
       if (signal?.aborted) {
         done(ended(null, 'stopped'));
         return;
@@ -311,23 +318,221 @@ export const execProcessWith =
       });
     });
 
+/** How the runner ended a process it streams: as execProcess, or at a line past its limit. */
+export type StreamKilled = Killed | 'line-too-long';
+
+export interface StreamOptions {
+  cwd: string;
+  /** The process's environment; default this process's. */
+  env?: NodeJS.ProcessEnv | undefined;
+  /** Kills the process and every process it started after this long. */
+  timeoutMs?: number | undefined;
+  /** Kills the process and every process it started when it aborts. */
+  signal?: AbortSignal | undefined;
+  /** As ExecOptions.jobObject (ADR 0039). */
+  jobObject?: boolean | undefined;
+  /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
+  stdin?: string | undefined;
+  /** Each line of stdout as it comes, without its line ending (LF or CRLF). */
+  onLine: (line: string) => void;
+  /** Kills the process and every process it started when one line of stdout passes this. */
+  maxLineBytes: number;
+  /**
+   * Kills the process and every process it started when stderr passes this many bytes; default
+   * DEFAULT_MAX_OUTPUT_BYTES.
+   */
+  maxStderrBytes?: number | undefined;
+}
+
+export interface StreamResult {
+  /** The exit code; `null` when the process could not start or was killed. */
+  exitCode: number | null;
+  /** What the process wrote to stderr, then why it failed when it could not start. */
+  stderr: string;
+  /** Set when the runner killed the process and every process it started. */
+  killed?: StreamKilled;
+}
+
+export type StreamProcess = (
+  file: string,
+  args: readonly string[],
+  options: StreamOptions,
+) => Promise<StreamResult>;
+
+/**
+ * A runner that hands a program's stdout to the caller line by line and keeps none of it, so a
+ * long stream has no total limit, only one per line (ADR 0046).
+ */
+export const streamProcessWith =
+  (
+    { spawn, killTree, resolve, jobObjects = false }: Spawner,
+    timers: Timers = realTimers,
+  ): StreamProcess =>
+  (
+    file,
+    args,
+    {
+      cwd,
+      env = process.env,
+      timeoutMs,
+      signal,
+      jobObject = false,
+      stdin,
+      onLine,
+      maxLineBytes,
+      maxStderrBytes = DEFAULT_MAX_OUTPUT_BYTES,
+    },
+  ) =>
+    new Promise((done) => {
+      let stderr = '';
+      let stderrBytes = 0;
+      const failed = (error: unknown): StreamResult => ({
+        exitCode: null,
+        stderr: withReason(stderr, error),
+      });
+      if (signal?.aborted) {
+        done({ exitCode: null, stderr, killed: 'stopped' });
+        return;
+      }
+      const program = resolve === undefined ? file : resolve(file, env);
+      if (program === undefined) {
+        done(failed(`${file}: not found on PATH (ENOENT)`));
+        return;
+      }
+      let child: ChildHandle;
+      try {
+        child = spawn(program, [...args], { cwd, env, jobObject, stdin: stdin !== undefined });
+      } catch (error) {
+        done(failed(error));
+        return;
+      }
+      let finished = false;
+      const finish = (result: StreamResult): void => {
+        if (finished) return;
+        finished = true;
+        if (timer !== undefined) timers.clear(timer);
+        signal?.removeEventListener('abort', stop);
+        done(result);
+      };
+      // Once the process has closed its pid may belong to another process: nothing is killed then.
+      let closed = false;
+      const end = (result: StreamResult): void => {
+        if (finished) return;
+        if (!closed && child.pid !== undefined) killTree(child.pid);
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(result);
+      };
+      const kill = (killed: StreamKilled): void => end({ exitCode: null, stderr, killed });
+      // The caller reads untrusted lines; what it throws ends the stream as a failure, instead of
+      // escaping the listener and leaving the tree running.
+      const hand = (line: string): void => {
+        try {
+          onLine(line);
+        } catch (error) {
+          end(failed(error));
+        }
+      };
+      const stop = (): void => kill('stopped');
+      const timer =
+        timeoutMs === undefined ? undefined : timers.set(() => kill('timed-out'), timeoutMs);
+      signal?.addEventListener('abort', stop, { once: true });
+      // A program that exits before reading its input makes the write fail (EPIPE); how it ended
+      // says more than that.
+      if (stdin !== undefined && child.stdin) {
+        child.stdin.on('error', () => {});
+        child.stdin.end(stdin);
+      }
+      // The helper's refusal comes alone, first, before the program exists (ADR 0039): a first
+      // line that looks like it waits until the process ends or writes more.
+      let mayBeRefusal = jobObject && jobObjects;
+      let held: string | undefined;
+      const deliver = (line: string): void => {
+        if (mayBeRefusal) {
+          mayBeRefusal = false;
+          if (jobObjectRefusal(JOB_OBJECT_FAILED, line, '') !== undefined) {
+            held = line;
+            return;
+          }
+        }
+        if (held !== undefined) {
+          const first = held;
+          held = undefined;
+          hand(first);
+          if (finished) return;
+        }
+        hand(line);
+      };
+      // The line being read, and its bytes. A CR may still come before its LF, which the limit
+      // does not count.
+      let pending = '';
+      let pendingBytes = 0;
+      const endLine = (text: string, bytes: number): void => {
+        const line = text.endsWith('\r') ? text.slice(0, -1) : text;
+        if (bytes - (text.length - line.length) > maxLineBytes) kill('line-too-long');
+        else deliver(line);
+      };
+      // Decode as a stream, so a multi-byte character split across chunks stays intact.
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+        let start = 0;
+        while (!finished) {
+          const end = chunk.indexOf('\n', start);
+          const piece = end === -1 ? chunk.slice(start) : chunk.slice(start, end);
+          pending += piece;
+          pendingBytes += Buffer.byteLength(piece);
+          if (end === -1) {
+            if (pendingBytes > maxLineBytes + 1) kill('line-too-long');
+            return;
+          }
+          const [text, bytes] = [pending, pendingBytes];
+          pending = '';
+          pendingBytes = 0;
+          endLine(text, bytes);
+          start = end + 1;
+        }
+      });
+      child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+        stderrBytes += Buffer.byteLength(chunk);
+        if (stderrBytes > maxStderrBytes) kill('too-much-output');
+        else stderr += chunk;
+      });
+      child.on('error', (error) => finish(failed(error)));
+      child.on('close', (code) => {
+        closed = true;
+        // A process the runner killed or stopped may close with a line it had only begun.
+        if (!finished && pendingBytes > 0) endLine(pending, pendingBytes);
+        if (finished) return;
+        // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
+        const refused = held === undefined ? undefined : jobObjectRefusal(code, held, stderr);
+        if (refused !== undefined) {
+          finish({ exitCode: null, stderr: `${program}: cannot run in a Job Object: ${refused}` });
+          return;
+        }
+        if (held !== undefined) hand(held);
+        if (finished) return;
+        finish({ exitCode: code, stderr });
+      });
+    });
+
 // Job Objects are Windows's; elsewhere the runner kills the process group.
 const jobObjectsHere = process.platform === 'win32';
 
 /** The real spawner. Unit tests use a fake one instead (ADR 0021). */
 export const processSpawner: Spawner = {
-  spawn: (file, args, { cwd, env, jobObject = false }) => {
+  spawn: (file, args, { cwd, env, jobObject = false, stdin = false }) => {
     const command = spawnCommand(file, args, process.platform, env);
     const start =
       jobObjectsHere && jobObject ? jobObjectCommand(command, cwd) : { ...command, cwd };
-    return spawn(start.file, start.args, {
+    const options = {
       cwd: start.cwd,
       env: start.env,
       shell: start.shell,
-      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       ...killableSpawnOptions(),
-    });
+    };
+    return stdin
+      ? spawn(start.file, start.args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
+      : spawn(start.file, start.args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
   },
   killTree: killProcessTree,
   jobObjects: jobObjectsHere,
@@ -338,6 +543,9 @@ export const processSpawner: Spawner = {
 
 /** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
 export const execProcess: ExecProcess = execProcessWith(processSpawner);
+
+/** The real line-by-line runner. Unit tests use streamProcessWith with a fake spawner. */
+export const streamProcess: StreamProcess = streamProcessWith(processSpawner);
 
 // The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output
 // together. Unit tests pass a fake one.

@@ -121,6 +121,15 @@ describe('checkTestLayer and the real process runner', () => {
     }
   });
 
+  it('reports a file that imports streamProcess, the runner for long streams', () => {
+    const problems = checkTestLayer(join(fixtures, 'stream-runner'), none);
+    assert.deepEqual(
+      problems.map(({ file }) => file),
+      ['stream-import.test.ts'],
+    );
+    assert.match(problems[0]?.problem ?? '', /imports the real process runner/);
+  });
+
   it('leaves out files that import only types, the runner with a fake spawner or other helpers', () => {
     assert.deepEqual(checkTestLayer(join(runner, 'clean'), none), []);
   });
