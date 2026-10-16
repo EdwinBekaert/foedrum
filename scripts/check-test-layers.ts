@@ -3,10 +3,9 @@
 // execProcess). npm test runs the first three and they import the helpers, so none of them may
 // start a process (ADR 0021). Tests that run real tools belong in test/integration/. Exit 0:
 // clean. Exit 1: one line per problem on stdout.
-// It sees direct imports only: a test that starts a process through a script it imports is not
-// caught here. Review is the backstop: the per-file budget (scripts/test-budget-reporter.ts)
-// counts only the test process's own CPU time (ADR 0036), not the process it waits for. #111
-// closes the gap: the CPU time preload refuses child_process calls in npm test's processes.
+// It sees direct imports only: a test that starts a process through a module it imports is not
+// caught here, but at run time: npm test's preload (scripts/refuse-process-starts.ts, ADR 0038)
+// makes child_process's process starts throw in every test process and fails the file.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
