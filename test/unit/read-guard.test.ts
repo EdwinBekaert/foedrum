@@ -133,6 +133,13 @@ describe('readGuard: Read', () => {
       links: { '/link-to-repo': '/repo' },
     }));
 
+  // A link the pull request committed, inside: POSIX reads `x/..` from the link's target, a tool
+  // that normalises the path first does not, and the two readings land in different places.
+  it('blocks .. after a link when either reading of it leaves the checkout', () =>
+    blocks(hookInput('Read', { file_path: '/repo/x/../../../etc/passwd' }), OUTSIDE, {
+      links: { '/repo/x': '/repo/a/b/c' },
+    }));
+
   it('blocks a path that cannot be resolved, with the reason', () =>
     blocks(hookInput('Read', { file_path: '/repo/loop' }), /could not resolve.*ELOOP/, {
       realPath: () => {
@@ -174,6 +181,23 @@ describe('readGuard: Grep and Glob', () => {
 
   it('allows an absolute Glob pattern inside', () =>
     allows(hookInput('Glob', { pattern: '/repo/src/**/*.ts' })));
+
+  it('allows an absolute Glob pattern into a checkout whose path has glob characters', async () => {
+    const root = '/home/u/c++ (eu)/repo';
+    await allows(hookInput('Glob', { pattern: `${root}/src/**/*.ts` }, root), { root });
+    await allows(
+      hookInput(
+        'Glob',
+        { pattern: 'C:\\Users\\me\\OneDrive (EU)\\repo\\src\\*.ts' },
+        'C:\\Users\\me\\OneDrive (EU)\\repo',
+      ),
+      {
+        root: 'C:\\Users\\me\\OneDrive (EU)\\repo',
+        platform: 'win32',
+        homedir: 'C:\\Users\\me',
+      },
+    );
+  });
 
   it('blocks a Glob pattern whose literal part leaves the checkout', () =>
     blocks(hookInput('Glob', { pattern: '../../home/u/*' }), OUTSIDE));
