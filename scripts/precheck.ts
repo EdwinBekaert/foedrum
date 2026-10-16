@@ -7,6 +7,13 @@
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // It runs before every Bash and PowerShell call, so input that cannot name git or gh exits
 // before any parsing, and the module has no static imports.
+//
+// The command is read the way bash and PowerShell would read it, both ways, and blocked when
+// either reading pushes or merges (#42). Quotes are honoured; wrapper words (env, time, xargs,
+// Start-Process, …) are skipped; what other shells and evaluators run (bash -c, pwsh -Command,
+// cmd /c, iex, eval) is read as a command too; a git or gh alias that would push, merge or open a
+// pull request is blocked where it is defined; and a program or subcommand computed at run time
+// is assumed to be the worst it could be. Arguments computed at run time are not evaluated.
 
 export interface CheckResult {
   ok: boolean;
@@ -21,64 +28,288 @@ export interface HookResult {
 }
 
 const MAX_OUTPUT_CHARS = 4000;
-const COMMAND_SEPARATORS = /&&|\|\||[;&|\r\n(){}]/;
+// Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter;
+// push and merge for a git or gh whose name is computed at run time; pwsh and powershell for an
+// encoded command.
+const MAY_PUSH_OR_MERGE = /git|gh|push|merge|pwsh|powershell|\\u/i;
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 // gh flags that can appear before the `pr` action and take the next token as their value.
 const GH_OPTIONS_WITH_VALUE = new Set(['-R', '--repo', '--hostname']);
-// Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter.
-const MAY_NAME_GIT_OR_GH = /git|gh|\\u/i;
+// How deep commands may nest (a shell that runs a shell …) before the gate gives up and blocks,
+// and how many commands it reads in all.
+const MAX_DEPTH = 8;
+const MAX_READS = 2000;
 
-// Splits on both separators, so this works for Windows and POSIX paths.
-const programName = (token: string): string =>
-  (token.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.exe$/, '');
+const FORCE_PUSH_BLOCKED =
+  'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
+const DELETE_PUSH_BLOCKED =
+  'Deleting or mirroring remote refs with git push is blocked: ask a maintainer to delete remote branches.';
+const PR_MERGE_BLOCKED =
+  '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
+const COMPUTED_PR_ACTION_BLOCKED =
+  '`gh pr` with an action computed at run time is blocked: the gate cannot tell it from `gh pr merge`.';
+const ALIAS_BLOCKED =
+  'Defining a git or gh alias that pushes, merges or opens a pull request is blocked: run git push or gh pr create as it is, so the gate sees it.';
+const TOO_DEEP_BLOCKED =
+  'This command nests shells or commands too deeply for the gate to check: run git push and gh pr create as plain commands.';
 
-const tokenize = (segment: string): string[] => {
-  const tokens = segment
-    .trim()
-    .split(/\s+/)
-    .map((token) => token.replace(/^["']+|["']+$/g, ''))
-    .filter((token) => token !== '');
-  while (tokens[0] !== undefined && ENV_ASSIGNMENT.test(tokens[0])) tokens.shift();
-  return tokens;
+// A shell's reading of a command line. Git Bash runs the Bash tool's commands.
+type Dialect = 'bash' | 'powershell';
+const DIALECTS: readonly Dialect[] = ['bash', 'powershell'];
+
+// A word of a command after quote removal. `dynamic` when part of it is computed at run time (a
+// variable or a substitution); `quoted` when it starts with a quote, which PowerShell reads as a
+// value, never as a parameter name.
+interface Word {
+  text: string;
+  dynamic: boolean;
+  quoted: boolean;
+}
+
+interface Lexed {
+  // The simple commands, split at ; & | ( ) { } and line breaks outside quotes.
+  segments: Word[][];
+  // The content of every quoted string.
+  strings: string[];
+  // The commands inside $( … ), PowerShell's @( … ) and bash's ` … `.
+  substitutions: string[];
+  // A quote or substitution never closes, so neither shell would run the command as written.
+  unclosed: boolean;
+}
+
+const SEPARATORS = new Set([';', '&', '|', '(', ')', '{', '}', '\n', '\r']);
+
+// The index just past the `)` that closes the `(` at `open`, or -1.
+const closingParen = (text: string, open: number): number => {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')' && --depth === 0) return i + 1;
+  }
+  return -1;
 };
+
+const lex = (command: string, dialect: Dialect): Lexed => {
+  const escapeChar = dialect === 'bash' ? '\\' : '`';
+  const lexed: Lexed = { segments: [], strings: [], substitutions: [], unclosed: false };
+  let segment: Word[] = [];
+  let word: Word | undefined;
+  const add = (text: string, dynamic = false, quoted = false): Word => {
+    word ??= { text: '', dynamic: false, quoted };
+    word.text += text;
+    word.dynamic ||= dynamic;
+    return word;
+  };
+  const endWord = () => {
+    if (word !== undefined) segment.push(word);
+    word = undefined;
+  };
+  const endSegment = () => {
+    endWord();
+    if (segment.length > 0) lexed.segments.push(segment);
+    segment = [];
+  };
+
+  // An expansion at i ($name, ${…}, $(…), @(…), bash's `…` and $'…'): adds it to the word and
+  // returns the index after it, or -1 when it never closes.
+  const expansion = (i: number): number => {
+    const sign = command[i] ?? '';
+    const next = command[i + 1];
+    if (sign === '`') {
+      const end = command.indexOf('`', i + 1);
+      if (end < 0) return -1;
+      lexed.substitutions.push(command.slice(i + 1, end));
+      add(command.slice(i, end + 1), true);
+      return end + 1;
+    }
+    if (next === '(') {
+      const end = closingParen(command, i + 1);
+      if (end < 0) return -1;
+      lexed.substitutions.push(command.slice(i + 2, end - 1));
+      add(command.slice(i, end), sign === '$');
+      return end;
+    }
+    const close = next === '{' ? '}' : next === "'" && dialect === 'bash' ? "'" : undefined;
+    if (close !== undefined) {
+      const end = command.indexOf(close, i + 2);
+      if (end < 0) return -1;
+      add(command.slice(i, end + 1), true);
+      return end + 1;
+    }
+    add(sign, sign === '$');
+    return i + 1;
+  };
+
+  // A '…' string at i: literal, but PowerShell doubles a quote inside it.
+  const singleQuoted = (i: number): number => {
+    let text = '';
+    let j = i + 1;
+    for (;;) {
+      if (j >= command.length) return -1;
+      if (command[j] === "'") {
+        if (dialect === 'bash' || command[j + 1] !== "'") break;
+        j++;
+      }
+      text += command[j];
+      j++;
+    }
+    lexed.strings.push(text);
+    add(text, false, true);
+    return j + 1;
+  };
+
+  // A "…" string at i, with its escapes and expansions.
+  const doubleQuoted = (i: number): number => {
+    const quoted = add('', false, true);
+    const start = quoted.text.length;
+    let j = i + 1;
+    while (j < command.length) {
+      const char = command[j] ?? '';
+      const next = command[j + 1] ?? '';
+      if (char === '"' && dialect === 'powershell' && next === '"') {
+        add('"');
+        j += 2;
+      } else if (char === '"') {
+        lexed.strings.push(quoted.text.slice(start));
+        return j + 1;
+      } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\\n'.includes(next))) {
+        add(next);
+        j += 2;
+      } else if (char === '$' || (char === '`' && dialect === 'bash')) {
+        j = expansion(j);
+        if (j < 0) return -1;
+      } else {
+        add(char);
+        j++;
+      }
+    }
+    return -1;
+  };
+
+  let i = 0;
+  while (i >= 0 && i < command.length) {
+    const char = command[i] ?? '';
+    if (char === escapeChar) {
+      add(command[i + 1] === '\n' ? '' : (command[i + 1] ?? ''));
+      i += 2;
+    } else if (char === ' ' || char === '\t') {
+      endWord();
+      i++;
+    } else if (SEPARATORS.has(char)) {
+      endSegment();
+      i++;
+    } else if (char === "'") {
+      i = singleQuoted(i);
+    } else if (char === '"') {
+      i = doubleQuoted(i);
+    } else if (
+      char === '$' ||
+      (char === '`' && dialect === 'bash') ||
+      (char === '@' && command[i + 1] === '(' && dialect === 'powershell')
+    ) {
+      i = expansion(i);
+    } else {
+      add(char);
+      i++;
+    }
+  }
+  lexed.unclosed = i < 0;
+  endSegment();
+  return lexed;
+};
+
+// The program a word names: the last part of a path, lowercased, without .exe, .cmd, .bat or
+// .com, so `C:\Program Files\Git\cmd\git.exe` is git.
+const programName = (text: string): string =>
+  (text.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '');
+
+// The program of a word computed at run time: it may be git or gh.
+const COMPUTED = '$';
 
 interface Invocation {
   program: string;
-  args: string[];
+  args: Word[];
 }
 
-const invocations = (command: string): Invocation[] =>
-  command.split(COMMAND_SEPARATORS).flatMap((segment) => {
-    const [program, ...args] = tokenize(segment);
-    return program === undefined ? [] : [{ program: programName(program), args }];
-  });
+// A word that runs the command after it: its options, those of them that take a value, the
+// options whose value is itself a command, and how many operands come before the command.
+interface Wrapper {
+  withValue: readonly string[];
+  runs?: readonly string[];
+  operands?: number;
+}
 
-// The arguments after `push` when this is a `git push`, otherwise undefined.
-const gitPushArgs = ({ program, args }: Invocation): string[] | undefined => {
-  if (program !== 'git') return undefined;
-  let i = 0;
-  while (args[i]?.startsWith('-')) i += GIT_OPTIONS_WITH_VALUE.has(args[i] ?? '') ? 2 : 1;
-  return args[i] === 'push' ? args.slice(i + 1) : undefined;
-};
+const WRAPPERS = new Map<string, Wrapper>([
+  ['builtin', { withValue: [] }],
+  ['command', { withValue: [] }],
+  [
+    'env',
+    {
+      withValue: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'],
+      runs: ['-S', '--split-string'],
+    },
+  ],
+  ['exec', { withValue: ['-a'] }],
+  ['nice', { withValue: ['-n', '--adjustment'] }],
+  ['nohup', { withValue: [] }],
+  ['npx', { withValue: ['-p', '--package', '-c', '--call'], runs: ['-c', '--call'] }],
+  ['sudo', { withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '-h', '-p', '-r', '-t'] }],
+  ['time', { withValue: ['-f', '--format', '-o', '--output'] }],
+  ['timeout', { withValue: ['-s', '--signal', '-k', '--kill-after'], operands: 1 }],
+  [
+    'xargs',
+    {
+      withValue: [
+        '-a',
+        '--arg-file',
+        '-d',
+        '--delimiter',
+        '-E',
+        '-I',
+        '-L',
+        '--max-lines',
+        '-n',
+        '--max-args',
+        '-P',
+        '--max-procs',
+        '-s',
+        '--max-chars',
+      ],
+    },
+  ],
+]);
 
-// The positional arguments, skipping flags and the values of flags that take one.
-const positionals = (args: string[], optionsWithValue: Set<string>): string[] => {
-  const result: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i] ?? '';
-    if (!arg.startsWith('-')) result.push(arg);
-    else if (optionsWithValue.has(arg)) i++;
+// The program and arguments of a simple command, after environment assignments and wrapper
+// words. A wrapper option whose value is a command adds it to `nested`.
+const invocation = (words: Word[], nested: string[]): Invocation | undefined => {
+  let rest = words;
+  for (;;) {
+    while (rest[0] !== undefined && ENV_ASSIGNMENT.test(rest[0].text)) rest = rest.slice(1);
+    const [first, ...args] = rest;
+    if (first === undefined) return undefined;
+    const program = first.dynamic ? COMPUTED : programName(first.text);
+    const wrapper = WRAPPERS.get(program);
+    if (wrapper === undefined) return { program, args };
+    let i = 0;
+    while (args[i]?.text.startsWith('-')) {
+      const option = args[i]?.text ?? '';
+      if (option === '--') {
+        i++;
+        break;
+      }
+      if (!wrapper.withValue.includes(option)) {
+        i++;
+        continue;
+      }
+      if (wrapper.runs?.includes(option)) nested.push(args[i + 1]?.text ?? '');
+      i += 2;
+    }
+    rest = args.slice(i + (wrapper.operands ?? 0));
   }
-  return result;
 };
 
-// The action after `gh pr`, such as `create` or `merge`, otherwise undefined.
-const ghPrAction = ({ program, args }: Invocation): string | undefined => {
-  if (program !== 'gh') return undefined;
-  const [group, action] = positionals(args, GH_OPTIONS_WITH_VALUE);
-  return group === 'pr' ? action : undefined;
-};
+const text = (words: Word[]): string => words.map((word) => word.text).join(' ');
 
 // --force, --force-with-lease[=…], -f alone or in a group such as -uf, or a +refspec.
 const isForceArg = (arg: string): boolean =>
@@ -91,31 +322,211 @@ const isDeleteOrMirrorArg = (arg: string): boolean =>
   /^-[A-Za-z]*d[A-Za-z]*$/.test(arg) ||
   arg.startsWith(':');
 
-const FORCE_PUSH_BLOCKED =
-  'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
-const DELETE_PUSH_BLOCKED =
-  'Deleting or mirroring remote refs with git push is blocked: ask a maintainer to delete remote branches.';
-const PR_MERGE_BLOCKED =
-  '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
+// What the gate found in a command and everything nested in it.
+interface Findings {
+  reasons: string[];
+  gated: boolean;
+  pushes: boolean;
+  reads: number;
+}
 
-const isGitPush = (command: string): boolean =>
-  invocations(command).some((invocation) => gitPushArgs(invocation) !== undefined);
+// What one reading of a command collects besides findings: more commands to read, and the
+// commands that alias definitions would run.
+interface Reading {
+  found: Findings;
+  nested: string[];
+  aliases: string[];
+}
 
-export const isGatedCommand = (command: string): boolean =>
-  invocations(command).some((invocation) => {
-    const action = ghPrAction(invocation);
-    return gitPushArgs(invocation) !== undefined || action === 'create' || action === 'new';
-  });
+// The command a git alias value runs: `!…` runs a shell command, anything else a git command.
+const gitAlias = (value: string): string =>
+  value.startsWith('!') ? value.slice(1) : `git ${value}`;
 
-export const forbiddenReason = (command: string): string | undefined => {
-  for (const invocation of invocations(command)) {
-    const pushArgs = gitPushArgs(invocation) ?? [];
-    if (pushArgs.some(isForceArg)) return FORCE_PUSH_BLOCKED;
-    if (pushArgs.some(isDeleteOrMirrorArg)) return DELETE_PUSH_BLOCKED;
-    if (ghPrAction(invocation) === 'merge') return PR_MERGE_BLOCKED;
+const readGit = (args: Word[], literal: boolean, { found, aliases }: Reading): void => {
+  let i = 0;
+  while (args[i]?.text.startsWith('-')) {
+    const option = args[i]?.text ?? '';
+    const value = args[i + 1]?.text ?? '';
+    if (option === '-c' && /^alias\..*=/is.test(value)) {
+      aliases.push(gitAlias(value.slice(value.indexOf('=') + 1)));
+    }
+    i += GIT_OPTIONS_WITH_VALUE.has(option) ? 2 : 1;
   }
-  return undefined;
+  const subcommand = args[i];
+  if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
+    found.gated = true;
+    found.pushes = true;
+    const pushArgs = args.slice(i + 1).map((word) => word.text);
+    if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
+    else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
+  } else if (subcommand?.text === 'config') {
+    const key = args.findIndex((word, j) => j > i && /^alias\./i.test(word.text));
+    const value = key < 0 ? undefined : args[key + 1];
+    if (value !== undefined) aliases.push(gitAlias(value.text));
+  }
 };
+
+// The positional arguments, skipping flags and the values of flags that take one.
+const positionals = (args: Word[], optionsWithValue: Set<string>): Word[] => {
+  const result: Word[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (!arg.text.startsWith('-')) result.push(arg);
+    else if (optionsWithValue.has(arg.text)) i++;
+  }
+  return result;
+};
+
+const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): void => {
+  const [group, action, name, expansion] = positionals(args, GH_OPTIONS_WITH_VALUE);
+  if (group?.text === 'pr' || (literal && group?.dynamic)) {
+    if (action?.dynamic || (group?.dynamic && action?.text === 'merge')) {
+      found.reasons.push(COMPUTED_PR_ACTION_BLOCKED);
+    } else if (action?.text === 'merge') found.reasons.push(PR_MERGE_BLOCKED);
+    else if (action?.text === 'create' || action?.text === 'new') found.gated = true;
+  } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
+    const shell = args.some((arg) => arg.text === '--shell' || arg.text === '-s');
+    const value = expansion.text;
+    aliases.push(shell || value.startsWith('!') ? value.replace(/^!/, '') : `gh ${value}`);
+  }
+};
+
+// The commands pwsh or powershell runs: the rest of the line after -Command (or any prefix of
+// it, such as -c), a decoded -EncodedCommand, and each other operand, since Windows PowerShell
+// reads its first operand as a command.
+const powershellCommands = (args: Word[]): string[] => {
+  const commands: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
+    const name = !arg.quoted && arg.text.startsWith('-') ? arg.text.slice(1).toLowerCase() : '';
+    if (name === '') {
+      commands.push(arg.text);
+    } else if ('command'.startsWith(name)) {
+      commands.push(text(args.slice(i + 1)));
+      break;
+    } else if ('encodedcommand'.startsWith(name) || name === 'ec') {
+      commands.push(Buffer.from(args[i + 1]?.text ?? '', 'base64').toString('utf16le'));
+      i++;
+    }
+  }
+  return commands;
+};
+
+// The command cmd runs after /c or /k, without its ^ escapes.
+const cmdCommands = (args: Word[]): string[] => {
+  const run = args.findIndex((arg) => /^\/[ck]$/i.test(arg.text));
+  return run < 0 ? [] : [text(args.slice(run + 1)).replaceAll('^', '')];
+};
+
+// Start-Process parameters that take a value, with their aliases; the first match of a prefix
+// wins, as -f does for -FilePath.
+const START_PROCESS_PARAMETERS: [name: string, role: 'file' | 'args' | 'other'][] = [
+  ['filepath', 'file'],
+  ['path', 'file'],
+  ['pspath', 'file'],
+  ['argumentlist', 'args'],
+  ['args', 'args'],
+  ['workingdirectory', 'other'],
+  ['verb', 'other'],
+  ['windowstyle', 'other'],
+  ['redirectstandardinput', 'other'],
+  ['redirectstandardoutput', 'other'],
+  ['redirectstandarderror', 'other'],
+  ['credential', 'other'],
+  ['environment', 'other'],
+];
+
+// The command Start-Process starts, from -FilePath and -ArgumentList or its two positional
+// parameters, and the plain reading of its arguments as a command (cmd's `start git push`).
+const startProcessCommands = (args: Word[]): string[] => {
+  const file: string[] = [];
+  const list: string[] = [];
+  const operands: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
+    if (arg.quoted || !arg.text.startsWith('-')) {
+      operands.push(arg.text);
+      continue;
+    }
+    const colon = arg.text.indexOf(':');
+    const name = arg.text.slice(1, colon < 0 ? undefined : colon).toLowerCase();
+    const role = START_PROCESS_PARAMETERS.find(([parameter]) => parameter.startsWith(name))?.[1];
+    if (name === '' || role === undefined) continue;
+    const value = colon < 0 ? (args[++i]?.text ?? '') : arg.text.slice(colon + 1);
+    if (role === 'file') file.push(value);
+    else if (role === 'args') list.push(value);
+  }
+  if (file.length === 0) file.push(operands.shift() ?? '');
+  if (list.length === 0) list.push(operands.shift() ?? '');
+  const words = [...file, ...list].join(' ').split(/[\s,]+/);
+  return [words.map((word) => word.replace(/^[@('"]+|['")]+$/g, '')).join(' '), text(args)];
+};
+
+const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish']);
+const POWERSHELLS = new Set(['pwsh', 'powershell']);
+const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', '[scriptblock]::create']);
+const START_PROCESS = new Set(['start-process', 'start', 'saps']);
+
+// Reads one simple command; returns whether it runs code given as text, so that every string
+// and every argument list of the command line may be code.
+const readInvocation = ({ program, args }: Invocation, reading: Reading): boolean => {
+  if (program === 'git' || program === COMPUTED) readGit(args, program === 'git', reading);
+  if (program === 'gh' || program === COMPUTED) readGh(args, program === 'gh', reading);
+  const { nested } = reading;
+  if (POSIX_SHELLS.has(program)) {
+    nested.push(...args.filter((arg) => !/^[-+]/.test(arg.text)).map((arg) => arg.text));
+  } else if (POWERSHELLS.has(program)) nested.push(...powershellCommands(args));
+  else if (program === 'cmd') nested.push(...cmdCommands(args));
+  else if (EVALUATORS.has(program)) nested.push(text(args));
+  else if (START_PROCESS.has(program)) nested.push(...startProcessCommands(args));
+  else return false;
+  return true;
+};
+
+const read = (command: string, depth: number, found: Findings): void => {
+  found.reads++;
+  if (depth > MAX_DEPTH || found.reads > MAX_READS) {
+    found.reasons.push(TOO_DEEP_BLOCKED);
+    return;
+  }
+  const nested = new Set<string>();
+  const aliases = new Set<string>();
+  for (const dialect of DIALECTS) {
+    const lexed = lex(command, dialect);
+    const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [] };
+    let runsText = false;
+    for (const words of lexed.segments) {
+      const called = invocation(words, reading.nested);
+      if (called !== undefined && readInvocation(called, reading)) runsText = true;
+    }
+    if (runsText) {
+      reading.nested.push(...lexed.strings, ...lexed.segments.map((words) => text(words.slice(1))));
+    }
+    // Read without quotes, so a stray quote never hides what follows it.
+    if (lexed.unclosed) reading.nested.push(command.replace(/["'`$]/g, ' '));
+    for (const each of reading.nested) nested.add(each);
+    for (const each of reading.aliases) aliases.add(each);
+  }
+  for (const each of nested) if (each.trim() !== '') read(each, depth + 1, found);
+  for (const alias of aliases) {
+    const defined: Findings = { reasons: [], gated: false, pushes: false, reads: found.reads };
+    read(alias, depth + 1, defined);
+    found.reads = defined.reads;
+    if (defined.gated || defined.reasons.length > 0) found.reasons.push(ALIAS_BLOCKED);
+  }
+};
+
+const findings = (command: string): Findings => {
+  const found: Findings = { reasons: [], gated: false, pushes: false, reads: 0 };
+  read(command, 0, found);
+  return found;
+};
+
+export const isGatedCommand = (command: string): boolean => findings(command).gated;
+
+export const forbiddenReason = (command: string): string | undefined =>
+  findings(command).reasons[0];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -126,7 +537,7 @@ const lastChars = (text: string): string =>
 // Why node_modules in the checkout around `cwd` is out of date, or undefined.
 export type StaleReason = (cwd: string) => Promise<string | undefined>;
 
-// Whether HEAD in the checkout around `cwd` is detached.
+// Whether HEAD in the checkout around `cwd` is detached; rejects when it cannot tell.
 export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 
 export const precheck = async (
@@ -135,7 +546,7 @@ export const precheck = async (
   staleReason: StaleReason = async () => undefined,
   headIsDetached: HeadIsDetached = async () => false,
 ): Promise<HookResult> => {
-  if (!MAY_NAME_GIT_OR_GH.test(input)) return { exitCode: 0, stderr: '' };
+  if (!MAY_PUSH_OR_MERGE.test(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
@@ -148,17 +559,30 @@ export const precheck = async (
 
   const command = isRecord(parsed.tool_input) ? parsed.tool_input.command : undefined;
   if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
-  const reason = forbiddenReason(command);
+  const found = findings(command);
+  const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
-  if (!isGatedCommand(command)) return { exitCode: 0, stderr: '' };
+  if (!found.gated) return { exitCode: 0, stderr: '' };
 
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
   // A session pushes a branch; commits made on a detached HEAD are on none (#80).
-  if (isGitPush(command) && (await headIsDetached(cwd))) {
-    return {
-      exitCode: 2,
-      stderr: `git push is blocked: HEAD is detached in ${cwd}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
-    };
+  if (found.pushes) {
+    let detached: boolean;
+    try {
+      detached = await headIsDetached(cwd);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return {
+        exitCode: 2,
+        stderr: `git push is blocked: could not tell whether HEAD is detached in ${cwd} (${why}).\n`,
+      };
+    }
+    if (detached) {
+      return {
+        exitCode: 2,
+        stderr: `git push is blocked: HEAD is detached in ${cwd}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
+      };
+    }
   }
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(cwd);
@@ -185,6 +609,9 @@ export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 // The check's deadline: after its steps' own (300 s), so a hanging step is named there, and
 // before the hook's 600 s, which would end this process without killing the check.
 const CHECK_TIMEOUT_MS = 540_000;
+
+// The HEAD check's deadline: a local, read-only git call that should answer at once (#42).
+const HEAD_CHECK_TIMEOUT_MS = 10_000;
 
 // Finds npm's CLI script next to the node at the given path (findNpmCli in the platform module).
 export type FindNpmCli = (execPath: string) => Promise<NpmCliLookup>;
@@ -222,10 +649,22 @@ export const npmCheck =
 // and 128 outside a repository, where git push fails by itself.
 export const isDetached = ({ exitCode }: ProcessOutcome): boolean => exitCode === 1;
 
+// Rejects, saying why, when git was killed: at the deadline, when stopped, or at the output limit.
 export const gitHeadIsDetached =
   (runProcess: RunProcess): HeadIsDetached =>
-  async (cwd) =>
-    isDetached(await runProcess('git', ['symbolic-ref', '-q', 'HEAD'], cwd));
+  async (cwd) => {
+    const outcome = await runProcess('git', ['symbolic-ref', '-q', 'HEAD'], cwd, {
+      timeoutMs: HEAD_CHECK_TIMEOUT_MS,
+    });
+    if (outcome.killed !== undefined) {
+      const { whyKilled } = await import('../src/platform/processes.ts');
+      const why = whyKilled(outcome.killed, HEAD_CHECK_TIMEOUT_MS);
+      throw new Error(
+        `git symbolic-ref -q HEAD ${outcome.killed === 'stopped' ? 'was stopped' : why}`,
+      );
+    }
+    return isDetached(outcome);
+  };
 
 const readStdin = async (): Promise<string> => {
   const chunks: Buffer[] = [];
