@@ -163,11 +163,58 @@ describe('diagnose: isolation (ADR 0010)', () => {
       name: 'docker',
       version: '27.3.1',
       path: '/usr/bin/docker',
+      usable: true,
     });
     assert.deepEqual(diagnose(linux({ docker, podman })).container, {
       name: 'podman',
       version: '5.2.0',
       path: '/usr/bin/podman',
+      usable: true,
     });
+  });
+
+  it('does not count a container runtime that does not answer its version as available', () => {
+    const docker = ran('C:\\Windows\\system32\\docker.exe', 'timed out after 3 s\n', null);
+    const { container, ok, problems } = diagnose({
+      ...windows,
+      tools: { ...windows.tools, docker },
+    });
+    assert.deepEqual(container, {
+      name: 'docker',
+      version: undefined,
+      path: 'C:\\Windows\\system32\\docker.exe',
+      usable: false,
+      said: 'timed out after 3 s',
+    });
+    // The container level is optional: it is no problem, and doctor stays ok.
+    assert.equal(ok, true);
+    assert.deepEqual(problems, []);
+  });
+
+  it('falls through to Docker when Podman does not answer its version', () => {
+    const podman = ran('/usr/bin/podman', 'timed out after 3 s\n', null);
+    const docker = ran('/usr/bin/docker', 'Docker version 27.3.1, build ce12230\n');
+    assert.deepEqual(diagnose(linux({ docker, podman })).container, {
+      name: 'docker',
+      version: '27.3.1',
+      path: '/usr/bin/docker',
+      usable: true,
+    });
+  });
+
+  it('does not count a container runtime whose version command fails or prints no version', () => {
+    for (const [output, exitCode] of [
+      ['Cannot connect to the Docker daemon\n', 1],
+      ['Docker\n', 0],
+    ] as const) {
+      const docker = ran('/usr/bin/docker', output, exitCode);
+      assert.deepEqual(diagnose(linux({ docker })).container, {
+        name: 'docker',
+        version: undefined,
+        path: '/usr/bin/docker',
+        usable: false,
+        said: output.trim(),
+      });
+    }
   });
 });

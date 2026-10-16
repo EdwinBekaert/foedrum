@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from '../../src/cli/doctor-facts.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 
@@ -36,17 +37,23 @@ const answers: Record<string, ExecResult> = {
   },
 };
 
-const fakeShell = () => {
+// What a fake shell finds on PATH and answers besides the tools above.
+interface Extra {
+  onPath: Record<string, string>;
+  answers: Record<string, ExecResult>;
+}
+
+const fakeShell = (extra: Extra = { onPath: {}, answers: {} }) => {
   const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
   const exec: ExecProcess = async (file, args, options) => {
     calls.push({ file, args, options });
-    const answer = answers[file];
+    const answer = extra.answers[file] ?? answers[file];
     if (answer === undefined) throw new Error(`unexpected ${file}`);
     return answer;
   };
   const shell: DoctorShell = {
     exec,
-    resolve: (name) => onPath[name],
+    resolve: (name) => extra.onPath[name] ?? onPath[name],
     platform: 'linux',
     kernelRelease: '6.8.0-45-generic',
     node: '24.20.0',
@@ -104,5 +111,37 @@ describe('gatherDoctorFacts', () => {
       podman: undefined,
       docker: undefined,
     });
+  });
+
+  // A runtime waiting for its daemon is the common case (#99: docker.exe on the Windows runner).
+  const hangingDocker: Extra = {
+    onPath: { docker: '/usr/bin/docker' },
+    answers: {
+      '/usr/bin/docker': {
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        output: '',
+        killed: 'timed-out',
+      },
+    },
+  };
+
+  it('gives a container runtime a shorter deadline than the other tools', async () => {
+    const { calls, shell } = fakeShell(hangingDocker);
+    await gatherDoctorFacts(shell);
+    const docker = calls.find(({ file }) => file === '/usr/bin/docker');
+    assert.equal(docker?.options.timeoutMs, 3_000);
+  });
+
+  it('reports a container runtime that times out as not available', async () => {
+    const { shell } = fakeShell(hangingDocker);
+    const report = formatDiagnosis(diagnose(await gatherDoctorFacts(shell)));
+    assert.ok(
+      report.includes(
+        '\nContainer: docker at /usr/bin/docker does not answer its version (timed out after 3 s); the container level is not available\n',
+      ),
+      report,
+    );
   });
 });
