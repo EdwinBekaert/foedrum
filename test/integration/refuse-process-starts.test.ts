@@ -10,9 +10,9 @@ import { describe, it } from 'node:test';
 const root = join(import.meta.dirname, '..', '..');
 const fixtures = 'test/fixtures/process-starts/unit';
 
-// node --test on one fixture, with npm test's preload or without it.
-const run = (fixture: string, preload: boolean) =>
-  spawnSync(
+// node --test on one fixture, with npm test's preload or without it, killed after 60 s.
+const run = (fixture: string, preload: boolean) => {
+  const result = spawnSync(
     process.execPath,
     [
       ...(preload ? ['--import', './scripts/test-cpu-time.ts'] : []),
@@ -21,13 +21,27 @@ const run = (fixture: string, preload: boolean) =>
       `${fixtures}/${fixture}`,
     ],
     // Without NODE_TEST_CONTEXT, which would make the child skip its files as a nested run.
-    { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined } },
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined },
+      timeout: 60_000,
+    },
   );
+  assert.equal(result.error, undefined, `${fixture}: ${result.error?.message}`);
+  return result;
+};
 
 const ADR_0021 = /unit, property and chaos tests start no processes.*test\/integration\/.*ADR 0021/;
 
+// Each fixture, and the module whose process start its failure names.
+const FIXTURES = [
+  ['named-import.test.ts', /node-version\.ts/],
+  ['runner-swallows.test.ts', /src[/\\]platform[/\\]processes\.ts/],
+] as const;
+
 describe('refusing process starts under node --test', () => {
-  for (const fixture of ['named-import.test.ts', 'runner-swallows.test.ts']) {
+  for (const [fixture, starter] of FIXTURES) {
     it(`${fixture} starts a process without the preload`, () => {
       const result = run(fixture, false);
       assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -37,11 +51,7 @@ describe('refusing process starts under node --test', () => {
       const result = run(fixture, true);
       assert.equal(result.status, 1, result.stdout + result.stderr);
       assert.match(result.stdout, ADR_0021);
+      assert.match(result.stdout, starter);
     });
   }
-
-  it('names the module that started the process', () => {
-    const result = run('named-import.test.ts', true);
-    assert.match(result.stdout, /node-version\.ts/);
-  });
 });
