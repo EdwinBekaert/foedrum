@@ -134,11 +134,15 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
       return { kind: 'cancelled' };
     case 'killed':
       return failed(true, `the brewer process was killed by ${exit.signal}`);
+    case 'overflowed':
+      return failed(true, `the brewer's output passed a limit: ${exit.what}`);
     case 'exited':
+      // is_error decides, not the exit code: an API error can end with a clean exit (ADR 0042).
+      if (facts.streamError !== undefined) {
+        return failed(true, `claude reported an error: ${facts.streamError}`);
+      }
       if (exit.code !== 0) return failed(true, `the brewer process exited with code ${exit.code}`);
       break;
-    case 'overflowed':
-      throw new Error('not implemented');
     default: {
       const unhandled: never = exit;
       throw new Error(`Unhandled exit ${JSON.stringify(unhandled)}`);
@@ -147,6 +151,9 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   if (facts.garbage !== undefined) {
     const line = JSON.stringify(facts.garbage.slice(0, quoted));
     return failed(true, `the event stream is not stream-json: ${line}`);
+  }
+  if (facts.outDocUnread !== undefined) {
+    return failed(true, `the out doc ${outDoc.file} was not read: ${facts.outDocUnread}`);
   }
   if (facts.outDoc === undefined) return failed(true, `the out doc ${outDoc.file} is missing`);
   const read = readOutDoc(facts.outDoc, outDoc.schema);
