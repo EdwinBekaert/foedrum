@@ -2,7 +2,7 @@
 // captured streams of #17: what it starts, what it writes, and how each attempt ends.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -185,6 +185,37 @@ describe('claudeBrewerRunner', () => {
       kind: 'blocked',
       blockerKind: 'environment',
       summary: '2 permission denials, maxDenials is 2; denied: Write, Bash',
+    });
+  });
+
+  // ADR 0047: the process is stopped at that line, so it spends no more turns.
+  it('stops the process at a mismatched init or at maxDenials, and not at a clean run', async () => {
+    for (const [file, id, tools, maxDenials, stopped] of [
+      ['tool-removed-by-deny.jsonl', 14, ['Read', 'Bash'], 5, true],
+      ['permission-denials.jsonl', 32, ['Bash', 'Read', 'Write'], 2, true],
+      ['permission-denials.jsonl', 32, ['Bash', 'Read', 'Write'], 3, false],
+      ['success.jsonl', 1, ['Read'], 5, false],
+    ] as const) {
+      const { calls, runner } = setup(
+        { lines: fixture(file), result: exited(0) },
+        { plan: async () => plan(id, [...tools]) },
+      );
+      await runner.start({ ...attempt, limits: { ...limits, maxDenials } }).ended;
+      assert.equal(calls[0]?.options.signal?.aborted, stopped, `${file}, maxDenials ${maxDenials}`);
+    }
+  });
+
+  it('fails, retryably, on a stream line that is not stream-json, even with a valid out doc', async () => {
+    const lines = fixture('success.jsonl');
+    const { runner } = setup({
+      lines: [...lines.slice(0, 2), 'Abort trap', ...lines.slice(2)],
+      result: exited(0),
+    });
+    const end = await runner.start(attempt).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the event stream is not stream-json: "Abort trap"',
     });
   });
 
@@ -383,6 +414,22 @@ describe('readOutDocFile', () => {
 
   it('does not read what is not a regular file', () => {
     mkdirSync(join(dir.path, 'plan.md'));
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), {
+      kind: 'unread',
+      reason: 'it is not a regular file',
+    });
+  });
+
+  // ADR 0047: a link could point the out doc, and so the event log, at any file.
+  it('does not read an out doc that is a link to a file', (t) => {
+    writeFileSync(join(dir.path, 'secret.txt'), 'not for the log');
+    try {
+      symlinkSync(join(dir.path, 'secret.txt'), join(dir.path, 'plan.md'), 'file');
+    } catch {
+      // Windows makes a link to a file only with a privilege the test may not have.
+      t.skip('cannot make a link to a file here');
+      return;
+    }
     assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), {
       kind: 'unread',
       reason: 'it is not a regular file',

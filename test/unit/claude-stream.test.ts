@@ -219,6 +219,19 @@ describe('readClaudeStream', () => {
     assert.equal(facts.streamError, 'api_error: Overloaded');
   });
 
+  // ADR 0047: before the first reply it is the environment, also without an assistant error.
+  it('makes an error result before the first model reply an environment failure', () => {
+    const { facts } = readAll(
+      [init(), result({ is_error: true, terminal_reason: 'api_error', result: 'Overloaded' })],
+      asked,
+    );
+    assert.equal(
+      facts.environment,
+      'claude failed before the model replied: api_error: Overloaded',
+    );
+    assert.equal(facts.streamError, 'api_error: Overloaded');
+  });
+
   it('records a result event it cannot read as a stream error', () => {
     const { facts } = readAll([init(), assistant('msg_1', []), result({ is_error: 'yes' })], asked);
     assert.equal(facts.streamError, 'the result event could not be read');
