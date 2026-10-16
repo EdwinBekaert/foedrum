@@ -10,8 +10,9 @@
 // A path is resolved as a read would open it: `~` is the home folder, a relative path is relative
 // to the working directory, and the deepest existing part goes through the operating system's
 // real path (links, junctions, short names, case; src/platform/real-path.ts). On Windows a path
-// without a full drive, a network path and a device path are blocked before any of them touches
-// the disk, so a read can never make Windows connect to a server.
+// without a full drive, a network or device path, and a path on another drive than the checkout
+// (a mapped network drive) are blocked before they touch the disk. A link inside the checkout
+// whose target is a network path is still resolved (ADR 0048).
 
 export interface HookResult {
   exitCode: 0 | 2;
@@ -84,6 +85,9 @@ export const readGuard = async (
     return no(`could not resolve the checkout ${quoted(deps.root)} (${String(error)}).`);
   }
   const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  // On Windows, the drives the checkout is on, as given and as resolved (a subst drive).
+  const drive = (path: string): string => path.slice(0, 2).toUpperCase();
+  const rootDrives = new Set([drive(deps.root), drive(root)]);
 
   // On Windows, what is not a full drive path, before it touches the disk or the network.
   const notADrivePath = (path: string, name: string): string | undefined => {
@@ -123,6 +127,10 @@ export const readGuard = async (
     // A relative path in a working directory on a network share is one too.
     const notResolved = notADrivePath(absolute, quoted(absolute));
     if (notResolved !== undefined) return notResolved;
+    // Another drive is outside, and resolving it could reach a mapped network drive.
+    if (deps.platform === 'win32' && !rootDrives.has(drive(absolute))) {
+      return `${name} is outside the checkout (${root}): it is on drive ${absolute.slice(0, 2)}; reviewers read only files inside it (ADR 0048).`;
+    }
     let real: string;
     try {
       real = path.resolve(deps.realPath(absolute));
@@ -163,11 +171,15 @@ export const readGuard = async (
       }
       reads.push(base());
       // The folder the wildcards start in, with its separator, so `/*` keeps its root and `D:\*`
-      // its drive.
+      // its drive. It is checked first, so a pattern that names another drive touches nothing.
       if (literal.length > 0) {
         const prefix = literal.join(path.sep) + (magic >= 0 ? path.sep : '');
-        const fromRoot = path.isAbsolute(prefix) || prefix.startsWith('~');
-        reads.push(fromRoot ? prefix : `${base()}${path.sep}${prefix}`);
+        // A Windows drive without a folder (`E:x\*`) is not relative to the working directory.
+        const fromRoot =
+          path.isAbsolute(prefix) ||
+          prefix.startsWith('~') ||
+          (deps.platform === 'win32' && /^[A-Za-z]:/.test(prefix));
+        reads.unshift(fromRoot ? prefix : `${base()}${path.sep}${prefix}`);
       }
     }
   }
