@@ -322,6 +322,30 @@ describe('freeCapacity', () => {
     }
   });
 
+  it('leaves out the batches that are Stuck, Conditioning, On Tap or cancelled', () => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const log = createCommandLog({ store, recipes });
+      const accept = (command: Parameters<CommandLog['issue']>[0], at = now): void =>
+        assert.equal(log.issue(command, at).kind, 'accepted');
+      for (const n of [1, 2, 3, 4, 5])
+        accept({ kind: 'order', batchId: `${n}-1`, order: { issue: n } });
+      // 1-1 Ordered, 2-1 Stuck on routing, 3-1 Conditioning, 4-1 On Tap, 5-1 Brewing.
+      accept({ kind: 'unrouted', batchId: '2-1' }, new Date('2026-10-16T11:00:00.000Z'));
+      accept({ kind: 'wait', batchId: '3-1', on: { kind: 'sibling', batchId: '1-1' } });
+      accept({ kind: 'route', batchId: '4-1', recipe: 'half', reason: 'label', source: 'label' });
+      const ref = { batchId: '4-1', stepId: 'plan', attempt: 1 };
+      accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+      accept({ kind: 'finish', ...ref, ending: succeeded });
+      accept({ kind: 'route', batchId: '5-1', recipe: 'half', reason: 'label', source: 'label' });
+      const lanes = [...log.state().batches.values()].map(({ lane }) => lane.kind);
+      assert.deepStrictEqual(lanes, ['ordered', 'stuck', 'conditioning', 'on_tap', 'brewing']);
+      assert.equal(freeCapacity(log.state(), 5), 3);
+    } finally {
+      store.close();
+    }
+  });
+
   for (const capacity of [-1, 1.5, Number.NaN]) {
     it(`refuses a capacity of ${capacity}`, () => {
       const store = openSqliteEventStore(':memory:');

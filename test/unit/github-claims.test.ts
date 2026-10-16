@@ -166,6 +166,13 @@ describe('githubClaimHost', () => {
       assert.equal(requests.length, 1);
     });
 
+    it('fails on any other answer to the ref or its commit, never reading it as no ref', async () => {
+      const ref = hostWith([{ status: 500, body: { message: 'Server Error' } }]);
+      await assert.rejects(ref.host.read(repo, 7), /500.*Server Error/);
+      const ofCommit = hostWith([refAt(sha), { status: 502 }]);
+      await assert.rejects(ofCommit.host.read(repo, 7), /502/);
+    });
+
     it('fails on an answer that is not a ref', async () => {
       const { host } = hostWith([
         { status: 200, body: [{ ref: 'refs/foedrum/claims/issues/70' }] },
@@ -220,6 +227,15 @@ describe('githubClaimHost', () => {
     it('fails when the update failed and the ref still points at the commit', async () => {
       const { host } = hostWith([repositoryId, failed, refAt(sha), commit(sha)]);
       await assert.rejects(host.delete(repo, 7, sha), /Something went wrong/);
+    });
+
+    it('fails when GitHub cannot find the repository, or answers GraphQL with an error status', async () => {
+      const unknown = hostWith([
+        { status: 200, body: { errors: [{ message: 'Could not resolve to a Repository' }] } },
+      ]);
+      await assert.rejects(unknown.host.delete(repo, 7, sha), /could not find acme\/web/);
+      const down = hostWith([{ status: 502 }]);
+      await assert.rejects(down.host.delete(repo, 7, sha), /502 to a GraphQL request/);
     });
 
     it('refuses a sha that is no full commit sha before asking GitHub', async () => {
