@@ -120,8 +120,14 @@ export const isPidAlive = (pid: number, kill: Kill = process.kill): boolean => {
   }
 };
 
-/** How the runner ended a process it killed: its deadline passed, or its signal aborted. */
-export type Killed = 'timed-out' | 'stopped';
+/**
+ * How the runner ended a process it killed: its deadline passed, its signal aborted, or it wrote
+ * more than its output limit.
+ */
+export type Killed = 'timed-out' | 'stopped' | 'too-much-output';
+
+/** The output limit when the caller gives none (ADR 0033). */
+export const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export interface ExecOptions {
   cwd: string;
@@ -131,6 +137,11 @@ export interface ExecOptions {
   timeoutMs?: number | undefined;
   /** Kills the process and every process it started when it aborts. */
   signal?: AbortSignal | undefined;
+  /**
+   * Kills the process and every process it started when stdout and stderr together pass this
+   * many bytes; default DEFAULT_MAX_OUTPUT_BYTES.
+   */
+  maxOutputBytes?: number | undefined;
 }
 
 export interface ExecResult {
@@ -284,7 +295,7 @@ export interface ProcessOutcome {
   killed?: Killed;
 }
 
-export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal'>;
+export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal' | 'maxOutputBytes'>;
 
 export type RunProcess = (
   file: string,
@@ -304,7 +315,11 @@ export const runProcessThrough =
 export const spawnProcess: RunProcess = runProcessThrough(execProcess);
 
 /** Why the runner killed a process, for a message; undefined when it ended by itself. */
-export const whyKilled = (killed: Killed | undefined, timeoutMs: number): string | undefined => {
+export const whyKilled = (
+  killed: Killed | undefined,
+  timeoutMs: number,
+  _maxOutputBytes: number = DEFAULT_MAX_OUTPUT_BYTES,
+): string | undefined => {
   switch (killed) {
     case undefined:
       return undefined;
@@ -312,6 +327,8 @@ export const whyKilled = (killed: Killed | undefined, timeoutMs: number): string
       return `timed out after ${timeoutMs / 1000} s`;
     case 'stopped':
       return 'stopped';
+    case 'too-much-output':
+      throw new Error('not implemented');
     default: {
       const unknown: never = killed;
       throw new Error(`unknown kill ${String(unknown)}`);

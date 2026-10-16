@@ -93,6 +93,26 @@ describe('execProcess with a real tree of processes', () => {
     await assertAllEnd(pids);
   });
 
+  // A hook or a credential helper that writes without end (#91). Each write waits for the pipe,
+  // so the writer runs on every platform until it is killed.
+  it('kills a process that writes without end once its output passes the limit', async () => {
+    const script =
+      "process.stdout.write(process.pid + '\\n'); const chunk = 'x'.repeat(65536);" +
+      ' const more = () => process.stdout.write(chunk, more); more();';
+    const started = Date.now();
+    const result = await execProcess(process.execPath, ['-e', script], {
+      cwd: dir.path,
+      timeoutMs: 20_000,
+      maxOutputBytes: 1024 * 1024,
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.killed, 'too-much-output');
+    assert.equal(result.exitCode, null);
+    assert.ok(elapsed < 10_000, `answered after ${elapsed} ms`);
+    assert.ok(result.output.length <= 1024 * 1024, String(result.output.length));
+    await assertAllEnd([Number(result.stdout.split('\n')[0])]);
+  });
+
   it('answers without an exit code when the program does not exist', async () => {
     const result = await execProcess(join(dir.path, 'no-such-program'), [], { cwd: dir.path });
     assert.equal(result.exitCode, null);

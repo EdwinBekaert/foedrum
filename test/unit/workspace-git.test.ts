@@ -116,4 +116,20 @@ describe('runGitWith', () => {
       stderr: 'remote: git timed out after 5 ms',
     });
   });
+
+  // A diff of untrusted content, or a hook that writes without end (#91).
+  it('answers without an exit code, saying so, when git wrote more than the output limit', async () => {
+    const { git } = answering({
+      exitCode: null,
+      stdout: 'diff --git',
+      stderr: '',
+      output: 'diff --git',
+      killed: 'too-much-output',
+    });
+    assert.deepEqual(await git('/work/repo', ['log', '-p']), {
+      code: null,
+      stdout: 'diff --git',
+      stderr: 'git wrote more than 4 MiB of output',
+    });
+  });
 });
