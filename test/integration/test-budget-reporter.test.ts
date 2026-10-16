@@ -1,4 +1,4 @@
-// The budget reporter under the real node:test runner (ADR 0021, ADR 0035): each test process
+// The budget reporter under the real node:test runner (ADR 0021, ADR 0036): each test process
 // reports its CPU time through scripts/test-cpu-time.ts, the runner passes it on with the file,
 // the spec reporter hides it, and a file over the budget fails the run.
 

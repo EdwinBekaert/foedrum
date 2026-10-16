@@ -108,7 +108,7 @@ describe('budgetReporter', () => {
       { type: 'test:diagnostic', data: { nesting: 0, message: 'tests 3' } },
     ]);
     assert.deepEqual(lines, [
-      'test file times (budget 5 s of CPU time per file in test/unit/, ADR 0035)',
+      'test file times (budget 5 s of CPU time per file in test/unit/, ADR 0036)',
       '  1.10 s CPU  1.20 s wall  test/unit/b.test.ts',
       '  0.95 s CPU  0.90 s wall  test/property/c.test.ts',
       '  0.70 s CPU  2.70 s wall  test/unit/a.test.ts',
@@ -267,7 +267,7 @@ describe('budgetReporter', () => {
     assert.equal(failed, true);
     assert.equal(
       lines[0],
-      'test file times (budget 3 s of CPU time per file in test/fixtures/budget/, ADR 0035)',
+      'test file times (budget 3 s of CPU time per file in test/fixtures/budget/, ADR 0036)',
     );
     assert.deepEqual(
       overLines(lines).map((line) => line.split(' used')[0]),
