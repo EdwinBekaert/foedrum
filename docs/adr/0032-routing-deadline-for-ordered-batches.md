@@ -34,7 +34,7 @@ I1 keeps its wording; its note reads "for Ordered batches: a routing deadline; f
 
 ## Consequences
 - `batch.ordered` and `batch.resumed` changed shape, and `StuckReason` has a seventh kind; the JSON Schema changes with them. There is no stored state from before this change outside tests.
-- The polling intake (ADR 0008, milestone M1; no issue yet) orders batches through `decide`'s `order` command and routes Ordered batches, including those a retry sends back.
+- The polling intake (ADR 0008, milestone M1; [#103](https://github.com/EdwinBekaert/foedrum/issues/103)) orders batches through `decide`'s `order` command and routes Ordered batches, including those a retry sends back.
 - `foedrum status` shows an Ordered batch with its routing deadline and a batch Stuck on routing as "not routed by …".
 - A routing interval per Brewery, like the reminder interval (ADR 0027), is left open: one interval per supervisor and per caller of `decide` for now.
 
