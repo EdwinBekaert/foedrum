@@ -4,7 +4,7 @@ Foedrum doctor
   node    24.20.0
   npm     11.6.2   /usr/bin/npm
   git     2.47.1   /usr/bin/git
-  claude  2.1.300  /home/brewer/.local/bin/claude
+  claude  2.1.301  /home/brewer/.local/bin/claude
   bwrap   0.9.0    /usr/bin/bwrap
   socat   1.7.4.4  /usr/bin/socat
 
@@ -21,7 +21,7 @@ Foedrum doctor
   node    24.20.0
   npm     11.6.2   C:\\Program Files\\nodejs\\npm.cmd
   git     2.47.1   C:\\Program Files\\Git\\cmd\\git.exe
-  claude  2.1.300  C:\\Users\\brewer\\.local\\bin\\claude.exe
+  claude  2.1.301  C:\\Users\\brewer\\.local\\bin\\claude.exe
 
 Isolation: permissions only (native Windows has no sandbox for shell commands)
   For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.

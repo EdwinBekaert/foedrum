@@ -79,7 +79,10 @@ describe('the claude brewer runner', { skip: claude === undefined }, () => {
       permissions: { allow, deny: [], sandbox: false },
       settingsFile: join(dir.path, 'attempt', 'settings.json'),
     };
-    const runner = claudeBrewerRunner({ claude: claude ?? 'claude', plan: async () => plan });
+    const runner = claudeBrewerRunner({
+      claude: claude ?? 'claude',
+      plan: async () => plan,
+    });
     const running = runner.start(attempt(maxDenials));
     assert.ok(runner.progress(attempt().ref), 'reports the attempt while it runs');
     const end = await running.ended;

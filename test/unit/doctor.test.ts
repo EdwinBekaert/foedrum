@@ -19,7 +19,7 @@ describe('diagnose: tools', () => {
       { name: 'node', version: '24.20.0', path: undefined },
       { name: 'npm', version: '11.6.2', path: '/usr/bin/npm' },
       { name: 'git', version: '2.47.1', path: '/usr/bin/git' },
-      { name: 'claude', version: '2.1.300', path: '/home/brewer/.local/bin/claude' },
+      { name: 'claude', version: '2.1.301', path: '/home/brewer/.local/bin/claude' },
       { name: 'bwrap', version: '0.9.0', path: '/usr/bin/bwrap' },
       { name: 'socat', version: '1.7.4.4', path: '/usr/bin/socat' },
     ]);
