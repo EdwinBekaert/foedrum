@@ -59,7 +59,7 @@ const cpuTimeOf = ({ type, data }: TestEvent): number | undefined => {
   if (type !== 'test:diagnostic' || data?.file === undefined) return undefined;
   if (data.message?.startsWith(CPU_TIME) !== true) return undefined;
   const ms = Number(data.message.slice(CPU_TIME.length));
-  return Number.isFinite(ms) ? ms : undefined;
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
 };
 
 // The events without the CPU time diagnostics, for spec.
@@ -95,7 +95,9 @@ export const budgetReporter = ({
     for await (const event of source) {
       const cpuMs = cpuTimeOf(event);
       const file = event.data?.file;
-      if (cpuMs !== undefined && file !== undefined) cpus.set(file, cpuMs);
+      // The highest reading: a file's own after hook could send a lower one after the real one.
+      if (cpuMs !== undefined && file !== undefined)
+        cpus.set(file, Math.max(cpuMs, cpus.get(file) ?? 0));
       // The summary of the whole run has no file.
       else if (event.type === 'test:summary' && file !== undefined)
         walls.set(file, event.data?.duration_ms ?? 0);
