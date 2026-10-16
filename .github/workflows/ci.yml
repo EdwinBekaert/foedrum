@@ -87,6 +87,14 @@ jobs:
           FOEDRUM_RUNS: "500"
         run: node scripts/with-checkout-tmp.ts --test "test/property/**/*.test.ts"
 
+      # The engine killed at random points and restarted (#15, ADR 0032): 1,000 runs in the
+      # nightly run, the M0 exit criterion, and 200 on every other run, on every leg. A failure
+      # names its seed; FOEDRUM_SEED replays it.
+      - name: Chaos tests, more runs
+        env:
+          FOEDRUM_RUNS: ${{ github.event_name == 'schedule' && '1000' || '200' }}
+        run: node scripts/with-checkout-tmp.ts --test "test/chaos/**/*.test.ts"
+
       - name: Check summary
         if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
         run: |
