@@ -1,6 +1,11 @@
 // One Brewery per work root, and one process per driver (ADR 0037). The work root records the
 // Brewery it belongs to, and every driver of that Brewery (the Cellar, each interactive session)
 // holds a lock of its own there, which the operating system releases when its process dies.
+//
+// On macOS and Linux the lock is an fcntl lock, which belongs to the process, not to the file
+// handle: closing any handle to the file drops every lock the process holds on it. So nothing in
+// Foedrum may open drivers/*.lock except lockDriver; another open and close in the same process,
+// even a read, would free the lock while the driver still runs.
 
 import { linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,7 +16,11 @@ import { PathSafeId } from '../schemas/ids.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { BreweryMarker, DriverHolder } from '../schemas/work-root.ts';
 
-/** A driver's held lock; `held` turns false once it is released. */
+/**
+ * A driver's held lock; `held` turns false once it is released. The driver keeps this object for
+ * its whole run: the lock lives in the SQLite database it holds, and garbage collection of that
+ * database would close it and free the lock.
+ */
 export interface DriverLock {
   /** The driver's owner: the name its leases carry, the same across its restarts. */
   readonly owner: string;
