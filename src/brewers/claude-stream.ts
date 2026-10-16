@@ -45,7 +45,8 @@ export interface StreamReader {
 
 // The stream is untrusted and may be huge: what a reason quotes of it is cut short.
 const SHORT = 200;
-const cut = (text: string): string => (text.length > SHORT ? `${text.slice(0, SHORT)}…` : text);
+export const cut = (text: string): string =>
+  text.length > SHORT ? `${text.slice(0, SHORT)}…` : text;
 
 /** The tools that write a file; a shell command counts only when it commits. */
 const WRITERS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);

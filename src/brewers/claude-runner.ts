@@ -27,7 +27,7 @@ import {
   writeAttemptSettings,
 } from './attempt-settings.ts';
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
-import { readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
+import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
 import type { BrewerPrompt } from './prompt.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
@@ -73,9 +73,8 @@ const MAX_OUT_DOC_BYTES = 1024 * 1024;
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-// stderr is the CLI's, but it may quote what the brewer wrote: a reason quotes one line of it.
-const SHORT = 200;
-const cut = (text: string): string => (text.length > SHORT ? `${text.slice(0, SHORT)}…` : text);
+// stderr is the CLI's, but it may quote what the brewer wrote: a reason quotes one line of it,
+// cut as the stream's are.
 const lastLine = (text: string): string =>
   text
     .split(/\r?\n/)
