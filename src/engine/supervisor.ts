@@ -33,7 +33,7 @@ export interface TickInput {
 }
 
 /** An engine command about one batch. */
-export type BatchCommand = Extract<EngineCommand, { batchId: string }>;
+type BatchCommand = Extract<EngineCommand, { batchId: string }>;
 
 export interface TickPlan {
   /** At most one per batch, to decide in this order. */

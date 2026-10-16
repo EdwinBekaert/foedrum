@@ -56,7 +56,7 @@ export const createCommandLog = (options: CommandLogOptions): CommandLog => {
   ): Decision => {
     // The write transaction holds the store's write lock from its start, so what it reads first
     // is every committed event, and nothing else is appended before its own events.
-    const decision = store.withTransaction((tx) => {
+    return store.withTransaction((tx) => {
       const decided = decide(state(), command, { now, recipes, reminderMs, routingMs });
       if (decided.kind === 'accepted') {
         for (const event of decided.events) tx.append(event);
@@ -64,8 +64,6 @@ export const createCommandLog = (options: CommandLogOptions): CommandLog => {
       }
       return decided;
     });
-    state();
-    return decision;
   };
 
   return { state, issue };
