@@ -5,7 +5,7 @@
 import type { IssueMarks } from '../engine/claim-effects.ts';
 import { claimRef, same } from '../engine/issue-claims.ts';
 import { GitHubComment, GitHubError, GitHubIssue } from '../schemas/github.ts';
-import { checked, labelNames, refused, repoPath } from './answers.ts';
+import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 import type { GitHubReads } from './reads.ts';
 
@@ -37,7 +37,7 @@ export const githubIssueMarks = (options: GitHubIssueMarksOptions): IssueMarks =
   };
   return {
     assignees: async (repo, issue, signal) =>
-      ((await read(repo, issue, signal)).assignees ?? []).map(({ login }) => login),
+      assigneeLogins((await read(repo, issue, signal)).assignees),
     assign: async (repo, issue, assignee, signal) => {
       const what = `assigning ${assignee} to ${repo}#${issue}`;
       const path = `${issuePath(repo, issue)}/assignees`;

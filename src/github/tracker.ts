@@ -6,7 +6,7 @@ import type { TargetTracker } from '../engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
 import { Repo } from '../schemas/events.ts';
 import { GitHubIssue, GitHubPullRequest } from '../schemas/github.ts';
-import { checked, labelNames, refused, repoPath } from './answers.ts';
+import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import type { GitHubReads } from './reads.ts';
 
 /** What the intake reads of an issue GitHub listed. */
@@ -18,7 +18,7 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     pullRequest: issue.pull_request !== undefined,
     labels: labelNames(issue.labels),
     milestone: issue.milestone?.title,
-    assignees: (issue.assignees ?? []).map(({ login }) => login),
+    assignees: assigneeLogins(issue.assignees),
     // A deleted account is nobody, so never an allow-listed author.
     author: issue.user?.login ?? '',
   };

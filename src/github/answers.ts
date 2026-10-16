@@ -24,6 +24,10 @@ export const checked = <T>(schema: z.ZodType<T>, body: unknown, what: string): T
 export const labelNames = (labels: z.infer<typeof GitHubIssue>['labels']): string[] =>
   labels.map((label) => (typeof label === 'string' ? label : label.name));
 
+/** The logins of an issue's assignees, none when GitHub gives null. */
+export const assigneeLogins = (assignees: z.infer<typeof GitHubIssue>['assignees']): string[] =>
+  (assignees ?? []).map(({ login }) => login);
+
 /** The error for an answer `what` did not expect: its status, and GitHub's message when it has one. */
 export const refused = (status: number, body: unknown, what: string): Error => {
   const parsed = GitHubError.safeParse(body);
