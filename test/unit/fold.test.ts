@@ -642,6 +642,12 @@ describe('fold', () => {
     assert.deepStrictEqual(state.effects, new Map([[prKey, { number: 7 }]]));
   });
 
+  it('records an effect of a batch it ordered (ADR 0043)', () => {
+    const labelKey = effectKey.encode({ batchId: 'b1', effect: 'claim.label' });
+    const state = fold([ordered, { type: 'effect.applied', key: labelKey, result: null }]);
+    assert.deepStrictEqual(state.effects, new Map([[labelKey, null]]));
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
@@ -764,6 +770,20 @@ describe('fold of an inconsistent log', () => {
       'an effect of a batch that was never ordered',
       [{ type: 'effect.applied', key: prKey, result: { number: 7 } }],
       /batch b1 was never ordered/,
+    ],
+    [
+      'an effect of a batch, of a batch that was never ordered',
+      [ordered, { type: 'effect.applied', key: '["b9","claim.label"]', result: null }],
+      /batch b9 was never ordered/,
+    ],
+    [
+      'an effect of a batch applied twice',
+      [
+        ordered,
+        { type: 'effect.applied', key: '["b1","claim.label"]', result: null },
+        { type: 'effect.applied', key: '["b1","claim.label"]', result: null },
+      ],
+      /effect \["b1","claim.label"\] was already applied/,
     ],
     [
       'an effect of an attempt that was never scheduled',

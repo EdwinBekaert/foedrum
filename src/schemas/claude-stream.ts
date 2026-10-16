@@ -17,3 +17,67 @@ export const ClaudeInit = z.looseObject({
   claude_code_version: z.string(),
 });
 export type ClaudeInit = z.infer<typeof ClaudeInit>;
+
+/** Any stream-json event: one JSON object with a type per line. */
+export const ClaudeEvent = z.looseObject({ type: z.string() });
+
+const Block = z.looseObject({ type: z.string() });
+/** A tool call in an assistant message. */
+export const ClaudeToolUse = z.looseObject({
+  type: z.literal('tool_use'),
+  id: z.string(),
+  name: z.string(),
+  input: z.record(z.string(), z.unknown()),
+});
+/** A tool call's result in a user message. */
+export const ClaudeToolResult = z.looseObject({
+  type: z.literal('tool_result'),
+  tool_use_id: z.string(),
+  is_error: z.boolean().optional(),
+});
+
+/** `assistant`: a message of the model, or, with `error`, one claude made up for a failed call. */
+export const ClaudeAssistant = z.looseObject({
+  type: z.literal('assistant'),
+  message: z.looseObject({ id: z.string(), content: z.array(Block) }),
+  /** Set for a subagent's messages. */
+  parent_tool_use_id: z.string().nullable().optional(),
+  error: z.string().optional(),
+});
+export type ClaudeAssistant = z.infer<typeof ClaudeAssistant>;
+
+/** `user`: the results of the tool calls. */
+export const ClaudeUser = z.looseObject({
+  type: z.literal('user'),
+  message: z.looseObject({ content: z.union([z.array(Block), z.string()]) }),
+});
+export type ClaudeUser = z.infer<typeof ClaudeUser>;
+
+/** `system/permission_denied`: one denied tool call. */
+export const ClaudeDenial = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('permission_denied'),
+  tool_name: z.string(),
+});
+
+const Tokens = z.int().nonnegative();
+
+/** `result`: how the run ended, always the last line. `is_error` decides (ADR 0042). */
+export const ClaudeResult = z.looseObject({
+  type: z.literal('result'),
+  subtype: z.string(),
+  is_error: z.boolean(),
+  num_turns: Tokens.optional(),
+  terminal_reason: z.string().optional(),
+  errors: z.array(z.string()).optional(),
+  result: z.string().optional(),
+  usage: z
+    .looseObject({
+      input_tokens: Tokens,
+      output_tokens: Tokens,
+      cache_read_input_tokens: Tokens,
+      cache_creation_input_tokens: Tokens,
+    })
+    .optional(),
+});
+export type ClaudeResult = z.infer<typeof ClaudeResult>;
