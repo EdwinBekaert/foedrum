@@ -1,6 +1,6 @@
 # 0002. Event-sourced engine on `node:sqlite`
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0011](0011-state-in-the-brewery-repository.md) and [0024](0024-state-branch-layout-outbox-and-divergence.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0011](0011-state-in-the-brewery-repository.md), [0024](0024-state-branch-layout-outbox-and-divergence.md) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)
 
 ## Context
 Agent orchestrators most often get stuck or inconsistent because state is spread across many files and processes, partially written on crash, and reconciled after the fact. Foedrum must recover from a crash at any moment without losing or duplicating work.
