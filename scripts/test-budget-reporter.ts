@@ -3,7 +3,7 @@
 // budget. A costly file is a sign that real file system trees or too much work slipped into a unit
 // test (ADR 0021); the test-layer guard (scripts/check-test-layers.ts) covers process imports.
 //
-// The budget is CPU time, not wall time (ADR 0035): parallel steps of `npm run check` and other
+// The budget is CPU time, not wall time (ADR 0036): parallel steps of `npm run check` and other
 // sessions on the same machine stretch a file's wall time, so a wall-time budget failed pushes
 // at random (#87, #108). node:test reports only wall time per file, so each test process reports
 // its own CPU time (user and system, from process.cpuUsage) as a diagnostic from an after hook:
@@ -119,7 +119,7 @@ export const budgetReporter = ({
         };
       })
       .sort((a, b) => b.ms - a.ms);
-    yield `test file times (budget ${budgetMs / 1000} s of CPU time per file in ${budgetedDir}, ADR 0035)\n`;
+    yield `test file times (budget ${budgetMs / 1000} s of CPU time per file in ${budgetedDir}, ADR 0036)\n`;
     for (const { file, wallMs, cpuMs } of files.slice(0, slowest)) {
       const cpu = cpuMs === undefined ? 'no CPU time' : `${seconds(cpuMs)} CPU`;
       yield `  ${cpu}  ${seconds(wallMs)} wall  ${file}\n`;

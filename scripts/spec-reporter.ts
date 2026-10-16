@@ -1,5 +1,5 @@
 // node:test's spec reporter without the CPU time diagnostics that each test process sends for the
-// budget reporter (scripts/test-cpu-time.ts, ADR 0035), which would add a line per test file.
+// budget reporter (scripts/test-cpu-time.ts, ADR 0036), which would add a line per test file.
 
 import { compose } from 'node:stream';
 import { spec } from 'node:test/reporters';
