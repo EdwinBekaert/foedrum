@@ -725,6 +725,29 @@ describe('precheck on pushes hidden from a plain search for git', () => {
   });
 });
 
+// The tool says which shell runs the command, so the gate reads it that way only; what that
+// command runs in turn is still read both ways (#42).
+describe("precheck reads a command in its tool's shell", () => {
+  const cases: [name: string, tool: string | undefined, command: string, gated: boolean][] = [
+    ['a bash escape PowerShell does not know', 'PowerShell', 'echo a \\"|git push', true],
+    ['a nested shell, read both ways', 'Bash', `pwsh -c 'Write-Output "a \\"|git push"'`, true],
+    ['a command from an unknown tool, read both ways', undefined, 'echo "a \\"|git push"', true],
+  ];
+  for (const [name, tool, command, gated] of cases) {
+    it(`${gated ? 'gates' : 'lets through'} ${name}: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        ...(tool === undefined ? {} : { tool_name: tool }),
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, gated ? ['/work/tree'] : []);
+    });
+  }
+});
+
 describe('precheck when the HEAD check cannot answer', () => {
   // A check that times out also blocks (#42): a hung git must not hold the gate until the hook's
   // own limit, and must not let the push through.
