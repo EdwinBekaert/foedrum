@@ -7,6 +7,12 @@ import type { EventStore } from './event-store.ts';
  * died with it (architecture §5: no "maybe alive"), so the supervisor's next tick loses their
  * attempts. Leases of other owners stay as they are. Returns the attempt keys it expired.
  */
-export const expireOwnLeases = (_store: EventStore, _owner: string, _now: Date): string[] => {
-  throw new Error('not implemented');
+export const expireOwnLeases = (store: EventStore, owner: string, now: Date): string[] => {
+  const left = store.currentLeases(now).filter((lease) => lease.owner === owner);
+  if (left.length > 0) {
+    store.withTransaction((tx) => {
+      for (const lease of left) tx.putLease({ ...lease, expiresAt: now });
+    });
+  }
+  return left.map((lease) => lease.attemptKey);
 };
