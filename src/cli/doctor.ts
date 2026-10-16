@@ -28,6 +28,7 @@ export interface DoctorFacts {
    * `undefined` elsewhere.
    */
   jobObject?: { exitCode: number | null; output: string } | undefined;
+  config?: string | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */

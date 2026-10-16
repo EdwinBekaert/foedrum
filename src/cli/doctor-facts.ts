@@ -34,6 +34,7 @@ export interface DoctorShell {
   /** `process.execPath`: the program doctor holds in a Job Object to see that it can. */
   execPath: string;
   cwd: string;
+  readFile?: (path: string) => string | undefined;
 }
 
 /** Every tool's path and version answer, asked all at once. */
