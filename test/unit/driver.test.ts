@@ -657,6 +657,37 @@ describe('openDriver', () => {
     });
   });
 
+  describe('drives that overlap', () => {
+    it('runs one drive at a time, so two calls start an attempt once', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      let open_ = (): void => {};
+      const gate = new Promise<void>((resolve) => {
+        open_ = resolve;
+      });
+      const manager = fakeWorktrees();
+      const create = manager.create.bind(manager);
+      manager.create = async (ref, base) => {
+        await gate;
+        return create(ref, base);
+      };
+      const driver = await open({
+        runner,
+        worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+      });
+      // A tick's drive and a direct one, both while plan#1's worktree is being made.
+      const both = Promise.all([driver.drive(), driver.drive()]);
+      open_();
+      await both;
+      assert.equal(manager.calls.filter((call) => call.kind === 'create').length, 1);
+      assert.deepStrictEqual(started, [plan('b1')]);
+      assert.deepStrictEqual(
+        types(store, 'b1').filter((type) => type.startsWith('step.')),
+        ['step.scheduled plan#1', 'step.started plan#1'],
+      );
+    });
+  });
+
   describe('a start that is refused', () => {
     it('tries it once per drive, so drive ends', async () => {
       const { runner } = handRunner();
