@@ -142,14 +142,20 @@ export interface ClaimPass {
   taken: { issue: number; by: string | undefined }[];
 }
 
-/** Claims every candidate of `issues`, one after the other, oldest issue first. */
+/**
+ * Claims the candidates of `issues`, one after the other, oldest issue first, until it orders
+ * `limit` of them; the rest wait for the next pass, or for another Brewery.
+ */
 export const claimCandidates = async (
   host: ClaimHost,
   issues: readonly TargetIssue[],
   /** `limit`: the Brewery's free capacity, how many batches it can start now. */
   options: CandidateOptions & { repo: string; now: string; limit: number },
 ): Promise<ClaimPass> => {
-  const { repo, now, claimant } = options;
+  const { repo, now, claimant, limit } = options;
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    throw new RangeError(`The limit must be a whole number of batches, got ${limit}`);
+  }
   const candidates = issues
     .filter((issue) => isCandidate(issue, options))
     .map((issue) => issue.number)
@@ -158,6 +164,8 @@ export const claimCandidates = async (
     .sort((one, other) => one - other);
   const pass: ClaimPass = { order: [], taken: [] };
   for (const issue of candidates) {
+    // A taken claim costs no capacity, so the pass goes on to the next candidate.
+    if (pass.order.length === limit) break;
     const outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
     switch (outcome.kind) {
       case 'won':
@@ -211,7 +219,7 @@ export interface DueClaimEffect {
   effect: ClaimEffect;
 }
 
-type Release = 'cancelled' | 'merged' | 'closed';
+type Release = 'cancelled' | 'merged' | 'closed' | 'no_pull_request';
 
 // Why the claim ends now, or undefined while the batch is live or a pull request of it is open.
 const releaseOf = (
@@ -228,6 +236,8 @@ const releaseOf = (
       return 'cancelled';
     case 'on_tap': {
       const states = lane.pullRequests.map(pullRequest);
+      // `every` holds for no pull requests at all, which merged nothing.
+      if (states.length === 0) return 'no_pull_request';
       if (states.includes('open')) return undefined;
       return states.every((state) => state === 'merged') ? 'merged' : 'closed';
     }
@@ -236,10 +246,14 @@ const releaseOf = (
   }
 };
 
+// The assignee keeps every Brewery off an issue that is not done, until a person decides.
+const available = ' Unassign the issue to make it available again.';
+
 const released: Record<Release, string> = {
-  cancelled: 'was cancelled',
-  merged: 'is done: its pull requests were merged',
-  closed: 'ended: a pull request was closed without being merged',
+  cancelled: `was cancelled.${available}`,
+  merged: 'is done: its pull requests were merged.',
+  closed: `ended: a pull request was closed without being merged.${available}`,
+  no_pull_request: `ended without a pull request.${available}`,
 };
 
 /**
@@ -279,7 +293,7 @@ export const claimEffectsDue = (
       kind: 'comment',
       repo,
       issue,
-      body: `The Brewery \`${brewery}\` released its claim on this issue: batch \`${batchId}\` ${released[release]}.`,
+      body: `The Brewery \`${brewery}\` released its claim on this issue: batch \`${batchId}\` ${released[release]}`,
     }),
     due('release.ref', { kind: 'release_ref', repo, issue, brewery }),
   ];
