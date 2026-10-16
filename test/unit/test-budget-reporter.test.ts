@@ -202,6 +202,17 @@ describe('budgetReporter', () => {
     assert.match(overLines(lines)[0] ?? '', /used 8\.00 s of CPU time/);
   });
 
+  // A test can send a diagnostic of its own before the preload's after hook runs.
+  it('keeps the highest CPU time a file reports when the lower one comes first', async () => {
+    const { lines, failed } = await report([
+      ...cpu(fileA, 0),
+      ...cpu(fileA, 8000),
+      summary(fileA, 8100),
+    ]);
+    assert.equal(failed, true);
+    assert.match(overLines(lines)[0] ?? '', /used 8\.00 s of CPU time/);
+  });
+
   it('holds a file whose CPU time is negative to its wall time', async () => {
     const { lines, failed } = await report([...cpu(fileA, -1_000_000), summary(fileA, 5100)]);
     assert.equal(failed, true);
