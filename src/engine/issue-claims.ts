@@ -3,9 +3,13 @@
 // release when the batch ends. This module decides; the GitHub layer implements `ClaimHost` and
 // turns each due effect into an `EffectTarget` (ADR 0033).
 
+import type { IntakeFilter } from '../schemas/brewery-config.ts';
 import { ClaimRecord } from '../schemas/claim.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { Lane } from './fold.ts';
+
+/** Which issues of a repository a Brewery brews: all of `labels`, and `milestone` when set. */
+export type { IntakeFilter };
 
 /** The label a claimed issue carries until its claim is released. */
 export const claimLabel = 'foedrum:claimed';
@@ -30,12 +34,6 @@ export interface TargetIssue {
   assignees: readonly string[];
   /** The GitHub login that opened the issue. */
   author: string;
-}
-
-/** Which issues of a repository a Brewery brews: all of `labels`, and `milestone` when set. */
-export interface IntakeFilter {
-  labels: readonly string[];
-  milestone?: string | undefined;
 }
 
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */

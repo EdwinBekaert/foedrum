@@ -23,12 +23,13 @@ const TestReport = z.discriminatedUnion('format', [
 ]);
 
 /** Which open issues of a repository the intake claims: those with all the labels (ADR 0043). */
-const IntakeFilter = z
+export const IntakeFilter = z
   .strictObject({
     labels: z.array(z.string().min(1)).min(1).describe('Labels an issue must all have'),
     milestone: z.string().min(1).optional().describe('The milestone an issue must be in'),
   })
   .describe('Polls the repository for issues to claim and brew; without it, none are');
+export type IntakeFilter = z.infer<typeof IntakeFilter>;
 
 const RepositoryConfig = z
   .strictObject({
