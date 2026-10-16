@@ -95,12 +95,14 @@ describe('execProcess with a real tree of processes', () => {
 
   // #92: on Windows the runner answers as soon as its child exits, and taskkill /T would find the
   // tree only through a parent that is still alive, so the grandchild keeps running. The case
-  // fails there until the runner holds its children in a Job Object (kill-on-close); it runs as a
-  // todo, so CI shows it without failing. Elsewhere the grandchild holds the output open and the
-  // deadline kills its process group. The levels left over end by themselves after 30 s, so the
-  // test waits for them and never kills a pid itself: the exited parent's may be reused.
+  // fails there until the runner holds its children in a Job Object (kill-on-close), so it is
+  // skipped there: a todo would still run, and leave a grandchild running for 30 s next to the
+  // other integration tests on every Windows run (#109). CI still lists it as skipped. Elsewhere
+  // the grandchild holds the output open and the deadline kills its process group. The levels
+  // left over end by themselves after 30 s, so the test waits for them and never kills a pid
+  // itself: the exited parent's may be reused.
   it('leaves no process of the tree running when the parent exits before its grandchild', {
-    todo:
+    skip:
       process.platform === 'win32'
         ? 'taskkill /T misses the children of an exited parent; needs a Job Object (#92)'
         : false,
