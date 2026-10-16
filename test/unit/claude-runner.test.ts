@@ -580,6 +580,23 @@ describe('claudeBrewerRunner', () => {
   });
 });
 
+/**
+ * A rename that tries again for a moment: on Windows a scanner may still hold a file just written
+ * in the folder, and the rename fails with EPERM, EACCES or EBUSY until it lets go.
+ */
+const renameRetrying = (from: string, to: string): void => {
+  for (let tries = 1; ; tries += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (tries >= 50 || !['EPERM', 'EACCES', 'EBUSY'].includes(code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+};
+
 describe('readOutDocFile', () => {
   let dir: TempDir;
   beforeEach(() => {
@@ -627,7 +644,7 @@ describe('readOutDocFile', () => {
     writeFileSync(join(worktree, 'docs', 'plan.md'), 'the out doc');
     writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not for the log');
     const swapping = (path: string, flags: number): number => {
-      renameSync(join(worktree, 'docs'), join(worktree, 'docs-before'));
+      renameRetrying(join(worktree, 'docs'), join(worktree, 'docs-before'));
       symlinkSync(join(dir.path, 'outside'), join(worktree, 'docs'), 'junction');
       return openSync(path, flags);
     };
