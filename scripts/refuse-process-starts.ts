@@ -1,6 +1,6 @@
 // Loaded through scripts/test-cpu-time.ts, the preload npm test runs in every test process: unit,
 // property and chaos tests start no processes (ADR 0021), so in a test process the functions of
-// node:child_process that start one throw instead (#111).
+// node:child_process that start one throw instead (ADR 0038, #111).
 
 // The functions of node:child_process that start a process.
 export const PROCESS_STARTS = [
