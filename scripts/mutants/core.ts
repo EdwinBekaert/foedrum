@@ -1,7 +1,7 @@
 // Decides whether a Brett mutant is valid and what it does to its file (ADR 0021, issue #43).
 // Brett answers with structured edits instead of patches, so no hand-written hunk header can
 // make a mutant fail to apply: each mutant replaces one existing line of a file under src/ or
-// scripts/, where the gate, the check and the review tooling live (ADR 0039).
+// scripts/, where the gate, the check and the review tooling live (ADR 0040).
 
 export interface Mutant {
   file: string;

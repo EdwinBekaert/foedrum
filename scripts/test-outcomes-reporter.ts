@@ -1,4 +1,4 @@
-// A node:test reporter for the mutation check of /brew-review (issue #43): one JSON line per
+// A node:test reporter for the mutation check of /brew-review (issue #43, ADR 0040): one JSON line per
 // test that ran, with its file (relative to cwd, with /), its suites and name, and whether it
 // passed. scripts/mutant-verdict.ts compares the lines of a run with a mutant to those of a run
 // without it, so only a test the mutant makes fail kills it: not the per-file time budget, the

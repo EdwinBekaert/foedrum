@@ -1,6 +1,6 @@
 // `node scripts/mutants.ts <tree> <answer.json> [<n>]`: checks the mutants in Brett's answer
 // against the brew-review scratch tree, or applies mutant <n> to it (issue #43). A mutant edits
-// one line of a file under src/ or scripts/ (ADR 0034, 0039).
+// one line of a file under src/ or scripts/ (ADR 0034, 0040).
 // mutants/core.ts decides. Exits 1 when the answer cannot be read or mutant <n> is invalid.
 
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';

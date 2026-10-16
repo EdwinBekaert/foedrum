@@ -1,5 +1,5 @@
 // Decides whether a mutant was killed, from the test outcomes of a run without it (the baseline)
-// and a run with it (issue #43). Only a test that fails because of the mutant kills it: a test
+// and a run with it (issue #43, ADR 0040). Only a test that fails because of the mutant kills it: a test
 // that passed in the baseline and fails or no longer reports, or a failure the baseline did not
 // have. A test that fails in both runs, the per-file time budget and the coverage thresholds do
 // not count.
