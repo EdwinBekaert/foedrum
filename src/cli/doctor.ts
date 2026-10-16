@@ -142,7 +142,7 @@ const jobObjectProblems = ({ platform, jobObject }: DoctorFacts): Problem[] => {
 };
 
 // foedrum.jsonc, when the working directory has one: a config that does not pass its schema (two
-// repositories with one alias, ADR 0048) stops the Brewery, so doctor says why, in one line.
+// repositories with one alias, ADR 0050) stops the Brewery, so doctor says why, in one line.
 const configProblems = ({ config, configUnreadable }: DoctorFacts): Problem[] => {
   if (configUnreadable !== undefined) {
     return [{ required: true, what: 'foedrum.jsonc cannot be read', fix: configUnreadable }];

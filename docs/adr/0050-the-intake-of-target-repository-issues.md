@@ -1,4 +1,4 @@
-# 0048. The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines
+# 0050. The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines
 
 Date: 2026-10-16 · Status: Accepted · Amends [0008](0008-polling-intake.md) (what the intake records), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (batch ids, the order of a target issue, the end of a pull request, the conditional delete) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (a deadline for every effect)
 

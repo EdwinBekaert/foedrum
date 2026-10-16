@@ -414,7 +414,7 @@ describe('foedrum status', () => {
     assert.match(result.stdout, /^ +app-11 +acme\/app#11 +ordered/m);
   });
 
-  it('names the repository of a target issue in stuck and replay too (ADR 0048)', async () => {
+  it('names the repository of a target issue in stuck and replay too (ADR 0050)', async () => {
     const events: Event[] = [
       {
         type: 'batch.ordered',

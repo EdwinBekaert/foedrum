@@ -91,7 +91,7 @@ export interface Batch {
 
 /**
  * An order of a Brewery issue with batches that is not a sub-order. A claimed target-repository
- * issue is an order too, but its batches keep their repository instead (`Batch.repo`, ADR 0048).
+ * issue is an order too, but its batches keep their repository instead (`Batch.repo`, ADR 0050).
  */
 export interface Order {
   issue: number;
@@ -208,7 +208,7 @@ function apply(state: State, event: Event): State {
         rewinds: [],
       });
       // A claimed target issue is an order, but `orders` and `subOrders` hold the Brewery's own
-      // issues by number, which its number would collide with (ADR 0048).
+      // issues by number, which its number would collide with (ADR 0050).
       if (repo !== undefined) return { ...state, batches };
       const subOrder = state.subOrders.get(order.issue);
       if (subOrder !== undefined) {

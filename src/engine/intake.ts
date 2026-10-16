@@ -25,7 +25,7 @@ import {
 /**
  * What the intake reads: the open issues of a target repository (architecture §3.1's `Tracker`,
  * ADR 0008) and how a pull request of a batch stands (its `CodeHost`). On GitHub both are one API
- * (ADR 0048).
+ * (ADR 0050).
  */
 export interface TargetTracker {
   /** The open issues of `repo`; pull requests may be among them. Stops when `signal` aborts. */

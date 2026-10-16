@@ -19,7 +19,7 @@ export const PathSafeId = z
 
 /**
  * The short name of a target repository in the Brewery's config, the start of the batch ids of its
- * claimed issues (`<alias>-<issue>`, ADR 0048): a lower-case letter, then letters and digits, at
+ * claimed issues (`<alias>-<issue>`, ADR 0050): a lower-case letter, then letters and digits, at
  * most 20 in all. It starts with a letter, so it never begins a Brewery issue's `<issue>-<n>`, and
  * has no hyphen, so the issue that follows it is never ambiguous.
  */
