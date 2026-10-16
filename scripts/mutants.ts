@@ -1,5 +1,6 @@
 // `node scripts/mutants.ts <tree> <answer.json> [<n>]`: checks the mutants in Brett's answer
-// against the brew-review scratch tree, or applies mutant <n> to it (issue #43).
+// against the brew-review scratch tree, or applies mutant <n> to it (issue #43). A mutant edits
+// one line of a file under src/ or scripts/ (ADR 0034, 0040).
 // mutants/core.ts decides. Exits 1 when the answer cannot be read or mutant <n> is invalid.
 
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
@@ -23,24 +24,26 @@ const readAnswer = async (answer: string): Promise<unknown[] | string> => {
 const realOrUndefined = (path: string): Promise<string | undefined> =>
   realpath(path).catch(() => undefined);
 
-// The edited content of the mutant's file in the tree, and the real path it goes to. The tree's
-// src/ must be its own folder and the file a regular file really inside it, so no link, in src/
-// or as src/ itself, can lead the edit out of the tree.
+// The edited content of the mutant's file in the tree, and the real path it goes to. The file's
+// folder (src/ or scripts/, checked by parseMutant) must be a folder of its own in the tree and
+// the file a regular file really inside it, so no link, in that folder or as the folder itself,
+// can lead the edit out of the tree.
 const edit = async (
   tree: string,
   mutant: Mutant,
 ): Promise<{ ok: false; reason: string } | (MutantEdit & { ok: true; target: string })> => {
+  const [name = ''] = mutant.file.split('/');
   const root = await realpath(tree);
-  const src = await realOrUndefined(join(tree, 'src'));
-  if (src !== undefined && !samePath(src, join(root, 'src'))) {
-    return { ok: false, reason: 'the tree’s src/ is not a folder of its own' };
+  const folder = await realOrUndefined(join(tree, name));
+  if (folder !== undefined && !samePath(folder, join(root, name))) {
+    return { ok: false, reason: `the tree’s ${name}/ is not a folder of its own` };
   }
   const target = await realOrUndefined(join(tree, mutant.file));
-  if (src === undefined || target === undefined) {
+  if (folder === undefined || target === undefined) {
     return { ok: false, reason: `${mutant.file} does not exist` };
   }
-  if (pathInside(src, target) === undefined) {
-    return { ok: false, reason: `${mutant.file} is not inside the tree's src/` };
+  if (pathInside(folder, target) === undefined) {
+    return { ok: false, reason: `${mutant.file} is not inside the tree's ${name}/` };
   }
   if (!(await stat(target)).isFile()) return { ok: false, reason: `${mutant.file} is not a file` };
   const edited = editFile(mutant, await readFile(target, 'utf8'));

@@ -123,6 +123,50 @@ describe('mutants on a scratch tree', () => {
     });
   });
 
+  it('checks and applies a mutant of a file under scripts/', async () => {
+    mkdirSync(join(tree, 'scripts'));
+    writeFileSync(join(tree, 'scripts', 'add.ts'), source);
+    write({ mutants: [{ ...valid, file: 'scripts/add.ts' }] });
+    assert.deepEqual(await checkMutants(tree, answer), {
+      ok: true,
+      lines: ['mutant 1: valid scripts/add.ts:2'],
+    });
+    assert.deepEqual(await applyMutant(tree, answer, 1), {
+      ok: true,
+      lines: ['mutant 1: applied scripts/add.ts:2'],
+    });
+    assert.equal(
+      readFileSync(join(tree, 'scripts', 'add.ts'), 'utf8'),
+      source.replace('a + b', 'a - b'),
+    );
+    assert.equal(read(), source);
+  });
+
+  it('refuses a mutant of scripts/ when the tree’s scripts/ is a link or leads out', async () => {
+    symlinkSync(join(dir.path, 'outside'), join(tree, 'scripts'), 'junction');
+    write({ mutants: [{ ...valid, file: 'scripts/add.ts' }, valid] });
+    assert.deepEqual(await checkMutants(tree, answer), {
+      ok: true,
+      lines: [
+        'mutant 1: invalid: the tree’s scripts/ is not a folder of its own',
+        'mutant 2: valid src/add.ts:2',
+      ],
+    });
+    assert.equal((await applyMutant(tree, answer, 1)).ok, false);
+    assert.equal(readFileSync(join(dir.path, 'outside', 'add.ts'), 'utf8'), source);
+  });
+
+  it('refuses a mutant of a link inside scripts/ that leads out of it', async () => {
+    mkdirSync(join(tree, 'scripts'));
+    symlinkSync(join(dir.path, 'outside'), join(tree, 'scripts', 'linked'), 'junction');
+    write({ mutants: [{ ...valid, file: 'scripts/linked/add.ts' }] });
+    const result = await checkMutants(tree, answer);
+    assert.match(
+      result.lines[0] ?? '',
+      /^mutant 1: invalid: scripts\/linked\/add\.ts is not inside the tree's scripts\//,
+    );
+  });
+
   it('refuses every mutant when the tree’s src/ is a link, so no edit can leave the tree', async () => {
     const linked = join(dir.path, 'linked-tree');
     mkdirSync(linked);

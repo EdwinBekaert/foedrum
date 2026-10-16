@@ -65,6 +65,31 @@ describe('parseMutant', () => {
     }
   });
 
+  it('accepts a file under scripts/, where the gate and the review tooling live (#43)', () => {
+    const file = 'scripts/mutants/core.ts';
+    assert.deepEqual(parseMutant(mutant({ file })), { ok: true, mutant: mutant({ file }) });
+  });
+
+  it('rejects a path that only starts in scripts/ or names a look-alike folder', () => {
+    for (const file of [
+      'scripts/',
+      'scripts/../package.json',
+      'scripts/./check.ts',
+      'scripts\\check.ts',
+      'scripts/C:check.ts',
+      'scripts-old/check.ts',
+      'Scripts/check.ts',
+    ]) {
+      assert.match(reasonOf(mutant({ file })), /under src\/ or scripts\//, file);
+    }
+  });
+
+  it('rejects the bare folder names, which are folders, not files', () => {
+    for (const file of ['src', 'scripts']) {
+      assert.match(reasonOf(mutant({ file })), /under src\/ or scripts\//, file);
+    }
+  });
+
   it('rejects a replacement of more than one line', () => {
     assert.match(reasonOf(mutant({ replacement: 'a;\nb;' })), /one line/);
     assert.match(reasonOf(mutant({ replacement: 'a;\r' })), /one line/);
