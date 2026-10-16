@@ -533,6 +533,23 @@ describe('execProcessWith', () => {
       assert.equal((await done).exitCode, 125);
     });
 
+    // Windows PowerShell may start its stdout with a byte order mark (CLAUDE.md: parsers tolerate
+    // a BOM).
+    it('reads the refusal after a byte order mark', async () => {
+      const child = new FakeChild();
+      const { exec } = jobSpawner(child);
+      const done = exec('C:\\tools\\claude.exe', [], { cwd: 'D:\\work', jobObject: true });
+      child.stdout.write(`\uFEFF${refusal}`);
+      await settle();
+      child.close(125);
+      const result = await done;
+      assert.equal(result.exitCode, null);
+      assert.equal(
+        result.stderr,
+        'C:\\tools\\claude.exe: cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode',
+      );
+    });
+
     // Only the helper's own exit code makes its line a refusal.
     it('keeps the answer of a program that wrote the refusal line itself and exited otherwise', async () => {
       for (const code of [0, 1]) {

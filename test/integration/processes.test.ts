@@ -181,6 +181,27 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     );
   });
 
+  // Windows PowerShell gives itself a PSModulePath when it has none; the program must not get it.
+  // Only the names of the variables that differ are compared, so a failure never prints a value
+  // of the environment (a token, in CI).
+  it("gives the program the caller's environment, not PowerShell's", async () => {
+    const script = 'process.stdout.write(JSON.stringify(process.env))';
+    const caller = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'psmodulepath'),
+    );
+    for (const env of [caller, { ...caller, PSModulePath: 'C:\\only\\mine' }]) {
+      const run = async (jobObject: boolean): Promise<Record<string, string>> =>
+        JSON.parse(
+          (await execProcess(process.execPath, ['-e', script], { cwd: dir.path, env, jobObject }))
+            .stdout,
+        );
+      const [direct, held] = [await run(false), await run(true)];
+      const names = new Set([...Object.keys(direct), ...Object.keys(held)]);
+      const differ = [...names].filter((name) => direct[name] !== held[name]);
+      assert.deepEqual(differ, []);
+    }
+  });
+
   it('passes on an exit code above 2^31, as Windows reports a crash', async () => {
     const result = await execProcess(process.execPath, ['-e', 'process.exit(3221225786)'], {
       cwd: dir.path,
@@ -270,6 +291,27 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
   // A failure after the program exists but before it runs: the suspended program would hold the
   // output open, so the helper ends it and the call answers at once, not at its deadline. Runs
   // outside dir.path, whose removal such a program would block.
+  // The same through the helper's own failure path: a job the program cannot be assigned to.
+  it('ends the program it could not put in the job, and answers at once', async () => {
+    const failing = editedHelper((script) =>
+      script.replace(
+        '$k::AssignProcessToJobObject($job, $process)',
+        '$k::AssignProcessToJobObject([IntPtr]::Zero, $process)',
+      ),
+    );
+    const started = Date.now();
+    const result = await execProcessWith(failing)(process.execPath, ['-e', ''], {
+      cwd: import.meta.dirname,
+      timeoutMs: 30_000,
+      jobObject: true,
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.killed, undefined, `answered after ${elapsed} ms`);
+    assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /cannot run in a Job Object: AssignProcessToJobObject: .+ \(6\)$/);
+    assert.ok(elapsed < 15_000, `answered after ${elapsed} ms`);
+  });
+
   it('ends the program it could not let run, and answers at once', async () => {
     const failing = editedHelper((script) =>
       script.replace(
