@@ -8,9 +8,10 @@
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import { targetBatchId } from './batch-id.ts';
+import { defaultLeaseMs } from './batch-leases.ts';
 import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
-import type { State } from './fold.ts';
+import { emptyState, type State } from './fold.ts';
 import {
   type Claimant,
   type ClaimHost,
@@ -27,7 +28,7 @@ import {
  * (ADR 0048).
  */
 export interface TargetTracker {
-  /** The open issues of `repo`; pull requests may be among them. */
+  /** The open issues of `repo`; pull requests may be among them. Stops when `signal` aborts. */
   issues(repo: string, signal?: AbortSignal): Promise<readonly TargetIssue[]>;
   /** How the pull request at `url` stands now. */
   pullRequest(url: string, signal?: AbortSignal): Promise<PullRequestState>;
@@ -62,6 +63,12 @@ export interface IntakeOptions {
   capacity: number;
   clock: () => Date;
   report?: (notice: IntakeNotice) => void;
+  /**
+   * How long one pass may take: whole milliseconds, at most half the default batch lease (2.5
+   * min), and that by default. A pass makes many requests, each with its own timeout, so it needs a
+   * bound of its own: run in a driver's tick, it must never hold off the heartbeat until the batch
+   * leases expire (ADR 0044, #130).
+   */
   deadlineMs?: number;
 }
 
@@ -90,6 +97,15 @@ export const intakeRepositories = (config: BreweryConfig): IntakeRepository[] =>
 
 export const createIntake = (options: IntakeOptions): Intake => {
   const { log, tracker, claims, claimant, authors, repositories, capacity, clock } = options;
+  const most = defaultLeaseMs / 2;
+  const { deadlineMs = most } = options;
+  if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
+    throw new RangeError(
+      `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
+    );
+  }
+  // Checked once here, so that no poll rejects for it.
+  freeCapacity(emptyState, capacity);
   // A report that throws must not stop the intake.
   const report = (notice: IntakeNotice): void => {
     try {
@@ -103,19 +119,20 @@ export const createIntake = (options: IntakeOptions): Intake => {
   };
 
   /** Records the end of each pull request of a claimed batch on tap that merged or closed. */
-  const recordEnds = async (): Promise<void> => {
+  const recordEnds = async (signal: AbortSignal): Promise<void> => {
     for (const batch of log.state().batches.values()) {
       if (batch.repo === undefined || batch.lane.kind !== 'on_tap') continue;
       for (const pullRequest of batch.lane.pullRequests) {
         if (batch.pullRequestEnds?.[pullRequest] !== undefined) continue;
         let state: PullRequestState;
         try {
-          state = await tracker.pullRequest(pullRequest);
+          state = await tracker.pullRequest(pullRequest, signal);
         } catch (error) {
           report({ kind: 'failed', what: `reading ${pullRequest}`, error });
           continue;
         }
-        if (state === 'open') continue;
+        // A pass given up at its deadline records nothing more.
+        if (state === 'open' || signal.aborted) continue;
         const event = {
           type: 'pull_request.ended',
           batchId: batch.id,
@@ -128,7 +145,11 @@ export const createIntake = (options: IntakeOptions): Intake => {
   };
 
   /** Claims and orders up to `free` candidates of `repository`; how many it ordered. */
-  const claimIn = async (repository: IntakeRepository, free: number): Promise<number> => {
+  const claimIn = async (
+    repository: IntakeRepository,
+    free: number,
+    signal: AbortSignal,
+  ): Promise<number> => {
     const { repo, alias, filter } = repository;
     const brewed = new Set(
       [...log.state().batches.values()]
@@ -136,7 +157,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
         .map((batch) => batch.issue),
     );
     const now = clock().toISOString();
-    const pass = await claimCandidates(claims, await tracker.issues(repo), {
+    const pass = await claimCandidates(claims, await tracker.issues(repo, signal), {
       repo,
       filter,
       claimant,
@@ -144,6 +165,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
       authors,
       now,
       limit: free,
+      signal,
     });
     for (const { issue: number, by } of pass.taken)
       report({ kind: 'taken', repo, issue: number, by });
@@ -153,6 +175,8 @@ export const createIntake = (options: IntakeOptions): Intake => {
     }
     let ordered = 0;
     for (const number of pass.order) {
+      // A pass given up at its deadline orders nothing: the next pass finds its claims as ours.
+      if (signal.aborted) break;
       const batchId = targetBatchId(log.state(), alias, number);
       if (issue({ kind: 'order', batchId, order: { issue: number, repo } })) {
         ordered++;
@@ -162,16 +186,40 @@ export const createIntake = (options: IntakeOptions): Intake => {
     return ordered;
   };
 
-  const pass = async (): Promise<void> => {
-    await recordEnds();
+  const work = async (signal: AbortSignal): Promise<void> => {
+    await recordEnds(signal);
     let free = freeCapacity(log.state(), capacity);
     for (const repository of repositories) {
-      if (free === 0) break;
+      if (free === 0 || signal.aborted) break;
       try {
-        free -= await claimIn(repository, free);
+        free -= await claimIn(repository, free, signal);
       } catch (error) {
         report({ kind: 'failed', what: `claiming in ${repository.repo}`, error });
       }
+    }
+  };
+
+  /** Runs one pass until `deadlineMs`, then aborts its signal, reports it and settles. */
+  const pass = async (): Promise<void> => {
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        const error = new Error(
+          `The intake pass took longer than its deadline of ${deadlineMs} ms`,
+        );
+        controller.abort(error);
+        report({ kind: 'failed', what: 'the pass', error });
+        resolve();
+      }, deadlineMs);
+    });
+    const working = work(controller.signal);
+    // What it does after the deadline is no longer awaited: never an unhandled rejection.
+    working.catch(() => {});
+    try {
+      await Promise.race([working, late]);
+    } finally {
+      clearTimeout(timer);
     }
   };
 

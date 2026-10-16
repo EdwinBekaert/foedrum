@@ -10,7 +10,7 @@ import type {
   CleanReport,
 } from '../workspace/attempt-worktrees-git.ts';
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
-import { holdBatch, releaseBatch } from './batch-leases.ts';
+import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
@@ -116,7 +116,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     limits,
     worktrees,
     effects,
-    leaseMs = 5 * 60_000,
+    leaseMs = defaultLeaseMs,
     reminderMs = defaultReminderMs,
     routingMs = defaultRoutingMs,
     report: reportTo = () => {},

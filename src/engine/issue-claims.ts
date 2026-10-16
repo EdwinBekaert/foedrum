@@ -134,12 +134,18 @@ const claimedBy = async (
 /** Claims `issue` in `repo` for the claimant's Brewery. */
 export const claimIssue = async (
   host: ClaimHost,
-  claim: { repo: string; issue: number; brewery: string; now: string },
+  claim: {
+    repo: string;
+    issue: number;
+    brewery: string;
+    now: string;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<ClaimOutcome> => {
-  const { repo, issue, brewery, now } = claim;
+  const { repo, issue, brewery, now, signal } = claim;
   const message = JSON.stringify(ClaimRecord.parse({ brewery, issue, claimedAt: now }));
-  if ((await host.create(repo, issue, message)) === 'created') return { kind: 'won' };
-  const holder = await claimedBy(host, repo, issue);
+  if ((await host.create(repo, issue, message, signal)) === 'created') return { kind: 'won' };
+  const holder = await claimedBy(host, repo, issue, signal);
   // Gone between creating and reading it: released in between; the next poll tries again.
   if (!holder.found || holder.brewery === undefined) return { kind: 'taken', by: undefined };
   return same(holder.brewery, brewery) ? { kind: 'ours' } : { kind: 'taken', by: holder.brewery };
@@ -167,9 +173,15 @@ export const claimCandidates = async (
   host: ClaimHost,
   issues: readonly TargetIssue[],
   /** `limit`: the Brewery's free capacity, how many batches it can start now. */
-  options: CandidateOptions & { repo: string; now: string; limit: number },
+  /** `signal`: handed to the code host; once it aborts, the next claim fails and the pass stops. */
+  options: CandidateOptions & {
+    repo: string;
+    now: string;
+    limit: number;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<ClaimPass> => {
-  const { repo, now, claimant, limit } = options;
+  const { repo, now, claimant, limit, signal } = options;
   if (!Number.isSafeInteger(limit) || limit < 0) {
     throw new RangeError(`The limit must be a whole number of batches, got ${limit}`);
   }
@@ -185,7 +197,8 @@ export const claimCandidates = async (
     if (pass.order.length === limit) break;
     let outcome: ClaimOutcome;
     try {
-      outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
+      signal?.throwIfAborted();
+      outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now, signal });
     } catch (error) {
       pass.failed = { issue, error };
       break;
