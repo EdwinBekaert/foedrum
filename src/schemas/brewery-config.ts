@@ -1,6 +1,7 @@
 // foedrum.jsonc: the Brewery's repositories and permission ceiling (architecture §14, ADR 0023).
 
 import { Repo } from './events.ts';
+import { RepositoryAlias } from './ids.ts';
 import { AllowedTool, Command, Duration, RelativePath, withinCeiling } from './primitives.ts';
 import { z } from './zod.ts';
 
@@ -21,6 +22,14 @@ const TestReport = z.discriminatedUnion('format', [
   z.strictObject({ format: z.literal('junit'), path: RelativePath }),
 ]);
 
+/** Which open issues of a repository the intake claims: those with all the labels (ADR 0043). */
+const IntakeFilter = z
+  .strictObject({
+    labels: z.array(z.string().min(1)).min(1).describe('Labels an issue must all have'),
+    milestone: z.string().min(1).optional().describe('The milestone an issue must be in'),
+  })
+  .describe('Polls the repository for issues to claim and brew; without it, none are');
+
 const RepositoryConfig = z
   .strictObject({
     checks: Checks,
@@ -37,14 +46,14 @@ const RepositoryConfig = z
       .enum(['repo', 'brewery'])
       .default('repo')
       .describe('Where repository-layer house-yeast rules are kept (ADR 0018)'),
-    alias: z.string().optional(),
-    intake: z.unknown().optional(),
+    alias: RepositoryAlias.optional().describe(
+      'The short name that starts the batch ids of its claimed issues; required with an intake',
+    ),
+    intake: IntakeFilter.optional(),
   })
-  .refine((repository) => {
-    if (repository.alias !== undefined || repository.intake !== undefined) {
-      throw new Error('not implemented');
-    }
-    return true;
+  .refine((repository) => repository.intake === undefined || repository.alias !== undefined, {
+    message: 'An intake needs an alias, for the batch ids of the issues it claims',
+    path: ['alias'],
   })
   .refine((repository) => !repository.testReport || repository.checks.test !== null, {
     message: 'A test report needs a test check',
@@ -64,6 +73,8 @@ export const BreweryConfig = z
   })
   .superRefine((config, ctx) => {
     const seen = new Set<string>();
+    // Batch ids start with the alias, so two repositories never share one.
+    const aliases = new Map<string, string>();
     for (const [repo, repository] of Object.entries(config.repositories)) {
       // GitHub names are case-insensitive: two spellings would be one repository.
       if (seen.has(repo.toLowerCase())) {
@@ -74,6 +85,18 @@ export const BreweryConfig = z
         });
       }
       seen.add(repo.toLowerCase());
+      const { alias } = repository;
+      if (alias !== undefined) {
+        const other = aliases.get(alias);
+        if (other !== undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `The alias ${alias} is already the alias of ${other}`,
+            path: ['repositories', repo, 'alias'],
+          });
+        }
+        aliases.set(alias, other ?? repo);
+      }
       for (const [index, tool] of repository.tools.entries()) {
         if (!withinCeiling(tool, config.permissionCeiling)) {
           ctx.addIssue({

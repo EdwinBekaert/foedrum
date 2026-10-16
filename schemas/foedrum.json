@@ -554,6 +554,35 @@
               "repo",
               "brewery"
             ]
+          },
+          "alias": {
+            "description": "The short name that starts the batch ids of its claimed issues; required with an intake",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]{0,19}$"
+          },
+          "intake": {
+            "type": "object",
+            "properties": {
+              "labels": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Labels an issue must all have"
+              },
+              "milestone": {
+                "description": "The milestone an issue must be in",
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "labels"
+            ],
+            "additionalProperties": false,
+            "description": "Polls the repository for issues to claim and brew; without it, none are"
           }
         },
         "required": [
