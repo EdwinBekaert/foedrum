@@ -28,9 +28,9 @@ import {
  */
 export interface TargetTracker {
   /** The open issues of `repo`; pull requests may be among them. */
-  issues(repo: string): Promise<readonly TargetIssue[]>;
+  issues(repo: string, signal?: AbortSignal): Promise<readonly TargetIssue[]>;
   /** How the pull request at `url` stands now. */
-  pullRequest(url: string): Promise<PullRequestState>;
+  pullRequest(url: string, signal?: AbortSignal): Promise<PullRequestState>;
 }
 
 /** A repository whose issues the intake polls: its alias starts the batch ids of its issues. */
@@ -62,6 +62,7 @@ export interface IntakeOptions {
   capacity: number;
   clock: () => Date;
   report?: (notice: IntakeNotice) => void;
+  deadlineMs?: number;
 }
 
 export interface Intake {

@@ -204,6 +204,79 @@ describe('createIntake', () => {
     }
   });
 
+  describe('deadline of a pass', () => {
+    /** acme/web lists issue 7 only after `ms`, whatever its signal says; acme/api lists none. */
+    const slowTracker = (ms: number) => {
+      const signals: (AbortSignal | undefined)[] = [];
+      let first = true;
+      const tracker: TargetTracker = {
+        issues: async (repo, signal) => {
+          signals.push(signal);
+          if (repo === web && first) {
+            first = false;
+            await new Promise((resolve) => setTimeout(resolve, ms));
+          }
+          return repo === web ? [issue(7)] : [];
+        },
+        pullRequest: async () => 'open',
+      };
+      return { tracker, signals };
+    };
+
+    it('ends a pass a slow GitHub holds past its deadline, reports it, and orders nothing late', async () => {
+      const { tracker, signals } = slowTracker(150);
+      const polling = intake(tracker, { deadlineMs: 20 });
+      await polling.poll();
+      assert.equal(signals[0]?.aborted, true, 'the listing was told to stop');
+      const failed = notices.find((notice) => notice.kind === 'failed');
+      assert.equal(failed?.kind === 'failed' ? failed.what : '', 'the pass');
+      assert.match(
+        failed?.kind === 'failed' ? String(failed.error) : '',
+        /took longer than its deadline of 20 ms/,
+      );
+      // The listing answers after the deadline: what the dead pass would order, it never does.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.deepStrictEqual(batches(), []);
+      await polling.poll();
+      assert.deepStrictEqual(
+        batches().map(({ id }) => id),
+        ['web-7'],
+      );
+    });
+
+    it('hands the claim host the pass signal too', async () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      const recording = {
+        ...github.host,
+        create: async (into: string, number: number, message: string, signal?: AbortSignal) => {
+          signals.push(signal);
+          return github.host.create(into, number, message);
+        },
+      };
+      const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+      await intake(tracker, { claims: recording }).poll();
+      assert.equal(signals.length, 1);
+      assert.ok(signals[0] instanceof AbortSignal);
+    });
+
+    for (const deadlineMs of [0, 1.5, 150_001]) {
+      it(`refuses a deadline of ${deadlineMs} ms, which must stay within half a batch lease`, () => {
+        const { tracker } = fakeTracker({});
+        assert.throws(
+          () => intake(tracker, { deadlineMs }),
+          /deadline of an intake pass must be a whole number of milliseconds up to 150000/,
+        );
+      });
+    }
+  });
+
+  for (const capacity of [-1, 1.5, Number.NaN]) {
+    it(`refuses a capacity of ${capacity} when it is made, not at every poll`, () => {
+      const { tracker } = fakeTracker({});
+      assert.throws(() => intake(tracker, { capacity }), /capacity must be a whole number/);
+    });
+  }
+
   it('runs one pass at a time, so two polls at once order an issue once', async () => {
     const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
     const polling = intake(tracker);
