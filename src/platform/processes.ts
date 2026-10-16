@@ -414,12 +414,24 @@ export const streamProcessWith =
         signal?.removeEventListener('abort', stop);
         done(result);
       };
-      const kill = (killed: StreamKilled): void => {
+      // Once the process has closed its pid may belong to another process: nothing is killed then.
+      let closed = false;
+      const end = (result: StreamResult): void => {
         if (finished) return;
-        if (child.pid !== undefined) killTree(child.pid);
+        if (!closed && child.pid !== undefined) killTree(child.pid);
         child.stdout.destroy();
         child.stderr.destroy();
-        finish({ exitCode: null, stderr, killed });
+        finish(result);
+      };
+      const kill = (killed: StreamKilled): void => end({ exitCode: null, stderr, killed });
+      // The caller reads untrusted lines; what it throws ends the stream as a failure, instead of
+      // escaping the listener and leaving the tree running.
+      const hand = (line: string): void => {
+        try {
+          onLine(line);
+        } catch (error) {
+          end(failed(error));
+        }
       };
       const stop = (): void => kill('stopped');
       const timer =
@@ -446,10 +458,10 @@ export const streamProcessWith =
         if (held !== undefined) {
           const first = held;
           held = undefined;
-          onLine(first);
+          hand(first);
           if (finished) return;
         }
-        onLine(line);
+        hand(line);
       };
       // The line being read, and its bytes. A CR may still come before its LF, which the limit
       // does not count.
@@ -486,6 +498,7 @@ export const streamProcessWith =
       });
       child.on('error', (error) => finish(failed(error)));
       child.on('close', (code) => {
+        closed = true;
         // A process the runner killed or stopped may close with a line it had only begun.
         if (!finished && pendingBytes > 0) endLine(pending, pendingBytes);
         if (finished) return;
@@ -495,7 +508,8 @@ export const streamProcessWith =
           finish({ exitCode: null, stderr: `${program}: cannot run in a Job Object: ${refused}` });
           return;
         }
-        if (held !== undefined) onLine(held);
+        if (held !== undefined) hand(held);
+        if (finished) return;
         finish({ exitCode: code, stderr });
       });
     });
