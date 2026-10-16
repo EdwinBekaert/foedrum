@@ -360,6 +360,47 @@ describe('openDriver', () => {
       );
     });
 
+    it('renews no attempt lease of a run that Stuck abandoned while its stop takes time', async () => {
+      // plan stalls after 10 minutes without progress, and a stopped run ends only when its
+      // process is gone, later.
+      const slow = fakeRecipes({ slow: fakeRecipe({ steps: ['plan'], stall: { minutes: 10 } }) });
+      const stopped: string[] = [];
+      const runner: BrewerRunner = {
+        start: ({ ref }) => ({
+          ended: new Promise<AttemptEnd>(() => {}),
+          stop: () => stopped.push(attemptKey.encode(ref)),
+        }),
+        progress: () => ({ lastProgressAt: t0, turnsWithoutProgress: 0 }),
+      };
+      const host = fakeHost();
+      // An effect of b1 comes due at minute 15.
+      const note = { ...plan('b1'), effect: 'note' };
+      const due = () => (now >= at(15) ? [note] : []);
+      const log = createCommandLog({ store, recipes: slow });
+      log.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now);
+      log.issue(
+        { kind: 'route', batchId: 'b1', recipe: 'slow', reason: 'r', source: 'label' },
+        now,
+      );
+      const driver = await open({ runner, recipes: slow, effects: { due, target: host.target } });
+      await driver.drive();
+      for (const minute of [4, 8, 11]) {
+        now = at(minute);
+        await driver.tick();
+      }
+      // At minute 11 Stuck abandoned plan#1 and the tick stopped its run, which runs on.
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+      now = at(15);
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b1","plan",1,"note"]']);
+      assert.deepStrictEqual(
+        store.currentLeases(at(17)).map((lease) => lease.attemptKey),
+        [],
+        'the lease of the abandoned plan#1 ends where the last tick before it left it',
+      );
+    });
+
     it('reports a batch it lost to another driver', async () => {
       order('b1');
       const notices: unknown[] = [];
