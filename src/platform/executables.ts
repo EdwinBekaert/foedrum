@@ -83,7 +83,7 @@ export const resolveExecutable = (
   return undefined;
 };
 
-/** Where npm's CLI script is next to a node, or undefined; `tried` lists every path checked. */
+/** Where npm's CLI script is next to a node, or undefined; `tried` lists every place looked. */
 export interface NpmCliLookup {
   path: string | undefined;
   tried: string[];
@@ -97,17 +97,24 @@ export interface FindNpmCliOptions {
 
 /**
  * npm's CLI script as installed with the node at `execPath`, so npm runs without npm's shims
- * or a shell: `<node dir>/node_modules/npm/bin/npm-cli.js` on Windows,
- * `<prefix>/lib/node_modules/npm/bin/npm-cli.js` elsewhere, where node is `<prefix>/bin/node`.
+ * or a shell: `<node dir>/node_modules/npm` on Windows. Elsewhere node is `<prefix>/bin/node`,
+ * and npm is in `<prefix>/lib/node_modules/npm` (the nodejs.org builds, nvm, setup-node),
+ * `<prefix>/libexec/lib/node_modules/npm` (Homebrew's keg, which macOS resolves node's link to)
+ * or `<prefix>/share/nodejs/npm` (Debian's and Ubuntu's npm package), looked at in that order.
  */
 export const findNpmCli = (execPath: string, options: FindNpmCliOptions = {}): NpmCliLookup => {
   const { platform = process.platform, isFile = regularFile } = options;
   const path = platform === 'win32' ? win32 : posix;
   const nodeDir = path.dirname(execPath);
-  const npmDir =
+  const prefix = path.dirname(nodeDir);
+  const npmDirs =
     platform === 'win32'
-      ? path.join(nodeDir, 'node_modules', 'npm')
-      : path.join(path.dirname(nodeDir), 'lib', 'node_modules', 'npm');
-  const npmCli = path.join(npmDir, 'bin', 'npm-cli.js');
-  return { path: isFile(npmCli) ? npmCli : undefined, tried: [npmCli] };
+      ? [path.join(nodeDir, 'node_modules', 'npm')]
+      : [
+          path.join(prefix, 'lib', 'node_modules', 'npm'),
+          path.join(prefix, 'libexec', 'lib', 'node_modules', 'npm'),
+          path.join(prefix, 'share', 'nodejs', 'npm'),
+        ];
+  const tried = npmDirs.map((npmDir) => path.join(npmDir, 'bin', 'npm-cli.js'));
+  return { path: tried.find((npmCli) => isFile(npmCli)), tried };
 };
