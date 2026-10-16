@@ -14,6 +14,15 @@ export const envNameKey =
  * throws on Linux and macOS for a uid without a passwd entry), else `USER`, else `USERNAME`,
  * else `unknown`. Never empty.
  */
-export const userName = (_lookup: () => string, _env: NodeJS.ProcessEnv): string => {
-  throw new Error('not implemented');
+export const userName = (lookup: () => string, env: NodeJS.ProcessEnv): string => {
+  let account: string | undefined;
+  try {
+    account = lookup();
+  } catch {
+    // No account name: the environment's, if any.
+  }
+  const named = [account, env.USER, env.USERNAME].find(
+    (name) => name !== undefined && /\S/.test(name),
+  );
+  return named ?? 'unknown';
 };

@@ -190,10 +190,34 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       report({ kind: 'refused', command, reason: decision.reason });
       return false;
     }
-    if (worktrees !== undefined) {
-      for (const batchId of endedBatches(decision.events)) toClean.add(batchId);
-    }
     return true;
+  };
+
+  // The events drive() has looked at for batches that ended, its own and other writers' (a
+  // terminal `cancel`): their worktrees are cleaned once (ADR 0037). The start repaired the rest.
+  let seenId = store.lastEventId();
+  const noteEnded = (): void => {
+    const stored = store.eventsAfter(seenId);
+    seenId = stored.at(-1)?.id ?? seenId;
+    if (worktrees === undefined) return;
+    for (const batchId of endedBatches(stored.map(({ event }) => event))) toClean.add(batchId);
+  };
+
+  /**
+   * The heartbeat: renews the lease of every batch it holds, and of every attempt its runner still
+   * runs. At every tick, and before each effect, so a long tick lets none of them expire.
+   */
+  const heartbeat = (): void => {
+    const now = clock();
+    store.withTransaction((tx) => {
+      for (const batchId of [...held]) {
+        const hold = holdBatch(tx, { batchId, owner, now, leaseMs });
+        if (hold.kind === 'other') lose(batchId, hold.lease);
+      }
+      for (const [key, { ref }] of runs) {
+        if (runner.progress(ref) !== undefined) leaseAttempt(tx, key);
+      }
+    });
   };
 
   const leaseAttempt = (tx: EventStoreTransaction, key: string): void =>
@@ -229,6 +253,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   const drive = async (): Promise<void> => {
+    // A start the guard refuses is tried once per drive: the attempt's deadline covers it.
+    const refused = new Set<string>();
     for (;;) {
       let moved = false;
       for (const batch of log.state().batches.values()) {
@@ -240,8 +266,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           if (!claim(batch.id)) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
           const key = attemptKey.encode(ref);
+          if (refused.has(key)) continue;
           moved = true;
-          if (!(await startAttempt(ref, key))) continue;
+          if (!(await startAttempt(ref, key))) {
+            refused.add(key);
+            continue;
+          }
           const run = runner.start({ ref, limits: limits(stepId) });
           runs.set(key, { ref, run });
           run.ended.then(
@@ -268,6 +298,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         }
         moved = true;
       }
+      noteEnded();
       for (const batchId of [...toClean]) {
         toClean.delete(batchId);
         report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
@@ -300,6 +331,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     const state = log.state();
     for (const batch of state.batches.values()) {
       for (const key of pending(state, batch.id)) {
+        heartbeat();
         if (!claim(batch.id)) break;
         try {
           await applyEffect(ledger, key, effects.target);
@@ -319,16 +351,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   const tick = async (): Promise<void> => {
     const now = clock();
-    // The heartbeat: the batches it holds, and the attempts its runner still runs.
-    store.withTransaction((tx) => {
-      for (const batchId of [...held]) {
-        const hold = holdBatch(tx, { batchId, owner, now, leaseMs });
-        if (hold.kind === 'other') lose(batchId, hold.lease);
-      }
-      for (const [key, { ref }] of runs) {
-        if (runner.progress(ref) !== undefined) leaseAttempt(tx, key);
-      }
-    });
+    heartbeat();
     others = new Set(
       store
         .batchLeases(now)
@@ -336,15 +359,17 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         .map((lease) => lease.batchId),
     );
     await supervisor.tick();
-    // Stops the processes of attempts that Stuck abandoned (ADR 0027) or whose batch ended.
+    // Stops the processes of attempts that Stuck abandoned (ADR 0027), whose batch ended, or that
+    // the log shows finished while this runner still runs them: another driver lost them.
     const current = log.state();
     for (const { ref, run } of runs.values()) {
       const attempt = current.batches
         .get(ref.batchId)
         ?.steps.get(ref.stepId)
         ?.attempts.get(ref.attempt);
-      if (attempt === undefined || attempt.phase === 'finished') continue;
-      if (attempt.abandoned === true || batchIsOver(current, ref.batchId)) run.stop();
+      if (attempt === undefined) continue;
+      const lost = attempt.phase === 'finished';
+      if (lost || attempt.abandoned === true || batchIsOver(current, ref.batchId)) run.stop();
     }
     await drive();
     await applyEffects();

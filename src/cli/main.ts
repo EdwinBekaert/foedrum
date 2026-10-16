@@ -5,6 +5,7 @@
 import { existsSync } from 'node:fs';
 import { release, userInfo } from 'node:os';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
+import { userName } from '../platform/env.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { execProcess } from '../platform/processes.ts';
 import { gatherDoctorFacts } from './doctor-facts.ts';
@@ -33,7 +34,7 @@ try {
     // Recipe files reach the engine's Recipe interface in a follow-up of #37: until then a
     // command that schedules a step is refused with "the Brewery has no recipe <name>".
     recipes: { find: () => undefined },
-    user: () => userInfo().username,
+    user: () => userName(() => userInfo().username, process.env),
     surface: 'terminal',
     now: () => new Date(),
   });
