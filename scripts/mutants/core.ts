@@ -23,22 +23,32 @@ const underSrc = (file: string): boolean => {
     segments[0] === 'src' &&
     segments.length > 1 &&
     segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
-    !/[\\:]/.test(file)
+    !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file)
   );
 };
 
 const strings = /(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
+const comments = /\/\/.*$|\/\*.*?\*\//g;
 // Only the characters of a number literal (hex, octal, binary, separators, a fraction, an
 // exponent, bigint), so a property name after it (`1..constructor`) is still a word.
 const numbers =
   /(?<![\p{ID_Continue}$])(?:0[xob][\da-f_]+n?|\d[\d_]*(?:\.\d[\d_]*)?(?:e[+-]?\d+)?n?|\.\d[\d_]*(?:e[+-]?\d+)?)/giu;
-const words = /[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*/gu;
+const words = /[\p{ID_Start}$_][\p{ID_Continue}$]*/gu;
 
-// The strings and the words (identifiers, property names, keywords) in a line of code; the
-// boolean literals count as literals, which a mutant may change.
+// The line with whitespace only where it separates two words, so a change of whitespace alone
+// (`a+b` for `a + b`) is no change.
+const squash = (code: string): string =>
+  code
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/ ?([^\p{ID_Continue}$ ]) ?/gu, '$1');
+
+// The strings and the words (identifiers, property names, keywords) in a line of code, outside
+// comments, so a mutant cannot turn commented-out code on; the boolean literals count as
+// literals, which a mutant may change.
 const names = (code: string): Set<string> => {
   const quoted = code.match(strings) ?? [];
-  const rest = code.replace(strings, ' ').replace(numbers, ' ');
+  const rest = code.replace(strings, ' ').replace(comments, ' ').replace(numbers, ' ');
   const bare = (rest.match(words) ?? []).filter((word) => word !== 'true' && word !== 'false');
   return new Set([...quoted, ...bare]);
 };
@@ -57,12 +67,13 @@ export const parseMutant = (value: unknown): MutantCheck => {
   }
   const mutant = { file, line, original, replacement } as Mutant;
   if (!underSrc(mutant.file)) {
-    return { ok: false, reason: `${mutant.file} is not a file under src/` };
+    // The name is model output; quoted, its control characters cannot forge an output line.
+    return { ok: false, reason: `${JSON.stringify(mutant.file)} is not a file under src/` };
   }
-  if (/[\r\n]/.test(mutant.replacement)) {
+  if (/[\r\n\p{Zl}\p{Zp}]/u.test(mutant.replacement)) {
     return { ok: false, reason: 'the replacement is more than one line' };
   }
-  if (mutant.replacement.trim() === mutant.original.trim()) {
+  if (squash(mutant.replacement) === squash(mutant.original)) {
     return { ok: false, reason: 'the replacement changes nothing' };
   }
   // A mutant may only change operators and number or boolean literals, or delete or reorder
@@ -74,6 +85,9 @@ export const parseMutant = (value: unknown): MutantCheck => {
   }
   return { ok: true, mutant };
 };
+
+// Written by its code point: a literal one is invisible in the source.
+const byteOrderMark = String.fromCodePoint(0xfeff);
 
 // Applies a parsed mutant to the content of its file (undefined when the file does not exist).
 // The line is the one whose text, ignoring leading and trailing whitespace, is the original:
@@ -100,9 +114,11 @@ export const editFile = (mutant: Mutant, content: string | undefined): MutantEdi
   }
   const at = lines[line - 1] ?? '';
   // The indentation (after a byte order mark) and the line ending stay as they are.
-  const indent = /^﻿?[ \t]*/.exec(at)?.[0] ?? '';
+  const bom = at.startsWith(byteOrderMark) ? byteOrderMark : '';
+  const indent = bom + (/^[ \t]*/.exec(at.slice(bom.length))?.[0] ?? '');
   const ending = /\r?\n$/.exec(at)?.[0] ?? '';
   const replacement = mutant.replacement.trim();
-  lines[line - 1] = replacement === '' ? '' : `${indent}${replacement}${ending}`;
+
+  lines[line - 1] = replacement === '' ? bom : `${indent}${replacement}${ending}`;
   return { ok: true, content: lines.join(''), line };
 };
