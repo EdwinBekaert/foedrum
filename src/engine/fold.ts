@@ -165,7 +165,8 @@ export class InvalidLogError extends Error {
  * Folds `events` onto `state`; `fold(rest, fold(prefix))` equals `fold([...prefix, ...rest])`.
  * Throws an InvalidLogError when an event refers to a batch, step or attempt the log never
  * created (an applied effect, to the batch or attempt its key names), repeats one or takes an attempt out
- * of order, opens a bottle or applies an effect twice, decomposes a sub-order, makes an order a
+ * of order, opens a bottle or applies an effect twice, records the end of a pull request twice,
+ * decomposes a sub-order or a target-repository issue, makes an order or a target issue a
  * sub-order, or moves a sub-order to another order.
  */
 export function fold(events: readonly Event[], state: State = emptyState): State {
@@ -188,14 +189,23 @@ function apply(state: State, event: Event): State {
       const { batchId, order, parentBatchId, routeBy } = event;
       if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
+      const { repo } = order;
+      if (repo !== undefined && parentBatchId !== undefined) {
+        throw reject(
+          `batch ${batchId} brews issue ${order.issue} of ${repo}, which is never a sub-order`,
+        );
+      }
       const batches = put(state.batches, batchId, {
         id: batchId,
         issue: order.issue,
+        ...(repo === undefined ? {} : { repo }),
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
         lane: { kind: 'ordered', routeBy },
         steps: new Map(),
         rewinds: [],
       });
+      // Orders and sub-orders are the Brewery's issues; a claimed target issue is neither.
+      if (repo !== undefined) return { ...state, batches };
       const subOrder = state.subOrders.get(order.issue);
       if (subOrder !== undefined) {
         return {
@@ -294,7 +304,13 @@ function apply(state: State, event: Event): State {
           : { kind: 'ordered', routeBy: event.routeBy },
       );
     case 'order.decomposed': {
-      const { id, issue } = batchOf(state, event.batchId);
+      const { id, issue, repo } = batchOf(state, event.batchId);
+      // Sub-orders are Brewery issues, split from a Brewery order (ADR 0043).
+      if (repo !== undefined) {
+        throw reject(
+          `batch ${id} brews issue ${issue} of ${repo}; only a Brewery order can be decomposed`,
+        );
+      }
       // One level of breakdown (architecture §3.2, ADR 0013).
       if (state.subOrders.has(issue)) {
         throw reject(`batch ${id} brews sub-order ${issue}; only an order can be decomposed`);
@@ -362,8 +378,15 @@ function apply(state: State, event: Event): State {
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
-    case 'pull_request.ended':
-      throw new Error('not implemented');
+    case 'pull_request.ended': {
+      const { batchId, pullRequest, state: end } = event;
+      return updateBatch(state, batchId, (batch) => {
+        if (batch.pullRequestEnds?.[pullRequest] !== undefined) {
+          throw reject(`pull request ${pullRequest} of batch ${batchId} already ended`);
+        }
+        return { ...batch, pullRequestEnds: { ...batch.pullRequestEnds, [pullRequest]: end } };
+      });
+    }
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

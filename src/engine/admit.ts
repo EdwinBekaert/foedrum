@@ -117,7 +117,7 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.cancelled':
       return lanes(state, event, nonTerminal);
     case 'pull_request.ended':
-      throw new Error('not implemented');
+      return endable(state, event);
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
@@ -184,18 +184,42 @@ function latestAttempt(
     : undefined;
 }
 
-/** A rewind names the commit of each repository it resets; a sub-order's batch only its own. */
+/**
+ * A rewind names the commit of each repository it resets; the batch of a sub-order or of a
+ * claimed target issue only its own.
+ */
 function rewindable(
   state: State,
   event: Extract<Event, { type: 'batch.rewound' }>,
 ): string | undefined {
   const repos = Object.keys(event.shas);
   if (repos.length === 0) return 'rewind needs the commit of each repository';
-  const issue = state.batches.get(event.batchId)?.issue;
-  const subOrder = issue === undefined ? undefined : state.subOrders.get(issue);
-  return subOrder !== undefined && (repos.length !== 1 || repos[0] !== subOrder.repo)
+  const only = (repo: string): boolean => repos.length === 1 && repos[0] === repo;
+  const batch = state.batches.get(event.batchId);
+  if (batch?.repo !== undefined) {
+    return only(batch.repo) ? undefined : `issue ${batch.issue} of ${batch.repo} writes only there`;
+  }
+  const subOrder = batch === undefined ? undefined : state.subOrders.get(batch.issue);
+  return subOrder !== undefined && !only(subOrder.repo)
     ? `sub-order ${subOrder.issue} writes only in ${subOrder.repo}`
     : undefined;
+}
+
+/** A batch records the end of a pull request it opened (on tap) or waits for (Conditioning). */
+function endable(
+  state: State,
+  event: Extract<Event, { type: 'pull_request.ended' }>,
+): string | undefined {
+  const lane = state.batches.get(event.batchId)?.lane;
+  if (lane === undefined) return undefined;
+  const ours =
+    (lane.kind === 'on_tap' && lane.pullRequests.includes(event.pullRequest)) ||
+    (lane.kind === 'conditioning' &&
+      lane.on.kind === 'merge' &&
+      lane.on.pullRequest === event.pullRequest);
+  return ours
+    ? undefined
+    : `batch ${event.batchId} neither opened nor waits for ${event.pullRequest}`;
 }
 
 /** A sub-order keeps its repository once it has batches: they, and their branches, live there. */

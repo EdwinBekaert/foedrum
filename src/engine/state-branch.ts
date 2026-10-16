@@ -31,8 +31,6 @@ export const batchOf = (event: Event): string | undefined => {
   switch (event.type) {
     case 'effect.applied':
       return effectKey.decode(event.key).batchId;
-    case 'pull_request.ended':
-      throw new Error('not implemented');
     case 'bottle.opened':
     case 'release.observed':
       return undefined;
@@ -49,6 +47,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.rewound':
     case 'batch.on_tap':
     case 'batch.cancelled':
+    case 'pull_request.ended':
       return event.batchId;
     default: {
       const unhandled: never = event;
