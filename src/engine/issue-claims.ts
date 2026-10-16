@@ -121,8 +121,9 @@ const claimedBy = async (
   host: ClaimHost,
   repo: string,
   issue: number,
+  signal?: AbortSignal,
 ): Promise<{ found: false } | { found: true; sha: string; brewery: string | undefined }> => {
-  const ref = await host.read(repo, issue);
+  const ref = await host.read(repo, issue, signal);
   if (ref === undefined) return { found: false };
   const record = ClaimRecord.safeParse(parseJson(ref.message));
   const brewery = record.success && record.data.issue === issue ? record.data.brewery : undefined;
@@ -194,14 +195,14 @@ export const claimCandidates = async (
 /** Releases the claim when its record still names `brewery`; `gone` or `not_ours` otherwise. */
 export const releaseClaim = async (
   host: ClaimHost,
-  claim: { repo: string; issue: number; brewery: string },
+  claim: { repo: string; issue: number; brewery: string; signal?: AbortSignal | undefined },
 ): Promise<'released' | 'gone' | 'not_ours'> => {
-  const { repo, issue, brewery } = claim;
-  const holder = await claimedBy(host, repo, issue);
+  const { repo, issue, brewery, signal } = claim;
+  const holder = await claimedBy(host, repo, issue, signal);
   if (!holder.found) return 'gone';
   if (holder.brewery === undefined || !same(holder.brewery, brewery)) return 'not_ours';
   // Only the commit that was read: a claim made since then is someone else's.
-  return (await host.delete(repo, issue, holder.sha)) ? 'released' : 'not_ours';
+  return (await host.delete(repo, issue, holder.sha, signal)) ? 'released' : 'not_ours';
 };
 
 /** How a pull request of a batch stands. */
