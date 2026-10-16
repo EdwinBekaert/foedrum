@@ -142,6 +142,10 @@ export const createIntake = (options: IntakeOptions): Intake => {
     });
     for (const { issue: number, by } of pass.taken)
       report({ kind: 'taken', repo, issue: number, by });
+    if (pass.failed !== undefined) {
+      const { issue: number, error } = pass.failed;
+      report({ kind: 'failed', what: `claiming ${repo}#${number}`, error });
+    }
     let ordered = 0;
     for (const number of pass.order) {
       const batchId = targetBatchId(log.state(), alias, number);
@@ -153,19 +157,27 @@ export const createIntake = (options: IntakeOptions): Intake => {
     return ordered;
   };
 
-  return {
-    poll: async () => {
-      await recordEnds();
-      let free = freeCapacity(log.state(), capacity);
-      for (const repository of repositories) {
-        if (free === 0) break;
-        try {
-          free -= await claimIn(repository, free);
-        } catch (error) {
-          // A claim won before the failure is found as this Brewery's by the next pass.
-          report({ kind: 'failed', what: `claiming in ${repository.repo}`, error });
-        }
+  const pass = async (): Promise<void> => {
+    await recordEnds();
+    let free = freeCapacity(log.state(), capacity);
+    for (const repository of repositories) {
+      if (free === 0) break;
+      try {
+        free -= await claimIn(repository, free);
+      } catch (error) {
+        report({ kind: 'failed', what: `claiming in ${repository.repo}`, error });
       }
+    }
+  };
+
+  // One pass at a time, whoever calls: two would both find a claim of the first as their own and
+  // order the issue twice.
+  let passing: Promise<unknown> = Promise.resolve();
+  return {
+    poll: () => {
+      const next = passing.then(pass);
+      passing = next.catch(() => {});
+      return next;
     },
   };
 };

@@ -11,6 +11,7 @@ export interface GitHubClientOptions {
   baseUrl?: string;
   /** How long one request may take; default 30 s. */
   timeoutMs?: number;
+  /** How long an answer may be; default 4 MiB, the process runner's output limit (ADR 0035). */
   maxResponseBytes?: number;
 }
 
@@ -56,7 +57,34 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
     fetch = globalThis.fetch,
     baseUrl = 'https://api.github.com',
     timeoutMs = 30_000,
+    maxResponseBytes = 4 * 1024 * 1024,
   } = options;
+
+  // The answer's text, given up once it passes `maxResponseBytes`: GitHub returns what anyone with
+  // push access wrote, such as a claim commit's message, and nothing keeps that small.
+  const readLimited = async (response: Response, what: string): Promise<string> => {
+    const tooLong = () =>
+      new Error(`GitHub's answer to ${what} is longer than ${maxResponseBytes} bytes`);
+    if (Number(response.headers.get('content-length')) > maxResponseBytes) {
+      await response.body?.cancel();
+      throw tooLong();
+    }
+    if (response.body === null) return '';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxResponseBytes) {
+        await reader.cancel();
+        throw tooLong();
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  };
 
   const request = async (
     method: string,
@@ -84,7 +112,10 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.any(signals),
       });
-      return { status: response.status, body: parse(await response.text()) };
+      return {
+        status: response.status,
+        body: parse(await readLimited(response, `${method} ${path}`)),
+      };
     } finally {
       clearTimeout(timer);
     }

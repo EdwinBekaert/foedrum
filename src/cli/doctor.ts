@@ -32,6 +32,7 @@ export interface DoctorFacts {
   jobObject?: { exitCode: number | null; output: string } | undefined;
   /** The text of foedrum.jsonc in the working directory; absent when there is none. */
   config?: string | undefined;
+  /** Why foedrum.jsonc could not be read, when it is there and could not be. */
   configUnreadable?: string | undefined;
 }
 
@@ -142,7 +143,10 @@ const jobObjectProblems = ({ platform, jobObject }: DoctorFacts): Problem[] => {
 
 // foedrum.jsonc, when the working directory has one: a config that does not pass its schema (two
 // repositories with one alias, ADR 0043) stops the Brewery, so doctor says why, in one line.
-const configProblems = ({ config }: DoctorFacts): Problem[] => {
+const configProblems = ({ config, configUnreadable }: DoctorFacts): Problem[] => {
+  if (configUnreadable !== undefined) {
+    return [{ required: true, what: 'foedrum.jsonc cannot be read', fix: configUnreadable }];
+  }
   if (config === undefined) return [];
   const read = readJsonc(config, BreweryConfig);
   if (read.valid) return [];

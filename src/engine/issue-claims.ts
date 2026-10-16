@@ -151,12 +151,17 @@ export interface ClaimPass {
   order: number[];
   /** The candidates another Brewery (or someone unknown) holds the claim of. */
   taken: { issue: number; by: string | undefined }[];
+  /**
+   * The candidate whose claim the code host failed: the pass stopped there, and the claims before
+   * it are in `order`, so they are ordered now and never left without a batch.
+   */
   failed?: { issue: number; error: unknown };
 }
 
 /**
  * Claims the candidates of `issues`, one after the other, oldest issue first, until it orders
- * `limit` of them; the rest wait for the next pass, or for another Brewery.
+ * `limit` of them; the rest wait for the next pass, or for another Brewery. It stops at the first
+ * claim the code host fails, and returns what it holds so far with the failure.
  */
 export const claimCandidates = async (
   host: ClaimHost,
@@ -178,7 +183,13 @@ export const claimCandidates = async (
   for (const issue of candidates) {
     // A taken claim costs no capacity, so the pass goes on to the next candidate.
     if (pass.order.length === limit) break;
-    const outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
+    let outcome: ClaimOutcome;
+    try {
+      outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
+    } catch (error) {
+      pass.failed = { issue, error };
+      break;
+    }
     switch (outcome.kind) {
       case 'won':
       case 'ours':

@@ -66,7 +66,14 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     shell.platform === 'win32' ? holdInJob() : undefined,
     ...(['npm', 'git', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
   ]);
-  const config = shell.readFile?.(join(cwd, 'foedrum.jsonc'));
+  // A foedrum.jsonc that cannot be read (a folder, no permission) is a problem doctor reports.
+  let config: string | undefined;
+  let configUnreadable: string | undefined;
+  try {
+    config = shell.readFile?.(join(cwd, 'foedrum.jsonc'));
+  } catch (error) {
+    configUnreadable = error instanceof Error ? error.message : String(error);
+  }
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
@@ -74,5 +81,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     tools: { npm, git, claude, bwrap, socat, podman, docker },
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(config === undefined ? {} : { config }),
+    ...(configUnreadable === undefined ? {} : { configUnreadable }),
   };
 };
