@@ -208,6 +208,12 @@ export interface Spawner {
   resolve?: (file: string, env: NodeJS.ProcessEnv) => string | undefined;
 }
 
+// What a process wrote, then the reason it failed.
+const withReason = (text: string, error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  return text === '' || text.endsWith('\n') ? `${text}${message}` : `${text}\n${message}`;
+};
+
 /**
  * A runner that starts programs through the given spawner and collects their output. At the
  * deadline, when the signal aborts, or when the output passes its limit, it kills the whole tree
@@ -239,13 +245,12 @@ export const execProcessWith =
         killed === undefined
           ? { exitCode, stdout, stderr, output }
           : { exitCode, stdout, stderr, output, killed };
-      // What the process wrote, then the reason it failed.
-      const failed = (error: unknown): ExecResult => {
-        const message = error instanceof Error ? error.message : String(error);
-        const after = (text: string): string =>
-          text === '' || text.endsWith('\n') ? `${text}${message}` : `${text}\n${message}`;
-        return { exitCode: null, stdout, stderr: after(stderr), output: after(output) };
-      };
+      const failed = (error: unknown): ExecResult => ({
+        exitCode: null,
+        stdout,
+        stderr: withReason(stderr, error),
+        output: withReason(output, error),
+      });
       if (signal?.aborted) {
         done(ended(null, 'stopped'));
         return;
@@ -381,12 +386,10 @@ export const streamProcessWith =
     new Promise((done) => {
       let stderr = '';
       let stderrBytes = 0;
-      // What the process wrote to stderr, then the reason it failed.
-      const failed = (error: unknown): StreamResult => {
-        const message = error instanceof Error ? error.message : String(error);
-        const before = stderr === '' || stderr.endsWith('\n') ? stderr : `${stderr}\n`;
-        return { exitCode: null, stderr: `${before}${message}` };
-      };
+      const failed = (error: unknown): StreamResult => ({
+        exitCode: null,
+        stderr: withReason(stderr, error),
+      });
       if (signal?.aborted) {
         done({ exitCode: null, stderr, killed: 'stopped' });
         return;
