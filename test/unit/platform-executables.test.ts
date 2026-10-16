@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, posix, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { resolveExecutable } from '../../src/platform/executables.ts';
+import { findNpmCli, resolveExecutable } from '../../src/platform/executables.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // A file system with only these runnable files.
@@ -188,5 +188,109 @@ describe('resolveExecutable on this machine', () => {
     assert.equal(resolveExecutable('tool', { env: { PATH: dir.path } }), undefined);
     chmodSync(join(dir.path, 'tool'), 0o755);
     assert.equal(resolveExecutable('tool', { env: { PATH: dir.path } }), join(dir.path, 'tool'));
+  });
+});
+
+// The gate runs npm run check with npm's CLI script as installed with the node running it (#41).
+describe('findNpmCli', () => {
+  it('finds npm-cli.js in node_modules next to node.exe on Windows', () => {
+    const npmCli = 'C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js';
+    assert.deepEqual(
+      findNpmCli('C:\\Program Files\\nodejs\\node.exe', {
+        platform: 'win32',
+        isFile: files(npmCli),
+      }),
+      { path: npmCli, tried: [npmCli] },
+    );
+  });
+
+  // Where npm is under node's prefix on macOS and Linux, in the order findNpmCli looks.
+  const posixNpmClis = (prefix: string): string[] => [
+    posix.join(prefix, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    posix.join(prefix, 'libexec', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    posix.join(prefix, 'share', 'nodejs', 'npm', 'bin', 'npm-cli.js'),
+  ];
+
+  for (const platform of ['linux', 'darwin'] as const) {
+    it(`finds npm-cli.js in lib/node_modules under node's prefix on ${platform}`, () => {
+      const npmCli = '/opt/node/lib/node_modules/npm/bin/npm-cli.js';
+      assert.deepEqual(findNpmCli('/opt/node/bin/node', { platform, isFile: files(npmCli) }), {
+        path: npmCli,
+        tried: posixNpmClis('/opt/node'),
+      });
+    });
+  }
+
+  // Homebrew's node installs npm in its keg's libexec, and process.execPath is the keg's node:
+  // macOS resolves the /opt/homebrew/bin/node link (review of #117, cross-platform).
+  it("finds Homebrew's npm in libexec/lib/node_modules under the keg", () => {
+    const keg = '/opt/homebrew/Cellar/node/24.10.0';
+    const npmCli = `${keg}/libexec/lib/node_modules/npm/bin/npm-cli.js`;
+    const found = findNpmCli(`${keg}/bin/node`, { platform: 'darwin', isFile: files(npmCli) });
+    assert.equal(found.path, npmCli);
+  });
+
+  // Debian's and Ubuntu's npm package installs npm in /usr/share/nodejs, next to /usr/bin/node.
+  it("finds the Debian npm package's npm in share/nodejs under node's prefix", () => {
+    const npmCli = '/usr/share/nodejs/npm/bin/npm-cli.js';
+    const found = findNpmCli('/usr/bin/node', { platform: 'linux', isFile: files(npmCli) });
+    assert.equal(found.path, npmCli);
+  });
+
+  it('takes the first place npm is in, in that order', () => {
+    const [, libexec = '', share = ''] = posixNpmClis('/opt/node');
+    const found = findNpmCli('/opt/node/bin/node', {
+      platform: 'linux',
+      isFile: files(share, libexec),
+    });
+    assert.equal(found.path, libexec);
+  });
+
+  it('finds nothing, naming each path it tried, when npm is not installed with node', () => {
+    assert.deepEqual(findNpmCli('/usr/bin/node', { platform: 'linux', isFile: files() }), {
+      path: undefined,
+      tried: posixNpmClis('/usr'),
+    });
+  });
+
+  // npm-cli.js where npm would be on another platform is not npm for this one.
+  it('looks only where npm is on the given platform', () => {
+    const elsewhere = '/opt/node/bin/node_modules/npm/bin/npm-cli.js';
+    assert.equal(
+      findNpmCli('/opt/node/bin/node', { platform: 'linux', isFile: files(elsewhere) }).path,
+      undefined,
+    );
+  });
+
+  it('finds a regular file named npm-cli.js where npm is installed with node', () => {
+    const dir = makeTempDir('npm-cli');
+    try {
+      const bin = join(dir.path, 'bin');
+      const npmCli =
+        process.platform === 'win32'
+          ? join(bin, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+          : join(dir.path, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      mkdirSync(join(npmCli, '..'), { recursive: true });
+      writeFileSync(npmCli, '');
+      assert.equal(findNpmCli(join(bin, 'node')).path, npmCli);
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('skips a folder named npm-cli.js', () => {
+    const dir = makeTempDir('npm-cli');
+    try {
+      const bin = join(dir.path, 'bin');
+      mkdirSync(bin);
+      const npmCli =
+        process.platform === 'win32'
+          ? join(bin, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+          : join(dir.path, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      mkdirSync(npmCli, { recursive: true });
+      assert.equal(findNpmCli(join(bin, 'node')).path, undefined);
+    } finally {
+      dir.remove();
+    }
   });
 });

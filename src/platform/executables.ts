@@ -28,6 +28,14 @@ const runnableFile =
     }
   };
 
+const regularFile = (path: string): boolean => {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
 /** An environment variable; on Windows whatever the case of its name (Path, PATHEXT, SYSTEMROOT). */
 export const environmentVariable = (
   env: NodeJS.ProcessEnv,
@@ -73,4 +81,40 @@ export const resolveExecutable = (
     if (found !== undefined) return found;
   }
   return undefined;
+};
+
+/** Where npm's CLI script is next to a node, or undefined; `tried` lists every place looked. */
+export interface NpmCliLookup {
+  path: string | undefined;
+  tried: string[];
+}
+
+export interface FindNpmCliOptions {
+  platform?: NodeJS.Platform;
+  /** Whether a regular file is at the path. */
+  isFile?: (path: string) => boolean;
+}
+
+/**
+ * npm's CLI script as installed with the node at `execPath`, so npm runs without npm's shims
+ * or a shell: `<node dir>/node_modules/npm` on Windows. Elsewhere node is `<prefix>/bin/node`,
+ * and npm is in `<prefix>/lib/node_modules/npm` (the nodejs.org builds, nvm, setup-node),
+ * `<prefix>/libexec/lib/node_modules/npm` (Homebrew's keg, which macOS resolves node's link to)
+ * or `<prefix>/share/nodejs/npm` (Debian's and Ubuntu's npm package), looked at in that order.
+ */
+export const findNpmCli = (execPath: string, options: FindNpmCliOptions = {}): NpmCliLookup => {
+  const { platform = process.platform, isFile = regularFile } = options;
+  const path = platform === 'win32' ? win32 : posix;
+  const nodeDir = path.dirname(execPath);
+  const prefix = path.dirname(nodeDir);
+  const npmDirs =
+    platform === 'win32'
+      ? [path.join(nodeDir, 'node_modules', 'npm')]
+      : [
+          path.join(prefix, 'lib', 'node_modules', 'npm'),
+          path.join(prefix, 'libexec', 'lib', 'node_modules', 'npm'),
+          path.join(prefix, 'share', 'nodejs', 'npm'),
+        ];
+  const tried = npmDirs.map((npmDir) => path.join(npmDir, 'bin', 'npm-cli.js'));
+  return { path: tried.find((npmCli) => isFile(npmCli)), tried };
 };
