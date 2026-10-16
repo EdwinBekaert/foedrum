@@ -93,6 +93,27 @@ describe('parseMutant', () => {
   });
 });
 
+describe('parseMutant allowlist edge cases', () => {
+  it('rejects a property name hidden behind a number literal', () => {
+    assert.match(
+      reasonOf(
+        mutant({ original: 'const limit = 1;', replacement: 'const limit = 1..constructor;' }),
+      ),
+      /constructor/,
+    );
+    assert.match(
+      reasonOf(
+        mutant({ original: 'const limit = 10;', replacement: 'const limit = 1.5.toFixed.length;' }),
+      ),
+      /toFixed/,
+    );
+  });
+
+  it('rejects a non-ASCII identifier the original line does not contain', () => {
+    assert.match(reasonOf(mutant({ original: 'let x = a;', replacement: 'let x = π;' })), /π/);
+  });
+});
+
 describe('editFile', () => {
   const file = [
     'export const next = (attempt, limit, delay) => {',

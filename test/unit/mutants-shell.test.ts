@@ -91,4 +91,27 @@ describe('mutants on a scratch tree', () => {
     });
     assert.equal(read(), source);
   });
+
+  it('marks a mutant whose file is a folder invalid and still checks the others', async () => {
+    mkdirSync(join(tree, 'src', 'engine'));
+    write({ mutants: [{ ...valid, file: 'src/engine' }, valid] });
+    const result = await checkMutants(tree, answer).catch((error: Error) => error.message);
+    assert.deepEqual(result, {
+      ok: true,
+      lines: ['mutant 1: invalid: src/engine is not a file', 'mutant 2: valid src/add.ts:2'],
+    });
+  });
+
+  it('refuses every mutant when the tree’s src/ is a link, so no edit can leave the tree', async () => {
+    const linked = join(dir.path, 'linked-tree');
+    mkdirSync(linked);
+    symlinkSync(join(dir.path, 'outside'), join(linked, 'src'), 'junction');
+    write({ mutants: [valid] });
+    assert.deepEqual(await checkMutants(linked, answer), {
+      ok: true,
+      lines: ['mutant 1: invalid: the tree’s src/ is not a folder of its own'],
+    });
+    assert.equal((await applyMutant(linked, answer, 1)).ok, false);
+    assert.equal(readFileSync(join(dir.path, 'outside', 'add.ts'), 'utf8'), source);
+  });
 });
