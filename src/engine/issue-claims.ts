@@ -3,6 +3,7 @@
 // release when the batch ends. This module decides; the GitHub layer implements `ClaimHost` and
 // turns each due effect into an `EffectTarget` (ADR 0033).
 
+import { ClaimRecord } from '../schemas/claim.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { Lane } from './fold.ts';
 
@@ -10,8 +11,11 @@ import type { Lane } from './fold.ts';
 export const brewingLabel = 'foedrum: brewing';
 
 /** The ref that claims `issue` in its repository: `refs/foedrum/claims/issues/<issue>`. */
-export const claimRef = (_issue: number): string => {
-  throw new Error('not implemented');
+export const claimRef = (issue: number): string => {
+  if (!Number.isSafeInteger(issue) || issue < 1) {
+    throw new RangeError(`The issue must be a positive integer, got ${issue}`);
+  }
+  return `refs/foedrum/claims/issues/${issue}`;
 };
 
 /** What the intake reads of a target-repository issue. */
@@ -45,9 +49,21 @@ export interface CandidateOptions {
   brewed: ReadonlySet<number>;
 }
 
+// GitHub compares logins, label names and repository names ignoring case.
+const same = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
+
 /** Whether the intake may claim `issue`: open, filtered in, unassigned or ours, never brewed. */
-export const isCandidate = (_issue: TargetIssue, _options: CandidateOptions): boolean => {
-  throw new Error('not implemented');
+export const isCandidate = (issue: TargetIssue, options: CandidateOptions): boolean => {
+  const { filter, claimant, brewed } = options;
+  return (
+    issue.state === 'open' &&
+    !issue.pullRequest &&
+    filter.labels.every((wanted) => issue.labels.some((label) => same(label, wanted))) &&
+    (filter.milestone === undefined || issue.milestone === filter.milestone) &&
+    // An issue assigned to a person is that person's; this Brewery's own user is its person.
+    issue.assignees.every((assignee) => same(assignee, claimant.login)) &&
+    !brewed.has(issue.number)
+  );
 };
 
 /** The code host side of a claim: the claim ref of an issue in a target repository. */
@@ -70,12 +86,40 @@ export type ClaimOutcome =
   /** `by` is the Brewery the record names, or undefined when the record cannot be read. */
   | { kind: 'taken'; by: string | undefined };
 
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+// The Brewery a claim ref's message names for `issue`, or undefined when it names none. The ref
+// was made by someone with push access, but its message is still read as untrusted text.
+const claimedBy = async (
+  host: ClaimHost,
+  repo: string,
+  issue: number,
+): Promise<{ found: false } | { found: true; brewery: string | undefined }> => {
+  const ref = await host.read(repo, issue);
+  if (ref === undefined) return { found: false };
+  const record = ClaimRecord.safeParse(parseJson(ref.message));
+  const brewery = record.success && record.data.issue === issue ? record.data.brewery : undefined;
+  return { found: true, brewery };
+};
+
 /** Claims `issue` in `repo` for the claimant's Brewery. */
 export const claimIssue = async (
-  _host: ClaimHost,
-  _claim: { repo: string; issue: number; brewery: string; now: string },
+  host: ClaimHost,
+  claim: { repo: string; issue: number; brewery: string; now: string },
 ): Promise<ClaimOutcome> => {
-  throw new Error('not implemented');
+  const { repo, issue, brewery, now } = claim;
+  const message = JSON.stringify(ClaimRecord.parse({ brewery, issue, claimedAt: now }));
+  if ((await host.create(repo, issue, message)) === 'created') return { kind: 'won' };
+  const holder = await claimedBy(host, repo, issue);
+  // Gone between creating and reading it: released in between; the next poll tries again.
+  if (!holder.found || holder.brewery === undefined) return { kind: 'taken', by: undefined };
+  return same(holder.brewery, brewery) ? { kind: 'ours' } : { kind: 'taken', by: holder.brewery };
 };
 
 /** What one pass of the intake got for a repository's issues. */
@@ -88,19 +132,35 @@ export interface ClaimPass {
 
 /** Claims every candidate of `issues`, one after the other, oldest issue first. */
 export const claimCandidates = async (
-  _host: ClaimHost,
-  _issues: readonly TargetIssue[],
-  _options: CandidateOptions & { repo: string; now: string },
+  host: ClaimHost,
+  issues: readonly TargetIssue[],
+  options: CandidateOptions & { repo: string; now: string },
 ): Promise<ClaimPass> => {
-  throw new Error('not implemented');
+  const { repo, now, claimant } = options;
+  const candidates = issues
+    .filter((issue) => isCandidate(issue, options))
+    .map((issue) => issue.number)
+    .sort((one, other) => one - other);
+  const pass: ClaimPass = { order: [], taken: [] };
+  for (const issue of candidates) {
+    const outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
+    if (outcome.kind === 'taken') pass.taken.push({ issue, by: outcome.by });
+    else pass.order.push(issue);
+  }
+  return pass;
 };
 
 /** Releases the claim when its record still names `brewery`; `gone` or `not_ours` otherwise. */
 export const releaseClaim = async (
-  _host: ClaimHost,
-  _claim: { repo: string; issue: number; brewery: string },
+  host: ClaimHost,
+  claim: { repo: string; issue: number; brewery: string },
 ): Promise<'released' | 'gone' | 'not_ours'> => {
-  throw new Error('not implemented');
+  const { repo, issue, brewery } = claim;
+  const holder = await claimedBy(host, repo, issue);
+  if (!holder.found) return 'gone';
+  if (holder.brewery === undefined || !same(holder.brewery, brewery)) return 'not_ours';
+  await host.delete(repo, issue);
+  return 'released';
 };
 
 /** How a pull request of a batch stands. */
@@ -127,15 +187,76 @@ export interface DueClaimEffect {
   effect: ClaimEffect;
 }
 
+type Release = 'cancelled' | 'merged' | 'closed';
+
+// Why the claim ends now, or undefined while the batch is live or a pull request of it is open.
+const releaseOf = (
+  lane: Lane,
+  pullRequest: (url: string) => PullRequestState,
+): Release | undefined => {
+  switch (lane.kind) {
+    case 'ordered':
+    case 'brewing':
+    case 'conditioning':
+    case 'stuck':
+      return undefined;
+    case 'cancelled':
+      return 'cancelled';
+    case 'on_tap': {
+      const states = lane.pullRequests.map(pullRequest);
+      if (states.includes('open')) return undefined;
+      return states.every((state) => state === 'merged') ? 'merged' : 'closed';
+    }
+    default:
+      return lane satisfies never;
+  }
+};
+
+const released: Record<Release, string> = {
+  cancelled: 'was cancelled',
+  merged: 'is done: its pull requests were merged',
+  closed: 'ended: a pull request was closed without being merged',
+};
+
 /**
  * The effects of the batch's claim that are due, in the order to apply them: the marks while the
  * batch is live or its pull requests are open, the release once it is cancelled or every pull
  * request it opened is merged or closed. The ledger skips those already applied.
  */
 export const claimEffectsDue = (
-  _batch: ClaimedBatch,
-  _claimant: Claimant,
-  _pullRequest: (url: string) => PullRequestState,
+  batch: ClaimedBatch,
+  claimant: Claimant,
+  pullRequest: (url: string) => PullRequestState,
 ): DueClaimEffect[] => {
-  throw new Error('not implemented');
+  const { batchId, repo, issue } = batch;
+  const { brewery, login } = claimant;
+  const due = (effect: string, does: ClaimEffect): DueClaimEffect => ({
+    key: { batchId, effect },
+    effect: does,
+  });
+  const release = releaseOf(batch.lane, pullRequest);
+  if (release === undefined) {
+    return [
+      due('claim.assignee', { kind: 'assign', repo, issue, login }),
+      due('claim.label', { kind: 'add_label', repo, issue, label: brewingLabel }),
+      due('claim.comment', {
+        kind: 'comment',
+        repo,
+        issue,
+        body: `The Brewery \`${brewery}\` is brewing this issue as batch \`${batchId}\`, and holds its claim until the batch ends. To release it by hand, delete the ref \`${claimRef(issue)}\` and unassign the issue.`,
+      }),
+    ];
+  }
+  // The assignee stays: removing it would hand the issue to the next Brewery that polls.
+  // The ref goes last, so the issue is never claimable while the marks are still on it.
+  return [
+    due('release.label', { kind: 'remove_label', repo, issue, label: brewingLabel }),
+    due('release.comment', {
+      kind: 'comment',
+      repo,
+      issue,
+      body: `The Brewery \`${brewery}\` released its claim on this issue: batch \`${batchId}\` ${released[release]}.`,
+    }),
+    due('release.ref', { kind: 'release_ref', repo, issue, brewery }),
+  ];
 };

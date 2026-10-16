@@ -72,8 +72,16 @@ export const attemptBranch = (ref: AttemptRef): string => {
  * `foedrum/<brewery>/<rest>`, with the Brewery as `<owner>.<name>` in lower case, so two Breweries
  * never push the same branch (ADR 0043).
  */
-export const remoteBranch = (_brewery: string, _local: string): string => {
-  throw new Error('not implemented');
+export const remoteBranch = (brewery: string, local: string): string => {
+  const [namespace, ...rest] = local.split('/');
+  if (namespace !== 'foedrum' || rest.length === 0 || rest.includes('')) {
+    throw new Error(`${JSON.stringify(local)} is not a branch in foedrum/`);
+  }
+  const prefix = repoFolder(brewery);
+  if (!refSegment(prefix)) {
+    throw new Error(`The Brewery ${JSON.stringify(brewery)} is no part of a branch name`);
+  }
+  return `foedrum/${prefix}/${rest.join('/')}`;
 };
 
 /** The attempt whose branch this is, or undefined for any other branch. */
