@@ -214,14 +214,18 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     await assertAllEnd(pidsIn(pidFile));
   });
 
-  // Fail closed: nothing runs outside a job when the helper cannot make one.
+  // Fail closed: nothing runs outside a job when the helper cannot make one. The reason is the
+  // failed call's own: 267, ERROR_DIRECTORY, in any language Windows speaks.
   it('starts nothing, and says why, when the program cannot start', async () => {
     const result = await execProcess(process.execPath, ['-e', ''], {
       cwd: join(dir.path, 'no-such-folder'),
       jobObject: true,
     });
     assert.equal(result.exitCode, null);
-    assert.match(result.stderr, /node\.exe: cannot run in a Job Object: /);
+    assert.match(
+      result.stderr,
+      /node\.exe: cannot run in a Job Object: CreateProcess: .+ \(267\)$/,
+    );
   });
 
   // Where a policy keeps PowerShell in Constrained Language Mode, no job can be made. The mode is
