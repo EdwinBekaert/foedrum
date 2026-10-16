@@ -826,6 +826,29 @@ describe('streamProcessWith', () => {
     assert.deepEqual(result, { exitCode: null, stderr: 'spawn claude ENOENT' });
   });
 
+  it('starts the file the spawner resolves the name to, and nothing when there is none', async () => {
+    const child = new FakeChild();
+    const started: string[] = [];
+    const spawner: Spawner = {
+      spawn: (file) => {
+        started.push(file);
+        return child;
+      },
+      killTree: () => {},
+      resolve: (file) => (file === 'claude' ? 'C:\\tools\\claude.exe' : undefined),
+    };
+    const stream = streamProcessWith(spawner);
+    const options = { cwd: '/work/tree', maxLineBytes: 100, onLine: () => {} };
+    const done = stream('claude', [], options);
+    child.close(0);
+    assert.deepEqual(await done, { exitCode: 0, stderr: '' });
+    assert.deepEqual(await stream('nope', [], options), {
+      exitCode: null,
+      stderr: 'nope: not found on PATH (ENOENT)',
+    });
+    assert.deepEqual(started, ['C:\\tools\\claude.exe']);
+  });
+
   it('answers without an exit code, with the reason, when the process fails', async () => {
     const child = new FakeChild();
     const { stream, options } = streamer(child);
