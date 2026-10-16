@@ -1,6 +1,6 @@
 # 0046. Only the runner's settings, the init check, and a stream read line by line
 
-Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) and [0042](0042-the-claude-command-line-and-stream-contract.md) · Amended by [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) and [0042](0042-the-claude-command-line-and-stream-contract.md) · Amended by [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) and [0048](0048-proven-claude-versions-retried-pre-stream-failures-and-out-doc-identity.md)
 
 ## Context
 [ADR 0042](0042-the-claude-command-line-and-stream-contract.md) fixed the `claude` command line and the stream the brewer runner reads, and left questions to the real runner (#11). The consultant's review of the spike ([#11, comment](https://github.com/EdwinBekaert/foedrum/issues/11#issuecomment-6215999983)) marked three of them as blocking: no real brewer may run before they are settled.
@@ -74,3 +74,6 @@ Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcome
 - **A mismatched init as a retryable failure, or as "could not start":** a retry meets the same settings and spends an attempt; "could not start" ends as `attempts_exhausted`, which hides that the machine is what needs fixing.
 - **A larger total output limit instead of a limit per line:** a stream of several hundred megabytes would be held in memory twice, and it only moves the wall.
 - **The settings inline on the command line:** dropped just as silently when invalid, and it costs command-line length (ADR 0042).
+
+## Verification
+- **Proven versions:** the proof above passed on `claude` 2.1.301, and on no other version. `PROVEN_CLAUDE` (`src/brewers/claude-version.ts`) holds that range, 2.1.301 to 2.1.301; outside it doctor and the runner warn (ADR 0048, #128). Rerun `test/integration/claude-cli.test.ts` on a new version and widen the range in the same change.
