@@ -281,8 +281,8 @@ export const execProcessWith =
       child.on('close', (code) => finish(ended(code)));
     });
 
-/** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
-export const execProcess: ExecProcess = execProcessWith({
+/** The real spawner. Unit tests use a fake one instead (ADR 0021). */
+export const processSpawner: Spawner = {
   spawn: (file, args, { cwd, env }) => {
     const command = spawnCommand(file, args, process.platform, env);
     return spawn(command.file, command.args, {
@@ -298,7 +298,10 @@ export const execProcess: ExecProcess = execProcessWith({
   // Never the working directory or a relative PATH folder, where a repository could plant its
   // own git.exe (#12).
   resolve: (file, env) => resolveExecutable(file, { env }),
-});
+};
+
+/** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
+export const execProcess: ExecProcess = execProcessWith(processSpawner);
 
 // The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output
 // together. Unit tests pass a fake one.
