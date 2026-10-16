@@ -135,10 +135,18 @@ const lex = (command: string, dialect: Dialect): Lexed => {
       add(command.slice(i, end), sign === '$');
       return end;
     }
-    const close = next === '{' ? '}' : next === "'" && dialect === 'bash' ? "'" : undefined;
-    if (close !== undefined) {
-      const end = command.indexOf(close, i + 2);
+    if (next === '{') {
+      const end = command.indexOf('}', i + 2);
       if (end < 0) return -1;
+      add(command.slice(i, end + 1), true);
+      return end + 1;
+    }
+    if (next === "'" && dialect === 'bash') {
+      // $'…': a backslash escapes the next character, a quote too.
+      let end = i + 2;
+      while (end < command.length && command[end] !== "'") end += command[end] === '\\' ? 2 : 1;
+      if (end >= command.length) return -1;
+      lexed.strings.push(command.slice(i + 2, end));
       add(command.slice(i, end + 1), true);
       return end + 1;
     }
@@ -196,8 +204,11 @@ const lex = (command: string, dialect: Dialect): Lexed => {
   while (i >= 0 && i < command.length) {
     const char = command[i] ?? '';
     if (char === escapeChar) {
-      add(command[i + 1] === '\n' ? '' : (command[i + 1] ?? ''));
-      i += 2;
+      // A line continuation, before LF or CRLF, joins the lines.
+      const next = command[i + 1];
+      const crlf = next === '\r' && command[i + 2] === '\n';
+      add(next === '\n' || crlf ? '' : (next ?? ''));
+      i += crlf ? 3 : 2;
     } else if (char === ' ' || char === '\t') {
       endWord();
       i++;
@@ -285,12 +296,27 @@ const WRAPPERS = new Map<string, Wrapper>([
   ],
 ]);
 
-// The program and arguments of a simple command, after environment assignments and wrapper
-// words. A wrapper option whose value is a command adds it to `nested`.
+// bash's reserved words that can come before a command.
+const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
+// A PowerShell assignment operator, as in `$out = git push`.
+const ASSIGNMENT = /^[-+*/%?]?=$/;
+
+// Whether the first words are an environment assignment, a reserved word or a PowerShell
+// assignment, and how many.
+const leadingWords = ([first, second]: Word[]): number => {
+  if (first === undefined) return 0;
+  if (ENV_ASSIGNMENT.test(first.text) || RESERVED_WORDS.has(first.text)) return 1;
+  return first.dynamic && ASSIGNMENT.test(second?.text ?? '') ? 2 : 0;
+};
+
+// The program and arguments of a simple command, after environment assignments, reserved words,
+// PowerShell assignments and wrapper words. A wrapper option whose value is a command adds it to
+// `nested`.
 const invocation = (words: Word[], nested: string[]): Invocation | undefined => {
   let rest = words;
   for (;;) {
-    while (rest[0] !== undefined && ENV_ASSIGNMENT.test(rest[0].text)) rest = rest.slice(1);
+    for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
+      rest = rest.slice(skip);
     const [first, ...args] = rest;
     if (first === undefined) return undefined;
     const program = first.dynamic ? COMPUTED : programName(first.text);
@@ -418,9 +444,10 @@ const powershellCommands = (args: Word[]): string[] => {
   return commands;
 };
 
-// The command cmd runs after /c or /k, without its ^ escapes.
+// The command cmd runs after /c or /k (//c in Git Bash, which would turn /c into a path), without
+// its ^ escapes.
 const cmdCommands = (args: Word[]): string[] => {
-  const run = args.findIndex((arg) => /^\/[ck]$/i.test(arg.text));
+  const run = args.findIndex((arg) => /^\/\/?[ck]$/i.test(arg.text));
   return run < 0 ? [] : [text(args.slice(run + 1)).replaceAll('^', '')];
 };
 
@@ -464,9 +491,29 @@ const startProcessCommands = (args: Word[]): string[] => {
   }
   if (file.length === 0) file.push(operands.shift() ?? '');
   if (list.length === 0) list.push(operands.shift() ?? '');
-  const words = [...file, ...list].join(' ').split(/[\s,]+/);
-  return [words.map((word) => word.replace(/^[@('"]+|['")]+$/g, '')).join(' '), text(args)];
+  // The file stays one word, quoted, so a path with a space keeps its program name.
+  const program = `"${file.join(' ')}"`;
+  const words = list.join(' ').split(/[\s,]+/);
+  return [
+    [program, ...words.map((word) => word.replace(/^[@('"]+|['")]+$/g, ''))].join(' '),
+    text(args),
+  ];
 };
+
+// Interpreters and their options whose value is code, such as node -e.
+const INTERPRETERS = new Map<string, readonly string[]>([
+  ['node', ['-e', '--eval', '-p', '--print']],
+  ['bun', ['-e', '--eval', '-p', '--print']],
+  ['python', ['-c']],
+  ['python3', ['-c']],
+  ['py', ['-c']],
+  ['perl', ['-e', '-E']],
+  ['ruby', ['-e']],
+]);
+
+// A command line without its quotes and brackets, so a command inside another language's string
+// or list (execSync('git push -f'), ['git', 'push']) or after a stray quote reads as one.
+const withoutQuotes = (text: string): string => text.replace(/["'`$[\],]/g, ' ');
 
 const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish']);
 const POWERSHELLS = new Set(['pwsh', 'powershell']);
@@ -479,6 +526,11 @@ const readInvocation = ({ program, args }: Invocation, reading: Reading): boolea
   if (program === 'git' || program === COMPUTED) readGit(args, program === 'git', reading);
   if (program === 'gh' || program === COMPUTED) readGh(args, program === 'gh', reading);
   const { nested } = reading;
+  const codeOptions = INTERPRETERS.get(program);
+  if (codeOptions !== undefined) {
+    if (args.some((arg) => codeOptions.includes(arg.text))) nested.push(withoutQuotes(text(args)));
+    return false;
+  }
   if (POSIX_SHELLS.has(program)) {
     nested.push(...args.filter((arg) => !/^[-+]/.test(arg.text)).map((arg) => arg.text));
   } else if (POWERSHELLS.has(program)) nested.push(...powershellCommands(args));
@@ -513,8 +565,11 @@ const read = (
     if (runsText) {
       reading.nested.push(...lexed.strings, ...lexed.segments.map((words) => text(words.slice(1))));
     }
+    // A string over several lines may be an apostrophe in a comment, a heredoc or a here-string
+    // read as a quote, so its lines are read as commands too.
+    reading.nested.push(...lexed.strings.filter((string) => /[\r\n]/.test(string)));
     // Read without quotes, so a stray quote never hides what follows it.
-    if (lexed.unclosed) reading.nested.push(command.replace(/["'`$]/g, ' '));
+    if (lexed.unclosed) reading.nested.push(withoutQuotes(command));
     for (const each of reading.nested) nested.add(each);
     for (const each of reading.aliases) aliases.add(each);
   }
