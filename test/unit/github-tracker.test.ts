@@ -14,7 +14,16 @@ const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`../fixtures/github/${name}.json`, import.meta.url), 'utf8'));
 
 const api = 'https://api.github.com';
-const listing = `${api}/repos/acme/web/issues?state=open&sort=created&direction=asc&per_page=100`;
+const listing = `${api}/repos/acme/web/issues?state=open&sort=created&direction=asc&per_page=10`;
+
+/**
+ * How many of the longest bodies GitHub keeps (65,536 characters, 6 bytes each as `\u` escapes)
+ * fit in the client's 4 MiB answer limit.
+ */
+const longestFit = Math.floor((4 * 1024 * 1024) / (65_536 * 6 + 4096));
+const perPage = (url: string | undefined): number =>
+  Number(new URL(url ?? 'https://x').searchParams.get('per_page'));
+
 const pullRequest = 'https://github.com/acme/web/pull/12';
 
 const trackerWith = (answers: Answer[]) => {
@@ -86,6 +95,15 @@ describe('githubTargetTracker', () => {
       const first = await tracker.issues('acme/web');
       assert.deepStrictEqual(await tracker.issues('acme/web'), first);
       assert.equal(requests[1]?.headers['if-none-match'], 'W/"issues"');
+    });
+
+    it('asks for pages small enough that a page of the longest issues stays under the answer limit', async () => {
+      const { tracker, requests } = trackerWith([{ status: 200, body: [] }]);
+      await tracker.issues('acme/web');
+      // Anyone may open issues on a public repository: a page of long ones must not stop the
+      // listing.
+      assert.ok(perPage(requests[0]?.url) >= 1);
+      assert.ok(perPage(requests[0]?.url) <= longestFit, `per_page ${perPage(requests[0]?.url)}`);
     });
 
     it('reads every page of the listing', async () => {

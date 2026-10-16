@@ -16,6 +16,13 @@ const fixture = (name: string): unknown =>
 
 const api = 'https://api.github.com';
 const repo = 'acme/web';
+/**
+ * How many of the longest bodies GitHub keeps (65,536 characters, 6 bytes each as `\u` escapes)
+ * fit in the client's 4 MiB answer limit.
+ */
+const longestFit = Math.floor((4 * 1024 * 1024) / (65_536 * 6 + 4096));
+const perPage = (url: string | undefined): number =>
+  Number(new URL(url ?? 'https://x').searchParams.get('per_page'));
 const marker = '<!-- foedrum:["web-7","claim.comment"] -->';
 
 const marksWith = (answers: Answer[], login = 'alice') => {
@@ -111,9 +118,18 @@ describe('githubIssueMarks', () => {
     const { marks, requests } = marksWith([{ status: 200, body: fixture('comments') }]);
     // mallory's comment 501 carries the marker too, and comes first.
     assert.equal(await marks.findComment(repo, 7, marker), 502);
-    assert.equal(requests[0]?.url, `${api}/repos/acme/web/issues/7/comments?per_page=100`);
+    assert.equal(requests[0]?.url, `${api}/repos/acme/web/issues/7/comments?per_page=10`);
     const other = marksWith([{ status: 200, body: fixture('comments') }], 'bob');
     assert.equal(await other.marks.findComment(repo, 7, marker), undefined);
+  });
+
+  it('asks for pages small enough that a page of the longest comments stays under the answer limit', async () => {
+    const { marks, requests } = marksWith([{ status: 200, body: [] }]);
+    await marks.findComment(repo, 7, marker);
+    // Anyone may comment on a public repository: long comments must not stop the claim's
+    // effects.
+    assert.ok(perPage(requests[0]?.url) >= 1);
+    assert.ok(perPage(requests[0]?.url) <= longestFit, `per_page ${perPage(requests[0]?.url)}`);
   });
 
   it('finds the comment on a later page', async () => {

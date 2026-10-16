@@ -151,6 +151,21 @@ describe('createGitHubReads', () => {
       }
     });
 
+    it('reads 500 pages by default, and fails on the 501st: 5,000 items at 10 a page', async () => {
+      const pages = (count: number): Answer[] =>
+        Array.from({ length: count }, (_, index) => ({
+          status: 200,
+          body: [index],
+          headers: { link: next(index + 2) },
+        }));
+      const { reads } = readsWith(pages(501));
+      await assert.rejects(reads.pages('/r', 'the issues'), /the issues has more than 500 pages/);
+      const last = pages(500);
+      last[499] = { status: 200, body: [499] };
+      const { reads: enough } = readsWith(last);
+      assert.equal((await enough.pages('/r', 'the issues')).length, 500);
+    });
+
     it('fails past its most pages instead of reading on, or stopping short in silence', async () => {
       const { reads, requests } = readsWith(
         [
