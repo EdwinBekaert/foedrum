@@ -8,7 +8,7 @@ describe('importsOf', () => {
       "import { a } from './a.ts';",
       "import type { B } from '../b.ts';",
       "import './c.ts';",
-      "export { d } from \"./d.ts\";",
+      'export { d } from "./d.ts";',
       "export * from './e.ts';",
       "const { f } = await import('./f.ts');",
       'import {',
