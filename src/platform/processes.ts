@@ -394,6 +394,12 @@ export const streamProcessWith =
         done({ exitCode: null, stderr, killed: 'stopped' });
         return;
       }
+      // Between the direct child's exit and the close of its pipes, a kill would use an exited
+      // pid, which taskkill /T cannot follow to the grandchildren (#128).
+      if (jobObjects && !jobObject) {
+        done(failed(`${file}: streamProcess runs a program only in a Job Object here (ADR 0039)`));
+        return;
+      }
       const program = resolve === undefined ? file : resolve(file, env);
       if (program === undefined) {
         done(failed(`${file}: not found on PATH (ENOENT)`));
@@ -438,8 +444,12 @@ export const streamProcessWith =
         timeoutMs === undefined ? undefined : timers.set(() => kill('timed-out'), timeoutMs);
       signal?.addEventListener('abort', stop, { once: true });
       // A program that exits before reading its input makes the write fail (EPIPE); how it ended
-      // says more than that.
-      if (stdin !== undefined && child.stdin) {
+      // says more than that. Without a pipe it would run without its input (#128).
+      if (stdin !== undefined) {
+        if (!child.stdin) {
+          end(failed(`${file}: no pipe to its stdin`));
+          return;
+        }
         child.stdin.on('error', () => {});
         child.stdin.end(stdin);
       }
