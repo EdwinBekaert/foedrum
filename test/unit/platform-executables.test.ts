@@ -230,6 +230,22 @@ describe('findNpmCli', () => {
     );
   });
 
+  it('finds a regular file named npm-cli.js where npm is installed with node', () => {
+    const dir = makeTempDir('npm-cli');
+    try {
+      const bin = join(dir.path, 'bin');
+      const npmCli =
+        process.platform === 'win32'
+          ? join(bin, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+          : join(dir.path, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      mkdirSync(join(npmCli, '..'), { recursive: true });
+      writeFileSync(npmCli, '');
+      assert.equal(findNpmCli(join(bin, 'node')).path, npmCli);
+    } finally {
+      dir.remove();
+    }
+  });
+
   it('skips a folder named npm-cli.js', () => {
     const dir = makeTempDir('npm-cli');
     try {
