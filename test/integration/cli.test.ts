@@ -1,8 +1,9 @@
-// `foedrum status` and `replay` as the real program, against real store files (ADR 0021): what
+// `foedrum status`, `replay` and `cancel` as the real program, against real store files (ADR 0021):
 // main.ts wires in that the unit tests replace. The output itself is in test/unit/cli.test.ts.
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -63,6 +64,39 @@ describe('foedrum status and replay on store files', () => {
       { user_version: 1, journal_mode: 'delete' },
     );
     after.close();
+  });
+
+  it('changes a store with a command that changes state, recorded as the user from the terminal', async () => {
+    mkdirSync(join(brewery.path, '.foedrum'));
+    const writer = openSqliteEventStore(store);
+    writer.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
+    );
+    writer.close();
+    const { exitCode, stdout, stderr } = await foedrum('cancel', '12-1');
+    assert.equal(stderr, '');
+    assert.equal(exitCode, 0);
+    assert.equal(stdout, `12-1 cancelled: by ${userInfo().username} via terminal\n`);
+    const reader = openSqliteEventStore(store, { readOnly: true });
+    assert.deepEqual(reader.eventsAfter(1)[0]?.event, {
+      type: 'batch.cancelled',
+      batchId: '12-1',
+      by: userInfo().username,
+      via: 'terminal',
+    });
+    reader.close();
+  });
+
+  it('creates no store for a command that changes state, in a folder without one', async () => {
+    const { exitCode, stderr } = await foedrum('cancel', '12-1');
+    assert.equal(exitCode, 1);
+    assert.equal(stderr, `foedrum cancel: no event store at ${store}\n`);
+    assert.equal(existsSync(store), false);
   });
 
   it('says in one line, and exits 1, when the store is not a database', async () => {
