@@ -84,6 +84,12 @@ describe('parseMutant', () => {
     }
   });
 
+  it('rejects the bare folder names, which are folders, not files', () => {
+    for (const file of ['src', 'scripts']) {
+      assert.match(reasonOf(mutant({ file })), /under src\/ or scripts\//, file);
+    }
+  });
+
   it('rejects a replacement of more than one line', () => {
     assert.match(reasonOf(mutant({ replacement: 'a;\nb;' })), /one line/);
     assert.match(reasonOf(mutant({ replacement: 'a;\r' })), /one line/);

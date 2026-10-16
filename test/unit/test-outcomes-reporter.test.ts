@@ -59,6 +59,21 @@ describe('outcomesReporter', () => {
     ]);
   });
 
+  it('keeps the suites of each file apart when the events of two files interleave', async () => {
+    const outcomes = await report([
+      start(fileA, 0, 'suite a'),
+      start(fileB, 0, 'suite b'),
+      start(fileB, 1, 'in b'),
+      start(fileA, 1, 'in a'),
+      end(true, fileA, 1, 'in a'),
+      end(true, fileB, 1, 'in b'),
+    ]);
+    assert.deepEqual(outcomes, [
+      { file: 'test/unit/a.test.ts', test: ['suite a', 'in a'], ok: true },
+      { file: 'test/unit/b.test.ts', test: ['suite b', 'in b'], ok: true },
+    ]);
+  });
+
   it('writes a file that failed to load as a failed test named after the file', async () => {
     const name = join('test', 'unit', 'b.test.ts');
     assert.deepEqual(await report([start(fileB, 0, name), end(false, fileB, 0, name)]), [
