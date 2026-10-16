@@ -223,7 +223,8 @@ describe('readGuard: Windows paths', () => {
       const { exitCode, stderr, calls } = await guard(winInput('Read', { file_path }), win);
       assert.equal(exitCode, 2);
       assert.match(stderr, /network or device path/);
-      assert.deepEqual(calls, []);
+      // Only the checkout itself is resolved.
+      assert.deepEqual(calls, ['D:\\repo']);
     });
   }
 
