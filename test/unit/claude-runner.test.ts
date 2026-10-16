@@ -350,7 +350,7 @@ describe('claudeBrewerRunner', () => {
     running.stop();
     release();
     assert.deepEqual((await running.ended).ending, { kind: 'cancelled' });
-    assert.ok(calls.every((call) => call.options.signal?.aborted));
+    assert.deepEqual(calls, []);
   });
 });
 
