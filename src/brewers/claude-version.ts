@@ -44,8 +44,16 @@ export const provenClaudeText = (range: VersionRange = PROVEN_CLAUDE): string =>
 export const unprovenClaudeText = (version: string): string =>
   `claude ${version} is not a version Foedrum proved its brewer settings on (${provenClaudeText()})`;
 
+/** Whether a version claude reported is short and `major.minor.patch`, so it may be repeated. */
+export const isReadableVersion = (version: string): boolean =>
+  version.length <= 32 && partsOf(version) !== undefined;
+
 /** The warning for a claude outside the proven range, or `undefined` inside it. */
 export function unprovenClaudeWarning(version: string): string | undefined {
   if (isProvenClaude(version)) return undefined;
+  // The version comes from claude's stream: one that is not a version is not repeated.
+  if (!isReadableVersion(version)) {
+    return `claude reported a version Foedrum cannot read, so not one it proved its brewer settings on (${provenClaudeText()}): a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)`;
+  }
   return `${unprovenClaudeText(version)}: a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)`;
 }

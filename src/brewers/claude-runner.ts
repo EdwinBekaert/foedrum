@@ -40,7 +40,7 @@ import {
 } from './attempt-settings.ts';
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
-import { unprovenClaudeWarning } from './claude-version.ts';
+import { isReadableVersion, unprovenClaudeWarning } from './claude-version.ts';
 import type { BrewerPrompt } from './prompt.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
@@ -129,7 +129,9 @@ export function readOutDocFile(
     try {
       // O_NOFOLLOW covers only the last part of the path: the file opened must be the one checked.
       const held = fstatSync(fd, { bigint: true });
-      if (held.dev !== checked.dev || held.ino !== checked.ino) {
+      // A swap that came before the identity was taken and is still in place moved the real path
+      // (review of #136); one made and undone within these few calls is not seen.
+      if (held.dev !== checked.dev || held.ino !== checked.ino || realpathSync(file) !== real) {
         return { kind: 'unread', reason: 'it changed while it was read' };
       }
       if (!held.isFile()) return notAFile;
@@ -194,7 +196,7 @@ const environmentOf = (
 export function waitFor(
   ms: number,
   signal: AbortSignal,
-  _timers: Timers = { set: setTimeout, clear: (timer) => clearTimeout(timer as NodeJS.Timeout) },
+  timers: Timers = { set: setTimeout, clear: (timer) => clearTimeout(timer as NodeJS.Timeout) },
 ): Promise<void> {
   return new Promise<void>((done) => {
     // A stop that came before the wait began costs no wait (review of #136).
@@ -202,11 +204,11 @@ export function waitFor(
       done();
       return;
     }
-    const timer = setTimeout(done, ms);
+    const timer = timers.set(done, ms);
     signal.addEventListener(
       'abort',
       () => {
-        clearTimeout(timer);
+        timers.clear(timer);
         done();
       },
       { once: true },
@@ -333,8 +335,10 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       }
       const seen = stream.facts();
       const version = seen.session?.claudeVersion;
-      if (version !== undefined && !warned.has(version)) {
-        warned.add(version);
+      // One key for every version it cannot read, so a strange one cannot grow the set.
+      const key = version !== undefined && !isReadableVersion(version) ? '' : version;
+      if (version !== undefined && key !== undefined && !warned.has(key)) {
+        warned.add(key);
         const warning = unprovenClaudeWarning(version);
         if (warning !== undefined) deps.warn(warning);
       }
