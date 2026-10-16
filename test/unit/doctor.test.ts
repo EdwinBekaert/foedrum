@@ -279,7 +279,7 @@ describe('diagnose: the Brewery config (ADR 0043)', () => {
       { required: true, what: 'foedrum.jsonc is not valid' },
     );
     assert.match(problem?.fix ?? '', /The alias app is already the alias of acme\/web/);
-    assert.match(problem?.fix ?? '', /repositories\.acme\/api\.alias/);
+    assert.match(problem?.fix ?? '', /repositories\["acme\/api"\]\.alias/);
     assert.doesNotMatch(problem?.fix ?? '', /\n/, 'one line in the report');
   });
 
