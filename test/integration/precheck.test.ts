@@ -63,7 +63,7 @@ const hookInput = (command: string, cwd: string): string =>
     cwd,
   });
 
-describe('scripts/precheck.ts with a stub npm', () => {
+describe('scripts/precheck.ts started by node', () => {
   it('blocks a push with exit 2 and npm output intact when npm run check fails', async () => {
     const pushFrom = makeTempDir('push-from');
     try {
