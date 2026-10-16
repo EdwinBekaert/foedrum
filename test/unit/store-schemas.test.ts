@@ -82,6 +82,17 @@ describe('EffectKeyText', () => {
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(EffectKeyText, value));
   }
+
+  const invalidBatchTexts: [string, unknown][] = [
+    ['one part', '["b1"]'],
+    ['an empty effect', '["b1",""]'],
+    ['an upper-case batch id', '["B1","claim.label"]'],
+    ['a number for the effect', '["b1",1]'],
+    ['a non-canonical spelling (spaces)', '["b1", "claim.label"]'],
+  ];
+  for (const [name, value] of invalidBatchTexts) {
+    it(`rejects a batch key text with ${name}`, () => rejects(EffectKeyText, value));
+  }
 });
 
 describe('Lease', () => {
