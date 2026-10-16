@@ -11,14 +11,21 @@ import { isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { killLeftovers } from './leftover-processes.ts';
 
 describe('runGit with real git', () => {
   let dir: TempDir;
+  let pidFile: string;
   beforeEach(() => {
     dir = makeTempDir('git');
+    pidFile = join(dir.path, 'pid').replaceAll('\\', '/');
   });
-  // On Windows, git's killed tree can hold the folder a moment longer; removeTree retries.
-  afterEach(() => removeTree(dir.path));
+  // A failed assertion must not leave the sleeping child running. On Windows, git's killed tree
+  // can hold the folder a moment longer; removeTree retries.
+  afterEach(async () => {
+    await killLeftovers(pidFile);
+    removeTree(dir.path);
+  });
 
   it('answers with git output and exit code', async () => {
     const result = await runGit(dir.path, ['--version']);
@@ -28,7 +35,6 @@ describe('runGit with real git', () => {
 
   it('ends git and the processes it started at the timeout', async () => {
     // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
-    const pidFile = join(dir.path, 'pid').replaceAll('\\', '/');
     const node = process.execPath.replaceAll('\\', '/');
     const script = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
     const hang = `alias.hang=!"${node}" -e "${script}"`;

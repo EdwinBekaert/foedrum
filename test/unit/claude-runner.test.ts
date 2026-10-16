@@ -2,7 +2,16 @@
 // captured streams of #17: what it starts, what it writes, and how each attempt ends.
 
 import assert from 'node:assert/strict';
-import { linkSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -12,6 +21,7 @@ import {
   type ClaudeRunnerDeps,
   claudeBrewerRunnerWith,
   readOutDocFile,
+  waitFor,
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt, type BrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptLimits, AttemptStart } from '../../src/engine/brewer-runner.ts';
@@ -72,13 +82,18 @@ type Play =
 const at = (seconds: number): Date => new Date(Date.UTC(2026, 9, 16, 12, 0, seconds));
 
 const setup = (
-  play: Play,
+  plays: Play | readonly Play[],
   more: {
     plan?: () => Promise<ClaudeAttemptPlan>;
     outDoc?: string | undefined | { unread: string };
+    /** A wait that never ends, so the attempt can be stopped while it waits. */
+    waitForever?: boolean;
   } = {},
 ) => {
+  // One play per start of claude, the last one again for every start after it.
+  const queue = Array.isArray(plays) ? [...plays] : [plays];
   const calls: Call[] = [];
+  const waits: number[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
   const read: { file: string; maxBytes: number; root: string }[] = [];
   let clock = 0;
@@ -87,6 +102,7 @@ const setup = (
     plan: more.plan ?? (async () => plan()),
     stream: async (file, args, options) => {
       calls.push({ file, args, options });
+      const play = (queue.length > 1 ? queue.shift() : queue[0]) as Play;
       if ('throws' in play) throw play.throws;
       for (const line of play.lines) {
         if (options.signal?.aborted) break;
@@ -116,8 +132,13 @@ const setup = (
       clock += 1;
       return at(clock);
     },
+    wait: (ms, signal) => {
+      waits.push(ms);
+      if (more.waitForever !== true) return Promise.resolve();
+      return new Promise<void>((done) => signal.addEventListener('abort', () => done()));
+    },
   };
-  return { calls, written, read, runner: claudeBrewerRunnerWith(deps) };
+  return { calls, written, read, waits, runner: claudeBrewerRunnerWith(deps) };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });
@@ -231,6 +252,129 @@ describe('claudeBrewerRunner', () => {
       end.ending.kind === 'blocked' ? end.ending.summary : '',
       /claude failed before the model replied: model_not_found/,
     );
+  });
+
+  // #134: a refusal claude says it will repeat is the environment at once, without a retry.
+  it('blocks on a lasting refusal from the first start, without starting claude again', async () => {
+    for (const said of [
+      "error: unknown option '--bogus'",
+      "error: option '--model <model>' argument missing",
+      'Error: When using --print, --output-format=stream-json requires --verbose',
+      'Error: Invalid session ID. Must be a valid UUID.',
+      'Invalid API key · Please run /login',
+      'Not logged in · Please run /login',
+    ]) {
+      const { calls, waits, runner } = setup(
+        { lines: [], result: exited(1, `${said}\n`) },
+        { outDoc: undefined },
+      );
+      const end = await runner.start(attempt).ended;
+      assert.equal(end.ending.kind, 'blocked', said);
+      assert.equal(calls.length, 1, said);
+      assert.deepEqual(waits, [], said);
+    }
+  });
+
+  // #134: a network blip at startup must not get the batch Stuck.
+  it('starts claude once more after a failure before its first line that names no lasting cause', async () => {
+    const { calls, waits, runner } = setup([
+      { lines: [], result: exited(1, 'Error: connect ECONNRESET 160.79.104.10:443\n') },
+      { lines: fixture('success.jsonl'), result: exited(0) },
+    ]);
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.equal(calls.length, 2);
+    assert.deepEqual(waits, [5000]);
+    assert.deepEqual(calls[1]?.args, calls[0]?.args);
+  });
+
+  it('blocks on the environment when the second start fails before its first line too', async () => {
+    const { calls, runner } = setup(
+      { lines: [], result: exited(1, 'Error: connect ECONNRESET 160.79.104.10:443\n') },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(calls.length, 2);
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'claude did not set up the session the runner asked for: claude refused to start: Error: connect ECONNRESET 160.79.104.10:443',
+    });
+  });
+
+  // Review of #136: claude 2.1.301 refuses a session id that a start which wrote its stream has
+  // taken; it would refuse it again, so it is a lasting refusal, not one to retry.
+  it('blocks on a session id that is already in use, without starting claude again', async () => {
+    const { calls, waits, runner } = setup(
+      {
+        lines: [],
+        result: exited(1, `Error: Session ID ${session(1)} is already in use.\n`),
+      },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'blocked');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(waits, []);
+  });
+
+  it('blocks on a refusal that only asks to log in again', async () => {
+    const { calls, waits, runner } = setup(
+      { lines: [], result: exited(1, 'Session expired · Please run /login') },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'blocked');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(waits, []);
+  });
+
+  it('blocks on each lasting refusal by itself, also without the login hint', async () => {
+    for (const said of [
+      'error: missing required argument "prompt"',
+      'Not logged in',
+      'Invalid API key',
+    ]) {
+      const { calls, waits, runner } = setup(
+        { lines: [], result: exited(1, said) },
+        { outDoc: undefined },
+      );
+      const end = await runner.start(attempt).ended;
+      assert.equal(end.ending.kind, 'blocked', said);
+      assert.equal(calls.length, 1, said);
+      assert.deepEqual(waits, [], said);
+    }
+  });
+
+  // ADR 0046, ADR 0048: only an exit before any stream line gets one more start.
+  it('never starts claude again after it wrote a line', async () => {
+    for (const [file, id, tools, result] of [
+      ['tool-removed-by-deny.jsonl', 14, ['Read', 'Bash'], exited(0)],
+      ['model-not-found.jsonl', 68, ['Read'], exited(1)],
+      ['success.jsonl', 1, ['Read'], exited(1, 'Error: connect ECONNRESET')],
+    ] as const) {
+      const lines = file === 'success.jsonl' ? fixture(file).slice(0, 2) : fixture(file);
+      const { calls, waits, runner } = setup(
+        { lines, result },
+        { plan: async () => plan(id, [...tools]), outDoc: undefined },
+      );
+      await runner.start(attempt).ended;
+      assert.equal(calls.length, 1, file);
+      assert.deepEqual(waits, [], file);
+    }
+  });
+
+  it('cancels an attempt stopped while it waits to start claude again', async () => {
+    const { calls, runner } = setup(
+      { lines: [], result: exited(1, 'Error: connect ECONNRESET\n') },
+      { outDoc: undefined, waitForever: true },
+    );
+    const running = runner.start(attempt);
+    await new Promise((settled) => setImmediate(settled));
+    running.stop();
+    assert.deepEqual((await running.ended).ending, { kind: 'cancelled' });
+    assert.equal(calls.length, 1);
   });
 
   it('blocks on the environment when claude refused its arguments and wrote no event', async () => {
@@ -440,6 +584,23 @@ describe('claudeBrewerRunner', () => {
   });
 });
 
+/**
+ * A rename that tries again for a moment: on Windows a scanner may still hold a file just written
+ * in the folder, and the rename fails with EPERM, EACCES or EBUSY until it lets go.
+ */
+const renameRetrying = (from: string, to: string): void => {
+  for (let tries = 1; ; tries += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (tries >= 50 || !['EPERM', 'EACCES', 'EBUSY'].includes(code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+};
+
 describe('readOutDocFile', () => {
   let dir: TempDir;
   beforeEach(() => {
@@ -477,6 +638,57 @@ describe('readOutDocFile', () => {
 
   // A link in a folder of the path (a junction, which needs no privilege) leads out as well.
   // A hard link keeps its name inside the worktree but its content may be any file of the volume.
+  // #134: the file opened must be the file checked, not one swapped in between.
+  // Review of #136: a folder swapped for a link between the check and the open is followed by
+  // the open and by any later look at the same path; only the identity taken at the check holds.
+  it('does not read the file behind a folder swapped in after the check', () => {
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(join(worktree, 'docs'), { recursive: true });
+    mkdirSync(join(dir.path, 'outside'));
+    writeFileSync(join(worktree, 'docs', 'plan.md'), 'the out doc');
+    writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not for the log');
+    const swapping = (path: string, flags: number): number => {
+      renameRetrying(join(worktree, 'docs'), join(worktree, 'docs-before'));
+      symlinkSync(join(dir.path, 'outside'), join(worktree, 'docs'), 'junction');
+      return openSync(path, flags);
+    };
+    assert.deepEqual(readOutDocFile(join(worktree, 'docs', 'plan.md'), 100, worktree, swapping), {
+      kind: 'unread',
+      reason: 'it changed while it was read',
+    });
+  });
+
+  // Review of #136: a swap after the containment check but before the identity is taken is seen
+  // once more after the open, when the real path no longer is the one checked.
+  it('does not read the file behind a folder swapped in before its identity was taken', () => {
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(join(worktree, 'docs'), { recursive: true });
+    mkdirSync(join(dir.path, 'outside'));
+    writeFileSync(join(worktree, 'docs', 'plan.md'), 'the out doc');
+    writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not for the log');
+    const swapping = (path: string, options: { bigint: true }) => {
+      renameRetrying(join(worktree, 'docs'), join(worktree, 'docs-before'));
+      symlinkSync(join(dir.path, 'outside'), join(worktree, 'docs'), 'junction');
+      return statSync(path, options);
+    };
+    const file = join(worktree, 'docs', 'plan.md');
+    assert.deepEqual(readOutDocFile(file, 100, worktree, openSync, swapping), {
+      kind: 'unread',
+      reason: 'it changed while it was read',
+    });
+  });
+
+  it('does not read a file other than the one it checked', () => {
+    writeFileSync(join(dir.path, 'plan.md'), 'the out doc');
+    writeFileSync(join(dir.path, 'swapped.md'), 'not for the log');
+    const swapped = (_path: string, flags: number): number =>
+      openSync(join(dir.path, 'swapped.md'), flags);
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path, swapped), {
+      kind: 'unread',
+      reason: 'it changed while it was read',
+    });
+  });
+
   it('does not read an out doc that has more than one link', () => {
     writeFileSync(join(dir.path, 'secret.txt'), 'not for the log');
     linkSync(join(dir.path, 'secret.txt'), join(dir.path, 'plan.md'));
@@ -521,5 +733,53 @@ describe('readOutDocFile', () => {
       kind: 'unread',
       reason: 'it is not a regular file',
     });
+  });
+});
+
+// The runner's real wait before it starts claude once more (ADR 0048).
+describe('waitFor', () => {
+  it('resolves after its time', async () => {
+    const started = performance.now();
+    await waitFor(20, new AbortController().signal);
+    assert.ok(performance.now() - started >= 15);
+  });
+
+  it('resolves at once when the signal aborts, before its time', async () => {
+    const stop = new AbortController();
+    const started = performance.now();
+    const waited = waitFor(60_000, stop.signal);
+    stop.abort();
+    await waited;
+    assert.ok(performance.now() - started < 1000);
+  });
+
+  // Review of #136: a stop that came before the wait began must not cost the wait.
+  // Review of #136: a wait cut short leaves no timer behind.
+  it('clears its timer when the signal aborts', async () => {
+    const cleared: unknown[] = [];
+    const timers = {
+      set: (_callback: () => void, _ms: number) => 'the timer',
+      clear: (timer: unknown) => {
+        cleared.push(timer);
+      },
+    };
+    const stop = new AbortController();
+    const waited = waitFor(60_000, stop.signal, timers);
+    stop.abort();
+    await waited;
+    assert.deepEqual(cleared, ['the timer']);
+  });
+
+  it('resolves at once when the signal had already aborted', async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const late = new Promise<'late'>((answer) => {
+      setTimeout(() => answer('late'), 1000).unref();
+    });
+    const first = await Promise.race([
+      waitFor(60_000, stop.signal).then(() => 'now' as const),
+      late,
+    ]);
+    assert.equal(first, 'now');
   });
 });
