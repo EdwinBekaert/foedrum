@@ -18,6 +18,12 @@ interface StreamEvent {
   subtype?: string;
   session_id?: string;
   is_error?: boolean;
+  parent_tool_use_id?: string | null;
+  tool_use_id?: string;
+  message?: { content: { type: string }[] };
+  num_turns?: number;
+  terminal_reason?: string;
+  permission_denials?: { tool_use_id: string }[];
 }
 
 const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as {
@@ -68,6 +74,47 @@ describe('claude stream fixtures', () => {
         }
         assert.doesNotMatch(text, /\/(Users|home)\//);
       });
+
+      it('counts one turn more than its tool results when it started, none when it did not', () => {
+        const toolResults = stream
+          .filter((e) => e.type === 'user' && e.parent_tool_use_id === null)
+          .flatMap((e) => e.message?.content ?? [])
+          .filter((block) => block.type === 'tool_result').length;
+        const started = stream[0]?.subtype === 'init';
+        assert.equal(stream.at(-1)?.num_turns, started ? toolResults + 1 : 0);
+      });
     });
   }
+
+  const result = (file: string): StreamEvent | undefined =>
+    events(readFileSync(join(dir, file), 'utf8')).at(-1);
+
+  it('resumes the session it names, keeping its id', () => {
+    assert.equal(result('resumed.jsonl')?.session_id, result('success.jsonl')?.session_id);
+  });
+
+  it('reports every live permission denial again in the result', () => {
+    const stream = events(readFileSync(join(dir, 'permission-denials.jsonl'), 'utf8'));
+    const live = stream
+      .filter((e) => e.type === 'system' && e.subtype === 'permission_denied')
+      .map((e) => e.tool_use_id);
+    assert.equal(live.length, 2);
+    assert.deepEqual(
+      stream.at(-1)?.permission_denials?.map((d) => d.tool_use_id),
+      live,
+    );
+  });
+
+  it('ends a run at --max-turns as error_max_turns', () => {
+    const end = result('max-turns.jsonl');
+    assert.equal(end?.subtype, 'error_max_turns');
+    assert.equal(end?.terminal_reason, 'max_turns');
+  });
+
+  it('reports an API error as subtype success with is_error', () => {
+    const end = result('model-not-found.jsonl');
+    assert.equal(end?.subtype, 'success');
+    assert.equal(end?.is_error, true);
+    assert.equal(end?.terminal_reason, 'api_error');
+  });
 });
