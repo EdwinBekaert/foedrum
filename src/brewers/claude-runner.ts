@@ -3,6 +3,7 @@
 // reads its stream line by line. What it saw goes through settleAttempt, as with the fake.
 
 import {
+  type BigIntStats,
   closeSync,
   constants,
   fstatSync,
@@ -29,6 +30,7 @@ import {
   type StreamProcess,
   type StreamResult,
   streamProcess,
+  type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import {
@@ -104,6 +106,7 @@ export function readOutDocFile(
   maxBytes: number,
   root: string,
   open: (path: string, flags: number) => number = openSync,
+  stat: (path: string, options: { bigint: true }) => BigIntStats = statSync,
 ): OutDocRead {
   const tooLarge: OutDocRead = { kind: 'unread', reason: `it is larger than ${maxBytes} bytes` };
   const notAFile: OutDocRead = { kind: 'unread', reason: 'it is not a regular file' };
@@ -120,7 +123,7 @@ export function readOutDocFile(
     // The identity of the file checked, taken before the open: a folder swapped for a link after
     // the check is followed by the open and by any later look at the same path (#134, review of
     // #136). Big integers, as a Windows file id may not fit a number.
-    const checked = statSync(real, { bigint: true });
+    const checked = stat(real, { bigint: true });
     // Where the platform has it, a link swapped in since the checks is not followed (ADR 0047).
     const fd = open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
@@ -188,7 +191,11 @@ const environmentOf = (
 };
 
 /** Resolves after `ms`, or at once when `signal` aborts or had aborted. */
-export function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+export function waitFor(
+  ms: number,
+  signal: AbortSignal,
+  _timers: Timers = { set: setTimeout, clear: (timer) => clearTimeout(timer as NodeJS.Timeout) },
+): Promise<void> {
   return new Promise<void>((done) => {
     // A stop that came before the wait began costs no wait (review of #136).
     if (signal.aborted) {

@@ -8,6 +8,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -665,6 +666,26 @@ describe('readOutDocFile', () => {
     });
   });
 
+  // Review of #136: a swap after the containment check but before the identity is taken is seen
+  // once more after the open, when the real path no longer is the one checked.
+  it('does not read the file behind a folder swapped in before its identity was taken', () => {
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(join(worktree, 'docs'), { recursive: true });
+    mkdirSync(join(dir.path, 'outside'));
+    writeFileSync(join(worktree, 'docs', 'plan.md'), 'the out doc');
+    writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not for the log');
+    const swapping = (path: string, options: { bigint: true }) => {
+      renameRetrying(join(worktree, 'docs'), join(worktree, 'docs-before'));
+      symlinkSync(join(dir.path, 'outside'), join(worktree, 'docs'), 'junction');
+      return statSync(path, options);
+    };
+    const file = join(worktree, 'docs', 'plan.md');
+    assert.deepEqual(readOutDocFile(file, 100, worktree, openSync, swapping), {
+      kind: 'unread',
+      reason: 'it changed while it was read',
+    });
+  });
+
   it('does not read a file other than the one it checked', () => {
     writeFileSync(join(dir.path, 'plan.md'), 'the out doc');
     writeFileSync(join(dir.path, 'swapped.md'), 'not for the log');
@@ -741,6 +762,22 @@ describe('waitFor', () => {
   });
 
   // Review of #136: a stop that came before the wait began must not cost the wait.
+  // Review of #136: a wait cut short leaves no timer behind.
+  it('clears its timer when the signal aborts', async () => {
+    const cleared: unknown[] = [];
+    const timers = {
+      set: (_callback: () => void, _ms: number) => 'the timer',
+      clear: (timer: unknown) => {
+        cleared.push(timer);
+      },
+    };
+    const stop = new AbortController();
+    const waited = waitFor(60_000, stop.signal, timers);
+    stop.abort();
+    await waited;
+    assert.deepEqual(cleared, ['the timer']);
+  });
+
   it('resolves at once when the signal had already aborted', async () => {
     const stop = new AbortController();
     stop.abort();

@@ -410,6 +410,18 @@ describe('readClaudeStream progress', () => {
     }
   });
 
+  // Review of #136: a separator inside quotes does not end the command.
+  it('does not count a commit inside a quoted argument', () => {
+    for (const command of ['echo "done; git commit -m x"', "printf 'a | git commit'"]) {
+      const progress = run([
+        init(),
+        assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
+        toolResult('t1'),
+      ]);
+      assert.deepEqual(progress, { lastProgressAt: started, turnsWithoutProgress: 1 }, command);
+    }
+  });
+
   it('does not count commit as anything but the subcommand of git', () => {
     for (const command of [
       'git log --grep commit',

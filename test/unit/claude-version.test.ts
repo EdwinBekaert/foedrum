@@ -41,6 +41,17 @@ describe('unprovenClaudeWarning', () => {
     assert.equal(unprovenClaudeWarning('2.1.301'), undefined);
   });
 
+  // Review of #136: the version comes from claude's stream, so a strange one is not repeated.
+  it('does not repeat a version it cannot read', () => {
+    for (const version of ['2.2.0\u001b[31m', 'x'.repeat(500), '2.1.301 (Claude Code)']) {
+      assert.equal(
+        unprovenClaudeWarning(version),
+        'claude reported a version Foedrum cannot read, so not one it proved its brewer settings on (2.1.301): a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)',
+        JSON.stringify(version.slice(0, 30)),
+      );
+    }
+  });
+
   it('names the version, the proven range and what may happen', () => {
     assert.equal(
       unprovenClaudeWarning('2.2.0'),
