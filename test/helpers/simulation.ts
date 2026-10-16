@@ -33,7 +33,7 @@ export const recipes = fakeRecipes(
 );
 
 /** The fake runner's behaviour for `play`, for an attempt that starts at `now`. */
-const behaviourOf = (play: Play, now: Date): Behaviour => {
+export const behaviourOf = (play: Play, now: Date): Behaviour => {
   switch (play.kind) {
     case 'succeed':
       return behave.succeed();

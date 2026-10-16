@@ -13,6 +13,7 @@ import type {
 import { type Command, decide } from '../../src/engine/decide.ts';
 import type { EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
+import { expireOwnLeases } from '../../src/engine/leases.ts';
 import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -94,10 +95,11 @@ export const createBrewing = (options: BrewingOptions) => {
     return true;
   };
 
+  const owner = 'driver-1';
   const lease = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({
       attemptKey: key,
-      owner: 'driver-1',
+      owner,
       expiresAt: new Date(clock().getTime() + leaseMs),
     });
 
@@ -172,5 +174,13 @@ export const createBrewing = (options: BrewingOptions) => {
     return found;
   };
 
-  return { command, drive, tick, events, state, batch, refusals, notices };
+  /**
+   * Takes over from an earlier run of this driver on the same store: the leases that run left
+   * expire now, so the supervisor's next tick loses their attempts (ADR 0033).
+   */
+  const start = (): void => {
+    expireOwnLeases(store, owner, clock());
+  };
+
+  return { start, command, drive, tick, events, state, batch, refusals, notices };
 };

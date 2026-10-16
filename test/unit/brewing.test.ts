@@ -83,7 +83,7 @@ describe('brewing with the fake brewer runner', () => {
       }),
     );
     await brewing.drive();
-    return { brewing, runner };
+    return { brewing, runner, recipes };
   };
 
   const head = ['batch.ordered', 'batch.recipe_chosen', 'scheduled plan#1', 'started plan#1'];
@@ -263,6 +263,45 @@ describe('brewing with the fake brewer runner', () => {
         'finished plan#2 succeeded',
       ]);
       assert.equal(brewing.batch('b1').lane.kind, 'on_tap');
+    });
+  });
+
+  describe('the driver dies and starts again on the same store', () => {
+    it('expires the leases of its earlier run at once', async () => {
+      const progress = { lastProgressAt: t0, turnsWithoutProgress: 3 };
+      const { recipes } = await brew({ plan: [behave.hang(progress)] });
+      now = at(2);
+      const restarted = createBrewing({
+        store,
+        runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
+        recipes,
+        clock: () => now,
+      });
+      restarted.start();
+      assert.deepStrictEqual(store.currentLeases(now), []);
+      assert.deepStrictEqual(
+        store.expiredLeases(now).map((lease) => [lease.attemptKey, lease.expiresAt]),
+        [[attemptKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1 }), now]],
+      );
+    });
+
+    it('loses the attempts its earlier run held at the next tick, and retries them', async () => {
+      const { recipes } = await brew({ plan: [behave.lost()] });
+      now = at(1);
+      const restarted = createBrewing({
+        store,
+        runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
+        recipes,
+        clock: () => now,
+      });
+      restarted.start();
+      await restarted.tick();
+      assert.deepStrictEqual(finished(restarted.events())[0]?.outcome, {
+        kind: 'failed',
+        retryable: true,
+        reason: `the attempt was lost: the lease of driver-1 expired at ${iso(1)}`,
+      });
+      assert.equal(restarted.batch('b1').lane.kind, 'on_tap');
     });
   });
 
