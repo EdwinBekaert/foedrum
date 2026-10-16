@@ -40,6 +40,7 @@ export const windows: DoctorFacts = {
     podman: undefined,
     docker: undefined,
   },
+  jobObject: { exitCode: 0, output: '' },
 };
 
 export const macos: DoctorFacts = {
