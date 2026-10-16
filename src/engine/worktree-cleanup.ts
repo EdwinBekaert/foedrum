@@ -5,6 +5,7 @@ import type { Event } from '../schemas/events.ts';
 import type { AttemptWorktrees, CleanReport } from '../workspace/attempt-worktrees-git.ts';
 import type { Lease } from './event-store.ts';
 import type { State } from './fold.ts';
+import { worktreeClaims } from './worktree-claims.ts';
 
 export interface WorktreeCleanupOptions {
   /** One manager per repository the Brewery's attempts write in. */
@@ -23,11 +24,39 @@ export interface WorktreeCleanup {
 }
 
 /** The batches these events end (on tap or cancelled), each once, in order. */
-export const endedBatches = (_events: readonly Event[]): string[] => {
-  throw new Error('not implemented');
-};
+export const endedBatches = (events: readonly Event[]): string[] => [
+  ...new Set(
+    events.flatMap((event) =>
+      event.type === 'batch.on_tap' || event.type === 'batch.cancelled' ? [event.batchId] : [],
+    ),
+  ),
+];
 
-export const createWorktreeCleanup = (_options: WorktreeCleanupOptions): WorktreeCleanup => ({
-  repair: () => Promise.reject(new Error('not implemented')),
-  batchEnded: () => Promise.reject(new Error('not implemented')),
-});
+export const createWorktreeCleanup = (options: WorktreeCleanupOptions): WorktreeCleanup => {
+  const { worktrees, state, leases } = options;
+  // One repository after another, each with the claims of now. A repository whose facts cannot
+  // be gathered is reported and the others go on; the next cleanup tries it again.
+  const clean = async (scope: { batchId?: string }): Promise<CleanReport> => {
+    const report: CleanReport = { done: [], kept: [], failed: [] };
+    for (const manager of worktrees) {
+      try {
+        const done = await manager.clean(worktreeClaims(state(), leases()), scope);
+        report.done.push(...done.done);
+        report.kept.push(...done.kept);
+        report.failed.push(...done.failed);
+      } catch (error) {
+        report.failed.push(`could not clean ${manager.root}: ${(error as Error).message}`);
+      }
+    }
+    return report;
+  };
+  return {
+    repair: () => clean({}),
+    batchEnded: async (batchId) => {
+      const lane = state().batches.get(batchId)?.lane.kind;
+      return lane === 'on_tap' || lane === 'cancelled'
+        ? clean({ batchId })
+        : { done: [], kept: [], failed: [] };
+    },
+  };
+};

@@ -245,6 +245,7 @@ function apply(state: State, event: Event): State {
           ...current,
           phase: 'started',
           ...(event.session === undefined ? {} : { session: event.session }),
+          ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
         };
       });
     case 'step.finished':
