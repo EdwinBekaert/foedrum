@@ -234,3 +234,10 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     progress: (ref) => running.get(attemptKey.encode(ref))?.(),
   };
 }
+
+/** The runner with the real process runner, files and clock. */
+export function claudeBrewerRunner(
+  _options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
+): BrewerRunner {
+  throw new Error('not implemented');
+}
