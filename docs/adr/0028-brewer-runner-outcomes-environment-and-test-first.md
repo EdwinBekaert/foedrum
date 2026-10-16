@@ -1,6 +1,6 @@
 # 0028. The brewer runner: how an attempt ends, its environment, and testFirst when unset
 
-Date: 2026-10-15 · Status: Accepted · Amended by [0042](0042-the-claude-command-line-and-stream-contract.md)
+Date: 2026-10-15 · Status: Accepted · Amended by [0042](0042-the-claude-command-line-and-stream-contract.md) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)
 
 ## Context
 [ADR 0003](0003-drive-the-claude-cli.md) puts the `claude` CLI behind an internal `BrewerRunner` interface with a fake for tests, and [ADR 0005](0005-typed-step-outcomes-and-out-docs.md) makes every attempt end in one typed outcome. Neither says how what a process did (its exit, its stream, its out doc) becomes that outcome. A real runner and a fake that each decided this on their own would drift apart, and the engine tests would prove the fake's rules, not the real ones. #11 also asks for a fake runner that plays every failure the engine must survive: a hang, a crash mid-step, garbage output, a missing out doc, an exceeded budget, questions, and a storm of permission denials.

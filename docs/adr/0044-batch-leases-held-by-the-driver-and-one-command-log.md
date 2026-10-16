@@ -1,6 +1,6 @@
 # 0044. Batch leases held by the driver, and one command log
 
-Date: 2026-10-16 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md) (several writers on one store), [0011](0011-state-in-the-brewery-repository.md) (a batch lease outlives its driver's restart), [0019](0019-interactive-sessions-and-one-command-layer.md) (how one driver per batch is held), [0024](0024-state-branch-layout-outbox-and-divergence.md) (who flushes at a step boundary), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (where a command is decided), [0027](0027-supervisor-lost-and-stalled-attempts.md) (which batches a supervisor acts on) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (who applies a batch's effects)
+Date: 2026-10-16 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md) (several writers on one store), [0011](0011-state-in-the-brewery-repository.md) (a batch lease outlives its driver's restart), [0019](0019-interactive-sessions-and-one-command-layer.md) (how one driver per batch is held), [0024](0024-state-branch-layout-outbox-and-divergence.md) (who flushes at a step boundary), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (where a command is decided), [0027](0027-supervisor-lost-and-stalled-attempts.md) (which batches a supervisor acts on), [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) (the driver renews leases, not the runner) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (who applies a batch's effects)
 
 ## Context
 [ADR 0019](0019-interactive-sessions-and-one-command-layer.md) has one driver per batch at a time, "held as a lease with a heartbeat": the Cellar skips batches a session holds, and an expired lease frees the batch. It also puts every action behind one command layer that every surface uses. Until now there were only attempt leases, held by whoever started the attempt, and a test driver (`test/helpers/brewing.ts`) that drove every batch of its store. #37 builds the real driver and the command layer's commands that change state. Four questions were open.
@@ -35,7 +35,7 @@ Date: 2026-10-16 · Status: Accepted · Amends [0002](0002-event-sourced-engine-
 - Only the batch lease is new mutable state, in the event store like the attempt leases; the engine rule's exceptions do not change.
 
 ### The driver
-- `openDriver` (`src/engine/driver.ts`) takes the driver's lock (`lockDriver` in production), then runs `startDriver`, before anything else; when the start fails, it lets the lock go. Only then does it drive.
+- `openDriver` (`src/engine/driver.ts`) takes the driver's lock (`lockDriver` in production), then runs `startDriver`, before anything else; when the start fails, it lets the lock go. Only then does it drive, one drive at a time, whether a tick or a direct call starts it.
 - **Its supervisor acts on its own batches and the free ones** (`acts`, as of the start of each tick), never on a batch another driver holds: that driver's supervisor keeps its deadlines. Two supervisors may both act on a free batch; the command log refuses the second.
 - **It applies a batch's effects only while it holds the batch's lease**, renewed before each effect, and its passes run one after another. So two `applyEffect` calls for one key never overlap, as long as one effect takes less than a lease: every effect target needs a deadline shorter than `leaseMs`. A failed effect is reported, and the batch's other effects wait for the next pass.
 - The test driver (`test/helpers/brewing.ts`) stays as it is until the chaos harness moves onto the real driver (#107), so the chaos and property runs keep their kills and seeds in this change.
@@ -49,6 +49,7 @@ Date: 2026-10-16 · Status: Accepted · Amends [0002](0002-event-sourced-engine-
 ### Left for later
 - **Takeover** as an explicit recorded command ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)), and the plugin commands with everything that starts `claude` (`brew`, `resume`), follow #17. A takeover will put the batch lease to the new driver and record the handover; the driver that held it already stops at the next step boundary.
 - The parity test between surfaces comes with the plugin, the second surface it compares.
+- An interactive session's owner, an id the session keeps when it is resumed ([ADR 0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md)), is chosen with the plugin that starts the session; `openDriver` takes whatever owner its lock has.
 - The terminal has no `Recipes` yet: recipe files reach the engine's `Recipe` interface in a follow-up, and until then a command that schedules a step is refused with "the Brewery has no recipe <name>". `cancel` works.
 
 ## Consequences
