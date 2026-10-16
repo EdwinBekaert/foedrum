@@ -85,5 +85,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
+    ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),
   };
 };
