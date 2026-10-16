@@ -21,6 +21,7 @@ try {
         platform: process.platform,
         kernelRelease: release(),
         node: process.versions.node,
+        execPath: process.execPath,
         cwd,
       }),
     // Never creates or changes a store (ADR 0030): a read in the wrong folder says so instead of

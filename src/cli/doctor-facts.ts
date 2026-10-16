@@ -48,13 +48,33 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     const why = whyKilled(killed, timeoutMs);
     return { path, exitCode, output: why === undefined ? output : `${why}\n${output}` };
   };
-  const [npm, git, claude, bwrap, socat, podman, docker] = await Promise.all(
-    (['npm', 'git', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
-  );
+  // Brewers run only in a Job Object on Windows (ADR 0039): node, doing nothing, held in one.
+  const holdInJob = async (): Promise<DoctorFacts['jobObject']> => {
+    const timeoutMs = VERSION_TIMEOUT_MS;
+    const { exitCode, output, killed } = await exec(shell.execPath, ['-e', ''], {
+      cwd,
+      timeoutMs,
+      jobObject: true,
+    });
+    const why = whyKilled(killed, timeoutMs);
+    return {
+      exitCode,
+      output:
+        why === undefined
+          ? output
+          : `${why}
+${output}`,
+    };
+  };
+  const [jobObject, npm, git, claude, bwrap, socat, podman, docker] = await Promise.all([
+    shell.platform === 'win32' ? holdInJob() : undefined,
+    ...(['npm', 'git', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
+  ]);
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
     tools: { npm, git, claude, bwrap, socat, podman, docker },
+    ...(jobObject === undefined ? {} : { jobObject }),
   };
 };

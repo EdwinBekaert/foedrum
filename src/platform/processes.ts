@@ -5,6 +5,7 @@ import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
 import type { Readable } from 'node:stream';
 import { environmentVariable, resolveExecutable } from './executables.ts';
+import { jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
 
 export type Kill = (pid: number, signal: 0) => void;
@@ -211,11 +212,21 @@ export interface Spawner {
  * and answers at once, without waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
-  ({ spawn, killTree, resolve }: Spawner, timers: Timers = realTimers): ExecProcess =>
+  (
+    { spawn, killTree, resolve, jobObjects = false }: Spawner,
+    timers: Timers = realTimers,
+  ): ExecProcess =>
   (
     file,
     args,
-    { cwd, env = process.env, timeoutMs, signal, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES },
+    {
+      cwd,
+      env = process.env,
+      timeoutMs,
+      signal,
+      maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+      jobObject = false,
+    },
   ) =>
     new Promise((done) => {
       let stdout = '';
@@ -244,7 +255,7 @@ export const execProcessWith =
       }
       let child: ChildHandle;
       try {
-        child = spawn(program, [...args], { cwd, env });
+        child = spawn(program, [...args], { cwd, env, jobObject });
       } catch (error) {
         done(failed(error));
         return;
@@ -287,23 +298,39 @@ export const execProcessWith =
         output += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
-      child.on('close', (code) => finish(ended(code)));
+      child.on('close', (code) => {
+        // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
+        const refused =
+          jobObject && jobObjects ? jobObjectRefusal(code, stdout, stderr) : undefined;
+        if (refused === undefined) {
+          finish(ended(code));
+          return;
+        }
+        const reason = `${program}: cannot run in a Job Object: ${refused}`;
+        finish({ exitCode: null, stdout: '', stderr: reason, output: reason });
+      });
     });
+
+// Job Objects are Windows's; elsewhere the runner kills the process group.
+const jobObjectsHere = process.platform === 'win32';
 
 /** The real spawner. Unit tests use a fake one instead (ADR 0021). */
 export const processSpawner: Spawner = {
-  spawn: (file, args, { cwd, env }) => {
+  spawn: (file, args, { cwd, env, jobObject = false }) => {
     const command = spawnCommand(file, args, process.platform, env);
-    return spawn(command.file, command.args, {
-      cwd,
-      env: command.env,
-      shell: command.shell,
+    const start =
+      jobObjectsHere && jobObject ? jobObjectCommand(command, cwd) : { ...command, cwd };
+    return spawn(start.file, start.args, {
+      cwd: start.cwd,
+      env: start.env,
+      shell: start.shell,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       ...killableSpawnOptions(),
     });
   },
   killTree: killProcessTree,
+  jobObjects: jobObjectsHere,
   // Never the working directory or a relative PATH folder, where a repository could plant its
   // own git.exe (#12).
   resolve: (file, env) => resolveExecutable(file, { env }),
