@@ -341,6 +341,15 @@ export const openSqliteEventStore = (
         ensureLive();
         releaseLease.run(attemptKey);
       },
+      batchLease: () => {
+        throw new Error('not implemented');
+      },
+      putBatchLease: () => {
+        throw new Error('not implemented');
+      },
+      releaseBatchLease: () => {
+        throw new Error('not implemented');
+      },
       recordEffect: (key, result) => {
         ensureLive();
         append({ type: 'effect.applied', key: effectKey.encode(key), result: result ?? null }, key);
@@ -397,6 +406,10 @@ export const openSqliteEventStore = (
     currentLeases: (now) => leasesFrom(selectLeases, now),
 
     expiredLeases: (now) => leasesFrom(selectExpiredLeases, now),
+
+    batchLeases: () => {
+      throw new Error('not implemented');
+    },
 
     replay: (log) =>
       withTransaction(() => {
