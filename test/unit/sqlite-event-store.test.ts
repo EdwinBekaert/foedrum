@@ -666,18 +666,20 @@ describe('SqliteEventStore in memory', () => {
 
     it('replaces the Stuck reminder with the routing deadline of a retry back to Ordered', () => {
       store.withTransaction((tx) => {
-        tx.append(stuck('b1', '2026-10-15T13:00:00Z'));
+        tx.append(stuck('b1', '2026-10-15T11:00:00Z'));
         tx.append({
           type: 'batch.resumed',
           batchId: 'b1',
           by: 'octocat',
           via: 'plugin',
           action: 'retry',
-          routeBy: '2026-10-15T11:30:00Z',
+          routeBy: '2026-10-15T13:00:00Z',
         });
       });
-      assert.deepEqual(store.batchesPastDeadline(now), [
-        { batchId: 'b1', deadlineAt: at('2026-10-15T11:30:00Z') },
+      // The reminder was due; a leftover row would still show.
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+      assert.deepEqual(store.batchesPastDeadline(at('2026-10-15T14:00:00Z')), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T13:00:00Z') },
       ]);
     });
 
