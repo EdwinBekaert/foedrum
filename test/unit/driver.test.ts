@@ -236,6 +236,37 @@ describe('openDriver', () => {
       assert.deepStrictEqual(batchLease('b1')?.expiresAt, at(9));
     });
 
+    it('renews the attempt lease of an attempt its runner runs on each tick, and none it does not', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      order('b2');
+      const driver = await open({ runner });
+      await driver.drive();
+      // b2's plan#1 ends: its lease goes, and the tick has nothing of b2 to renew.
+      end(plan('b2'), { kind: 'failed', retryable: false, reason: 'no' });
+      await driver.drive();
+      now = at(4);
+      await driver.tick();
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => [lease.attemptKey, lease.expiresAt]),
+        [[attemptKey.encode(plan('b1')), at(9)]],
+      );
+    });
+
+    it('stops a running attempt whose batch was cancelled, then lets the batch go', async () => {
+      const { runner, stopped } = handRunner();
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+      await driver.tick();
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+      assert.deepStrictEqual(store.currentLeases(now), []);
+      await driver.tick();
+      assert.deepStrictEqual(driver.held(), []);
+      assert.equal(batchLease('b1'), undefined);
+    });
+
     it('skips a batch another driver holds, and takes it once that lease expired', async () => {
       const { runner, started } = handRunner();
       order('b1');
@@ -473,6 +504,34 @@ describe('openDriver', () => {
       open_();
       await both;
       assert.deepStrictEqual(host.applied, ['["b1","plan",1,"comment"]']);
+    });
+
+    it('keeps an ended batch while an effect of it is due, and lets it go once it is applied', async () => {
+      const { runner, end } = handRunner();
+      const host = fakeHost();
+      let down = true;
+      const flaky: EffectTarget = {
+        find: host.target.find,
+        apply: async (key) => {
+          if (down) throw new Error('the code host is down');
+          return host.target.apply(key);
+        },
+      };
+      order('b1');
+      const driver = await open({ runner, effects: { due: commentsDue, target: flaky } });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      end({ batchId: 'b1', stepId: 'implement', attempt: 1 });
+      await driver.tick();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'on_tap');
+      assert.deepStrictEqual(driver.held(), ['b1']);
+      assert.equal(batchLease('b1')?.owner, 'cellar');
+      down = false;
+      await driver.tick();
+      assert.equal(host.applied.length, 2);
+      assert.deepStrictEqual(driver.held(), []);
+      assert.equal(batchLease('b1'), undefined);
     });
 
     it('reports an effect that failed, and keeps its batch held for the next pass', async () => {

@@ -83,6 +83,31 @@ describe('createCommandLog', () => {
     assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
   });
 
+  it('decides against an event another writer commits just before its transaction starts', () => {
+    // The other writer's commit lands after the log last read the store, as the write
+    // transaction is about to begin.
+    let raced = false;
+    const racing: EventStore = {
+      ...store,
+      withTransaction: (fn) => {
+        if (!raced) {
+          raced = true;
+          store.withTransaction((tx) =>
+            tx.append({ type: 'batch.cancelled', batchId: 'b1', by: 'bob', via: 'comment' }),
+          );
+        }
+        return store.withTransaction(fn);
+      },
+    };
+    const driver = createCommandLog({ store: racing, recipes });
+    assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+    assert.deepStrictEqual(driver.issue(retry, t0), {
+      kind: 'refused',
+      reason: 'batch b1 is cancelled; retry needs it stuck',
+    });
+    assert.equal(types().at(-1), 'batch.cancelled');
+  });
+
   it('commits the extra writes with the events', () => {
     log().issue(retry, t0, (tx) =>
       tx.putLease({ attemptKey: key, owner: 'cellar', expiresAt: new Date(iso(5)) }),

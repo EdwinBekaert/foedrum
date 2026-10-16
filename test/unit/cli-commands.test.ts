@@ -156,6 +156,37 @@ describe('foedrum: commands that change state', () => {
     assert.equal(closed, 1);
   });
 
+  it('closes the store it opened on every refusal too', async () => {
+    // An attempt that starts without being scheduled: the fold refuses the log.
+    const broken = openSqliteEventStore(':memory:');
+    broken.withTransaction((tx) => {
+      tx.append({ type: 'batch.ordered', batchId: '11-1', order: { issue: 11 }, routeBy: iso(60) });
+      tx.append({ type: 'step.started', batchId: '11-1', stepId: 'plan', attempt: 1 });
+    });
+    const cases: [string[], EventStore, number][] = [
+      [['retry', '23-1'], store, 1],
+      [['answer', '21-1', 'sqlite'], store, 1],
+      [['cancel', '11-1'], broken, 1],
+    ];
+    try {
+      for (const [argv, target, exitCode] of cases) {
+        let closed = 0;
+        const result = await run(argv, {
+          openWritableStore: () => ({
+            ...target,
+            close: () => {
+              closed++;
+            },
+          }),
+        });
+        assert.equal(result.exitCode, exitCode, argv.join(' '));
+        assert.equal(closed, 1, argv.join(' '));
+      }
+    } finally {
+      broken.close();
+    }
+  });
+
   describe('retry', () => {
     it('schedules another attempt, recorded with who issued it and from where', async () => {
       assert.deepStrictEqual(await run(['retry', '22-1']), ok('22-1 brewing: plan #2 scheduled\n'));
