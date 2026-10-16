@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { findNpmCli } from '../../src/platform/executables.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -224,5 +225,15 @@ describe('the configured hook command', () => {
     });
     assert.equal(stderr, '');
     assert.equal(code, 0);
+  });
+});
+
+// The real install, so the result depends on how node was installed on the machine (#41).
+describe('findNpmCli on this machine', () => {
+  // CI runs this on Windows, macOS and Linux, with the node and npm that setup-node installs.
+  it('finds the npm installed with this node', () => {
+    const { path, tried } = findNpmCli(process.execPath);
+    assert.ok(path !== undefined, `tried ${tried.join(', ')}`);
+    assert.match(path, /npm-cli\.js$/);
   });
 });

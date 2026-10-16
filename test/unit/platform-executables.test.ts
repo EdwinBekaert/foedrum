@@ -230,13 +230,6 @@ describe('findNpmCli', () => {
     );
   });
 
-  // CI runs this on Windows, macOS and Linux, with the node and npm that setup-node installs.
-  it('finds the npm installed with this node', () => {
-    const { path, tried } = findNpmCli(process.execPath);
-    assert.ok(path !== undefined, `tried ${tried.join(', ')}`);
-    assert.match(path, /npm-cli\.js$/);
-  });
-
   it('skips a folder named npm-cli.js', () => {
     const dir = makeTempDir('npm-cli');
     try {
