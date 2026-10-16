@@ -32,6 +32,14 @@ const MAX_OUTPUT_CHARS = 4000;
 // push and merge for a git or gh whose name is computed at run time; pwsh and powershell for an
 // encoded command.
 const MAY_PUSH_OR_MERGE = /git|gh|push|merge|pwsh|powershell|\\u/i;
+
+// PowerShell reads typographic quotes as quotes; bash does not.
+const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
+
+// The raw hook input without the quotes and escape characters that bash, PowerShell and cmd drop,
+// so a name they split (gi''t, g\it, g`it, g^h) still matches the pre-filter. A backslash before
+// u stays, for a JSON escape.
+const normalised = (input: string): string => foldQuotes(input).replace(/["'`^]|\\(?!u)/g, '');
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 // gh flags that can appear before the `pr` action and take the next token as their value.
@@ -95,7 +103,8 @@ const closingParen = (text: string, open: number): number => {
   return -1;
 };
 
-const lex = (command: string, dialect: Dialect): Lexed => {
+const lex = (source: string, dialect: Dialect): Lexed => {
+  const command = dialect === 'powershell' ? foldQuotes(source) : source;
   const escapeChar = dialect === 'bash' ? '\\' : '`';
   const lexed: Lexed = { segments: [], strings: [], substitutions: [], unclosed: false };
   let segment: Word[] = [];
@@ -267,6 +276,8 @@ const WRAPPERS = new Map<string, Wrapper>([
     },
   ],
   ['exec', { withValue: ['-a'] }],
+  // wsl runs git in Linux against the same checkout; -e ends its options like --.
+  ['wsl', { withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'] }],
   ['nice', { withValue: ['-n', '--adjustment'] }],
   ['nohup', { withValue: [] }],
   ['npx', { withValue: ['-p', '--package', '-c', '--call'], runs: ['-c', '--call'] }],
@@ -296,8 +307,8 @@ const WRAPPERS = new Map<string, Wrapper>([
   ],
 ]);
 
-// bash's reserved words that can come before a command.
-const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
+// bash's reserved words that can come before a command, and PowerShell's dot operator.
+const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '.']);
 // A PowerShell assignment operator, as in `$out = git push`.
 const ASSIGNMENT = /^[-+*/%?]?=$/;
 
@@ -513,7 +524,7 @@ const INTERPRETERS = new Map<string, readonly string[]>([
 
 // A command line without its quotes and brackets, so a command inside another language's string
 // or list (execSync('git push -f'), ['git', 'push']) or after a stray quote reads as one.
-const withoutQuotes = (text: string): string => text.replace(/["'`$[\],]/g, ' ');
+const withoutQuotes = (text: string): string => text.replace(/["'`$@[\],]/g, ' ');
 
 const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish']);
 const POWERSHELLS = new Set(['pwsh', 'powershell']);
@@ -537,7 +548,8 @@ const readInvocation = ({ program, args }: Invocation, reading: Reading): boolea
   else if (program === 'cmd') nested.push(...cmdCommands(args));
   else if (EVALUATORS.has(program)) nested.push(text(args));
   else if (START_PROCESS.has(program)) nested.push(...startProcessCommands(args));
-  else return false;
+  // A program computed at run time may be a shell too.
+  else return program === COMPUTED;
   return true;
 };
 
@@ -611,7 +623,7 @@ export const precheck = async (
   staleReason: StaleReason = async () => undefined,
   headIsDetached: HeadIsDetached = async () => false,
 ): Promise<HookResult> => {
-  if (!MAY_PUSH_OR_MERGE.test(input)) return { exitCode: 0, stderr: '' };
+  if (!MAY_PUSH_OR_MERGE.test(normalised(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
