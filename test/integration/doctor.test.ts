@@ -38,8 +38,14 @@ describe('foedrum doctor on this machine', () => {
       }
     }
     const container = lines.find((line) => line.startsWith('Container: '));
+    // A container runtime may be there without answering (docker.exe on the Windows runner, #99).
     if (container !== undefined && !container.startsWith('Container: no ')) {
-      assert.match(container, new RegExp(`^Container: (?:podman|docker) ${VERSION} at \\S`));
+      assert.match(
+        container,
+        new RegExp(
+          `^Container: (?:podman|docker) (?:${VERSION} at \\S.*; the container level is available|at \\S.* does not answer its version.*; the container level is not available)$`,
+        ),
+      );
     }
     const isolation = lines.find((line) => line.startsWith('Isolation: '));
     const expected = { win32: 'permissions only', darwin: 'sandboxed' }[process.platform as string];
