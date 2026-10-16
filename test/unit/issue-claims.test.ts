@@ -133,6 +133,12 @@ describe('claimIssue', () => {
     assert.deepEqual(await claimIssue(github.host, claim(alice.brewery)), { kind: 'ours' });
   });
 
+  it('finds its own claim in a record that spells the Brewery in another case', async () => {
+    const github = fakeGitHub();
+    github.setRef(repo, 7, record('Alice/Brewery'));
+    assert.deepEqual(await claimIssue(github.host, claim(alice.brewery)), { kind: 'ours' });
+  });
+
   it('is taken by the Brewery the record names', async () => {
     const github = fakeGitHub();
     github.setRef(repo, 7, record(bob.brewery));
@@ -239,6 +245,13 @@ describe('releaseClaim', () => {
   it("deletes the Brewery's own claim ref", async () => {
     const github = fakeGitHub();
     github.setRef(repo, 7, record(alice.brewery));
+    assert.equal(await releaseClaim(github.host, claim), 'released');
+    assert.equal(github.refs.has(`${repo}#7`), false);
+  });
+
+  it('deletes its own claim ref whose record spells the Brewery in another case', async () => {
+    const github = fakeGitHub();
+    github.setRef(repo, 7, record('Alice/Brewery'));
     assert.equal(await releaseClaim(github.host, claim), 'released');
     assert.equal(github.refs.has(`${repo}#7`), false);
   });
