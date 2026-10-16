@@ -286,7 +286,12 @@ describe('createIntake', () => {
       await intake(tracker).poll();
       assert.equal(ends(), undefined);
       assert.ok(log.state().batches.has('web-8'));
-      assert.ok(notices.some((notice) => notice.kind === 'failed'));
+      const failed = notices.filter((notice) => notice.kind === 'failed');
+      assert.deepStrictEqual(
+        failed.map((notice) => notice.what),
+        [`reading ${pullRequest}`],
+      );
+      assert.match(String(failed[0]?.error), /502 reading/);
     });
 
     it('asks nothing about the pull requests of a Brewery issue', async () => {

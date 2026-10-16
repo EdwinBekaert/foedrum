@@ -22,17 +22,34 @@ describe('the claim ref on GitHub', {
   const target = repo ?? '';
   const client = createGitHubClient({ token: token ?? '' });
   const host = githubClaimHost(client);
-  const issue = 900_000_000 + randomInt(99_999_999);
   const now = new Date().toISOString();
   const alice = 'alice/brewery';
   const bob = 'bob/brewery';
-  // Whatever happened, the ref goes.
+  // Each test claims a fresh issue number of its own, which names no real issue.
+  const issues: number[] = [];
+  const fresh = (): number => {
+    const issue = 900_000_000 + randomInt(99_999_999);
+    issues.push(issue);
+    return issue;
+  };
+  /** A fresh issue, claimed by alice's Brewery. */
+  const claimed = async (): Promise<number> => {
+    const issue = fresh();
+    assert.deepStrictEqual(await claimIssue(host, { repo: target, issue, brewery: alice, now }), {
+      kind: 'won',
+    });
+    return issue;
+  };
+  // Whatever happened, every ref goes.
   after(async () => {
     if (!enabled) return;
-    await client.rest('DELETE', `/repos/${target}/git/refs/foedrum/claims/issues/${issue}`);
+    for (const issue of issues) {
+      await client.rest('DELETE', `/repos/${target}/git/refs/foedrum/claims/issues/${issue}`);
+    }
   });
 
   it('lets exactly one of two racing claims win, and the other find it taken', async () => {
+    const issue = fresh();
     const outcomes = await Promise.all([
       claimIssue(host, { repo: target, issue, brewery: alice, now }),
       claimIssue(host, { repo: target, issue, brewery: bob, now }),
@@ -42,16 +59,21 @@ describe('the claim ref on GitHub', {
   });
 
   it('reads the record of the Brewery that won, and finds its own claim as ours', async () => {
+    const issue = await claimed();
     const read = await host.read(target, issue);
     assert.ok(read !== undefined);
-    const { brewery } = JSON.parse(read.message) as { brewery: string };
-    assert.ok([alice, bob].includes(brewery));
-    assert.deepStrictEqual(await claimIssue(host, { repo: target, issue, brewery, now }), {
+    assert.equal((JSON.parse(read.message) as { brewery: string }).brewery, alice);
+    assert.deepStrictEqual(await claimIssue(host, { repo: target, issue, brewery: alice, now }), {
       kind: 'ours',
+    });
+    assert.deepStrictEqual(await claimIssue(host, { repo: target, issue, brewery: bob, now }), {
+      kind: 'taken',
+      by: alice,
     });
   });
 
   it('does not delete the ref from a commit it does not point at', async () => {
+    const issue = await claimed();
     const before = await host.read(target, issue);
     assert.ok(before !== undefined);
     const other = await client.rest('POST', `/repos/${target}/git/commits`, {
@@ -65,11 +87,9 @@ describe('the claim ref on GitHub', {
   });
 
   it('deletes the ref from the commit it points at, and then it is gone', async () => {
-    const read = await host.read(target, issue);
-    assert.ok(read !== undefined);
-    const { brewery } = JSON.parse(read.message) as { brewery: string };
-    assert.equal(await releaseClaim(host, { repo: target, issue, brewery }), 'released');
+    const issue = await claimed();
+    assert.equal(await releaseClaim(host, { repo: target, issue, brewery: alice }), 'released');
     assert.equal(await host.read(target, issue), undefined);
-    assert.equal(await releaseClaim(host, { repo: target, issue, brewery }), 'gone');
+    assert.equal(await releaseClaim(host, { repo: target, issue, brewery: alice }), 'gone');
   });
 });
