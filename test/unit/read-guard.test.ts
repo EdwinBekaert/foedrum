@@ -181,10 +181,18 @@ describe('readGuard: Grep and Glob', () => {
   it('blocks a Glob pattern starting with ~', () =>
     blocks(hookInput('Glob', { pattern: '~/.ssh/*' }), OUTSIDE));
 
-  for (const pattern of ['src/**/../../../etc/*', '*/{..,x}/*', '{/etc,src}/*', 'src/*,/etc/*']) {
+  for (const pattern of [
+    'src/**/../../../etc/*',
+    '*/{..,x}/*',
+    '{/etc,src}/*',
+    'src/*,/etc/*',
+    '{src,~/.ssh}/*',
+  ]) {
     it(`blocks a Glob pattern that may reach out after a wildcard: ${pattern}`, () =>
       blocks(hookInput('Glob', { pattern }), /after a wildcard/));
   }
+
+  it('blocks a Glob of the root', () => blocks(hookInput('Glob', { pattern: '/*' }), OUTSIDE));
 
   it('blocks Glob without a pattern', () =>
     blocks(hookInput('Glob', { path: '/repo' }), /no pattern/));
@@ -264,6 +272,23 @@ describe('readGuard: Windows paths', () => {
 
   it('blocks a Glob pattern with backslashes that leaves the checkout', () =>
     blocks(winInput('Glob', { pattern: '..\\..\\Users\\*' }), OUTSIDE, win));
+
+  it('blocks a Glob pattern with a drive after a wildcard', () =>
+    blocks(winInput('Glob', { pattern: '{src,C:/Users/u}/*' }), /after a wildcard/, win));
+
+  it('allows ~\\ when the home folder holds the checkout', () =>
+    allows(winInput('Read', { file_path: '~\\repo\\a.ts' }), {
+      ...win,
+      root: 'C:\\Users\\u\\repo',
+    }));
+
+  // A session opened through a subst drive: both the drive as given and the real one are the
+  // checkout's.
+  it('allows both drives of a checkout reached through a subst drive', async () => {
+    const subst = { ...win, root: 'S:\\foedrum', links: { 'S:\\foedrum': 'D:\\code\\foedrum' } };
+    await allows(winInput('Read', { file_path: 'S:\\foedrum\\a.ts' }), subst);
+    await allows(winInput('Read', { file_path: 'D:\\code\\foedrum\\a.ts' }), subst);
+  });
 
   it('blocks a link inside that leads to another drive', () =>
     blocks(winInput('Read', { file_path: 'D:\\repo\\junction\\hosts.yml' }), /resolves to/, {

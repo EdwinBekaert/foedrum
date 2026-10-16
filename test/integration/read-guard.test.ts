@@ -354,4 +354,27 @@ describe('claude and reads outside its worktree', { skip: claude === undefined }
       assert.match(await allowed({ allow: [...allow, 'Grep'], call }), /secret\.txt/);
     });
   });
+
+  // The read guard checks the folder a search starts in, not the links inside it: a pull request
+  // can commit a link that leads outside (ADR 0048). Grep and Glob do not follow one.
+  describe('a search of the worktree with a link in it that leads outside', () => {
+    const allow = ['Read', 'Grep', 'Glob'];
+    beforeEach(() => {
+      symlinkSync(dir.path, join(dir.path, 'worktree', 'up'), windows ? 'junction' : 'dir');
+    });
+
+    it('does not find text behind the link with Grep', async () => {
+      const call = { name: 'Grep', input: { pattern: 'the-secret', output_mode: 'content' } };
+      assert.doesNotMatch(await allowed({ allow, call }), /the-secret-text|secret\.txt/);
+    });
+
+    it('does not list files behind the link with Glob', async () => {
+      const listed = await allowed({
+        allow,
+        call: { name: 'Glob', input: { pattern: '**/*.txt' } },
+      });
+      assert.match(listed, /inside\.txt/);
+      assert.doesNotMatch(listed, /secret\.txt/);
+    });
+  });
 });

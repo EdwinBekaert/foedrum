@@ -71,6 +71,14 @@ describe('realPath', () => {
     assert.throws(() => realPath(join(base, 'inside', 'a.txt'), failing), /EACCES/);
   });
 
+  // A missing drive: the root's own error, at once.
+  it('throws when not even the root exists', () => {
+    const alwaysMissing = (): string => {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    };
+    assert.throws(() => realPath(join(base, 'x'), alwaysMissing), /ENOENT/);
+  });
+
   it('stops at the first part that exists, from the end', () => {
     const asked: string[] = [];
     const missingBelowBase = (path: string): string => {
