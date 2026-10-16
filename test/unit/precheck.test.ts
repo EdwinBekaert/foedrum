@@ -729,6 +729,13 @@ describe('precheck on pushes hidden from a plain search for git', () => {
 // command runs in turn is still read both ways (#42).
 describe("precheck reads a command in its tool's shell", () => {
   const cases: [name: string, tool: string | undefined, command: string, gated: boolean][] = [
+    ['an escaped quote in a bash string', 'Bash', 'grep -E "a \\"|gh pr create" notes.md', false],
+    [
+      'an escaped quote in a PowerShell string',
+      'PowerShell',
+      'Write-Output "a `"|git push"',
+      false,
+    ],
     ['a bash escape PowerShell does not know', 'PowerShell', 'echo a \\"|git push', true],
     ['a nested shell, read both ways', 'Bash', `pwsh -c 'Write-Output "a \\"|git push"'`, true],
     ['a command from an unknown tool, read both ways', undefined, 'echo "a \\"|git push"', true],
