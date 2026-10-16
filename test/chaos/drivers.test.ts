@@ -101,6 +101,14 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   // A driver killed while it holds a batch, its brewer running on.
   'a batch taken over from a driver that was down': (engine) => engine.takeovers.length > 0,
   'an attempt lost with a driver that was down, retried by the other': retriedByTheOther,
+  // A driver that loses its batch while an attempt runs: it stops the run, and starts or applies
+  // nothing more there (underItsLease).
+  'a driver lost a batch while an attempt of it ran': (engine) =>
+    engine.losses.some(({ running }) => running.length > 0),
+  'a driver stopped the run of an attempt in a batch it lost': (engine) =>
+    engine.stops.some(({ driver, key }) =>
+      engine.losses.some((loss) => loss.driver === driver && loss.running.includes(key)),
+    ),
 };
 
 describe('two drivers on one store', () => {
@@ -127,7 +135,7 @@ describe('two drivers on one store', () => {
   /** How many seeds the coverage test may try before it fails. */
   const maxSeeds = 30;
 
-  it('reach every case of #107: competing drivers, a takeover from a driver that is down', async () => {
+  it('reach every case of #107: competing drivers, a takeover, a batch lost while it ran', async () => {
     const wanted = Object.keys(goals);
     const seen = new Set<string>();
     // Fixed seeds, the first ones until every goal is reached: what the harness reaches does not

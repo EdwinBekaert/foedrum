@@ -372,18 +372,30 @@ export interface Contest {
   holder: string;
 }
 
-/** A batch a driver took over from one that was down after a kill: its lease had expired. */
+/** A batch a driver took over from one that was down: its lease had expired. */
 export interface Takeover {
   driver: string;
   batchId: string;
   from: string;
 }
 
-/** A driver that stayed down after a kill, from that move until the move it started again in. */
+/**
+ * A driver that did not run from a move until the one it ran again in: killed and not yet started
+ * again, or stalled, alive with its brewers running but doing nothing itself, as a paused process.
+ */
 export interface Down {
   driver: string;
+  why: 'killed' | 'stalled';
   from: number;
   until: number;
+}
+
+/** A driver that found another's live lease on a batch it held, with the attempts it ran there. */
+export interface Loss {
+  driver: string;
+  batchId: string;
+  /** The attempt keys its runner still ran in the batch. */
+  running: string[];
 }
 
 export interface ChaosOptions {
@@ -404,7 +416,7 @@ export interface ChaosEngine {
    * some moves later. False when a driver that ran in it died.
    */
   play(move: Move): Promise<boolean>;
-  /** The drivers that did not run in the last move: they were down after a kill. */
+  /** The drivers that did not run in the last move: down after a kill, or stalled. */
   idle(): readonly string[];
   /** Applies the effects that are due and not in the ledger. */
   applyEffects(): Promise<void>;
@@ -414,22 +426,28 @@ export interface ChaosEngine {
   /** When a driver started again after each kill. */
   readonly restarts: readonly Date[];
   /** What the drivers reported, in order. */
-  readonly notices: readonly DriverNotice[];
+  readonly notices: readonly { driver: string; notice: DriverNotice }[];
   /** Every attempt the drivers started and every effect they applied, in order. */
   readonly acts: readonly Act[];
   /** Every time a driver found another's live lease on a batch it wanted. */
   readonly contests: readonly Contest[];
   /** Every batch a driver took over from one that was down. */
   readonly takeovers: readonly Takeover[];
-  /** Every time a driver stayed down after a kill. */
+  /** Every time a driver stayed down after a kill, or stalled. */
   readonly downs: readonly Down[];
+  /** Every batch a driver lost to another. */
+  readonly losses: readonly Loss[];
+  /** The attempts whose runs a driver stopped, by attempt key, with the driver. */
+  readonly stops: readonly { driver: string; key: string }[];
   close(): void;
 }
 
 /** A process of a driver: its life and the driver itself. */
+/** A process of a driver: its life, the driver itself, and the attempts its runner runs. */
 interface Process {
   life: Life;
   driver: Driver;
+  running: ReadonlyMap<string, AttemptRef>;
 }
 
 export const openChaosEngine = async (
@@ -446,7 +464,9 @@ export const openChaosEngine = async (
   const locks = fakeLocks();
   let now = t0;
   const restarts: Date[] = [];
-  const notices: DriverNotice[] = [];
+  const notices: { driver: string; notice: DriverNotice }[] = [];
+  const losses: Loss[] = [];
+  const stops: { driver: string; key: string }[] = [];
   const acts: Act[] = [];
   const contests: Contest[] = [];
   const takeovers: Takeover[] = [];
@@ -471,23 +491,45 @@ export const openChaosEngine = async (
   // takes its batches over once their leases expired, while its brewers may still run (ADR 0044).
   const downtime: Random | undefined =
     drivers.length > 1 ? seededRandom(plan.seed ^ 0xd0_3e) : undefined;
+  // With several drivers, a live one stalls for a few moves now and then, more often while its
+  // brewers run: its leases expire, the other takes its batch, and it finds that out when it goes
+  // on (ADR 0044).
+  const stalling: Random | undefined =
+    drivers.length > 1 ? seededRandom(plan.seed ^ 0x57_a11) : undefined;
   const pause = async (): Promise<void> => {
     for (let turns = interleaving?.int(3) ?? 0; turns > 0; turns--) {
       await new Promise((resolve) => setImmediate(resolve));
     }
   };
 
-  /** The fake runner of a driver process, which notes every attempt it starts. */
-  const runnerOf = (life: Life): BrewerRunner => {
+  /**
+   * The fake runner of a driver process, which notes every attempt it starts and stops, and keeps
+   * the attempts that run, by key.
+   */
+  const runnerOf = (life: Life): BrewerRunner & { running: Map<string, AttemptRef> } => {
     const runner = fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now));
+    const running = new Map<string, AttemptRef>();
     return {
+      running,
       start: (start) => {
         life.alive();
         const { driver } = life;
         const { batchId } = start.ref;
         const key = attemptKey.encode(start.ref);
         acts.push({ driver, kind: 'start', key, batchId, held: holds(driver, batchId) });
-        return runner.start(start);
+        const run = runner.start(start);
+        running.set(key, start.ref);
+        const ended = (): void => {
+          running.delete(key);
+        };
+        run.ended.then(ended, ended);
+        return {
+          ended: run.ended,
+          stop: () => {
+            stops.push({ driver, key });
+            run.stop();
+          },
+        };
       },
       progress: runner.progress,
     };
@@ -504,6 +546,14 @@ export const openChaosEngine = async (
         else if (downUntil.has(lease.owner))
           takeovers.push({ driver: owner, batchId, from: lease.owner });
       };
+      const runner = runnerOf(life);
+      const report = (notice: DriverNotice): void => {
+        notices.push({ driver: owner, notice });
+        if (notice.kind !== 'batch_lost') return;
+        const { batchId } = notice;
+        const ran = [...runner.running].filter(([, ref]) => ref.batchId === batchId);
+        losses.push({ driver: owner, batchId, running: ran.map(([key]) => key) });
+      };
       const applying = (key: string): void => {
         const { batchId } = effectKey.decode(key);
         acts.push({ driver: owner, kind: 'apply', key, batchId, held: holds(owner, batchId) });
@@ -511,7 +561,7 @@ export const openChaosEngine = async (
       try {
         const driver = await openDriver({
           store: killableStore(outside, life, read),
-          runner: runnerOf(life),
+          runner,
           recipes,
           clock: () => now,
           lock: () => locks.take(life),
@@ -527,13 +577,13 @@ export const openChaosEngine = async (
           },
           reminderMs,
           routingMs,
-          report: (notice) => notices.push(notice),
+          report,
         });
         // A new driver takes over its leases, starts the attempts that were scheduled and applies
         // the effects due.
         await driver.drive();
         await driver.applyEffects();
-        if (!life.dead) return { life, driver };
+        if (!life.dead) return { life, driver, running: runner.running };
       } catch (error) {
         if (!(error instanceof EngineKilled)) throw error;
       }
@@ -553,10 +603,17 @@ export const openChaosEngine = async (
     processes.set(owner, await boot(owner));
   };
 
+  /** Keeps `owner`'s driver down from this move on, for one to three moves. */
+  const keepDown = (owner: string, why: Down['why'], random: Random): void => {
+    const down = { driver: owner, why, from: move, until: move + 1 + random.int(3) };
+    downs.push(down);
+    downUntil.set(owner, down.until);
+  };
+
   /**
-   * Runs `fn` on `owner`'s driver, unless it is down until a later move; when it dies, starts it
-   * again at once, or keeps it down for a few moves. `settle` starts every driver that is down
-   * and keeps none down: the run is ending.
+   * Runs `fn` on `owner`'s driver, unless it is down until a later move or stalls now; when it
+   * dies, starts it again at once, or keeps it down for a few moves. `settle` starts every driver
+   * that is down and lets none stall or stay down: the run is ending.
    */
   const surviving = async (
     owner: string,
@@ -567,7 +624,11 @@ export const openChaosEngine = async (
     if (until !== undefined) {
       if (!settle && move < until) return 'idle';
       downUntil.delete(owner);
-      await restart(owner);
+      // A stalled driver goes on where it was; a killed one starts again.
+      if (processOf(owner).life.dead) await restart(owner);
+    } else if (!settle && stalling?.chance(processOf(owner).running.size > 0 ? 0.2 : 0.02)) {
+      keepDown(owner, 'stalled', stalling);
+      return 'idle';
     }
     const { life, driver } = processOf(owner);
     try {
@@ -578,9 +639,7 @@ export const openChaosEngine = async (
     // A kill the driver caught and reported (a failed effect, a failed tick) still killed it.
     if (!life.dead) return 'lived';
     if (!settle && downtime?.chance(0.5)) {
-      const down = { driver: owner, from: move, until: move + 1 + downtime.int(3) };
-      downs.push(down);
-      downUntil.set(owner, down.until);
+      keepDown(owner, 'killed', downtime);
     } else {
       await restart(owner);
     }
@@ -640,6 +699,8 @@ export const openChaosEngine = async (
     contests,
     takeovers,
     downs,
+    losses,
+    stops,
     get found() {
       return host.found;
     },
@@ -767,10 +828,10 @@ const report = ({ engine, scenario, moves }: ChaosRun): string => {
         ({ at, point, move, driver }) => `#${at} ${driver} ${point}, in move ${move}`,
       ),
     ),
-    'Drivers down after a kill:',
+    'Drivers down after a kill, or stalled:',
     numbered(
       engine.downs.map(
-        ({ driver, from, until }) => `${driver} from move ${from} until move ${until}`,
+        ({ driver, why, from, until }) => `${driver} ${why}, from move ${from} until move ${until}`,
       ),
     ),
     'Moves:',
