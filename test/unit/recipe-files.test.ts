@@ -170,10 +170,11 @@ describe('loadRecipes: fails closed', () => {
   });
 
   it('says in one line why a recipe does not pass its schema', () => {
-    const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster', id: 'Bad Id' }])] });
+    const fields = { budget: { minutes: 0 } };
+    const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });
     const [problem, ...rest] = problemsOf(files);
     assert.deepEqual(rest, []);
-    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*steps\[0\]\.id/);
+    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*budget\.minutes/);
     assert.doesNotMatch(problem ?? '', /\n/);
   });
 
@@ -198,8 +199,8 @@ describe('loadRecipes: fails closed', () => {
       brewers: [{ ...maltster, path: 'brewers/malt.md' }, brewmaster],
     });
     assert.deepEqual(problemsOf(files), [
-      'recipes/amber.jsonc: it holds the recipe "pale", which belongs in recipes/pale.jsonc',
       'brewers/malt.md: it holds the brewer "maltster", which belongs in brewers/maltster.md',
+      'recipes/amber.jsonc: it holds the recipe "pale", which belongs in recipes/pale.jsonc',
     ]);
   });
 
@@ -254,15 +255,19 @@ describe('loadRecipes: fails closed', () => {
     ]);
   });
 
-  it('reports every problem of every file, brewers first', () => {
+  it('reports every problem of every file, brewers first, and a broken brewer file once', () => {
     const files = brewery({
-      recipes: [{ path: 'recipes/amber.jsonc', unreadable: 'EISDIR' }, pale],
+      recipes: [
+        { path: 'recipes/amber.jsonc', unreadable: 'EISDIR' },
+        recipe('pale', [{ brewer: 'maltster' }, { brewer: 'gauger' }]),
+      ],
       brewers: [{ path: 'brewers/maltster.md', unreadable: 'EACCES' }, brewmaster],
     });
+    // The maltster's file is there, so the recipe does not also name a brewer it lacks.
     assert.deepEqual(problemsOf(files), [
       'brewers/maltster.md: EACCES',
       'recipes/amber.jsonc: EISDIR',
-      'recipes/pale.jsonc: it names no brewer "maltster" the Brewery has',
+      'recipes/pale.jsonc: it names no brewer "gauger" the Brewery has',
     ]);
   });
 });
