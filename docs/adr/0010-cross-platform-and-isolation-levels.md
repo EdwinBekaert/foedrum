@@ -1,6 +1,6 @@
 # 0010. Cross-platform support and isolation levels
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0039](0039-windows-job-objects-through-a-powershell-helper.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0039](0039-windows-job-objects-through-a-powershell-helper.md) and [0048](0048-reviewers-read-only-inside-the-checkout.md)
 
 ## Context
 Foedrum's users work on Windows, macOS and Linux. Brewers run shell commands and edit files inside repositories that may contain untrusted content. Claude Code's OS sandbox restricts **shell commands only** and exists on macOS (Seatbelt), Linux and WSL2 (bubblewrap + socat); on native Windows, shell commands run unsandboxed. File tools, MCP servers and hooks are outside the sandbox on every platform and are controlled by permission rules.

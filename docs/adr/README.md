@@ -13,7 +13,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0007](0007-jsonc-config-and-json-frontmatter.md) | JSONC configuration, JSON frontmatter | Accepted, amended by 0020 |
 | [0008](0008-polling-intake.md) | Polling intake | Accepted, amended by 0043 |
 | [0009](0009-agpl-and-cla.md) | AGPL-3.0 with a Contributor License Agreement | Accepted |
-| [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted, amended by 0039 |
+| [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted, amended by 0039 and 0048 |
 | [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted, amended by 0024 and 0044 |
 | [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted, amended by 0029 |
 | [0013](0013-single-repo-sub-orders-bottles-and-releases.md) | Single-repository sub-orders, bottles and release dependencies | Accepted, amended by 0043 |
@@ -51,7 +51,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted |
 | [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047 and 0048 |
 | [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted |
-| [0048](0048-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0046) | Accepted |
+| [0048](0048-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted |
 
 ## Template
 
