@@ -64,10 +64,11 @@ describe('package.json', () => {
 
   // The integration tests start git and npm, which would otherwise write to the system temp
   // directory; the wrapper keeps their temp files in .foedrum/tmp/ (CLAUDE.md, Temporary files).
+  // Outside CI they run below normal priority, like npm test (#140).
   it('runs the integration tests through with-checkout-tmp', () => {
     assert.equal(
       pkg.scripts?.['test:integration'],
-      'node scripts/with-checkout-tmp.ts --test "test/integration/**/*.test.ts"',
+      'node scripts/with-checkout-tmp.ts --import ./scripts/lower-priority.ts --test "test/integration/**/*.test.ts"',
     );
   });
 

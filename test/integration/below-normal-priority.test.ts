@@ -1,5 +1,6 @@
-// npm test's preload lowers the priority of the process that loads it on a developer's machine,
-// and a process it starts inherits it (#140). That it changes nothing in CI is a unit test.
+// npm test's preload, and the priority preload of npm run test:integration and /brew-review's
+// coverage runs, lower the priority of the process that loads them on a developer's machine, and a
+// process it starts inherits it (#140). That they change nothing in CI is a unit test.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -17,10 +18,10 @@ const REPORT = [
   'console.log(`${getPriority()} ${child.trim()}`);',
 ].join('\n');
 
-// node with npm test's preload, without CI, killed after 60 s. Without NODE_TEST_CONTEXT too, so
-// the preload treats it as the runner, which may start processes.
-const priorities = (): string => {
-  const result = spawnSync(process.execPath, ['--import', './scripts/test-cpu-time.ts', '-e', REPORT], {
+// node with a preload (npm test's by default), without CI, killed after 60 s. Without
+// NODE_TEST_CONTEXT too, so npm test's preload treats it as the runner, which may start processes.
+const priorities = (preload = './scripts/test-cpu-time.ts'): string => {
+  const result = spawnSync(process.execPath, ['--import', preload, '-e', REPORT], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, CI: undefined, NODE_TEST_CONTEXT: undefined },
@@ -37,5 +38,10 @@ describe("npm test's preload and the process priority", () => {
     // A machine that already runs this test below normal or lower keeps that priority.
     const expected = Math.max(getPriority(), below);
     assert.equal(priorities(), `${expected} ${expected}`);
+  });
+
+  it('runs below normal under the priority preload of the integration and coverage runs', () => {
+    const expected = Math.max(getPriority(), constants.priority.PRIORITY_BELOW_NORMAL);
+    assert.equal(priorities('./scripts/lower-priority.ts'), `${expected} ${expected}`);
   });
 });
