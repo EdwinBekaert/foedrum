@@ -425,6 +425,87 @@ describe('forbiddenReason', () => {
   }
 });
 
+// A command bash or PowerShell could not run (an unclosed quote) is read without its quotes, so
+// honouring quotes never hides a push behind a stray one (#42).
+describe('forbiddenReason on a command with an unclosed quote', () => {
+  for (const command of ['echo "unclosed; git push -f', "echo 'unclosed\ngit push -f"]) {
+    it(`reads it without its quotes: ${JSON.stringify(command)}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+});
+
+// Commands that look like the bypasses above but neither push nor merge (#42).
+describe('forbiddenReason and isGatedCommand on look-alikes of the bypasses', () => {
+  // Text in a string is not a command unless something runs it.
+  const allowed = [
+    'echo "git push -f"',
+    "echo 'gh pr merge 30'",
+    'git push -u origin "$(git branch --show-current)"',
+    'gh pr create --body "$(cat body.md)"',
+    'time npm test',
+    'env',
+    'xargs rm < list.txt',
+    'bash scripts/build.sh',
+    'pwsh -File scripts/build.ps1',
+    'cmd /c dir',
+    'Start-Process notepad -ArgumentList notes.txt',
+    'git config alias.st status',
+    'git config user.name "Synthetic Person"',
+    "gh alias set co 'pr checkout'",
+    '$x = 1; Write-Output $x',
+    'bash -c "git push"',
+    'echo $HOME',
+  ];
+  for (const command of allowed) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+
+  const ungated = [
+    'git commit -m "then git push"',
+    'echo "gh pr create"',
+    'bash -c "git status"',
+    'pwsh -Command "gh pr view 30"',
+    '$x = 1',
+  ];
+  for (const command of ungated) {
+    it(`lets through: ${command}`, () => {
+      assert.equal(isGatedCommand(command), false);
+    });
+  }
+});
+
+// Disguises the gate already caught because it split on ( { & | ; even inside quotes, or stripped
+// quotes from words. They must stay caught once it honours quotes (#42).
+describe('forbiddenReason and isGatedCommand on disguises caught before #42', () => {
+  const forcePushes = [
+    "'git push -f' | iex",
+    'Invoke-Command -ScriptBlock ([scriptblock]::Create("git push -f"))',
+    "Invoke-Expression('git push -f')",
+    'bash -lc "cd repo && git push -f"',
+    'echo "$(git push -f)"',
+    'echo $(git push -f)',
+    'git push "-f"',
+    'git push origin "+main"',
+    'powershell.exe -Command "& { git push -f }"',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  it('forbids merging a pull request: gh pr "merge" 30', () => {
+    assert.match(forbiddenReason('gh pr "merge" 30') ?? '', /gh pr merge/);
+  });
+
+  it('gates: X=$(date) git push', () => {
+    assert.equal(isGatedCommand('X=$(date) git push'), true);
+  });
+});
+
 describe('precheck on forbidden commands', () => {
   for (const command of [
     'git push --force-with-lease',
