@@ -181,39 +181,55 @@ interface StreamEvent {
   message?: { content?: { type: string; content?: unknown; is_error?: boolean }[] };
 }
 
-// The brewer runner's command line (ADR 0046) with a PreToolUse hook in its `--settings` file.
-// `--safe-mode` turns that file's hooks off too (ADR 0048), so the hook is tested without it.
-// The fake model reads a file next to the worktree.
+interface Run {
+  /** The one tool call of the fake model; by default, a Read of the file next to the worktree. */
+  call?: { name: string; input: Record<string, unknown> };
+  allow?: string[];
+  hooks?: object;
+  safeMode?: boolean;
+}
+
+// The brewer runner's command line (ADR 0046) with the attempt's `--settings` file. `--safe-mode`
+// turns that file's hooks off too, so brewers get the rule from scoped allow rules instead, and
+// the hook is tested without it (ADR 0048). The fake model reads next to the worktree.
 describe('claude and reads outside its worktree', { skip: claude === undefined }, () => {
   let dir: TempDir;
-  let api: FakeMessagesApi;
+  let api: FakeMessagesApi | undefined;
   let secret: string;
-  beforeEach(async () => {
+  beforeEach(() => {
     dir = makeTempDir('claude-read-guard');
     mkdirSync(join(dir.path, 'worktree'));
     mkdirSync(join(dir.path, 'user'));
     secret = join(dir.path, 'secret.txt');
     writeFileSync(secret, 'the-secret-text');
-    api = await startFakeMessagesApi({ name: 'Read', input: { file_path: secret } });
+    writeFileSync(join(dir.path, 'worktree', 'inside.txt'), 'the-inside-text');
   });
   afterEach(async () => {
-    await api.close();
+    await api?.close();
+    api = undefined;
     removeTree(dir.path);
   });
 
-  /** The results of the brewer's tool calls, with the given hooks in its settings file. */
-  const toolResults = async (hooks: object | undefined, { safeMode = true } = {}) => {
+  /** The results of the brewer's tool calls. */
+  const toolResults = async ({
+    call = { name: 'Read', input: { file_path: secret } },
+    allow = ['Read'],
+    hooks,
+    safeMode = true,
+  }: Run = {}) => {
+    await api?.close();
+    api = await startFakeMessagesApi(call);
     const settingsFile = join(dir.path, 'attempt-settings.json');
     writeFileSync(
       settingsFile,
-      JSON.stringify({ permissions: { allow: ['Read'], deny: [] }, ...(hooks ? { hooks } : {}) }),
+      JSON.stringify({ permissions: { allow, deny: [] }, ...(hooks ? { hooks } : {}) }),
     );
     const all = claudeArgs({
       model: 'claude-haiku-5-5',
       effort: 'low',
       maxTurns: 3,
       settingsFile,
-      tools: ['Read'],
+      tools: ['Read', 'Grep', 'Glob'],
       session: { kind: 'new', id: randomUUID() },
     });
     const args = safeMode ? all : all.filter((arg) => arg !== '--safe-mode');
@@ -249,7 +265,24 @@ describe('claude and reads outside its worktree', { skip: claude === undefined }
       }));
   };
 
-  const guardHooks = () => ({
+  /** The one tool result, which must be an error that does not show the file. */
+  const denied = async (run: Run, why: RegExp) => {
+    const results = await toolResults(run);
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.isError, true, results[0]?.content);
+    assert.match(results[0]?.content ?? '', why);
+    assert.doesNotMatch(results[0]?.content ?? '', /the-secret-text/);
+  };
+
+  /** The one tool result, which must not be an error, and what it showed. */
+  const allowed = async (run: Run): Promise<string> => {
+    const results = await toolResults(run);
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.isError, false, results[0]?.content);
+    return results[0]?.content ?? '';
+  };
+
+  const guardHooks = {
     PreToolUse: [
       {
         matcher: 'Read|Grep|Glob',
@@ -262,13 +295,63 @@ describe('claude and reads outside its worktree', { skip: claude === undefined }
         ],
       },
     ],
+  };
+
+  const DONT_ASK = /don't ask mode/;
+
+  // Without this the test would prove nothing: the fake model's read gets the file.
+  it('reads a file outside the worktree when no hook is set', async () => {
+    assert.match(await allowed({}), /the-secret-text/);
   });
 
   it('blocks that read when the settings file has the read guard, without --safe-mode', async () => {
-    const results = await toolResults(guardHooks(), { safeMode: false });
-    assert.equal(results.length, 1);
-    assert.equal(results[0]?.isError, true);
-    assert.match(results[0]?.content ?? '', /outside the checkout/);
-    assert.doesNotMatch(results[0]?.content ?? '', /the-secret-text/);
+    await denied({ hooks: guardHooks, safeMode: false }, /outside the checkout/);
+  });
+
+  // Why brewers cannot use the hook: their command line has --safe-mode (ADR 0046).
+  it('does not run the hooks of the settings file under --safe-mode', async () => {
+    assert.match(await allowed({ hooks: guardHooks }), /the-secret-text/);
+  });
+
+  describe('a Read rule scoped to the worktree, under --safe-mode', () => {
+    const allow = ['Read(./**)'];
+
+    it('allows a read inside the worktree', async () => {
+      const call = { name: 'Read', input: { file_path: join(dir.path, 'worktree', 'inside.txt') } };
+      assert.match(await allowed({ call, allow }), /the-inside-text/);
+    });
+
+    it('denies a read outside, with .. and through a junction or link', async () => {
+      await denied({ allow }, DONT_ASK);
+      await denied(
+        { allow, call: { name: 'Read', input: { file_path: '../secret.txt' } } },
+        DONT_ASK,
+      );
+      const link = join(dir.path, 'worktree', 'up');
+      symlinkSync(dir.path, link, windows ? 'junction' : 'dir');
+      const call = { name: 'Read', input: { file_path: join(link, 'secret.txt') } };
+      await denied({ allow, call }, DONT_ASK);
+    });
+
+    it('scopes Grep and Glob too: inside allowed, outside denied', async () => {
+      await allowed({ allow, call: { name: 'Grep', input: { pattern: 'inside' } } });
+      await allowed({ allow, call: { name: 'Glob', input: { pattern: '*.txt' } } });
+      await denied(
+        { allow, call: { name: 'Grep', input: { pattern: 'secret', path: dir.path } } },
+        DONT_ASK,
+      );
+      await denied(
+        { allow, call: { name: 'Glob', input: { pattern: '*.txt', path: dir.path } } },
+        DONT_ASK,
+      );
+      const absolute = `${dir.path.replace(/\\/g, '/')}/*.txt`;
+      await denied({ allow, call: { name: 'Glob', input: { pattern: absolute } } }, DONT_ASK);
+    });
+
+    // So a brewer's bare Grep or Glob rule must not reach the settings file (ADR 0048).
+    it('is undone by a bare Grep rule', async () => {
+      const call = { name: 'Grep', input: { pattern: 'the-secret', path: dir.path } };
+      assert.match(await allowed({ allow: [...allow, 'Grep'], call }), /secret\.txt/);
+    });
   });
 });

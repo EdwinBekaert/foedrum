@@ -262,6 +262,13 @@ describe('readGuard: what it cannot check', () => {
       root: 'repo',
     }));
 
+  it('blocks when the checkout cannot be resolved', () =>
+    blocks(hookInput('Read', { file_path: '/repo/a.ts' }), /could not resolve the checkout/, {
+      realPath: () => {
+        throw new Error('EACCES: permission denied');
+      },
+    }));
+
   it('blocks input that is not JSON', () => blocks('not json', /could not read its input/));
 
   it('blocks a tool_input that is not an object', () =>
