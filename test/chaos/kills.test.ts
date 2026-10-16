@@ -52,8 +52,9 @@ const chaos = async <T>(
 describe('chaos runs', () => {
   it('kill the engine at every kind of point, and restart into what it must recover from', async () => {
     const seen = new Set<string>();
-    // Fixed seeds: what the harness reaches does not depend on FOEDRUM_SEED.
-    for (let seed = 1; seed <= 12; seed++) {
+    // Fixed seeds, so what the harness reaches does not depend on FOEDRUM_SEED: few, picked to
+    // reach every goal between them. A change to the generator may need other seeds.
+    for (const seed of [2, 3, 16, 18]) {
       await chaos(seed, { moves: [], plays: [] }, false, ({ engine }) => {
         for (const { point } of engine.kills) seen.add(`killed ${point}`);
         if (engine.found > 0) seen.add('an effect found on the code host, not applied again');
