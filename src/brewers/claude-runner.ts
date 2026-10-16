@@ -185,6 +185,11 @@ const environmentOf = (
     : `claude refused to start: ${cut(said)}`;
 };
 
+/** Resolves after `ms`, or at once when `signal` aborts or had aborted. */
+export function waitFor(_ms: number, _signal: AbortSignal): Promise<void> {
+  throw new Error('not implemented');
+}
+
 /** How long the runner waits before it starts claude once more after a passing failure. */
 const RETRY_MS = 5000;
 

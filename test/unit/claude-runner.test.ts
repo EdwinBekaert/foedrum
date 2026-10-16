@@ -2,7 +2,15 @@
 // captured streams of #17: what it starts, what it writes, and how each attempt ends.
 
 import assert from 'node:assert/strict';
-import { linkSync, mkdirSync, openSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -12,6 +20,7 @@ import {
   type ClaudeRunnerDeps,
   claudeBrewerRunnerWith,
   readOutDocFile,
+  waitFor,
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt, type BrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptLimits, AttemptStart } from '../../src/engine/brewer-runner.ts';
@@ -609,6 +618,25 @@ describe('readOutDocFile', () => {
   // A link in a folder of the path (a junction, which needs no privilege) leads out as well.
   // A hard link keeps its name inside the worktree but its content may be any file of the volume.
   // #134: the file opened must be the file checked, not one swapped in between.
+  // Review of #136: a folder swapped for a link between the check and the open is followed by
+  // the open and by any later look at the same path; only the identity taken at the check holds.
+  it('does not read the file behind a folder swapped in after the check', () => {
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(join(worktree, 'docs'), { recursive: true });
+    mkdirSync(join(dir.path, 'outside'));
+    writeFileSync(join(worktree, 'docs', 'plan.md'), 'the out doc');
+    writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not for the log');
+    const swapping = (path: string, flags: number): number => {
+      renameSync(join(worktree, 'docs'), join(worktree, 'docs-before'));
+      symlinkSync(join(dir.path, 'outside'), join(worktree, 'docs'), 'junction');
+      return openSync(path, flags);
+    };
+    assert.deepEqual(readOutDocFile(join(worktree, 'docs', 'plan.md'), 100, worktree, swapping), {
+      kind: 'unread',
+      reason: 'it changed while it was read',
+    });
+  });
+
   it('does not read a file other than the one it checked', () => {
     writeFileSync(join(dir.path, 'plan.md'), 'the out doc');
     writeFileSync(join(dir.path, 'swapped.md'), 'not for the log');
@@ -664,5 +692,37 @@ describe('readOutDocFile', () => {
       kind: 'unread',
       reason: 'it is not a regular file',
     });
+  });
+});
+
+// The runner's real wait before it starts claude once more (ADR 0048).
+describe('waitFor', () => {
+  it('resolves after its time', async () => {
+    const started = performance.now();
+    await waitFor(20, new AbortController().signal);
+    assert.ok(performance.now() - started >= 15);
+  });
+
+  it('resolves at once when the signal aborts, before its time', async () => {
+    const stop = new AbortController();
+    const started = performance.now();
+    const waited = waitFor(60_000, stop.signal);
+    stop.abort();
+    await waited;
+    assert.ok(performance.now() - started < 1000);
+  });
+
+  // Review of #136: a stop that came before the wait began must not cost the wait.
+  it('resolves at once when the signal had already aborted', async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const late = new Promise<'late'>((answer) => {
+      setTimeout(() => answer('late'), 1000).unref();
+    });
+    const first = await Promise.race([
+      waitFor(60_000, stop.signal).then(() => 'now' as const),
+      late,
+    ]);
+    assert.equal(first, 'now');
   });
 });
