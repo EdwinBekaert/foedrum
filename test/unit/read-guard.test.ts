@@ -241,6 +241,27 @@ describe('readGuard: Windows paths', () => {
     assert.deepEqual(calls, ['D:\\repo']);
   });
 
+  it('blocks a Glob pattern that starts at a drive without a folder, without touching it', async () => {
+    const { exitCode, stderr, calls } = await guard(
+      winInput('Glob', { pattern: 'E:secrets\\*' }),
+      win,
+    );
+    assert.equal(exitCode, 2);
+    assert.match(stderr, /no full drive path/);
+    assert.deepEqual(calls, ['D:\\repo']);
+  });
+
+  // A mapped network drive, or a disconnected one, would be opened by the resolver.
+  it('blocks a path on another drive than the checkout, without touching it', async () => {
+    const { exitCode, stderr, calls } = await guard(
+      winInput('Read', { file_path: 'Z:\\x.txt' }),
+      win,
+    );
+    assert.equal(exitCode, 2);
+    assert.match(stderr, /"Z:\\\\x.txt" is outside the checkout \(D:\\repo\): it is on drive Z:/);
+    assert.deepEqual(calls, ['D:\\repo']);
+  });
+
   it('blocks a Glob pattern with backslashes that leaves the checkout', () =>
     blocks(winInput('Glob', { pattern: '..\\..\\Users\\*' }), OUTSIDE, win));
 
