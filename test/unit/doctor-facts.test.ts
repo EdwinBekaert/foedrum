@@ -2,6 +2,7 @@
 // machine is in test/integration/doctor.test.ts.
 
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from '../../src/cli/doctor-facts.ts';
@@ -182,5 +183,42 @@ describe('gatherDoctorFacts', () => {
       ),
       report,
     );
+  });
+});
+
+describe('gatherDoctorFacts: the Brewery config', () => {
+  it('reads foedrum.jsonc in the working directory', async () => {
+    const { shell } = fakeShell();
+    const read: string[] = [];
+    const facts = await gatherDoctorFacts({
+      ...shell,
+      readFile: (path) => {
+        read.push(path);
+        return '{ "repositories": {} }';
+      },
+    });
+    assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc')]);
+    assert.equal(facts.config, '{ "repositories": {} }');
+  });
+
+  it('has no config where there is no foedrum.jsonc', async () => {
+    const { shell } = fakeShell();
+    const facts = await gatherDoctorFacts({ ...shell, readFile: () => undefined });
+    assert.equal('config' in facts, false);
+  });
+
+  it('keeps a foedrum.jsonc it cannot read as the reason, instead of failing', async () => {
+    const { shell } = fakeShell();
+    let facts: Awaited<ReturnType<typeof gatherDoctorFacts>> | undefined;
+    await assert.doesNotReject(async () => {
+      facts = await gatherDoctorFacts({
+        ...shell,
+        readFile: () => {
+          throw new Error('EISDIR: illegal operation on a directory, read');
+        },
+      });
+    });
+    assert.equal(facts?.configUnreadable, 'EISDIR: illegal operation on a directory, read');
+    assert.equal(facts !== undefined && 'config' in facts, false);
   });
 });

@@ -1,6 +1,7 @@
 // `foedrum doctor`, the shell (ADR 0021): finds each tool through PATH and asks it for its
 // version through the process runner. doctor.ts decides what the answers mean.
 
+import { join } from 'node:path';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import type { DoctorFacts, ToolName, ToolRun } from './doctor.ts';
 
@@ -34,6 +35,8 @@ export interface DoctorShell {
   /** `process.execPath`: the program doctor holds in a Job Object to see that it can. */
   execPath: string;
   cwd: string;
+  /** The text of the file at `path`, or undefined when there is none. */
+  readFile?: (path: string) => string | undefined;
 }
 
 /** Every tool's path and version answer, asked all at once. */
@@ -63,11 +66,21 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     shell.platform === 'win32' ? holdInJob() : undefined,
     ...(['npm', 'git', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
   ]);
+  // A foedrum.jsonc that cannot be read (a folder, no permission) is a problem doctor reports.
+  let config: string | undefined;
+  let configUnreadable: string | undefined;
+  try {
+    config = shell.readFile?.(join(cwd, 'foedrum.jsonc'));
+  } catch (error) {
+    configUnreadable = error instanceof Error ? error.message : String(error);
+  }
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
     tools: { npm, git, claude, bwrap, socat, podman, docker },
     ...(jobObject === undefined ? {} : { jobObject }),
+    ...(config === undefined ? {} : { config }),
+    ...(configUnreadable === undefined ? {} : { configUnreadable }),
   };
 };
