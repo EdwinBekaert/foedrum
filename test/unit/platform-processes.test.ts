@@ -916,6 +916,36 @@ describe('streamProcessWith', () => {
 
   // A killed process still closes, with a line it had only begun; the caller already has its
   // answer and must not get a cut-off line after it.
+  // The caller parses untrusted lines; a throw must not leave the tree running and the answer
+  // unsettled, nor reach the engine as an uncaught exception.
+  it('kills the whole tree and answers with the error when the caller throws on a line', async () => {
+    const child = new FakeChild(90);
+    const { killed, stream } = streamer(child);
+    const lines: string[] = [];
+    const done = stream('claude', [], {
+      cwd: '/work/tree',
+      maxLineBytes: 100,
+      onLine: (line) => {
+        lines.push(line);
+        if (line === 'b') throw new Error('cannot read the line');
+      },
+    });
+    child.stderr.write('warning\n');
+    await settle();
+    // Emitted here, so an error the runner let through lands in this test, not elsewhere.
+    let escaped: unknown;
+    try {
+      child.stdout.emit('data', 'a\nb\nc\n');
+    } catch (error) {
+      escaped = error;
+    }
+    assert.equal(escaped, undefined, 'the error escaped the runner');
+    child.close(null);
+    assert.deepEqual(await done, { exitCode: null, stderr: 'warning\ncannot read the line' });
+    assert.deepEqual(lines, ['a', 'b']);
+    assert.deepEqual(killed, [90]);
+  });
+
   it('hands over no half-written line when the process closes after it was stopped', async () => {
     const child = new FakeChild();
     const { lines, stream, options } = streamer(child);
