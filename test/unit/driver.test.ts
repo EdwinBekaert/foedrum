@@ -540,6 +540,52 @@ describe('openDriver', () => {
       assert.equal(batchLease('b1'), undefined);
     });
 
+    it("leaves a batch's other effects for the next pass after one fails, and applies other batches'", async () => {
+      const host = fakeHost();
+      let down = true;
+      const tried: string[] = [];
+      const flaky: EffectTarget = {
+        find: host.target.find,
+        apply: async (key) => {
+          tried.push(key);
+          if (down && key.startsWith('["b1"')) throw new Error('the code host is down');
+          return host.target.apply(key);
+        },
+      };
+      // b1 has two succeeded steps, so two comments; b2 has one.
+      for (const [batchId, issue] of [
+        ['b1', 1],
+        ['b2', 2],
+      ] as const) {
+        intake.issue({ kind: 'order', batchId, order: { issue } }, now);
+        const route = {
+          kind: 'route',
+          batchId,
+          recipe: 'pint',
+          reason: 'label',
+          source: 'label',
+        } as const;
+        intake.issue(route, now);
+      }
+      for (const stepId of ['plan', 'implement']) {
+        const ref = { batchId: 'b1', stepId, attempt: 1 };
+        intake.issue({ kind: 'record', event: { type: 'step.started', ...ref } }, now);
+        intake.issue({ kind: 'finish', ...ref, ending: succeeded }, now);
+      }
+      intake.issue({ kind: 'record', event: { type: 'step.started', ...plan('b2') } }, now);
+      intake.issue({ kind: 'finish', ...plan('b2'), ending: succeeded }, now);
+      const driver = await open({ effects: { due: commentsDue, target: flaky } });
+      await driver.applyEffects();
+      assert.deepStrictEqual(tried, ['["b1","plan",1,"comment"]', '["b2","plan",1,"comment"]']);
+      assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      down = false;
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied.slice(1).sort(), [
+        '["b1","implement",1,"comment"]',
+        '["b1","plan",1,"comment"]',
+      ]);
+    });
+
     it('reports an effect that failed, and keeps its batch held for the next pass', async () => {
       succeededPlan('cellar');
       const notices: unknown[] = [];
