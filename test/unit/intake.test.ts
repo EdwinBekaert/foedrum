@@ -1,0 +1,324 @@
+// The intake of target-repository issues (ADR 0043, #103): one pass records the end of each pull
+// request of a claimed batch on tap, then claims candidates up to the Brewery's free capacity and
+// orders what it won. A fake GitHub and a fake tracker, no network (ADR 0021).
+
+import assert from 'node:assert/strict';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
+import type { Ending } from '../../src/engine/decide.ts';
+import type { EventStore } from '../../src/engine/event-store.ts';
+import {
+  createIntake,
+  freeCapacity,
+  type IntakeNotice,
+  type IntakeOptions,
+  intakeRepositories,
+  type TargetTracker,
+} from '../../src/engine/intake.ts';
+import type { Claimant, PullRequestState, TargetIssue } from '../../src/engine/issue-claims.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
+import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
+import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+
+const web = 'acme/web';
+const api = 'acme/api';
+const pullRequest = 'https://github.com/acme/web/pull/12';
+const now = new Date('2026-10-16T09:00:00.000Z');
+const alice: Claimant = { brewery: 'alice/brewery', login: 'alice' };
+const bob: Claimant = { brewery: 'bob/brewery', login: 'bob' };
+const recipes = fakeRecipes({ half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }) });
+const succeeded: Ending = {
+  kind: 'succeeded',
+  output: { status: 'done', summary: 'Done', assumptions: [] },
+};
+const repositories: IntakeOptions['repositories'] = [
+  { repo: web, alias: 'web', filter: { labels: ['foedrum'] } },
+  { repo: api, alias: 'api', filter: { labels: ['foedrum'] } },
+];
+
+const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue => ({
+  number,
+  state: 'open',
+  pullRequest: false,
+  labels: ['foedrum'],
+  milestone: undefined,
+  assignees: [],
+  author: 'alice',
+  ...fields,
+});
+const record = (brewery: string, number: number): string =>
+  JSON.stringify({ brewery, issue: number, claimedAt: now.toISOString() });
+
+/** A tracker with the open issues of each repository and the state of each pull request. */
+const fakeTracker = (
+  issues: Record<string, TargetIssue[]>,
+  pullRequests: Record<string, PullRequestState> = {},
+) => {
+  const asked: string[] = [];
+  const tracker: TargetTracker = {
+    issues: async (repo) => {
+      asked.push(`issues ${repo}`);
+      const listed = issues[repo];
+      if (listed === undefined) throw new Error(`502 listing ${repo}`);
+      return listed;
+    },
+    pullRequest: async (url) => {
+      asked.push(`pull request ${url}`);
+      const state = pullRequests[url];
+      if (state === undefined) throw new Error(`502 reading ${url}`);
+      return state;
+    },
+  };
+  return { tracker, asked, pullRequests };
+};
+
+describe('createIntake', () => {
+  let store: EventStore;
+  let log: CommandLog;
+  let github: FakeGitHub;
+  let notices: IntakeNotice[];
+
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+    log = createCommandLog({ store, recipes });
+    github = fakeGitHub();
+    notices = [];
+  });
+  afterEach(() => store.close());
+
+  const intake = (tracker: TargetTracker, options: Partial<IntakeOptions> = {}) =>
+    createIntake({
+      log,
+      tracker,
+      claims: github.host,
+      claimant: alice,
+      authors: ['alice', 'bob'],
+      repositories,
+      capacity: 5,
+      clock: () => now,
+      report: (notice) => notices.push(notice),
+      ...options,
+    });
+  const batches = () =>
+    [...log.state().batches.values()].map(({ id, repo, issue: number, lane }) => ({
+      id,
+      repo,
+      issue: number,
+      lane: lane.kind,
+    }));
+  const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
+    assert.equal(log.issue(command, now).kind, 'accepted');
+
+  it('claims a labelled issue and orders it as <alias>-<issue>, with a routing deadline', async () => {
+    const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+    await intake(tracker).poll();
+    const batch = log.state().batches.get('web-7');
+    assert.deepStrictEqual(
+      { repo: batch?.repo, issue: batch?.issue, lane: batch?.lane },
+      { repo: web, issue: 7, lane: { kind: 'ordered', routeBy: '2026-10-16T10:00:00.000Z' } },
+    );
+    assert.equal(github.refs.get(`${web}#7`), record(alice.brewery, 7));
+    assert.deepStrictEqual(notices, [{ kind: 'ordered', repo: web, issue: 7, batchId: 'web-7' }]);
+  });
+
+  it('orders the oldest candidates first, only up to the free capacity', async () => {
+    // One Brewery batch already takes one of the three places.
+    accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+    const { tracker } = fakeTracker({ [web]: [issue(9), issue(3), issue(5)], [api]: [issue(2)] });
+    await intake(tracker, { capacity: 3 }).poll();
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['1-1', 'web-3', 'web-5'],
+    );
+    assert.equal(github.refs.has(`${web}#9`), false, 'the rest stay unclaimed');
+    assert.equal(github.refs.has(`${api}#2`), false);
+  });
+
+  it('shares the capacity between repositories in the order the config names them', async () => {
+    const { tracker } = fakeTracker({ [web]: [issue(4)], [api]: [issue(2), issue(3)] });
+    await intake(tracker, { capacity: 2 }).poll();
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['web-4', 'api-2'],
+    );
+  });
+
+  it('lists no issues when it has no free capacity', async () => {
+    accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+    const { tracker, asked } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+    await intake(tracker, { capacity: 1 }).poll();
+    assert.deepStrictEqual(asked, []);
+    assert.equal(github.refs.size, 0);
+  });
+
+  it('skips an issue another Brewery claimed, reports it, and orders the next one instead', async () => {
+    github.setRef(web, 3, record(bob.brewery, 3));
+    const { tracker } = fakeTracker({ [web]: [issue(3), issue(4)], [api]: [] });
+    await intake(tracker, { capacity: 1 }).poll();
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['web-4'],
+    );
+    assert.deepStrictEqual(notices, [
+      { kind: 'taken', repo: web, issue: 3, by: bob.brewery },
+      { kind: 'ordered', repo: web, issue: 4, batchId: 'web-4' },
+    ]);
+  });
+
+  it('orders its own claim that a run killed before ordering left, and only once', async () => {
+    github.setRef(web, 7, record(alice.brewery, 7));
+    const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+    const polling = intake(tracker);
+    await polling.poll();
+    await polling.poll();
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['web-7'],
+    );
+  });
+
+  it('never orders an issue with a batch here again, whatever its lane, nor one of another repository', async () => {
+    accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'Acme/Web' } });
+    accept({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+    const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [issue(7)] });
+    await intake(tracker).poll();
+    assert.deepStrictEqual(
+      batches().map(({ id, lane }) => `${id} ${lane}`),
+      ['web-7 cancelled', 'api-7 ordered'],
+    );
+  });
+
+  it('lets exactly one of two Breweries that poll at the same time order an issue', async () => {
+    const bobStore = openSqliteEventStore(':memory:');
+    const bobLog = createCommandLog({ store: bobStore, recipes });
+    try {
+      const { tracker } = fakeTracker({ [web]: [issue(7), issue(8)], [api]: [] });
+      const bobs = intake(tracker, { log: bobLog, claimant: bob });
+      await Promise.all([intake(tracker).poll(), bobs.poll()]);
+      const ours = [...log.state().batches.keys()];
+      const theirs = [...bobLog.state().batches.keys()];
+      assert.deepStrictEqual([...ours, ...theirs].sort(), ['web-7', 'web-8']);
+    } finally {
+      bobStore.close();
+    }
+  });
+
+  it('reports a repository it cannot list, and goes on with the next one', async () => {
+    const { tracker } = fakeTracker({ [api]: [issue(2)] });
+    await intake(tracker).poll();
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['api-2'],
+    );
+    assert.equal(notices[0]?.kind, 'failed');
+    assert.match(notices[0]?.kind === 'failed' ? String(notices[0].error) : '', /502 listing/);
+  });
+
+  describe('the end of a pull request', () => {
+    /** web-7 on tap with `pullRequest`. */
+    const onTap = (): void => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'route', batchId: 'web-7', recipe: 'half', reason: 'label', source: 'label' });
+      const ref = { batchId: 'web-7', stepId: 'plan', attempt: 1 };
+      accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+      accept({ kind: 'finish', ...ref, ending: succeeded });
+    };
+    const ends = () => log.state().batches.get('web-7')?.pullRequestEnds;
+
+    for (const state of ['merged', 'closed'] as const) {
+      it(`records a pull request of a claimed batch on tap that was ${state}, and asks no more`, async () => {
+        onTap();
+        const { tracker, asked } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: state });
+        const polling = intake(tracker);
+        await polling.poll();
+        await polling.poll();
+        assert.deepStrictEqual(ends(), { [pullRequest]: state });
+        assert.deepStrictEqual(
+          asked.filter((call) => call.startsWith('pull request')),
+          [`pull request ${pullRequest}`],
+        );
+      });
+    }
+
+    it('records nothing while the pull request is open, and asks again next time', async () => {
+      onTap();
+      const { tracker, asked } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'open' });
+      const polling = intake(tracker);
+      await polling.poll();
+      await polling.poll();
+      assert.equal(ends(), undefined);
+      assert.equal(asked.filter((call) => call.startsWith('pull request')).length, 2);
+    });
+
+    it('reports a pull request it cannot read, and still claims', async () => {
+      onTap();
+      const { tracker } = fakeTracker({ [web]: [issue(8)], [api]: [] });
+      await intake(tracker).poll();
+      assert.equal(ends(), undefined);
+      assert.ok(log.state().batches.has('web-8'));
+      assert.ok(notices.some((notice) => notice.kind === 'failed'));
+    });
+
+    it('asks nothing about the pull requests of a Brewery issue', async () => {
+      accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+      accept({ kind: 'route', batchId: '1-1', recipe: 'half', reason: 'label', source: 'label' });
+      const ref = { batchId: '1-1', stepId: 'plan', attempt: 1 };
+      accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+      accept({ kind: 'finish', ...ref, ending: succeeded });
+      const { tracker, asked } = fakeTracker({ [web]: [], [api]: [] });
+      await intake(tracker).poll();
+      assert.deepStrictEqual(
+        asked.filter((call) => call.startsWith('pull request')),
+        [],
+      );
+    });
+  });
+});
+
+describe('freeCapacity', () => {
+  it('is the capacity less the batches that are Ordered or Brewing', () => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const log = createCommandLog({ store, recipes });
+      const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
+        assert.equal(log.issue(command, now).kind, 'accepted');
+      for (const n of [1, 2, 3]) accept({ kind: 'order', batchId: `${n}-1`, order: { issue: n } });
+      accept({ kind: 'route', batchId: '2-1', recipe: 'half', reason: 'label', source: 'label' });
+      accept({ kind: 'cancel', batchId: '3-1', by: 'alice', via: 'terminal' });
+      assert.equal(freeCapacity(log.state(), 4), 2);
+      assert.equal(freeCapacity(log.state(), 1), 0);
+    } finally {
+      store.close();
+    }
+  });
+
+  for (const capacity of [-1, 1.5, Number.NaN]) {
+    it(`refuses a capacity of ${capacity}`, () => {
+      const store = openSqliteEventStore(':memory:');
+      try {
+        const log = createCommandLog({ store, recipes });
+        assert.throws(() => freeCapacity(log.state(), capacity), /capacity must be/);
+      } finally {
+        store.close();
+      }
+    });
+  }
+});
+
+describe('intakeRepositories', () => {
+  it('lists the repositories with an intake filter, with their alias, in config order', () => {
+    const checks = { build: null, typecheck: null, lint: null, format: null, test: null };
+    const config = BreweryConfig.parse({
+      repositories: {
+        'acme/web': { checks, alias: 'web', intake: { labels: ['foedrum'], milestone: 'v2' } },
+        'acme/docs': { checks, alias: 'docs' },
+        'acme/api': { checks, alias: 'api', intake: { labels: ['ready'] } },
+      },
+    });
+    assert.deepStrictEqual(intakeRepositories(config), [
+      { repo: 'acme/web', alias: 'web', filter: { labels: ['foedrum'], milestone: 'v2' } },
+      { repo: 'acme/api', alias: 'api', filter: { labels: ['ready'] } },
+    ]);
+  });
+});
