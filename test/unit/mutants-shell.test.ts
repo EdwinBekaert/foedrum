@@ -92,6 +92,27 @@ describe('mutants on a scratch tree', () => {
     assert.equal(read(), source);
   });
 
+  it('says why it cannot read an answer that is not JSON, for checking and applying', async () => {
+    writeFileSync(answer, '{ "mutants": [ ');
+    const checked = await checkMutants(tree, answer);
+    assert.equal(checked.ok, false);
+    assert.match(checked.lines[0] ?? '', /^cannot read the answer:/);
+    const applied = await applyMutant(tree, answer, 1);
+    assert.equal(applied.ok, false);
+    assert.match(applied.lines[0] ?? '', /^cannot read the answer:/);
+  });
+
+  it('refuses a mutant number that is not a whole number', async () => {
+    write({ mutants: [valid] });
+    for (const n of [Number.NaN, 1.5]) {
+      assert.deepEqual(await applyMutant(tree, answer, n), {
+        ok: false,
+        lines: [`mutant ${n}: no such mutant (the answer has 1)`],
+      });
+    }
+    assert.equal(read(), source);
+  });
+
   it('marks a mutant whose file is a folder invalid and still checks the others', async () => {
     mkdirSync(join(tree, 'src', 'engine'));
     write({ mutants: [{ ...valid, file: 'src/engine' }, valid] });

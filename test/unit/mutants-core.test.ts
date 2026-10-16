@@ -113,6 +113,31 @@ describe('parseMutant allowlist edge cases', () => {
     assert.match(reasonOf(mutant({ original: 'let x = a;', replacement: 'let x = π;' })), /π/);
   });
 
+  it('accepts changes to hex, exponent, bigint and leading-dot number literals', () => {
+    const edits: [string, string][] = [
+      ['const mask = 0x10;', 'const mask = 0x20;'],
+      ['const limit = 1e3;', 'const limit = 1e4;'],
+      ['const big = 10n;', 'const big = 11n;'],
+      ['const half = .5;', 'const half = .25;'],
+    ];
+    for (const [original, replacement] of edits) {
+      assert.equal(parseMutant(mutant({ original, replacement })).ok, true, replacement);
+    }
+  });
+
+  it('rejects a new identifier that only differs from a known one in its digits', () => {
+    assert.match(
+      reasonOf(mutant({ original: 'x = limit1;', replacement: 'x = limit2;' })),
+      /limit2/,
+    );
+  });
+
+  it('rejects backslashes and drive letters inside a path under src/', () => {
+    for (const file of ['src/engine\\wait.ts', 'src/a\\..\\..\\package.json', 'src/C:wait.ts']) {
+      assert.match(reasonOf(mutant({ file })), /under src\//, file);
+    }
+  });
+
   it('rejects a replacement that only changes whitespace inside the line', () => {
     assert.match(
       reasonOf(mutant({ replacement: 'if (attempt<limit) return delay*2;' })),
