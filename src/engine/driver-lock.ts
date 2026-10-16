@@ -168,7 +168,9 @@ export const lockDriver = (workRoot: string, options: DriverLockOptions): Driver
     release() {
       if (!held) return;
       held = false;
-      // The lock first: a holder file a scanner keeps busy must not keep the lock taken.
+      // The lock first: a holder file a scanner keeps busy must not keep the lock taken. A process
+      // that takes the lock in between may lose its holder file here; that only leaves its name
+      // out of a refusal's message.
       db.close();
       try {
         rmSync(holderPath, { force: true });

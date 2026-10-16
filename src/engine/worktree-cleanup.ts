@@ -5,7 +5,7 @@ import type { Event } from '../schemas/events.ts';
 import type { AttemptWorktrees, CleanReport } from '../workspace/attempt-worktrees-git.ts';
 import type { Lease } from './event-store.ts';
 import type { State } from './fold.ts';
-import { worktreeClaims } from './worktree-claims.ts';
+import { laneStatus, worktreeClaims } from './worktree-claims.ts';
 
 export interface WorktreeCleanupOptions {
   /** One manager per repository the Brewery's attempts write in. */
@@ -34,8 +34,8 @@ export const endedBatches = (events: readonly Event[]): string[] => [
 
 /** Whether the batch has ended: on tap or cancelled. */
 export const batchIsOver = (state: State, batchId: string): boolean => {
-  const lane = state.batches.get(batchId)?.lane.kind;
-  return lane === 'on_tap' || lane === 'cancelled';
+  const batch = state.batches.get(batchId);
+  return batch !== undefined && laneStatus(batch.lane) === 'ended';
 };
 
 export const createWorktreeCleanup = (options: WorktreeCleanupOptions): WorktreeCleanup => {
