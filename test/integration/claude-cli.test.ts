@@ -8,7 +8,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
+import { checkInit } from '../../src/brewers/claude-init.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { streamProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -28,11 +30,19 @@ interface StreamEvent {
   message?: { content?: { type: string; content?: unknown }[] };
 }
 
-/** What the brewer's tool call came to: denied, or what the command printed. */
+/** What the brewer's tool call came to: denied, or what the command printed; and the init. */
 interface Outcome {
   denied: string[];
   printed: string[];
+  init: unknown;
+  sessionId: string;
 }
+
+/** Writes an attempt settings file with these allow rules and no deny rules. */
+const rules =
+  (allow: string[]) =>
+  (file: string): void =>
+    writeFileSync(file, JSON.stringify({ permissions: { allow, deny: [] } }));
 
 describe('claude and the user settings', { skip: claude === undefined }, () => {
   let dir: TempDir;
@@ -56,17 +66,21 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
     removeTree(dir.path);
   });
 
-  /** Runs the brewer's command line with the given attempt allow rules. */
-  const run = async (allow: string[], args: (all: string[]) => string[]): Promise<Outcome> => {
+  /** Runs the brewer's command line with the attempt settings that `write` writes. */
+  const run = async (
+    write: (file: string) => void,
+    args: (all: string[]) => string[] = (all) => all,
+  ): Promise<Outcome> => {
     const settingsFile = join(dir.path, 'attempt-settings.json');
-    writeFileSync(settingsFile, JSON.stringify({ permissions: { allow, deny: [] } }));
+    write(settingsFile);
+    const sessionId = randomUUID();
     const all = claudeArgs({
       model: 'claude-haiku-5-5',
       effort: 'low',
       maxTurns: 3,
       settingsFile,
       tools: ['Read', 'Bash'],
-      session: { kind: 'new', id: randomUUID() },
+      session: { kind: 'new', id: sessionId },
     });
     // Nothing of the developer's own Claude Code reaches the test, and nothing leaves the machine.
     const inherited = Object.fromEntries(
@@ -101,6 +115,8 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
         .filter((block) => block.type === 'tool_result')
         .map((block) => JSON.stringify(block.content))
         .filter((content) => content.includes('probe:')),
+      init: events[0],
+      sessionId,
     };
   };
 
@@ -111,22 +127,45 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
 
   // Without this the test would prove nothing: the throwaway file is read, and it widens.
   it('reads the throwaway user settings when the sources are left to claude', async () => {
-    const outcome = await run(['Read'], withoutSettingSources);
+    const outcome = await run(rules(['Read']), withoutSettingSources);
     assert.deepEqual(outcome.denied, []);
     assert.equal(outcome.printed.length, 1);
     assert.match(outcome.printed[0] ?? '', /probe:widened/);
   });
 
   it("does not let the user's allow rules allow a command the brewer may not run", async () => {
-    const outcome = await run(['Read'], (args) => args);
+    const outcome = await run(rules(['Read']));
     assert.deepEqual(outcome.denied, ['Bash']);
     assert.deepEqual(outcome.printed, []);
   });
 
   it("does not give the brewer the user's variables", async () => {
-    const outcome = await run(['Read', 'Bash(node *)'], (args) => args);
+    const outcome = await run(rules(['Read', 'Bash(node *)']));
     assert.deepEqual(outcome.denied, []);
     assert.equal(outcome.printed.length, 1);
     assert.match(outcome.printed[0] ?? '', /probe:unset/);
+  });
+
+  // The init check of ADR 0045 against the real CLI: what it reports is what the runner asked.
+  it('sets up the session the runner asked for, as its init event shows', async () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
+    const outcome = await run((file) => writeAttemptSettings(file, settings));
+    const check = checkInit(outcome.init, {
+      sessionId: outcome.sessionId,
+      tools: ['Read', 'Bash'],
+    });
+    assert.equal(check.kind, 'matches', JSON.stringify(check));
+  });
+
+  // ADR 0042's contract test: claude reads the file the runner writes, deny rules included.
+  it('applies a deny rule of the settings file the runner wrote', async () => {
+    const settings = attemptSettings({
+      allow: ['Read', 'Bash(node *)'],
+      deny: ['Bash(node -e *)'],
+      sandbox: false,
+    });
+    const outcome = await run((file) => writeAttemptSettings(file, settings));
+    assert.deepEqual(outcome.denied, ['Bash']);
+    assert.deepEqual(outcome.printed, []);
   });
 });

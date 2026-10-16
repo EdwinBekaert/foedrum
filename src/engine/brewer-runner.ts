@@ -57,6 +57,11 @@ export type ProcessExit =
 
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
+  /**
+   * Why the session claude set up is not the one the runner asked for (its init event: tools,
+   * permission mode, MCP servers, skills); the runner stops the attempt when it sees it.
+   */
+  environment?: string | undefined;
   exit: ProcessExit;
   /** The out doc's text, or `undefined` when the brewer did not write it. */
   outDoc: string | undefined;
