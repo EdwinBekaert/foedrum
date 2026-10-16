@@ -96,7 +96,12 @@ const lastLine = (text: string): string =>
     .at(-1) ?? '';
 
 /** Reads an out doc of at most `maxBytes`, only a regular file, and only inside `root`. */
-export function readOutDocFile(file: string, maxBytes: number, root: string): OutDocRead {
+export function readOutDocFile(
+  file: string,
+  maxBytes: number,
+  root: string,
+  _open: (path: string, flags: number) => number = openSync,
+): OutDocRead {
   const tooLarge: OutDocRead = { kind: 'unread', reason: `it is larger than ${maxBytes} bytes` };
   const notAFile: OutDocRead = { kind: 'unread', reason: 'it is not a regular file' };
   try {

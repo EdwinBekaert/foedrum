@@ -2,7 +2,7 @@
 // captured streams of #17: what it starts, what it writes, and how each attempt ends.
 
 import assert from 'node:assert/strict';
-import { linkSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, openSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -501,6 +501,18 @@ describe('readOutDocFile', () => {
 
   // A link in a folder of the path (a junction, which needs no privilege) leads out as well.
   // A hard link keeps its name inside the worktree but its content may be any file of the volume.
+  // #134: the file opened must be the file checked, not one swapped in between.
+  it('does not read a file other than the one it checked', () => {
+    writeFileSync(join(dir.path, 'plan.md'), 'the out doc');
+    writeFileSync(join(dir.path, 'swapped.md'), 'not for the log');
+    const swapped = (_path: string, flags: number): number =>
+      openSync(join(dir.path, 'swapped.md'), flags);
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path, swapped), {
+      kind: 'unread',
+      reason: 'it changed while it was read',
+    });
+  });
+
   it('does not read an out doc that has more than one link', () => {
     writeFileSync(join(dir.path, 'secret.txt'), 'not for the log');
     linkSync(join(dir.path, 'secret.txt'), join(dir.path, 'plan.md'));
