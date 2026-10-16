@@ -1,6 +1,6 @@
 # 0019. Interactive sessions, the autonomous Cellar, and one command layer
 
-Date: 2026-10-14 · Status: Accepted · Generalises [0014](0014-interactive-refinement-plugin.md) · Amended by [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md), [0030](0030-only-commands-that-change-state-are-recorded.md) and [0042](0042-the-claude-command-line-and-stream-contract.md)
+Date: 2026-10-14 · Status: Accepted · Generalises [0014](0014-interactive-refinement-plugin.md) · Amended by [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md), [0030](0030-only-commands-that-change-state-are-recorded.md), [0042](0042-the-claude-command-line-and-stream-contract.md) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)
 
 ## Context
 Foedrum was designed around an always-on engine (`foedrum serve`) controlled through GitHub comments. Two things do not fit that model:

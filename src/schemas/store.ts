@@ -79,6 +79,18 @@ export const PushedThrough = z.strictObject({ eventId: z.int().nonnegative(), co
 export type PushedThrough = z.infer<typeof PushedThrough>;
 
 /**
+ * Which driver drives a batch until when (ADR 0019): alive while `expiresAt` is in the future. The
+ * owner is the driver's lock owner (ADR 0037). Kept in the store's batch leases table, never in the
+ * log, so it has no JSON Schema file.
+ */
+export const BatchLease = z.strictObject({
+  batchId: PathSafeId,
+  owner: PathSafeId,
+  expiresAt: z.date(),
+});
+export type BatchLease = z.infer<typeof BatchLease>;
+
+/**
  * Who holds an attempt (and its session) until when; alive while `expiresAt` is in the future.
  * Kept in the store's leases table, never in the log, so it has no JSON Schema file.
  */

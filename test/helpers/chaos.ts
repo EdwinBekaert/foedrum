@@ -136,6 +136,18 @@ const killableStore = (inner: EventStore, kill: Killer): EventStore => {
       kill.point('in a transaction');
       tx.releaseLease(key);
     },
+    batchLease: (batchId) => {
+      kill.alive();
+      return tx.batchLease(batchId);
+    },
+    putBatchLease: (lease) => {
+      kill.point('in a transaction');
+      tx.putBatchLease(lease);
+    },
+    releaseBatchLease: (batchId) => {
+      kill.point('in a transaction');
+      tx.releaseBatchLease(batchId);
+    },
     recordEffect: (key, result) => {
       kill.point('in a transaction');
       tx.recordEffect(key, result);
@@ -162,6 +174,7 @@ const killableStore = (inner: EventStore, kill: Killer): EventStore => {
     batchesPastDeadline: read(inner.batchesPastDeadline),
     currentLeases: read(inner.currentLeases),
     expiredLeases: read(inner.expiredLeases),
+    batchLeases: read(inner.batchLeases),
     replay: read(inner.replay),
     lastEventId: read(inner.lastEventId),
     pushedThrough: read(inner.pushedThrough),

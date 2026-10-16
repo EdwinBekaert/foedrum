@@ -1,6 +1,6 @@
 # 0033. Chaos tests: effects found by their key, and a driver's leases at its start
 
-Date: 2026-10-16 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (leases after a restart on the same database) · Amended by [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (leases after a restart on the same database) · Amended by [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)
 
 ## Context
 M0 ends with 1,000 chaos runs that kill the engine at random points and restart it: no lost or duplicated side effects, no silent stalls (#15). Three things were open.

@@ -3,9 +3,9 @@
 // (ADR 0002: `better-sqlite3` is the fallback for `node:sqlite`).
 
 import type { Event } from '../schemas/events.ts';
-import type { EffectKey, Lease, PushedThrough } from '../schemas/store.ts';
+import type { BatchLease, EffectKey, Lease, PushedThrough } from '../schemas/store.ts';
 
-export type { EffectKey, Lease, PushedThrough };
+export type { BatchLease, EffectKey, Lease, PushedThrough };
 
 /** An event as stored: `id` grows with every append and is never reused. */
 export interface StoredEvent {
@@ -32,6 +32,14 @@ export interface EventStoreTransaction {
   /** Creates or renews the lease of `lease.attemptKey`. */
   putLease(lease: Lease): void;
   releaseLease(attemptKey: string): void;
+  /**
+   * The lease of `batchId`, alive or expired, as the transaction sees it: no other writer changes
+   * it before the transaction ends.
+   */
+  batchLease(batchId: string): BatchLease | undefined;
+  /** Creates or replaces the lease of `lease.batchId`. */
+  putBatchLease(lease: BatchLease): void;
+  releaseBatchLease(batchId: string): void;
   /** Records an applied side effect; throws `DuplicateEffectError` when the key is already recorded. */
   recordEffect(key: EffectKey, result: unknown): void;
   /**
@@ -55,6 +63,8 @@ export interface EventStore {
   currentLeases(now: Date): Lease[];
   /** Leases that expired at or before `now` and were not released, earliest first. */
   expiredLeases(now: Date): Lease[];
+  /** Batch leases still alive at `now`, by batch id. */
+  batchLeases(now: Date): BatchLease[];
   /**
    * Rebuilds an empty store from a log (ADR 0011: the state branch is the durable record), in one
    * transaction. Throws `ReplayError` naming the first event that cannot be appended.
