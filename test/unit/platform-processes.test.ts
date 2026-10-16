@@ -1009,8 +1009,40 @@ describe('streamProcessWith', () => {
     assert.deepEqual(await done, { exitCode: null, stderr: 'partial\nread EPIPE' });
   });
 
+  // A program that runs without its prompt would answer something else (#128).
+  it('answers as not started, and ends the tree, when stdin was given but has no pipe', async () => {
+    const child = new FakeChild(77);
+    Object.assign(child, { stdin: null });
+    const { killed, lines, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100, stdin: 'prompt' });
+    child.stdout.write('{"type":"system"}\n');
+    await settle();
+    child.close(0);
+    const result = await done;
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.stderr, /^claude: no pipe to its stdin/);
+    assert.deepEqual(killed, [77]);
+    assert.deepEqual(lines, []);
+  });
+
   describe('in a Job Object', () => {
     const refusal = 'foedrum job object: PowerShell runs in ConstrainedLanguage mode\r\n';
+
+    // Between the direct child's exit and the close of its pipes, a kill would use an exited pid,
+    // which taskkill /T cannot follow to the grandchildren (#128).
+    it('starts nothing where the spawner holds jobs and none was asked for', async () => {
+      const child = new FakeChild();
+      const { spawned, stream, options } = streamer(child, true);
+      const done = stream('claude', [], { ...options, maxLineBytes: 1000 });
+      await settle();
+      child.close(0);
+      const result = await done;
+      assert.deepEqual(spawned, []);
+      assert.equal(result.exitCode, null);
+      assert.equal(result.killed, undefined);
+      assert.match(result.stderr, /^claude: streamProcess runs a program only in a Job Object/);
+    });
 
     // Fail closed (ADR 0039): the helper's refusal is not a line of the program's.
     it('answers as not started, and hands over no line, when the helper could not start it', async () => {
