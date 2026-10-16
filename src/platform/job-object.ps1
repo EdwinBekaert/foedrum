@@ -30,6 +30,7 @@ function Fail($why) {
 if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
   Fail "PowerShell runs in $($ExecutionContext.SessionState.LanguageMode) mode"
 }
+$process = [IntPtr]::Zero
 try {
   # Foedrum: inputs
 
@@ -59,6 +60,7 @@ try {
   $k = $type.CreateType()
   # The reason a call failed. Its error code ($e) is read in the same statement as the call:
   # anything PowerShell runs in between, even finding a function, can overwrite it.
+  $marshal = [Runtime.InteropServices.Marshal]
   function Why($what, $code) {
     "${what}: $((New-Object ComponentModel.Win32Exception $code).Message) ($code)"
   }
@@ -66,14 +68,14 @@ try {
   $pointer = { param($value) if ($wide) { [BitConverter]::GetBytes($value.ToInt64()) } else { [BitConverter]::GetBytes($value.ToInt32()) } }
   $read = { param($bytes, $at) if ($wide) { [IntPtr][BitConverter]::ToInt64($bytes, $at) } else { [IntPtr][BitConverter]::ToInt32($bytes, $at) } }
 
-  $job = $k::CreateJobObjectW([IntPtr]::Zero, [IntPtr]::Zero); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  $job = $k::CreateJobObjectW([IntPtr]::Zero, [IntPtr]::Zero); $e = $marshal::GetLastWin32Error()
   if ($job -eq [IntPtr]::Zero) { Fail (Why 'CreateJobObject' $e) }
   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION (class 9), LimitFlags at offset 16:
   # KILL_ON_JOB_CLOSE (0x2000) and DIE_ON_UNHANDLED_EXCEPTION (0x400), so a crash ends a process
   # instead of waiting on an error dialog no one sees. No BREAKAWAY_OK: nothing leaves the job.
   $limits = New-Object byte[] ($(if ($wide) { 144 } else { 112 }))
   [BitConverter]::GetBytes(0x2400).CopyTo($limits, 16)
-  $ok = $k::SetInformationJobObject($job, 9, $limits, $limits.Length); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  $ok = $k::SetInformationJobObject($job, 9, $limits, $limits.Length); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'SetInformationJobObject' $e) }
 
   # STARTUPINFOW with STARTF_USESTDHANDLES (0x100): the helper's own stdin, stdout and stderr.
@@ -87,17 +89,19 @@ try {
   # PROCESS_INFORMATION: hProcess, hThread, dwProcessId, dwThreadId.
   $started = New-Object byte[] (2 * $size + 8)
   # CREATE_SUSPENDED (0x4); handles inherited, the helper's environment.
-  $ok = $k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x4, [IntPtr]::Zero, $cwd, $startup, $started); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  $ok = $k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x4, [IntPtr]::Zero, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'CreateProcess' $e) }
   $process = & $read $started 0
   $thread = & $read $started $size
   # The program exists but never ran: end it before saying so.
   function Abandon($why) { [void]$k::TerminateProcess($process, 1); Fail $why }
-  $ok = $k::AssignProcessToJobObject($job, $process); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  $ok = $k::AssignProcessToJobObject($job, $process); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Abandon (Why 'AssignProcessToJobObject' $e) }
-  $suspended = $k::ResumeThread($thread); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+  $suspended = $k::ResumeThread($thread); $e = $marshal::GetLastWin32Error()
   if ($suspended -eq -1) { Abandon (Why 'ResumeThread' $e) }
 } catch {
+  # The program may exist, suspended and in no job: end it, or it holds the output open.
+  if ($process -ne [IntPtr]::Zero) { [void]$k::TerminateProcess($process, 1) }
   Fail $_.Exception.Message
 }
 # The program runs from here on, so nothing below may claim that it did not start.

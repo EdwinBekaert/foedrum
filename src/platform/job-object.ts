@@ -60,10 +60,15 @@ const input = (name: string, value: string): string =>
 /** Starts the command through the helper, which runs it in `cwd` inside a kill-on-close job. */
 export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectSpawn => {
   const { application, line } = jobObjectLine(command);
-  const script = helperScript().replace(
-    '# Foedrum: inputs',
-    [input('file', application), input('line', line), input('cwd', cwd)].join('\n'),
-  );
+  // Absolute, as node's spawn would resolve them: PowerShell runs in System32, which must never
+  // decide where the program runs or which file it is.
+  const directory = win32.resolve(cwd);
+  const inputs = [
+    input('file', win32.resolve(directory, application)),
+    input('line', line),
+    input('cwd', directory),
+  ];
+  const script = helperScript().replace('# Foedrum: inputs', inputs.join('\n'));
   const system32 = win32.join(
     environmentVariable(command.env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows',
     'System32',
