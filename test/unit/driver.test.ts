@@ -30,7 +30,10 @@ import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-
 const minute = 60_000;
 const t0 = new Date('2026-10-15T12:00:00.000Z');
 const at = (minutes: number): Date => new Date(t0.getTime() + minutes * minute);
-const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'] }) });
+const recipes = fakeRecipes({
+  pint: fakeRecipe({ steps: ['plan', 'implement'] }),
+  half: fakeRecipe({ steps: ['plan'] }),
+});
 const succeeded: Ending = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Done', assumptions: [] },
@@ -493,6 +496,122 @@ describe('openDriver', () => {
       });
       assert.equal(store.findEffect({ ...plan('b1'), effect: 'comment' }), undefined);
       assert.deepStrictEqual(driver.held(), ['b1']);
+    });
+  });
+
+  describe('a tick that takes long', () => {
+    it('keeps every lease it holds alive while it applies effects for longer than a lease', async () => {
+      const { runner } = handRunner();
+      order('b1');
+      // b2 and b3 are on tap after a succeeded plan, so a comment each is due.
+      for (const [batchId, issue] of [
+        ['b2', 2],
+        ['b3', 3],
+      ] as const) {
+        intake.issue({ kind: 'order', batchId, order: { issue } }, now);
+        const route = {
+          kind: 'route',
+          batchId,
+          recipe: 'half',
+          reason: 'label',
+          source: 'label',
+        } as const;
+        intake.issue(route, now);
+        intake.issue({ kind: 'record', event: { type: 'step.started', ...plan(batchId) } }, now);
+        intake.issue({ kind: 'finish', ...plan(batchId), ending: succeeded }, now);
+      }
+      const host = fakeHost();
+      // Each comment takes 4 minutes: two of them outlast a 5-minute lease.
+      const slow: EffectTarget = {
+        find: host.target.find,
+        apply: async (key) => {
+          now = new Date(now.getTime() + 4 * minute);
+          return host.target.apply(key);
+        },
+      };
+      // An earlier run of this driver took b2 and b3; it drives on with them.
+      store.withTransaction((tx) => {
+        tx.putBatchLease({ batchId: 'b2', owner: 'cellar', expiresAt: at(5) });
+        tx.putBatchLease({ batchId: 'b3', owner: 'cellar', expiresAt: at(5) });
+      });
+      const driver = await open({
+        runner,
+        takes: (id) => id === 'b1',
+        effects: { due: commentsDue, target: slow },
+      });
+      await driver.drive();
+      await driver.applyEffects();
+      assert.equal(host.applied.length, 2);
+      assert.deepStrictEqual(now, at(8));
+      assert.equal(batchLease('b1')?.owner, 'cellar', 'its batch lease is alive');
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode(plan('b1'))],
+        'the attempt lease of the attempt it runs is alive',
+      );
+    });
+
+    it('stops a run whose attempt was lost while it ran', async () => {
+      const { runner, started, stopped } = handRunner();
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      // Another driver's supervisor found plan#1's lease expired and lost it.
+      intake.issue({ kind: 'lose', ...plan('b1'), reason: 'the lease of cellar expired' }, now);
+      await driver.tick();
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+      assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)]);
+    });
+  });
+
+  describe('worktrees of a batch another writer ended', () => {
+    it('cleans them once a terminal command cancelled the batch', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await open({
+        runner,
+        worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+      });
+      await driver.drive();
+      const question = {
+        q: 'Which cache?',
+        options: ['sqlite', 'redis'],
+        recommended: 'sqlite',
+        whyBlocking: 'It sets the schema',
+      };
+      end(plan('b1'), { kind: 'needs_input', questions: [question] });
+      await driver.drive();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+      await driver.tick();
+      assert.deepStrictEqual(
+        manager.cleans().map(({ scope }) => scope),
+        [{}, { batchId: 'b1' }],
+      );
+    });
+  });
+
+  describe('a start that is refused', () => {
+    it('tries it once per drive, so drive ends', async () => {
+      const { runner } = handRunner();
+      order('b1');
+      // The worktree's commit is no sha, so the guard refuses the step.started that records it.
+      let creates = 0;
+      const manager = fakeWorktrees({ commit: 'not-a-sha' });
+      const create = manager.create.bind(manager);
+      manager.create = async (ref, base) => {
+        // A bound on the old endless loop: the twentieth try fails, so its attempt fails.
+        if (++creates >= 20) throw new Error('enough');
+        return create(ref, base);
+      };
+      const driver = await open({
+        runner,
+        worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+      });
+      await driver.drive();
+      assert.equal(creates, 1);
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
     });
   });
 });

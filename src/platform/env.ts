@@ -8,3 +8,12 @@ export const envNameKey =
   (platform: NodeJS.Platform) =>
   (name: string): string =>
     platform === 'win32' ? name.toUpperCase() : name;
+
+/**
+ * The name of the user who runs the program: `lookup` (the operating system's account, which
+ * throws on Linux and macOS for a uid without a passwd entry), else `USER`, else `USERNAME`,
+ * else `unknown`. Never empty.
+ */
+export const userName = (_lookup: () => string, _env: NodeJS.ProcessEnv): string => {
+  throw new Error('not implemented');
+};
