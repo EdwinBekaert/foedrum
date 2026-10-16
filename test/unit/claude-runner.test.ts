@@ -80,7 +80,7 @@ const setup = (
 ) => {
   const calls: Call[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
-  const read: { file: string; maxBytes: number }[] = [];
+  const read: { file: string; maxBytes: number; root: string }[] = [];
   let clock = 0;
   const deps: ClaudeRunnerDeps = {
     claude: '/opt/claude/bin/claude',
@@ -104,8 +104,8 @@ const setup = (
       writeSettings: (file, settings) => {
         written.push({ file, settings });
       },
-      readOutDoc: (file, maxBytes) => {
-        read.push({ file, maxBytes });
+      readOutDoc: (file, maxBytes, root = '') => {
+        read.push({ file, maxBytes, root });
         const text = 'outDoc' in more ? more.outDoc : done;
         if (text === undefined) return { kind: 'missing' };
         if (typeof text === 'object') return { kind: 'unread', reason: text.unread };
@@ -269,6 +269,26 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
+  // On macOS and Linux a process the OOM killer or a crash ended closes with a signal and no code.
+  it('fails, retryably, when claude was killed by a signal the runner did not send', async () => {
+    const { runner } = setup({
+      lines: fixture('success.jsonl').slice(0, 2),
+      result: { exitCode: null, stderr: '', signal: 'SIGKILL' },
+    });
+    const end = await runner.start(attempt).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer process was killed by SIGKILL',
+    });
+  });
+
+  it('reads the out doc inside the worktree only', async () => {
+    const { read, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+    await runner.start(attempt).ended;
+    assert.deepEqual(read[0]?.root, '/work/tree');
+  });
+
   it('fails, not retryably, when claude could not start', async () => {
     const { runner } = setup(
       { lines: [], result: { exitCode: null, stderr: 'claude: not found on PATH (ENOENT)' } },
@@ -394,19 +414,19 @@ describe('readOutDocFile', () => {
 
   it('reads an out doc within its limit', () => {
     writeFileSync(join(dir.path, 'plan.md'), 'é done');
-    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), {
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
       kind: 'text',
       text: 'é done',
     });
   });
 
   it('says when there is none', () => {
-    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), { kind: 'missing' });
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), { kind: 'missing' });
   });
 
   it('does not read an out doc past its limit', () => {
     writeFileSync(join(dir.path, 'plan.md'), 'x'.repeat(101));
-    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), {
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
       kind: 'unread',
       reason: 'it is larger than 100 bytes',
     });
@@ -414,10 +434,32 @@ describe('readOutDocFile', () => {
 
   it('does not read what is not a regular file', () => {
     mkdirSync(join(dir.path, 'plan.md'));
-    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), {
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
       kind: 'unread',
       reason: 'it is not a regular file',
     });
+  });
+
+  // A link in a folder of the path (a junction, which needs no privilege) leads out as well.
+  it('does not read an out doc outside the worktree, through a linked folder or ..', () => {
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(worktree);
+    mkdirSync(join(dir.path, 'outside'));
+    writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not for the log');
+    symlinkSync(join(dir.path, 'outside'), join(worktree, 'out'), 'junction');
+    for (const file of [
+      join(worktree, 'out', 'plan.md'),
+      join(worktree, '..', 'outside', 'plan.md'),
+    ]) {
+      assert.deepEqual(
+        readOutDocFile(file, 100, worktree),
+        {
+          kind: 'unread',
+          reason: 'it is outside the worktree',
+        },
+        file,
+      );
+    }
   });
 
   // ADR 0047: a link could point the out doc, and so the event log, at any file.
@@ -430,7 +472,7 @@ describe('readOutDocFile', () => {
       t.skip('cannot make a link to a file here');
       return;
     }
-    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100), {
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
       kind: 'unread',
       reason: 'it is not a regular file',
     });

@@ -57,7 +57,8 @@ export interface ClaudeRunnerDeps {
   stream: StreamProcess;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
-    readOutDoc: (file: string, maxBytes: number) => OutDocRead;
+    /** Reads the out doc only inside `root`, the worktree. */
+    readOutDoc: (file: string, maxBytes: number, root?: string) => OutDocRead;
   };
   now: () => Date;
 }
@@ -83,7 +84,7 @@ const lastLine = (text: string): string =>
     .at(-1) ?? '';
 
 /** Reads an out doc of at most `maxBytes`, and only a regular file. */
-export function readOutDocFile(file: string, maxBytes: number): OutDocRead {
+export function readOutDocFile(file: string, maxBytes: number, _root?: string): OutDocRead {
   const tooLarge: OutDocRead = { kind: 'unread', reason: `it is larger than ${maxBytes} bytes` };
   try {
     const found = lstatSync(file, { throwIfNoEntry: false });

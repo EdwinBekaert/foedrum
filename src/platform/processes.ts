@@ -177,7 +177,10 @@ export interface ChildHandle {
   readonly stdout: Readable;
   readonly stderr: Readable;
   on(event: 'error', listener: (error: Error) => void): unknown;
-  on(event: 'close', listener: (code: number | null) => void): unknown;
+  on(
+    event: 'close',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): unknown;
 }
 
 /** The clock for deadlines; unit tests pass a fake one. */
@@ -351,6 +354,8 @@ export interface StreamResult {
   stderr: string;
   /** Set when the runner killed the process and every process it started. */
   killed?: StreamKilled;
+  /** The signal that ended the process when the runner did not: a crash, the OOM killer. */
+  signal?: string;
 }
 
 export type StreamProcess = (

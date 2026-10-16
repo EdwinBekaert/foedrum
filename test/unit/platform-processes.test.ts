@@ -178,10 +178,10 @@ class FakeChild extends EventEmitter implements ChildHandle {
     super();
     this.pid = pid === 'none' ? undefined : pid;
   }
-  close(code: number | null): void {
+  close(code: number | null, signal: NodeJS.Signals | null = null): void {
     this.stdout.end();
     this.stderr.end();
-    this.emit('close', code);
+    this.emit('close', code, signal);
   }
 }
 
@@ -997,6 +997,15 @@ describe('streamProcessWith', () => {
       stderr: 'nope: not found on PATH (ENOENT)',
     });
     assert.deepEqual(started, ['C:\\tools\\claude.exe']);
+  });
+
+  // A crash or the OOM killer on macOS and Linux: the runner did not send it, so it is no kill.
+  it('answers with the signal that ended the process, when the runner did not end it', async () => {
+    const child = new FakeChild();
+    const { stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100 });
+    child.close(null, 'SIGKILL');
+    assert.deepEqual(await done, { exitCode: null, stderr: '', signal: 'SIGKILL' });
   });
 
   it('answers without an exit code, with the reason, when the process fails', async () => {
