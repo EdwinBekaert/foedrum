@@ -568,6 +568,11 @@ describe('brewing with the fake brewer runner', () => {
       assert.deepStrictEqual(store.currentLeases(now), []);
       assert.equal(brewing.batch('b1').lane.kind, 'cancelled');
       assert.ok(!trail(brewing.events()).includes('started plan#1'));
+      // The worktree it made is cleaned once its lease went.
+      assert.deepStrictEqual(
+        worktrees.cleans().map(({ claims, scope }) => [claims.leased, scope]),
+        [[[], { batchId: 'b1' }]],
+      );
     });
 
     it('repairs the worktrees of every batch when the driver starts', async () => {

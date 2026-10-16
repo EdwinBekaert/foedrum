@@ -157,7 +157,13 @@ describe('lockDriver', () => {
   it('lets its lock go when the holder file cannot be written, so a later try can take it', () => {
     const holder = join(workRoot, 'drivers', 'cellar.holder.json');
     mkdirSync(join(holder, 'in-the-way'), { recursive: true });
-    assert.throws(() => lock());
+    // The write fails because a folder is in the way (EISDIR, or EPERM on Windows).
+    assert.throws(
+      () => lock(),
+      (error: unknown) =>
+        !(error instanceof DriverRunningError) &&
+        ['EISDIR', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? ''),
+    );
     rmSync(holder, { recursive: true });
     assert.equal(lock().held, true);
   });

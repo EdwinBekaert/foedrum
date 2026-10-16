@@ -54,7 +54,7 @@ describe('the driver lock between processes', () => {
 
   it('waits a little for a lock that is let go of soon, as Windows may free a dead process’s lock late', async () => {
     const workRoot = join(dir.path, 'work');
-    const holding = child(workRoot, 'setTimeout(() => process.exit(0), 1000);');
+    const holding = child(workRoot, 'setTimeout(() => process.exit(0), 200);');
     // The child writes its holder file once it holds the lock.
     const holderFile = join(workRoot, 'drivers', 'cellar.holder.json');
     const deadline = Date.now() + 20_000;

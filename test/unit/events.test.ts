@@ -468,6 +468,28 @@ describe('SessionRef', () => {
   it('rejects an unknown field', () => rejects(SessionRef, { ...session, model: 'opus' }));
 });
 
+describe('WorktreeRef', () => {
+  const worktree = {
+    repo: 'acme/app',
+    path: 'work/acme.app/attempts/b1/plan/1',
+    branch: 'foedrum/b1/plan/1',
+    commit: 'a'.repeat(40),
+  };
+  const started = { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1 };
+
+  it('is accepted in step.started', () => accepts(Event, { ...started, worktree }));
+  it('rejects an unknown field', () =>
+    rejects(Event, { ...started, worktree: { ...worktree, extra: 1 } }));
+  it('rejects a commit that is not a full sha', () =>
+    rejects(Event, { ...started, worktree: { ...worktree, commit: 'abc123' } }));
+  it('rejects a repository that is no owner/name', () =>
+    rejects(Event, { ...started, worktree: { ...worktree, repo: 'app' } }));
+  for (const field of ['repo', 'path', 'branch', 'commit'] as const) {
+    it(`rejects a worktree without ${field}`, () =>
+      rejects(Event, { ...started, worktree: { ...worktree, [field]: undefined } }));
+  }
+});
+
 describe('Surface', () => {
   it('is plugin, terminal, comment or dashboard', () => {
     for (const surface of ['plugin', 'terminal', 'comment', 'dashboard']) accepts(Surface, surface);

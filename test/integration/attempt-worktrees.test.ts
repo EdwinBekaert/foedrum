@@ -269,6 +269,10 @@ describe('the driver and attempt worktrees with real git', () => {
     git(user, ['remote', 'add', 'origin', origin]);
     git(user, ['push', '-q', '-u', 'origin', 'main']);
     git(user, ['switch', '-q', '-c', 'topic']);
+    // The user's HEAD is ahead of origin/main, so a worktree made at the base is told apart.
+    writeFileSync(join(user, 'topic.txt'), 'topic\n');
+    git(user, ['add', 'topic.txt']);
+    git(user, ['commit', '-q', '-m', 'Topic']);
     store = openSqliteEventStore(':memory:');
     before = snapshot();
   });
@@ -316,6 +320,17 @@ describe('the driver and attempt worktrees with real git', () => {
         ['acme/app', 'foedrum/12-1/implement/1'],
       ],
     );
+    const base = git(user, ['rev-parse', 'origin/main']).trim();
+    assert.notEqual(git(user, ['rev-parse', 'HEAD']).trim(), base);
+    assert.deepEqual(
+      recorded.map(({ commit }) => commit),
+      [base, base],
+    );
+    for (const [{ path }, step] of recorded.map(
+      (worktree, i) => [worktree, ['plan', 'implement'][i]] as const,
+    )) {
+      assert.ok(path.endsWith(join('acme.app', 'attempts', '12-1', step ?? '', '1')), path);
+    }
     assert.deepEqual(leftovers(), { branches: [], records: [] });
     assert.deepEqual(readdirSync(manager().root), []);
   });
