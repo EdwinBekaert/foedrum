@@ -1,6 +1,6 @@
 # 0036. The per-file test budget is CPU time
 
-Date: 2026-10-16 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md) · Amended by [0038](0038-npm-test-processes-refuse-process-starts.md)
 
 ## Context
 `npm test` fails when one file in `test/unit/` takes more than 5 s, and when a file in `test/property/` or `test/chaos/` takes more than 15 s (`scripts/test-budget-reporter.ts`, #87). It measured wall time, the only time `node:test` reports per file. A file's wall time grows with the machine's load: `npm run check` runs its steps at once, and several sessions often run on one machine, one of them in a mutation run. On 2026-10-16 both pushes of #102 were blocked by unit files that went over 5 s on load alone, none of them slow on a quiet machine. A gate that fails on load makes unattended sessions wait and retry by hand, and teaches them to re-run it.
