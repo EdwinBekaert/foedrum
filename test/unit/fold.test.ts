@@ -14,7 +14,12 @@ const question = {
   recommended: 'keep',
   whyBlocking: 'Removing it breaks the mobile app',
 };
-const ordered: Event = { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 } };
+const ordered: Event = {
+  type: 'batch.ordered',
+  batchId: 'b1',
+  order: { issue: 100 },
+  routeBy: '2026-12-31T00:00:00.000Z',
+};
 const scheduled: Event = {
   type: 'step.scheduled',
   batchId: 'b1',
@@ -48,7 +53,7 @@ describe('fold', () => {
     assert.deepStrictEqual(batch(state), {
       id: 'b1',
       issue: 100,
-      lane: { kind: 'ordered' },
+      lane: { kind: 'ordered', routeBy: '2026-12-31T00:00:00.000Z' },
       steps: new Map(),
       rewinds: [],
     });
@@ -58,11 +63,47 @@ describe('fold', () => {
     );
   });
 
+  it('puts a batch Stuck on routing back in Ordered when a retry gives it a routing deadline', () => {
+    const state = fold([
+      ordered,
+      {
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason: { kind: 'routing', deadlineAt: '2026-12-31T00:00:00.000Z' },
+        options: ['retry', 'recipe', 'cancel'],
+        remindAt: '2027-01-02T00:00:00.000Z',
+      },
+      {
+        type: 'batch.resumed',
+        batchId: 'b1',
+        by: 'octocat',
+        via: 'plugin',
+        action: 'retry',
+        routeBy: '2027-01-01T01:00:00.000Z',
+      },
+    ]);
+    assert.deepStrictEqual(batch(state).lane, {
+      kind: 'ordered',
+      routeBy: '2027-01-01T01:00:00.000Z',
+    });
+  });
+
   it('keeps every batch of an issue, and the parent batch of a sub-order', () => {
     const state = fold([
       ordered,
-      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
-      { type: 'batch.ordered', batchId: 'b3', order: { issue: 100 } },
+      {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 101 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: 'b1',
+      },
+      {
+        type: 'batch.ordered',
+        batchId: 'b3',
+        order: { issue: 100 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
     ]);
     assert.equal(batch(state, 'b2').parentBatchId, 'b1');
     assert.deepStrictEqual(state.orders.get(100)?.batchIds, ['b1', 'b3']);
@@ -360,7 +401,13 @@ describe('fold', () => {
     const cancelled = fold([
       ordered,
       decomposed([101, 102]),
-      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 101 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: 'b1',
+      },
       decomposed([102]),
     ]);
     const subOrder = { issue: 101, repo: 'acme/api', order: 100, batchIds: ['b2'] };
@@ -381,7 +428,13 @@ describe('fold', () => {
         subOrders: [{ issue: 101, repo: 'acme/api' }],
         dependencies: [],
       },
-      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 101 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: 'b1',
+      },
     ]);
     assert.deepStrictEqual([...state.orders.keys()], [100]);
     assert.deepStrictEqual(state.subOrders.get(101), {
@@ -403,7 +456,13 @@ describe('fold', () => {
     const state = fold([
       ordered,
       decomposed('acme/api'),
-      { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 101 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: 'b1',
+      },
       decomposed('acme/web'),
     ]);
     assert.deepStrictEqual(state.subOrders.get(101), {
@@ -437,7 +496,12 @@ describe('fold', () => {
   it('keeps the sub-orders of other orders when one order is decomposed again', () => {
     const state = fold([
       ordered,
-      { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+      {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 200 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
       {
         type: 'order.decomposed',
         batchId: 'b2',
@@ -626,7 +690,12 @@ describe('fold of an inconsistent log', () => {
       'a sub-order that already belongs to another order',
       [
         ordered,
-        { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 200 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
         {
           type: 'order.decomposed',
           batchId: 'b1',
@@ -688,7 +757,13 @@ describe('fold of an inconsistent log', () => {
           subOrders: [{ issue: 101, repo: 'acme/api' }],
           dependencies: [],
         },
-        { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 101 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+          parentBatchId: 'b1',
+        },
         {
           type: 'order.decomposed',
           batchId: 'b2',
@@ -702,7 +777,12 @@ describe('fold of an inconsistent log', () => {
       'an order listed as a sub-order of another order',
       [
         ordered,
-        { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 200 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
         {
           type: 'order.decomposed',
           batchId: 'b1',
