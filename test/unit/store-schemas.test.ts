@@ -117,4 +117,32 @@ describe('Lease', () => {
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(Lease, value));
   }
+
+  const otherKeys: [string, string][] = [
+    ['a key that is not JSON', 'b1/plan#1'],
+    ['an object', JSON.stringify({ batchId: 'b1', stepId: 'plan', attempt: 1 })],
+    ['two parts', '["b1","plan"]'],
+    ['four parts', '["b1","plan",1,"x"]'],
+    ['an attempt as a string', '["b1","plan","1"]'],
+    ['an empty part', '["","plan",1]'],
+    ['a null part', '["b1",null,1]'],
+    ['attempt 0', '["b1","plan",0]'],
+    ['a fractional attempt', '["b1","plan",1.5]'],
+    ['an attempt beyond the safe integers', '["b1","plan",9007199254740992]'],
+    ['a non-canonical spelling (spaces)', '["b1", "plan", 1]'],
+    ['a non-canonical spelling (exponent)', '["b1","plan",1e0]'],
+    ['a non-canonical spelling (trailing zero)', '["b1","plan",1.0]'],
+    ['a non-canonical spelling (escape)', '["\\u00621","plan",1]'],
+    ['a non-canonical spelling (escaped slash)', '["b\\/1","plan",1]'],
+    ['a trailing newline', '["b1","plan",1]\n'],
+    ['an upper-case batch id', '["B1","plan",1]'],
+    ['a step id with a slash', '["b1","pl/an",1]'],
+  ];
+  for (const [name, attemptKey] of otherKeys) {
+    it(`rejects an attempt key of ${name}`, () => {
+      const result = Lease.safeParse({ ...lease, attemptKey });
+      assert.equal(result.success, false);
+      assert.match(result.error?.message ?? '', /Must be a canonical attempt key/);
+    });
+  }
 });

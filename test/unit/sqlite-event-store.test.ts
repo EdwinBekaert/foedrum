@@ -424,6 +424,14 @@ describe('SqliteEventStore in memory', () => {
       });
     }
 
+    it('refuses a lease whose attempt key is not canonical and stores nothing', () => {
+      assert.throws(
+        () => store.withTransaction((tx) => tx.putLease({ ...lease, attemptKey: 'b1/plan#1' })),
+        /Must be a canonical attempt key/,
+      );
+      assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
+    });
+
     it('rejects a lease with an invalid expiry', () => {
       assert.throws(
         () => store.withTransaction((tx) => tx.putLease({ ...lease, expiresAt: new Date('x') })),
