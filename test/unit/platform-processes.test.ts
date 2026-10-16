@@ -752,7 +752,8 @@ describe('streamProcessWith', () => {
       assert.deepEqual(lines, ['éé']);
     });
 
-    it('counts a last line without a line ending too', async () => {
+    // The process has closed, so there is no tree to kill: its pid may already belong to another.
+    it('counts a last line without a line ending too, and kills nothing once it has closed', async () => {
       const child = new FakeChild(82);
       const { killed, stream, options } = streamer(child);
       const done = stream('claude', [], { ...options, maxLineBytes: 4 });
@@ -760,7 +761,7 @@ describe('streamProcessWith', () => {
       await settle();
       child.close(0);
       assert.equal((await done).killed, 'line-too-long');
-      assert.deepEqual(killed, [82]);
+      assert.deepEqual(killed, []);
     });
   });
 
