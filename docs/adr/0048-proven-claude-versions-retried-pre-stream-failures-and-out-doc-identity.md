@@ -19,7 +19,7 @@ The consultant's reviews of #127 and #133 left follow-ups that were not blocking
 
 ### A failure before the stream is retried once
 - When `claude` exits with a code from 1 to 255 before writing any stream line, the runner reads its stderr. A refusal it will repeat goes to the environment at once, as ADR 0047 decided: an unknown option or a missing argument, an option that requires another (`requires --verbose`), an invalid session id, no login or an invalid API key (`Please run /login`).
-- Any other such failure (a network error, a crash with a small code) may pass. The runner waits 5 s, through its new `wait` dependency, and starts `claude` once more with the same command line and prompt. A second failure before the stream is the environment. A stop during the wait cancels the attempt.
+- Any other such failure (a network error, a crash with a small code) may pass. The runner waits 5 s, through its new `wait` dependency, and starts `claude` once more with the same command line and prompt. A second failure before the stream is the environment. A stop during the wait, or one that came before it began, cancels the attempt without waiting.
 - The session id is reused: a `claude` that wrote no line did not set up the session.
 
 ### Commit means git's subcommand
@@ -27,7 +27,7 @@ The consultant's reviews of #127 and #133 left follow-ups that were not blocking
 - Each step is linear in the command's length: the command is model output (ADR 0047).
 
 ### The out doc read is the file checked
-- The runner opens the out doc by its real path, then compares the open file's device and file id (`fstat`) with those of the real path it checked (`stat`), as big integers because a Windows file id may not fit a number. When they differ, it does not read the out doc: *it changed while it was read*. The type, link count and size checks use the open file too.
+- The runner takes the device and file id of the real path it checked (`stat`) before it opens the out doc, opens it by that path, and compares them with those of the open file (`fstat`), as big integers because a Windows file id may not fit a number. The identity must come from before the open: a folder swapped for a link after the check is followed by the open and by any later look at the same path, so a `stat` after the open would see the swapped file too. When they differ, it does not read the out doc: *it changed while it was read*. The type, link count and size checks use the open file too.
 
 ## Consequences
 - A user on a newer `claude` sees a warning in `foedrum doctor` and in the engine's output until Foedrum proves that version. Updating `PROVEN_CLAUDE` is part of moving to a new `claude`.
