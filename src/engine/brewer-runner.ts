@@ -28,7 +28,7 @@ export interface AttemptStart {
 export interface AttemptEnd {
   ending: Ending;
   usage?: Usage;
-  /** The session claude set up, when its init matched what was asked (ADR 0046). */
+  /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };
 }
 
