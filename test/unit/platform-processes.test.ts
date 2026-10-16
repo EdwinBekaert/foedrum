@@ -437,6 +437,18 @@ describe('execProcessWith', () => {
       assert.equal((await done).killed, 'too-much-output');
     });
 
+    it('lets a process that writes exactly the limit end by itself', async () => {
+      const child = new FakeChild();
+      const { killed, exec } = fakeSpawner(child);
+      const done = exec('git', ['log'], { cwd: '/work/tree', maxOutputBytes: 4 });
+      child.stdout.write('ab');
+      child.stderr.write('é');
+      await settle();
+      child.close(0);
+      assert.deepEqual(await done, { exitCode: 0, stdout: 'ab', stderr: 'é', output: 'abé' });
+      assert.deepEqual(killed, []);
+    });
+
     it('is 4 MiB when the caller gives none', async () => {
       const child = new FakeChild(80);
       const { killed, exec } = fakeSpawner(child);
