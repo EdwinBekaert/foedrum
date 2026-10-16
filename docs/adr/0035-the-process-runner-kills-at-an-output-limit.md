@@ -1,4 +1,4 @@
-# 0033. The process runner kills a process at an output limit
+# 0035. The process runner kills a process at an output limit
 
 Date: 2026-10-16 · Status: Accepted
 

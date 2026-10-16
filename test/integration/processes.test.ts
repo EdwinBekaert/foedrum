@@ -113,6 +113,35 @@ describe('execProcess with a real tree of processes', () => {
     await assertAllEnd([Number(result.stdout.split('\n')[0])]);
   });
 
+  // #92: on Windows the runner answers as soon as its child exits, and taskkill /T would find the
+  // tree only through a parent that is still alive, so the grandchild keeps running. The case
+  // fails there until the runner holds its children in a Job Object (kill-on-close); it runs as a
+  // todo, so CI shows it without failing. Elsewhere the grandchild holds the output open and the
+  // deadline kills its process group. The levels left over end by themselves after 30 s, so the
+  // test waits for them and never kills a pid itself: the exited parent's may be reused.
+  it('leaves no process of the tree running when the parent exits before its grandchild', {
+    todo:
+      process.platform === 'win32'
+        ? 'taskkill /T misses the children of an exited parent; needs a Job Object (#92)'
+        : false,
+  }, async () => {
+    // Run outside dir.path: on Windows a surviving orphan's working directory could not be
+    // removed after the test.
+    const cwd = import.meta.dirname;
+    const done = spawnProcess(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
+      timeoutMs: 6000,
+    });
+    await waitFor('the grandchild to start and its parent to exit', () => {
+      const [parent, grandchild] = pidsIn(pidFile);
+      return grandchild !== undefined && parent !== undefined && !isPidAlive(parent);
+    });
+    await done;
+    const [, grandchild = 0] = pidsIn(pidFile);
+    const until = Date.now() + 10_000;
+    while (isPidAlive(grandchild) && Date.now() < until) await delay(100);
+    assert.equal(isPidAlive(grandchild), false, `grandchild ${grandchild} still running`);
+  });
+
   it('answers without an exit code when the program does not exist', async () => {
     const result = await execProcess(join(dir.path, 'no-such-program'), [], { cwd: dir.path });
     assert.equal(result.exitCode, null);

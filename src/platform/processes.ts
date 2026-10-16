@@ -126,7 +126,7 @@ export const isPidAlive = (pid: number, kill: Kill = process.kill): boolean => {
  */
 export type Killed = 'timed-out' | 'stopped' | 'too-much-output';
 
-/** The output limit when the caller gives none (ADR 0033). */
+/** The output limit when the caller gives none (ADR 0035). */
 export const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export interface ExecOptions {
@@ -259,7 +259,7 @@ export const execProcessWith =
       const timer =
         timeoutMs === undefined ? undefined : timers.set(() => kill('timed-out'), timeoutMs);
       signal?.addEventListener('abort', stop, { once: true });
-      // Whether the chunk fits within the limit; the one that passes it is dropped (ADR 0033).
+      // Whether the chunk fits within the limit; the one that passes it is dropped (ADR 0035).
       const fits = (chunk: string): boolean => {
         outputBytes += Buffer.byteLength(chunk);
         if (outputBytes <= maxOutputBytes) return true;
