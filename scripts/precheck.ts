@@ -1,8 +1,9 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
 // `gh pr merge` and pushes from a detached HEAD, and runs `npm run check` before `git push` and
 // `gh pr create`.
-// Wired in .claude/settings.json as `npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate
-// || exit 2`, so npm provides npm_execpath and the check itself runs without a shell.
+// Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
+// npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
+// without a shell.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // It runs before every Bash and PowerShell call, so input that cannot name git or gh exits
 // before any parsing, and the module has no static imports.
@@ -176,6 +177,7 @@ export const precheck = async (
 };
 
 // Type-only, so erased: the module still has no static imports.
+import type { NpmCliLookup } from '../src/platform/executables.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export type { ProcessOutcome, RunProcess } from './process-runner.ts';
@@ -184,22 +186,25 @@ export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 // before the hook's 600 s, which would end this process without killing the check.
 const CHECK_TIMEOUT_MS = 540_000;
 
-// `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
-// by this node, so the check starts without a shell. Outside Windows the check leads a process
-// group of its own, which a Ctrl+C on the push does not reach: `stop` kills its tree.
+// Finds npm's CLI script next to the node at the given path (findNpmCli in the platform module).
+export type FindNpmCli = (execPath: string) => Promise<NpmCliLookup>;
+
+// `npm run check` through npm's own CLI script, found next to this node, run by this node, so
+// the check starts without a shell. Outside Windows the check leads a process group of its own,
+// which a Ctrl+C on the push does not reach: `stop` kills its tree.
 export const npmCheck =
   (
-    env: NodeJS.ProcessEnv,
     execPath: string,
+    findNpmCli: FindNpmCli,
     runProcess: RunProcess,
     stop?: AbortSignal,
   ): RunCheck =>
   async (cwd) => {
-    const npmCli = env.npm_execpath;
-    if (npmCli === undefined || npmCli === '') {
+    const { path: npmCli, tried } = await findNpmCli(execPath);
+    if (npmCli === undefined) {
       return {
         ok: false,
-        output: 'npm_execpath is not set: run this hook as `npm run --silent hook:gate`.',
+        output: `npm's CLI was not found next to node (${execPath}), so the check cannot run. Tried:\n${tried.map((path) => `  ${path}\n`).join('')}Install npm with this node, or run npm run check yourself.`,
       };
     }
     const { exitCode, output, killed } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd, {
@@ -228,11 +233,17 @@ const readStdin = async (): Promise<string> => {
   return Buffer.concat(chunks).toString('utf8');
 };
 
+// Each module below loads only when a gated command needs it, so a call that does not name git
+// or gh starts nothing but this file (#41).
 if (import.meta.main) {
-  const { spawnProcess } = await import('./process-runner.ts');
-  const { stopOnSignals } = await import('../src/platform/processes.ts');
-  const runCheck = npmCheck(process.env, process.execPath, spawnProcess, stopOnSignals());
-  // Loaded only for gated commands.
+  const spawnProcess: RunProcess = async (file, args, cwd, options) =>
+    (await import('./process-runner.ts')).spawnProcess(file, args, cwd, options);
+  const findNpmCli: FindNpmCli = async (execPath) =>
+    (await import('../src/platform/executables.ts')).findNpmCli(execPath);
+  const runCheck: RunCheck = async (cwd) => {
+    const { stopOnSignals } = await import('../src/platform/processes.ts');
+    return npmCheck(process.execPath, findNpmCli, spawnProcess, stopOnSignals())(cwd);
+  };
   const staleReason = async (cwd: string) => {
     const { outOfDate } = await import('./deps-sync.ts');
     return (await outOfDate(cwd))?.reason;

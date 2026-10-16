@@ -31,7 +31,6 @@
     "check": "node scripts/check.ts",
     "check:deps": "node scripts/check-deps.ts",
     "deps:sync": "node scripts/deps-sync.ts",
-    "hook:gate": "node scripts/precheck.ts",
     "schemas": "node scripts/generate-schemas.ts",
     "worktrees:clean": "node scripts/worktrees-clean.ts"
   },
