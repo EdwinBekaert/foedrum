@@ -24,7 +24,7 @@ Review criteria changed by this pull request: <paths from criteria.txt that the 
 
 | # | Lens | Severity | Location | Finding | Disposition |
 |---|---|---|---|---|---|
-| 1 | correctness | major | `src/…:42` | … | fixed in `<hash>` |
+| 1 | correctness | major | `src/…:42` (or "location unverified: `src/…:57`", or "—" for none) | … | fixed in `<hash>` |
 
 Verdicts: correctness approve · security approve · …
 
@@ -32,7 +32,7 @@ Verdicts: correctness approve · security approve · …
 
 | # | Mutant | Result | Disposition |
 |---|---|---|---|
-| 1 | `src/…:42` removed timeout | survived / killed / killed (timed out) / invalid | … |
+| 1 | `src/…:42` removed timeout | survived / killed by `<first test>` / killed (timed out) / invalid: <reason> | … |
 
 ### Coverage delta
 
