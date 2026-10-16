@@ -56,12 +56,17 @@ export const gitEnv = (
 // Why the runner killed git, for its stderr; nothing for a stop, which the caller asked for.
 const whyGitKilled = (killed: Killed | undefined, timeoutMs: number): string => {
   switch (killed) {
+    case undefined:
+    case 'stopped':
+      return '';
     case 'timed-out':
       return `git timed out after ${timeoutMs} ms`;
     case 'too-much-output':
       return `git ${whyKilled(killed, timeoutMs)}`;
-    default:
-      return '';
+    default: {
+      const unknown: never = killed;
+      throw new Error(`unknown kill ${String(unknown)}`);
+    }
   }
 };
 
