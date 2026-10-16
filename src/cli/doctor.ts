@@ -23,6 +23,11 @@ export interface DoctorFacts {
   node: string;
   /** Each tool, or `undefined` when it is not on PATH. */
   tools: Readonly<Record<ToolName, ToolRun | undefined>>;
+  /**
+   * On Windows, how a process held in a Job Object answered (ADR 0039): brewers run only in one.
+   * `undefined` elsewhere.
+   */
+  jobObject?: { exitCode: number | null; output: string } | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
@@ -80,7 +85,7 @@ const versionOf = (run: ToolRun | undefined): string | undefined =>
   run?.exitCode === 0 ? /\d+(?:\.\d+)+/.exec(run.output)?.[0] : undefined;
 
 /** What a tool, or the runner that could not start it, said first. */
-const firstLine = (run: ToolRun): string | undefined =>
+const firstLine = (run: { output: string }): string | undefined =>
   run.output
     .split('\n')
     .map((line) => line.trim())
@@ -114,6 +119,20 @@ const requiredProblems = (name: 'git' | 'claude', run: ToolRun | undefined, fix:
     ];
   }
   return [];
+};
+
+// Windows: a brewer's processes run in a kill-on-close Job Object, so a stop ends them all; the
+// helper that makes one needs PowerShell in Full Language mode (ADR 0039).
+const jobObjectProblems = ({ platform, jobObject }: DoctorFacts): Problem[] => {
+  if (platform !== 'win32' || jobObject === undefined || jobObject.exitCode === 0) return [];
+  const said = firstLine(jobObject);
+  return [
+    {
+      required: true,
+      what: `Windows cannot hold a brewer's processes in a Job Object${said === undefined ? '' : ` (${said})`}`,
+      fix: 'Foedrum needs PowerShell in Full Language mode to stop every process a brewer starts; where a policy keeps it in Constrained Language Mode, run Foedrum inside WSL2',
+    },
+  ];
 };
 
 /** The effective isolation level (ADR 0010, architecture §13) and what to do about it. */
@@ -201,6 +220,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       tools.claude,
       'install Claude Code, https://code.claude.com/docs/en/setup',
     ),
+    ...jobObjectProblems(facts),
     ...sandboxProblems,
   ];
   // Podman first: it runs without a daemon or root. One that does not answer its version (a

@@ -86,6 +86,32 @@ describe('diagnose: required tools', () => {
     assert.equal(problem?.fix, 'check that `git --version` works');
   });
 
+  // Brewers run only in a Job Object on Windows; where PowerShell may not create one (Constrained
+  // Language Mode), WSL2 is the way to run them (ADR 0039).
+  it('is not ok on Windows when no process can be held in a Job Object, and recommends WSL2', () => {
+    const said =
+      'node.exe: cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode';
+    const facts = { ...windows, jobObject: { exitCode: null, output: `${said}\n` } };
+    assert.equal(diagnose(facts).ok, false);
+    assert.deepEqual(diagnose(facts).problems, [
+      {
+        required: true,
+        what: `Windows cannot hold a brewer's processes in a Job Object (${said})`,
+        fix: 'Foedrum needs PowerShell in Full Language mode to stop every process a brewer starts; where a policy keeps it in Constrained Language Mode, run Foedrum inside WSL2',
+      },
+    ]);
+  });
+
+  it('is ok on Windows when a process held in a Job Object answered', () => {
+    assert.equal(diagnose(windows).ok, true);
+    assert.deepEqual(diagnose(windows).problems, []);
+  });
+
+  it('is not ok on Windows when the Job Object probe failed without a word', () => {
+    const facts = { ...windows, jobObject: { exitCode: 1, output: '' } };
+    assert.deepEqual(required(facts), ["Windows cannot hold a brewer's processes in a Job Object"]);
+  });
+
   it('is not ok on a Node older than 24.15', () => {
     assert.deepEqual(required({ ...linux(), node: '24.14.9' }), ['node 24.14.9 is too old']);
     assert.deepEqual(required({ ...linux(), node: '22.20.0' }), ['node 22.20.0 is too old']);
