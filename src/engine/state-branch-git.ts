@@ -78,6 +78,8 @@ const PROBE_REF = 'refs/foedrum/signing-check';
 /** A signing prompt that nobody answers must not hold up the start for long. */
 const PROBE_TIMEOUT_MS = 10_000;
 const PUSH_TIMEOUT_MS = 120_000;
+// The output limit of the one call that lists the whole branch (ADR 0035).
+const TREE_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 /** Files are written next to their place and renamed, so a crash never leaves half a log. */
 const TMP_SUFFIX = '.foedrum-tmp';
 
@@ -199,7 +201,12 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   // A symbolic link or submodule from the remote could lead reads and writes outside the
   // worktree; refuse the branch before anything of it is checked out (ADR 0024).
   const refuseLinks = async (remoteSha: string): Promise<void> => {
-    const unsafe = unsafeEntries(await must(clone, ['ls-tree', '-r', '-z', remoteSha]));
+    // One entry of about 100 bytes per file, and the branch grows with every event: the runner's
+    // 4 MiB default would stop every sync at about 40,000 files (ADR 0035).
+    const tree = await must(clone, ['ls-tree', '-r', '-z', remoteSha], {
+      maxOutputBytes: TREE_MAX_OUTPUT_BYTES,
+    });
+    const unsafe = unsafeEntries(tree);
     if (unsafe.length > 0) {
       throw new StateBranchStopError(
         `${remoteBranch} at ${remoteSha} holds symbolic links or submodules, which the state branch never has: ${unsafe.join(', ')}`,

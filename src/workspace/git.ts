@@ -1,10 +1,10 @@
 // Runs git for Foedrum: non-interactive, with a timeout, through an argument array (architecture
 // §13). Code that drives git takes a `Git` so unit tests can pass a fake one (ADR 0021).
 
-import { type ExecProcess, execProcess } from '../platform/processes.ts';
+import { type ExecProcess, execProcess, type Killed, whyKilled } from '../platform/processes.ts';
 
 export interface GitResult {
-  /** The exit code; `null` when git was killed, for example by the timeout. */
+  /** The exit code; `null` when git was killed, for example by the timeout or the output limit. */
   code: number | null;
   stdout: string;
   stderr: string;
@@ -17,6 +17,8 @@ export interface GitOptions {
   config?: Readonly<Record<string, string>>;
   /** Kills git and every process it started when it aborts. */
   signal?: AbortSignal;
+  /** Kills git when its output passes this many bytes; default the runner's 4 MiB (ADR 0035). */
+  maxOutputBytes?: number;
 }
 
 export type Git = (
@@ -53,18 +55,40 @@ export const gitEnv = (
   };
 };
 
+// Why the runner killed git, for its stderr; nothing for a stop, which the caller asked for.
+const whyGitKilled = (
+  killed: Killed | undefined,
+  timeoutMs: number,
+  maxOutputBytes: number | undefined,
+): string => {
+  switch (killed) {
+    case undefined:
+    case 'stopped':
+      return '';
+    case 'timed-out':
+      return `git timed out after ${timeoutMs} ms`;
+    case 'too-much-output':
+      return `git ${whyKilled(killed, timeoutMs, maxOutputBytes)}`;
+    default: {
+      const unknown: never = killed;
+      throw new Error(`unknown kill ${String(unknown)}`);
+    }
+  }
+};
+
 /** git through the given process runner; unit tests pass a fake one (ADR 0021). */
 export const runGitWith =
   (exec: ExecProcess): Git =>
-  async (cwd, args, { timeoutMs = 60_000, config, signal } = {}) => {
+  async (cwd, args, { timeoutMs = 60_000, config, signal, maxOutputBytes } = {}) => {
     const { exitCode, stdout, stderr, killed } = await exec('git', args, {
       cwd,
       env: gitEnv(process.env, config),
       timeoutMs,
       signal,
+      maxOutputBytes,
     });
-    const timedOut = killed === 'timed-out' ? `git timed out after ${timeoutMs} ms` : '';
-    return { code: exitCode, stdout, stderr: `${stderr}${timedOut}` };
+    const why = whyGitKilled(killed, timeoutMs, maxOutputBytes);
+    return { code: exitCode, stdout, stderr: `${stderr}${why}` };
   };
 
 /**
