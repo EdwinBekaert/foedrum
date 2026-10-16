@@ -1055,17 +1055,6 @@ describe('streamProcessWith', () => {
       assert.deepEqual(lines, [refusal.trimEnd()]);
     });
 
-    it('hands over the first line at once when no job was asked for', async () => {
-      const child = new FakeChild();
-      const { lines, stream, options } = streamer(child, true);
-      const done = stream('claude', [], { ...options, maxLineBytes: 1000 });
-      child.stdout.write(refusal);
-      await settle();
-      assert.deepEqual(lines, [refusal.trimEnd()]);
-      child.close(125);
-      assert.equal((await done).exitCode, 125);
-    });
-
     // Outside Windows no helper exists to refuse anything (ADR 0039).
     it('hands over the first line at once when the spawner holds no job', async () => {
       const child = new FakeChild();

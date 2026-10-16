@@ -173,23 +173,22 @@ describe('streamProcess with real processes', () => {
     ' const more = () => { while (left > 0) { left -= 1; if (!process.stdout.write(line))' +
     " { process.stdout.once('drain', more); return; } } }; more(); });";
 
-  for (const jobObject of process.platform === 'win32' ? [false, true] : [false]) {
-    it(`reads stdin, and hands over every line of 5 MiB of stdout${jobObject ? ', in a Job Object' : ''}`, async () => {
-      const lines: string[] = [];
-      const result = await streamProcess(process.execPath, ['-e', writer, '160'], {
-        cwd: dir.path,
-        stdin: 'a prompt ✓ "quoted"\non two lines',
-        maxLineBytes: 64 * 1024,
-        timeoutMs: 60_000,
-        jobObject,
-        onLine: (line) => lines.push(line.length > 40 ? String(line.length) : line),
-      });
-      assert.deepEqual(result, { exitCode: 0, stderr: '' });
-      assert.equal(lines[0], JSON.stringify('a prompt ✓ "quoted"\non two lines'));
-      assert.equal(lines.length, 161);
-      assert.ok(lines.slice(1).every((line) => line === String(32 * 1024 - 1)));
+  // In a Job Object, as every caller of streamProcess on Windows (#128); elsewhere it is ignored.
+  it('reads stdin, and hands over every line of 5 MiB of stdout', async () => {
+    const lines: string[] = [];
+    const result = await streamProcess(process.execPath, ['-e', writer, '160'], {
+      cwd: dir.path,
+      stdin: 'a prompt ✓ "quoted"\non two lines',
+      maxLineBytes: 64 * 1024,
+      timeoutMs: 60_000,
+      jobObject: true,
+      onLine: (line) => lines.push(line.length > 40 ? String(line.length) : line),
     });
-  }
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.equal(lines[0], JSON.stringify('a prompt ✓ "quoted"\non two lines'));
+    assert.equal(lines.length, 161);
+    assert.ok(lines.slice(1).every((line) => line === String(32 * 1024 - 1)));
+  });
 
   it('kills a process that writes a line without end once the line passes the limit', async () => {
     const script =
@@ -201,6 +200,7 @@ describe('streamProcess with real processes', () => {
       cwd: dir.path,
       maxLineBytes: 1024 * 1024,
       timeoutMs: 20_000,
+      jobObject: true,
       onLine: (line) => lines.push(line),
     });
     const elapsed = Date.now() - started;
