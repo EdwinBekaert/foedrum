@@ -88,11 +88,12 @@ function rule(state: State, event: Event): string | undefined {
         ? undefined
         : `batch ${event.batchId} is not waiting for answers to step ${event.stepId}`;
     }
-    case 'batch.stuck':
+    case 'batch.stuck': {
       // Stuck on routing only before a recipe, and on a step only after one (ADR 0032).
-      return event.reason.kind === 'routing'
-        ? (lanes(state, event, ['ordered', 'stuck']) ?? stuckOn(state, event.batchId, true))
-        : (lanes(state, event, ['brewing', 'stuck']) ?? stuckOn(state, event.batchId, false));
+      const routing = event.reason.kind === 'routing';
+      const allowed: Lane['kind'][] = routing ? ['ordered', 'stuck'] : ['brewing', 'stuck'];
+      return lanes(state, event, allowed) ?? stuckOn(state, event.batchId, routing);
+    }
     case 'batch.resumed':
       return (
         lanes(state, event, ['stuck']) ??
