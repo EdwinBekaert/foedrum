@@ -156,8 +156,17 @@ export const claimCandidates = async (
   const pass: ClaimPass = { order: [], taken: [] };
   for (const issue of candidates) {
     const outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
-    if (outcome.kind === 'taken') pass.taken.push({ issue, by: outcome.by });
-    else pass.order.push(issue);
+    switch (outcome.kind) {
+      case 'won':
+      case 'ours':
+        pass.order.push(issue);
+        break;
+      case 'taken':
+        pass.taken.push({ issue, by: outcome.by });
+        break;
+      default:
+        outcome satisfies never;
+    }
   }
   return pass;
 };
