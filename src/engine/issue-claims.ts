@@ -8,7 +8,7 @@ import type { BatchEffectKey } from '../schemas/store.ts';
 import type { Lane } from './fold.ts';
 
 /** The label a claimed issue carries until its claim is released. */
-export const claimLabel = 'foedrum: brewing';
+export const claimLabel = 'foedrum:claimed';
 
 /** The ref that claims `issue` in its repository: `refs/foedrum/claims/issues/<issue>`. */
 export const claimRef = (issue: number): string => {
@@ -152,6 +152,8 @@ export const claimCandidates = async (
   const candidates = issues
     .filter((issue) => isCandidate(issue, options))
     .map((issue) => issue.number)
+    // Once each: a listing whose pages shift while it is read can return an issue twice.
+    .filter((number, index, numbers) => numbers.indexOf(number) === index)
     .sort((one, other) => one - other);
   const pass: ClaimPass = { order: [], taken: [] };
   for (const issue of candidates) {

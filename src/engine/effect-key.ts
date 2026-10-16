@@ -1,16 +1,24 @@
 // The canonical text of an effect key: the `key` of an `effect.applied` event and of the effects
 // index. Validated by the schemas in src/schemas/store.ts.
 
-import { type EffectKey, EffectKeyParts, EffectKeyText } from '../schemas/store.ts';
+import {
+  type AttemptEffectKey,
+  type EffectKey,
+  EffectKeyParts,
+  EffectKeyText,
+} from '../schemas/store.ts';
 
 const invalid = (detail: string): Error => new Error(`Invalid effect key: ${detail}`);
 
 const encode = (key: EffectKey): string => {
   // Only the key's own parts: a key built by spreading a larger object may carry other fields.
+  // A key with either of a step and an attempt is an attempt's, so one without the other fails.
+  const { batchId, effect } = key;
+  const { stepId, attempt } = key as Partial<AttemptEffectKey>;
   const parts =
-    'stepId' in key
-      ? [key.batchId, key.stepId, key.attempt, key.effect]
-      : [key.batchId, key.effect];
+    stepId === undefined && attempt === undefined
+      ? [batchId, effect]
+      : [batchId, stepId, attempt, effect];
   if (!EffectKeyParts.safeParse(parts).success) throw invalid(JSON.stringify(key));
   return JSON.stringify(parts);
 };
