@@ -1,10 +1,12 @@
 # The Job Object helper (#92, ADR 0039). job-object.ts starts it with Windows PowerShell by its
-# full path as an encoded command, with $file, $line and $cwd put in at the inputs line below.
+# full path as an encoded command, with $file, $line and $cwd put in at the inputs line below, and
+# the program's environment block in its own environment (FOEDRUM_JOB_ENVIRONMENT).
 #
 # It creates a Job Object that kills every process in it when its last handle closes, and allows
 # no process to break away. It starts the program suspended, assigns it to the job and only then
 # lets it run, so every process the program starts is in the job from its first instruction. The
-# program inherits the helper's stdin, stdout and stderr. The helper holds the only handle to the
+# program inherits the helper's stdin, stdout and stderr, and gets exactly the caller's environment.
+# The helper holds the only handle to the
 # job and waits for the program, then exits with its exit code. When the helper ends, killed or
 # after the program, the job closes and Windows ends whatever is left in it.
 #
@@ -51,7 +53,7 @@ try {
   Import 'CreateJobObjectW' ([IntPtr]) @([IntPtr], [IntPtr])
   Import 'SetInformationJobObject' ([bool]) @([IntPtr], [int], [byte[]], [int])
   Import 'GetStdHandle' ([IntPtr]) @([int])
-  Import 'CreateProcessW' ([bool]) @([string], [Text.StringBuilder], [IntPtr], [IntPtr], [bool], [int], [IntPtr], [string], [byte[]], [byte[]])
+  Import 'CreateProcessW' ([bool]) @([string], [Text.StringBuilder], [IntPtr], [IntPtr], [bool], [int], [byte[]], [string], [byte[]], [byte[]])
   Import 'AssignProcessToJobObject' ([bool]) @([IntPtr], [IntPtr])
   Import 'ResumeThread' ([int]) @([IntPtr])
   Import 'TerminateProcess' ([bool]) @([IntPtr], [int])
@@ -64,35 +66,36 @@ try {
   function Why($what, $code) {
     "${what}: $((New-Object ComponentModel.Win32Exception $code).Message) ($code)"
   }
-  $wide = [IntPtr]::Size -eq 8
-  $pointer = { param($value) if ($wide) { [BitConverter]::GetBytes($value.ToInt64()) } else { [BitConverter]::GetBytes($value.ToInt32()) } }
-  $read = { param($bytes, $at) if ($wide) { [IntPtr][BitConverter]::ToInt64($bytes, $at) } else { [IntPtr][BitConverter]::ToInt32($bytes, $at) } }
+  # The layouts below are 64-bit ones. Node 24 has no 32-bit Windows build, so the runner, and the
+  # PowerShell in its System32, are 64-bit (x64 or arm64); anything else fails closed.
+  if ([IntPtr]::Size -ne 8) { Fail "PowerShell is not 64-bit" }
+  $size = 8
+  $read = { param($bytes, $at) [IntPtr][BitConverter]::ToInt64($bytes, $at) }
 
   $job = $k::CreateJobObjectW([IntPtr]::Zero, [IntPtr]::Zero); $e = $marshal::GetLastWin32Error()
   if ($job -eq [IntPtr]::Zero) { Fail (Why 'CreateJobObject' $e) }
   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION (class 9), LimitFlags at offset 16:
   # KILL_ON_JOB_CLOSE (0x2000) and DIE_ON_UNHANDLED_EXCEPTION (0x400), so a crash ends a process
   # instead of waiting on an error dialog no one sees. No BREAKAWAY_OK: nothing leaves the job.
-  $limits = New-Object byte[] ($(if ($wide) { 144 } else { 112 }))
+  $limits = New-Object byte[] 144
   [BitConverter]::GetBytes(0x2400).CopyTo($limits, 16)
   $ok = $k::SetInformationJobObject($job, 9, $limits, $limits.Length); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'SetInformationJobObject' $e) }
 
-  # STARTUPINFOW with STARTF_USESTDHANDLES (0x100): the helper's own stdin, stdout and stderr.
-  $startup = New-Object byte[] ($(if ($wide) { 104 } else { 68 }))
-  [BitConverter]::GetBytes($startup.Length).CopyTo($startup, 0)
-  [BitConverter]::GetBytes(0x100).CopyTo($startup, $(if ($wide) { 60 } else { 44 }))
-  $size = [IntPtr]::Size
+  # STARTUPINFOW (104 bytes) with STARTF_USESTDHANDLES (0x100) at 60, and at 80, 88 and 96 the
+  # helper's own stdin, stdout and stderr.
+  $startup = New-Object byte[] 104
+  [BitConverter]::GetBytes(104).CopyTo($startup, 0)
+  [BitConverter]::GetBytes(0x100).CopyTo($startup, 60)
   foreach ($i in 0..2) {
-    (& $pointer ($k::GetStdHandle(-10 - $i))).CopyTo($startup, $startup.Length - (3 - $i) * $size)
+    [BitConverter]::GetBytes($k::GetStdHandle(-10 - $i).ToInt64()).CopyTo($startup, 80 + 8 * $i)
   }
   # PROCESS_INFORMATION: hProcess, hThread, dwProcessId, dwThreadId.
-  $started = New-Object byte[] (2 * $size + 8)
-  # The caller's PSModulePath, which PowerShell replaced with its own when there was none; an
-  # empty value removes it, as Windows does.
-  [Environment]::SetEnvironmentVariable('PSModulePath', $modules)
-  # CREATE_SUSPENDED (0x4); handles inherited, the helper's environment, now the caller's.
-  $ok =$k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x4, [IntPtr]::Zero, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
+  $started = New-Object byte[] 24
+  # The caller's environment block, never the helper's, which Windows PowerShell has changed.
+  $block = [Text.Encoding]::Unicode.GetBytes($environment)
+  # CREATE_SUSPENDED (0x4) | CREATE_UNICODE_ENVIRONMENT (0x400); handles inherited.
+  $ok = $k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x404, $block, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'CreateProcess' $e) }
   $process = & $read $started 0
   $thread = & $read $started $size

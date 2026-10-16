@@ -27,8 +27,22 @@ export const windowsArgument = (argument: string): string => {
  * An environment as the block CreateProcessW takes with CREATE_UNICODE_ENVIRONMENT: name=value
  * entries sorted by name without regard to case, each ended by NUL, and one more NUL.
  */
-export const windowsEnvironmentBlock = (_env: NodeJS.ProcessEnv): string => {
-  throw new Error('not implemented');
+export const windowsEnvironmentBlock = (env: NodeJS.ProcessEnv): string => {
+  // As node's spawn on Windows: of names that differ only in case, the first in sorted order.
+  const seen = new Set<string>();
+  const entries: [string, string][] = [];
+  for (const name of Object.keys(env).sort()) {
+    const value = env[name];
+    if (value === undefined || seen.has(name.toUpperCase())) continue;
+    seen.add(name.toUpperCase());
+    entries.push([name, value]);
+  }
+  const byName = ([a]: [string, string], [b]: [string, string]): number =>
+    a.toUpperCase() < b.toUpperCase() ? -1 : a.toUpperCase() > b.toUpperCase() ? 1 : 0;
+  return `${entries
+    .sort(byName)
+    .map(([name, value]) => `${name}=${value}`)
+    .join('\0')}\0\0`;
 };
 
 /** What the helper passes to CreateProcess: the file it starts, and its whole command line. */
@@ -61,6 +75,9 @@ const helperScript = (): string => {
   return helper;
 };
 
+// The helper's variable that carries the program's environment block, as base64 of its UTF-8.
+const JOB_ENVIRONMENT = 'FOEDRUM_JOB_ENVIRONMENT';
+
 // A value as base64 of its UTF-8, so no quote, $ or backtick in it can change the script; the
 // helper decodes it with Read-Input, defined once before the inputs.
 const DECODE =
@@ -79,9 +96,8 @@ export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectS
     input('file', win32.resolve(directory, application)),
     input('line', line),
     input('cwd', directory),
-    // Windows PowerShell gives itself a PSModulePath when it has none; the helper puts the
-    // caller's back (or none) before the program inherits its environment.
-    input('modules', environmentVariable(command.env, 'PSMODULEPATH', 'win32') ?? ''),
+    // The program's environment block, from the helper's own environment (see below).
+    `$environment = Read-Input $env:${JOB_ENVIRONMENT}`,
   ];
   const script = helperScript().replace('# Foedrum: inputs', inputs.join('\n'));
   const system32 = win32.join(
@@ -100,7 +116,16 @@ export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectS
       Buffer.from(script, 'utf16le').toString('base64'),
     ],
     shell: false,
-    env: command.env,
+    // The program gets exactly the caller's environment as a block of its own, never the
+    // helper's, to which Windows PowerShell adds PSModulePath, PATHEXT and whatever a later version
+    // adds. The block travels in the helper's environment, where it has no practical limit; on
+    // the command line it would take about 3.6 characters of the 32,767 for each of its own.
+    env: {
+      ...command.env,
+      [JOB_ENVIRONMENT]: Buffer.from(windowsEnvironmentBlock(command.env), 'utf8').toString(
+        'base64',
+      ),
+    },
     // PowerShell runs where nothing of a repository can take part; the program runs in `cwd`.
     cwd: system32,
   };
