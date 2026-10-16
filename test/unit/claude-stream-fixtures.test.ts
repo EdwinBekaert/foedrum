@@ -61,9 +61,10 @@ describe('claude stream fixtures', () => {
       });
 
       it('holds no path of the machine it was captured on', () => {
-        const paths = text.match(/[A-Za-z]:\\\\[^"]*/g) ?? [];
+        // A drive letter after anything but a letter (not the `s:` of `https:`), with either slash.
+        const paths = text.match(/(?<![A-Za-z])[A-Za-z]:(\\\\|\/)[^"]*/g) ?? [];
         for (const path of paths) {
-          assert.match(path, /^C:\\\\(work\\\\brewery\\\\worktree|Windows\\\\System32\\\\)/);
+          assert.match(path, /^C:(\\\\|\/)(work\1brewery\1worktree|Windows\1System32\1)/);
         }
         assert.doesNotMatch(text, /\/(Users|home)\//);
       });
