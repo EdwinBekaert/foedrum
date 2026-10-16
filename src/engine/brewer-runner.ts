@@ -28,6 +28,8 @@ export interface AttemptStart {
 export interface AttemptEnd {
   ending: Ending;
   usage?: Usage;
+  /** The session claude set up, when its init matched what was asked (ADR 0046). */
+  session?: { sessionId: string; model: string; claudeVersion: string };
 }
 
 export interface RunningAttempt {
