@@ -3,7 +3,7 @@
 // that the next process takes over without any cleanup.
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -50,6 +50,24 @@ describe('the driver lock between processes', () => {
 
     assert.deepEqual([refused.exitCode, refused.stdout.trim()], [3, 'DriverRunningError']);
     assert.deepEqual([taken.exitCode, taken.stdout.trim()], [0, 'locked']);
+  });
+
+  it('waits a little for a lock that is let go of soon, as Windows may free a dead process’s lock late', async () => {
+    const workRoot = join(dir.path, 'work');
+    const holding = child(workRoot, 'setTimeout(() => process.exit(0), 1000);');
+    // The child writes its holder file once it holds the lock.
+    const holderFile = join(workRoot, 'drivers', 'cellar.holder.json');
+    const deadline = Date.now() + 20_000;
+    while (!existsSync(holderFile)) {
+      assert.ok(Date.now() < deadline, 'the child never took the lock');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    const lock = lockDriver(workRoot, cellar);
+
+    assert.equal(lock.held, true);
+    lock.release();
+    assert.equal((await holding).stdout.trim(), 'locked');
   });
 
   it('is taken over once a process that held it dies without releasing it', async () => {

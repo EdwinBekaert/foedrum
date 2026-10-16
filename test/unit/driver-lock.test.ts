@@ -4,7 +4,7 @@
 // test/integration/driver-lock.test.ts.
 
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
@@ -22,6 +22,8 @@ const cellar: DriverLockOptions = {
   owner: 'cellar',
   pid: 4242,
   now: () => startedAt,
+  // Refused at once: the wait for a lock a dead process still holds is in the integration test.
+  waitMs: 0,
 };
 
 describe('lockDriver', () => {
@@ -135,5 +137,39 @@ describe('lockDriver', () => {
     writeFileSync(join(workRoot, 'brewery.json'), 'not json');
     assert.throws(() => lock(), /cannot be read/);
     assert.equal(readFileSync(join(workRoot, 'brewery.json'), 'utf8'), 'not json');
+  });
+
+  it('reads a marker saved with a byte order mark and CRLF, as a Windows editor may save it', () => {
+    lock().release();
+    writeFileSync(join(workRoot, 'brewery.json'), '\uFEFF{ "brewery": "acme/brewery" }\r\n');
+    assert.equal(lock().held, true);
+  });
+
+  it('refuses a marker that is not exactly a Brewery: another field, or no owner/name', () => {
+    lock().release();
+    const marker = join(workRoot, 'brewery.json');
+    writeFileSync(marker, JSON.stringify({ brewery: 'acme/brewery', extra: 1 }));
+    assert.throws(() => lock(), /cannot be read/);
+    writeFileSync(marker, JSON.stringify({ brewery: 'acme' }));
+    assert.throws(() => lock(), /cannot be read/);
+  });
+
+  it('lets its lock go when the holder file cannot be written, so a later try can take it', () => {
+    const holder = join(workRoot, 'drivers', 'cellar.holder.json');
+    mkdirSync(join(holder, 'in-the-way'), { recursive: true });
+    assert.throws(() => lock());
+    rmSync(holder, { recursive: true });
+    assert.equal(lock().held, true);
+  });
+
+  it('lets its lock go on release even when the holder file cannot be removed', () => {
+    const first = lock();
+    const holder = join(workRoot, 'drivers', 'cellar.holder.json');
+    rmSync(holder);
+    mkdirSync(join(holder, 'in-the-way'), { recursive: true });
+    assert.doesNotThrow(() => first.release());
+    assert.equal(first.held, false);
+    rmSync(holder, { recursive: true });
+    assert.equal(lock({ ...cellar, pid: 5151 }).held, true);
   });
 });

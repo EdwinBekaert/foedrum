@@ -29,6 +29,11 @@ export interface DriverLockOptions {
   pid?: number;
   /** Default the system clock. */
   now?: () => Date;
+  /**
+   * How long to wait for a lock that another process holds before refusing; default 2 s, since
+   * Windows may free the lock of a process that died a little late.
+   */
+  waitMs?: number;
 }
 
 /** Who held a driver's lock, as recorded when it took the lock. */
