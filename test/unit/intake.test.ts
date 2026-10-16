@@ -259,6 +259,13 @@ describe('createIntake', () => {
       assert.ok(signals[0] instanceof AbortSignal);
     });
 
+    it('lasts half a batch lease when it names none', async () => {
+      const { tracker } = fakeTracker({ [web]: [], [api]: [] });
+      assert.doesNotThrow(() => intake(tracker, { deadlineMs: 150_000 }));
+      await intake(tracker).poll();
+      assert.deepStrictEqual(notices, []);
+    });
+
     for (const deadlineMs of [0, 1.5, 150_001]) {
       it(`refuses a deadline of ${deadlineMs} ms, which must stay within half a batch lease`, () => {
         const { tracker } = fakeTracker({});

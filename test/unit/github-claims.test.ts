@@ -19,7 +19,7 @@ interface Request {
   body: unknown;
   signal: AbortSignal | undefined;
 }
-type Answer = { status: number; body?: unknown } | 'hang';
+type Answer = { status: number; body?: unknown; headers?: Record<string, string> } | 'hang';
 
 /** A `fetch` that answers each request with the next answer, recording what it was asked. */
 const fakeFetch = (answers: Answer[]) => {
@@ -43,7 +43,7 @@ const fakeFetch = (answers: Answer[]) => {
     }
     return new Response(answer.body === undefined ? null : JSON.stringify(answer.body), {
       status: answer.status,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...answer.headers },
     });
   };
   return { fetch: fetch as typeof globalThis.fetch, requests };
@@ -264,6 +264,17 @@ describe('githubClaimHost', () => {
   it('gives up a request GitHub does not answer within its timeout', async () => {
     const { host } = hostWith(['hang'], 20);
     await assert.rejects(host.read(repo, 7), /did not answer within 20 ms/);
+  });
+
+  it('gives up an answer whose declared length passes its limit, before reading it', async () => {
+    const declared = { ...commit(sha), headers: { 'content-length': '1000' } };
+    const fake = fakeFetch([refAt(sha), declared]);
+    const client = createGitHubClient({
+      token: 'ghp_test',
+      fetch: fake.fetch,
+      maxResponseBytes: 128,
+    });
+    await assert.rejects(githubClaimHost(client).read(repo, 7), /longer than 128 bytes/);
   });
 
   it('gives up an answer longer than its limit, as the process runner does (ADR 0035)', async () => {

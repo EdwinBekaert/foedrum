@@ -230,6 +230,88 @@ describe('claimEffects', () => {
     );
   });
 
+  it('refuses a comment id the code host finds that is no positive integer, recording nothing', async () => {
+    order();
+    const driver = await open({
+      marks: { ...github.marks(alice.login), findComment: async () => 0 },
+    });
+    await driver.tick();
+    assert.equal(ledger('claim.comment'), undefined);
+    assert.ok(
+      notices.some(
+        (notice) => notice.kind === 'effect_failed' && notice.key.effect === 'claim.comment',
+      ),
+    );
+  });
+
+  it('hands every call to the code host the signal of its effect', async () => {
+    const signals: { call: string; signal: AbortSignal | undefined }[] = [];
+    const base = github.marks(alice.login);
+    const marks: IssueMarks = {
+      assignees: (r, n, signal) => (
+        signals.push({ call: 'assignees', signal }), base.assignees(r, n)
+      ),
+      assign: (r, n, l, signal) => (signals.push({ call: 'assign', signal }), base.assign(r, n, l)),
+      labels: (r, n, signal) => (signals.push({ call: 'labels', signal }), base.labels(r, n)),
+      addLabel: (r, n, l, signal) => (
+        signals.push({ call: 'addLabel', signal }), base.addLabel(r, n, l)
+      ),
+      removeLabel: (r, n, l, signal) => (
+        signals.push({ call: 'removeLabel', signal }), base.removeLabel(r, n, l)
+      ),
+      findComment: (r, n, m, signal) => (
+        signals.push({ call: 'findComment', signal }), base.findComment(r, n, m)
+      ),
+      comment: (r, n, b, signal) => (
+        signals.push({ call: 'comment', signal }), base.comment(r, n, b)
+      ),
+    };
+    const host = github.host;
+    const claims = {
+      create: host.create,
+      read: (r: string, n: number, signal?: AbortSignal) => (
+        signals.push({ call: 'read', signal }), host.read(r, n)
+      ),
+      delete: (r: string, n: number, s: string, signal?: AbortSignal) => (
+        signals.push({ call: 'delete', signal }), host.delete(r, n, s)
+      ),
+    };
+    order();
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => now,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: claimEffects({ claimant: alice, marks, claims }),
+    });
+    drivers.push(driver);
+    await driver.tick();
+    issue({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+    await driver.tick();
+    const calls = signals.map(({ call }) => call);
+    for (const call of [
+      'assignees',
+      'assign',
+      'labels',
+      'addLabel',
+      'findComment',
+      'comment',
+      'removeLabel',
+      'read',
+      'delete',
+    ]) {
+      assert.ok(calls.includes(call), call);
+    }
+    assert.ok(
+      signals.every(({ signal }) => signal instanceof AbortSignal),
+      JSON.stringify(calls),
+    );
+  });
+
   it('hands its deadline to the driver, which holds each effect to it', async () => {
     order();
     // Assigns only after 300 ms, long past the deadline, unless its signal aborts first.
