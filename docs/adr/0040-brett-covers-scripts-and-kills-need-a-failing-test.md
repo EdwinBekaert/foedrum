@@ -22,6 +22,7 @@ ADR 0017 already says a mutant is a confirmed survivor "only when the tests stil
 
 ## Consequences
 - The gate, the check and the review tooling get mutation checks. A mutant of the tooling that the mutation run itself uses (the preload or the reporter) cannot change the verdict, because the run takes them from the criteria; it is judged by its own unit tests like any other code.
+- A mutant may now delete a guard line in a script that removes files (`scripts/remove-scratch*`, `scripts/worktrees-clean*`), as it already could in `src/platform/remove.ts`, and the unit tests then run that code on the scratch tree's file system. The mutation run is only as safe as those tests: every one of them works in a folder of its own under `.foedrum/tmp/tests/` (CLAUDE.md, Temporary files), so a disabled guard removes nothing outside it.
 - Load no longer turns a survivor into a kill, and a pull request whose tests already fail still gets a mutation check.
 - Each review runs the tests once more (the baseline). That is one run against three to five mutant runs.
 - A verdict names the tests that killed the mutant, so the summary can show what caught it.
