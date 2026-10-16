@@ -486,7 +486,8 @@ export const streamProcessWith =
       });
       child.on('error', (error) => finish(failed(error)));
       child.on('close', (code) => {
-        if (pendingBytes > 0) endLine(pending, pendingBytes);
+        // A process the runner killed or stopped may close with a line it had only begun.
+        if (!finished && pendingBytes > 0) endLine(pending, pendingBytes);
         if (finished) return;
         // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
         const refused = held === undefined ? undefined : jobObjectRefusal(code, held, stderr);

@@ -24,8 +24,27 @@ export type InitCheck =
   | { kind: 'matches'; session: SessionFacts }
   | { kind: 'mismatch'; reason: string };
 
-const names = (list: readonly unknown[]): string =>
-  list.map((item) => JSON.stringify(item)).join(', ');
+// What claude loaded may come from an untrusted repository, and the reason ends in a summary a
+// human reads: a few names, each cut short, and how many more.
+const SHOWN = 3;
+const SHORT = 40;
+
+/** One entry as a short quoted name: a string itself, an object by its name. */
+const label = (item: unknown): string => {
+  const name = (item as { name?: unknown } | null)?.name;
+  const text =
+    typeof item === 'string'
+      ? item
+      : typeof name === 'string'
+        ? name
+        : (JSON.stringify(item) ?? String(item));
+  return JSON.stringify(text.length > SHORT ? `${text.slice(0, SHORT)}…` : text);
+};
+
+const names = (list: readonly unknown[]): string => {
+  const shown = list.slice(0, SHOWN).map(label).join(', ');
+  return list.length > SHOWN ? `${shown} and ${list.length - SHOWN} more` : shown;
+};
 
 /** Whether an init event (the stream's first event, parsed) shows the session that was asked. */
 export function checkInit(event: unknown, asked: AskedSession): InitCheck {
@@ -39,12 +58,10 @@ export function checkInit(event: unknown, asked: AskedSession): InitCheck {
   const init = read.data;
   const problems: string[] = [];
   if (init.session_id !== asked.sessionId) {
-    problems.push(
-      `session ${JSON.stringify(init.session_id)}, not ${JSON.stringify(asked.sessionId)}`,
-    );
+    problems.push(`session ${label(init.session_id)}, not ${JSON.stringify(asked.sessionId)}`);
   }
   if (init.permissionMode !== 'dontAsk') {
-    problems.push(`permission mode ${JSON.stringify(init.permissionMode)}, not dontAsk`);
+    problems.push(`permission mode ${label(init.permissionMode)}, not dontAsk`);
   }
   // MCP tools included: the brewer has no MCP server, so an mcp__ tool is one too many.
   const extra = init.tools.filter((tool) => !asked.tools.includes(tool));
