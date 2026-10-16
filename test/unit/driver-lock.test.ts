@@ -4,7 +4,7 @@
 // test/integration/driver-lock.test.ts.
 
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
@@ -75,6 +75,25 @@ describe('lockDriver', () => {
     lock();
     const session = lock({ ...cellar, owner: 'session-7' });
     assert.equal(session.held, true);
+  });
+
+  it('leaves only the marker and the drivers in the work root, for the first driver and the next', () => {
+    lock();
+    lock({ ...cellar, owner: 'session-7' });
+    assert.deepStrictEqual(readdirSync(workRoot).sort(), ['brewery.json', 'drivers']);
+  });
+
+  it('refuses a second process without naming a holder when the holder file is gone', () => {
+    lock();
+    rmSync(join(workRoot, 'drivers', 'cellar.holder.json'));
+    assert.throws(
+      () => lock({ ...cellar, pid: 5151 }),
+      (error: unknown) =>
+        error instanceof DriverRunningError &&
+        error.holder === undefined &&
+        !error.message.includes('by process') &&
+        error.message.includes('is held. Stop it first'),
+    );
   });
 
   it('refuses a driver of another Brewery, also once every driver of the first has stopped', () => {

@@ -519,6 +519,57 @@ describe('brewing with the fake brewer runner', () => {
       assert.equal(brewing.batch('b1').lane.kind, 'on_tap');
     });
 
+    it('lets the lease of an attempt that cannot get its worktree go at once', async () => {
+      const leasedAtCreate: string[][] = [];
+      const worktrees = fakeWorktrees({
+        refuse: (ref) => {
+          leasedAtCreate.push(store.currentLeases(now).map((lease) => lease.attemptKey));
+          return ref.attempt === 1 ? 'in the way' : undefined;
+        },
+      });
+      await brew({ plan: [behave.succeed()], implement: [behave.succeed()] }, { worktrees });
+      const key = (stepId: string, attempt: number) =>
+        attemptKey.encode({ batchId: 'b1', stepId, attempt });
+      // Each create sees only its own attempt's lease: the refused attempt's went with it.
+      assert.deepStrictEqual(leasedAtCreate, [
+        [key('plan', 1)],
+        [key('plan', 2)],
+        [key('implement', 1)],
+        [key('implement', 2)],
+      ]);
+      assert.deepStrictEqual(store.currentLeases(now), []);
+    });
+
+    it('starts no run when its batch is cancelled while its worktree is made', async () => {
+      const runner = fakeBrewerRunner({ plan: [behave.succeed()] });
+      const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan'] }) });
+      const cancel = { kind: 'cancel', batchId: 'b1', by: 'edwin', via: 'terminal' } as const;
+      let cancelled = () => {};
+      const worktrees = fakeWorktrees({
+        refuse: () => {
+          cancelled();
+          return undefined;
+        },
+      });
+      const brewing = createBrewing({
+        store,
+        runner,
+        recipes,
+        clock: () => now,
+        worktrees: { repo: 'acme/app', base: 'origin/main', manager: worktrees },
+      });
+      cancelled = () => assert.ok(brewing.command(cancel));
+      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      const route = { kind: 'route', batchId: 'b1', recipe: 'pint', reason: 'label' } as const;
+      assert.ok(brewing.command({ ...route, source: 'label' }));
+      await brewing.drive();
+
+      assert.deepStrictEqual(runner.started, []);
+      assert.deepStrictEqual(store.currentLeases(now), []);
+      assert.equal(brewing.batch('b1').lane.kind, 'cancelled');
+      assert.ok(!trail(brewing.events()).includes('started plan#1'));
+    });
+
     it('repairs the worktrees of every batch when the driver starts', async () => {
       const progress = { lastProgressAt: t0, turnsWithoutProgress: 3 };
       const { recipes } = await brew({ plan: [behave.hang(progress)] });
