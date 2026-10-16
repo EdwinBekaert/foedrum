@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import {
   type ChildHandle,
+  DEFAULT_MAX_OUTPUT_BYTES,
   type ExecProcess,
   type ExecResult,
   execProcessWith,
@@ -15,6 +16,7 @@ import {
   spawnCommand,
   stopOnSignals,
   type Timers,
+  whyKilled,
 } from '../../src/platform/processes.ts';
 
 const failingWith =
@@ -396,6 +398,74 @@ describe('execProcessWith', () => {
     assert.equal(result.output, 'partial\n');
   });
 
+  // A hook or a diff of untrusted content can write without end; the deadline does not bound
+  // the memory that takes (#91).
+  describe('with an output limit', () => {
+    it('kills the whole tree when stdout and stderr together pass it, and answers at once', async () => {
+      const child = new FakeChild(79);
+      const { killed, exec } = fakeSpawner(child);
+      const done = exec('git', ['log', '-p'], { cwd: '/work/tree', maxOutputBytes: 10 });
+      child.stdout.write('12345');
+      await settle();
+      child.stderr.write('678');
+      await settle();
+      assert.deepEqual(killed, []);
+      child.stdout.write('abc');
+      await settle();
+      // Ends a child the runner did not kill, so the test fails instead of waiting.
+      child.close(0);
+      // What came within the limit; never the chunk that passed it.
+      assert.deepEqual(await done, {
+        exitCode: null,
+        stdout: '12345',
+        stderr: '678',
+        output: '12345678',
+        killed: 'too-much-output',
+      });
+      assert.deepEqual(killed, [79]);
+      assert.ok(child.stdout.destroyed && child.stderr.destroyed, 'stops reading its output');
+    });
+
+    it('counts bytes, not characters', async () => {
+      const child = new FakeChild();
+      const { exec } = fakeSpawner(child);
+      const done = exec('git', ['log'], { cwd: '/work/tree', maxOutputBytes: 7 });
+      // Four characters, eight bytes.
+      child.stdout.write('éééé');
+      await settle();
+      child.close(0);
+      assert.equal((await done).killed, 'too-much-output');
+    });
+
+    it('lets a process that writes exactly the limit end by itself', async () => {
+      const child = new FakeChild();
+      const { killed, exec } = fakeSpawner(child);
+      const done = exec('git', ['log'], { cwd: '/work/tree', maxOutputBytes: 4 });
+      child.stdout.write('ab');
+      child.stderr.write('é');
+      await settle();
+      child.close(0);
+      assert.deepEqual(await done, { exitCode: 0, stdout: 'ab', stderr: 'é', output: 'abé' });
+      assert.deepEqual(killed, []);
+    });
+
+    it('is 4 MiB when the caller gives none', async () => {
+      const child = new FakeChild(80);
+      const { killed, exec } = fakeSpawner(child);
+      const done = exec('git', ['log', '-p'], { cwd: '/work/tree' });
+      child.stdout.write('x'.repeat(DEFAULT_MAX_OUTPUT_BYTES));
+      await settle();
+      assert.deepEqual(killed, []);
+      child.stderr.write('y');
+      await settle();
+      child.close(0);
+      const result = await done;
+      assert.equal(result.killed, 'too-much-output');
+      assert.equal(result.output.length, 4 * 1024 * 1024);
+      assert.deepEqual(killed, [80]);
+    });
+  });
+
   it('starts nothing when the signal has already aborted', async () => {
     const { spawned, exec } = fakeSpawner();
     const result = await exec('npm', ['test'], { cwd: '/work/tree', signal: AbortSignal.abort() });
@@ -497,8 +567,11 @@ describe('runProcessThrough', () => {
     const outcome = await runProcessThrough(exec)('node', ['x.ts'], '/work/tree', {
       timeoutMs: 5,
       signal,
+      maxOutputBytes: 64,
     });
-    assert.deepEqual(calls, [['node', ['x.ts'], { cwd: '/work/tree', timeoutMs: 5, signal }]]);
+    assert.deepEqual(calls, [
+      ['node', ['x.ts'], { cwd: '/work/tree', timeoutMs: 5, signal, maxOutputBytes: 64 }],
+    ]);
     assert.deepEqual(outcome, { exitCode: null, output: 'ab', killed: 'timed-out' });
   });
 
@@ -508,6 +581,18 @@ describe('runProcessThrough', () => {
       exitCode: 0,
       output: 'a',
     });
+  });
+});
+
+describe('whyKilled', () => {
+  it('names the output limit, 4 MiB unless the caller gave another', () => {
+    assert.equal(whyKilled('too-much-output', 1000), 'wrote more than 4 MiB of output');
+    assert.equal(
+      whyKilled('too-much-output', 1000, 512 * 1024 * 1024),
+      'wrote more than 512 MiB of output',
+    );
+    assert.equal(whyKilled('too-much-output', 1000, 64 * 1024), 'wrote more than 64 KiB of output');
+    assert.equal(whyKilled('too-much-output', 1000, 1500), 'wrote more than 1500 bytes of output');
   });
 });
 

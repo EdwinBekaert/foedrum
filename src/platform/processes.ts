@@ -120,8 +120,14 @@ export const isPidAlive = (pid: number, kill: Kill = process.kill): boolean => {
   }
 };
 
-/** How the runner ended a process it killed: its deadline passed, or its signal aborted. */
-export type Killed = 'timed-out' | 'stopped';
+/**
+ * How the runner ended a process it killed: its deadline passed, its signal aborted, or it wrote
+ * more than its output limit.
+ */
+export type Killed = 'timed-out' | 'stopped' | 'too-much-output';
+
+/** The output limit when the caller gives none (ADR 0035). */
+export const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export interface ExecOptions {
   cwd: string;
@@ -131,6 +137,11 @@ export interface ExecOptions {
   timeoutMs?: number | undefined;
   /** Kills the process and every process it started when it aborts. */
   signal?: AbortSignal | undefined;
+  /**
+   * Kills the process and every process it started when stdout and stderr together pass this
+   * many bytes; default DEFAULT_MAX_OUTPUT_BYTES.
+   */
+  maxOutputBytes?: number | undefined;
 }
 
 export interface ExecResult {
@@ -187,16 +198,21 @@ export interface Spawner {
 
 /**
  * A runner that starts programs through the given spawner and collects their output. At the
- * deadline, or when the signal aborts, it kills the whole tree and answers at once, without
- * waiting for output pipes that a surviving grandchild may hold open.
+ * deadline, when the signal aborts, or when the output passes its limit, it kills the whole tree
+ * and answers at once, without waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
   ({ spawn, killTree, resolve }: Spawner, timers: Timers = realTimers): ExecProcess =>
-  (file, args, { cwd, env = process.env, timeoutMs, signal }) =>
+  (
+    file,
+    args,
+    { cwd, env = process.env, timeoutMs, signal, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES },
+  ) =>
     new Promise((done) => {
       let stdout = '';
       let stderr = '';
       let output = '';
+      let outputBytes = 0;
       const ended = (exitCode: number | null, killed?: Killed): ExecResult =>
         killed === undefined
           ? { exitCode, stdout, stderr, output }
@@ -243,12 +259,21 @@ export const execProcessWith =
       const timer =
         timeoutMs === undefined ? undefined : timers.set(() => kill('timed-out'), timeoutMs);
       signal?.addEventListener('abort', stop, { once: true });
+      // Whether the chunk fits within the limit; the one that passes it is dropped (ADR 0035).
+      const fits = (chunk: string): boolean => {
+        outputBytes += Buffer.byteLength(chunk);
+        if (outputBytes <= maxOutputBytes) return true;
+        kill('too-much-output');
+        return false;
+      };
       // Decode as a stream, so a multi-byte character split across chunks stays intact.
       child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+        if (!fits(chunk)) return;
         stdout += chunk;
         output += chunk;
       });
       child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+        if (!fits(chunk)) return;
         stderr += chunk;
         output += chunk;
       });
@@ -284,7 +309,7 @@ export interface ProcessOutcome {
   killed?: Killed;
 }
 
-export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal'>;
+export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal' | 'maxOutputBytes'>;
 
 export type RunProcess = (
   file: string,
@@ -295,16 +320,27 @@ export type RunProcess = (
 
 export const runProcessThrough =
   (exec: ExecProcess): RunProcess =>
-  async (file, args, cwd, { timeoutMs, signal } = {}) => {
-    const { exitCode, output, killed } = await exec(file, args, { cwd, timeoutMs, signal });
+  async (file, args, cwd, options = {}) => {
+    const { exitCode, output, killed } = await exec(file, args, { ...options, cwd });
     return killed === undefined ? { exitCode, output } : { exitCode, output, killed };
   };
 
 /** The real runner, with the output together. */
 export const spawnProcess: RunProcess = runProcessThrough(execProcess);
 
+// A byte count as a person would write it: 4 MiB, 64 KiB, 1500 bytes.
+const inUnits = (bytes: number): string => {
+  if (bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)} MiB`;
+  if (bytes % 1024 === 0) return `${bytes / 1024} KiB`;
+  return `${bytes} bytes`;
+};
+
 /** Why the runner killed a process, for a message; undefined when it ended by itself. */
-export const whyKilled = (killed: Killed | undefined, timeoutMs: number): string | undefined => {
+export const whyKilled = (
+  killed: Killed | undefined,
+  timeoutMs: number,
+  maxOutputBytes: number = DEFAULT_MAX_OUTPUT_BYTES,
+): string | undefined => {
   switch (killed) {
     case undefined:
       return undefined;
@@ -312,6 +348,8 @@ export const whyKilled = (killed: Killed | undefined, timeoutMs: number): string
       return `timed out after ${timeoutMs / 1000} s`;
     case 'stopped':
       return 'stopped';
+    case 'too-much-output':
+      return `wrote more than ${inUnits(maxOutputBytes)} of output`;
     default: {
       const unknown: never = killed;
       throw new Error(`unknown kill ${String(unknown)}`);
