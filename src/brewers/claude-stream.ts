@@ -2,10 +2,19 @@
 // init check first, then the facts settleAttempt decides on and the progress the stall watchdog
 // reads. Pure: the runner hands it each line with the time it came.
 
-import type { AttemptFacts } from '../engine/brewer-runner.ts';
+import { type AttemptFacts, type Denials, noteDenial } from '../engine/brewer-runner.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import {
+  ClaudeAssistant,
+  ClaudeDenial,
+  ClaudeEvent,
+  ClaudeResult,
+  ClaudeToolResult,
+  ClaudeToolUse,
+  ClaudeUser,
+} from '../schemas/claude-stream.ts';
 import type { Usage } from '../schemas/events.ts';
-import type { AskedSession, SessionFacts } from './claude-init.ts';
+import { type AskedSession, checkInit, type SessionFacts } from './claude-init.ts';
 
 /** What the runner asked for, and when it stops the attempt itself. */
 export interface StreamAsk extends AskedSession {
@@ -34,7 +43,186 @@ export interface StreamReader {
   progress(): AttemptProgress;
 }
 
+// The stream is untrusted and may be huge: what a reason quotes of it is cut short.
+const SHORT = 200;
+const cut = (text: string): string => (text.length > SHORT ? `${text.slice(0, SHORT)}…` : text);
+
+/** The tools that write a file; a shell command counts only when it commits. */
+const WRITERS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+const SHELLS = new Set(['Bash', 'PowerShell']);
+const commits = /\bgit\b[^\n;&|]*\bcommit\b/;
+
+const writes = (name: string, input: Record<string, unknown>): boolean =>
+  WRITERS.has(name) ||
+  (SHELLS.has(name) && typeof input.command === 'string' && commits.test(input.command));
+
+/** Why a result reported an error: its terminal reason, then what it said. */
+const errorOf = (result: ClaudeResult): string => {
+  const why = result.terminal_reason ?? result.subtype;
+  const said = result.errors?.[0] ?? result.result;
+  return cut(said === undefined || said === '' ? why : `${why}: ${said}`);
+};
+
+/** The text of a message claude made up for a failed call. */
+const textOf = (content: readonly { type: string; text?: unknown }[]): string =>
+  content
+    .map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+    .join(' ')
+    .trim();
+
 /** A reader for one attempt's stream, which started at `startedAt`. */
-export function readClaudeStream(_asked: StreamAsk, _startedAt: Date): StreamReader {
-  throw new Error('not implemented');
+export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReader {
+  let session: SessionFacts | undefined;
+  let environment: string | undefined;
+  let streamError: string | undefined;
+  let garbage: string | undefined;
+  let usage: Usage | undefined;
+  let denials: Denials = { denials: 0, deniedTools: [] };
+  let lines = 0;
+  let stopped = false;
+  // Whether the model has replied: an error before that is the environment's (#11, item 4).
+  let replied = false;
+  // Turns: the main thread's messages by id while it runs, the result's num_turns at the end.
+  const messages = new Set<string>();
+  let finalTurns: number | undefined;
+  const turns = (): number => finalTurns ?? messages.size;
+  // Progress: the calls that write, and when one last came back without an error.
+  const writing = new Set<string>();
+  let lastProgressAt = startedAt;
+  let turnsAtProgress = 0;
+
+  const failBeforeReply = (why: string): void => {
+    if (!replied && environment === undefined) {
+      environment = cut(`claude failed before the model replied: ${why}`);
+    }
+  };
+
+  const readResult = (result: ClaudeResult): void => {
+    if (result.num_turns !== undefined) finalTurns = result.num_turns;
+    if (result.usage !== undefined) {
+      usage = {
+        inputTokens: result.usage.input_tokens,
+        outputTokens: result.usage.output_tokens,
+        cacheReadTokens: result.usage.cache_read_input_tokens,
+        cacheWriteTokens: result.usage.cache_creation_input_tokens,
+      };
+    }
+    if (!result.is_error) return;
+    streamError = errorOf(result);
+    failBeforeReply(streamError);
+  };
+
+  const beforeInit = (event: unknown, type: string, subtype: unknown): 'go' | 'stop' => {
+    // Other system events can come first (ui_invalidate, with an API key; ADR 0046).
+    if (type === 'system' && subtype !== 'init') return 'go';
+    // A run that ends before its session starts: a missing session to resume, no sandbox.
+    const result = ClaudeResult.safeParse(event);
+    if (result.success) {
+      readResult(result.data);
+      const said = result.data.errors?.[0] ?? result.data.result ?? errorOf(result.data);
+      environment = `claude ended before the session started: ${cut(said)}`;
+      return 'go';
+    }
+    const check = checkInit(event, asked);
+    if (check.kind === 'mismatch') {
+      environment = check.reason;
+      stopped = true;
+      return 'stop';
+    }
+    session = check.session;
+    return 'go';
+  };
+
+  const readAssistant = (event: ClaudeAssistant): void => {
+    if (event.error !== undefined) {
+      const text = textOf(event.message.content);
+      failBeforeReply(text === '' ? event.error : `${event.error}: ${text}`);
+      return;
+    }
+    replied = true;
+    if (event.parent_tool_use_id === null || event.parent_tool_use_id === undefined) {
+      messages.add(event.message.id);
+    }
+    for (const block of event.message.content) {
+      const use = ClaudeToolUse.safeParse(block);
+      if (use.success && writes(use.data.name, use.data.input)) writing.add(use.data.id);
+    }
+  };
+
+  const readUser = (event: ClaudeUser, now: Date): void => {
+    if (typeof event.message.content === 'string') return;
+    for (const block of event.message.content) {
+      const result = ClaudeToolResult.safeParse(block);
+      if (!result.success || !writing.delete(result.data.tool_use_id)) continue;
+      if (result.data.is_error === true) continue;
+      lastProgressAt = now;
+      turnsAtProgress = turns();
+    }
+  };
+
+  const readEvent = (parsed: unknown, type: string, now: Date): 'go' | 'stop' => {
+    switch (type) {
+      case 'assistant': {
+        const assistant = ClaudeAssistant.safeParse(parsed);
+        if (assistant.success) readAssistant(assistant.data);
+        return 'go';
+      }
+      case 'user': {
+        const user = ClaudeUser.safeParse(parsed);
+        if (user.success) readUser(user.data, now);
+        return 'go';
+      }
+      case 'result': {
+        const result = ClaudeResult.safeParse(parsed);
+        if (result.success) readResult(result.data);
+        else streamError ??= 'the result event could not be read';
+        return 'go';
+      }
+      case 'system': {
+        const denial = ClaudeDenial.safeParse(parsed);
+        if (!denial.success) return 'go';
+        denials = noteDenial(denials, denial.data.tool_name);
+        const { maxDenials } = asked;
+        return maxDenials !== undefined && denials.denials >= maxDenials ? 'stop' : 'go';
+      }
+      default:
+        // Every other type, including those claude adds later (ADR 0042).
+        return 'go';
+    }
+  };
+
+  const read = (line: string, now: Date): 'go' | 'stop' => {
+    if (stopped) return 'stop';
+    lines += 1;
+    if (line === '') return 'go';
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      parsed = undefined;
+    }
+    const event = ClaudeEvent.safeParse(parsed);
+    if (!event.success) {
+      garbage ??= line.slice(0, SHORT);
+      return 'go';
+    }
+    const { type, subtype } = event.data;
+    if (session === undefined) return beforeInit(parsed, type, subtype);
+    return readEvent(parsed, type, now);
+  };
+
+  return {
+    read,
+    facts: () => ({
+      ...(session === undefined ? {} : { session }),
+      ...(environment === undefined ? {} : { environment }),
+      ...(streamError === undefined ? {} : { streamError }),
+      ...(garbage === undefined ? {} : { garbage }),
+      ...denials,
+      turns: turns(),
+      ...(usage === undefined ? {} : { usage }),
+      lines,
+    }),
+    progress: () => ({ lastProgressAt, turnsWithoutProgress: turns() - turnsAtProgress }),
+  };
 }
