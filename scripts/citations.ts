@@ -12,7 +12,8 @@ type Result = { ok: boolean; lines: string[] };
 const readAnswer = async (answer: string): Promise<unknown[] | string> => {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(answer, 'utf8'));
+    // An answer saved on Windows may start with a byte order mark (CLAUDE.md, Cross-platform).
+    parsed = JSON.parse((await readFile(answer, 'utf8')).replace(/^﻿/, ''));
   } catch (error) {
     return `cannot read the answer: ${(error as Error).message}`;
   }
@@ -20,7 +21,8 @@ const readAnswer = async (answer: string): Promise<unknown[] | string> => {
 };
 
 // The file must be a regular file really inside the checkout, so a link cannot make the check
-// read a file outside it.
+// read a file outside it. Its real path must also be the cited one, letter case included, so a
+// citation that only resolves on a case-insensitive file system does not exist on any.
 const check = async (checkout: string, entry: unknown): Promise<CitationCheck> => {
   const parsed = parseCitation(entry);
   if (!parsed.ok || parsed.citation === undefined) return parsed;
@@ -28,9 +30,9 @@ const check = async (checkout: string, entry: unknown): Promise<CitationCheck> =
   const root = await realpath(checkout);
   const target = await realpath(join(checkout, file)).catch(() => undefined);
   if (target === undefined) return checkLine(parsed.citation, undefined);
-  if (pathInside(root, target) === undefined) {
-    return { ok: false, reason: `${file} is not inside the checkout` };
-  }
+  const inside = pathInside(root, target);
+  if (inside === undefined) return { ok: false, reason: `${file} is not inside the checkout` };
+  if (inside !== file) return checkLine(parsed.citation, undefined);
   if (!(await stat(target)).isFile()) return { ok: false, reason: `${file} is not a file` };
   return checkLine(parsed.citation, await readFile(target, 'utf8'));
 };

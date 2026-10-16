@@ -41,7 +41,10 @@ export const mutantVerdict = async (baseline: string, run: string): Promise<Resu
       };
     case 'killed': {
       const { by } = verdict;
-      const shown = by.slice(0, SHOWN).map(({ file, test }) => `  ${[file, ...test].join(' > ')}`);
+      // Quoted, so a line break in a test name (pull request text) cannot forge a line.
+      const shown = by
+        .slice(0, SHOWN)
+        .map(({ file, test }) => `  ${JSON.stringify([file, ...test].join(' > '))}`);
       const more = by.length > SHOWN ? [`  … and ${by.length - SHOWN} more`] : [];
       return { ok: true, lines: [`killed by ${by.length} tests:`, ...shown, ...more] };
     }
