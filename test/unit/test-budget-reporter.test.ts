@@ -48,6 +48,16 @@ const cpuDiagnostics = (
 const cpu = (file: string, ms: number): TestEvent[] =>
   cpuDiagnostics(file, { user: ms * 500, system: ms * 500 });
 
+// Two readings the reporter cannot use: one whose number is not a number, and one without a file.
+const unusableReadings = (file: string): TestEvent[] => {
+  const [reading] = cpu(file, 1);
+  const prefix = (reading?.data?.message ?? '').replace(/[0-9.]+$/, '');
+  return [
+    { type: 'test:diagnostic', data: { nesting: 0, file, message: `${prefix}abc` } },
+    { type: 'test:diagnostic', data: { nesting: 0, message: `${prefix}9000` } },
+  ];
+};
+
 // A file's wall time and CPU time, the reading before the summary as the runner sends them.
 const timed = (file: string, wallMs: number, cpuMs: number): TestEvent[] => [
   ...cpu(file, cpuMs),
@@ -339,6 +349,24 @@ describe('withoutCpuTimes', () => {
     const out: TestEvent[] = [];
     for await (const event of withoutCpuTimes(source)) out.push(event);
     assert.deepEqual(out, [passed(fileA, 1), fileDiagnostic, summary(fileA, 900), other]);
+  });
+
+  it('passes on a reading it cannot use: no number, or no file', async () => {
+    const readings = unusableReadings(fileA);
+    const source = (async function* () {
+      yield* readings;
+    })();
+    const out: TestEvent[] = [];
+    for await (const event of withoutCpuTimes(source)) out.push(event);
+    assert.deepEqual(out, readings);
+  });
+});
+
+describe('budgetReporter with readings it cannot use', () => {
+  it('holds the file to its wall time', async () => {
+    const { lines, failed } = await report([...unusableReadings(fileA), summary(fileA, 5100)]);
+    assert.equal(failed, true);
+    assert.match(overLines(lines)[0] ?? '', /took 5\.10 s of wall time \(no CPU time reported\)/);
   });
 });
 
