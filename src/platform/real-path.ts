@@ -20,6 +20,11 @@ export function windowsPathProblem(path: string): 'network' | 'no-drive' | undef
   return undefined;
 }
 
+/** The drive a Windows path starts with, upper-cased (`C:`), or undefined when it has none. */
+export function windowsDrive(path: string): string | undefined {
+  return /^[A-Za-z]:/.test(path) ? path.slice(0, 2).toUpperCase() : undefined;
+}
+
 // A part of the path that does not exist (yet): try its parent.
 const MISSING = new Set(['ENOENT', 'ENOTDIR']);
 
@@ -34,6 +39,8 @@ export function realPath(
     .split(sep === '\\' ? /[\\/]/ : '/')
     .filter((part) => part !== '');
   // The root itself is the last try: when even that is missing, its error is thrown.
+  // Built as strings, not with join (CLAUDE.md asks for node:path): join would normalise `..`
+  // in the parts that are tried, which the operating system must read itself.
   for (let kept = parts.length; ; kept--) {
     try {
       return join(realpath(root + parts.slice(0, kept).join(sep)), ...parts.slice(kept));

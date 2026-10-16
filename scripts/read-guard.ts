@@ -65,7 +65,7 @@ export const readGuard = async (
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : undefined;
 
   const deps = await loadDeps();
-  const [{ posix, win32 }, { windowsPathProblem }] = await Promise.all([
+  const [{ posix, win32 }, { windowsDrive, windowsPathProblem }] = await Promise.all([
     import('node:path'),
     import('../src/platform/real-path.ts'),
   ]);
@@ -86,8 +86,7 @@ export const readGuard = async (
   }
   const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
   // On Windows, the drives the checkout is on, as given and as resolved (a subst drive).
-  const drive = (path: string): string => path.slice(0, 2).toUpperCase();
-  const rootDrives = new Set([drive(deps.root), drive(root)]);
+  const rootDrives = new Set([windowsDrive(deps.root), windowsDrive(root)]);
 
   // On Windows, what is not a full drive path, before it touches the disk or the network.
   const notADrivePath = (path: string, name: string): string | undefined => {
@@ -113,6 +112,8 @@ export const readGuard = async (
       given.startsWith('~/') ||
       (deps.platform === 'win32' && given.startsWith('~\\'))
     ) {
+      // Strings, not node:path, here and below (an exception to CLAUDE.md): node:path would
+      // normalise `..`, which the resolver must leave to the operating system.
       absolute = deps.homedir + given.slice(1);
     } else if (given.startsWith('~')) {
       return `${name} names another user's home folder, which the read guard cannot resolve.`;
@@ -128,7 +129,7 @@ export const readGuard = async (
     const notResolved = notADrivePath(absolute, quoted(absolute));
     if (notResolved !== undefined) return notResolved;
     // Another drive is outside, and resolving it could reach a mapped network drive.
-    if (deps.platform === 'win32' && !rootDrives.has(drive(absolute))) {
+    if (deps.platform === 'win32' && !rootDrives.has(windowsDrive(absolute))) {
       return `${name} is outside the checkout (${root}): it is on drive ${absolute.slice(0, 2)}; reviewers read only files inside it (ADR 0048).`;
     }
     let real: string;
@@ -178,7 +179,7 @@ export const readGuard = async (
         const fromRoot =
           path.isAbsolute(prefix) ||
           prefix.startsWith('~') ||
-          (deps.platform === 'win32' && /^[A-Za-z]:/.test(prefix));
+          (deps.platform === 'win32' && windowsDrive(prefix) !== undefined);
         reads.unshift(fromRoot ? prefix : `${base()}${path.sep}${prefix}`);
       }
     }
