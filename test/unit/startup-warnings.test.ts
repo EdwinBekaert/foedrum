@@ -100,9 +100,9 @@ describe('startupWarnings reasons', () => {
 
 describe('.claude/settings.json', () => {
   it('has no permission rule that Claude Code warns about at startup', () => {
-    const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')) as {
-      permissions?: Permissions;
-    };
+    // An editor on Windows may save the file with a byte order mark (CLAUDE.md, Cross-platform).
+    const text = readFileSync(join(root, '.claude', 'settings.json'), 'utf8').replace(/^﻿/, '');
+    const settings = JSON.parse(text) as { permissions?: Permissions };
     assert.deepEqual(startupWarnings(settings.permissions ?? {}), []);
   });
 });
