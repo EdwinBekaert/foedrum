@@ -2,7 +2,7 @@
 // captured streams of #17: what it starts, what it writes, and how each attempt ends.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -289,6 +289,34 @@ describe('claudeBrewerRunner', () => {
     assert.deepEqual(read[0]?.root, '/work/tree');
   });
 
+  // ADR 0042: refused arguments exit 1. On Windows a crash before the first line exits with an
+  // NTSTATUS code, and is a crash to retry, not the environment (review of #133).
+  it('fails, retryably, when claude crashed before its first line with another code than 1', async () => {
+    const { runner } = setup({ lines: [], result: exited(3221225477) }, { outDoc: undefined });
+    const end = await runner.start(attempt).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer process exited with code 3221225477',
+    });
+  });
+
+  it('cancels an attempt stopped while its plan is still being prepared', async () => {
+    const { calls, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: () => new Promise<ClaudeAttemptPlan>(() => {}) },
+    );
+    const running = runner.start(attempt);
+    running.stop();
+    const late = new Promise<'still running'>((answer) => {
+      setTimeout(() => answer('still running'), 1000).unref();
+    });
+    const end = await Promise.race([running.ended, late]);
+    assert.deepEqual(end === 'still running' ? end : end.ending, { kind: 'cancelled' });
+    assert.deepEqual(calls, []);
+    assert.equal(runner.progress(attempt.ref), undefined);
+  });
+
   it('fails, not retryably, when claude could not start', async () => {
     const { runner } = setup(
       { lines: [], result: { exitCode: null, stderr: 'claude: not found on PATH (ENOENT)' } },
@@ -441,6 +469,16 @@ describe('readOutDocFile', () => {
   });
 
   // A link in a folder of the path (a junction, which needs no privilege) leads out as well.
+  // A hard link keeps its name inside the worktree but its content may be any file of the volume.
+  it('does not read an out doc that has more than one link', () => {
+    writeFileSync(join(dir.path, 'secret.txt'), 'not for the log');
+    linkSync(join(dir.path, 'secret.txt'), join(dir.path, 'plan.md'));
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
+      kind: 'unread',
+      reason: 'it has more than one link',
+    });
+  });
+
   it('does not read an out doc outside the worktree, through a linked folder or ..', () => {
     const worktree = join(dir.path, 'worktree');
     mkdirSync(worktree);

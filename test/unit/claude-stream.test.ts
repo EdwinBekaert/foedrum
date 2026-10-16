@@ -230,6 +230,46 @@ describe('readClaudeStream', () => {
     assert.equal(facts.streamError, 'api_error: Overloaded');
   });
 
+  // Review of #133: only a cause the next attempt meets again is the environment.
+  it('makes an assistant error before the first reply the environment only for a lasting cause', () => {
+    for (const [error, lasting] of [
+      ['authentication_failed', true],
+      ['billing_error', true],
+      ['invalid_request', true],
+      ['model_not_found', true],
+      ['rate_limit', false],
+      ['server_error', false],
+      ['unknown', false],
+    ] as const) {
+      const { facts } = readAll(
+        [
+          init(),
+          assistant('msg_1', [{ type: 'text', text: 'It failed.' }], { error }),
+          result({ is_error: true, terminal_reason: 'api_error', result: 'It failed.' }),
+        ],
+        asked,
+      );
+      assert.equal(
+        facts.environment,
+        lasting ? `claude failed before the model replied: ${error}: It failed.` : undefined,
+        error,
+      );
+      assert.equal(facts.streamError, 'api_error: It failed.', error);
+    }
+  });
+
+  it('reads nothing more after the denial that reaches maxDenials', () => {
+    const denial = (tool: string): string =>
+      JSON.stringify({ type: 'system', subtype: 'permission_denied', tool_name: tool });
+    const { facts, answers } = readAll(
+      [init(), denial('Write'), denial('Bash'), denial('WebFetch'), result()],
+      { ...asked, maxDenials: 2 },
+    );
+    assert.deepEqual(answers, ['go', 'go', 'stop', 'stop', 'stop']);
+    assert.equal(facts.denials, 2);
+    assert.deepEqual(facts.deniedTools, ['Write', 'Bash']);
+  });
+
   it('records a result event it cannot read as a stream error', () => {
     const { facts } = readAll([init(), assistant('msg_1', []), result({ is_error: 'yes' })], asked);
     assert.equal(facts.streamError, 'the result event could not be read');
@@ -317,6 +357,20 @@ describe('readClaudeStream progress', () => {
       ]);
       assert.deepEqual(progress, { lastProgressAt: at(3), turnsWithoutProgress: 0 }, command);
     }
+  });
+
+  // The command is model output: a long one must not hold the engine (review of #133).
+  it('reads a long shell command in linear time', () => {
+    const command = 'git '.repeat(16_000);
+    const t0 = performance.now();
+    const progress = run([
+      init(),
+      assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
+      toolResult('t1'),
+    ]);
+    const elapsed = performance.now() - t0;
+    assert.ok(elapsed < 200, `took ${Math.round(elapsed)} ms`);
+    assert.deepEqual(progress, { lastProgressAt: started, turnsWithoutProgress: 1 });
   });
 
   it('does not count a commit command that failed', () => {
