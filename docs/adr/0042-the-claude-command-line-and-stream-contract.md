@@ -1,6 +1,6 @@
 # 0042. The `claude` command line and the stream the brewer runner reads
 
-Date: 2026-10-16 · Status: Accepted · Amends [0003](0003-drive-the-claude-cli.md) and [0019](0019-interactive-sessions-and-one-command-layer.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0003](0003-drive-the-claude-cli.md), [0019](0019-interactive-sessions-and-one-command-layer.md) and [0028](0028-brewer-runner-outcomes-environment-and-test-first.md)
 
 ## Context
 [ADR 0003](0003-drive-the-claude-cli.md) runs brewers through the user's `claude` CLI with `--output-format stream-json`, and [brewers-and-recipes.md §4](../brewers-and-recipes.md#4-how-a-brewer-runs) sketches the command line. Both were written from memory. Before the real brewer runner (#11, ADR 0028) is built, #17 checks them against the installed CLI: the flags, the stream events and fields the runner reads, exit codes, how the prompt goes in, sandbox settings, and spawning on Windows.
@@ -49,7 +49,7 @@ The prompt goes in on stdin, with no prompt argument (not even `-`).
 
 ### The settings file
 - The runner writes the per-attempt settings from a strict zod schema of the keys it uses (`permissions.allow`, `permissions.deny`, `sandbox`, `env`), so a file the CLI would drop cannot be produced. A contract test against the real CLI checks that a deny rule in it takes effect.
-- Its deny list always names `AskUserQuestion` and `Bash(git push *)` (§1.1).
+- Its deny list always names `AskUserQuestion`, and `git push` for every shell tool the brewer has (`Bash(git push *)`, `PowerShell(git push *)`) (§1.1). A scoped rule matches the command as written, so `git -C . push` slips past it: the deny rule only cuts down on attempts. The engine's `noPush` guard (§1.1), which fails the attempt when the branch moved on the remote, is the check that holds.
 - A bare tool name in `deny` (`"Bash"`) removes the tool: a call to it is an `is_error` tool result, `No such tool available: Bash`, and no permission denial. A scoped rule (`Bash(git push *)`) leaves the tool and denies the matching calls (`decision_reason_type: "subcommandResults"`). Denying `Bash` also removed `PowerShell` on Windows.
 - In a workspace the user never trusted, a repository's `.claude/settings.json` `permissions.allow` entries are ignored with a warning on stderr; attempt worktrees are new paths, so they are untrusted.
 
@@ -58,7 +58,7 @@ Every stdout line is one JSON object with a `type`. A line that is not is the ga
 
 | Event | Fields read | Use |
 |---|---|---|
-| `system/init` | `session_id`, `model` (the full id), `permissionMode`, `tools`, `mcp_servers`, `claude_code_version` | The first line when there is one (hook events could come before it; `--safe-mode` runs no hooks). The runner records the session and the CLI version (ADR 0019) and stops the attempt as not startable when `permissionMode` is not `dontAsk` or `tools` names a tool outside `--tools` |
+| `system/init` | `session_id`, `model` (the full id), `permissionMode`, `tools`, `mcp_servers`, `claude_code_version` | The first line when there is one (hook events could come before it; `--safe-mode` runs no hooks). The runner records the session and the CLI version (ADR 0019) and stops the attempt as not startable when `permissionMode` is not `dontAsk`, or a built-in tool in `tools` is not in `--tools` (an MCP server's `mcp__<server>__*` tools are checked against the brewer's `mcp` instead). These are new cases of ADR 0028's "could not start" fact: not retryable |
 | `assistant` | `message.content[]`: `text`, `thinking`, `tool_use` (`id`, `name`, `input`); `error`; `parent_tool_use_id` | Progress; `parent_tool_use_id` is not `null` for a subagent's messages |
 | `user` | `message.content[]`: `tool_result` (`tool_use_id`, `is_error`, `content`) | Progress |
 | `system/permission_denied` | `tool_name`, `tool_use_id`, `decision_reason_type` | One denial each (`noteDenial`); live, so the runner can stop at `maxDenials` |
@@ -75,7 +75,7 @@ Every stdout line is one JSON object with a `type`. A line that is not is the ga
 - The longest command line above is about 1,300 characters with a working directory and two file paths of 260 characters each, against the about 6,100 that ADR 0039's Job Object helper leaves the program. The runner's tests pin its longest command line.
 
 ### Sessions
-- The runner creates the session id (a random UUID) and passes it with `--session-id`, so the attempt's session is recorded before the process starts, not learned from the first stream event. This amends ADR 0019, which took it from the stream; `init.session_id` must equal it, or the attempt stops as not startable.
+- The runner creates the session id (a random UUID) and passes it with `--session-id`, so the attempt's session is recorded before the process starts, not learned from the first stream event. This amends ADR 0019, which took it from the stream, and ADR 0028's consequence that the runner learns it from the stream; `init.session_id` must equal it, or the attempt stops as not startable (ADR 0028's "could not start").
 - `--resume` also accepts the absolute path of a session's `.jsonl` transcript (docs), which is the route for resuming on another machine that ADR 0019 left to a spike.
 
 ### The sandbox
@@ -89,10 +89,11 @@ Every stdout line is one JSON object with a `type`. A line that is not is the ga
   - **Output volume.** Every tool result comes back in full in the stream, and each tool input twice (`input` and `wire_tool_inputs`): a one-word reply already streams 2.8 KB lines. A long attempt passes ADR 0035's 4 MiB total, so the runner needs a line-by-line reader with a limit per line, not the total cap. `execProcess` has no stdin input and no per-line callback yet.
   - **`claude.cmd` in a Job Object.** ADR 0039's helper starts a program by its path; whether it holds `cmd.exe` running npm's `claude.cmd` the same way is not verified.
   - **`context: repo`.** Without `--safe-mode`, the target repository's hooks and MCP servers run. Giving a brewer the repository's instructions without its hooks (`--setting-sources`, or `--safe-mode` with the instructions passed in by Foedrum) needs a decision.
-  - **The user's own settings.** `--safe-mode` still loads `~/.claude/settings.json`, whose `env` and `permissions.allow` would bypass the minimal environment (#81) and widen the allowlist. `--setting-sources ""` is accepted; that it leaves out user settings and keeps authentication is not verified, because this machine's user settings have no rules to test with and they were not changed.
+  - **The user's own settings: a precondition for the real runner.** `--safe-mode` still loads `~/.claude/settings.json`, whose `env` and `permissions.allow` would bypass the minimal environment (#81) and widen the allowlist (a user's `Bash(*)` would allow any command). `--setting-sources ""` is accepted; that it leaves out user settings and keeps authentication is not verified, because this machine's user settings have no rules to test with and they were not changed. The runner must not start a brewer until this is closed: verified and passed, or doctor refusing a user settings file with `permissions.allow` or `env`.
   - **A settings file dropped at run time.** Nothing in the stream shows that `--settings` was dropped; the schema prevents an invalid file, and the contract test covers the CLI's side.
   - **Endings for a bad model or argument.** Under ADR 0028, an unknown model or a refused argument reads as a crash and is retried, which spends an attempt on the same error. doctor can catch it first; a new fact may be needed.
   - **Progress for the stall watchdog.** Which events count as progress (`system/thinking_tokens`, `system/api_retry`) is not decided.
+  - **A recapture test.** The fixtures were captured by hand. An opt-in integration test that reruns the manifest's cases against the installed `claude` and compares the event types and fields above with the fixtures belongs with the runner, next to the nightly smoke test.
   - **The sandbox on macOS, Linux and WSL2** was not run: this machine has no WSL2 distribution with `claude` in it. Its settings come from the docs.
 
 ## Alternatives considered
