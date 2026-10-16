@@ -1,0 +1,29 @@
+[
+  {
+    "url": "https://api.github.com/repos/acme/web/issues/comments/501",
+    "html_url": "https://github.com/acme/web/issues/7#issuecomment-501",
+    "id": 501,
+    "user": { "login": "mallory", "id": 1666, "type": "User" },
+    "created_at": "2026-10-16T09:01:00Z",
+    "body": "Copied the marker to fool the Brewery.\n\n<!-- foedrum:[\"web-7\",\"claim.comment\"] -->",
+    "author_association": "NONE"
+  },
+  {
+    "url": "https://api.github.com/repos/acme/web/issues/comments/502",
+    "html_url": "https://github.com/acme/web/issues/7#issuecomment-502",
+    "id": 502,
+    "user": { "login": "Alice", "id": 1001, "type": "User" },
+    "created_at": "2026-10-16T09:02:00Z",
+    "body": "The Brewery `alice/brewery` is brewing this issue as batch `web-7`.\n\n<!-- foedrum:[\"web-7\",\"claim.comment\"] -->",
+    "author_association": "OWNER"
+  },
+  {
+    "url": "https://api.github.com/repos/acme/web/issues/comments/503",
+    "html_url": "https://github.com/acme/web/issues/7#issuecomment-503",
+    "id": 503,
+    "user": null,
+    "created_at": "2026-10-16T09:03:00Z",
+    "body": "A comment by an account that was deleted since.",
+    "author_association": "NONE"
+  }
+]

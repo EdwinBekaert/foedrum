@@ -29,6 +29,7 @@ export const fakeFetch = (answers: Answer[]) => {
     if (answer === undefined) throw new Error(`no answer for ${init.method} ${String(input)}`);
     if (answer === 'hang') {
       return new Promise<Response>((_, reject) => {
+        if (init.signal?.aborted === true) reject(init.signal.reason);
         init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
       });
     }

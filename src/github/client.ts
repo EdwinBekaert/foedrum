@@ -13,16 +13,43 @@ export interface GitHubClientOptions {
   timeoutMs?: number;
   /** How long an answer may be; default 4 MiB, the process runner's output limit (ADR 0035). */
   maxResponseBytes?: number;
+  /** The time in milliseconds, for the rate limit's pause; default `Date.now`. */
+  now?: () => number;
+}
+
+/** What GitHub answered: its status, its body parsed but unchecked, and its headers. */
+export interface GitHubAnswer {
+  status: number;
+  body: unknown;
+  headers: Headers;
+}
+
+/**
+ * GitHub's rate limit holds requests until `until` (ADR 0052): the request that met it, and every
+ * request of this client before then, fails with it without reaching GitHub.
+ */
+export class GitHubRateLimited extends Error {
+  readonly until!: Date;
+  constructor(_until: Date) {
+    super('not implemented');
+    throw new Error('not implemented');
+  }
 }
 
 export interface GitHubClient {
-  /** `path` from the API's root, `/repos/...`; `body` as JSON, or `null` when there is none. */
+  /** Where the API's paths start, without a trailing `/`. */
+  readonly baseUrl: string;
+  /**
+   * `path` from the API's root, `/repos/...`; `body` as JSON, or `null` when there is none;
+   * `headers` added to the request, such as `if-none-match`.
+   */
   rest(
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     signal?: AbortSignal,
-  ): Promise<{ status: number; body: unknown }>;
+    headers?: Readonly<Record<string, string>>,
+  ): Promise<GitHubAnswer>;
   /** A GraphQL request; an answer that is not 200 fails. */
   graphql(
     query: string,
@@ -91,7 +118,7 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
     path: string,
     body: unknown,
     signal: AbortSignal | undefined,
-  ): Promise<{ status: number; body: unknown }> => {
+  ): Promise<GitHubAnswer> => {
     const timeout = new AbortController();
     const timer = setTimeout(
       () =>
@@ -115,6 +142,9 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
       return {
         status: response.status,
         body: parse(await readLimited(response, `${method} ${path}`)),
+        get headers(): Headers {
+          throw new Error('not implemented');
+        },
       };
     } finally {
       clearTimeout(timer);
@@ -122,7 +152,10 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
   };
 
   return {
-    rest: request,
+    get baseUrl(): string {
+      throw new Error('not implemented');
+    },
+    rest: (method, path, body, signal) => request(method, path, body, signal),
     graphql: async (query, variables, signal) => {
       const answer = await request('POST', '/graphql', { query, variables }, signal);
       if (answer.status !== 200)

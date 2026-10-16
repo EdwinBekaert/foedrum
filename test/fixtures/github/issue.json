@@ -1,0 +1,22 @@
+{
+  "url": "https://api.github.com/repos/acme/web/issues/7",
+  "html_url": "https://github.com/acme/web/issues/7",
+  "id": 3100000007,
+  "number": 7,
+  "title": "Add a dark theme",
+  "user": { "login": "alice", "id": 1001, "type": "User" },
+  "labels": [
+    { "id": 9001, "name": "foedrum", "color": "5319e7", "default": false },
+    { "id": 9003, "name": "foedrum:claimed", "color": "ededed", "default": false }
+  ],
+  "state": "open",
+  "assignee": { "login": "Alice", "id": 1001, "type": "User" },
+  "assignees": [
+    { "login": "Alice", "id": 1001, "type": "User" },
+    { "login": "carol", "id": 1003, "type": "User" }
+  ],
+  "milestone": null,
+  "comments": 3,
+  "created_at": "2026-10-14T08:00:00Z",
+  "updated_at": "2026-10-16T09:10:00Z"
+}
