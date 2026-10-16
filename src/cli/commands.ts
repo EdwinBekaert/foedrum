@@ -1,24 +1,48 @@
 // The command registry (ADR 0019): one schema and one handler per command. Surfaces turn their
-// input into a command's input and run it; run.ts is the terminal's. doctor, status and replay
-// only read, so they append nothing (ADR 0030). #37 adds the commands that change state.
+// input into a command's input and run it; run.ts is the terminal's. doctor, status, stuck and
+// replay only read, so they append nothing (ADR 0030). The others turn their input into one of
+// the engine's human commands and append its events through the command log, recorded with who
+// issued it and from where (ADR 0025).
 
 import { join } from 'node:path';
+import { createCommandLog } from '../engine/command-log.ts';
+import type { HumanCommand } from '../engine/decide.ts';
 import type { StoredEvent } from '../engine/event-store.ts';
-import { fold, InvalidLogError, type State } from '../engine/fold.ts';
+import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
 import { batchOf } from '../engine/state-branch.ts';
-import { DoctorCommand, ReplayCommand, StatusCommand } from '../schemas/commands.ts';
+import {
+  AnswerCommand,
+  CancelCommand,
+  DoctorCommand,
+  RecipeCommand,
+  ReplayCommand,
+  RetryCommand,
+  RewindCommand,
+  SkipCommand,
+  StatusCommand,
+  StuckCommand,
+} from '../schemas/commands.ts';
+import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
-import { formatStatus } from './status.ts';
+import { describeLane, formatStatus } from './status.ts';
+import { formatStuck } from './stuck.ts';
 
 /** A command as surfaces see it: its schema and handler behind `run`. */
 export interface RegisteredCommand {
   name: string;
   summary: string;
+  /**
+   * Whether it may append events (ADR 0030): such a command opens the store for writing, and its
+   * events record who issued it and from where. A read-only one never writes.
+   */
+  changesState: boolean;
   /** The positional arguments, in order: each is a field of the command's input. */
   positionals: readonly string[];
+  /** The field that takes the positional arguments after those, one or more, as a list. */
+  rest?: string;
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -26,7 +50,9 @@ export interface RegisteredCommand {
 interface CommandDefinition<S extends z.ZodType> {
   name: string;
   summary: string;
+  changesState: boolean;
   positionals: readonly string[];
+  rest?: string;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }
@@ -79,10 +105,51 @@ const readBrewery = (
   }
 };
 
+/** Who issues a human command about `batchId`, and from where (ADR 0019). */
+type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
+
+// Issues the human command `build` makes from the folded state (or the reason it makes none)
+// through the command log, so it is decided against the latest events (ADR 0025), and says where
+// the batch is now. Never creates a store.
+const changeBrewery = (
+  command: string,
+  { cwd, openWritableStore, recipes, user, surface, now }: CliContext,
+  build: (state: State, issued: Issued) => HumanCommand | { refused: string },
+): CliResult => {
+  const path = storePath(cwd);
+  const store = openWritableStore(path);
+  if (store === undefined) return failed(command, `no event store at ${path}`);
+  try {
+    const log = createCommandLog({ store, recipes });
+    const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
+    const human = build(log.state(), issued);
+    if ('refused' in human) return failed(command, human.refused);
+    const decision = log.issue(human, now());
+    if (decision.kind === 'refused') return failed(command, decision.reason);
+    // Accepted, so the batch exists.
+    const { lane, detail } = describeLane(log.state().batches.get(human.batchId) as Batch);
+    return done(`${human.batchId} ${lane}${detail === '' ? '' : `: ${detail}`}\n`);
+  } catch (error) {
+    if (error instanceof InvalidLogError) return failed(command, error.message);
+    throw error;
+  } finally {
+    store.close();
+  }
+};
+
+/** The questions `batch` asks while Stuck on `needs_input`, in order; none otherwise. */
+const questionsOf = (state: State, batchId: string): readonly string[] => {
+  const lane = state.batches.get(batchId)?.lane;
+  return lane?.kind === 'stuck' && lane.reason.kind === 'needs_input'
+    ? lane.reason.questions.map(({ q }) => q)
+    : [];
+};
+
 export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'doctor',
     summary: 'Check the tools Foedrum needs and the isolation level',
+    changesState: false,
     positionals: [],
     schema: DoctorCommand,
     handler: async (_input, { gatherDoctorFacts }) => {
@@ -93,14 +160,25 @@ export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'status',
     summary: 'List the batches and their lanes',
+    changesState: false,
     positionals: [],
     schema: StatusCommand,
     handler: async (_input, context) =>
       readBrewery('status', context, (_events, state) => done(formatStatus(state))),
   }),
   define({
+    name: 'stuck',
+    summary: 'List the Stuck batches with their options and questions',
+    changesState: false,
+    positionals: [],
+    schema: StuckCommand,
+    handler: async (_input, context) =>
+      readBrewery('stuck', context, (_events, state) => done(formatStuck(state))),
+  }),
+  define({
     name: 'replay',
     summary: "Show a batch's events and its folded state",
+    changesState: false,
     positionals: ['batch'],
     schema: ReplayCommand,
     handler: async ({ batch: id }, context) =>
@@ -114,5 +192,85 @@ export const commands: readonly RegisteredCommand[] = [
           ),
         );
       }),
+  }),
+  define({
+    name: 'retry',
+    summary: 'Give the step a Stuck batch stopped at another attempt',
+    changesState: true,
+    positionals: ['batch'],
+    schema: RetryCommand,
+    handler: async ({ batch }, context) =>
+      changeBrewery('retry', context, (_state, issued) => ({ kind: 'retry', ...issued(batch) })),
+  }),
+  define({
+    name: 'skip',
+    summary: 'Go on after the step a Stuck batch stopped at',
+    changesState: true,
+    positionals: ['batch'],
+    schema: SkipCommand,
+    handler: async ({ batch }, context) =>
+      changeBrewery('skip', context, (_state, issued) => ({ kind: 'skip', ...issued(batch) })),
+  }),
+  define({
+    name: 'answer',
+    summary: "Answer a Stuck batch's questions, one answer each, in order",
+    changesState: true,
+    positionals: ['batch'],
+    rest: 'answers',
+    schema: AnswerCommand,
+    handler: async ({ batch, answers }, context) =>
+      changeBrewery('answer', context, (state, issued) => {
+        const asked = questionsOf(state, batch);
+        // A batch that asks nothing is decide's to refuse, with its reason.
+        if (asked.length > 0 && answers.length !== asked.length) {
+          const questions = asked.length === 1 ? '1 question' : `${asked.length} questions`;
+          return {
+            refused: `batch ${batch} asked ${questions}; give one answer to each, in order`,
+          };
+        }
+        return {
+          kind: 'answer',
+          ...issued(batch),
+          answers: asked.map((q, i) => ({ q, answer: answers[i] ?? '' })),
+        };
+      }),
+  }),
+  define({
+    name: 'recipe',
+    summary: 'Brew a batch with another recipe, from its first step',
+    changesState: true,
+    positionals: ['batch', 'recipe', 'reason'],
+    schema: RecipeCommand,
+    handler: async ({ batch, recipe, reason }, context) =>
+      changeBrewery('recipe', context, (_state, issued) => ({
+        kind: 'recipe',
+        ...issued(batch),
+        recipe,
+        reason,
+      })),
+  }),
+  define({
+    name: 'rewind',
+    summary: 'Take a Stuck batch back to a step, each repository at its commit',
+    changesState: true,
+    positionals: ['batch', 'step'],
+    rest: 'commits',
+    schema: RewindCommand,
+    handler: async ({ batch, step, commits }, context) =>
+      changeBrewery('rewind', context, (_state, issued) => ({
+        kind: 'rewind',
+        ...issued(batch),
+        toStepId: step,
+        shas: Object.fromEntries(commits),
+      })),
+  }),
+  define({
+    name: 'cancel',
+    summary: 'Cancel a batch',
+    changesState: true,
+    positionals: ['batch'],
+    schema: CancelCommand,
+    handler: async ({ batch }, context) =>
+      changeBrewery('cancel', context, (_state, issued) => ({ kind: 'cancel', ...issued(batch) })),
   }),
 ];

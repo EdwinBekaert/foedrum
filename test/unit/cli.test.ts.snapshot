@@ -123,8 +123,15 @@ exports[`foedrum: the command line > lists the commands for --help and -h 1`] = 
 Usage: foedrum <command> [arguments]
 
 Commands:
-  doctor          Check the tools Foedrum needs and the isolation level
-  status          List the batches and their lanes
-  replay <batch>  Show a batch's events and its folded state
+  doctor                              Check the tools Foedrum needs and the isolation level
+  status                              List the batches and their lanes
+  stuck                               List the Stuck batches with their options and questions
+  replay <batch>                      Show a batch's events and its folded state
+  retry <batch>                       Give the step a Stuck batch stopped at another attempt
+  skip <batch>                        Go on after the step a Stuck batch stopped at
+  answer <batch> <answers>...         Answer a Stuck batch's questions, one answer each, in order
+  recipe <batch> <recipe> <reason>    Brew a batch with another recipe, from its first step
+  rewind <batch> <step> <commits>...  Take a Stuck batch back to a step, each repository at its commit
+  cancel <batch>                      Cancel a batch
 
 `;

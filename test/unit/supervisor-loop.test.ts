@@ -286,6 +286,51 @@ describe('createSupervisor', () => {
       assert.equal(batchOf(store, 'b1').lane.kind, 'stuck');
     });
 
+    it('decides each command against the events another writer appended during the tick', async () => {
+      append(...brewing('b1', 30), ...brewing('b2', 120));
+      now = at(45);
+      const engine = supervisor({
+        // A terminal cancels b1 after the tick planned its expiry, before it is decided: while
+        // the tick asks for b2's progress.
+        progress: {
+          progress: () => {
+            append({ type: 'batch.cancelled', batchId: 'b1', by: 'ada', via: 'terminal' });
+            return undefined;
+          },
+        },
+      });
+      assert.equal((await engine.tick()).appended, 0);
+      assert.equal(stateOf(store).batches.get('b1')?.lane.kind, 'cancelled');
+      assert.equal(store.eventsAfter(0).at(-1)?.event.type, 'batch.cancelled');
+      assert.deepStrictEqual(
+        notices.map((notice) => notice.kind),
+        ['refused'],
+      );
+    });
+
+    it('acts only on the batches it is told to, and releases only their expired leases', async () => {
+      append(...brewing('b1', 30), ...brewing('b2', 30), ...brewing('b3', 120));
+      const lost = (batchId: string) => ({
+        attemptKey: attemptKey.encode(plan(batchId)),
+        owner: 'session-7',
+        expiresAt: at(5),
+      });
+      store.withTransaction((tx) => {
+        tx.putLease(lost('b3'));
+      });
+      now = at(45);
+      const engine = supervisor({ acts: (batchId) => batchId === 'b1' });
+      assert.equal((await engine.tick()).appended, 1);
+      assert.deepStrictEqual(
+        ['b1', 'b2', 'b3'].map((batchId) => batchOf(store, batchId).lane.kind),
+        ['stuck', 'brewing', 'brewing'],
+      );
+      assert.deepStrictEqual(
+        store.expiredLeases(now).map((lease) => lease.attemptKey),
+        [lost('b3').attemptKey],
+      );
+    });
+
     it('keeps deciding the other commands when one throws, and still flushes', async () => {
       append(...brewing('b1', 60), ...brewing('b2', 60));
       // An invalid date from the runner makes decide throw for b1's stall.
