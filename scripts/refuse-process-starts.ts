@@ -25,6 +25,43 @@ export interface RefuseOptions {
   after: (hook: () => void) => void;
 }
 
-export const refuseProcessStarts = (_options: RefuseOptions): void => {
-  throw new Error('not implemented');
+const REFUSED =
+  'unit, property and chaos tests start no processes: inject a fake process runner, or move the test to test/integration/ (ADR 0021)';
+
+// In a test process the runner started (it sets NODE_TEST_CONTEXT), replaces the functions that
+// start a process with ones that throw. The runner loads the preload too and must keep starting
+// the test files, so outside a test process nothing changes.
+//
+// The default export and require() return the module object, so replacing its properties covers
+// them. A named import (`import { spawn } from 'node:child_process'`) reads the built-in's ES
+// module, which copies the properties once, when something first imports it; syncBuiltinESMExports
+// copies them again, so named imports refuse too, whether or not that happened before.
+//
+// Code under test may catch the throw: the process runner reports a process that could not start
+// as a result. So the after hook fails the file when any start was refused, with the first call's
+// stack, which shows the test and the imports that led to it.
+export const refuseProcessStarts = ({
+  env,
+  childProcess,
+  syncBuiltinESMExports,
+  after,
+}: RefuseOptions): void => {
+  if (env.NODE_TEST_CONTEXT === undefined) return;
+  const refused: Error[] = [];
+  for (const name of PROCESS_STARTS) {
+    childProcess[name] = () => {
+      const error = new Error(`child_process.${name} refused: ${REFUSED}`);
+      refused.push(error);
+      throw error;
+    };
+  }
+  syncBuiltinESMExports();
+  after(() => {
+    const [first] = refused;
+    if (first === undefined) return;
+    const starts = refused.length === 1 ? '1 process start' : `${refused.length} process starts`;
+    throw new Error(
+      `this file made ${starts}, refused because ${REFUSED}; the first:\n${first.stack}`,
+    );
+  });
 };
