@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import {
+  type ChaosChecks,
   type ChaosEngine,
   type ChaosRun,
   fakeCodeHost,
@@ -145,25 +146,24 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
     ),
 };
 
+/** The checks of every run with two drivers, the coverage runs included. */
+const checks: ChaosChecks = {
+  afterMove: (run, move, survived) => {
+    competing(run);
+    restsWithEffectsOnce.afterMove(run, move, survived);
+    // A batch whose driver went down is taken over once its lease expired.
+    if (move.kind === 'tick' && survived) nothingLeftWaiting(run);
+  },
+  // The last pass of effects comes after the last move.
+  atEnd: (run) => {
+    competing(run);
+    restsWithEffectsOnce.atEnd(run);
+  },
+};
+
 describe('two drivers on one store', () => {
   it('start each attempt once, under its batch lease, and apply no effect twice', () =>
-    holdsAcrossKills(
-      dir.path,
-      {
-        afterMove: (run, move, survived) => {
-          competing(run);
-          restsWithEffectsOnce.afterMove(run, move, survived);
-          // A batch whose driver went down is taken over once its lease expired.
-          if (move.kind === 'tick' && survived) nothingLeftWaiting(run);
-        },
-        // The last pass of effects comes after the last move.
-        atEnd: (run) => {
-          competing(run);
-          restsWithEffectsOnce.atEnd(run);
-        },
-      },
-      { drivers },
-    ));
+    holdsAcrossKills(dir.path, checks, { drivers }));
 
   /** How many seeds the coverage test may try before it fails. */
   const maxSeeds = 30;
@@ -186,7 +186,8 @@ describe('two drivers on one store', () => {
         { drivers },
       );
       try {
-        await runChaos({ engine, host, scenario, moves: [] }, source);
+        // Checked as well: a run that reaches a case must also keep the rules there.
+        await runChaos({ engine, host, scenario, moves: [] }, source, checks);
         for (const [what, reached] of Object.entries(goals)) if (reached(engine)) seen.add(what);
       } finally {
         engine.close();

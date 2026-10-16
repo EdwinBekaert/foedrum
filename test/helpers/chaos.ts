@@ -655,11 +655,16 @@ export const openChaosEngine = async (
       };
       const runner = runnerOf(life);
       const report = (notice: DriverNotice): void => {
-        // A refusal in the batch a terminal command changed before this driver's transaction.
+        // A refusal in the batch an accepted terminal command changed before this driver's
+        // transaction, in the same move.
         if (
           notice.kind === 'refused' &&
           interjections.some(
-            (i) => i.move === move && i.driver === owner && i.batchId === batchOf(notice.command),
+            (i) =>
+              i.accepted &&
+              i.move === move &&
+              i.driver === owner &&
+              i.batchId === batchOf(notice.command),
           )
         ) {
           moot.push({ driver: owner, command: notice.command, reason: notice.reason });
