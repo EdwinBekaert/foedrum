@@ -252,7 +252,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return false;
   };
 
-  const drive = async (): Promise<void> => {
+  const driveNow = async (): Promise<void> => {
     // A start the guard refuses is tried once per drive: the attempt's deadline covers it.
     const refused = new Set<string>();
     for (;;) {
@@ -305,6 +305,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
       if (!moved) return;
     }
+  };
+
+  // One drive at a time, whoever starts it (a tick or a direct call): two would make an attempt's
+  // worktree twice and share the runs and ends they keep.
+  let driving: Promise<unknown> = Promise.resolve();
+  const drive = (): Promise<void> => {
+    const next = driving.then(driveNow);
+    driving = next.catch(() => {});
+    return next;
   };
 
   /** The effects of `batchId` due and not in the ledger. */
