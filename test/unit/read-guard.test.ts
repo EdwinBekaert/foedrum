@@ -223,12 +223,19 @@ describe('readGuard: Grep and Glob', () => {
     '{/etc,src}/*',
     'src/*,/etc/*',
     '{src,~/.ssh}/*',
+    '@(src|/etc)/*',
+    '!(x)|~/.ssh/*',
   ]) {
     it(`blocks a Glob pattern that may reach out after a wildcard: ${pattern}`, () =>
       blocks(hookInput('Glob', { pattern }), /after a wildcard/));
   }
 
   it('blocks a Glob of the root', () => blocks(hookInput('Glob', { pattern: '/*' }), OUTSIDE));
+
+  it('checks a Glob pattern without a wildcard as a path', async () => {
+    await blocks(hookInput('Glob', { pattern: '/home/u/.ssh/id_ed25519' }), OUTSIDE);
+    await allows(hookInput('Glob', { pattern: 'src/a.ts' }));
+  });
 
   it('blocks Glob without a pattern', () =>
     blocks(hookInput('Glob', { path: '/repo' }), /no pattern/));
@@ -360,20 +367,29 @@ describe('readGuard: what it cannot check', () => {
 // Every agent that can only read gets the guard: for those the guard is the boundary (ADR 0048).
 describe('the read-only agents', () => {
   const agents = join(root, '.claude', 'agents');
-  const readOnly = readdirSync(agents)
+  const all = readdirSync(agents)
     .filter((name) => name.endsWith('.md'))
     .map((name) => ({
       name,
       text: readFileSync(join(agents, name), 'utf8').replace(/\r\n/g, '\n'),
-    }))
-    .filter(({ text }) => {
-      const tools =
-        /^tools:(.*)$/m
-          .exec(text)?.[1]
-          ?.split(',')
-          .map((tool) => tool.trim()) ?? [];
-      return tools.length > 0 && tools.every((tool) => ['Read', 'Grep', 'Glob'].includes(tool));
-    });
+    }));
+  const readOnly = all.filter(({ text }) => {
+    const tools =
+      /^tools:(.*)$/m
+        .exec(text)?.[1]
+        ?.split(',')
+        .map((tool) => tool.trim()) ?? [];
+    return tools.length > 0 && tools.every((tool) => ['Read', 'Grep', 'Glob'].includes(tool));
+  });
+
+  // Otherwise a read-only agent whose tools are a YAML list would not be found above.
+  it('all name their tools on the tools: line itself, when they name them', () => {
+    for (const { name, text } of all) {
+      const frontmatter = text.split('\n---\n')[0] ?? '';
+      const line = /^tools:(.*)$/m.exec(frontmatter);
+      if (line !== null) assert.notEqual(line[1]?.trim(), '', `${name}: tools: is empty`);
+    }
+  });
 
   it('are taster and brett, and each runs the read guard before Read, Grep and Glob', () => {
     assert.deepEqual(readOnly.map(({ name }) => name).sort(), ['brett.md', 'taster.md']);
