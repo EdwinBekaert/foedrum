@@ -320,13 +320,8 @@ export type RunProcess = (
 
 export const runProcessThrough =
   (exec: ExecProcess): RunProcess =>
-  async (file, args, cwd, { timeoutMs, signal, maxOutputBytes } = {}) => {
-    const { exitCode, output, killed } = await exec(file, args, {
-      cwd,
-      timeoutMs,
-      signal,
-      maxOutputBytes,
-    });
+  async (file, args, cwd, options = {}) => {
+    const { exitCode, output, killed } = await exec(file, args, { ...options, cwd });
     return killed === undefined ? { exitCode, output } : { exitCode, output, killed };
   };
 
