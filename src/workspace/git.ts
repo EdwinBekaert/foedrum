@@ -56,7 +56,11 @@ export const gitEnv = (
 };
 
 // Why the runner killed git, for its stderr; nothing for a stop, which the caller asked for.
-const whyGitKilled = (killed: Killed | undefined, timeoutMs: number): string => {
+const whyGitKilled = (
+  killed: Killed | undefined,
+  timeoutMs: number,
+  maxOutputBytes: number | undefined,
+): string => {
   switch (killed) {
     case undefined:
     case 'stopped':
@@ -64,7 +68,7 @@ const whyGitKilled = (killed: Killed | undefined, timeoutMs: number): string => 
     case 'timed-out':
       return `git timed out after ${timeoutMs} ms`;
     case 'too-much-output':
-      return `git ${whyKilled(killed, timeoutMs)}`;
+      return `git ${whyKilled(killed, timeoutMs, maxOutputBytes)}`;
     default: {
       const unknown: never = killed;
       throw new Error(`unknown kill ${String(unknown)}`);
@@ -75,14 +79,16 @@ const whyGitKilled = (killed: Killed | undefined, timeoutMs: number): string => 
 /** git through the given process runner; unit tests pass a fake one (ADR 0021). */
 export const runGitWith =
   (exec: ExecProcess): Git =>
-  async (cwd, args, { timeoutMs = 60_000, config, signal } = {}) => {
+  async (cwd, args, { timeoutMs = 60_000, config, signal, maxOutputBytes } = {}) => {
     const { exitCode, stdout, stderr, killed } = await exec('git', args, {
       cwd,
       env: gitEnv(process.env, config),
       timeoutMs,
       signal,
+      maxOutputBytes,
     });
-    return { code: exitCode, stdout, stderr: `${stderr}${whyGitKilled(killed, timeoutMs)}` };
+    const why = whyGitKilled(killed, timeoutMs, maxOutputBytes);
+    return { code: exitCode, stdout, stderr: `${stderr}${why}` };
   };
 
 /**
