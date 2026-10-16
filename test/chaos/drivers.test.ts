@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { attemptKey } from '../../src/engine/attempt-key.ts';
 import {
   type ChaosEngine,
   type ChaosRun,
@@ -14,7 +15,7 @@ import {
   openChaosEngine,
   runChaos,
 } from '../helpers/chaos.ts';
-import { restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
+import { nothingLeftWaiting, restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
 import { generateScenario, recording, type Scenario } from '../helpers/event-sequences.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -55,6 +56,53 @@ const competing = (run: ChaosRun): void => {
   noOverlap(run);
 };
 
+/** Who started each attempt, by attempt key. */
+const starters = (engine: ChaosEngine): Map<string, string> =>
+  new Map(
+    engine.acts.flatMap(({ kind, key, driver }) => (kind === 'start' ? [[key, driver]] : [])),
+  );
+
+/**
+ * An attempt lost with the lease of a driver that went down after a kill (ADR 0027 names the
+ * owner of the expired lease), and its retry started by the other driver.
+ */
+const retriedByTheOther = (engine: ChaosEngine): boolean => {
+  const by = starters(engine);
+  const down = new Set(engine.downs.map(({ driver }) => driver));
+  return engine.events().some((event) => {
+    if (event.type !== 'step.finished' || event.outcome.kind !== 'failed') return false;
+    const lost = /^the attempt was lost: the lease of (\S+) expired/.exec(
+      event.outcome.reason,
+    )?.[1];
+    if (lost === undefined || !down.has(lost)) return false;
+    const { batchId, stepId, attempt } = event;
+    const retry = by.get(attemptKey.encode({ batchId, stepId, attempt: attempt + 1 }));
+    return retry !== undefined && retry !== lost;
+  });
+};
+
+/** What the runs with two drivers must reach between them, each asked of one finished run. */
+const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
+  // Two drivers competing for one batch.
+  'a driver found the other holding a batch it wanted': (engine) => engine.contests.length > 0,
+  ...Object.fromEntries(
+    drivers.flatMap((driver) => [
+      [
+        `${driver} started an attempt`,
+        (engine: ChaosEngine) => [...starters(engine).values()].includes(driver),
+      ],
+      [
+        `${driver} applied an effect`,
+        (engine: ChaosEngine) =>
+          engine.acts.some((act) => act.driver === driver && act.kind === 'apply'),
+      ],
+    ]),
+  ),
+  // A driver killed while it holds a batch, its brewer running on.
+  'a batch taken over from a driver that was down': (engine) => engine.takeovers.length > 0,
+  'an attempt lost with a driver that was down, retried by the other': retriedByTheOther,
+};
+
 describe('two drivers on one store', () => {
   it('start each attempt once, under its batch lease, and apply no effect twice', () =>
     holdsAcrossKills(
@@ -63,6 +111,8 @@ describe('two drivers on one store', () => {
         afterMove: (run, move, survived) => {
           competing(run);
           restsWithEffectsOnce.afterMove(run, move, survived);
+          // A batch whose driver went down is taken over once its lease expired.
+          if (move.kind === 'tick' && survived) nothingLeftWaiting(run);
         },
         // The last pass of effects comes after the last move.
         atEnd: (run) => {
@@ -77,12 +127,8 @@ describe('two drivers on one store', () => {
   /** How many seeds the coverage test may try before it fails. */
   const maxSeeds = 30;
 
-  it('compete for batches: each finds the other holding one it wanted, and both drive', async () => {
-    const wanted = [
-      'a driver found the other holding a batch it wanted',
-      ...drivers.map((driver) => `${driver} started an attempt`),
-      ...drivers.map((driver) => `${driver} applied an effect`),
-    ];
+  it('reach every case of #107: competing drivers, a takeover from a driver that is down', async () => {
+    const wanted = Object.keys(goals);
     const seen = new Set<string>();
     // Fixed seeds, the first ones until every goal is reached: what the harness reaches does not
     // depend on FOEDRUM_SEED.
@@ -97,12 +143,9 @@ describe('two drivers on one store', () => {
       });
       try {
         await runChaos({ engine, host, scenario, moves: [] }, source);
+        for (const [what, reached] of Object.entries(goals)) if (reached(engine)) seen.add(what);
       } finally {
         engine.close();
-      }
-      if (engine.contests.length > 0) seen.add(wanted[0] as string);
-      for (const { driver, kind } of engine.acts) {
-        seen.add(`${driver} ${kind === 'start' ? 'started an attempt' : 'applied an effect'}`);
       }
     }
     assert.deepStrictEqual(

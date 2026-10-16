@@ -372,6 +372,20 @@ export interface Contest {
   holder: string;
 }
 
+/** A batch a driver took over from one that was down after a kill: its lease had expired. */
+export interface Takeover {
+  driver: string;
+  batchId: string;
+  from: string;
+}
+
+/** A driver that stayed down after a kill, from that move until the move it started again in. */
+export interface Down {
+  driver: string;
+  from: number;
+  until: number;
+}
+
 export interface ChaosOptions {
   /** The owners of the drivers on the store; default one, `cellar`. Each takes every batch. */
   drivers?: readonly string[];
@@ -385,8 +399,13 @@ export interface ChaosEngine {
   /** The store as a process beside the drivers sees it; never killed. */
   store(): EventStore;
   events(): Event[];
-  /** Plays one move; a kill during it restarts the driver. False when the driver died in it. */
+  /**
+   * Plays one move; a driver killed during it starts again, at once or, with several drivers,
+   * some moves later. False when a driver that ran in it died.
+   */
   play(move: Move): Promise<boolean>;
+  /** The drivers that did not run in the last move: they were down after a kill. */
+  idle(): readonly string[];
   /** Applies the effects that are due and not in the ledger. */
   applyEffects(): Promise<void>;
   readonly kills: readonly Kill[];
@@ -400,6 +419,10 @@ export interface ChaosEngine {
   readonly acts: readonly Act[];
   /** Every time a driver found another's live lease on a batch it wanted. */
   readonly contests: readonly Contest[];
+  /** Every batch a driver took over from one that was down. */
+  readonly takeovers: readonly Takeover[];
+  /** Every time a driver stayed down after a kill. */
+  readonly downs: readonly Down[];
   close(): void;
 }
 
@@ -426,6 +449,12 @@ export const openChaosEngine = async (
   const notices: DriverNotice[] = [];
   const acts: Act[] = [];
   const contests: Contest[] = [];
+  const takeovers: Takeover[] = [];
+  const downs: Down[] = [];
+  // The move being played, counted from 1, and the drivers that are down until a later one.
+  let move = 0;
+  const downUntil = new Map<string, number>();
+  let idle: string[] = [];
   // One connection for the whole run, which every driver process sees through its life. One
   // thread runs each transaction to its end before the next begins, so a connection per process
   // would show the same committed events and cost only page cache reloads. The terminal and the
@@ -438,6 +467,10 @@ export const openChaosEngine = async (
   // event loop, from a random stream of the run's seed, so their passes interleave.
   const interleaving: Random | undefined =
     drivers.length > 1 ? seededRandom(plan.seed ^ 0x1e_a5ed) : undefined;
+  // With several drivers, a killed one stays down for a few moves now and then, so the other
+  // takes its batches over once their leases expired, while its brewers may still run (ADR 0044).
+  const downtime: Random | undefined =
+    drivers.length > 1 ? seededRandom(plan.seed ^ 0xd0_3e) : undefined;
   const pause = async (): Promise<void> => {
     for (let turns = interleaving?.int(3) ?? 0; turns > 0; turns--) {
       await new Promise((resolve) => setImmediate(resolve));
@@ -465,9 +498,11 @@ export const openChaosEngine = async (
     for (;;) {
       const life = kill.life(owner);
       const read = (lease: BatchLease | undefined): void => {
-        if (lease !== undefined && lease.owner !== owner && lease.expiresAt > now) {
-          contests.push({ driver: owner, batchId: lease.batchId, holder: lease.owner });
-        }
+        if (lease === undefined || lease.owner === owner) return;
+        const { batchId } = lease;
+        if (lease.expiresAt > now) contests.push({ driver: owner, batchId, holder: lease.owner });
+        else if (downUntil.has(lease.owner))
+          takeovers.push({ driver: owner, batchId, from: lease.owner });
       };
       const applying = (key: string): void => {
         const { batchId } = effectKey.decode(key);
@@ -513,11 +548,27 @@ export const openChaosEngine = async (
     return found;
   };
 
-  /** Runs `fn` on `owner`'s driver; true when it survived, else restarts it until it is up again. */
+  const restart = async (owner: string): Promise<void> => {
+    restarts.push(now);
+    processes.set(owner, await boot(owner));
+  };
+
+  /**
+   * Runs `fn` on `owner`'s driver, unless it is down until a later move; when it dies, starts it
+   * again at once, or keeps it down for a few moves. `settle` starts every driver that is down
+   * and keeps none down: the run is ending.
+   */
   const surviving = async (
     owner: string,
     fn: (driver: Driver) => Promise<void>,
-  ): Promise<boolean> => {
+    settle: boolean,
+  ): Promise<'lived' | 'died' | 'idle'> => {
+    const until = downUntil.get(owner);
+    if (until !== undefined) {
+      if (!settle && move < until) return 'idle';
+      downUntil.delete(owner);
+      await restart(owner);
+    }
     const { life, driver } = processOf(owner);
     try {
       await fn(driver);
@@ -525,35 +576,48 @@ export const openChaosEngine = async (
       if (!(error instanceof EngineKilled)) throw error;
     }
     // A kill the driver caught and reported (a failed effect, a failed tick) still killed it.
-    if (!life.dead) return true;
-    restarts.push(now);
-    processes.set(owner, await boot(owner));
-    return false;
+    if (!life.dead) return 'lived';
+    if (!settle && downtime?.chance(0.5)) {
+      const down = { driver: owner, from: move, until: move + 1 + downtime.int(3) };
+      downs.push(down);
+      downUntil.set(owner, down.until);
+    } else {
+      await restart(owner);
+    }
+    return 'died';
   };
 
-  /** Runs `fn` on every driver at once, the first picked at random; true when they all lived through it. */
-  const everyDriver = async (fn: (driver: Driver) => Promise<void>): Promise<boolean> => {
+  /**
+   * Runs `fn` on every driver at once, the first picked at random; true when one ran at least and
+   * every one that ran lived through it.
+   */
+  const everyDriver = async (
+    fn: (driver: Driver) => Promise<void>,
+    settle = false,
+  ): Promise<boolean> => {
     const first = interleaving?.int(drivers.length) ?? 0;
     const order = [...drivers.slice(first), ...drivers.slice(0, first)];
-    const survived = await Promise.all(order.map((owner) => surviving(owner, fn)));
-    return survived.every(Boolean);
+    const ran = await Promise.all(order.map((owner) => surviving(owner, fn, settle)));
+    idle = order.filter((_, i) => ran[i] === 'idle');
+    return idle.length < ran.length && ran.every((what) => what !== 'died');
   };
 
-  const play = async (move: Move): Promise<boolean> => {
+  const play = async (next: Move): Promise<boolean> => {
     kill.moved();
-    switch (move.kind) {
+    move++;
+    switch (next.kind) {
       case 'command':
         // A command from the terminal, beside the drivers; they drive on what it decided.
-        terminal.issue(move.command, now);
+        terminal.issue(next.command, now);
         return everyDriver(async (driver) => {
           await driver.drive();
           await driver.applyEffects();
         });
       case 'tick':
-        now = new Date(now.getTime() + move.advanceMs);
+        now = new Date(now.getTime() + next.advanceMs);
         return everyDriver((driver) => driver.tick());
       default: {
-        const unhandled: never = move;
+        const unhandled: never = next;
         throw new Error(`Unhandled move ${JSON.stringify(unhandled)}`);
       }
     }
@@ -565,14 +629,17 @@ export const openChaosEngine = async (
     store: () => outside,
     events: () => outside.eventsAfter(0).map(({ event }) => event),
     play,
+    idle: () => idle,
     applyEffects: async () => {
-      await everyDriver((driver) => driver.applyEffects());
+      await everyDriver((driver) => driver.applyEffects(), true);
     },
     kills: kill.kills,
     restarts,
     notices,
     acts,
     contests,
+    takeovers,
+    downs,
     get found() {
       return host.found;
     },
@@ -628,8 +695,8 @@ export const runChaos = async (
     await step(move);
     move = source.move(engine.state());
   }
-  // Until no batch is brewing, and at least once: the driver's last tick must be one it lived
-  // through, or a deadline that came due before a kill would never be seen.
+  // Until no batch is brewing, and at least once: the last tick must be one every driver ran in
+  // and lived through, or a deadline that came due before a kill would never be seen.
   let ticked = false;
   for (let ticks = 0; !ticked || brewing(engine.state()).length > 0; ticks++) {
     if (ticks === maxSettleTicks) {
@@ -638,7 +705,7 @@ export const runChaos = async (
           brewing(engine.state()).join(', '),
       );
     }
-    ticked = await step({ kind: 'tick', advanceMs: settleMs });
+    ticked = (await step({ kind: 'tick', advanceMs: settleMs })) && engine.idle().length === 0;
   }
   // A kill may have ended the last pass before an effect was recorded.
   await engine.applyEffects();
@@ -698,6 +765,12 @@ const report = ({ engine, scenario, moves }: ChaosRun): string => {
     numbered(
       engine.kills.map(
         ({ at, point, move, driver }) => `#${at} ${driver} ${point}, in move ${move}`,
+      ),
+    ),
+    'Drivers down after a kill:',
+    numbered(
+      engine.downs.map(
+        ({ driver, from, until }) => `${driver} from move ${from} until move ${until}`,
       ),
     ),
     'Moves:',

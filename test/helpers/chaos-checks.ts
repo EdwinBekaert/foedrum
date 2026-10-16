@@ -6,10 +6,31 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { type ChaosChecks, type ChaosRun, effectsDue, progressComment } from './chaos.ts';
 import { running } from './simulation.ts';
 
-/** Every batch's pending deadline is ahead: its running attempts', its routing deadline or its reminder. */
-export const nothingOverdue = ({ engine }: ChaosRun): void => {
+/**
+ * The batches whose live lease a driver that is down holds: no other driver acts on them until
+ * that lease expired (ADR 0044).
+ */
+const heldByTheDown = ({ engine }: ChaosRun): Set<string> => {
+  const idle = new Set(engine.idle());
+  return new Set(
+    engine
+      .store()
+      .batchLeases(engine.now())
+      .filter((lease) => idle.has(lease.owner))
+      .map((lease) => lease.batchId),
+  );
+};
+
+/**
+ * Every batch's pending deadline is ahead: its running attempts', its routing deadline or its
+ * reminder. Except a batch a driver that is down holds.
+ */
+export const nothingOverdue = (run: ChaosRun): void => {
+  const { engine } = run;
   const now = engine.now().getTime();
+  const waiting = heldByTheDown(run);
   for (const batch of engine.state().batches.values()) {
+    if (waiting.has(batch.id)) continue;
     const { lane } = batch;
     switch (lane.kind) {
       case 'brewing':
@@ -46,6 +67,32 @@ export const nothingOverdue = ({ engine }: ChaosRun): void => {
   }
 };
 
+/**
+ * Nothing waits for a driver that is gone: every scheduled attempt is started and every effect due
+ * is in the ledger, except in a batch a driver that is down holds. Once that lease expired, the
+ * other driver takes the batch over (ADR 0044).
+ */
+export const nothingLeftWaiting = (run: ChaosRun): void => {
+  const { engine } = run;
+  const waiting = heldByTheDown(run);
+  const state = engine.state();
+  for (const batch of state.batches.values()) {
+    if (waiting.has(batch.id) || batch.lane.kind !== 'brewing') continue;
+    for (const attempt of running(batch)) {
+      assert.notEqual(
+        attempt.phase,
+        'scheduled',
+        `batch ${batch.id} has ${attempt.stepId}#${attempt.attempt} scheduled and not started`,
+      );
+    }
+  }
+  for (const key of effectsDue(state)) {
+    if (waiting.has(key.batchId)) continue;
+    const text = effectKey.encode(key);
+    assert.ok(state.effects.has(text), `effect ${text} is due and not in the ledger`);
+  }
+};
+
 /** I2 across restarts: the leases a killed engine left behind count too. */
 export const oneLeasePerStep = ({ engine }: ChaosRun): void => {
   const byStep = new Map<string, string[]>();
@@ -64,7 +111,7 @@ export const oneLeasePerStep = ({ engine }: ChaosRun): void => {
 export const restsWithEffectsOnce: Required<ChaosChecks> = {
   afterMove: (run, move, survived) => {
     oneLeasePerStep(run);
-    // A tick the engine lived through has handled every deadline that was due (I5, I1).
+    // A tick every driver that ran lived through has handled every deadline that was due (I5, I1).
     if (move.kind === 'tick' && survived) nothingOverdue(run);
   },
   atEnd: (run) => {
