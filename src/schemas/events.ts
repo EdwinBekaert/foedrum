@@ -41,7 +41,9 @@ export type SessionRef = z.infer<typeof SessionRef>;
 
 /**
  * The worktree an attempt was given (ADR 0029): in which repository, where, on which branch and at
- * which commit, so it survives restarts and a resumed attempt can get it back (ADR 0019).
+ * which commit, so it survives restarts and a resumed attempt can get it back (ADR 0019). The path
+ * and branch say where it was and nothing acts on them: `recreate` builds both from the attempt
+ * again and takes only the commit (ADR 0037).
  */
 export const WorktreeRef = z.strictObject({
   repo: Repo,
