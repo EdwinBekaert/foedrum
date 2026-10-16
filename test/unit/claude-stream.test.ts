@@ -275,6 +275,15 @@ describe('readClaudeStream', () => {
     assert.equal(facts.streamError, 'the result event could not be read');
   });
 
+  it('cuts a long error to 200 characters and an ellipsis', () => {
+    const { facts } = readAll(
+      [init(), assistant('msg_1', []), result({ is_error: true, errors: ['x'.repeat(5000)] })],
+      asked,
+    );
+    const said = `success: ${'x'.repeat(5000)}`;
+    assert.equal(facts.streamError, `${said.slice(0, 200)}…`);
+  });
+
   it('cuts a long error short', () => {
     const { facts } = readAll(
       [init(), assistant('msg_1', []), result({ is_error: true, errors: ['x'.repeat(5000)] })],
@@ -371,6 +380,23 @@ describe('readClaudeStream progress', () => {
     const elapsed = performance.now() - t0;
     assert.ok(elapsed < 200, `took ${Math.round(elapsed)} ms`);
     assert.deepEqual(progress, { lastProgressAt: started, turnsWithoutProgress: 1 });
+  });
+
+  it('does not count a command that only mentions a commit', () => {
+    for (const command of [
+      'git log --oneline | grep commit',
+      'git status; echo commit',
+      'git status && echo commit',
+      'git status\necho commit',
+      'echo commit git',
+    ]) {
+      const progress = run([
+        init(),
+        assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
+        toolResult('t1'),
+      ]);
+      assert.deepEqual(progress, { lastProgressAt: started, turnsWithoutProgress: 1 }, command);
+    }
   });
 
   it('does not count a commit command that failed', () => {

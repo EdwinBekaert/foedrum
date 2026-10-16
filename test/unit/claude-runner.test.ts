@@ -317,6 +317,13 @@ describe('claudeBrewerRunner', () => {
     assert.equal(runner.progress(attempt.ref), undefined);
   });
 
+  // ADR 0047: an event may hold a whole file the brewer read.
+  it('allows a stream line of 8 MiB', async () => {
+    const { calls, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+    await runner.start(attempt).ended;
+    assert.equal(calls[0]?.options.maxLineBytes, 8 * 1024 * 1024);
+  });
+
   it('fails, not retryably, when claude could not start', async () => {
     const { runner } = setup(
       { lines: [], result: { exitCode: null, stderr: 'claude: not found on PATH (ENOENT)' } },
