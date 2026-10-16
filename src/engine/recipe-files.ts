@@ -30,6 +30,9 @@ const UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 const durationMs = (duration: string): number =>
   Number(duration.slice(0, -1)) * UNIT_MS[duration.slice(-1) as keyof typeof UNIT_MS];
 
+/** The longest deadline a step may have: a year. */
+const MAX_DEADLINE_MS = 365 * UNIT_MS.d;
+
 /** A schema's reason in one line, as doctor prints it. */
 const oneLine = (reason: string): string =>
   reason
@@ -84,6 +87,13 @@ function brewerStep(step: Step): BrewerStep | string {
   }
   if (step.onBlocked !== undefined) {
     return `step "${id}" has an "onBlocked" route, which the engine does not follow yet`;
+  }
+  // A Taster's lens and Brett's blocking flag would load and change nothing.
+  if (step.lens !== undefined) {
+    return `step "${id}" has a "lens", which the engine does not follow yet`;
+  }
+  if (step.blocking !== undefined) {
+    return `step "${id}" has "blocking", which the engine does not follow yet`;
   }
   return step;
 }
@@ -156,7 +166,15 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
         }
         return [];
       }
-      return [{ id: stepId(step), step: brewing, brewer }];
+      const id = stepId(step);
+      const deadline = brewing.deadline ?? brewer.deadline;
+      // The Duration schema has no upper bound; a deadline past what a time can hold would throw
+      // when the step is scheduled, naming no file.
+      if (durationMs(deadline) > MAX_DEADLINE_MS) {
+        problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
+        return [];
+      }
+      return [{ id, step: brewing, brewer }];
     });
     recipes.set(value.name, brewingRecipe(value.name, steps));
   }
