@@ -59,7 +59,7 @@ Foedrum was designed around an always-on engine (`foedrum serve`) controlled thr
   - **Dashboard** (M6): shows each batch's live session output (the brewer's event stream that the engine already reads) and its pending questions side by side. Questions appear with their options and recommendation and are answered in place, which issues an `answer` command and so resumes the brewer's session. From the same view, an engineer can retry, rewind or take over.
 - Commands that only make sense on one surface are marked as such in the command registry. A **parity test** fails when a command is missing from a surface without being marked.
 - **Authorisation** sits in the command layer: GitHub comments from allow-listed users only; the plugin and the terminal for whoever runs them on that machine; the dashboard bound to localhost with a per-session token.
-- **Comments** are processed exactly once: the comment's id is the idempotency key. Foedrum acknowledges with a reaction (👀 received, 🚀 done, 😕 rejected with the reason in the status comment) and ignores later edits. Only the command line is parsed; free text reaches brewers as delimited, untrusted data.
+- **Comments** are processed exactly once: the comment's id is the idempotency key. Foedrum acknowledges with a reaction (👀 received, 🚀 done, 😕 rejected with the reason in the status comment) and ignores later edits. Only the command line is parsed; free text reaches brewers as delimited, untrusted data ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)).
 
 ## Consequences
 - Foedrum is useful from the first interactive release without running a background process; the Cellar adds unattended throughput.
