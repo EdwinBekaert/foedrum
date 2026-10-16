@@ -23,6 +23,7 @@ import type {
   EffectKey,
   EventStore,
   EventStoreTransaction,
+  StoredEvent,
 } from '../../src/engine/event-store.ts';
 import type { Batch, State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -431,6 +432,46 @@ export interface ChaosOptions {
   drivers?: readonly string[];
 }
 
+/**
+ * `inner` with its committed events read and parsed once: every command log of a run (each
+ * driver's, each supervisor's, the terminal's) reads the same ones on the run's one connection.
+ * The cache catches up after a transaction that appended, committed or rolled back; a read inside
+ * one goes to `inner`, so an append that a kill rolls back is never cached.
+ */
+const withEventCache = (inner: EventStore): EventStore => {
+  const cached: StoredEvent[] = [];
+  let behind = true;
+  let inTransaction = false;
+  return {
+    ...inner,
+    withTransaction: (fn) => {
+      inTransaction = true;
+      try {
+        return inner.withTransaction((tx) =>
+          fn({
+            ...tx,
+            append: (event) => {
+              behind = true;
+              return tx.append(event);
+            },
+          }),
+        );
+      } finally {
+        inTransaction = false;
+      }
+    },
+    eventsAfter: (afterId, limit) => {
+      if (inTransaction || limit !== undefined) return inner.eventsAfter(afterId, limit);
+      if (behind) {
+        cached.push(...inner.eventsAfter(cached.at(-1)?.id ?? 0));
+        behind = false;
+      }
+      const from = cached.findIndex((stored) => stored.id > afterId);
+      return from === -1 ? [] : cached.slice(from);
+    },
+  };
+};
+
 /** The drivers of a chaos run: a fresh process of a driver starts on the same database after every kill. */
 export interface ChaosEngine {
   now(): Date;
@@ -516,7 +557,7 @@ export const openChaosEngine = async (
   // thread runs each transaction to its end before the next begins, so a connection per process
   // would show the same committed events and cost only page cache reloads. The terminal and the
   // checks use it as it is: they are never killed.
-  const outside = openSqliteEventStore(path, { openDatabase });
+  const outside = withEventCache(openSqliteEventStore(path, { openDatabase }));
   const terminal: CommandLog = createCommandLog({ store: outside, recipes, reminderMs, routingMs });
   const holds = (owner: string, batchId: string): boolean =>
     outside.batchLeases(now).some((lease) => lease.batchId === batchId && lease.owner === owner);
