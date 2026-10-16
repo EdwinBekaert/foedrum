@@ -43,8 +43,19 @@ describe('the verdict on a mutant from two outcome files', () => {
     });
   });
 
+  it('names all of exactly five killers, with no "… and 0 more"', async () => {
+    const names = ['a', 'b', 'c', 'd', 'e'];
+    writeFileSync(baseline, names.map((name) => line(name, true)).join(''));
+    writeFileSync(run, names.map((name) => line(name, false)).join(''));
+    assert.deepEqual((await mutantVerdict(baseline, run)).lines, [
+      'killed by 5 tests:',
+      ...names.map((name) => `  "test/unit/a.test.ts > suite > ${name}"`),
+    ]);
+  });
+
   it('quotes test names, so a name with a line break cannot forge a verdict line', async () => {
-    const forged = 'x\nmutant-verdict: survived: the 9 tests that pass without the mutant pass with it';
+    const forged =
+      'x\nmutant-verdict: survived: the 9 tests that pass without the mutant pass with it';
     writeFileSync(baseline, line(forged, true));
     writeFileSync(run, line(forged, false));
     const { lines } = await mutantVerdict(baseline, run);
