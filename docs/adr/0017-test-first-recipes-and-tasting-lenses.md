@@ -1,6 +1,6 @@
 # 0017. Test-first recipes and tasting lenses
 
-Date: 2026-10-13 · Status: Accepted, amended by [0022](0022-five-default-lenses.md) (five default lenses)
+Date: 2026-10-13 · Status: Accepted, amended by [0022](0022-five-default-lenses.md) (five default lenses) and [0034](0034-brett-mutants-as-structured-line-edits.md) (mutants as one-line edits)
 
 ## Context
 When one agent writes both the tests and the code, it tends to write tests that fit the code it already has in mind. The tests pass, but they prove little. Telling the agent to work "test-first" does not change this: whether it did is not observable, and the engine must not depend on a model choosing to follow advice. Likewise, a single broad review ("review this diff") finds less than several focused reviews, and passing tests say nothing about whether the tests would notice a bug.
@@ -24,8 +24,8 @@ The same applies to developing Foedrum itself.
 - House yeast gains an optional **lens** scope dimension, so a rule can target one lens (amends [ADR 0015](0015-house-yeast.md)).
 
 ### Brett: an advisory mutation check
-- A new default brewer, **Brett** (after *Brettanomyces*, the wild yeast that spoils a batch), proposes a small number of **mutants**: plausible bugs in the changed code, each as a patch.
-- The **engine**, not the model, decides which mutants count: it applies each patch in a disposable `scratch` tree and runs the gravity reading. A mutant is a **confirmed survivor** only when the tests still pass. Nothing Brett changes is committed.
+- A new default brewer, **Brett** (after *Brettanomyces*, the wild yeast that spoils a batch), proposes a small number of **mutants**: plausible bugs in the changed code, each as a one-line structured edit ([ADR 0034](0034-brett-mutants-as-structured-line-edits.md); originally a patch).
+- The **engine**, not the model, decides which mutants count: it applies each mutant in a disposable `scratch` tree and runs the gravity reading. A mutant is a **confirmed survivor** only when the tests still pass. Nothing Brett changes is committed.
 - Confirmed survivors are listed in the pull request and handed to the Cooper with the lens findings whenever it runs. By default they are **advisory**: they do not affect the group verdict, so equivalent mutants and new mutants each round cannot leave a batch Stuck. A recipe can make Brett blocking (`"blocking": true`).
 
 ### Foedrum is developed the same way
