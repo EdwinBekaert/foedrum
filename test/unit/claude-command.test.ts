@@ -76,6 +76,7 @@ describe('claudeArgs', () => {
     ['a session id that is not a UUID', { session: { kind: 'new', id: 'abc' } }, /session/],
     ['a model that starts with a dash', { model: '--dangerously-skip-permissions' }, /model/],
     ['a maxTurns that is not a positive whole number', { maxTurns: 0 }, /maxTurns/],
+    ['a maxTurns that is not a whole number', { maxTurns: 1.5 }, /maxTurns/],
   ] as const) {
     it(`refuses ${what}`, () => {
       assert.throws(() => claudeArgs({ ...call, ...bad } as ClaudeCall), named);

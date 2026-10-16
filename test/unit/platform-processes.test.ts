@@ -764,6 +764,18 @@ describe('streamProcessWith', () => {
     });
   });
 
+  it('counts the bytes of stderr, not its characters', async () => {
+    const child = new FakeChild();
+    const { stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100, maxStderrBytes: 4 });
+    child.stderr.write('éé');
+    await settle();
+    child.stderr.write('é');
+    await settle();
+    child.close(0);
+    assert.deepEqual(await done, { exitCode: null, stderr: 'éé', killed: 'too-much-output' });
+  });
+
   it('kills the whole tree when stderr passes its limit, keeping what came within it', async () => {
     const child = new FakeChild(83);
     const { killed, stream, options } = streamer(child);
@@ -1021,6 +1033,40 @@ describe('streamProcessWith', () => {
       assert.deepEqual(lines, [refusal.trimEnd()]);
       child.close(125);
       assert.equal((await done).exitCode, 125);
+    });
+
+    // Outside Windows no helper exists to refuse anything (ADR 0039).
+    it('hands over the first line at once when the spawner holds no job', async () => {
+      const child = new FakeChild();
+      const { lines, stream, options } = streamer(child, false);
+      const done = stream('claude', [], { ...options, maxLineBytes: 1000, jobObject: true });
+      child.stdout.write(refusal);
+      await settle();
+      assert.deepEqual(lines, [refusal.trimEnd()]);
+      child.close(125);
+      assert.deepEqual(await done, { exitCode: 125, stderr: '' });
+    });
+
+    it('hands over nothing after a held first line from which the caller stopped', async () => {
+      const child = new FakeChild(89);
+      const { killed, stream } = streamer(child, true);
+      const stop = new AbortController();
+      const lines: string[] = [];
+      const done = stream('claude', [], {
+        cwd: '/work/tree',
+        maxLineBytes: 1000,
+        jobObject: true,
+        signal: stop.signal,
+        onLine: (line) => {
+          lines.push(line);
+          stop.abort();
+        },
+      });
+      child.stdout.write(`${refusal}next\n`);
+      await settle();
+      assert.deepEqual(await done, { exitCode: null, stderr: '', killed: 'stopped' });
+      assert.deepEqual(lines, [refusal.trimEnd()]);
+      assert.deepEqual(killed, [89]);
     });
   });
 });
