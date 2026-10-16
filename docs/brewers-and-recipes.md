@@ -253,7 +253,8 @@ claude --print --verbose --output-format stream-json
        --model <model id> --effort <effort> --max-turns <maxTurns>
        --settings <per-attempt settings file: allow/deny, sandbox, environment>
        --tools <the built-in tools named in tools.allow>
-       --disable-slash-commands --strict-mcp-config   # unless skills or mcp
+       --disable-slash-commands                       # unless skills
+       --strict-mcp-config [--mcp-config <file>]      # always; the file holds the brewer's mcp
        --safe-mode                                    # context: lean
        --session-id <new uuid> | --resume <session id>
        [--append-system-prompt-file <file>]
