@@ -28,8 +28,11 @@ const underSrc = (file: string): boolean => {
 };
 
 const strings = /(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
-const numbers = /(?<![\w$])\.?\d[\w.]*/g;
-const words = /[A-Za-z_$][\w$]*/g;
+// Only the characters of a number literal (hex, octal, binary, separators, a fraction, an
+// exponent, bigint), so a property name after it (`1..constructor`) is still a word.
+const numbers =
+  /(?<![\p{ID_Continue}$])(?:0[xob][\da-f_]+n?|\d[\d_]*(?:\.\d[\d_]*)?(?:e[+-]?\d+)?n?|\.\d[\d_]*(?:e[+-]?\d+)?)/giu;
+const words = /[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*/gu;
 
 // The strings and the words (identifiers, property names, keywords) in a line of code; the
 // boolean literals count as literals, which a mutant may change.
