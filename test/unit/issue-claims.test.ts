@@ -202,10 +202,11 @@ describe('claimIssue', () => {
 });
 
 describe('claimCandidates', () => {
-  const pass = (claimant: Claimant, given: Partial<CandidateOptions> = {}) => ({
+  const pass = (claimant: Claimant, given: Partial<CandidateOptions> = {}, limit = 10) => ({
     ...options(claimant, given),
     repo,
     now,
+    limit,
   });
 
   it('lets one of two Breweries order an issue both pick, and the other skip it', async () => {
@@ -243,6 +244,46 @@ describe('claimCandidates', () => {
     });
     assert.deepEqual([...github.refs.keys()].sort(), [`${repo}#3`, `${repo}#9`]);
   });
+
+  it('claims oldest first only up to the limit, leaving the rest for the next pass', async () => {
+    const github = fakeGitHub();
+    const issues = [issue(9), issue(3), issue(5)];
+    assert.deepEqual(await claimCandidates(github.host, issues, pass(alice, {}, 1)), {
+      order: [3],
+      taken: [],
+    });
+    assert.deepEqual([...github.refs.keys()], [`${repo}#3`]);
+    const next = pass(alice, { brewed: new Set([3]) }, 1);
+    assert.deepEqual(await claimCandidates(github.host, issues, next), { order: [5], taken: [] });
+  });
+
+  it('leaves the issues past the limit to another Brewery', async () => {
+    const github = fakeGitHub();
+    const issues = [issue(3), issue(5), issue(9)];
+    await claimCandidates(github.host, issues, pass(alice, {}, 1));
+    assert.deepEqual(await claimCandidates(github.host, issues, pass(bob, {}, 2)), {
+      order: [5, 9],
+      taken: [{ issue: 3, by: 'alice/brewery' }],
+    });
+  });
+
+  it('claims nothing with a limit of 0', async () => {
+    const github = fakeGitHub();
+    assert.deepEqual(await claimCandidates(github.host, [issue(7)], pass(alice, {}, 0)), {
+      order: [],
+      taken: [],
+    });
+    assert.equal(github.refs.size, 0);
+  });
+
+  for (const limit of [-1, 1.5, Number.NaN]) {
+    it(`refuses a limit of ${limit}`, async () => {
+      await assert.rejects(
+        claimCandidates(fakeGitHub().host, [issue(7)], pass(alice, {}, limit)),
+        RangeError,
+      );
+    });
+  }
 
   it('orders its own claim again when the batch was never ordered, and not once it was', async () => {
     const github = fakeGitHub();
@@ -354,7 +395,12 @@ describe('claimEffectsDue', () => {
   });
 
   const released: [string, Lane, Record<string, PullRequestState>, RegExp][] = [
-    ['cancelled', { kind: 'cancelled', by: 'alice', via: 'terminal' }, {}, /was cancelled\.$/],
+    [
+      'cancelled',
+      { kind: 'cancelled', by: 'alice', via: 'terminal' },
+      {},
+      /was cancelled\. Unassign the issue to make it available again\.$/,
+    ],
     [
       'merged',
       onTap,
@@ -365,7 +411,13 @@ describe('claimEffectsDue', () => {
       'closed',
       onTap,
       { [pullRequest]: 'merged', [other]: 'closed' },
-      /a pull request was closed without being merged\.$/,
+      /a pull request was closed without being merged\. Unassign the issue to make it available again\.$/,
+    ],
+    [
+      'On Tap without pull requests',
+      { kind: 'on_tap', pullRequests: [] },
+      {},
+      /ended without a pull request\. Unassign the issue to make it available again\.$/,
     ],
   ];
   for (const [why, lane, byUrl, says] of released) {

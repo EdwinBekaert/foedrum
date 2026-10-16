@@ -146,7 +146,8 @@ export interface ClaimPass {
 export const claimCandidates = async (
   host: ClaimHost,
   issues: readonly TargetIssue[],
-  options: CandidateOptions & { repo: string; now: string },
+  /** `limit`: the Brewery's free capacity, how many batches it can start now. */
+  options: CandidateOptions & { repo: string; now: string; limit: number },
 ): Promise<ClaimPass> => {
   const { repo, now, claimant } = options;
   const candidates = issues
