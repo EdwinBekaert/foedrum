@@ -7,12 +7,13 @@ The process runner (`src/platform/processes.ts`, #12) collects everything a chil
 
 Commands run against untrusted repository content can write far more than any caller needs before their deadline: a large `git diff` or `git log -p`, a hook or credential helper that writes without end, a brewer's `claude` stream. A call without a `timeoutMs` has no deadline at all. Measured before this change, a node process writing 64 KiB at a time made the runner throw `RangeError: Invalid string length` after about 2.7 s on Windows, when the collected string reached V8's limit, as an uncaught exception that would have crashed the engine, the gate or the SessionStart cleanup, with the writer left running (#91).
 
-The runner's callers today write little: `npm run check`, the largest, writes about 150 KB; no git call reads a file's content or a whole log.
+Most of the runner's callers write little and always will: `npm run check`, the largest of the scripts, writes about 150 KB, and no git call reads a file's content or a whole log. One git call's output grows with the data: the state branch lists its whole remote tree (`git ls-tree -r -z`) before anything of it is checked out (ADR 0024). That is one entry of about 100 bytes per file, and the branch gains files with every batch.
 
 ## Decision
 - `ExecOptions` and `RunOptions` take `maxOutputBytes`, default `DEFAULT_MAX_OUTPUT_BYTES` = 4 MiB, about 27 times what `npm run check` writes. The limit counts the bytes of stdout and stderr together, as decoded text, because that is what the runner holds.
 - When a chunk takes the total past the limit, the runner drops that chunk and kills the tree exactly as at the deadline: `killTree`, stop reading both pipes, answer at once with `exitCode: null`. The result keeps what came within the limit and says `killed: 'too-much-output'`, a third `Killed` beside `timed-out` and `stopped`. Writing exactly the limit is fine.
-- `whyKilled(killed, timeoutMs, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES)` says `wrote more than 4 MiB of output`, so a caller that keeps the default needs no change to name it. `runGit` adds `git wrote more than 4 MiB of output` to stderr, as it adds its timeout.
+- `whyKilled(killed, timeoutMs, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES)` says `wrote more than 4 MiB of output`, so a caller that keeps the default needs no change to name it. `runGit` takes `maxOutputBytes` too, passes it on, and adds `git wrote more than <limit> of output` to stderr, as it adds its timeout.
+- A call whose output grows with the data gets an explicit limit far above the default, with a comment saying why. The state branch's `ls-tree -r` gets 256 MiB: the 4 MiB default would stop every sync at about 40,000 files, and 256 MiB holds about 2.5 million. Its `status --untracked-files=all` keeps the default, because every flush commits all files (`add -A`), so it lists only the changes since the last flush.
 
 ## Consequences
 - The runner's memory is bounded for every caller, with or without a deadline, and a runaway writer stops at once instead of running on to its deadline.
