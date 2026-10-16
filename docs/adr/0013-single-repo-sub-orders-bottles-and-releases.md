@@ -1,6 +1,6 @@
 # 0013. Single-repository sub-orders, bottles and release dependencies
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)
 
 ## Context
 In enterprise codebases a solution usually changes several repositories, and repositories depend on each other through published libraries: a change in a library must be merged, built and released before the consuming repository can use it. Teams also want control over what goes into a pull request — sometimes one small change, sometimes several together.

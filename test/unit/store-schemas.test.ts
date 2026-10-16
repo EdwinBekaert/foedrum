@@ -35,6 +35,25 @@ describe('EffectKey', () => {
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(EffectKey, value));
   }
+
+  // Effects of a batch rather than one of its attempts: a claim's marks and release (ADR 0043).
+  const batchKey = { batchId: 'b1', effect: 'claim.label' };
+
+  it('accepts a key of a batch and effect', () => {
+    assert.deepEqual(EffectKey.parse(batchKey), batchKey);
+  });
+
+  const invalidBatchKeys: [string, unknown][] = [
+    ['an empty batch id', { ...batchKey, batchId: '' }],
+    ['an empty effect', { ...batchKey, effect: '' }],
+    ['an upper-case batch id', { ...batchKey, batchId: 'B1' }],
+    ['a step without an attempt', { ...batchKey, stepId: 'plan' }],
+    ['an attempt without a step', { ...batchKey, attempt: 1 }],
+    ['an unknown field', { ...batchKey, extra: true }],
+  ];
+  for (const [name, value] of invalidBatchKeys) {
+    it(`rejects a batch key with ${name}`, () => rejects(EffectKey, value));
+  }
 });
 
 describe('EffectKeyText', () => {
@@ -81,6 +100,21 @@ describe('EffectKeyText', () => {
   ];
   for (const [name, value] of invalid) {
     it(`rejects ${name}`, () => rejects(EffectKeyText, value));
+  }
+
+  it('accepts the canonical text of a batch key', () => {
+    assert.equal(EffectKeyText.safeParse('["b1","claim.label"]').success, true);
+  });
+
+  const invalidBatchTexts: [string, unknown][] = [
+    ['one part', '["b1"]'],
+    ['an empty effect', '["b1",""]'],
+    ['an upper-case batch id', '["B1","claim.label"]'],
+    ['a number for the effect', '["b1",1]'],
+    ['a non-canonical spelling (spaces)', '["b1", "claim.label"]'],
+  ];
+  for (const [name, value] of invalidBatchTexts) {
+    it(`rejects a batch key text with ${name}`, () => rejects(EffectKeyText, value));
   }
 });
 

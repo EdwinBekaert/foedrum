@@ -197,6 +197,18 @@ describe('SqliteEventStore in memory', () => {
       assert.equal(store.findEffect(key), undefined);
     });
 
+    it('records an effect of a batch once, and names the batch when it comes again', () => {
+      const batchKey: EffectKey = { batchId: 'b1', effect: 'claim.label' };
+      store.withTransaction((tx) => tx.recordEffect(batchKey, 'first'));
+      assert.throws(
+        () => store.withTransaction((tx) => tx.recordEffect(batchKey, 'second')),
+        (error) =>
+          error instanceof DuplicateEffectError &&
+          error.message === 'Effect claim.label of b1 was already applied',
+      );
+      assert.deepEqual(store.findEffect(batchKey), { result: 'first' });
+    });
+
     it('rejects a duplicate effect and undoes the other writes of its transaction', () => {
       store.withTransaction((tx) => tx.recordEffect(key, 'first'));
 

@@ -160,7 +160,7 @@ export class InvalidLogError extends Error {
 /**
  * Folds `events` onto `state`; `fold(rest, fold(prefix))` equals `fold([...prefix, ...rest])`.
  * Throws an InvalidLogError when an event refers to a batch, step or attempt the log never
- * created (an applied effect, to the attempt its key names), repeats one or takes an attempt out
+ * created (an applied effect, to the batch or attempt its key names), repeats one or takes an attempt out
  * of order, opens a bottle or applies an effect twice, decomposes a sub-order, makes an order a
  * sub-order, or moves a sub-order to another order.
  */
@@ -359,9 +359,11 @@ function apply(state: State, event: Event): State {
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
     case 'effect.applied': {
-      // Invariant I4: an effect is keyed by an attempt of the log, and applied at most once.
+      // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
+      // applied at most once.
       const key = effectKey.decode(event.key);
-      if (!batchOf(state, key.batchId).steps.get(key.stepId)?.attempts.has(key.attempt)) {
+      const batch = batchOf(state, key.batchId);
+      if ('stepId' in key && !batch.steps.get(key.stepId)?.attempts.has(key.attempt)) {
         throw attemptError(key, 'was never scheduled');
       }
       if (state.effects.has(event.key)) {
