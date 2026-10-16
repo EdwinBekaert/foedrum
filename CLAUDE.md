@@ -27,6 +27,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `node scripts/citations.ts <checkout> <answer.json>` — check that every finding in a /brew-review reviewer's answer cites a regular file of the checkout and a line within it; prints one line per finding (`ok`, `no location` or `unverified: <reason>`) and exits 1 when the answer cannot be read
 - CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm run test:integration`, the property tests again with `FOEDRUM_RUNS=500` (500 seeds per property instead of the check's few), the chaos tests with `FOEDRUM_RUNS=200` (1,000 in the nightly run) and `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
+- `/brew-sheet [topic | #issue | #pr] [--mermaid]` — in Claude Code, explain a part of Foedrum with one verified picture (`.claude/skills/brew-sheet/`); also how pull request and issue descriptions explain themselves
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 - `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `doctor`, `status`, `replay <batch>`; `--help` lists them
 
@@ -142,6 +143,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - One branch per issue: `<issue-number>-<short-slug>`, or `docs/…`, `ci/…` for non-feature work.
 - Work in a worktree under `.claude/worktrees/` and run `npm ci` in it right after creating it. Without its own `node_modules`, Node falls back to the main checkout's packages, which may not match the worktree's `package-lock.json` (#86).
 - Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
+- Pull request and issue descriptions start with a "How it works" section written as a `/brew-sheet` (`.claude/skills/brew-sheet/`): first a line that says which part of Foedrum it touches and what that part is, then what the change or the issue does, then one mermaid picture when the change has a shape (a flow, a state change, a module layout).
 - Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.
 - Pass multi-line text to git and gh through a file written with the file tool (`-F`, `--body-file`), never through a shell heredoc: text containing the delimiter ends the heredoc early and the rest runs as commands.

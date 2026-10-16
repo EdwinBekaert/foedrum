@@ -37,6 +37,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Session step** | A recipe step that runs in an engineer's own Claude Code session: refine, triage, review |
 | **Brewhouse** | The live dashboard (later) |
 | **Tasting log** | Plain-language summaries of what a batch changed (later) |
+| **Brew sheet** | A one-page explanation of a part of Foedrum, a pull request or an issue: one line with the premise, then one verified picture (`/brew-sheet`) |
 | **Flight** | The evaluation suite: a set of samples |
 | **Blind tasting** | Comparing models, brewers or recipes on the Flight |
 | **Pack** | A shareable, declarative bundle of brewers, recipes and checks (later) |
