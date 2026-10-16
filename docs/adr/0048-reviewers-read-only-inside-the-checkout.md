@@ -35,7 +35,7 @@ They get the same rule from Claude Code's own permission rules. Under `dontAsk` 
 - A bare `Grep` rule allows a search of a folder outside again. So does a bare `Glob`.
 - `Read(/**)` is relative to the settings file's folder, not the root.
 
-So `attemptSettings` is to turn the brewer's bare `Read`, `Edit` and `Write` rules into `Read(./**)`, `Edit(./**)` and `Write(./**)`, and a bare `Grep` or `Glob` rule into `Read(./**)`: `--tools` already decides which tools exist. The `AttemptSettings` refinement is to refuse a bare file-tool rule. A rule anchored at `/`, `//` or `~`, or with a `..` segment, already needs the same rule in the permission ceiling (ADR 0026). This is a change to the runner, in a follow-up issue, with its own test against the installed `claude` for `Edit` and `Write`.
+So `attemptSettings` is to turn the brewer's bare `Read`, `Edit` and `Write` rules into `Read(./**)`, `Edit(./**)` and `Write(./**)`, and a bare `Grep` or `Glob` rule into `Read(./**)`: `--tools` already decides which tools exist. The `AttemptSettings` refinement is to refuse a bare file-tool rule. A rule anchored at `/`, `//` or `~`, or with a `..` segment, already needs the same rule in the permission ceiling (ADR 0026). This is a change to the runner, in #135, with its own test against the installed `claude` for `Edit` and `Write`.
 
 ## Consequences
 - A reviewer told by a pull request to read `~/.config/gh/hosts.yml`, `../../x` or a file behind a junction or a short name gets a one-line refusal instead of the file. The unit tests cover both path styles on every platform, and the integration tests cover the hook command through bash, a real junction or link, `C:\PROGRA~1` and a short name inside the checkout (where the drive has short names), and the installed `claude`.
@@ -44,7 +44,7 @@ So `attemptSettings` is to turn the brewer's bare `Read`, `Edit` and `Write` rul
 - The guard costs a node start per reviewer read: about 0.15 to 0.25 s on Windows (see Verification). Reviews make tens of reads, so that is seconds per review. Other sessions pay nothing.
 - The agent files load when a session starts, so the guard takes effect after a restart (CLAUDE.md, "Restarting a session"), and project agent hooks run only in a trusted workspace.
 - The guard reads a path as Claude Code passes it to the tool. If a later Claude Code version reads paths differently (for example by expanding variables), a path could resolve one way for the guard and another way for the tool. The integration test against the installed `claude` is where that would show.
-- Until the follow-up lands, a brewer's bare `Read` still reads outside its worktree. Real brewers do not run yet.
+- Until #135 lands, a brewer's bare `Read` still reads outside its worktree. Real brewers do not run yet.
 
 ## Alternatives considered
 - **The guard in `.claude/settings.json` for every session:** no boundary for a session with a shell, it blocks reads that sessions need (saved tool results, memory), and it costs every session a node start per read.
