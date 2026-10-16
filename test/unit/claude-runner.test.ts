@@ -326,6 +326,17 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
+  it('blocks on a refusal that only asks to log in again', async () => {
+    const { calls, waits, runner } = setup(
+      { lines: [], result: exited(1, 'Session expired · Please run /login') },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'blocked');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(waits, []);
+  });
+
   it('blocks on each lasting refusal by itself, also without the login hint', async () => {
     for (const said of [
       'error: missing required argument "prompt"',
