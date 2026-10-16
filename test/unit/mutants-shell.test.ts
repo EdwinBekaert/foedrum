@@ -84,7 +84,7 @@ describe('mutants on a scratch tree', () => {
     write({ mutants: [{ ...valid, replacement: 'return a - c;' }] });
     const invalid = await applyMutant(tree, answer, 1);
     assert.equal(invalid.ok, false);
-    assert.match(invalid.lines[0] ?? '', /^mutant 1: invalid: .*c/);
+    assert.equal(invalid.lines[0], 'mutant 1: invalid: the replacement adds c');
     assert.deepEqual(await applyMutant(tree, answer, 2), {
       ok: false,
       lines: ['mutant 2: no such mutant (the answer has 1)'],
