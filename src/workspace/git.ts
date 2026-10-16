@@ -17,6 +17,8 @@ export interface GitOptions {
   config?: Readonly<Record<string, string>>;
   /** Kills git and every process it started when it aborts. */
   signal?: AbortSignal;
+  /** Kills git when its output passes this many bytes; default the runner's 4 MiB (ADR 0035). */
+  maxOutputBytes?: number;
 }
 
 export type Git = (

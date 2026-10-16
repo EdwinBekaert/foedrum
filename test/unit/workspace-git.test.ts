@@ -86,6 +86,21 @@ describe('runGitWith', () => {
     assert.deepEqual(options?.env, gitEnv(process.env, { 'user.name': 'Brewer' }));
   });
 
+  // A command whose output grows with the data, such as ls-tree over the state branch (#91).
+  it("passes the call's output limit on, and names it when git passes it", async () => {
+    const limit = 256 * 1024 * 1024;
+    const { calls, git } = answering({
+      exitCode: null,
+      stdout: '100644 blob',
+      stderr: '',
+      output: '100644 blob',
+      killed: 'too-much-output',
+    });
+    const result = await git('/work/repo', ['ls-tree', '-r'], { maxOutputBytes: limit });
+    assert.equal(calls[0]?.[2].maxOutputBytes, limit);
+    assert.equal(result.stderr, 'git wrote more than 256 MiB of output');
+  });
+
   it("passes the call's stop signal on", async () => {
     const { calls, git } = answering(exited(0));
     const stop = new AbortController();

@@ -44,6 +44,7 @@ interface Call {
   args: string[];
   timeoutMs: number | undefined;
   config: Readonly<Record<string, string>> | undefined;
+  maxOutputBytes: number | undefined;
 }
 
 /**
@@ -70,7 +71,13 @@ class FakeGit {
 
   readonly git: Git = async (cwd, args, options) => {
     const list = [...args];
-    this.calls.push({ cwd, args: list, timeoutMs: options?.timeoutMs, config: options?.config });
+    this.calls.push({
+      cwd,
+      args: list,
+      timeoutMs: options?.timeoutMs,
+      config: options?.config,
+      maxOutputBytes: options?.maxOutputBytes,
+    });
     return this.answer(list) ?? this.simulate(list);
   };
 
@@ -329,6 +336,14 @@ describe('openStateBranch with a fake git', () => {
       );
       assert.deepEqual(fake.find('ls-tree')?.args, ['ls-tree', '-r', '-z', sha(5)]);
       assert.equal(fake.find('worktree'), undefined);
+    });
+
+    // The tree lists every event file of the branch, about 100 bytes each, so it would pass the
+    // runner's 4 MiB default at about 40,000 files and stop every sync (ADR 0035).
+    it('lists the remote tree with an output limit of 256 MiB, far above the default', async () => {
+      fake.remote = sha(5);
+      await branch().start();
+      assert.equal(fake.find('ls-tree')?.maxOutputBytes, 256 * 1024 * 1024);
     });
 
     it("fails with git's error when it cannot tell whether the branch contains the marker", async () => {
