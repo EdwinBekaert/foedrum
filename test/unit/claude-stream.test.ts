@@ -368,6 +368,44 @@ describe('readClaudeStream progress', () => {
     }
   });
 
+  // #134: `commit` counts only as git's subcommand, after git's own options.
+  it('counts a commit after git global options, a path to git, or variables before it', () => {
+    for (const command of [
+      'git -c user.name=Brewer commit -m x',
+      'git --no-pager -C /work/tree commit -m x',
+      'git --git-dir=.git --work-tree=. commit -m x',
+      '/usr/bin/git commit -m x',
+      '"C:\\Program Files\\Git\\cmd\\git.exe" commit -m x',
+      'GIT_AUTHOR_NAME=Brewer git commit -m x',
+      '  git   commit',
+    ]) {
+      const progress = run([
+        init(),
+        assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
+        toolResult('t1'),
+      ]);
+      assert.deepEqual(progress, { lastProgressAt: at(3), turnsWithoutProgress: 0 }, command);
+    }
+  });
+
+  it('does not count commit as anything but the subcommand of git', () => {
+    for (const command of [
+      'git log --grep commit',
+      'echo git commit',
+      'git show HEAD:commit.txt',
+      'git config commit.gpgsign false',
+      'git -C commit status',
+      'git help commit',
+    ]) {
+      const progress = run([
+        init(),
+        assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
+        toolResult('t1'),
+      ]);
+      assert.deepEqual(progress, { lastProgressAt: started, turnsWithoutProgress: 1 }, command);
+    }
+  });
+
   // The command is model output: a long one must not hold the engine (review of #133).
   it('reads a long shell command in linear time', () => {
     const command = 'git '.repeat(16_000);
