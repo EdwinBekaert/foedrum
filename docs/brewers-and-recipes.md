@@ -254,8 +254,8 @@ claude --print --verbose --output-format stream-json
        --settings <per-attempt settings file: allow/deny, sandbox>
        --setting-sources ""                           # no user, project or local settings
        --tools <the built-in tools named in tools.allow>
-       --disable-slash-commands                       # unless skills
-       --strict-mcp-config [--mcp-config <file>]      # always; the file holds the brewer's mcp
+       --disable-slash-commands                       # unless skills (not supported yet, ADR 0046)
+       --strict-mcp-config [--mcp-config <file>]      # always; mcp not supported yet (ADR 0046)
        --safe-mode                                    # context: lean
        --session-id <new uuid> | --resume <session id>
        [--append-system-prompt-file <file>]

@@ -136,7 +136,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - `npm run check` does not run `test/integration/`. When you change code that an integration test covers (find them with `grep -l <module> test/integration/`), also run `npm run test:integration` before the push: CI runs it on every leg (#93 failed there on all six).
 - Test behaviour through public interfaces, not implementation details; a test should fail when the behaviour breaks and survive a refactor.
 - Every change comes with tests. Engine changes must keep the property tests (invariants I1–I6) and the chaos tests green.
-- Use the fake brewer runner for engine tests; real `claude` CLI tests are opt-in.
+- Use the fake brewer runner for engine tests. Tests that make the real `claude` CLI spend tokens are opt-in; tests against the installed `claude` with the fake Messages API (`test/integration/fake-messages-api.ts`, no login, no tokens) run wherever `claude` is on PATH, and are skipped elsewhere, CI included (ADR 0046).
 
 ## Git and pull requests
 
