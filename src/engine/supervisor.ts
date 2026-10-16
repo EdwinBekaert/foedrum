@@ -89,7 +89,7 @@ export const planTick = (input: TickInput): TickPlan => {
   };
 };
 
-/** What a due deadline asks of `batch`: expire its attempt, or remind (ADR 0025). */
+/** What a due deadline asks of `batch`: expire, remind (ADR 0025) or `unrouted` (ADR 0032). */
 function dueCommand(batch: Batch, now: Date): BatchCommand | undefined {
   const { lane } = batch;
   const isDue = (at: string): boolean => Date.parse(at) <= now.getTime();
@@ -102,10 +102,11 @@ function dueCommand(batch: Batch, now: Date): BatchCommand | undefined {
         late && { kind: 'expire', batchId: batch.id, stepId: late.stepId, attempt: late.attempt }
       );
     }
+    case 'ordered':
+      return isDue(lane.routeBy) ? { kind: 'unrouted', batchId: batch.id } : undefined;
     case 'conditioning':
     case 'stuck':
       return isDue(lane.remindAt) ? { kind: 'remind', batchId: batch.id } : undefined;
-    case 'ordered':
     case 'on_tap':
     case 'cancelled':
       return undefined;

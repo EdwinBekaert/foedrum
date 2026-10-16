@@ -42,6 +42,8 @@ export interface SupervisorOptions {
   intervalMs?: number;
   /** Time between Conditioning and Stuck reminders; default 2 days (architecture §4.3). */
   reminderMs?: number;
+  /** How long an Ordered batch may wait to be routed; default 1 hour (ADR 0032). */
+  routingMs?: number;
   /** How long flushes may fail before the supervisor reports it; default 10 minutes. */
   flushDeadlineMs?: number;
   report?: (notice: Notice) => void;
@@ -79,6 +81,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     timer = realTimer,
     intervalMs = 5000,
     reminderMs = 2 * 24 * 3_600_000,
+    routingMs = 3_600_000,
     flushDeadlineMs = 10 * 60_000,
     report: reportTo = () => {},
   } = options;
@@ -123,7 +126,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
   /** Decides `command` and appends its events in a transaction of its own. */
   const apply = (command: EngineCommand, now: Date): number => {
     try {
-      const decision = decide(state, command, { now, recipes, reminderMs });
+      const decision = decide(state, command, { now, recipes, reminderMs, routingMs });
       if (decision.kind === 'refused') {
         report({ kind: 'refused', command, reason: decision.reason });
         return 0;

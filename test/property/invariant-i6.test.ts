@@ -6,7 +6,7 @@ import { type Command, decide } from '../../src/engine/decide.ts';
 import type { Lane } from '../../src/engine/fold.ts';
 import { human } from '../helpers/event-sequences.ts';
 import { holdsInScenarios } from '../helpers/property.ts';
-import { type Engine, isLive, recipes, reminderMs } from '../helpers/simulation.ts';
+import { type Engine, isLive, recipes, reminderMs, routingMs } from '../helpers/simulation.ts';
 
 const minute = 60_000;
 
@@ -25,6 +25,17 @@ const moveOn = async (engine: Engine, batchId: string, lane: Lane): Promise<void
       return;
     case 'stuck': {
       const { reason } = lane;
+      // A retry would send it back to Ordered, where the next tick could find it late again.
+      if (reason.kind === 'routing') {
+        await engine.command({
+          kind: 'recipe',
+          batchId,
+          ...human,
+          recipe: 'pint',
+          reason: 'the router never routed it',
+        });
+        return;
+      }
       await engine.command(
         reason.kind === 'needs_input'
           ? {
@@ -51,7 +62,7 @@ const moveOn = async (engine: Engine, batchId: string, lane: Lane): Promise<void
 
 /** Every batch that is not terminal can be cancelled at once. */
 const cancellable = (engine: Engine): void => {
-  const context = { now: engine.now(), recipes, reminderMs };
+  const context = { now: engine.now(), recipes, reminderMs, routingMs };
   for (const batch of engine.state().batches.values()) {
     if (!isLive(batch)) continue;
     const cancel: Command = { kind: 'cancel', batchId: batch.id, ...human };

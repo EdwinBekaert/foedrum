@@ -14,6 +14,7 @@ const ordered = (batchId: string): Event => ({
   type: 'batch.ordered',
   batchId,
   order: { issue: 6 },
+  routeBy: '2026-12-31T00:00:00.000Z',
 });
 const scheduled = (batchId: string): Event => ({
   type: 'step.scheduled',

@@ -93,6 +93,8 @@ export const StuckReason = z.discriminatedUnion('kind', [
     lastProgressAt: Timestamp,
     turnsWithoutProgress: Count,
   }),
+  // An Ordered batch that nothing routed by its routing deadline (ADR 0032).
+  z.strictObject({ kind: z.literal('routing'), deadlineAt: Timestamp }),
 ]);
 export type StuckReason = z.infer<typeof StuckReason>;
 
@@ -176,6 +178,8 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     order: OrderRef,
     parentBatchId: BatchId.optional(),
+    // An Ordered batch waits to be routed, never silently: this is its deadline (ADR 0032).
+    routeBy: Timestamp,
   }),
   recipeChosen,
   z.strictObject({ type: z.literal('step.scheduled'), ...step, deadlineAt: Timestamp }),
@@ -212,6 +216,8 @@ export const Event = z.discriminatedUnion('type', [
     by: NonEmpty,
     via: Surface,
     action: z.enum(['retry', 'skip', 'recipe', 'answer']),
+    // A retry of a batch Stuck on routing sends it back to Ordered with this deadline (ADR 0032).
+    routeBy: Timestamp.optional(),
   }),
   orderDecomposed,
   z.strictObject({

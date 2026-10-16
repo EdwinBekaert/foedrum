@@ -87,8 +87,9 @@ const migrations = [
 
 // node:sqlite reports the extended result code in `errcode` (ADR 0002 verification).
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
-// The deadlines row of a Conditioning or Stuck reminder; step ids are never empty.
-const REMINDER = '';
+// The deadlines row of a batch rather than a step: its routing deadline while Ordered, or its
+// Conditioning or Stuck reminder (ADR 0032). Step ids are never empty.
+const BATCH = '';
 
 const timeOf = (date: Date, name: string): number => {
   const time = date.getTime();
@@ -229,12 +230,22 @@ export const openSqliteEventStore = (
   const index = (event: Event): void => {
     switch (event.type) {
       case 'step.scheduled':
-        // Scheduling a step ends a Conditioning or Stuck reminder, and replaces the step's earlier attempt.
-        clearDeadline.run(event.batchId, REMINDER, 0);
+        // Scheduling a step ends a routing deadline or a Conditioning or Stuck reminder, and
+        // replaces the step's earlier attempt.
+        clearDeadline.run(event.batchId, BATCH, 0);
         setDeadline.run(event.batchId, event.stepId, event.attempt, Date.parse(event.deadlineAt));
         return;
+      case 'batch.ordered':
+        setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.routeBy));
+        return;
       case 'batch.waiting':
-        setDeadline.run(event.batchId, REMINDER, 0, Date.parse(event.remindAt));
+        setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.remindAt));
+        return;
+      case 'batch.resumed':
+        // A retry of a batch Stuck on routing: Ordered again, with a new routing deadline (ADR 0032).
+        if (event.routeBy !== undefined) {
+          setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.routeBy));
+        }
         return;
       case 'step.finished':
         clearDeadline.run(event.batchId, event.stepId, event.attempt);
@@ -242,18 +253,16 @@ export const openSqliteEventStore = (
       case 'batch.stuck':
         // A Stuck batch waits for a human: its reminder replaces its steps' deadlines (ADR 0025).
         clearDeadlines.run(event.batchId);
-        setDeadline.run(event.batchId, REMINDER, 0, Date.parse(event.remindAt));
+        setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.remindAt));
         return;
       case 'batch.on_tap':
       case 'batch.cancelled':
         clearDeadlines.run(event.batchId);
         return;
       case 'effect.applied': // indexed by the events_index_effects trigger
-      case 'batch.ordered':
       case 'batch.recipe_chosen':
       case 'step.started':
       case 'input.received':
-      case 'batch.resumed':
       case 'order.decomposed':
       case 'bottle.opened':
       case 'release.observed':

@@ -19,10 +19,11 @@ const past = '2026-10-15T11:00:00.000Z';
 const ahead = '2026-10-15T13:00:00.000Z';
 const stall: Stall = { turns: 60, minutes: 20 };
 
-const ordered = (batchId: string): Event => ({
+const ordered = (batchId: string, routeBy = ahead): Event => ({
   type: 'batch.ordered',
   batchId,
   order: { issue: Number(batchId.slice(1)) },
+  routeBy,
 });
 const chosen = (batchId: string, recipe = 'pint'): Event => ({
   type: 'batch.recipe_chosen',
@@ -211,6 +212,18 @@ describe('planTick: reminders (ADR 0025)', () => {
       { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
     ];
     assert.deepStrictEqual(planTick(input(cancelled, { due: [dueAt('b1')] })).commands, []);
+  });
+});
+
+describe('planTick: routing deadlines (ADR 0032)', () => {
+  it('reports an Ordered batch past its routing deadline as unrouted', () => {
+    const tick = planTick(input([ordered('b1', past)], { due: [dueAt('b1')] }));
+    assert.deepStrictEqual(tick.commands, [{ kind: 'unrouted', batchId: 'b1' }]);
+  });
+
+  it('leaves an Ordered batch whose routing deadline is not due yet', () => {
+    const tick = planTick(input([ordered('b1', ahead)], { due: [dueAt('b1')] }));
+    assert.deepStrictEqual(tick.commands, []);
   });
 });
 

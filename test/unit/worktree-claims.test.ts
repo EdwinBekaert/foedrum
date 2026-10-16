@@ -13,7 +13,7 @@ const batch = (id: string, lane: Lane): Batch => ({
 });
 
 const lanes: Record<string, Lane> = {
-  ordered: { kind: 'ordered' },
+  ordered: { kind: 'ordered', routeBy: '2026-10-15T00:00:00.000Z' },
   brewing: { kind: 'brewing' },
   conditioning: {
     kind: 'conditioning',

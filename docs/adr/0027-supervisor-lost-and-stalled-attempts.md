@@ -1,6 +1,6 @@
 # 0027. The supervisor: lost and stalled attempts, reminders and the flush retry
 
-Date: 2026-10-15 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) and [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md)
+Date: 2026-10-15 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) and [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) · Amended by [0032](0032-routing-deadline-for-ordered-batches.md)
 
 ## Context
 The supervisor (#10) is the one liveness mechanism of the engine: leases, deadlines, stall detection and reminders (architecture §5). [ADR 0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) gave it two commands, `expire` (a deadline passed, invariant I5) and `remind` (a Conditioning or Stuck reminder is due), but left out what an expired lease or a stalled brewer does to a batch. A lease names its attempt in a free-text `attemptKey`, and the store could list only the leases still alive, so nothing could tell which attempt an expired lease held. [ADR 0024](0024-state-branch-layout-outbox-and-divergence.md) asks the supervisor to retry a failed flush of the state branch "with a deadline that raises the batch's attention", and asks the engine to generate batch ids that pass the path-segment schema; #7 handed both to this issue.

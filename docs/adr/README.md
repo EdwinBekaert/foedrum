@@ -28,13 +28,14 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0022](0022-five-default-lenses.md) | Five default lenses: test design joins the four (amends 0017) | Accepted |
 | [0023](0023-language-independent-recipes.md) | Default recipes are language-independent | Accepted |
 | [0024](0024-state-branch-layout-outbox-and-divergence.md) | The state branch: layout, outbox and divergence (amends 0002 and 0011) | Accepted, amended by 0027 |
-| [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) | Batch lifecycle: a reminder on Stuck, rewind only from Stuck (amends 0019) | Accepted, amended by 0027 |
+| [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) | Batch lifecycle: a reminder on Stuck, rewind only from Stuck (amends 0019) | Accepted, amended by 0027 and 0032 |
 | [0026](0026-how-a-permission-ceiling-covers-a-rule.md) | How a permission ceiling covers a rule | Accepted |
-| [0027](0027-supervisor-lost-and-stalled-attempts.md) | The supervisor: lost and stalled attempts, reminders and the flush retry (amends 0024 and 0025) | Accepted |
+| [0027](0027-supervisor-lost-and-stalled-attempts.md) | The supervisor: lost and stalled attempts, reminders and the flush retry (amends 0024 and 0025) | Accepted, amended by 0032 |
 | [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) | The brewer runner: how an attempt ends, its environment, and testFirst when unset | Accepted |
 | [0029](0029-attempt-worktrees-layout-claims-and-repair.md) | Attempt worktrees: layout, claims, repair and resumed sessions (amends 0012) | Accepted |
 | [0030](0030-only-commands-that-change-state-are-recorded.md) | Only commands that change state are recorded (amends 0019) | Accepted |
 | [0031](0031-cmd-and-bat-files-through-cmd-exe.md) | `.cmd` and `.bat` files start through cmd.exe | Accepted |
+| [0032](0032-routing-deadline-for-ordered-batches.md) | A routing deadline for Ordered batches (amends 0025 and 0027) | Accepted |
 
 ## Template
 
