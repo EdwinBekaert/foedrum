@@ -35,7 +35,7 @@ export interface TargetIssue {
 /** Which issues of a repository a Brewery brews: all of `labels`, and `milestone` when set. */
 export interface IntakeFilter {
   labels: readonly string[];
-  milestone?: string;
+  milestone?: string | undefined;
 }
 
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */
