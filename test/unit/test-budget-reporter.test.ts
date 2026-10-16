@@ -180,6 +180,24 @@ describe('budgetReporter', () => {
     );
   });
 
+  // A test file's own root-level after hook runs after the preload's and could send a reading of
+  // its own: a lower one must not replace the real one.
+  it('keeps the highest CPU time a file reports', async () => {
+    const { lines, failed } = await report([
+      ...cpu(fileA, 8000),
+      ...cpu(fileA, 0),
+      summary(fileA, 8100),
+    ]);
+    assert.equal(failed, true);
+    assert.match(overLines(lines)[0] ?? '', /used 8\.00 s of CPU time/);
+  });
+
+  it('holds a file whose CPU time is negative to its wall time', async () => {
+    const { lines, failed } = await report([...cpu(fileA, -1_000_000), summary(fileA, 5100)]);
+    assert.equal(failed, true);
+    assert.match(overLines(lines)[0] ?? '', /took 5\.10 s of wall time \(no CPU time reported\)/);
+  });
+
   // Their time is set by their run count (#87).
   it('lists property and chaos files over the budget but does not fail the run', async () => {
     const { lines, failed } = await report(
