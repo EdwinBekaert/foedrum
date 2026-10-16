@@ -10,12 +10,16 @@ import { describe, it } from 'node:test';
 const root = join(import.meta.dirname, '..', '..');
 const fixtures = 'test/fixtures/process-starts/unit';
 
-// node --test on one fixture, with npm test's preload or without it, killed after 60 s.
-const run = (fixture: string, preload: boolean) => {
+const PRELOAD = './scripts/test-cpu-time.ts';
+// Imports node:child_process before npm test's preload replaces its functions.
+const LOAD_FIRST = './test/fixtures/process-starts/load-child-process-first.ts';
+
+// node --test on one fixture, with the given --import modules, killed after 60 s.
+const run = (fixture: string, imports: readonly string[]) => {
   const result = spawnSync(
     process.execPath,
     [
-      ...(preload ? ['--import', './scripts/test-cpu-time.ts'] : []),
+      ...imports.flatMap((module) => ['--import', module]),
       '--test',
       '--test-reporter=spec',
       `${fixtures}/${fixture}`,
@@ -43,15 +47,28 @@ const FIXTURES = [
 describe('refusing process starts under node --test', () => {
   for (const [fixture, starter] of FIXTURES) {
     it(`${fixture} starts a process without the preload`, () => {
-      const result = run(fixture, false);
+      const result = run(fixture, []);
       assert.equal(result.status, 0, result.stdout + result.stderr);
     });
 
     it(`${fixture} fails with the ADR 0021 message under npm test's preload`, () => {
-      const result = run(fixture, true);
+      const result = run(fixture, [PRELOAD]);
       assert.equal(result.status, 1, result.stdout + result.stderr);
       assert.match(result.stdout, ADR_0021);
       assert.match(result.stdout, starter);
     });
   }
+
+  // syncBuiltinESMExports is what makes this case refuse: without it, the built-in's ES module
+  // keeps the functions it copied before the preload ran.
+  it('refuses named, namespace and dynamic imports when child_process was imported first', () => {
+    const fixture = 'loaded-first.test.ts';
+    assert.equal(run(fixture, [LOAD_FIRST]).status, 0);
+    const result = run(fixture, [LOAD_FIRST, PRELOAD]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, ADR_0021);
+    for (const kind of ['named', 'namespace', 'dynamic']) {
+      assert.match(result.stdout, new RegExp(`^✖ starts node through a ${kind} import`, 'm'));
+    }
+  });
 });
