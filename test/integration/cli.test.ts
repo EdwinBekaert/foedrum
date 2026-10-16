@@ -1,5 +1,5 @@
 // `foedrum status`, `replay` and `cancel` as the real program, against real store files (ADR 0021):
-// main.ts wires in that the unit tests replace. The output itself is in test/unit/cli.test.ts.
+// what main.ts wires in that the unit tests replace. The output itself is in test/unit/cli.test.ts.
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
