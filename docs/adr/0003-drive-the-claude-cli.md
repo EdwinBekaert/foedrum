@@ -1,6 +1,6 @@
 # 0003. Drive the user's `claude` CLI, not the Agent SDK
 
-Date: 2026-10-13 · Status: Accepted
+Date: 2026-10-13 · Status: Accepted · Amended by [0042](0042-the-claude-command-line-and-stream-contract.md)
 
 ## Context
 Brewers need Claude Code's tools, permission system and agent loop. The Claude Agent SDK offers a typed API (abort, budgets, structured output), but its terms ask third-party products to use API-key authentication. Foedrum users must be able to use their **Claude subscription**. The SDK is also proprietary, ships a large native binary, and releases almost daily.
