@@ -108,6 +108,6 @@ export const findNpmCli = (execPath: string, options: FindNpmCliOptions = {}): N
     platform === 'win32'
       ? path.join(nodeDir, 'node_modules', 'npm')
       : path.join(path.dirname(nodeDir), 'lib', 'node_modules', 'npm');
-  const tried = [path.join(npmDir, 'bin', 'npm-cli.js')];
-  return { path: tried.find((candidate) => isFile(candidate)), tried };
+  const npmCli = path.join(npmDir, 'bin', 'npm-cli.js');
+  return { path: isFile(npmCli) ? npmCli : undefined, tried: [npmCli] };
 };
