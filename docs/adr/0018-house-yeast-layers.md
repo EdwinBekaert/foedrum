@@ -19,7 +19,7 @@ ADR 0015 also left four questions open: the file format, who approves a rule, wh
 - **Selection** draws from all three layers within the single token budget of ADR 0015. When rules conflict, the more specific layer wins: repository, then Brewery, then defaults.
 - **The lesson ships with the fix.** A repository-layer rule learned during a batch is committed in the same bottle as the code change that taught it, so the reviewers who know the code approve both. When a refactoring makes a rule obsolete, the same pull request can change or remove it.
 - **Fallback:** per repository, `houseYeast` in `foedrum.jsonc` is `"repo"` (default) or `"brewery"`. With `"brewery"`, repository-layer rules are kept in the Brewery under `house-yeast/<repository>/`, for repositories whose owners do not accept such files.
-- **Trust:** rules read from a target repository are repository content, treated like other untrusted input: delimited and marked as data, never instructions, and only read from repositories registered in the Brewery.
+- **Trust:** rules read from a target repository are repository content, treated like other untrusted input: delimited and marked as data, never instructions ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)), and only read from repositories registered in the Brewery.
 - **Nothing flows back automatically.** Rules never travel from a Brewery or a repository to Foedrum's defaults; there is no telemetry. Sharing happens explicitly, through a pack or a pull request to Foedrum.
 - Foedrum never writes into a repository's own instruction files (`CLAUDE.md` and similar): those are loaded in full on every run, while house yeast is selected and budgeted.
 

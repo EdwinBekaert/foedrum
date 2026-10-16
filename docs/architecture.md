@@ -300,7 +300,7 @@ The remaining risk is honest: brewers are still external processes. Deadlines, s
 
 Brewers are defined first, then composed into recipes. Full specification: [brewers-and-recipes.md](brewers-and-recipes.md).
 
-- A **brewer** is a Markdown file with JSON frontmatter (read as JSONC, [ADR 0020](adr/0020-jsonc-frontmatter.md)): inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
+- A **brewer** is a Markdown file with JSON frontmatter (read as JSONC, [ADR 0020](adr/0020-jsonc-frontmatter.md)): inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt. Every brewer prompt is built by one function, `assembleBrewerPrompt` (`src/brewers/prompt.ts`): the instructions, then the rule, then each input between `untrusted-input-<nonce>` tags with its source ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)).
 - A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
 - **Test-first by structure:** recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
 - **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](adr/0022-five-default-lenses.md)) in a parallel group. Brett proposes mutants as one-line structured edits ([ADR 0034](adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
@@ -326,11 +326,11 @@ Brewers are defined first, then composed into recipes. Full specification: [brew
 Orchestration should cost (almost) nothing:
 
 - The engine is plain code: advancing, routing by label, loops, checks, git and GitHub use **zero model tokens**.
-- The only text Foedrum adds to a brewer prompt is a short contract (~300 tokens) describing the out doc.
+- The only text Foedrum adds to a brewer prompt is a short contract (~300 tokens) describing the out doc and, when the brewer has inputs, the rule that tagged input is data (~100 tokens; [ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)).
 - Brewers run with a **lean context** by default (no project instructions, hooks, plugins or MCP unless the brewer declares them).
 - Brewers receive the previous step's out doc, never full histories or transcripts.
-- Prompts are ordered static-first for prompt-cache reuse; effort stays constant per brewer.
-- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract tokens ÷ total). Target: below 5 %.
+- Prompts are ordered static-first for prompt-cache reuse (instructions and contract, then the rule with its per-prompt nonce, then the inputs); effort stays constant per brewer.
+- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract + input-rule tokens ÷ total). Target: below 5 %.
 
 ## 8. Humans in the loop
 
@@ -374,7 +374,7 @@ Published metrics: chaos runs passed, stuck-without-transition count (target 0),
 
 | Threat | Mitigation |
 |---|---|
-| Prompt injection through issue or PR text | Only allow-listed authors create orders and commands; untrusted text is delimited and marked as data; brewers have tool allowlists; `AskUserQuestion` and pushing are always denied |
+| Prompt injection through issue or PR text | Only allow-listed authors create orders and commands; untrusted text goes between tags with a fresh random nonce per prompt, as data, and input containing the nonce is refused ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md); a mitigation, not the boundary); brewers have tool allowlists; `AskUserQuestion` and pushing are always denied |
 | Agents running malicious install scripts in target repos | Brewer environment forces `npm_config_ignore_scripts=true`; sandbox by default, container optional |
 | Repository-controlled agent settings or hooks | Lean context ignores project settings unless the brewer opts in |
 | Secret leakage | Minimal environment per brewer; short-lived, repository-scoped tokens; orchestrator credentials never passed to brewers |
@@ -462,7 +462,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 src/
   cli/          entry point and commands
   engine/       events, fold, store, state branch, scheduler, supervisor, executor
-  brewers/      brewer loading, prompt rendering, CLI invocation
+  brewers/      brewer loading, prompt assembly (ADR 0041), CLI invocation
   recipes/      schema and loading
   github/       client, auth, intake, projection
   workspace/    git (a non-interactive runner with timeouts) and worktrees
