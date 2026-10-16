@@ -364,7 +364,7 @@ describe('readGuard: what it cannot check', () => {
     blocks(hookInput('Read', 'x'), /could not read its input/));
 });
 
-// Every agent that can only read gets the guard: for those the guard is the boundary (ADR 0048).
+// Every agent that can only read gets the guard: for those the guard is the boundary (ADR 0049).
 describe('the read-only agents', () => {
   const agents = join(root, '.claude', 'agents');
   const all = readdirSync(agents)

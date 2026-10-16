@@ -1,4 +1,4 @@
-# 0048. Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers
+# 0049. Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers
 
 Date: 2026-10-16 · Status: Accepted · Amends [0010](0010-cross-platform-and-isolation-levels.md) and [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)
 

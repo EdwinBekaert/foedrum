@@ -1,5 +1,5 @@
 // Claude Code PreToolUse hook for Read, Grep and Glob: lets a call through only when every path
-// it reads resolves inside the checkout, `CLAUDE_PROJECT_DIR` (ADR 0048).
+// it reads resolves inside the checkout, `CLAUDE_PROJECT_DIR` (ADR 0049).
 // Wired in the frontmatter of the read-only agents (.claude/agents/taster.md, brett.md) as
 // `node "${CLAUDE_PROJECT_DIR}/scripts/read-guard.ts"`, failing closed like the local gate.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
@@ -12,7 +12,7 @@
 // real path (links, junctions, short names, case; src/platform/real-path.ts). On Windows a path
 // without a full drive, a network or device path, and a path on another drive than the checkout
 // (a mapped network drive) are blocked before they touch the disk. A link inside the checkout
-// whose target is a network path is still resolved (ADR 0048).
+// whose target is a network path is still resolved (ADR 0049).
 
 export interface HookResult {
   exitCode: 0 | 2;
@@ -130,7 +130,7 @@ export const readGuard = async (
     if (notResolved !== undefined) return notResolved;
     // Another drive is outside, and resolving it could reach a mapped network drive.
     if (deps.platform === 'win32' && !rootDrives.has(windowsDrive(absolute))) {
-      return `${name} is outside the checkout (${root}): it is on drive ${absolute.slice(0, 2)}; reviewers read only files inside it (ADR 0048).`;
+      return `${name} is outside the checkout (${root}): it is on drive ${absolute.slice(0, 2)}; reviewers read only files inside it (ADR 0049).`;
     }
     const resolved = (path_: string): string => path.resolve(deps.realPath(path_));
     const readings: string[] = [];
@@ -147,7 +147,7 @@ export const readGuard = async (
     if (real === undefined) return undefined;
     const where =
       real === path.resolve(absolute) ? `${name} is` : `${name} resolves to ${quoted(real)},`;
-    return `${where} outside the checkout (${root}); reviewers read only files inside it (ADR 0048).`;
+    return `${where} outside the checkout (${root}); reviewers read only files inside it (ADR 0049).`;
   };
 
   const reads: string[] = [];

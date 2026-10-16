@@ -1,4 +1,4 @@
-// The read guard with real processes and a real file system (ADR 0048): the hook command from the
+// The read guard with real processes and a real file system (ADR 0049): the hook command from the
 // read-only agents' frontmatter run through bash the way Claude Code runs it, a real junction or
 // link, Windows short names, and the installed `claude` with a hook in the runner's settings
 // file. The guard's decisions are unit tests in test/unit/read-guard.test.ts.
@@ -191,7 +191,7 @@ interface Run {
 
 // The brewer runner's command line (ADR 0046) with the attempt's `--settings` file. `--safe-mode`
 // turns that file's hooks off too, so brewers get the rule from scoped allow rules instead, and
-// the hook is tested without it (ADR 0048). The fake model reads next to the worktree.
+// the hook is tested without it (ADR 0049). The fake model reads next to the worktree.
 describe('claude and reads outside its worktree', { skip: claude === undefined }, () => {
   let dir: TempDir;
   let api: FakeMessagesApi | undefined;
@@ -348,7 +348,7 @@ describe('claude and reads outside its worktree', { skip: claude === undefined }
       await denied({ allow, call: { name: 'Glob', input: { pattern: absolute } } }, DONT_ASK);
     });
 
-    // So a brewer's bare Grep or Glob rule must not reach the settings file (ADR 0048).
+    // So a brewer's bare Grep or Glob rule must not reach the settings file (ADR 0049).
     it('is undone by a bare Grep rule', async () => {
       const call = { name: 'Grep', input: { pattern: 'the-secret', path: dir.path } };
       assert.match(await allowed({ allow: [...allow, 'Grep'], call }), /secret\.txt/);
@@ -356,7 +356,7 @@ describe('claude and reads outside its worktree', { skip: claude === undefined }
   });
 
   // The read guard checks the folder a search starts in, not the links inside it: a pull request
-  // can commit a link that leads outside (ADR 0048). Grep and Glob do not follow one.
+  // can commit a link that leads outside (ADR 0049). Grep and Glob do not follow one.
   describe('a search of the worktree with a link in it that leads outside', () => {
     const allow = ['Read', 'Grep', 'Glob'];
     beforeEach(() => {
