@@ -15,11 +15,12 @@ The intake's pass and the driver's effects each run under a deadline below the b
 ## Decision
 
 ### Conditional reads
-- Every GET of the tracker and the marks goes through `createGitHubReads` (`src/github/reads.ts`). It keeps the last answer with an ETag of each path, sends that ETag as `If-None-Match`, and answers a 304 with the kept answer. Only a 200 with an ETag is kept; the cache holds 256 answers, least recently used out first. A 304 to a request that named no ETag fails.
-- A list is read page by page along `Link: <…>; rel="next"`, each page conditional on its own, so an unchanged listing is a run of 304s. A next page that is not on the client's base URL fails the read: the token goes with every request, so it never follows a link off the API. A list of more than 50 pages (5,000 items) fails rather than reading on or stopping short in silence.
+- Every GET of the tracker and the marks goes through `createGitHubReads` (`src/github/reads.ts`). It keeps the last answer with an ETag of each path, sends that ETag as `If-None-Match`, and answers a 304 with the kept answer. Only a 200 with an ETag is kept; the cache holds 256 answers, least recently used out first: a listing of 2,500 items with room to spare, and at most 1 GiB in the worst case, which takes thousands of the longest bodies GitHub keeps to reach. A 304 to a request that named no ETag fails.
+- A list is read page by page along `Link: <…>; rel="next"`, each page conditional on its own, so an unchanged listing is a run of 304s. A next page that is not on the client's base URL fails the read: the token goes with every request, so it never follows a link off the API. A list of more than 500 pages (5,000 items) fails rather than reading on or stopping short in silence.
+- **A list asks for 10 items a page** (`pageSize`). Anyone who can open an issue or comment on a public repository can write a body of 65,536 characters, up to 6 bytes each in JSON, so a page of 100 could pass the client's 4 MiB answer limit, and those few issues or comments would stop the listing or a claim's comment effect on every poll. A page of 10 stays under the limit. The REST API cannot leave the bodies out.
 
 ### The tracker
-- `githubTargetTracker` (`src/github/tracker.ts`) lists the open issues of a repository oldest first, 100 to a page (`state=open&sort=created&direction=asc`), and maps each to a `TargetIssue`: an item with `pull_request` is a pull request, label names come as strings or objects, and an issue whose author's account was deleted has the author `''`, so it is never an allow-listed author's. The filter stays with `isCandidate`; the listing does not ask GitHub to filter by label.
+- `githubTargetTracker` (`src/github/tracker.ts`) lists the open issues of a repository oldest first, 10 to a page (`state=open&sort=created&direction=asc`), and maps each to a `TargetIssue`: an item with `pull_request` is a pull request, label names come as strings or objects, and an issue whose author's account was deleted has the author `''`, so it is never an allow-listed author's. The filter stays with `isCandidate`; the listing does not ask GitHub to filter by label.
 - How a pull request stands comes from `GET /repos/{owner}/{repo}/pulls/{n}`, conditional too: merged when `merged` or `merged_at` says so, else its `state`. The batch records a pull request by its web URL; a URL whose path is not `/<owner>/<name>/pull/<n>` is refused before any request.
 
 ### The marks
@@ -41,11 +42,16 @@ The intake's pass and the driver's effects each run under a deadline below the b
 - The intake and the claim marks can run against GitHub. Wiring them into the program, polling the Brewery's own issues, routing and `foedrum order` are #145.
 - An idle Brewery polls without spending its rate limit, and one with a busy repository spends a request only on the pages that changed.
 - A token that meets its limit stops making requests until GitHub says it may, for the whole client: the claim host, the tracker and the marks share it. A limit met by another program with the same token shows up in the answers and pauses Foedrum too.
-- The tests read synthetic answers in the shapes GitHub's REST documentation gives (`test/fixtures/github/`); no test reaches GitHub. The opt-in integration test of ADR 0050 covers only the claim ref.
+- The unit tests read synthetic answers in the shapes GitHub's REST documentation gives (`test/fixtures/github/`); none reaches GitHub. The opt-in `test/integration/github-reads.test.ts`, with the settings of ADR 0050's claim test, reads a real repository through the tracker and the marks, so GitHub's own answers are checked against the same schemas.
+
+## Verification
+- On 2026-10-16, `test/integration/github-reads.test.ts` passed 2 of 2 against `EdwinBekaert/foedrum`: its open issues, the marks and comments of one, and an open pull request passed the schemas, and an unchanged listing came back as a 304.
 
 ## Alternatives considered
 - **Wait out a rate limit inside the client:** simplest for callers, but a wait of up to an hour would hold an intake pass or an effect past its deadline, and with it the driver's heartbeat.
 - **Retry a refused request a few times at once:** GitHub asks for the opposite; repeated requests during a secondary limit can get the token blocked.
 - **Ask GitHub to filter the listing by label (`labels=`):** fewer pages for a large repository, but label names with a comma cannot be expressed, and the filter must be applied again anyway, since the listing is untrusted input. A later change can add it as an optimisation.
 - **The `since` parameter instead of ETags:** fewer items per poll, but a 200 every time, which counts against the limit, and updated issues still need a full comparison.
+- **Read the listing through GraphQL, asking only for the fields used:** no bodies, so pages of 100, but GraphQL has no conditional requests: every poll would cost rate limit, which is what ADR 0008 avoids.
+- **Raise the answer limit for lists:** pages of 100 again, but 40 MiB answers from untrusted text, kept in the cache too.
 - **Poll every 5 or 10 seconds:** faster pickup for nothing a brewer would notice, and a busier token whose secondary limits also guard against frequent requests.
