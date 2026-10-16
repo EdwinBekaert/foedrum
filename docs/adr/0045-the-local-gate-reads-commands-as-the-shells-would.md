@@ -1,4 +1,4 @@
-# 0044. The local gate reads commands as the shells would, and assumes the worst of what it cannot read
+# 0045. The local gate reads commands as the shells would, and assumes the worst of what it cannot read
 
 Date: 2026-10-16 · Status: Accepted
 
