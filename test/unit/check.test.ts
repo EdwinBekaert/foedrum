@@ -116,6 +116,24 @@ describe('runCheck', () => {
     assert.equal(await done, 0);
   });
 
+  it('lowers its priority before it starts a step, so every step inherits it', async () => {
+    const { calls, runProcess } = pendingProcesses();
+    const startedWhenLowered: number[] = [];
+    const done = runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd,
+      read: upToDate,
+      write: () => {},
+      lowerPriority: () => startedWhenLowered.push(calls.length),
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    for (const call of calls) call.finish(green(''));
+    assert.equal(await done, 0);
+    assert.deepEqual(startedWhenLowered, [0]);
+  });
+
   it('passes when every step exits 0', async () => {
     const { exitCode } = await check(allGreen());
     assert.equal(exitCode, 0);

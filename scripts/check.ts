@@ -36,6 +36,8 @@ export interface CheckOptions {
   stepTimeoutMs?: number;
   /** Stops the check: every step still running is killed with the processes it started. */
   signal?: AbortSignal;
+  /** Lowers this process's priority before the steps start, which inherit it (#140). */
+  lowerPriority?: () => void;
 }
 
 // Each step's deadline: well under the local gate's 600 s, so a step that hangs fails here, named
