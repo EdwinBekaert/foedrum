@@ -6,7 +6,7 @@ import { constants } from 'node:os';
 import { describe, it } from 'node:test';
 import { lowerPriority } from '../../scripts/below-normal-priority.ts';
 
-const { PRIORITY_BELOW_NORMAL, PRIORITY_IDLE, PRIORITY_NORMAL } = constants.priority;
+const { PRIORITY_BELOW_NORMAL, PRIORITY_LOW, PRIORITY_NORMAL } = constants.priority;
 
 // Runs lowerPriority on a process at `priority` and returns the priorities it set.
 const lowered = (env: NodeJS.ProcessEnv, priority: number, refuse = false): number[] => {
@@ -36,7 +36,7 @@ describe('lowerPriority', () => {
   });
 
   it('never raises a priority that is already lower', () => {
-    assert.deepEqual(lowered({}, PRIORITY_IDLE), []);
+    assert.deepEqual(lowered({}, PRIORITY_LOW), []);
     assert.deepEqual(lowered({}, PRIORITY_BELOW_NORMAL), []);
   });
 
