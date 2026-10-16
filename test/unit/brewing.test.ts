@@ -272,7 +272,7 @@ describe('brewing with the fake brewer runner', () => {
   });
 
   describe('the driver dies and starts again on the same store', () => {
-    it('expires the leases of its earlier run, so a retry runs no attempt beside them (I2)', async () => {
+    it('expires the leases of its earlier run at once', async () => {
       const progress = { lastProgressAt: t0, turnsWithoutProgress: 3 };
       const { recipes } = await brew({ plan: [behave.hang(progress)] });
       now = at(2);

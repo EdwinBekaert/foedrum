@@ -37,7 +37,10 @@ const nothingOverdue = ({ engine }: ChaosRun): void => {
           `batch ${batch.id} is ${lane.kind} past its reminder, ${lane.remindAt}`,
         );
         break;
-      // An ordered batch has no deadline until it is routed (the open question of #95's I1).
+      // An ordered batch has no deadline until it is routed (the open question of #95's I1). So
+      // a batch whose routing a kill lost, and that nothing routes again, sits silently in
+      // Ordered, and no check here sees it. Routing belongs to the intake, which does not exist
+      // yet; its deadline is the gap this harness does not cover.
       case 'ordered':
       case 'on_tap':
       case 'cancelled':

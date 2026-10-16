@@ -87,7 +87,8 @@ describe('applyEffect', () => {
   });
 
   it('refuses an invalid key before it reaches the target', async () => {
-    const { ledger } = memoryLedger();
+    // A ledger that never looks at the key, so only applyEffect can refuse it.
+    const ledger: Ledger = { find: () => undefined, record: () => {} };
     const { target, calls } = fakeTarget();
     await assert.rejects(applyEffect(ledger, { ...key, stepId: 'Open PR' }, target), /effect key/);
     assert.deepEqual(calls, []);

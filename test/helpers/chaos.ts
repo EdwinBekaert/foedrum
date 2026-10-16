@@ -6,7 +6,7 @@
 // database and the code host the effects went to. No process is started or killed: the engine is
 // this test's own code, and a kill is an exception it cannot catch.
 
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
@@ -15,6 +15,7 @@ import { applyEffect, type EffectTarget, type Ledger } from '../../src/engine/ef
 import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import type { State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { createBrewing, defaultLimits } from './brewing.ts';
 import {
@@ -422,7 +423,10 @@ const chaosRuns = 15;
  */
 export const holdsAcrossKills = (dir: string, checks: ChaosChecks): Promise<void> =>
   forEachSeedAsync(chaosRuns, async (seed) => {
-    const path = join(dir, `seed-${seed}.sqlite`);
+    // A folder per seed: the database, its -wal and -shm files go together.
+    const folder = join(dir, `seed-${seed}`);
+    mkdirSync(folder);
+    const path = join(folder, 'events.sqlite');
     const scenario: Scenario = { moves: [], plays: [] };
     const source = recording(generateScenario(seed), scenario);
     const host = fakeCodeHost();
@@ -434,7 +438,9 @@ export const holdsAcrossKills = (dir: string, checks: ChaosChecks): Promise<void
       throw noted(error, report(run));
     } finally {
       engine.close();
-      for (const suffix of ['', '-wal', '-shm']) rmSync(`${path}${suffix}`, { force: true });
+      // With retries for files Windows still holds; what is left goes with `dir`, and a failed
+      // removal never hides the run's own error.
+      await removeTree(folder).catch(() => {});
     }
   });
 

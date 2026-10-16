@@ -105,7 +105,10 @@ describe('execProcess with a real tree of processes', () => {
         ? 'taskkill /T misses the children of an exited parent; needs a Job Object (#92)'
         : false,
   }, async () => {
-    const done = spawnProcess(process.execPath, [tree, pidFile, '1', 'exit-parent'], dir.path, {
+    // Run outside dir.path: on Windows a surviving orphan's working directory could not be
+    // removed after the test.
+    const cwd = import.meta.dirname;
+    const done = spawnProcess(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
       timeoutMs: 6000,
     });
     await waitFor('the grandchild to start and its parent to exit', () => {

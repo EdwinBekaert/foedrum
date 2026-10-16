@@ -61,10 +61,23 @@ describe('chaos runs', () => {
         if (killedAt.size < engine.kills.length) seen.add('killed again soon after a restart');
         // A restart expires the killed run's leases at once, so the reason names its time.
         const restarted = engine.restarts.map((at) => `expired at ${at.toISOString()}`);
-        for (const event of engine.events()) {
+        const events = engine.events();
+        for (const [at, event] of events.entries()) {
           if (event.type !== 'step.finished' || event.outcome.kind !== 'failed') continue;
           const { reason } = event.outcome;
+          const { batchId, stepId, attempt } = event;
+          // The next attempt of the step is scheduled after the loss: a retry, not Stuck.
+          const retried = events
+            .slice(at + 1)
+            .some(
+              (later) =>
+                later.type === 'step.scheduled' &&
+                later.batchId === batchId &&
+                later.stepId === stepId &&
+                later.attempt === attempt + 1,
+            );
           if (
+            retried &&
             reason.startsWith('the attempt was lost') &&
             restarted.some((expiry) => reason.endsWith(expiry))
           ) {

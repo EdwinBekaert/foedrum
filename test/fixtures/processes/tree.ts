@@ -21,6 +21,8 @@ if (Number(depth) > 0) {
     // with it; a parent such as cmd.exe does not. Detached, they outlive their parent as those
     // do. Elsewhere detaching would leave the process group, which is another case.
     detached: mode !== '' && process.platform === 'win32',
+    // Without a console window of its own, which a detached child gets on Windows.
+    windowsHide: true,
   });
 }
 if (mode === 'exit-parent') {
