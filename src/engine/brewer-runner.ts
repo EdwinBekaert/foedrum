@@ -104,6 +104,11 @@ const failed = (retryable: boolean, reason: string): Ending => ({
 export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Ending {
   const { exit, denials, turns } = facts;
   const { maxDenials, maxTurns, outDoc } = limits;
+  // Another attempt would meet the same environment; a human must fix it (ADR 0045).
+  if (facts.environment !== undefined) {
+    const summary = `claude did not set up the session the runner asked for: ${facts.environment}`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
   if (exit.kind === 'unstartable') {
     return failed(false, `the brewer could not start: ${exit.reason}`);
   }
