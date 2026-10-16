@@ -7,7 +7,7 @@ import {
   type StatementSync,
 } from 'node:sqlite';
 import { Event } from '../schemas/events.ts';
-import { Lease, PushedThrough } from '../schemas/store.ts';
+import { BatchLease, Lease, PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import {
   DuplicateEffectError,
@@ -81,6 +81,14 @@ const migrations = [
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     event_id INTEGER NOT NULL,
     commit_sha TEXT NOT NULL
+  ) STRICT;
+  `,
+  `
+  -- Which driver drives each batch until when (ADR 0019); mutable, like the attempt leases.
+  CREATE TABLE batch_leases (
+    batch_id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
   ) STRICT;
   `,
 ];
@@ -221,6 +229,23 @@ export const openSqliteEventStore = (
       owner: row.owner,
       expiresAt: new Date(row.expires_at),
     }));
+  type BatchLeaseRow = { batch_id: string; owner: string; expires_at: number };
+  const batchLeaseOf = (row: BatchLeaseRow): BatchLease => ({
+    batchId: row.batch_id,
+    owner: row.owner,
+    expiresAt: new Date(row.expires_at),
+  });
+  const putBatchLease = db.prepare(
+    'INSERT INTO batch_leases (batch_id, owner, expires_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT (batch_id) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at',
+  );
+  const releaseBatchLease = db.prepare('DELETE FROM batch_leases WHERE batch_id = ?');
+  const selectBatchLease = db.prepare(
+    'SELECT batch_id, owner, expires_at FROM batch_leases WHERE batch_id = ?',
+  );
+  const selectBatchLeases = db.prepare(
+    'SELECT batch_id, owner, expires_at FROM batch_leases WHERE expires_at > ? ORDER BY batch_id',
+  );
   const selectEffect = db.prepare(
     'SELECT events.id, events.body FROM effects JOIN events ON events.id = effects.event_id ' +
       'WHERE effects.key = ?',
@@ -341,14 +366,20 @@ export const openSqliteEventStore = (
         ensureLive();
         releaseLease.run(attemptKey);
       },
-      batchLease: () => {
-        throw new Error('not implemented');
+      batchLease: (batchId) => {
+        ensureLive();
+        const row = selectBatchLease.get(batchId) as BatchLeaseRow | undefined;
+        return row === undefined ? undefined : batchLeaseOf(row);
       },
-      putBatchLease: () => {
-        throw new Error('not implemented');
+      putBatchLease: (lease) => {
+        ensureLive();
+        const expiresAt = timeOf(lease.expiresAt, 'Batch lease expiresAt');
+        const valid = BatchLease.parse(lease);
+        putBatchLease.run(valid.batchId, valid.owner, expiresAt);
       },
-      releaseBatchLease: () => {
-        throw new Error('not implemented');
+      releaseBatchLease: (batchId) => {
+        ensureLive();
+        releaseBatchLease.run(batchId);
       },
       recordEffect: (key, result) => {
         ensureLive();
@@ -407,9 +438,8 @@ export const openSqliteEventStore = (
 
     expiredLeases: (now) => leasesFrom(selectExpiredLeases, now),
 
-    batchLeases: () => {
-      throw new Error('not implemented');
-    },
+    batchLeases: (now) =>
+      rows<BatchLeaseRow>(selectBatchLeases, timeOf(now, 'now')).map(batchLeaseOf),
 
     replay: (log) =>
       withTransaction(() => {

@@ -21,15 +21,18 @@ export interface HoldRequest {
  * Takes the lease of a batch for `owner`, or renews it, until `now + leaseMs`, unless another
  * owner's lease is alive at `now`. In a transaction, so two drivers cannot both take it.
  */
-export const holdBatch = (_tx: EventStoreTransaction, _request: HoldRequest): Hold => {
-  throw new Error('not implemented');
+export const holdBatch = (tx: EventStoreTransaction, request: HoldRequest): Hold => {
+  const { batchId, owner, now, leaseMs } = request;
+  const current = tx.batchLease(batchId);
+  if (current !== undefined && current.owner !== owner && current.expiresAt > now) {
+    return { kind: 'other', lease: current };
+  }
+  const lease = { batchId, owner, expiresAt: new Date(now.getTime() + leaseMs) };
+  tx.putBatchLease(lease);
+  return { kind: 'held', lease };
 };
 
 /** Lets the lease of `batchId` go when `owner` holds it; another owner's lease stays. */
-export const releaseBatch = (
-  _tx: EventStoreTransaction,
-  _batchId: string,
-  _owner: string,
-): void => {
-  throw new Error('not implemented');
+export const releaseBatch = (tx: EventStoreTransaction, batchId: string, owner: string): void => {
+  if (tx.batchLease(batchId)?.owner === owner) tx.releaseBatchLease(batchId);
 };
