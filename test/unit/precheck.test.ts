@@ -799,6 +799,68 @@ describe('forbiddenReason on the bypasses found in review', () => {
   }
 });
 
+// Bypasses found by the second review of #123 (#42).
+describe('precheck on words split by quotes and escapes', () => {
+  // The pre-filter reads the raw hook input, where quotes and escapes still split the words.
+  const split: [tool: string | undefined, command: string, reason: RegExp][] = [
+    ['Bash', "gi''t pu''sh -f", /force push/i],
+    ['Bash', 'g\\it pu\\sh -f', /force push/i],
+    ['Bash', 'g"i"t p"u"sh --force', /force push/i],
+    ['Bash', 'cmd /c g^h pr m^erge 30', /^`gh pr merge` is blocked/],
+    // PowerShell takes typographic quotes as quotes.
+    [undefined, '& “g”it pu“”sh -f', /force push/i],
+  ];
+  for (const [tool, command, reason] of split) {
+    it(`blocks: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        ...(tool === undefined ? {} : { tool_name: tool }),
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      assert.doesNotMatch(input, /git|gh|push|merge|pwsh|powershell/i);
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2, result.stderr);
+      assert.match(result.stderr, reason);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
+describe('forbiddenReason on the bypasses found in the second review', () => {
+  const forcePushes = [
+    // PowerShell's typographic quotes.
+    '& “C:\\Program Files\\Git\\cmd\\git.exe” push -f',
+    'iex “git push -f”',
+    'iex ‘git push -f’',
+    // A shell computed at run time runs its strings.
+    '"$SHELL" -c "git push --force origin main"',
+    // wsl runs git against the same checkout.
+    'wsl git push -f',
+    'wsl -e git push -f',
+    'wsl.exe -- git push --force',
+    'wsl -d Ubuntu git push -f',
+    // PowerShell's dot operator runs a command too.
+    '. git push -f',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  it("forbids merging a pull request: & $pwsh -Command 'gh pr merge 12'", () => {
+    assert.match(
+      forbiddenReason("& $pwsh -Command 'gh pr merge 12'") ?? '',
+      /^`gh pr merge` is blocked/,
+    );
+  });
+
+  it("does not block a closed @( that holds a parenthesis: $p = @('(') ; git status", () => {
+    assert.equal(forbiddenReason("$p = @('(') ; git status"), undefined);
+  });
+});
+
 // Limits and the pre-filter, pinned after the review of #123 (#42).
 describe('precheck limits and pre-filter', () => {
   it('blocks a command too wide to read, though shallow', () => {
