@@ -18,6 +18,7 @@ import {
   type Spawner,
   spawnCommand,
   spawnProcess,
+  streamProcess,
 } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { windowsCommandLine } from '../../src/platform/shell.ts';
@@ -152,6 +153,62 @@ describe('execProcess with a real tree of processes', () => {
     assert.equal(result.exitCode, null);
     assert.equal(result.killed, undefined);
     assert.match(result.output, /ENOENT/);
+  });
+});
+
+// The line-by-line runner the brewer runner reads claude's stream with (ADR 0046).
+describe('streamProcess with real processes', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('stream');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  // Echoes stdin as a line, then writes `count` lines of 32 KiB: 5 MiB in all, past the 4 MiB that
+  // execProcess holds (ADR 0035).
+  const writer =
+    "let input = ''; process.stdin.setEncoding('utf8').on('data', (c) => { input += c; });" +
+    " process.stdin.on('end', () => { process.stdout.write(JSON.stringify(input) + '\\n');" +
+    " const line = 'x'.repeat(32 * 1024 - 1) + '\\n'; let left = Number(process.argv[1]);" +
+    ' const more = () => { while (left > 0) { left -= 1; if (!process.stdout.write(line))' +
+    " { process.stdout.once('drain', more); return; } } }; more(); });";
+
+  for (const jobObject of process.platform === 'win32' ? [false, true] : [false]) {
+    it(`reads stdin, and hands over every line of 5 MiB of stdout${jobObject ? ', in a Job Object' : ''}`, async () => {
+      const lines: string[] = [];
+      const result = await streamProcess(process.execPath, ['-e', writer, '160'], {
+        cwd: dir.path,
+        stdin: 'a prompt ✓ "quoted"\non two lines',
+        maxLineBytes: 64 * 1024,
+        timeoutMs: 60_000,
+        jobObject,
+        onLine: (line) => lines.push(line.length > 40 ? String(line.length) : line),
+      });
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.equal(lines[0], JSON.stringify('a prompt ✓ "quoted"\non two lines'));
+      assert.equal(lines.length, 161);
+      assert.ok(lines.slice(1).every((line) => line === String(32 * 1024 - 1)));
+    });
+  }
+
+  it('kills a process that writes a line without end once the line passes the limit', async () => {
+    const script =
+      "process.stdout.write(process.pid + '\\n'); const chunk = 'x'.repeat(65536);" +
+      ' const more = () => process.stdout.write(chunk, more); more();';
+    const lines: string[] = [];
+    const started = Date.now();
+    const result = await streamProcess(process.execPath, ['-e', script], {
+      cwd: dir.path,
+      maxLineBytes: 1024 * 1024,
+      timeoutMs: 20_000,
+      onLine: (line) => lines.push(line),
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.killed, 'line-too-long');
+    assert.equal(result.exitCode, null);
+    assert.ok(elapsed < 10_000, `answered after ${elapsed} ms`);
+    assert.equal(lines.length, 1);
+    await assertAllEnd([Number(lines[0])]);
   });
 });
 

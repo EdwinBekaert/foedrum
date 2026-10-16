@@ -251,21 +251,24 @@ A brewer compiles to one `claude` CLI invocation plus a generated per-attempt se
 claude --print --verbose --output-format stream-json
        --permission-mode dontAsk --permission-prompts none
        --model <model id> --effort <effort> --max-turns <maxTurns>
-       --settings <per-attempt settings file: allow/deny, sandbox, environment>
+       --settings <per-attempt settings file: allow/deny, sandbox>
+       --setting-sources ""                           # no user, project or local settings
        --tools <the built-in tools named in tools.allow>
-       --disable-slash-commands                       # unless skills
-       --strict-mcp-config [--mcp-config <file>]      # always; the file holds the brewer's mcp
+       --disable-slash-commands                       # unless skills (not supported yet, ADR 0046)
+       --strict-mcp-config [--mcp-config <file>]      # always; mcp not supported yet (ADR 0046)
        --safe-mode                                    # context: lean
        --session-id <new uuid> | --resume <session id>
        [--append-system-prompt-file <file>]
                                                       # the prompt on stdin, no prompt argument
 ```
 
-- The settings file is written from a strict schema: `claude` silently drops a settings file that fails its validation, deny rules included. A bare tool name in `deny` removes the tool, a scoped rule denies matching calls.
+- The settings file is written from a strict schema (`AttemptSettings`): `claude` silently drops a settings file that fails its validation, deny rules included. It always denies `AskUserQuestion` and `git push` in each shell the brewer has. A bare tool name in `deny` removes the tool, a scoped rule denies matching calls.
+- `--setting-sources ""` makes the runner's file the only one: the user's `~/.claude/settings.json` could otherwise widen the allowlist and add variables, and the repository's settings are untrusted. A test against the installed `claude` proves it with a throwaway user settings file ([ADR 0046](adr/0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)).
+- Before it reads anything else, the runner checks the `system/init` event against what it asked for: the session id, exactly the tools of `--tools`, permission mode `dontAsk`, and no MCP server, skill or slash command. Other `system` events may come first. A mismatch ends the attempt as `blocked` + `environment`, never retried (ADR 0046).
 - The runner reads `system/init` (session id, model, permission mode, tools, CLI version), `assistant` and `user` messages (tool calls and results), `system/permission_denied` (one denial each, counted live) and the final `result` (`is_error`, `num_turns`, `terminal_reason`, `usage`); it ignores every other event type. `is_error`, not `subtype`, says whether the run failed; when the stream ends with a `result`, the exit code is 0 exactly when `is_error` is false. A run with no `result` (a refused argument, a kill) is a crash. Captured streams for the parser: `test/fixtures/claude-stream/`.
 - The runner chooses the session id (`--session-id`), so the session is recorded before the process starts.
-- The engine owns the child process, reads the event stream live (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
-- How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): `maxDenials` reached → `blocked` + `environment`, naming the denied tools; `maxTurns` passed → a failure that is not retried; a crash, garbage in the stream, or a missing or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status.
+- The engine owns the child process, reads the event stream live, line by line with a limit per line and none in total (`streamProcess`, ADR 0046), keeps only the facts it needs (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
+- How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): a session that is not what was asked → `blocked` + `environment`; `maxDenials` reached → `blocked` + `environment`, naming the denied tools; `maxTurns` passed → a failure that is not retried; a crash, garbage in the stream, or a missing or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status.
 - On Windows the native `claude.exe` starts without a shell, inside a Job Object (ADR 0039); npm's `claude.cmd` goes through cmd.exe with every argument validated (ADR 0031). Either way, prompts and settings travel via stdin and files only, never arguments.
 - `--safe-mode` implements `context: lean`: without it, `claude -p` loads the target repository's `CLAUDE.md`, hooks and MCP servers. How `context: repo` gives a brewer the repository's instructions without its hooks is open (ADR 0042).
 - Sessions are persisted for the lifetime of the batch, so anyone on the machine can step into them with `/foedrum:resume` (ADR 0019); they are cleaned up with the batch.

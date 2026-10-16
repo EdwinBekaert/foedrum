@@ -93,7 +93,7 @@ export function withinCeiling(entry: string, ceiling: readonly string[]): boolea
   });
 }
 
-const parseRule = (rule: string): { tool: string; specifier?: string } => {
+export const parseRule = (rule: string): { tool: string; specifier?: string } => {
   const open = rule.indexOf('(');
   return open === -1
     ? { tool: rule }
