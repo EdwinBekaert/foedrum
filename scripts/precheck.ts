@@ -233,13 +233,17 @@ const readStdin = async (): Promise<string> => {
   return Buffer.concat(chunks).toString('utf8');
 };
 
+// Each module below loads only when a gated command needs it, so a call that does not name git
+// or gh starts nothing but this file (#41).
 if (import.meta.main) {
-  const { spawnProcess } = await import('./process-runner.ts');
-  const { stopOnSignals } = await import('../src/platform/processes.ts');
+  const spawnProcess: RunProcess = async (file, args, cwd, options) =>
+    (await import('./process-runner.ts')).spawnProcess(file, args, cwd, options);
   const findNpmCli: FindNpmCli = async (execPath) =>
     (await import('../src/platform/executables.ts')).findNpmCli(execPath);
-  const runCheck = npmCheck(process.execPath, findNpmCli, spawnProcess, stopOnSignals());
-  // Loaded only for gated commands.
+  const runCheck: RunCheck = async (cwd) => {
+    const { stopOnSignals } = await import('../src/platform/processes.ts');
+    return npmCheck(process.execPath, findNpmCli, spawnProcess, stopOnSignals())(cwd);
+  };
   const staleReason = async (cwd: string) => {
     const { outOfDate } = await import('./deps-sync.ts');
     return (await outOfDate(cwd))?.reason;
