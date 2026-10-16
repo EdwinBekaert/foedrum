@@ -42,6 +42,16 @@ describe('effectKey', () => {
     for (const k of invalid) assert.throws(() => effectKey.encode(k), /Invalid effect key/);
   });
 
+  it('encodes only the two parts of a batch key that carries other fields', () => {
+    const batch = { batchId: 'b1', deadlineAt: '2026-10-15' };
+    assert.equal(effectKey.encode({ ...batch, effect: 'claim.label' }), '["b1","claim.label"]');
+  });
+
+  it('refuses to encode a key with a step but no attempt', () => {
+    const half = { batchId: 'b1', stepId: 'plan', effect: 'pr' } as unknown as EffectKey;
+    assert.throws(() => effectKey.encode(half), /Invalid effect key/);
+  });
+
   it('gives different texts to keys whose parts would join to the same text', () => {
     const pairs: [EffectKey, EffectKey][] = [
       [

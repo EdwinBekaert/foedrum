@@ -104,6 +104,11 @@ describe('isCandidate', () => {
     assert.equal(isCandidate(issue(7, { assignees: ['Alice'] }), options(alice)), true);
   });
 
+  it('takes an issue of an allow-listed author, whatever the case of the login', () => {
+    const given = options(alice, { authors: ['alice'] });
+    assert.equal(isCandidate(issue(7, { author: 'ALICE' }), given), true);
+  });
+
   it('compares labels ignoring case, as GitHub does, and takes an issue of the milestone', () => {
     const given = options(alice, { filter: { labels: ['Foedrum'], milestone: 'M1' } });
     assert.equal(
