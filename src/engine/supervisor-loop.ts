@@ -3,6 +3,7 @@
 // releases expired leases and retries the state branch's flush. The clock, timer and store are
 // injected.
 
+import { attemptKey } from './attempt-key.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
 import type { EventStore } from './event-store.ts';
@@ -92,6 +93,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     routingMs = defaultRoutingMs,
     flushDeadlineMs = 10 * 60_000,
     report: reportTo = () => {},
+    acts = () => true,
   } = options;
   // A report that throws must not stop the supervisor: deadlines and reminders still need it.
   const report = (notice: Notice): void => {
@@ -150,15 +152,21 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     let appended = 0;
     let failure: { error: unknown } | undefined;
     try {
+      // Another driver's batches are its own supervisor's: their deadlines and leases stay as they are.
       const { commands, releaseLeases } = planTick({
         state: log.state(),
-        due: store.batchesPastDeadline(now),
-        expiredLeases: store.expiredLeases(now),
+        due: store.batchesPastDeadline(now).filter(({ batchId }) => acts(batchId)),
+        expiredLeases: store.expiredLeases(now).filter((lease) => {
+          const ref = attemptKey.decode(lease.attemptKey);
+          return ref === undefined || acts(ref.batchId);
+        }),
         progress,
         recipes,
         now,
       });
-      for (const command of commands) appended += apply(command, now);
+      for (const command of commands) {
+        if (acts(command.batchId)) appended += apply(command, now);
+      }
       if (releaseLeases.length > 0) {
         store.withTransaction((tx) => {
           for (const key of releaseLeases) tx.releaseLease(key);
