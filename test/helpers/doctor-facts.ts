@@ -12,7 +12,7 @@ export const ran = (path: string, output: string, exitCode: number | null = 0): 
 const linuxTools: Record<ToolName, ToolRun | undefined> = {
   npm: ran('/usr/bin/npm', '11.6.2\n'),
   git: ran('/usr/bin/git', 'git version 2.47.1\n'),
-  claude: ran('/home/brewer/.local/bin/claude', '2.1.300 (Claude Code)\n'),
+  claude: ran('/home/brewer/.local/bin/claude', '2.1.301 (Claude Code)\n'),
   bwrap: ran('/usr/bin/bwrap', 'bubblewrap 0.9.0\n'),
   socat: ran('/usr/bin/socat', 'socat by Gerhard Rieger\nsocat version 1.7.4.4 on Jan  1 2024\n'),
   podman: undefined,
@@ -34,7 +34,7 @@ export const windows: DoctorFacts = {
   tools: {
     npm: ran('C:\\Program Files\\nodejs\\npm.cmd', '11.6.2\r\n'),
     git: ran('C:\\Program Files\\Git\\cmd\\git.exe', 'git version 2.47.1.windows.1\r\n'),
-    claude: ran('C:\\Users\\brewer\\.local\\bin\\claude.exe', '2.1.300 (Claude Code)\r\n'),
+    claude: ran('C:\\Users\\brewer\\.local\\bin\\claude.exe', '2.1.301 (Claude Code)\r\n'),
     bwrap: undefined,
     socat: undefined,
     podman: undefined,
