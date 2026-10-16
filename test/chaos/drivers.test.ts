@@ -50,11 +50,19 @@ const noOverlap = ({ host }: ChaosRun): void => {
 };
 
 /** What two drivers and a terminal writing to one store must keep: after every move, and at the end. */
+/** A driver that starts again under its owner holds the batches its owner's live leases name. */
+const drivesOnItsBatches = ({ engine }: ChaosRun): void => {
+  for (const { driver, leased, held } of engine.resumes) {
+    assert.deepStrictEqual(held, [...leased].sort(), `${driver} started again holding its batches`);
+  }
+};
+
 const competing = (run: ChaosRun): void => {
   startsOnce(run);
   underItsLease(run);
   noOverlap(run);
   theLogHolds(run);
+  drivesOnItsBatches(run);
 };
 
 /** Who started each attempt, by attempt key. */
@@ -64,21 +72,19 @@ const starters = (engine: ChaosEngine): Map<string, string> =>
   );
 
 /**
- * An attempt lost with the lease of a driver that went down after a kill (ADR 0027 names the
- * owner of the expired lease), and its retry started by the other driver.
+ * The attempts lost when their lease expired, with the owner of that lease (the supervisor names
+ * it, ADR 0027) and the driver that started their retry, if one did.
  */
-const retriedByTheOther = (engine: ChaosEngine): boolean => {
+const lostAndRetried = (engine: ChaosEngine): { lost: string; retry: string | undefined }[] => {
   const by = starters(engine);
-  const down = new Set(engine.downs.map(({ driver }) => driver));
-  return engine.events().some((event) => {
-    if (event.type !== 'step.finished' || event.outcome.kind !== 'failed') return false;
+  return engine.events().flatMap((event) => {
+    if (event.type !== 'step.finished' || event.outcome.kind !== 'failed') return [];
     const lost = /^the attempt was lost: the lease of (\S+) expired/.exec(
       event.outcome.reason,
     )?.[1];
-    if (lost === undefined || !down.has(lost)) return false;
+    if (lost === undefined) return [];
     const { batchId, stepId, attempt } = event;
-    const retry = by.get(attemptKey.encode({ batchId, stepId, attempt: attempt + 1 }));
-    return retry !== undefined && retry !== lost;
+    return [{ lost, retry: by.get(attemptKey.encode({ batchId, stepId, attempt: attempt + 1 })) }];
   });
 };
 
@@ -101,7 +107,12 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   ),
   // A driver killed while it holds a batch, its brewer running on.
   'a batch taken over from a driver that was down': (engine) => engine.takeovers.length > 0,
-  'an attempt lost with a driver that was down, retried by the other': retriedByTheOther,
+  'an attempt lost with a driver that was down, retried by the other': (engine) => {
+    const down = new Set(engine.downs.map(({ driver }) => driver));
+    return lostAndRetried(engine).some(
+      ({ lost, retry }) => down.has(lost) && retry !== undefined && retry !== lost,
+    );
+  },
   // A driver that loses its batch while an attempt runs: it stops the run, and starts or applies
   // nothing more there (underItsLease).
   'a driver lost a batch while an attempt of it ran': (engine) =>
@@ -117,6 +128,18 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
     engine.interjections.some(({ accepted }) => accepted),
   "a driver's command refused after a terminal command came before it": (engine) =>
     engine.moot.length > 0,
+  // A driver restarted under its owner: it drives on the batches it held, and its earlier
+  // attempts are lost and retried (ADR 0033).
+  'a driver started again drove on a batch it held': (engine) =>
+    engine.resumes.some(({ driver, held, actsBefore }) =>
+      engine.acts
+        .slice(actsBefore)
+        .some((act) => act.driver === driver && held.includes(act.batchId)),
+    ),
+  'an attempt of a killed driver lost and retried by it after its restart': (engine) =>
+    lostAndRetried(engine).some(
+      ({ lost, retry }) => retry === lost && engine.resumes.some(({ driver }) => driver === lost),
+    ),
 };
 
 describe('two drivers on one store', () => {

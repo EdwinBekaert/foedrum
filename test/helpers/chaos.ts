@@ -415,6 +415,17 @@ export interface Interjection {
   accepted: boolean;
 }
 
+/** A driver that started again under its owner, with the batches it held then. */
+export interface Resume {
+  driver: string;
+  /** The batches whose live lease its owner had as it started. */
+  leased: string[];
+  /** The batches the new driver holds once started. */
+  held: string[];
+  /** How many acts there were before it: the ones after are its own and the others'. */
+  actsBefore: number;
+}
+
 export interface ChaosOptions {
   /** The owners of the drivers on the store; default one, `cellar`. Each takes every batch. */
   drivers?: readonly string[];
@@ -460,6 +471,8 @@ export interface ChaosEngine {
   readonly interjections: readonly Interjection[];
   /** The commands of drivers that were refused in a move with an interjection before them. */
   readonly moot: readonly { driver: string; command: EngineCommand; reason: string }[];
+  /** Every start of a driver after its first, under the same owner. */
+  readonly resumes: readonly Resume[];
   close(): void;
 }
 
@@ -490,6 +503,7 @@ export const openChaosEngine = async (
   const stops: { driver: string; key: string }[] = [];
   const interjections: Interjection[] = [];
   const moot: { driver: string; command: EngineCommand; reason: string }[] = [];
+  const resumes: Resume[] = [];
   const acts: Act[] = [];
   const contests: Contest[] = [];
   const takeovers: Takeover[] = [];
@@ -574,6 +588,9 @@ export const openChaosEngine = async (
     };
   };
 
+  // The owners whose driver started once at least: a start after that one is a restart.
+  const startedOnce = new Set<string>();
+
   /** Starts a new process of `owner`'s driver, until one survives its start, drive and effects. */
   const boot = async (owner: string): Promise<Process> => {
     for (;;) {
@@ -603,6 +620,10 @@ export const openChaosEngine = async (
         const { batchId } = effectKey.decode(key);
         acts.push({ driver: owner, kind: 'apply', key, batchId, held: holds(owner, batchId) });
       };
+      const leased = outside
+        .batchLeases(now)
+        .filter((lease) => lease.owner === owner)
+        .map((lease) => lease.batchId);
       try {
         const driver = await openDriver({
           store: killableStore(outside, life, { read, beginning: () => interject(owner) }),
@@ -624,6 +645,10 @@ export const openChaosEngine = async (
           routingMs,
           report,
         });
+        if (startedOnce.has(owner)) {
+          resumes.push({ driver: owner, leased, held: driver.held(), actsBefore: acts.length });
+        }
+        startedOnce.add(owner);
         // A new driver takes over its leases, starts the attempts that were scheduled and applies
         // the effects due.
         await driver.drive();
@@ -748,6 +773,7 @@ export const openChaosEngine = async (
     stops,
     interjections,
     moot,
+    resumes,
     get found() {
       return host.found;
     },
