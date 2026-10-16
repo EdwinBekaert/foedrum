@@ -259,6 +259,14 @@ const fakeLocks = () => {
   };
 };
 
+/** The batch an engine command is about, if any. */
+const batchOf = (command: EngineCommand): string | undefined =>
+  command.kind !== 'record'
+    ? command.batchId
+    : 'batchId' in command.event
+      ? command.event.batchId
+      : undefined;
+
 /** How a driver's calls reach the code host. */
 export interface HostCall {
   /** Lets the other drivers run before the call goes on, as a request over the network would. */
@@ -385,6 +393,8 @@ export interface Takeover {
   driver: string;
   batchId: string;
   from: string;
+  /** Why the driver it took the batch from was down. */
+  why: 'killed' | 'stalled';
 }
 
 /**
@@ -635,15 +645,22 @@ export const openChaosEngine = async (
       const read = (lease: BatchLease | undefined): void => {
         if (lease === undefined || lease.owner === owner) return;
         const { batchId } = lease;
+        const down = downUntil.has(lease.owner)
+          ? downs.findLast((earlier) => earlier.driver === lease.owner)
+          : undefined;
         if (lease.expiresAt > now) contests.push({ driver: owner, batchId, holder: lease.owner });
-        else if (downUntil.has(lease.owner))
-          takeovers.push({ driver: owner, batchId, from: lease.owner });
+        else if (down !== undefined) {
+          takeovers.push({ driver: owner, batchId, from: lease.owner, why: down.why });
+        }
       };
       const runner = runnerOf(life);
       const report = (notice: DriverNotice): void => {
+        // A refusal in the batch a terminal command changed before this driver's transaction.
         if (
           notice.kind === 'refused' &&
-          interjections.some((i) => i.move === move && i.driver === owner)
+          interjections.some(
+            (i) => i.move === move && i.driver === owner && i.batchId === batchOf(notice.command),
+          )
         ) {
           moot.push({ driver: owner, command: notice.command, reason: notice.reason });
         }
@@ -697,7 +714,13 @@ export const openChaosEngine = async (
     }
   };
   const processes = new Map<string, Process>();
-  for (const owner of drivers) processes.set(owner, await boot(owner));
+  try {
+    for (const owner of drivers) processes.set(owner, await boot(owner));
+  } catch (error) {
+    // A run that fails to start leaves no connection open: Windows could not remove its files.
+    outside.close();
+    throw error;
+  }
   const processOf = (owner: string): Process => {
     const found = processes.get(owner);
     if (found === undefined) throw new Error(`No driver ${owner}`);

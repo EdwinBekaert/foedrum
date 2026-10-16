@@ -105,12 +105,15 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
       ],
     ]),
   ),
-  // A driver killed while it holds a batch, its brewer running on.
-  'a batch taken over from a driver that was down': (engine) => engine.takeovers.length > 0,
-  'an attempt lost with a driver that was down, retried by the other': (engine) => {
-    const down = new Set(engine.downs.map(({ driver }) => driver));
+  // A driver killed while it holds a batch, its brewer running on: killed, not only stalled.
+  'a batch taken over from a driver that was killed': (engine) =>
+    engine.takeovers.some(({ why }) => why === 'killed'),
+  'an attempt lost with a driver that was killed, retried by the other': (engine) => {
+    const killed = new Set(
+      engine.downs.flatMap(({ driver, why }) => (why === 'killed' ? [driver] : [])),
+    );
     return lostAndRetried(engine).some(
-      ({ lost, retry }) => down.has(lost) && retry !== undefined && retry !== lost,
+      ({ lost, retry }) => killed.has(lost) && retry !== undefined && retry !== lost,
     );
   },
   // A driver that loses its batch while an attempt runs: it stops the run, and starts or applies
