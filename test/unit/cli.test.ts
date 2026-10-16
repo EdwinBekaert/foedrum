@@ -54,7 +54,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   gatherDoctorFacts: async () => linux(),
   openStore: () => undefined,
   openWritableStore: () => undefined,
-  recipes: { find: () => undefined },
+  recipes: () => ({ find: () => undefined }),
   user: () => 'ada',
   surface: 'terminal',
   now: () => new Date(D1),

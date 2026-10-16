@@ -34,7 +34,7 @@ try {
     openWritableStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
     // Recipe files reach the engine's Recipe interface in a follow-up of #37: until then a
     // command that schedules a step is refused with "the Brewery has no recipe <name>".
-    recipes: { find: () => undefined },
+    recipes: () => ({ find: () => undefined }),
     user: () => userName(() => userInfo().username, process.env),
     surface: 'terminal',
     now: () => new Date(),

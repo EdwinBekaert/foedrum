@@ -87,7 +87,7 @@ describe('foedrum: commands that change state', () => {
       opened.writable.push(path);
       return kept();
     },
-    recipes,
+    recipes: () => recipes,
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
@@ -404,7 +404,7 @@ describe('foedrum stuck', () => {
       gatherDoctorFacts: async () => linux(),
       openStore: () => ({ ...store, close: () => {} }),
       openWritableStore: () => undefined,
-      recipes,
+      recipes: () => recipes,
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
