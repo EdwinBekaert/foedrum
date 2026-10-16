@@ -27,7 +27,7 @@ The intake's pass and the driver's effects each run under a deadline below the b
 - `githubIssueMarks` (`src/github/marks.ts`) acts as the Brewery's token, whose login it is given. Assignees and labels come from one conditional read of the issue.
 - GitHub drops an assignee without access to the repository and still answers 201, so `assign` fails unless the answer lists the login. Removing a label that is not on the issue (404 "Label does not exist") counts as removed; any other 404 fails.
 - `findComment` reads every page of the issue's comments and finds the first one by the Brewery's own login that carries the marker. A comment by anyone else never counts, since the keys are predictable (ADR 0033).
-- Every answer is checked against the fields it uses (`src/schemas/github.ts`), and every error names the repository and the issue, never the token.
+- Every answer is checked against the fields it uses (`src/schemas/github.ts`), and every error for an answer it refused or could not read names the repository and the issue, never the token. A `GitHubRateLimited` passes through as it is: it holds for the whole client, not for one issue.
 
 ### Rate limits: the client pauses, and never waits
 - `createGitHubClient` keeps one pause for the token. An answer refused for a limit (a 429, or a 403 that is used up, has a `retry-after` or says "rate limit") pauses it: for `retry-after`'s seconds when given, else until the reset of a used-up limit, else for a minute that doubles while secondary limits repeat, up to 15 minutes. An answer that is no limit starts the doubling over. An answer that used the last request (`x-ratelimit-remaining: 0`) pauses until the reset too, and is still returned.
