@@ -755,6 +755,50 @@ describe("precheck reads a command in its tool's shell", () => {
   }
 });
 
+// Bypasses found by the review of #123 (#42), most of which the old gate caught.
+describe('forbiddenReason on the bypasses found in review', () => {
+  const forcePushes = [
+    // An apostrophe in a comment or a heredoc body is no quote to the shell.
+    "# don't rebase\ngit push -f\n# it's fine",
+    "cat > a.md <<'EOF'\nIt's a fix\nEOF\ngit push -f\necho it's",
+    "<# don't #>\ngit push -f\n# it's",
+    // Reserved words and PowerShell assignments before the program.
+    'if true; then git push -f; fi',
+    'for b in x; do git push --force origin $b; done',
+    'while true; do git push -f; done',
+    '! git push -f',
+    '$out = git push -f 2>&1',
+    '$log += git push --force',
+    // cmd as Git Bash spells it.
+    'cmd //c git push -f',
+    // A quoted program path with a space, through Start-Process.
+    'Start-Process -FilePath "C:\\Program Files\\Git\\cmd\\git.exe" -ArgumentList "push -f"',
+    // A line continuation before CRLF.
+    'git push origin main `\r\n  --force',
+    'git push origin main \\\r\n  --force',
+    // Interpreters that run code given on the command line.
+    `node -e "cp.execSync('git push -f', { stdio: 'inherit' })"`,
+    `node --eval "execSync('git push --force')"`,
+    `python -c "import os; os.system('git push -f')"`,
+    `python3 -c "import subprocess; subprocess.run(['git', 'push', '-f'])"`,
+    `perl -e "system('git push -f')"`,
+    `ruby -e "system('git push -f')"`,
+    // bash's $'…' escapes a quote with a backslash.
+    "echo $'\\'' ; git push -f ; echo \\'",
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${JSON.stringify(command)}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  for (const command of ['$null = gh pr merge 30', 'if true; then gh pr merge 30; fi']) {
+    it(`forbids merging a pull request: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+    });
+  }
+});
+
 // Limits and the pre-filter, pinned after the review of #123 (#42).
 describe('precheck limits and pre-filter', () => {
   it('blocks a command too wide to read, though shallow', () => {
