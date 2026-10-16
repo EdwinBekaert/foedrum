@@ -6,7 +6,18 @@ import { join } from 'node:path';
 import type { StoredEvent } from '../engine/event-store.ts';
 import { fold, InvalidLogError, type State } from '../engine/fold.ts';
 import { batchOf } from '../engine/state-branch.ts';
-import { DoctorCommand, ReplayCommand, StatusCommand } from '../schemas/commands.ts';
+import {
+  AnswerCommand,
+  CancelCommand,
+  DoctorCommand,
+  RecipeCommand,
+  ReplayCommand,
+  RetryCommand,
+  RewindCommand,
+  SkipCommand,
+  StatusCommand,
+  StuckCommand,
+} from '../schemas/commands.ts';
 import type { z } from '../schemas/zod.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import { formatReplay } from './replay.ts';
@@ -17,8 +28,15 @@ import { formatStatus } from './status.ts';
 export interface RegisteredCommand {
   name: string;
   summary: string;
+  /**
+   * Whether it may append events (ADR 0030): such a command opens the store for writing, and its
+   * events record who issued it and from where. A read-only one never writes.
+   */
+  changesState: boolean;
   /** The positional arguments, in order: each is a field of the command's input. */
   positionals: readonly string[];
+  /** The field that takes the positional arguments after those, one or more, as a list. */
+  rest?: string;
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -26,7 +44,9 @@ export interface RegisteredCommand {
 interface CommandDefinition<S extends z.ZodType> {
   name: string;
   summary: string;
+  changesState: boolean;
   positionals: readonly string[];
+  rest?: string;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }
@@ -47,6 +67,10 @@ const define = <S extends z.ZodType>({
 const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
 
 const done = (stdout: string): CliResult => ({ exitCode: 0, stdout, stderr: '' });
+
+const notImplemented = async (): Promise<CliResult> => {
+  throw new Error('not implemented');
+};
 
 const failed = (command: string, message: string): CliResult => ({
   exitCode: 1,
@@ -83,6 +107,7 @@ export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'doctor',
     summary: 'Check the tools Foedrum needs and the isolation level',
+    changesState: false,
     positionals: [],
     schema: DoctorCommand,
     handler: async (_input, { gatherDoctorFacts }) => {
@@ -93,14 +118,24 @@ export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'status',
     summary: 'List the batches and their lanes',
+    changesState: false,
     positionals: [],
     schema: StatusCommand,
     handler: async (_input, context) =>
       readBrewery('status', context, (_events, state) => done(formatStatus(state))),
   }),
   define({
+    name: 'stuck',
+    summary: 'List the Stuck batches with their options and questions',
+    changesState: false,
+    positionals: [],
+    schema: StuckCommand,
+    handler: notImplemented,
+  }),
+  define({
     name: 'replay',
     summary: "Show a batch's events and its folded state",
+    changesState: false,
     positionals: ['batch'],
     schema: ReplayCommand,
     handler: async ({ batch: id }, context) =>
@@ -114,5 +149,55 @@ export const commands: readonly RegisteredCommand[] = [
           ),
         );
       }),
+  }),
+  define({
+    name: 'retry',
+    summary: 'Give the step a Stuck batch stopped at another attempt',
+    changesState: true,
+    positionals: ['batch'],
+    schema: RetryCommand,
+    handler: notImplemented,
+  }),
+  define({
+    name: 'skip',
+    summary: 'Go on after the step a Stuck batch stopped at',
+    changesState: true,
+    positionals: ['batch'],
+    schema: SkipCommand,
+    handler: notImplemented,
+  }),
+  define({
+    name: 'answer',
+    summary: "Answer a Stuck batch's questions, one answer each, in order",
+    changesState: true,
+    positionals: ['batch'],
+    rest: 'answers',
+    schema: AnswerCommand,
+    handler: notImplemented,
+  }),
+  define({
+    name: 'recipe',
+    summary: 'Brew a batch with another recipe, from its first step',
+    changesState: true,
+    positionals: ['batch', 'recipe', 'reason'],
+    schema: RecipeCommand,
+    handler: notImplemented,
+  }),
+  define({
+    name: 'rewind',
+    summary: 'Take a Stuck batch back to a step, each repository at its commit',
+    changesState: true,
+    positionals: ['batch', 'step'],
+    rest: 'commits',
+    schema: RewindCommand,
+    handler: notImplemented,
+  }),
+  define({
+    name: 'cancel',
+    summary: 'Cancel a batch',
+    changesState: true,
+    positionals: ['batch'],
+    schema: CancelCommand,
+    handler: notImplemented,
   }),
 ];

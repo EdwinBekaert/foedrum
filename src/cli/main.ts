@@ -28,6 +28,23 @@ try {
     // making an empty one, and an older Cellar's store is not migrated under it.
     openStore: (path) =>
       existsSync(path) ? openSqliteEventStore(path, { readOnly: true }) : undefined,
+    // A command that changes state never creates a store either; it opens the Brewery's.
+    // Stubs until the commands that change state run.
+    openWritableStore: () => {
+      throw new Error('not implemented');
+    },
+    recipes: {
+      find: () => {
+        throw new Error('not implemented');
+      },
+    },
+    user: () => {
+      throw new Error('not implemented');
+    },
+    surface: 'terminal',
+    now: () => {
+      throw new Error('not implemented');
+    },
   });
   process.stdout.write(stdout);
   process.stderr.write(stderr);

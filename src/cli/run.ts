@@ -4,6 +4,8 @@
 
 import { parseArgs } from 'node:util';
 import type { EventStore } from '../engine/event-store.ts';
+import type { Recipes } from '../engine/recipes.ts';
+import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
 import { commands } from './commands.ts';
@@ -14,8 +16,20 @@ export interface CliContext {
   /** The Brewery's root: the event store is `.foedrum/index.db` in it. */
   cwd: string;
   gatherDoctorFacts: () => Promise<DoctorFacts>;
-  /** Opens the event store at `path`, or `undefined` when there is none. */
+  /** Opens the event store at `path` for reading only, or `undefined` when there is none. */
   openStore: (path: string) => EventStore | undefined;
+  /**
+   * Opens the event store at `path` for a command that changes state, or `undefined` when there
+   * is none: a command never creates one.
+   */
+  openWritableStore: (path: string) => EventStore | undefined;
+  /** The Brewery's recipes, which decide where a batch goes next. */
+  recipes: Recipes;
+  /** Who issues the command: the name its events record (ADR 0019). */
+  user: () => string;
+  /** Where the command comes from: the surface its events record. */
+  surface: Surface;
+  now: () => Date;
 }
 
 export interface CliResult {
