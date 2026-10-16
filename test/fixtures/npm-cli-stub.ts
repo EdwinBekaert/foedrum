@@ -1,4 +1,5 @@
-// Stands in for npm's CLI (npm_execpath) in the precheck and deps:sync tests. It echoes its
+// Stands in for npm's CLI (npm_execpath) in the deps:sync tests, and for a failing check script
+// in the precheck tests. It echoes its
 // arguments and working directory, writes "é" split across two writes so that decoding chunk by
 // chunk would corrupt it, and exits 3.
 

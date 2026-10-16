@@ -28,6 +28,14 @@ const runnableFile =
     }
   };
 
+const regularFile = (path: string): boolean => {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
 /** An environment variable; on Windows whatever the case of its name (Path, PATHEXT, SYSTEMROOT). */
 export const environmentVariable = (
   env: NodeJS.ProcessEnv,
@@ -92,6 +100,14 @@ export interface FindNpmCliOptions {
  * or a shell: `<node dir>/node_modules/npm/bin/npm-cli.js` on Windows,
  * `<prefix>/lib/node_modules/npm/bin/npm-cli.js` elsewhere, where node is `<prefix>/bin/node`.
  */
-export const findNpmCli = (_execPath: string, _options: FindNpmCliOptions = {}): NpmCliLookup => {
-  throw new Error('not implemented');
+export const findNpmCli = (execPath: string, options: FindNpmCliOptions = {}): NpmCliLookup => {
+  const { platform = process.platform, isFile = regularFile } = options;
+  const path = platform === 'win32' ? win32 : posix;
+  const nodeDir = path.dirname(execPath);
+  const npmDir =
+    platform === 'win32'
+      ? path.join(nodeDir, 'node_modules', 'npm')
+      : path.join(path.dirname(nodeDir), 'lib', 'node_modules', 'npm');
+  const tried = [path.join(npmDir, 'bin', 'npm-cli.js')];
+  return { path: tried.find((candidate) => isFile(candidate)), tried };
 };

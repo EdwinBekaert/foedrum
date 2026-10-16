@@ -1,8 +1,9 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
 // `gh pr merge` and pushes from a detached HEAD, and runs `npm run check` before `git push` and
 // `gh pr create`.
-// Wired in .claude/settings.json as `npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate
-// || exit 2`, so npm provides npm_execpath and the check itself runs without a shell.
+// Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
+// npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
+// without a shell.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // It runs before every Bash and PowerShell call, so input that cannot name git or gh exits
 // before any parsing, and the module has no static imports.
@@ -193,13 +194,28 @@ export type FindNpmCli = (execPath: string) => Promise<NpmCliLookup>;
 // which a Ctrl+C on the push does not reach: `stop` kills its tree.
 export const npmCheck =
   (
-    _execPath: string,
-    _findNpmCli: FindNpmCli,
-    _runProcess: RunProcess,
-    _stop?: AbortSignal,
+    execPath: string,
+    findNpmCli: FindNpmCli,
+    runProcess: RunProcess,
+    stop?: AbortSignal,
   ): RunCheck =>
-  async (_cwd) => {
-    throw new Error('not implemented');
+  async (cwd) => {
+    const { path: npmCli, tried } = await findNpmCli(execPath);
+    if (npmCli === undefined) {
+      return {
+        ok: false,
+        output: `npm's CLI was not found next to node (${execPath}), so the check cannot run. Tried:\n${tried.map((path) => `  ${path}\n`).join('')}Install npm with this node, or run npm run check yourself.`,
+      };
+    }
+    const { exitCode, output, killed } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd, {
+      timeoutMs: CHECK_TIMEOUT_MS,
+      signal: stop,
+    });
+    const { whyKilled } = await import('../src/platform/processes.ts');
+    const why = whyKilled(killed, CHECK_TIMEOUT_MS);
+    if (why === undefined) return { ok: exitCode === 0, output };
+    const what = killed === 'stopped' ? 'npm run check was stopped' : `npm run check ${why}`;
+    return { ok: false, output: `${output.trimEnd()}\n${what}` };
   };
 
 // `git symbolic-ref -q HEAD` exits 1, silently, only when HEAD is detached. It exits 0 on a branch
