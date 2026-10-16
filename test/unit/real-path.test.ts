@@ -1,5 +1,5 @@
 // realPath on the real file system: links and junctions are made with node:fs, so no process
-// starts (ADR 0021). Short names need cmd.exe to find them, so they are in
+// starts (ADR 0021). Short names need PowerShell to find them, so they are in
 // test/integration/read-guard.test.ts.
 
 import assert from 'node:assert/strict';

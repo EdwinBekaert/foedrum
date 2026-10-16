@@ -4,7 +4,7 @@
 // file. The guard's decisions are unit tests in test/unit/read-guard.test.ts.
 
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -28,28 +28,26 @@ interface ProcessResult {
   stderr: string;
 }
 
-const run = (
+// Through the process runner, which kills the whole tree at its deadline.
+const run = async (
   file: string,
   args: string[],
   stdin: string,
-  options: { cwd: string; env: NodeJS.ProcessEnv },
-): Promise<ProcessResult> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(file, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-    child.stdin.end(stdin);
+  { cwd, env }: { cwd: string; env: NodeJS.ProcessEnv },
+): Promise<ProcessResult> => {
+  const lines: string[] = [];
+  const result = await streamProcess(file, args, {
+    cwd,
+    env,
+    stdin,
+    timeoutMs: 60_000,
+    jobObject: true,
+    maxLineBytes: 1024 * 1024,
+    onLine: (line) => lines.push(line),
   });
+  assert.equal(result.killed, undefined, `${file} was killed: ${result.killed}`);
+  return { code: result.exitCode, stdout: lines.join('\n'), stderr: result.stderr };
+};
 
 const hookInput = (tool: string, toolInput: Record<string, unknown>, cwd = root): string =>
   JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: toolInput, cwd });
@@ -115,8 +113,10 @@ describe('the read guard hook command', () => {
   it('blocks Grep and Glob outside the checkout', async () => {
     const grep = await runHook(hookInput('Grep', { pattern: 'token' }, homedir()));
     assert.equal(grep.code, 2, grep.stderr);
+    assert.match(grep.stderr, /^Grep is blocked: .* outside the checkout/);
     const glob = await runHook(hookInput('Glob', { pattern: join(homedir(), '*') }));
     assert.equal(glob.code, 2, glob.stderr);
+    assert.match(glob.stderr, /^Glob is blocked: .* outside the checkout/);
   });
 
   it('fails closed: blocks with exit 2 when the project has no scripts/read-guard.ts', async () => {
