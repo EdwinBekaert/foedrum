@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type Command, type Context, decide, stuckOptions } from '../../src/engine/decide.ts';
+import {
+  type Command,
+  type Context,
+  decide,
+  type RecordedEvent,
+  stuckOptions,
+} from '../../src/engine/decide.ts';
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
@@ -184,7 +190,13 @@ describe('decide', () => {
 
 describe('decide record', () => {
   it('appends the event', () => {
-    accepts([], { kind: 'record', event: ordered }, [ordered]);
+    const observed: RecordedEvent = {
+      type: 'release.observed',
+      repo: 'acme/lib-core',
+      package: 'lib-core',
+      version: '2.4.0',
+    };
+    accepts([], { kind: 'record', event: observed }, [observed]);
   });
 
   it('refuses an event the lane does not allow', () => {
@@ -196,7 +208,13 @@ describe('decide record', () => {
   });
 
   it('refuses an event the fold would throw on', () => {
-    refuses([ordered], { kind: 'record', event: ordered }, /batch b1 was already ordered/);
+    const decomposed: RecordedEvent = {
+      type: 'order.decomposed',
+      batchId: 'b1',
+      subOrders: [{ issue: 101, repo: 'acme/api' }],
+      dependencies: [],
+    };
+    refuses([], { kind: 'record', event: decomposed }, /batch b1 was never ordered/);
   });
 });
 
