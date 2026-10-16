@@ -28,6 +28,20 @@ describe('effectKey', () => {
     );
   });
 
+  it('encodes the key of a batch effect as a JSON array of its batch and effect', () => {
+    const batchKey: EffectKey = { batchId: 'b1', effect: 'claim.label' };
+    assert.equal(effectKey.encode(batchKey), '["b1","claim.label"]');
+    assert.deepEqual(effectKey.decode('["b1","claim.label"]'), batchKey);
+  });
+
+  it('refuses to encode a batch key with an empty effect or an invalid batch id', () => {
+    const invalid: EffectKey[] = [
+      { batchId: 'b1', effect: '' },
+      { batchId: 'B1', effect: 'claim.label' },
+    ];
+    for (const k of invalid) assert.throws(() => effectKey.encode(k), /Invalid effect key/);
+  });
+
   it('gives different texts to keys whose parts would join to the same text', () => {
     const pairs: [EffectKey, EffectKey][] = [
       [

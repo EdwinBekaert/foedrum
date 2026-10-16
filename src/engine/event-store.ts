@@ -91,6 +91,7 @@ export class DuplicateEffectError extends Error {
   readonly key: EffectKey;
 
   constructor(key: EffectKey) {
+    if (!('stepId' in key)) throw new Error('not implemented');
     super(
       `Effect ${key.effect} of ${key.batchId}/${key.stepId}#${key.attempt} was already applied`,
     );

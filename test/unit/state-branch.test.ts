@@ -163,6 +163,11 @@ describe('logPathOf', () => {
     it(`puts ${type} in ${path}`, () => assert.equal(logPathOf(event), path));
   }
 
+  it('puts an effect of a batch in its batch log (ADR 0043)', () => {
+    const event: Event = { type: 'effect.applied', key: '["b4","claim.label"]', result: null };
+    assert.equal(logPathOf(event), 'batches/b4/events.jsonl');
+  });
+
   it('refuses a batch id that is not a path segment, even when the event skipped the schema', () => {
     for (const batchId of ['..', 'a/b', 'B1', 'nul']) {
       assert.throws(() => logPathOf(ordered(batchId)), /batch id/);

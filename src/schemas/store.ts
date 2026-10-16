@@ -7,13 +7,27 @@ import { z } from './zod.ts';
 const Filled = z.string().min(1);
 const Attempt = z.int().positive();
 
-/** The key of an external side effect: applied at most once (invariant I4). */
-export const EffectKey = z.strictObject({
+/** The key of an effect of an attempt. */
+export const AttemptEffectKey = z.strictObject({
   batchId: PathSafeId,
   stepId: PathSafeId,
   attempt: Attempt,
   effect: Filled,
 });
+export type AttemptEffectKey = z.infer<typeof AttemptEffectKey>;
+
+/** The key of an effect of a batch rather than one of its attempts (ADR 0043). */
+// Stub: throws for an object without a step and attempt, rejects anything else.
+export const BatchEffectKey = z.custom<{ batchId: string; effect: string }>((value) => {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    if (!('stepId' in value && 'attempt' in value)) throw new Error('not implemented');
+  }
+  return false;
+});
+export type BatchEffectKey = z.infer<typeof BatchEffectKey>;
+
+/** The key of an external side effect: applied at most once (invariant I4). */
+export const EffectKey = z.union([AttemptEffectKey, BatchEffectKey]);
 export type EffectKey = z.infer<typeof EffectKey>;
 
 /** The parts of an effect key in the order of its text. */

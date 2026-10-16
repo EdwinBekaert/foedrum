@@ -361,6 +361,7 @@ function apply(state: State, event: Event): State {
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by an attempt of the log, and applied at most once.
       const key = effectKey.decode(event.key);
+      if (!('stepId' in key)) throw new Error('not implemented');
       if (!batchOf(state, key.batchId).steps.get(key.stepId)?.attempts.has(key.attempt)) {
         throw attemptError(key, 'was never scheduled');
       }
