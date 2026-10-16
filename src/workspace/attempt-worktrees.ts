@@ -67,6 +67,15 @@ export const attemptBranch = (ref: AttemptRef): string => {
   return `foedrum/${batchId}/${stepId}/${attempt}`;
 };
 
+/**
+ * The name the local branch `foedrum/<rest>` is pushed under in a target repository:
+ * `foedrum/<brewery>/<rest>`, with the Brewery as `<owner>.<name>` in lower case, so two Breweries
+ * never push the same branch (ADR 0043).
+ */
+export const remoteBranch = (_brewery: string, _local: string): string => {
+  throw new Error('not implemented');
+};
+
 /** The attempt whose branch this is, or undefined for any other branch. */
 export const parseAttemptBranch = (name: string): AttemptRef | undefined => {
   const [namespace, ...parts] = name.split('/');
