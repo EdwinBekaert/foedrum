@@ -68,6 +68,16 @@ describe('refuseProcessStarts', () => {
     assert.doesNotThrow(() => hooks[0]?.());
   });
 
+  it('fails the file from the after hook after a single caught refusal', () => {
+    const { childProcess, hooks } = refuse(IN_TEST_PROCESS);
+    try {
+      callOf(childProcess, 'spawn')();
+    } catch {
+      // Swallowed, as the process runner does with a start that throws.
+    }
+    assert.throws(() => hooks[0]?.(), /made 1 process start, refused because .*ADR 0021/);
+  });
+
   it('fails the file from the after hook when the code under test caught the refusal', () => {
     const { childProcess, hooks } = refuse(IN_TEST_PROCESS);
     let caught: Error | undefined;
