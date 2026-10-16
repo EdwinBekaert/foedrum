@@ -636,6 +636,36 @@ describe('forbiddenReason and isGatedCommand on disguises caught before #42', ()
   });
 });
 
+// Each shell's own escapes inside quotes, and the ends of options and substitutions (#42).
+describe('forbiddenReason on quoting details', () => {
+  const forcePushes = [
+    // PowerShell doubles a quote inside a string; bash reads '' as two empty strings.
+    "iex 'echo ''it''; git push -f'",
+    'iex "echo ""it""; git push -f"',
+    // -- ends a wrapper's options.
+    'env -- git push -f',
+    'nice -n 5 -- git push --force',
+    // An unclosed substitution is read without it.
+    'echo $(git push -f',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  const allowed = [
+    // A doubled quote stays inside the PowerShell string; an escaped one inside the bash string.
+    "git commit -m 'it''s; git push -f'",
+    'git commit -m "say \\"hi\\"; git push -f"',
+  ];
+  for (const command of allowed) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
 describe('isGatedCommand through wrappers, other shells and aliases', () => {
   const gated = [
     'command git push',
