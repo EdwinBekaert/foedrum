@@ -96,7 +96,6 @@ const setup = (
   const waits: number[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
   const read: { file: string; maxBytes: number; root: string }[] = [];
-  const warnings: string[] = [];
   let clock = 0;
   const deps: ClaudeRunnerDeps = {
     claude: '/opt/claude/bin/claude',
@@ -133,16 +132,13 @@ const setup = (
       clock += 1;
       return at(clock);
     },
-    warn: (message) => {
-      warnings.push(message);
-    },
     wait: (ms, signal) => {
       waits.push(ms);
       if (more.waitForever !== true) return Promise.resolve();
       return new Promise<void>((done) => signal.addEventListener('abort', () => done()));
     },
   };
-  return { calls, written, read, warnings, waits, runner: claudeBrewerRunnerWith(deps) };
+  return { calls, written, read, waits, runner: claudeBrewerRunnerWith(deps) };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });

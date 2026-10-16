@@ -40,7 +40,6 @@ import {
 } from './attempt-settings.ts';
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
-import { isReadableVersion, unprovenClaudeWarning } from './claude-version.ts';
 import type { BrewerPrompt } from './prompt.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
@@ -74,8 +73,6 @@ export interface ClaudeRunnerDeps {
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
   };
   now: () => Date;
-  /** Says what the engine's user should know, such as a claude outside the proven versions. */
-  warn: (message: string) => void;
   /** Resolves after `ms`, or at once when `signal` aborts. */
   wait: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -254,8 +251,6 @@ const noFacts = (exit: ProcessExit): AttemptFacts => ({
 /** A brewer runner over the given stream process and files; unit tests pass fakes. */
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
-  // Each unproven version once per runner, not once per attempt.
-  const warned = new Set<string>();
 
   const start = (attempt: AttemptStart) => {
     const key = attemptKey.encode(attempt.ref);
@@ -334,14 +329,6 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         return unstartable(error);
       }
       const seen = stream.facts();
-      const version = seen.session?.claudeVersion;
-      // One key for every version it cannot read, so a strange one cannot grow the set.
-      const key = version !== undefined && !isReadableVersion(version) ? '' : version;
-      if (version !== undefined && key !== undefined && !warned.has(key)) {
-        warned.add(key);
-        const warning = unprovenClaudeWarning(version);
-        if (warning !== undefined) deps.warn(warning);
-      }
       const exit = exitOf(result);
       const out = deps.files.readOutDoc(
         resolve(plan.cwd, limits.outDoc.file),
@@ -378,7 +365,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
 
 /** The runner with the real process runner, files and clock. */
 export function claudeBrewerRunner(
-  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'warn'>,
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
 ): BrewerRunner {
   return claudeBrewerRunnerWith({
     ...options,

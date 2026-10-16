@@ -2,7 +2,6 @@
 // the tools Foedrum needs, the effective isolation level (ADR 0010, architecture §13) and what
 // is missing. doctor-facts.ts gathers the facts.
 
-import { isProvenClaude, unprovenClaudeText } from '../brewers/claude-version.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
@@ -122,19 +121,6 @@ const requiredProblems = (name: 'git' | 'claude', run: ToolRun | undefined, fix:
   return [];
 };
 
-// The settings proof of ADR 0046 holds only for the versions it ran against (#128, ADR 0048).
-const claudeVersionProblems = (run: ToolRun | undefined): Problem[] => {
-  const version = versionOf(run);
-  if (version === undefined || isProvenClaude(version)) return [];
-  return [
-    {
-      required: false,
-      what: unprovenClaudeText(version),
-      fix: 'until a Foedrum release proves it, keep permissions.allow and env out of your Claude Code user settings: they may widen what a brewer may do (ADR 0046)',
-    },
-  ];
-};
-
 // Windows: a brewer's processes run in a kill-on-close Job Object, so a stop ends them all; the
 // helper that makes one needs PowerShell in Full Language mode (ADR 0039).
 const jobObjectProblems = ({ platform, jobObject }: DoctorFacts): Problem[] => {
@@ -234,7 +220,6 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       tools.claude,
       'install Claude Code, https://code.claude.com/docs/en/setup',
     ),
-    ...claudeVersionProblems(tools.claude),
     ...jobObjectProblems(facts),
     ...sandboxProblems,
   ];

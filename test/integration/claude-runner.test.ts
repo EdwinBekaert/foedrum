@@ -82,8 +82,6 @@ describe('the claude brewer runner', { skip: claude === undefined }, () => {
     const runner = claudeBrewerRunner({
       claude: claude ?? 'claude',
       plan: async () => plan,
-      // A claude newer than the proven versions warns; the test is about the run, not the version.
-      warn: () => {},
     });
     const running = runner.start(attempt(maxDenials));
     assert.ok(runner.progress(attempt().ref), 'reports the attempt while it runs');
