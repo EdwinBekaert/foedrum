@@ -54,9 +54,14 @@ const ALIAS_BLOCKED =
 const TOO_DEEP_BLOCKED =
   'This command nests shells or commands too deeply for the gate to check: run git push and gh pr create as plain commands.';
 
-// A shell's reading of a command line. Git Bash runs the Bash tool's commands.
+// A shell's reading of a command line. Git Bash runs the Bash tool's commands, so a tool's command
+// is read in its own shell; what it runs in turn may be either, so that is read both ways.
 type Dialect = 'bash' | 'powershell';
 const DIALECTS: readonly Dialect[] = ['bash', 'powershell'];
+const TOOL_DIALECTS = new Map<unknown, readonly Dialect[]>([
+  ['Bash', ['bash']],
+  ['PowerShell', ['powershell']],
+]);
 
 // A word of a command after quote removal. `dynamic` when part of it is computed at run time (a
 // variable or a substitution); `quoted` when it starts with a quote, which PowerShell reads as a
@@ -484,7 +489,12 @@ const readInvocation = ({ program, args }: Invocation, reading: Reading): boolea
   return true;
 };
 
-const read = (command: string, depth: number, found: Findings): void => {
+const read = (
+  command: string,
+  depth: number,
+  found: Findings,
+  dialects: readonly Dialect[] = DIALECTS,
+): void => {
   found.reads++;
   if (depth > MAX_DEPTH || found.reads > MAX_READS) {
     found.reasons.push(TOO_DEEP_BLOCKED);
@@ -492,7 +502,7 @@ const read = (command: string, depth: number, found: Findings): void => {
   }
   const nested = new Set<string>();
   const aliases = new Set<string>();
-  for (const dialect of DIALECTS) {
+  for (const dialect of dialects) {
     const lexed = lex(command, dialect);
     const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [] };
     let runsText = false;
@@ -517,9 +527,9 @@ const read = (command: string, depth: number, found: Findings): void => {
   }
 };
 
-const findings = (command: string): Findings => {
+const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Findings => {
   const found: Findings = { reasons: [], gated: false, pushes: false, reads: 0 };
-  read(command, 0, found);
+  read(command, 0, found, dialects);
   return found;
 };
 
@@ -559,7 +569,7 @@ export const precheck = async (
 
   const command = isRecord(parsed.tool_input) ? parsed.tool_input.command : undefined;
   if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
-  const found = findings(command);
+  const found = findings(command, TOOL_DIALECTS.get(parsed.tool_name));
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
   if (!found.gated) return { exitCode: 0, stderr: '' };
