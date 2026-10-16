@@ -321,9 +321,19 @@ describe('claimEffectsDue', () => {
   });
 
   const released: [string, Lane, Record<string, PullRequestState>, RegExp][] = [
-    ['cancelled', { kind: 'cancelled', by: 'alice', via: 'terminal' }, {}, /cancelled/],
-    ['merged', onTap, { [pullRequest]: 'merged', [other]: 'merged' }, /merged/],
-    ['closed', onTap, { [pullRequest]: 'merged', [other]: 'closed' }, /closed/],
+    ['cancelled', { kind: 'cancelled', by: 'alice', via: 'terminal' }, {}, /was cancelled\.$/],
+    [
+      'merged',
+      onTap,
+      { [pullRequest]: 'merged', [other]: 'merged' },
+      /its pull requests were merged\.$/,
+    ],
+    [
+      'closed',
+      onTap,
+      { [pullRequest]: 'merged', [other]: 'closed' },
+      /a pull request was closed without being merged\.$/,
+    ],
   ];
   for (const [why, lane, byUrl, says] of released) {
     it(`releases the claim, leaving the assignee, once the batch is ${why}`, () => {
