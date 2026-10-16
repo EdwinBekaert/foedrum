@@ -16,3 +16,16 @@ export const PathSafeId = z
     segment,
     'Must be 1 to 64 lower-case letters, digits, ".", "_" or "-", start and end with a letter or digit, and not be a Windows device name',
   );
+
+/**
+ * The short name of a target repository in the Brewery's config, the start of the batch ids of its
+ * claimed issues (`<alias>-<issue>`, ADR 0050): a lower-case letter, then letters and digits, at
+ * most 20 in all. It starts with a letter, so it never begins a Brewery issue's `<issue>-<n>`, and
+ * has no hyphen, so the issue that follows it is never ambiguous.
+ */
+export const RepositoryAlias = z
+  .string()
+  .regex(
+    /^[a-z][a-z0-9]{0,19}$/,
+    'Must be 1 to 20 lower-case letters and digits, starting with a letter',
+  );

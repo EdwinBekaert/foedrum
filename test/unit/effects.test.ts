@@ -110,4 +110,53 @@ describe('applyEffect', () => {
     await assert.rejects(applyEffect(ledger, { ...key, stepId: 'Open PR' }, target), /effect key/);
     assert.deepEqual(calls, []);
   });
+
+  it('hands the target its signal, and records nothing once the signal aborted (#130)', async () => {
+    const { ledger, records } = memoryLedger();
+    const controller = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    const target: EffectTarget = {
+      find: async (_k, signal) => {
+        signals.push(signal);
+        return undefined;
+      },
+      // The deadline passes while the code host applies it: whether it landed is for `find`.
+      apply: async (_k, signal) => {
+        signals.push(signal);
+        controller.abort(new Error('past its deadline'));
+        return { number: 12 };
+      },
+    };
+    await assert.rejects(applyEffect(ledger, key, target, controller.signal), /past its deadline/);
+    assert.deepEqual(signals, [controller.signal, controller.signal]);
+    assert.deepEqual(records, []);
+  });
+
+  it('asks the target nothing when the signal aborted before it started', async () => {
+    const { ledger, records } = memoryLedger();
+    const { target, calls } = fakeTarget();
+    const signal = AbortSignal.abort(new Error('past its deadline'));
+    await assert.rejects(applyEffect(ledger, key, target, signal), /past its deadline/);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(records, []);
+  });
+
+  it('applies nothing when the signal aborted while the target looked for the effect', async () => {
+    const { ledger, records } = memoryLedger();
+    const controller = new AbortController();
+    const calls: string[] = [];
+    const target: EffectTarget = {
+      find: async () => {
+        controller.abort(new Error('past its deadline'));
+        return undefined;
+      },
+      apply: async (k) => {
+        calls.push(`apply ${k}`);
+        return { number: 12 };
+      },
+    };
+    await assert.rejects(applyEffect(ledger, key, target, controller.signal), /past its deadline/);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(records, []);
+  });
 });

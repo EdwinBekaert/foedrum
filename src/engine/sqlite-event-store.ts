@@ -292,6 +292,7 @@ export const openSqliteEventStore = (
       case 'bottle.opened':
       case 'release.observed':
       case 'batch.rewound':
+      case 'pull_request.ended':
         return;
       default: {
         const unhandled: never = event;

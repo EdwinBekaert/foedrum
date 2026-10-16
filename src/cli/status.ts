@@ -77,13 +77,16 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
   }
 };
 
+/** The issue a batch brews: `#<n>` in the Brewery, `<owner>/<name>#<n>` in a target repository. */
+export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
+
 /** What `foedrum status` prints: one line per batch, in the order they were ordered. */
 export const formatStatus = (state: State): string => {
   const batches = [...state.batches.values()];
   if (batches.length === 0) return 'No batches.\n';
   const rows = batches.map((batch) => {
     const { lane, detail } = describeLane(batch);
-    return [batch.id, `#${batch.issue}`, lane, detail];
+    return [batch.id, issueOf(batch), lane, detail];
   });
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
   return `${[count, '', ...columns(rows)].join('\n')}\n`;

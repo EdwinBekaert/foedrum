@@ -17,7 +17,7 @@ describe('diagnose: tools', () => {
       { name: 'node', version: '24.20.0', path: undefined },
       { name: 'npm', version: '11.6.2', path: '/usr/bin/npm' },
       { name: 'git', version: '2.47.1', path: '/usr/bin/git' },
-      { name: 'claude', version: '2.1.300', path: '/home/brewer/.local/bin/claude' },
+      { name: 'claude', version: '2.1.301', path: '/home/brewer/.local/bin/claude' },
       { name: 'bwrap', version: '0.9.0', path: '/usr/bin/bwrap' },
       { name: 'socat', version: '1.7.4.4', path: '/usr/bin/socat' },
     ]);
@@ -262,5 +262,47 @@ describe('diagnose: isolation (ADR 0010)', () => {
         said: output.trim(),
       });
     }
+  });
+});
+
+describe('diagnose: the Brewery config (ADR 0043)', () => {
+  const checks = '{ "build": null, "typecheck": null, "lint": null, "format": null, "test": null }';
+  const config = (web: string, api: string): string =>
+    `// foedrum.jsonc\n{ "repositories": { "acme/web": { "checks": ${checks}, "alias": "${web}" }, "acme/api": { "checks": ${checks}, "alias": "${api}" } } }\n`;
+
+  it('is not ok when foedrum.jsonc gives two repositories one alias, and names both', () => {
+    const diagnosis = diagnose({ ...linux(), config: config('app', 'app') });
+    assert.equal(diagnosis.ok, false);
+    const problem = diagnosis.problems.find(({ what }) => /foedrum\.jsonc/.test(what));
+    assert.deepEqual(
+      { required: problem?.required, what: problem?.what },
+      { required: true, what: 'foedrum.jsonc is not valid' },
+    );
+    assert.match(problem?.fix ?? '', /The alias app is already the alias of acme\/web/);
+    assert.match(problem?.fix ?? '', /repositories\["acme\/api"\]\.alias/);
+    assert.doesNotMatch(problem?.fix ?? '', /\n/, 'one line in the report');
+  });
+
+  it('is not ok when foedrum.jsonc is no JSONC at all', () => {
+    const diagnosis = diagnose({ ...linux(), config: '{ "repositories": ' });
+    assert.equal(diagnosis.ok, false);
+    assert.ok(diagnosis.problems.some(({ what }) => what === 'foedrum.jsonc is not valid'));
+  });
+
+  it('is ok with a valid foedrum.jsonc, and without one', () => {
+    for (const facts of [{ ...linux(), config: config('web', 'api') }, linux()]) {
+      const diagnosis = diagnose(facts);
+      assert.equal(diagnosis.ok, true);
+      assert.deepEqual(diagnosis.problems, []);
+    }
+  });
+
+  it('is not ok when foedrum.jsonc cannot be read, and says why', () => {
+    const diagnosis = diagnose({ ...linux(), configUnreadable: 'EACCES: permission denied' });
+    assert.equal(diagnosis.ok, false);
+    assert.deepEqual(
+      diagnosis.problems.find(({ what }) => /foedrum.jsonc/.test(what)),
+      { required: true, what: 'foedrum.jsonc cannot be read', fix: 'EACCES: permission denied' },
+    );
   });
 });

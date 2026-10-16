@@ -2,6 +2,8 @@
 // the tools Foedrum needs, the effective isolation level (ADR 0010, architecture §13) and what
 // is missing. doctor-facts.ts gathers the facts.
 
+import { BreweryConfig } from '../schemas/brewery-config.ts';
+import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
@@ -28,6 +30,10 @@ export interface DoctorFacts {
    * `undefined` elsewhere.
    */
   jobObject?: { exitCode: number | null; output: string } | undefined;
+  /** The text of foedrum.jsonc in the working directory; absent when there is none. */
+  config?: string | undefined;
+  /** Why foedrum.jsonc could not be read, when it is there and could not be. */
+  configUnreadable?: string | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
@@ -135,6 +141,23 @@ const jobObjectProblems = ({ platform, jobObject }: DoctorFacts): Problem[] => {
   ];
 };
 
+// foedrum.jsonc, when the working directory has one: a config that does not pass its schema (two
+// repositories with one alias, ADR 0050) stops the Brewery, so doctor says why, in one line.
+const configProblems = ({ config, configUnreadable }: DoctorFacts): Problem[] => {
+  if (configUnreadable !== undefined) {
+    return [{ required: true, what: 'foedrum.jsonc cannot be read', fix: configUnreadable }];
+  }
+  if (config === undefined) return [];
+  const read = readJsonc(config, BreweryConfig);
+  if (read.valid) return [];
+  const fix = read.reason
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .join(' ');
+  return [{ required: true, what: 'foedrum.jsonc is not valid', fix }];
+};
+
 /** The effective isolation level (ADR 0010, architecture §13) and what to do about it. */
 const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
   const level = (
@@ -221,6 +244,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       'install Claude Code, https://code.claude.com/docs/en/setup',
     ),
     ...jobObjectProblems(facts),
+    ...configProblems(facts),
     ...sandboxProblems,
   ];
   // Podman first: it runs without a daemon or root. One that does not answer its version (a

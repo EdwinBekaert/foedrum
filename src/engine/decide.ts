@@ -47,6 +47,7 @@ export type RecordedEvent = Extract<
       | 'order.decomposed'
       | 'bottle.opened'
       | 'release.observed'
+      | 'pull_request.ended'
       | 'effect.applied';
   }
 >;

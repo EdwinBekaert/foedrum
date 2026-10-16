@@ -2,6 +2,7 @@
 // every Brewery that uses it, with no network (ADR 0021). Creating a ref is atomic, as on GitHub:
 // it yields once, so that concurrent claims interleave, and then checks and sets in one step.
 
+import type { IssueMarks } from '../../src/engine/claim-effects.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
 import { type ClaimEffect, type ClaimHost, releaseClaim } from '../../src/engine/issue-claims.ts';
 
@@ -25,6 +26,11 @@ export interface FakeGitHub {
    * the key in a comment of `login`'s, or by a claim ref that is gone.
    */
   target(effect: ClaimEffect, login: string): EffectTarget;
+  /**
+   * The issue marks as `login` sees and makes them: its comments are numbered from 1 in the order
+   * they were made, and it finds only its own.
+   */
+  marks(login: string): IssueMarks;
   /** Sets a ref as someone did by hand, or as a run that was killed left it. */
   setRef(repo: string, issue: number, message: string): void;
 }
@@ -152,8 +158,48 @@ export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
     }
   };
 
+  const marks = (login: string): IssueMarks => ({
+    assignees: async (repo, number) => {
+      count('assignees');
+      return [...issue(repo, number).assignees];
+    },
+    assign: async (repo, number, assignee) => {
+      count('assign');
+      const found = issue(repo, number);
+      if (!found.assignees.includes(assignee)) found.assignees.push(assignee);
+    },
+    labels: async (repo, number) => {
+      count('labels');
+      return [...issue(repo, number).labels];
+    },
+    addLabel: async (repo, number, label) => {
+      count('addLabel');
+      const found = issue(repo, number);
+      if (!found.labels.includes(label)) found.labels.push(label);
+    },
+    removeLabel: async (repo, number, label) => {
+      count('removeLabel');
+      const found = issue(repo, number);
+      found.labels = found.labels.filter((name) => name !== label);
+    },
+    findComment: async (repo, number, marker) => {
+      count('findComment');
+      const index = issue(repo, number).comments.findIndex(
+        (comment) => comment.author === login && comment.body.includes(marker),
+      );
+      return index === -1 ? undefined : index + 1;
+    },
+    comment: async (repo, number, body) => {
+      count('comment');
+      const { comments } = issue(repo, number);
+      comments.push({ author: login, body });
+      return comments.length;
+    },
+  });
+
   const github: FakeGitHub = {
     host,
+    marks,
     refs,
     issue,
     calls,

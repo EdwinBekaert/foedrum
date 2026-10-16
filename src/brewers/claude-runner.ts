@@ -3,6 +3,7 @@
 // reads its stream line by line. What it saw goes through settleAttempt, as with the fake.
 
 import {
+  type BigIntStats,
   closeSync,
   constants,
   fstatSync,
@@ -10,6 +11,7 @@ import {
   openSync,
   readSync,
   realpathSync,
+  statSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
 import { attemptKey } from '../engine/attempt-key.ts';
@@ -28,6 +30,7 @@ import {
   type StreamProcess,
   type StreamResult,
   streamProcess,
+  type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import {
@@ -70,6 +73,8 @@ export interface ClaudeRunnerDeps {
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
   };
   now: () => Date;
+  /** Resolves after `ms`, or at once when `signal` aborts. */
+  wait: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
 /**
@@ -93,7 +98,13 @@ const lastLine = (text: string): string =>
     .at(-1) ?? '';
 
 /** Reads an out doc of at most `maxBytes`, only a regular file, and only inside `root`. */
-export function readOutDocFile(file: string, maxBytes: number, root: string): OutDocRead {
+export function readOutDocFile(
+  file: string,
+  maxBytes: number,
+  root: string,
+  open: (path: string, flags: number) => number = openSync,
+  stat: (path: string, options: { bigint: true }) => BigIntStats = statSync,
+): OutDocRead {
   const tooLarge: OutDocRead = { kind: 'unread', reason: `it is larger than ${maxBytes} bytes` };
   const notAFile: OutDocRead = { kind: 'unread', reason: 'it is not a regular file' };
   try {
@@ -102,17 +113,28 @@ export function readOutDocFile(file: string, maxBytes: number, root: string): Ou
     // A link could point the out doc, which reaches the event log, at any file of the machine.
     if (!found.isFile()) return notAFile;
     // So could a linked folder on its path (a junction needs no privilege on Windows), or `..`.
-    if (pathInside(realpathSync(root), realpathSync(file)) === undefined) {
+    const real = realpathSync(file);
+    if (pathInside(realpathSync(root), real) === undefined) {
       return { kind: 'unread', reason: 'it is outside the worktree' };
     }
+    // The identity of the file checked, taken before the open: a folder swapped for a link after
+    // the check is followed by the open and by any later look at the same path (#134, review of
+    // #136). Big integers, as a Windows file id may not fit a number.
+    const checked = stat(real, { bigint: true });
     // Where the platform has it, a link swapped in since the checks is not followed (ADR 0047).
-    const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const fd = open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
-      const opened = fstatSync(fd);
-      if (!opened.isFile()) return notAFile;
+      // O_NOFOLLOW covers only the last part of the path: the file opened must be the one checked.
+      const held = fstatSync(fd, { bigint: true });
+      // A swap that came before the identity was taken and is still in place moved the real path
+      // (review of #136); one made and undone within these few calls is not seen.
+      if (held.dev !== checked.dev || held.ino !== checked.ino || realpathSync(file) !== real) {
+        return { kind: 'unread', reason: 'it changed while it was read' };
+      }
+      if (!held.isFile()) return notAFile;
       // A hard link keeps its name in the worktree, but its content may be any file of the volume.
-      if (opened.nlink > 1) return { kind: 'unread', reason: 'it has more than one link' };
-      if (opened.size > maxBytes) return tooLarge;
+      if (held.nlink > 1n) return { kind: 'unread', reason: 'it has more than one link' };
+      if (held.size > BigInt(maxBytes)) return tooLarge;
       // Never more than the limit, even when the file grew since.
       const buffer = Buffer.alloc(maxBytes + 1);
       const length = readSync(fd, buffer, 0, maxBytes + 1, 0);
@@ -167,6 +189,58 @@ const environmentOf = (
     : `claude refused to start: ${cut(said)}`;
 };
 
+/** Resolves after `ms`, or at once when `signal` aborts or had aborted. */
+export function waitFor(
+  ms: number,
+  signal: AbortSignal,
+  timers: Timers = { set: setTimeout, clear: (timer) => clearTimeout(timer as NodeJS.Timeout) },
+): Promise<void> {
+  return new Promise<void>((done) => {
+    // A stop that came before the wait began costs no wait (review of #136).
+    if (signal.aborted) {
+      done();
+      return;
+    }
+    const timer = timers.set(done, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        timers.clear(timer);
+        done();
+      },
+      { once: true },
+    );
+  });
+}
+
+/** How long the runner waits before it starts claude once more after a passing failure. */
+const RETRY_MS = 5000;
+
+/**
+ * What claude says on stderr when it refuses for a cause the next start meets again: its
+ * arguments, its session id, its login (ADR 0042, #134).
+ */
+const LASTING_REFUSALS = [
+  /\bunknown option\b/i,
+  /\bargument missing\b/i,
+  /\bmissing required argument\b/i,
+  /\brequires --/i,
+  /\binvalid session id\b/i,
+  // A session id a start that wrote its stream has taken (review of #136, claude 2.1.301).
+  /\bsession id\b.*\balready in use\b/i,
+  /\bnot logged in\b/i,
+  /\binvalid api key\b/i,
+  /\/login\b/,
+];
+
+/** Whether claude failed before its first line for a cause it does not name as lasting. */
+const passingPreStreamFailure = (seen: StreamFacts, result: StreamResult): boolean => {
+  const exit = exitOf(result);
+  if (seen.environment !== undefined) return false;
+  if (environmentOf(seen, exit, result.stderr) === undefined) return false;
+  return !LASTING_REFUSALS.some((refusal) => refusal.test(result.stderr));
+};
+
 /** The facts of a process that never ran. */
 const noFacts = (exit: ProcessExit): AttemptFacts => ({
   exit,
@@ -217,17 +291,18 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
       }
       const { session, tools } = plan.call;
-      const stream = readClaudeStream(
-        { sessionId: session.id, tools, maxDenials: limits.maxDenials },
-        startedAt,
-      );
-      reader = stream;
-      let result: StreamResult;
-      try {
-        result = await deps.stream(deps.claude, args, {
-          cwd: plan.cwd,
-          env: plan.env,
-          stdin: plan.prompt,
+      const { cwd, env, prompt } = plan;
+      /** One start of claude, read by a reader of its own. */
+      const once = async (): Promise<{ stream: StreamReader; result: StreamResult }> => {
+        const stream = readClaudeStream(
+          { sessionId: session.id, tools, maxDenials: limits.maxDenials },
+          startedAt,
+        );
+        reader = stream;
+        const result = await deps.stream(deps.claude, args, {
+          cwd,
+          env,
+          stdin: prompt,
           // On Windows the tree must not outlive a kill (ADR 0039, #128); ignored elsewhere.
           jobObject: true,
           signal: stopping.signal,
@@ -237,6 +312,21 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
             if (stream.read(line, deps.now()) === 'stop') stopping.abort();
           },
         });
+        return { stream, result };
+      };
+      let stream: StreamReader;
+      let result: StreamResult;
+      try {
+        ({ stream, result } = await once());
+        // A failure before the first line that names no lasting cause may pass (#134): start
+        // claude once more, and call it the environment only when that fails too.
+        if (passingPreStreamFailure(stream.facts(), result)) {
+          await deps.wait(RETRY_MS, stopping.signal);
+          if (stopping.signal.aborted) {
+            return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
+          }
+          ({ stream, result } = await once());
+        }
       } catch (error) {
         return unstartable(error);
       }
@@ -284,5 +374,6 @@ export function claudeBrewerRunner(
     stream: streamProcess,
     files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
     now: () => new Date(),
+    wait: waitFor,
   });
 }

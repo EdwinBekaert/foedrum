@@ -2,7 +2,7 @@
 // `foedrum`, the command-line program (ADR 0016): runs one command of the command layer against
 // this machine and the Brewery in the working directory.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { release, userInfo } from 'node:os';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { userName } from '../platform/env.ts';
@@ -24,6 +24,7 @@ try {
         node: process.versions.node,
         execPath: process.execPath,
         cwd,
+        readFile: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined),
       }),
     // Never creates or changes a store (ADR 0030): a read in the wrong folder says so instead of
     // making an empty one, and an older Cellar's store is not migrated under it.

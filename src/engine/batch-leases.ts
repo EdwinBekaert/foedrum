@@ -36,3 +36,6 @@ export const holdBatch = (tx: EventStoreTransaction, request: HoldRequest): Hold
 export const releaseBatch = (tx: EventStoreTransaction, batchId: string, owner: string): void => {
   if (tx.batchLease(batchId)?.owner === owner) tx.releaseBatchLease(batchId);
 };
+
+/** How long a batch's or an attempt's lease lasts between renewals by default: 5 minutes. */
+export const defaultLeaseMs = 5 * 60_000;

@@ -406,6 +406,56 @@ describe('admit lane rules (ADR 0025)', () => {
   });
 });
 
+describe('admit records the end of a pull request the batch opened or waits for (#103)', () => {
+  const ended = (url = pullRequest): Event => ({
+    type: 'pull_request.ended',
+    batchId: 'b1',
+    pullRequest: url,
+    state: 'merged',
+  });
+
+  it('accepts the end of a pull request of a batch on tap, or of the merge it waits for', () => {
+    assert.equal(admit(fold(lanes.on_tap), [ended()]).kind, 'accepted');
+    assert.equal(admit(fold(lanes.conditioning), [ended()]).kind, 'accepted');
+  });
+
+  it('refuses the end of a pull request the batch did not open and does not wait for', () => {
+    const other = 'https://github.com/acme/api/pull/8';
+    for (const lane of ['on_tap', 'conditioning'] as const) {
+      refused(
+        lanes[lane],
+        ended(other),
+        /batch b1 neither opened nor waits for https:\/\/github.com\/acme\/api\/pull\/8/,
+      );
+    }
+    for (const lane of ['ordered', 'brewing', 'stuck', 'cancelled'] as const) {
+      refused(lanes[lane], ended(), /batch b1 neither opened nor waits for/);
+    }
+  });
+});
+
+describe('admit keeps a target-repository batch in its repository (ADR 0043)', () => {
+  const target = (event: Event): Event => ({ ...event, batchId: 'app-101' }) as Event;
+  const stuckTarget: Event[] = [
+    ordered,
+    decomposed101(),
+    {
+      type: 'batch.ordered',
+      batchId: 'app-101',
+      order: { issue: 101, repo: 'acme/web' },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    },
+    ...[chosen, scheduled, started, stuck].map(target),
+  ];
+  const rewind = (shas: Record<string, string>): Event => target({ ...rewound, shas });
+  const sha = 'a'.repeat(40);
+
+  it('rewinds it only to commits of its own repository, whatever sub-order shares its number', () => {
+    assert.equal(admit(fold(stuckTarget), [rewind({ 'acme/web': sha })]).kind, 'accepted');
+    refused(stuckTarget, rewind({ 'acme/api': sha }), /issue 101 of acme\/web writes only there/);
+  });
+});
+
 function decomposed101(): Event {
   return {
     type: 'order.decomposed',

@@ -74,3 +74,6 @@ Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcome
 - **A mismatched init as a retryable failure, or as "could not start":** a retry meets the same settings and spends an attempt; "could not start" ends as `attempts_exhausted`, which hides that the machine is what needs fixing.
 - **A larger total output limit instead of a limit per line:** a stream of several hundred megabytes would be held in memory twice, and it only moves the wall.
 - **The settings inline on the command line:** dropped just as silently when invalid, and it costs command-line length (ADR 0042).
+
+## Verification
+- `--setting-sources ""` verified against `claude` 2.1.301 when this was decided (`test/integration/claude-cli.test.ts`).
