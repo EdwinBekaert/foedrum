@@ -78,8 +78,8 @@ describe('test-outcomes-reporter under node --test', () => {
       ].join('\n'),
     );
     assert.deepEqual(outcomesOf('c.test.ts'), [
-      { file: 'c.test.ts', test: ['cleanup'], ok: false },
       { file: 'c.test.ts', test: ['cleanup', 'passes'], ok: true },
+      { file: 'c.test.ts', test: ['cleanup'], ok: false },
     ]);
   });
 
