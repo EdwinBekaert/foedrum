@@ -21,8 +21,25 @@ const CEILING_DIRS = ['test/property/', 'test/chaos/'];
 // The fields of node:test's reporter events that this reporter reads.
 export interface TestEvent {
   type: string;
-  data?: { nesting?: number; file?: string; duration_ms?: number };
+  data?: { nesting?: number; file?: string; duration_ms?: number; message?: string };
 }
+
+// What recordCpuTime needs from node:test and the process; injected, so tests pass fakes.
+export interface CpuTimeOptions {
+  env: NodeJS.ProcessEnv;
+  // node:test's after: registers a hook that runs after the file's tests.
+  after: (hook: (context: { diagnostic: (message: string) => void }) => void) => void;
+  // process.cpuUsage: this process's user and system time so far, in µs.
+  cpuUsage: () => { user: number; system: number };
+}
+
+export const recordCpuTime = (_options: CpuTimeOptions): void => {
+  throw new Error('not implemented');
+};
+
+export const withoutCpuTimes = (_source: AsyncIterable<TestEvent>): AsyncIterable<TestEvent> => {
+  throw new Error('not implemented');
+};
 
 export interface BudgetOptions {
   budgetMs: number;
