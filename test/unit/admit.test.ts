@@ -14,7 +14,12 @@ const question = {
   recommended: 'keep',
   whyBlocking: 'Removing it breaks the mobile app',
 };
-const ordered: Event = { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 } };
+const ordered: Event = {
+  type: 'batch.ordered',
+  batchId: 'b1',
+  order: { issue: 100 },
+  routeBy: '2026-12-31T00:00:00.000Z',
+};
 const chosen: Event = {
   type: 'batch.recipe_chosen',
   batchId: 'b1',
@@ -131,7 +136,13 @@ describe('admit refuses what the fold throws on', () => {
   const bottled: Event[] = [
     ordered,
     decomposed('b1', 101),
-    { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+    {
+      type: 'batch.ordered',
+      batchId: 'b2',
+      order: { issue: 101 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+      parentBatchId: 'b1',
+    },
     { ...chosen, batchId: 'b2' },
     { ...scheduled, batchId: 'b2' },
     { ...started, batchId: 'b2' },
@@ -200,7 +211,12 @@ describe('admit refuses what the fold throws on', () => {
       'a sub-order that already belongs to another order',
       [
         ordered,
-        { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } },
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 200 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
         decomposed('b1', 101),
       ],
       decomposed('b2', 101),
@@ -224,14 +240,28 @@ describe('admit refuses what the fold throws on', () => {
       [
         ordered,
         decomposed('b1', 101),
-        { type: 'batch.ordered', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 101 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+          parentBatchId: 'b1',
+        },
       ],
       decomposed('b2', 300),
       /batch b2 brews sub-order 101; only an order can be decomposed/,
     ],
     [
       'an order listed as a sub-order of another order',
-      [ordered, { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } }],
+      [
+        ordered,
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 200 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
+      ],
       decomposed('b1', 200),
       /issue 200 is an order, so it cannot be a sub-order/,
     ],
@@ -396,6 +426,7 @@ describe('admit keeps a sub-order in its repository', () => {
     type: 'batch.ordered',
     batchId: 'b2',
     order: { issue: 101 },
+    routeBy: '2026-12-31T00:00:00.000Z',
     parentBatchId: 'b1',
   };
 
@@ -449,7 +480,13 @@ describe('admit bottles only finished sub-orders of its repository (ADR 0013)', 
   };
   // A batch for each sub-order; only 101's and 103's are on tap.
   const brew = (batchId: string, issue: number, tap: boolean): Event[] => [
-    { type: 'batch.ordered', batchId, order: { issue }, parentBatchId: 'b1' },
+    {
+      type: 'batch.ordered',
+      batchId,
+      order: { issue },
+      routeBy: '2026-12-31T00:00:00.000Z',
+      parentBatchId: 'b1',
+    },
     { ...chosen, batchId },
     { ...scheduled, batchId },
     { ...started, batchId },

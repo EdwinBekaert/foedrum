@@ -75,7 +75,12 @@ describe('brewing with the fake brewer runner', () => {
     assert.ok(
       brewing.command({
         kind: 'record',
-        event: { type: 'batch.ordered', batchId: 'b1', order: { issue: 1 } },
+        event: {
+          type: 'batch.ordered',
+          batchId: 'b1',
+          order: { issue: 1 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
       }),
     );
     assert.ok(

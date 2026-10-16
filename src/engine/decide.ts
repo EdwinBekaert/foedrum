@@ -100,6 +100,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'waiting_for_session':
     case 'stalled':
       return [...withoutAnswer];
+    case 'routing':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -228,6 +230,7 @@ function run(draft: Draft, command: Command): Event[] {
     case 'retry': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'retry');
+      if (reason.kind === 'routing') throw new Error('not implemented');
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
       schedule(draft, batchId, reason.stepId);
       break;
@@ -235,6 +238,7 @@ function run(draft: Draft, command: Command): Event[] {
     case 'skip': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'skip');
+      if (reason.kind === 'routing') throw new Error('not implemented');
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
       continueAfter(draft, batchId, reason.stepId);
       break;

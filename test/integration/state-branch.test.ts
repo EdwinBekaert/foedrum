@@ -122,8 +122,18 @@ describe('the state branch with real git', () => {
       /not a valid ref/,
     );
 
-    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
-    await record(a, { type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } });
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b2',
+      order: { issue: 7 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
     await record(a, {
       type: 'step.scheduled',
       batchId: 'b1',
@@ -210,15 +220,30 @@ describe('the state branch with real git', () => {
   it('stops an engine when another engine pushed in between', async () => {
     const a = machine('a');
     await a.state.start();
-    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
 
     const b = machine('b');
     assert.deepEqual(await b.state.start(), { decision: 'restore' });
-    await record(b, { type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } });
+    await record(b, {
+      type: 'batch.ordered',
+      batchId: 'b2',
+      order: { issue: 7 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
     const pushedByB = git(origin, ['rev-parse', 'foedrum/state']).trim();
 
     a.store.withTransaction((tx) =>
-      tx.append({ type: 'batch.ordered', batchId: 'b3', order: { issue: 8 } }),
+      tx.append({
+        type: 'batch.ordered',
+        batchId: 'b3',
+        order: { issue: 8 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
     );
     await assert.rejects(
       a.state.flush(),
@@ -265,7 +290,12 @@ describe('the state branch with real git', () => {
     rmSync(marker);
 
     await a.state.start();
-    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
 
     assert.equal(a.store.pushedThrough()?.eventId, 1);
     assert.equal(existsSync(marker), false, 'a state commit ran the post-commit hook');
@@ -274,10 +304,20 @@ describe('the state branch with real git', () => {
   it('catches up a store that is behind with a fast-forward', async () => {
     const a = machine('a');
     await a.state.start();
-    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
     const b = machine('b');
     await b.state.start();
-    await record(b, { type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } });
+    await record(b, {
+      type: 'batch.ordered',
+      batchId: 'b2',
+      order: { issue: 7 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
 
     close(a);
     const restarted = reopen(a);
@@ -292,13 +332,23 @@ describe('the state branch with real git', () => {
   it('reports a push that a remote hook refuses, keeps the marker, and does not stop', async () => {
     const a = machine('a');
     await a.state.start();
-    await record(a, { type: 'batch.ordered', batchId: 'b1', order: { issue: 6 } });
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
     const hook = join(origin, 'hooks', 'pre-receive');
     writeFileSync(hook, '#!/bin/sh\necho "state pushes are closed" >&2\nexit 1\n');
     chmodSync(hook, 0o755);
 
     a.store.withTransaction((tx) =>
-      tx.append({ type: 'batch.ordered', batchId: 'b2', order: { issue: 7 } }),
+      tx.append({
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 7 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
     );
     const result = await a.state.flush();
 

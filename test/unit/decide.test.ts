@@ -35,7 +35,12 @@ const context: Context = {
 };
 const by = { by: 'octocat', via: 'comment' } as const;
 
-const ordered: Event = { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 } };
+const ordered: Event = {
+  type: 'batch.ordered',
+  batchId: 'b1',
+  order: { issue: 100 },
+  routeBy: '2026-12-31T00:00:00.000Z',
+};
 const chosen = (recipe = 'pint'): Event => ({
   type: 'batch.recipe_chosen',
   batchId: 'b1',
@@ -655,7 +660,15 @@ describe('decide wait: ordered → Conditioning', () => {
   it('waits for a sibling batch', () => {
     const sibling: WaitCondition = { kind: 'sibling', batchId: 'b2' };
     accepts(
-      [ordered, { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } }],
+      [
+        ordered,
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 200 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
+      ],
       wait(sibling),
       [waiting(sibling)],
     );
@@ -961,14 +974,25 @@ describe('decide rewind: only from Stuck (ADR 0025)', () => {
 
   describe('of a sub-order', () => {
     const subOrder: Event[] = [
-      { type: 'batch.ordered', batchId: 'b0', order: { issue: 100 } },
+      {
+        type: 'batch.ordered',
+        batchId: 'b0',
+        order: { issue: 100 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
       {
         type: 'order.decomposed',
         batchId: 'b0',
         subOrders: [{ issue: 101, repo: 'acme/api' }],
         dependencies: [],
       },
-      { type: 'batch.ordered', batchId: 'b1', order: { issue: 101 }, parentBatchId: 'b0' },
+      {
+        type: 'batch.ordered',
+        batchId: 'b1',
+        order: { issue: 101 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: 'b0',
+      },
       ...stuck().slice(1),
     ];
 

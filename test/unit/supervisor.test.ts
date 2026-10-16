@@ -23,6 +23,7 @@ const ordered = (batchId: string): Event => ({
   type: 'batch.ordered',
   batchId,
   order: { issue: Number(batchId.slice(1)) },
+  routeBy: '2026-12-31T00:00:00.000Z',
 });
 const chosen = (batchId: string, recipe = 'pint'): Event => ({
   type: 'batch.recipe_chosen',

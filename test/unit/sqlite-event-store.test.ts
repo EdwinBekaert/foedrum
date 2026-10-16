@@ -22,6 +22,7 @@ const ordered = (batchId: string): Event => ({
   type: 'batch.ordered',
   batchId,
   order: { issue: 6 },
+  routeBy: '2026-12-31T00:00:00.000Z',
 });
 const scheduled = (batchId: string, deadlineAt: string, attempt = 1, stepId = 'plan'): Event => ({
   type: 'step.scheduled',
@@ -140,7 +141,12 @@ describe('SqliteEventStore in memory', () => {
     });
 
     it('rejects an event that fails the schema and keeps nothing of the transaction', () => {
-      const invalid = { type: 'batch.ordered', batchId: 'b2', order: { issue: -1 } } as Event;
+      const invalid = {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: -1 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      } as Event;
       assert.throws(
         () =>
           store.withTransaction((tx) => {
