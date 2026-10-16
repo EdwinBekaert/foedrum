@@ -2,8 +2,6 @@
 // commit (issue #43). The planted-defect run in #104 had reviewers cite lines 27 and 34 of a
 // 20-line file; the review skill checks every citation before it writes the summary.
 
-import { isPlainPath } from '../mutants/core.ts';
-
 export interface Citation {
   file: string;
   line: number;
@@ -11,6 +9,14 @@ export interface Citation {
 
 // A finding that cites no location at all is fine: it has no citation to check.
 export type CitationCheck = { ok: true; citation?: Citation } | { ok: false; reason: string };
+
+// A relative path with forward slashes, with no empty, `.` or `..` segment, and no backslash,
+// drive colon, control character or line separator. The same check as in
+// scripts/mutants/core.ts, copied on purpose: this file imports nothing, so the review skill can
+// take it from a pull request and the mutant checker from its base without the two matching.
+const isPlainPath = (file: string): boolean =>
+  file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
+  !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file);
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

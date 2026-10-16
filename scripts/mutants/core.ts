@@ -21,17 +21,16 @@ export type MutantEdit =
 const MUTABLE_FOLDERS = ['src', 'scripts'];
 
 // A relative path with forward slashes, with no empty, `.` or `..` segment, and no backslash,
-// drive colon, control character or line separator.
-export const isPlainPath = (file: string): boolean =>
+// drive colon, control character or line separator. scripts/citations/core.ts has its own copy:
+// the review skill may take that file from a pull request and this one from its base.
+const isPlainPath = (file: string): boolean =>
   file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
   !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file);
 
-// The folder of a plain path to a file under src/ or scripts/; undefined for any other path.
-export const mutableFolder = (file: string): string | undefined => {
+// A plain path to a file under src/ or scripts/.
+const isMutable = (file: string): boolean => {
   const [folder, ...rest] = file.split('/');
-  return isPlainPath(file) && rest.length > 0 && MUTABLE_FOLDERS.includes(folder ?? '')
-    ? folder
-    : undefined;
+  return isPlainPath(file) && rest.length > 0 && MUTABLE_FOLDERS.includes(folder ?? '');
 };
 
 const strings = /(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
@@ -73,7 +72,7 @@ export const parseMutant = (value: unknown): MutantCheck => {
     return { ok: false, reason: '"line" is not a line number' };
   }
   const mutant = { file, line, original, replacement } as Mutant;
-  if (mutableFolder(mutant.file) === undefined) {
+  if (!isMutable(mutant.file)) {
     // The name is model output; quoted, its control characters cannot forge an output line.
     return {
       ok: false,

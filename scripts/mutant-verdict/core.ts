@@ -62,13 +62,16 @@ export const verdictOf = (baseline: Outcome[], run: Outcome[]): Verdict => {
   if (passing === 0) return { kind: 'no baseline' };
   const before = tally(baseline);
   const after = tally(run);
-  const by: Outcome[] = [];
+  const killers = new Map<string, Outcome>();
   for (const [key, { outcome, passed }] of before) {
-    if ((after.get(key)?.passed ?? 0) < passed) by.push({ ...outcome, ok: false });
+    if ((after.get(key)?.passed ?? 0) < passed) killers.set(key, { ...outcome, ok: false });
   }
   for (const [key, { outcome, failed }] of after) {
-    const known = by.some((killer) => keyOf(killer) === key);
-    if (!known && failed > (before.get(key)?.failed ?? 0)) by.push({ ...outcome, ok: false });
+    if (!killers.has(key) && failed > (before.get(key)?.failed ?? 0)) {
+      killers.set(key, { ...outcome, ok: false });
+    }
   }
-  return by.length > 0 ? { kind: 'killed', by } : { kind: 'survived', passing };
+  return killers.size > 0
+    ? { kind: 'killed', by: [...killers.values()] }
+    : { kind: 'survived', passing };
 };
