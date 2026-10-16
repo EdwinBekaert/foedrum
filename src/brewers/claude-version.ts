@@ -10,12 +10,38 @@ export interface VersionRange {
 
 export const PROVEN_CLAUDE: VersionRange = { from: '2.1.301', to: '2.1.301' };
 
+const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** The three parts of a version, or `undefined` when it is not one. */
+const partsOf = (version: string): [number, number, number] | undefined => {
+  const match = VERSION.exec(version);
+  return match === null ? undefined : [Number(match[1]), Number(match[2]), Number(match[3])];
+};
+
+/** Negative, zero or positive as `a` comes before, with or after `b`, part by part. */
+const compare = (a: readonly number[], b: readonly number[]): number => {
+  for (let i = 0; i < 3; i += 1) {
+    const difference = (a[i] ?? 0) - (b[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+};
+
 /** Whether `version` (`major.minor.patch`) lies in `range`; what is not a version does not. */
-export function isProvenClaude(_version: string, _range: VersionRange = PROVEN_CLAUDE): boolean {
-  throw new Error('not implemented');
+export function isProvenClaude(version: string, range: VersionRange = PROVEN_CLAUDE): boolean {
+  const parts = partsOf(version);
+  const from = partsOf(range.from);
+  const to = partsOf(range.to);
+  if (parts === undefined || from === undefined || to === undefined) return false;
+  return compare(parts, from) >= 0 && compare(parts, to) <= 0;
 }
 
+/** The proven range as people read it. */
+export const provenClaudeText = (range: VersionRange = PROVEN_CLAUDE): string =>
+  range.from === range.to ? range.from : `${range.from} to ${range.to}`;
+
 /** The warning for a claude outside the proven range, or `undefined` inside it. */
-export function unprovenClaudeWarning(_version: string): string | undefined {
-  throw new Error('not implemented');
+export function unprovenClaudeWarning(version: string): string | undefined {
+  if (isProvenClaude(version)) return undefined;
+  return `claude ${version} is not a version Foedrum proved its brewer settings on (${provenClaudeText()}): a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)`;
 }

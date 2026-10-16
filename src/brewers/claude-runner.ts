@@ -37,6 +37,7 @@ import {
 } from './attempt-settings.ts';
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { cut, readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
+import { unprovenClaudeWarning } from './claude-version.ts';
 import type { BrewerPrompt } from './prompt.ts';
 
 /** Everything one attempt needs, prepared by the engine (its worktree, prompt and session). */
@@ -181,6 +182,8 @@ const noFacts = (exit: ProcessExit): AttemptFacts => ({
 /** A brewer runner over the given stream process and files; unit tests pass fakes. */
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
+  // Each unproven version once per runner, not once per attempt.
+  const warned = new Set<string>();
 
   const start = (attempt: AttemptStart) => {
     const key = attemptKey.encode(attempt.ref);
@@ -243,6 +246,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         return unstartable(error);
       }
       const seen = stream.facts();
+      const version = seen.session?.claudeVersion;
+      if (version !== undefined && !warned.has(version)) {
+        warned.add(version);
+        const warning = unprovenClaudeWarning(version);
+        if (warning !== undefined) deps.warn(warning);
+      }
       const exit = exitOf(result);
       const out = deps.files.readOutDoc(
         resolve(plan.cwd, limits.outDoc.file),
