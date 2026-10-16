@@ -13,7 +13,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0007](0007-jsonc-config-and-json-frontmatter.md) | JSONC configuration, JSON frontmatter | Accepted, amended by 0020 |
 | [0008](0008-polling-intake.md) | Polling intake | Accepted |
 | [0009](0009-agpl-and-cla.md) | AGPL-3.0 with a Contributor License Agreement | Accepted |
-| [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted |
+| [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted, amended by 0039 |
 | [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted, amended by 0024 |
 | [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted, amended by 0029 |
 | [0013](0013-single-repo-sub-orders-bottles-and-releases.md) | Single-repository sub-orders, bottles and release dependencies | Accepted |
@@ -41,7 +41,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0035](0035-the-process-runner-kills-at-an-output-limit.md) | The process runner kills a process at an output limit | Accepted |
 | [0036](0036-test-budget-in-cpu-time.md) | The per-file test budget is CPU time (amends 0021) | Accepted, amended by 0038 |
 | [0038](0038-npm-test-processes-refuse-process-starts.md) | npm test's processes refuse to start processes (amends 0021 and 0036) | Accepted |
-| [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object | Accepted |
+| [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 
 ## Template
 
