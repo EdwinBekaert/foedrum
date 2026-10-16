@@ -13,13 +13,14 @@ A check that the engine runs on its own must not depend on a model getting a dif
 - **Validity, checked on the edit:**
   - `file` is an existing regular file under `src/` in the scratch tree. A path with `..`, `.`, empty segments, backslashes or a drive is invalid, and so is a file that a link takes out of `src/` or a `src/` that is itself a link.
   - The edited line is the one whose text, ignoring leading and trailing whitespace, is `original`: line `line` when it matches, otherwise the only line that does. Reviewers' line numbers are often off, and the text is what makes the edit exact. A text found on no line, or on several lines none of which is `line`, is invalid.
-  - `replacement` is one line, changes more than whitespace, and uses no identifier, property name, keyword or string that `original` does not contain. A mutant may change operators and number or boolean literals, or delete or reorder code on that line: a small bug, never a new capability.
+  - `replacement` is one line (U+2028 and U+2029 count as line breaks), changes more than whitespace anywhere on the line, and uses no identifier, property name, keyword or string that `original` does not contain outside a comment, so a mutant cannot turn commented-out code on. A mutant may change operators and number or boolean literals, or delete or reorder code on that line: a small bug, never a new capability.
 - Everything else in ADR 0017's Brett stands: the engine decides which mutants survive, survivors are advisory by default, and nothing Brett changes is committed.
 
 ## Consequences
 - No mutant is lost to a malformed patch, and an invalid mutant comes with a reason the checker states (`no line of … is the original`, `the replacement adds …`).
 - A mutant changes one line. A bug that needs two lines changed together (a removed `try` and its `catch`) cannot be expressed. Most of the bugs Brett is asked for (an inverted condition, an off-by-one, a dropped `await`, a removed deadline, a wrong default) are one line.
 - The review skill takes the checking script from the base of the pull request, like the secret scan, so a pull request cannot loosen the rules its own mutants are checked by.
+- The review skill's checker (`scripts/mutants.ts`, `scripts/mutants/core.ts`) is development tooling and reads the skill's own file, so it validates by hand. When the engine's Brett is built, its out doc gets a zod schema in `src/schemas/` (CLAUDE.md, TypeScript), which becomes the single source of the shape, and the checker uses it.
 
 ## Alternatives considered
 - **Keep patches and repair hunk headers.** Recounting the lines fixes this one failure but keeps the fuzzy placement of `git apply`, and the allowlist still has to be checked on the added lines of an arbitrary diff.
