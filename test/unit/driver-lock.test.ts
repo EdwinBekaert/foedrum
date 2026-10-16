@@ -115,6 +115,12 @@ describe('lockDriver', () => {
     assert.equal(lock({ ...cellar, brewery: 'Acme/Brewery' }).held, true);
   });
 
+  it('takes a marker that records the Brewery in another case than this driver names it', () => {
+    lock({ ...cellar, brewery: 'Acme/Brewery' }).release();
+    assert.deepStrictEqual(json('brewery.json'), { brewery: 'Acme/Brewery' });
+    assert.equal(lock({ ...cellar, brewery: 'acme/brewery' }).held, true);
+  });
+
   it('can be taken again once released, and a second release does nothing', () => {
     const first = lock();
     first.release();
