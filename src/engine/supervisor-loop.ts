@@ -1,11 +1,11 @@
 // The supervisor's thin shell (ADR 0021, ADR 0027): runs the tick on an interval. It reads the
-// store, asks the core (supervisor.ts) for commands, has decide turn them into events, appends them,
+// store, asks the core (supervisor.ts) for commands, has the command log decide and append them,
 // releases expired leases and retries the state branch's flush. The clock, timer and store are
 // injected.
 
-import { decide, type EngineCommand } from './decide.ts';
+import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
+import type { EngineCommand } from './decide.ts';
 import type { EventStore } from './event-store.ts';
-import { emptyState, fold, type State } from './fold.ts';
 import type { Recipes } from './recipes.ts';
 import { StateBranchStopError } from './state-branch.ts';
 import type { FlushResult, StateBranch } from './state-branch-git.ts';
@@ -13,7 +13,10 @@ import { type FlushWatch, type ProgressSource, planTick, watchFlush } from './su
 
 /** What the supervisor reports instead of failing: it keeps running. */
 export type Notice =
-  /** decide refused a command of the tick; the core and decide disagree, which is a bug. */
+  /**
+   * decide refused a command of the tick: another writer changed the batch after the tick read the
+   * store, or the core and decide disagree, which is a bug.
+   */
   | { kind: 'refused'; command: EngineCommand; reason: string }
   /** Deciding or appending a command threw; the tick goes on with the other commands. */
   | { kind: 'command_failed'; command: EngineCommand; error: unknown }
@@ -80,8 +83,8 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     clock,
     timer = realTimer,
     intervalMs = 5000,
-    reminderMs = 2 * 24 * 3_600_000,
-    routingMs = 3_600_000,
+    reminderMs = defaultReminderMs,
+    routingMs = defaultRoutingMs,
     flushDeadlineMs = 10 * 60_000,
     report: reportTo = () => {},
   } = options;
@@ -91,20 +94,10 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
       reportTo(notice);
     } catch {}
   };
-  // The folded state, kept up to date with whatever was appended since the last tick.
-  let state: State = emptyState;
-  let lastId = 0;
+  // Every command is decided against the events committed when it is appended, also those another
+  // writer appended after the tick read the store.
+  const log = createCommandLog({ store, recipes, reminderMs, routingMs });
   let watch: FlushWatch;
-
-  const refresh = (): State => {
-    const stored = store.eventsAfter(lastId);
-    state = fold(
-      stored.map(({ event }) => event),
-      state,
-    );
-    lastId = stored.at(-1)?.id ?? lastId;
-    return state;
-  };
 
   const flush = async (now: Date): Promise<FlushResult> => {
     let result: FlushResult;
@@ -126,15 +119,11 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
   /** Decides `command` and appends its events in a transaction of its own. */
   const apply = (command: EngineCommand, now: Date): number => {
     try {
-      const decision = decide(state, command, { now, recipes, reminderMs, routingMs });
+      const decision = log.issue(command, now);
       if (decision.kind === 'refused') {
         report({ kind: 'refused', command, reason: decision.reason });
         return 0;
       }
-      store.withTransaction((tx) => {
-        for (const event of decision.events) tx.append(event);
-      });
-      refresh();
       return decision.events.length;
     } catch (error) {
       // One broken command must not keep the other batches from their deadlines (I5).
@@ -157,7 +146,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     let failure: { error: unknown } | undefined;
     try {
       const { commands, releaseLeases } = planTick({
-        state: refresh(),
+        state: log.state(),
         due: store.batchesPastDeadline(now),
         expiredLeases: store.expiredLeases(now),
         progress,

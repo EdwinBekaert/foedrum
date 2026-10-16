@@ -3,9 +3,9 @@
 // on the same store (another driver, a terminal command) can never make it decide on a stale state.
 
 import type { Decision } from './admit.ts';
-import type { Command } from './decide.ts';
+import { type Command, decide } from './decide.ts';
 import type { EventStore, EventStoreTransaction } from './event-store.ts';
-import type { State } from './fold.ts';
+import { emptyState, fold, type State } from './fold.ts';
 import type { Recipes } from './recipes.ts';
 
 /** Time between Conditioning and Stuck reminders: 2 days (architecture §4.3). */
@@ -32,6 +32,41 @@ export interface CommandLog {
   issue(command: Command, now: Date, also?: (tx: EventStoreTransaction) => void): Decision;
 }
 
-export const createCommandLog = (_options: CommandLogOptions): CommandLog => {
-  throw new Error('not implemented');
+export const createCommandLog = (options: CommandLogOptions): CommandLog => {
+  const { store, recipes, reminderMs = defaultReminderMs, routingMs = defaultRoutingMs } = options;
+  // The folded state, caught up with whatever was committed since it was last read.
+  let folded = { state: emptyState, lastId: 0 };
+  const state = (): State => {
+    const stored = store.eventsAfter(folded.lastId);
+    if (stored.length === 0) return folded.state;
+    folded = {
+      state: fold(
+        stored.map(({ event }) => event),
+        folded.state,
+      ),
+      lastId: stored.at(-1)?.id ?? folded.lastId,
+    };
+    return folded.state;
+  };
+
+  const issue = (
+    command: Command,
+    now: Date,
+    also: (tx: EventStoreTransaction) => void = () => {},
+  ): Decision => {
+    // The write transaction holds the store's write lock from its start, so what it reads first
+    // is every committed event, and nothing else is appended before its own events.
+    const decision = store.withTransaction((tx) => {
+      const decided = decide(state(), command, { now, recipes, reminderMs, routingMs });
+      if (decided.kind === 'accepted') {
+        for (const event of decided.events) tx.append(event);
+        also(tx);
+      }
+      return decided;
+    });
+    state();
+    return decision;
+  };
+
+  return { state, issue };
 };
