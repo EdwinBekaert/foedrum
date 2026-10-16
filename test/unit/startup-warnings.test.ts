@@ -79,6 +79,25 @@ describe('startupWarnings', () => {
   }
 });
 
+// The warning says why, so the rule can be fixed from it.
+describe('startupWarnings reasons', () => {
+  const reasons: [rule: string, list: 'allow' | 'ask' | 'deny', why: RegExp][] = [
+    ['Write(/x)', 'deny', /never consult Write path rules/],
+    ['Glob(./secrets/**)', 'ask', /never consult Glob path rules/],
+    ['Bash(command:rm *)', 'deny', /main field command/],
+    ['Write(file_path:*)', 'deny', /main field file_path/],
+    ['Bsh(git push *)', 'deny', /no tool is called Bsh/],
+    ['B*', 'allow', /not anchored to one MCP server/],
+    ['Bash(git * main)', 'allow', /options inserted/],
+  ];
+  for (const [rule, list, why] of reasons) {
+    it(`says why it warns about ${rule}`, () => {
+      const [warning] = startupWarnings({ [list]: [rule] });
+      assert.match(warning ?? '', why);
+    });
+  }
+});
+
 describe('.claude/settings.json', () => {
   it('has no permission rule that Claude Code warns about at startup', () => {
     const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')) as {

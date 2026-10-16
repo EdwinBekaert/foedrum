@@ -755,6 +755,31 @@ describe("precheck reads a command in its tool's shell", () => {
   }
 });
 
+// Limits and the pre-filter, pinned after the review of #123 (#42).
+describe('precheck limits and pre-filter', () => {
+  it('blocks a command too wide to read, though shallow', () => {
+    const strings = Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ');
+    assert.match(forbiddenReason(`bash -c ${strings}`) ?? '', /too deeply/);
+  });
+
+  // A Bash call that never spells git, gh, push or pwsh still reaches the parser.
+  const hidden: [command: string, reason: RegExp][] = [
+    ["a=$(printf '\\x67h'); $a pr merge 30", /gh pr merge/],
+    [`powershell -enc ${Buffer.from('git push -f', 'utf16le').toString('base64')}`, /force push/i],
+  ];
+  for (const [command, reason] of hidden) {
+    it(`blocks: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = hookInput(command, '/work/tree', 'Bash');
+      assert.doesNotMatch(input.replace(/powershell|merge/gi, ''), /git|gh|push|pwsh/i);
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, reason);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 describe('precheck when the HEAD check cannot answer', () => {
   // A check that times out also blocks (#42): a hung git must not hold the gate until the hook's
   // own limit, and must not let the push through.
