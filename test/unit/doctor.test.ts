@@ -288,4 +288,12 @@ describe('diagnose: the Brewery config (ADR 0043)', () => {
     assert.equal(diagnosis.ok, false);
     assert.ok(diagnosis.problems.some(({ what }) => what === 'foedrum.jsonc is not valid'));
   });
+
+  it('is ok with a valid foedrum.jsonc, and without one', () => {
+    for (const facts of [{ ...linux(), config: config('web', 'api') }, linux()]) {
+      const diagnosis = diagnose(facts);
+      assert.equal(diagnosis.ok, true);
+      assert.deepEqual(diagnosis.problems, []);
+    }
+  });
 });

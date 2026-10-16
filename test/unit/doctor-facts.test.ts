@@ -200,4 +200,10 @@ describe('gatherDoctorFacts: the Brewery config', () => {
     assert.deepEqual(read, [join('/work/brewery', 'foedrum.jsonc')]);
     assert.equal(facts.config, '{ "repositories": {} }');
   });
+
+  it('has no config where there is no foedrum.jsonc', async () => {
+    const { shell } = fakeShell();
+    const facts = await gatherDoctorFacts({ ...shell, readFile: () => undefined });
+    assert.equal('config' in facts, false);
+  });
 });
