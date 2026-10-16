@@ -4,13 +4,13 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { applyEffect, type Ledger } from '../../src/engine/effects.ts';
 import type { Lane } from '../../src/engine/fold.ts';
 import {
-  brewingLabel,
   type CandidateOptions,
   type Claimant,
   type ClaimedBatch,
   claimCandidates,
   claimEffectsDue,
   claimIssue,
+  claimLabel,
   claimRef,
   isCandidate,
   type PullRequestState,
@@ -313,7 +313,7 @@ describe('claimEffectsDue', () => {
         ['app-7-1', 'app-7-1', 'app-7-1'],
       );
       assert.deepEqual(due[0]?.effect, { kind: 'assign', repo, issue: 7, login: 'alice' });
-      assert.deepEqual(due[1]?.effect, { kind: 'add_label', repo, issue: 7, label: brewingLabel });
+      assert.deepEqual(due[1]?.effect, { kind: 'add_label', repo, issue: 7, label: claimLabel });
       const comment = due[2]?.effect;
       assert.equal(comment?.kind, 'comment');
       assert.match(comment.kind === 'comment' ? comment.body : '', /alice\/brewery.*app-7-1/s);
@@ -356,7 +356,7 @@ describe('claimEffectsDue', () => {
         kind: 'remove_label',
         repo,
         issue: 7,
-        label: brewingLabel,
+        label: claimLabel,
       });
       const comment = due[1]?.effect;
       assert.match(comment?.kind === 'comment' ? comment.body : '', says);
@@ -398,7 +398,7 @@ describe('claimEffectsDue', () => {
     };
     await run({ kind: 'brewing' });
     assert.deepEqual(github.issue(repo, 7).assignees, ['alice']);
-    assert.deepEqual(github.issue(repo, 7).labels, [brewingLabel]);
+    assert.deepEqual(github.issue(repo, 7).labels, [claimLabel]);
     assert.equal(github.issue(repo, 7).comments.length, 1);
     await run({ kind: 'cancelled', by: 'alice', via: 'terminal' });
     assert.deepEqual(github.issue(repo, 7).assignees, ['alice']);

@@ -7,8 +7,8 @@ import { ClaimRecord } from '../schemas/claim.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { Lane } from './fold.ts';
 
-/** The label a claimed issue carries while its batch brews. */
-export const brewingLabel = 'foedrum: brewing';
+/** The label a claimed issue carries until its claim is released. */
+export const claimLabel = 'foedrum: brewing';
 
 /** The ref that claims `issue` in its repository: `refs/foedrum/claims/issues/<issue>`. */
 export const claimRef = (issue: number): string => {
@@ -259,7 +259,7 @@ export const claimEffectsDue = (
   if (release === undefined) {
     return [
       due('claim.assignee', { kind: 'assign', repo, issue, login }),
-      due('claim.label', { kind: 'add_label', repo, issue, label: brewingLabel }),
+      due('claim.label', { kind: 'add_label', repo, issue, label: claimLabel }),
       due('claim.comment', {
         kind: 'comment',
         repo,
@@ -271,7 +271,7 @@ export const claimEffectsDue = (
   // The assignee stays: removing it would hand the issue to the next Brewery that polls.
   // The ref goes last, so the issue is never claimable while the marks are still on it.
   return [
-    due('release.label', { kind: 'remove_label', repo, issue, label: brewingLabel }),
+    due('release.label', { kind: 'remove_label', repo, issue, label: claimLabel }),
     due('release.comment', {
       kind: 'comment',
       repo,
