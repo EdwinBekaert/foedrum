@@ -21,7 +21,11 @@ import {
   type TargetIssue,
 } from './issue-claims.ts';
 
-/** What the intake reads of target repositories (architecture §3.1's `Tracker`, ADR 0008). */
+/**
+ * What the intake reads: the open issues of a target repository (architecture §3.1's `Tracker`,
+ * ADR 0008) and how a pull request of a batch stands (its `CodeHost`). On GitHub both are one API
+ * (ADR 0048).
+ */
 export interface TargetTracker {
   /** The open issues of `repo`; pull requests may be among them. */
   issues(repo: string): Promise<readonly TargetIssue[]>;

@@ -89,7 +89,10 @@ export interface Batch {
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
 }
 
-/** An order: a Brewery issue with batches that is not a sub-order. */
+/**
+ * An order of a Brewery issue with batches that is not a sub-order. A claimed target-repository
+ * issue is an order too, but its batches keep their repository instead (`Batch.repo`, ADR 0048).
+ */
 export interface Order {
   issue: number;
   batchIds: readonly string[];
@@ -204,7 +207,8 @@ function apply(state: State, event: Event): State {
         steps: new Map(),
         rewinds: [],
       });
-      // Orders and sub-orders are the Brewery's issues; a claimed target issue is neither.
+      // A claimed target issue is an order, but `orders` and `subOrders` hold the Brewery's own
+      // issues by number, which its number would collide with (ADR 0048).
       if (repo !== undefined) return { ...state, batches };
       const subOrder = state.subOrders.get(order.issue);
       if (subOrder !== undefined) {

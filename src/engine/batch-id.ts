@@ -1,6 +1,6 @@
 // Ids of the batches the engine orders. They become folder names on the state branch, so they must
 // pass PathSafeId (ADR 0024): `<issue>-<n>` is digits and one hyphen, at most 33 characters, and
-// `<alias>-<issue>[-<n>]` of a target-repository issue starts with a letter, at most 54 (ADR 0043).
+// `<alias>-<issue>[-<n>]` of a target-repository issue starts with a letter, at most 54 (ADR 0048).
 
 import { RepositoryAlias } from '../schemas/ids.ts';
 import type { State } from './fold.ts';
