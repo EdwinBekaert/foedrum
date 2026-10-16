@@ -117,12 +117,14 @@ export function readOutDocFile(
     if (pathInside(realpathSync(root), real) === undefined) {
       return { kind: 'unread', reason: 'it is outside the worktree' };
     }
+    // The identity of the file checked, taken before the open: a folder swapped for a link after
+    // the check is followed by the open and by any later look at the same path (#134, review of
+    // #136). Big integers, as a Windows file id may not fit a number.
+    const checked = statSync(real, { bigint: true });
     // Where the platform has it, a link swapped in since the checks is not followed (ADR 0047).
     const fd = open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
-      // O_NOFOLLOW covers only the last part of the path: the file opened must be the one checked
-      // (#134). Big integers, as a Windows file id may not fit a number.
-      const checked = statSync(real, { bigint: true });
+      // O_NOFOLLOW covers only the last part of the path: the file opened must be the one checked.
       const held = fstatSync(fd, { bigint: true });
       if (held.dev !== checked.dev || held.ino !== checked.ino) {
         return { kind: 'unread', reason: 'it changed while it was read' };
@@ -186,8 +188,23 @@ const environmentOf = (
 };
 
 /** Resolves after `ms`, or at once when `signal` aborts or had aborted. */
-export function waitFor(_ms: number, _signal: AbortSignal): Promise<void> {
-  throw new Error('not implemented');
+export function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((done) => {
+    // A stop that came before the wait began costs no wait (review of #136).
+    if (signal.aborted) {
+      done();
+      return;
+    }
+    const timer = setTimeout(done, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        done();
+      },
+      { once: true },
+    );
+  });
 }
 
 /** How long the runner waits before it starts claude once more after a passing failure. */
@@ -357,17 +374,6 @@ export function claudeBrewerRunner(
     stream: streamProcess,
     files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
     now: () => new Date(),
-    wait: (ms, signal) =>
-      new Promise<void>((done) => {
-        const timer = setTimeout(done, ms);
-        signal.addEventListener(
-          'abort',
-          () => {
-            clearTimeout(timer);
-            done();
-          },
-          { once: true },
-        );
-      }),
+    wait: waitFor,
   });
 }
