@@ -151,6 +151,7 @@ export interface ClaimPass {
   order: number[];
   /** The candidates another Brewery (or someone unknown) holds the claim of. */
   taken: { issue: number; by: string | undefined }[];
+  failed?: { issue: number; error: unknown };
 }
 
 /**

@@ -204,6 +204,35 @@ describe('createIntake', () => {
     }
   });
 
+  it('runs one pass at a time, so two polls at once order an issue once', async () => {
+    const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+    const polling = intake(tracker);
+    await Promise.all([polling.poll(), polling.poll()]);
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['web-7'],
+    );
+  });
+
+  it('orders the claims it won before a claim failed, reports the failure, and goes on', async () => {
+    const failing = {
+      ...github.host,
+      create: async (into: string, number: number, message: string) => {
+        if (into === web && number === 3) throw new Error('502 Bad Gateway');
+        return github.host.create(into, number, message);
+      },
+    };
+    const { tracker } = fakeTracker({ [web]: [issue(1), issue(2), issue(3)], [api]: [issue(2)] });
+    await intake(tracker, { claims: failing }).poll();
+    assert.deepStrictEqual(
+      batches().map(({ id }) => id),
+      ['web-1', 'web-2', 'api-2'],
+    );
+    const failed = notices.find((notice) => notice.kind === 'failed');
+    assert.equal(failed?.kind === 'failed' ? failed.what : '', `claiming ${web}#3`);
+    assert.match(failed?.kind === 'failed' ? String(failed.error) : '', /502 Bad Gateway/);
+  });
+
   it('reports a repository it cannot list, and goes on with the next one', async () => {
     const { tracker } = fakeTracker({ [api]: [issue(2)] });
     await intake(tracker).poll();

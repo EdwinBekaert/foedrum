@@ -296,4 +296,13 @@ describe('diagnose: the Brewery config (ADR 0043)', () => {
       assert.deepEqual(diagnosis.problems, []);
     }
   });
+
+  it('is not ok when foedrum.jsonc cannot be read, and says why', () => {
+    const diagnosis = diagnose({ ...linux(), configUnreadable: 'EACCES: permission denied' });
+    assert.equal(diagnosis.ok, false);
+    assert.deepEqual(
+      diagnosis.problems.find(({ what }) => /foedrum.jsonc/.test(what)),
+      { required: true, what: 'foedrum.jsonc cannot be read', fix: 'EACCES: permission denied' },
+    );
+  });
 });

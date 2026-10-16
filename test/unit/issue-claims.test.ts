@@ -7,6 +7,7 @@ import {
   type CandidateOptions,
   type Claimant,
   type ClaimedBatch,
+  type ClaimHost,
   claimCandidates,
   claimEffectsDue,
   claimIssue,
@@ -297,6 +298,26 @@ describe('claimCandidates', () => {
       order: [],
       taken: [],
     });
+  });
+
+  it('stops at a claim the code host fails, and still returns the claims it holds', async () => {
+    const github = fakeGitHub();
+    const failing: ClaimHost = {
+      ...github.host,
+      create: async (into, number, message) => {
+        if (number === 3) throw new Error('502 Bad Gateway');
+        return github.host.create(into, number, message);
+      },
+    };
+    const issues = [issue(1), issue(2), issue(3), issue(4)];
+    let claimed: Awaited<ReturnType<typeof claimCandidates>> | undefined;
+    await assert.doesNotReject(async () => {
+      claimed = await claimCandidates(failing, issues, pass(alice));
+    });
+    assert.deepEqual(claimed?.order, [1, 2]);
+    assert.equal(claimed?.failed?.issue, 3);
+    assert.match(String(claimed?.failed?.error), /502 Bad Gateway/);
+    assert.equal(github.refs.has(`${repo}#4`), false, 'it stops there');
   });
 });
 

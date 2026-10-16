@@ -11,6 +11,7 @@ export interface GitHubClientOptions {
   baseUrl?: string;
   /** How long one request may take; default 30 s. */
   timeoutMs?: number;
+  maxResponseBytes?: number;
 }
 
 export interface GitHubClient {

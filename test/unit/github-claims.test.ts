@@ -249,4 +249,14 @@ describe('githubClaimHost', () => {
     const { host } = hostWith(['hang'], 20);
     await assert.rejects(host.read(repo, 7), /did not answer within 20 ms/);
   });
+
+  it('gives up an answer longer than its limit, as the process runner does (ADR 0035)', async () => {
+    const fake = fakeFetch([refAt(sha), commit(sha, 'x'.repeat(200))]);
+    const client = createGitHubClient({
+      token: 'ghp_test',
+      fetch: fake.fetch,
+      maxResponseBytes: 128,
+    });
+    await assert.rejects(githubClaimHost(client).read(repo, 7), /longer than 128 bytes/);
+  });
 });

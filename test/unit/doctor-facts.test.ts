@@ -206,4 +206,19 @@ describe('gatherDoctorFacts: the Brewery config', () => {
     const facts = await gatherDoctorFacts({ ...shell, readFile: () => undefined });
     assert.equal('config' in facts, false);
   });
+
+  it('keeps a foedrum.jsonc it cannot read as the reason, instead of failing', async () => {
+    const { shell } = fakeShell();
+    let facts: Awaited<ReturnType<typeof gatherDoctorFacts>> | undefined;
+    await assert.doesNotReject(async () => {
+      facts = await gatherDoctorFacts({
+        ...shell,
+        readFile: () => {
+          throw new Error('EISDIR: illegal operation on a directory, read');
+        },
+      });
+    });
+    assert.equal(facts?.configUnreadable, 'EISDIR: illegal operation on a directory, read');
+    assert.equal(facts !== undefined && 'config' in facts, false);
+  });
 });

@@ -32,6 +32,7 @@ export interface DoctorFacts {
   jobObject?: { exitCode: number | null; output: string } | undefined;
   /** The text of foedrum.jsonc in the working directory; absent when there is none. */
   config?: string | undefined;
+  configUnreadable?: string | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
