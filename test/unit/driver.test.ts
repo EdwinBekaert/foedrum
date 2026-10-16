@@ -334,6 +334,114 @@ describe('openDriver', () => {
       assert.deepStrictEqual(started, [plan('b1')], 'it starts nothing more there');
     });
 
+    it('renews no attempt lease of a run whose attempt another driver lost meanwhile', async () => {
+      const { runner, end } = handRunner();
+      const host = fakeHost();
+      order('b1');
+      order('b2');
+      const driver = await open({ runner, effects: { due: commentsDue, target: host.target } });
+      await driver.drive();
+      // The driver stalled past its leases: another driver took b1 over and lost its plan#1.
+      now = at(6);
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: 'b1', owner: 'session-7', expiresAt: at(11) }),
+      );
+      const lose = { kind: 'lose', ...plan('b1'), reason: 'the attempt was lost' } as const;
+      assert.equal(intake.issue(lose, now).kind, 'accepted');
+      // It goes on with a drive and an effect pass, before any tick: b2's plan#1 has a comment due.
+      end(plan('b2'));
+      await driver.drive();
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode({ batchId: 'b2', stepId: 'implement', attempt: 1 })],
+        "plan#1 of b1 keeps no live lease beside the new holder's",
+      );
+    });
+
+    it('decides which attempt leases to renew on the events its heartbeat transaction sees', async () => {
+      const { runner, end } = handRunner();
+      const host = fakeHost();
+      order('b1');
+      order('b2');
+      // Another driver's process may append as this driver's next transaction begins, after it
+      // read the log.
+      let beginning: (() => void) | undefined;
+      const watched: EventStore = {
+        ...store,
+        withTransaction: (fn) => {
+          const other = beginning;
+          beginning = undefined;
+          other?.();
+          return store.withTransaction(fn);
+        },
+      };
+      const effects = { due: commentsDue, target: host.target };
+      const driver = await open({ store: watched, runner, effects });
+      await driver.drive();
+      end(plan('b2'));
+      await driver.drive();
+      // It stalled past its leases. As the heartbeat before b2's comment begins, another driver
+      // takes b1 over and loses its plan#1.
+      now = at(6);
+      beginning = () => {
+        store.withTransaction((tx) =>
+          tx.putBatchLease({ batchId: 'b1', owner: 'session-7', expiresAt: at(11) }),
+        );
+        const lose = { kind: 'lose', ...plan('b1'), reason: 'the attempt was lost' } as const;
+        assert.equal(intake.issue(lose, now).kind, 'accepted');
+      };
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode({ batchId: 'b2', stepId: 'implement', attempt: 1 })],
+        "plan#1 of b1 keeps no live lease beside the new holder's",
+      );
+    });
+
+    it('renews no attempt lease of a run that Stuck abandoned while its stop takes time', async () => {
+      // plan stalls after 10 minutes without progress, and a stopped run ends only when its
+      // process is gone, later.
+      const slow = fakeRecipes({ slow: fakeRecipe({ steps: ['plan'], stall: { minutes: 10 } }) });
+      const stopped: string[] = [];
+      const runner: BrewerRunner = {
+        start: ({ ref }) => ({
+          ended: new Promise<AttemptEnd>(() => {}),
+          stop: () => stopped.push(attemptKey.encode(ref)),
+        }),
+        progress: () => ({ lastProgressAt: t0, turnsWithoutProgress: 0 }),
+      };
+      const host = fakeHost();
+      // An effect of b1 comes due at minute 15.
+      const note = { ...plan('b1'), effect: 'note' };
+      const due = () => (now >= at(15) ? [note] : []);
+      const log = createCommandLog({ store, recipes: slow });
+      log.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now);
+      log.issue(
+        { kind: 'route', batchId: 'b1', recipe: 'slow', reason: 'r', source: 'label' },
+        now,
+      );
+      const driver = await open({ runner, recipes: slow, effects: { due, target: host.target } });
+      await driver.drive();
+      for (const minute of [4, 8, 11]) {
+        now = at(minute);
+        await driver.tick();
+      }
+      // At minute 11 Stuck abandoned plan#1 and the tick stopped its run, which runs on.
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+      now = at(15);
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b1","plan",1,"note"]']);
+      assert.deepStrictEqual(
+        store.currentLeases(at(17)).map((lease) => lease.attemptKey),
+        [],
+        'the lease of the abandoned plan#1 ends where the last tick before it left it',
+      );
+    });
+
     it('reports a batch it lost to another driver', async () => {
       order('b1');
       const notices: unknown[] = [];
