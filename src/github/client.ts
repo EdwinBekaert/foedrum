@@ -90,7 +90,7 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
   };
 
   return {
-    rest: (method, path, body, signal) => request(method, path, body, signal),
+    rest: request,
     graphql: async (query, variables, signal) => {
       const answer = await request('POST', '/graphql', { query, variables }, signal);
       if (answer.status !== 200)

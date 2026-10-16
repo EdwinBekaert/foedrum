@@ -17,6 +17,7 @@ import {
   claimCandidates,
   type IntakeFilter,
   type PullRequestState,
+  same,
   type TargetIssue,
 } from './issue-claims.ts';
 
@@ -81,9 +82,6 @@ export const intakeRepositories = (config: BreweryConfig): IntakeRepository[] =>
   Object.entries(config.repositories).flatMap(([repo, { alias, intake }]) =>
     intake === undefined || alias === undefined ? [] : [{ repo, alias, filter: intake }],
   );
-
-// GitHub compares repository names ignoring case.
-const same = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
 
 export const createIntake = (options: IntakeOptions): Intake => {
   const { log, tracker, claims, claimant, authors, repositories, capacity, clock } = options;

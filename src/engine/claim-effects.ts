@@ -13,6 +13,7 @@ import {
   type ClaimHost,
   claimEffectsDue,
   releaseClaim,
+  same,
 } from './issue-claims.ts';
 
 /**
@@ -51,9 +52,6 @@ export interface ClaimEffectsOptions {
   /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
   deadlineMs?: number;
 }
-
-// GitHub compares logins and label names ignoring case.
-const same = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
 
 // The id the code host answered for a comment, which the ledger keeps for good.
 const commentId = (id: number): number => {

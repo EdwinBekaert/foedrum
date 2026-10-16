@@ -54,7 +54,8 @@ export interface CandidateOptions {
 }
 
 // GitHub compares logins, label names and repository names ignoring case.
-const same = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
+export const same = (one: string, other: string): boolean =>
+  one.toLowerCase() === other.toLowerCase();
 
 /** Whether the intake may claim `issue`: open, filtered in, unassigned or ours, never brewed. */
 export const isCandidate = (issue: TargetIssue, options: CandidateOptions): boolean => {
