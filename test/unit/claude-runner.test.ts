@@ -303,6 +303,22 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
+  // Review of #136: claude 2.1.301 refuses a session id that a start which wrote its stream has
+  // taken; it would refuse it again, so it is a lasting refusal, not one to retry.
+  it('blocks on a session id that is already in use, without starting claude again', async () => {
+    const { calls, waits, runner } = setup(
+      {
+        lines: [],
+        result: exited(1, `Error: Session ID ${session(1)} is already in use.\n`),
+      },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'blocked');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(waits, []);
+  });
+
   it('blocks on a refusal that only asks to log in again', async () => {
     const { calls, waits, runner } = setup(
       { lines: [], result: exited(1, 'Session expired · Please run /login') },
