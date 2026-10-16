@@ -35,6 +35,14 @@ it('I1: every non-terminal batch has exactly one pending action with a deadline'
             );
             break;
           }
+          // An ordered batch waits to be routed by its routing deadline (ADR 0032).
+          case 'ordered':
+            assert.equal(
+              deadline,
+              iso(lane.routeBy),
+              `the deadline of batch ${batch.id} is its routing deadline`,
+            );
+            break;
           case 'conditioning':
           case 'stuck':
             assert.equal(
@@ -43,9 +51,6 @@ it('I1: every non-terminal batch has exactly one pending action with a deadline'
               `the deadline of batch ${batch.id} is its reminder`,
             );
             break;
-          // An ordered batch waits for the intake to route it: until it has a recipe, it has no
-          // step to schedule and no deadline.
-          case 'ordered':
           case 'on_tap':
           case 'cancelled':
             assert.equal(deadline, undefined, `${batch.id} is ${lane.kind}`);

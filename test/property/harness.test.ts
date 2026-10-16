@@ -22,7 +22,7 @@ describe('holdsInScenarios', () => {
           error.message,
           /Shrunk from [1-9]\d+ moves and \d+ plays? to 1 move and 0 plays\./,
         );
-        assert.match(error.message, /\n +1\. record batch\.ordered /);
+        assert.match(error.message, /\nEvents:\n +1\. batch\.ordered /);
         return true;
       },
     );

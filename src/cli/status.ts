@@ -34,6 +34,8 @@ const stuckOn = (reason: StuckReason): string => {
       return `waiting for a session at ${reason.stepId}`;
     case 'stalled':
       return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
+    case 'routing':
+      return `not routed by ${reason.deadlineAt}`;
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -54,7 +56,7 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
   const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
-      return { lane: 'ordered', detail: '' };
+      return { lane: 'ordered', detail: `to be routed by ${lane.routeBy}` };
     case 'brewing':
       return { lane: 'brewing', detail: underWay(batch).join(', ') || 'between steps' };
     case 'conditioning':

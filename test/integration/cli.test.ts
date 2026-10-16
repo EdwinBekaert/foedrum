@@ -38,7 +38,12 @@ describe('foedrum status and replay on store files', () => {
     mkdirSync(join(brewery.path, '.foedrum'));
     const writer = openSqliteEventStore(store);
     writer.withTransaction((tx) =>
-      tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 } }),
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
     );
     writer.close();
     const db = new DatabaseSync(store);

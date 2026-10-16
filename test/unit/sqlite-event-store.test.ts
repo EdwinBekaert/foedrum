@@ -18,10 +18,11 @@ import type { Event } from '../../src/schemas/events.ts';
 import { z } from '../../src/schemas/zod.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
-const ordered = (batchId: string): Event => ({
+const ordered = (batchId: string, routeBy = '2026-12-31T00:00:00.000Z'): Event => ({
   type: 'batch.ordered',
   batchId,
   order: { issue: 6 },
+  routeBy,
 });
 const scheduled = (batchId: string, deadlineAt: string, attempt = 1, stepId = 'plan'): Event => ({
   type: 'step.scheduled',
@@ -140,7 +141,12 @@ describe('SqliteEventStore in memory', () => {
     });
 
     it('rejects an event that fails the schema and keeps nothing of the transaction', () => {
-      const invalid = { type: 'batch.ordered', batchId: 'b2', order: { issue: -1 } } as Event;
+      const invalid = {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: -1 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      } as Event;
       assert.throws(
         () =>
           store.withTransaction((tx) => {
@@ -630,6 +636,50 @@ describe('SqliteEventStore in memory', () => {
       });
       assert.deepEqual(store.batchesPastDeadline(now), [
         { batchId: 'b1', deadlineAt: at('2026-10-15T11:30:00Z') },
+      ]);
+    });
+
+    it('takes the routing deadline of an Ordered batch as its deadline (ADR 0032)', () => {
+      store.withTransaction((tx) => tx.append(ordered('b1', '2026-10-15T11:30:00Z')));
+      assert.deepEqual(store.batchesPastDeadline(now), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T11:30:00Z') },
+      ]);
+    });
+
+    it('ends the routing deadline when a step is scheduled', () => {
+      store.withTransaction((tx) => tx.append(ordered('b1', '2026-10-15T11:00:00Z')));
+      assert.deepEqual(store.batchesPastDeadline(now), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T11:00:00Z') },
+      ]);
+      store.withTransaction((tx) => tx.append(scheduled('b1', '2026-10-15T13:00:00Z')));
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
+    it('replaces the routing deadline with a Conditioning reminder', () => {
+      store.withTransaction((tx) => tx.append(ordered('b1', '2026-10-15T11:00:00Z')));
+      assert.deepEqual(store.batchesPastDeadline(now), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T11:00:00Z') },
+      ]);
+      store.withTransaction((tx) => tx.append(waiting('b1', '2026-10-15T13:00:00Z')));
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+    });
+
+    it('replaces the Stuck reminder with the routing deadline of a retry back to Ordered', () => {
+      store.withTransaction((tx) => {
+        tx.append(stuck('b1', '2026-10-15T11:00:00Z'));
+        tx.append({
+          type: 'batch.resumed',
+          batchId: 'b1',
+          by: 'octocat',
+          via: 'plugin',
+          action: 'retry',
+          routeBy: '2026-10-15T13:00:00Z',
+        });
+      });
+      // The reminder was due; a leftover row would still show.
+      assert.deepEqual(store.batchesPastDeadline(now), []);
+      assert.deepEqual(store.batchesPastDeadline(at('2026-10-15T14:00:00Z')), [
+        { batchId: 'b1', deadlineAt: at('2026-10-15T13:00:00Z') },
       ]);
     });
 

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type Command, type Context, decide, stuckOptions } from '../../src/engine/decide.ts';
+import {
+  type Command,
+  type Context,
+  decide,
+  type RecordedEvent,
+  stuckOptions,
+} from '../../src/engine/decide.ts';
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
@@ -24,6 +30,7 @@ const withoutAnswer = ['retry', 'skip', 'recipe', 'rewind', 'cancel'] as const;
 const context: Context = {
   now,
   reminderMs: 2 * day,
+  routingMs: hour,
   recipes: fakeRecipes({
     pint: fakeRecipe({
       steps: ['plan', 'implement', 'green'],
@@ -35,7 +42,12 @@ const context: Context = {
 };
 const by = { by: 'octocat', via: 'comment' } as const;
 
-const ordered: Event = { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 } };
+const ordered: Event = {
+  type: 'batch.ordered',
+  batchId: 'b1',
+  order: { issue: 100 },
+  routeBy: '2026-12-31T00:00:00.000Z',
+};
 const chosen = (recipe = 'pint'): Event => ({
   type: 'batch.recipe_chosen',
   batchId: 'b1',
@@ -179,7 +191,13 @@ describe('decide', () => {
 
 describe('decide record', () => {
   it('appends the event', () => {
-    accepts([], { kind: 'record', event: ordered }, [ordered]);
+    const observed: RecordedEvent = {
+      type: 'release.observed',
+      repo: 'acme/lib-core',
+      package: 'lib-core',
+      version: '2.4.0',
+    };
+    accepts([], { kind: 'record', event: observed }, [observed]);
   });
 
   it('refuses an event the lane does not allow', () => {
@@ -191,7 +209,97 @@ describe('decide record', () => {
   });
 
   it('refuses an event the fold would throw on', () => {
-    refuses([ordered], { kind: 'record', event: ordered }, /batch b1 was already ordered/);
+    const decomposed: RecordedEvent = {
+      type: 'order.decomposed',
+      batchId: 'b1',
+      subOrders: [{ issue: 101, repo: 'acme/api' }],
+      dependencies: [],
+    };
+    refuses([], { kind: 'record', event: decomposed }, /batch b1 was never ordered/);
+  });
+});
+
+describe('decide order and unrouted: a routing deadline (ADR 0032)', () => {
+  const late: Event = { ...ordered, routeBy: '2026-10-15T11:00:00.000Z' };
+  const routing: StuckReason = { kind: 'routing', deadlineAt: '2026-10-15T11:00:00.000Z' };
+  const unroutable = ['retry', 'recipe', 'cancel'] as const;
+  const stuckOnRouting = [late, stuckOn(routing, unroutable)];
+
+  it('orders a batch, to be routed within the routing interval', () => {
+    accepts([], { kind: 'order', batchId: 'b1', order: { issue: 100 } }, [
+      { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 }, routeBy: inAnHour },
+    ]);
+  });
+
+  it('orders the batch of a sub-order with its parent batch', () => {
+    accepts(
+      [ordered],
+      { kind: 'order', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      [
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 101 },
+          parentBatchId: 'b1',
+          routeBy: inAnHour,
+        },
+      ],
+    );
+  });
+
+  it('refuses a batch ordered twice', () => {
+    refuses([ordered], { kind: 'order', batchId: 'b1', order: { issue: 100 } }, /already ordered/);
+  });
+
+  it('offers retry, recipe and cancel for a batch Stuck on routing', () => {
+    assert.deepStrictEqual(stuckOptions(routing), [...unroutable]);
+  });
+
+  it('makes an Ordered batch past its routing deadline Stuck on routing', () => {
+    accepts([late], { kind: 'unrouted', batchId: 'b1' }, [stuckOn(routing, unroutable)]);
+  });
+
+  it('refuses an Ordered batch whose routing deadline is ahead', () => {
+    refuses(
+      [ordered],
+      { kind: 'unrouted', batchId: 'b1' },
+      /batch b1 is not due to be routed until 2026-12-31T00:00:00.000Z/,
+    );
+  });
+
+  for (const [lane, events] of otherLanes('ordered')) {
+    it(`refuses unrouted when the batch is ${lane}`, () => {
+      refuses(events, { kind: 'unrouted', batchId: 'b1' }, /unrouted needs it ordered/);
+    });
+  }
+
+  it('sends a batch Stuck on routing back to Ordered on retry, with a new routing deadline', () => {
+    const retry: Command = { kind: 'retry', batchId: 'b1', ...by };
+    accepts(stuckOnRouting, retry, [
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry', routeBy: inAnHour },
+    ]);
+  });
+
+  it('brews a batch Stuck on routing once a human chooses its recipe', () => {
+    const recipe: Command = { kind: 'recipe', batchId: 'b1', ...by, recipe: 'pint', reason: 'r' };
+    accepts(stuckOnRouting, recipe, [
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'pint',
+        reason: 'r',
+        source: 'human',
+        ...by,
+      },
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'recipe' },
+      next('plan'),
+    ]);
+  });
+
+  it('refuses to skip for a batch Stuck on routing: it has no step', () => {
+    const skip: Command = { kind: 'skip', batchId: 'b1', ...by };
+    refuses(stuckOnRouting, skip, /batch b1 does not offer skip/);
+    refuses([late, stuckOn(routing, ['skip', 'cancel'])], skip, /batch b1 has no step to skip/);
   });
 });
 
@@ -655,7 +763,15 @@ describe('decide wait: ordered → Conditioning', () => {
   it('waits for a sibling batch', () => {
     const sibling: WaitCondition = { kind: 'sibling', batchId: 'b2' };
     accepts(
-      [ordered, { type: 'batch.ordered', batchId: 'b2', order: { issue: 200 } }],
+      [
+        ordered,
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 200 },
+          routeBy: '2026-12-31T00:00:00.000Z',
+        },
+      ],
       wait(sibling),
       [waiting(sibling)],
     );
@@ -961,14 +1077,25 @@ describe('decide rewind: only from Stuck (ADR 0025)', () => {
 
   describe('of a sub-order', () => {
     const subOrder: Event[] = [
-      { type: 'batch.ordered', batchId: 'b0', order: { issue: 100 } },
+      {
+        type: 'batch.ordered',
+        batchId: 'b0',
+        order: { issue: 100 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
       {
         type: 'order.decomposed',
         batchId: 'b0',
         subOrders: [{ issue: 101, repo: 'acme/api' }],
         dependencies: [],
       },
-      { type: 'batch.ordered', batchId: 'b1', order: { issue: 101 }, parentBatchId: 'b0' },
+      {
+        type: 'batch.ordered',
+        batchId: 'b1',
+        order: { issue: 101 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+        parentBatchId: 'b0',
+      },
       ...stuck().slice(1),
     ];
 

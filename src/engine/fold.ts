@@ -17,7 +17,8 @@ import { effectKey } from './effect-key.ts';
 
 /** Where a batch is: the board lanes (architecture §4.3), plus cancelled. */
 export type Lane =
-  | { kind: 'ordered' }
+  /** `routeBy`: the routing deadline (ADR 0032). */
+  | { kind: 'ordered'; routeBy: string }
   | { kind: 'brewing' }
   | { kind: 'conditioning'; on: WaitCondition; remindAt: string }
   | { kind: 'stuck'; reason: StuckReason; options: readonly StuckOption[]; remindAt: string }
@@ -177,14 +178,14 @@ class Rejection extends Error {}
 function apply(state: State, event: Event): State {
   switch (event.type) {
     case 'batch.ordered': {
-      const { batchId, order, parentBatchId } = event;
+      const { batchId, order, parentBatchId, routeBy } = event;
       if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
       const batches = put(state.batches, batchId, {
         id: batchId,
         issue: order.issue,
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
-        lane: { kind: 'ordered' },
+        lane: { kind: 'ordered', routeBy },
         steps: new Map(),
         rewinds: [],
       });
@@ -276,7 +277,14 @@ function apply(state: State, event: Event): State {
       }));
     }
     case 'batch.resumed':
-      return setLane(state, event.batchId, { kind: 'brewing' });
+      // A retry of a batch Stuck on routing waits to be routed again (ADR 0032).
+      return setLane(
+        state,
+        event.batchId,
+        event.routeBy === undefined
+          ? { kind: 'brewing' }
+          : { kind: 'ordered', routeBy: event.routeBy },
+      );
     case 'order.decomposed': {
       const { id, issue } = batchOf(state, event.batchId);
       // One level of breakdown (architecture §3.2, ADR 0013).

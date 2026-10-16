@@ -161,7 +161,7 @@ State is derived from an append-only event log ([ADR 0002](adr/0002-event-source
 
 ```ts
 type Event =
-  | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string }
+  | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string; routeBy: string }
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'human'; by: string; via: Surface }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string }
@@ -170,7 +170,7 @@ type Event =
   | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage }
   | { type: 'input.received';      batchId: string; stepId: string; by: string; via: Surface; answers: Answer[] }
   | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[]; remindAt: string }
-  | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer' }
+  | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer'; routeBy?: string }  // routeBy: a retry back to ordered
   | { type: 'order.decomposed';    batchId: string; subOrders: SubOrderRef[]; dependencies: Dependency[] }
   | { type: 'batch.waiting';       batchId: string; on: WaitCondition; remindAt: string }   // merge, release, sibling batch
   | { type: 'bottle.opened';       bottleId: string; repo: string; subOrders: number[]; pullRequest: string }
@@ -197,6 +197,7 @@ type StuckReason =
   | { kind: 'deadline_passed';     stepId: string; deadlineAt: string }
   | { kind: 'waiting_for_session'; stepId: string }
   | { kind: 'stalled';             stepId: string; lastProgressAt: string; turnsWithoutProgress: number }
+  | { kind: 'routing';             deadlineAt: string }                  // ordered past its routing deadline
 type WaitCondition =
   | { kind: 'merge';   pullRequest: string }
   | { kind: 'release'; repo: string; package: string; minVersion: string }
@@ -210,7 +211,7 @@ Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lea
 The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps five tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024). `restore` appends events read from the state branch keeping their ids, after every stored event, and marks them pushed in the same transaction:
 
 - `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A trigger on `events` fills it, so the database itself refuses a second event for a key (the failed insert leaves no row), and `replay` refuses a log that contains one.
-- `deadlines`: the pending deadline of each step of a batch, so "batches past their deadline" is one indexed query (a batch's earliest). `step.scheduled` sets its step's deadline and ends a Conditioning or Stuck reminder; `batch.waiting` sets the reminder; `batch.stuck` replaces every deadline of the batch with its reminder ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)); `step.finished` clears its own attempt's deadline; `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
+- `deadlines`: the pending deadline of each step of a batch, and of the batch itself while it waits to be routed or for a reminder, so "batches past their deadline" is one indexed query (a batch's earliest). `batch.ordered` sets the routing deadline, and so does `batch.resumed` when a retry sends the batch back to Ordered ([ADR 0032](adr/0032-routing-deadline-for-ordered-batches.md)); `step.scheduled` sets its step's deadline and ends a routing deadline or a Conditioning or Stuck reminder; `batch.waiting` sets the reminder in place of a routing deadline; `batch.stuck` replaces every deadline of the batch with its reminder ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)); `step.finished` clears its own attempt's deadline; `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
 
 Events are validated against the zod schemas when appended and when read. All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout. The store reads no clock: callers pass `now`.
 
@@ -248,27 +249,28 @@ A brewer attempt runs through the `BrewerRunner` interface (`src/engine/brewer-r
    │          route · recipe │   │ wait ¹
    │                         ▼   │
 ordered ─ route · recipe ─► brewing ──── done ────► on_tap
-                             │   ▲
-                             │   │ retry · answer · skip
-                             ▼   │ recipe · rewind
-                             stuck
+ │  ▲                        │   ▲
+ │  │ retry ²                │   │ retry · answer · skip
+ │  │                        ▼   │ recipe · rewind
+ └──┴──── unrouted ²  ────► stuck
 
 ordered · brewing · conditioning · stuck ──► cancelled
 conditioning and stuck repeat their reminder (remind)
 ¹ between steps, once a recipe step needs it (ADR 0025); until then a batch enters conditioning only from ordered
+² past its routing deadline an ordered batch is stuck on routing; retry sends it back to ordered with a new deadline, recipe brews it (ADR 0032)
 ```
 
 The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)). It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`). On tap and cancelled are terminal. A blocked out doc is recorded as a final failure and routed by its blocker kind (brewers-and-recipes §2). Rewind is allowed only from Stuck.
 
-The supervisor (`src/engine/supervisor.ts`, run on an interval by `src/engine/supervisor-loop.ts`) is the engine's one liveness mechanism ([ADR 0027](adr/0027-supervisor-lost-and-stalled-attempts.md)). Each tick it turns the due deadlines, the expired leases and the runner's progress signals into engine commands for the state machine, at most one per batch: an attempt past its deadline is expired (Stuck, `deadline_passed`); a due Conditioning or Stuck reminder is repeated; a started attempt whose lease expired is lost and retried while the step has attempts left (else Stuck, `attempts_exhausted`); an attempt without a file write or commit for the step's `stall` limit makes the batch Stuck (`stalled`). Every expired lease is released. Each command is appended in a transaction of its own, so one that throws is reported and the others go on. The tick then flushes the state branch, also when it failed, so events a failed push left behind do not wait for the next step boundary; flushes that fail past their deadline (default 10 minutes) are reported, and a `StateBranchStopError` stops the supervisor. Engine-generated batch ids are `<issue>-<n>` (`src/engine/batch-id.ts`), which always pass `PathSafeId`.
+The supervisor (`src/engine/supervisor.ts`, run on an interval by `src/engine/supervisor-loop.ts`) is the engine's one liveness mechanism ([ADR 0027](adr/0027-supervisor-lost-and-stalled-attempts.md)). Each tick it turns the due deadlines, the expired leases and the runner's progress signals into engine commands for the state machine, at most one per batch: an attempt past its deadline is expired (Stuck, `deadline_passed`); an Ordered batch past its routing deadline is unrouted (Stuck, `routing`, [ADR 0032](adr/0032-routing-deadline-for-ordered-batches.md)); a due Conditioning or Stuck reminder is repeated; a started attempt whose lease expired is lost and retried while the step has attempts left (else Stuck, `attempts_exhausted`); an attempt without a file write or commit for the step's `stall` limit makes the batch Stuck (`stalled`). Every expired lease is released. Each command is appended in a transaction of its own, so one that throws is reported and the others go on. The tick then flushes the state branch, also when it failed, so events a failed push left behind do not wait for the next step boundary; flushes that fail past their deadline (default 10 minutes) are reported, and a `StateBranchStopError` stops the supervisor. Engine-generated batch ids are `<issue>-<n>` (`src/engine/batch-id.ts`), which always pass `PathSafeId`.
 
-Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe, for now one interval per supervisor: [ADR 0027](adr/0027-supervisor-lost-and-stalled-attempts.md)) — never silent, but not a failure either. A Stuck batch has a reminder as well, with the same default.
+Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**. Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe, for now one interval per supervisor: [ADR 0027](adr/0027-supervisor-lost-and-stalled-attempts.md)) — never silent, but not a failure either. A Stuck batch has a reminder as well, with the same default. An Ordered batch waits to be routed by a routing deadline (default 1 hour); past it, it is Stuck on routing ([ADR 0032](adr/0032-routing-deadline-for-ordered-batches.md)).
 
 ### 4.4 Invariants
 
 Property-tested (see §9):
 
-- **I1** Every non-terminal batch has exactly one pending action with a deadline (for conditioning and stuck batches: a reminder deadline).
+- **I1** Every non-terminal batch has exactly one pending action with a deadline (for ordered batches: a routing deadline; for conditioning and stuck batches: a reminder deadline).
 - **I2** At most one live lease per attempt and per worktree.
 - **I3** Replaying the log yields identical state.
 - **I4** Every external side effect is keyed `(batch, step, attempt, effect)` and applied at most once.
