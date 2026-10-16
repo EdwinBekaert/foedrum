@@ -32,12 +32,14 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   labels: ['foedrum'],
   milestone: undefined,
   assignees: [],
+  author: 'alice',
   ...fields,
 });
 const options = (claimant: Claimant, fields: Partial<CandidateOptions> = {}): CandidateOptions => ({
   filter: { labels: ['foedrum'] },
   claimant,
   brewed: new Set(),
+  authors: ['alice', 'bob'],
   ...fields,
 });
 const record = (brewery: string, number = 7): string =>
@@ -86,6 +88,13 @@ describe('isCandidate', () => {
       options(alice),
     ],
     ['an issue this Brewery has a batch of', issue(7), options(alice, { brewed: new Set([7]) })],
+    // Before ADR 0043 only the Brewery's owner could order work; a target repository is open to more.
+    [
+      'an issue opened by someone not allow-listed',
+      issue(7, { author: 'mallory' }),
+      options(alice),
+    ],
+    ['an issue of a Brewery with no allow-listed users', issue(7), options(alice, { authors: [] })],
   ];
   for (const [what, target, given] of skipped) {
     it(`skips ${what}`, () => assert.equal(isCandidate(target, given), false));
@@ -238,6 +247,16 @@ describe('releaseClaim', () => {
     const github = fakeGitHub();
     assert.equal(await releaseClaim(github.host, claim), 'gone');
     assert.equal(github.calls.get('delete'), undefined);
+  });
+
+  it('leaves a claim that another Brewery made between reading and deleting the ref', async () => {
+    const github = fakeGitHub({
+      // A human released the claim by hand, and Bob's Brewery claimed the issue at once.
+      afterRead: (fake) => fake.setRef(repo, 7, record(bob.brewery)),
+    });
+    github.setRef(repo, 7, record(alice.brewery));
+    assert.equal(await releaseClaim(github.host, claim), 'not_ours');
+    assert.equal(github.refs.get(`${repo}#7`), record(bob.brewery));
   });
 
   it("never deletes another Brewery's claim, or one it cannot read", async () => {

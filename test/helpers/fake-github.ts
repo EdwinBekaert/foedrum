@@ -32,8 +32,24 @@ export interface FakeGitHub {
 const refKey = (repo: string, issue: number): string => `${repo}#${issue}`;
 const marker = (key: string): string => `<!-- foedrum:${key} -->`;
 
-export const fakeGitHub = (options: { vanishOnRead?: boolean } = {}): FakeGitHub => {
+export interface FakeGitHubOptions {
+  /** Deletes the ref as it is read, as a release in between would. */
+  vanishOnRead?: boolean;
+  /** Runs once, right after the first read returns: someone changes the ref in between. */
+  afterRead?: (github: FakeGitHub) => void;
+}
+
+export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
   const refs = new Map<string, string>();
+  // The commit each ref points at: a new one every time a ref is set.
+  const shas = new Map<string, string>();
+  let commits = 0;
+  const point = (key: string, message: string): void => {
+    refs.set(key, message);
+    commits++;
+    shas.set(key, String(commits).padStart(40, '0'));
+  };
+  let afterRead = options.afterRead;
   const issues = new Map<string, FakeIssue>();
   const calls = new Map<string, number>();
   const count = (kind: string): void => {
@@ -52,7 +68,7 @@ export const fakeGitHub = (options: { vanishOnRead?: boolean } = {}): FakeGitHub
       await Promise.resolve();
       const key = refKey(repo, number);
       if (refs.has(key)) return 'exists';
-      refs.set(key, message);
+      point(key, message);
       return 'created';
     },
     read: async (repo, number) => {
@@ -64,12 +80,22 @@ export const fakeGitHub = (options: { vanishOnRead?: boolean } = {}): FakeGitHub
         return undefined;
       }
       const message = refs.get(key);
-      return message === undefined ? undefined : { message };
+      const sha = shas.get(key);
+      const read = message === undefined || sha === undefined ? undefined : { sha, message };
+      const then = afterRead;
+      afterRead = undefined;
+      then?.(github);
+      return read;
     },
-    delete: async (repo, number) => {
+    // Atomic, like an update with an expected old value: only while the ref is at `sha`.
+    delete: async (repo, number, sha) => {
       count('delete');
       await Promise.resolve();
-      refs.delete(refKey(repo, number));
+      const key = refKey(repo, number);
+      if (shas.get(key) !== sha) return false;
+      refs.delete(key);
+      shas.delete(key);
+      return true;
     },
   };
 
@@ -126,14 +152,15 @@ export const fakeGitHub = (options: { vanishOnRead?: boolean } = {}): FakeGitHub
     }
   };
 
-  return {
+  const github: FakeGitHub = {
     host,
     refs,
     issue,
     calls,
     target,
     setRef: (repo, number, message) => {
-      refs.set(refKey(repo, number), message);
+      point(refKey(repo, number), message);
     },
   };
+  return github;
 };

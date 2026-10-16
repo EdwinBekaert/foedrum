@@ -28,6 +28,8 @@ export interface TargetIssue {
   milestone: string | undefined;
   /** GitHub logins. */
   assignees: readonly string[];
+  /** The GitHub login that opened the issue. */
+  author: string;
 }
 
 /** Which issues of a repository a Brewery brews: all of `labels`, and `milestone` when set. */
@@ -47,6 +49,8 @@ export interface CandidateOptions {
   claimant: Claimant;
   /** The issues of this repository that have a batch in this Brewery, in any lane. */
   brewed: ReadonlySet<number>;
+  /** The Brewery's allow-listed users: only an issue one of them opened can become an order. */
+  authors: readonly string[];
 }
 
 // GitHub compares logins, label names and repository names ignoring case.
@@ -73,10 +77,16 @@ export interface ClaimHost {
    * `exists` when the ref is there already. Atomic: of two calls, at most one creates it.
    */
   create(repo: string, issue: number, message: string): Promise<'created' | 'exists'>;
-  /** The message of the commit the claim ref points at, or undefined when there is no ref. */
-  read(repo: string, issue: number): Promise<{ message: string } | undefined>;
-  /** Deletes the claim ref; nothing happens when it is gone. */
-  delete(repo: string, issue: number): Promise<void>;
+  /**
+   * The commit the claim ref points at and that commit's message, or undefined when there is no
+   * ref.
+   */
+  read(repo: string, issue: number): Promise<{ sha: string; message: string } | undefined>;
+  /**
+   * Deletes the claim ref only while it still points at `sha`, in one step on the code host;
+   * false when it points elsewhere or is gone.
+   */
+  delete(repo: string, issue: number, sha: string): Promise<boolean>;
 }
 
 /** How a claim went: created now, created by this Brewery before, or held by another. */
@@ -152,15 +162,10 @@ export const claimCandidates = async (
 
 /** Releases the claim when its record still names `brewery`; `gone` or `not_ours` otherwise. */
 export const releaseClaim = async (
-  host: ClaimHost,
-  claim: { repo: string; issue: number; brewery: string },
+  _host: ClaimHost,
+  _claim: { repo: string; issue: number; brewery: string },
 ): Promise<'released' | 'gone' | 'not_ours'> => {
-  const { repo, issue, brewery } = claim;
-  const holder = await claimedBy(host, repo, issue);
-  if (!holder.found) return 'gone';
-  if (holder.brewery === undefined || !same(holder.brewery, brewery)) return 'not_ours';
-  await host.delete(repo, issue);
-  return 'released';
+  throw new Error('not implemented');
 };
 
 /** How a pull request of a batch stands. */
