@@ -125,6 +125,7 @@ describe('package.json', () => {
     const { scripts } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
     };
-    assert.match(scripts?.test ?? '', /^node scripts\/with-checkout-tmp\.ts --test /);
+    // Node options such as --import may come before --test.
+    assert.match(scripts?.test ?? '', /^node scripts\/with-checkout-tmp\.ts (--\S+ \S+ )*--test /);
   });
 });
