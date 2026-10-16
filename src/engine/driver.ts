@@ -219,8 +219,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    */
   const heartbeat = (): void => {
     const now = clock();
-    const current = log.state();
     store.withTransaction((tx) => {
+      // Read under the write lock: another writer may have lost one of its attempts just before.
+      const current = log.state();
       for (const batchId of [...held]) {
         const hold = holdBatch(tx, { batchId, owner, now, leaseMs });
         if (hold.kind === 'other') lose(batchId, hold.lease);
