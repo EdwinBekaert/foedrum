@@ -5,7 +5,12 @@ import { emptyState, fold } from '../../src/engine/fold.ts';
 import { PathSafeId } from '../../src/schemas/ids.ts';
 
 const ordered = (batchId: string, issue: number) =>
-  ({ type: 'batch.ordered', batchId, order: { issue } }) as const;
+  ({
+    type: 'batch.ordered',
+    batchId,
+    order: { issue },
+    routeBy: '2026-12-31T00:00:00.000Z',
+  }) as const;
 
 describe('nextBatchId', () => {
   it('numbers the first batch of an issue 1', () => {

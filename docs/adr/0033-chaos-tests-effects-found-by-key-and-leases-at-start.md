@@ -1,4 +1,4 @@
-# 0032. Chaos tests: effects found by their key, and a driver's leases at its start
+# 0033. Chaos tests: effects found by their key, and a driver's leases at its start
 
 Date: 2026-10-16 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (leases after a restart on the same database)
 

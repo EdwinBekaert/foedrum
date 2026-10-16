@@ -23,6 +23,8 @@ import { fakeRecipe, fakeRecipes } from './fake-recipes.ts';
 export const t0 = new Date('2026-10-15T12:00:00.000Z');
 /** How long Conditioning and Stuck batches wait between reminders in a scenario. */
 export const reminderMs = 2 * 3_600_000;
+/** How long an Ordered batch waits to be routed in a scenario. */
+export const routingMs = 3_600_000;
 
 export const recipes = fakeRecipes(
   Object.fromEntries(
@@ -94,6 +96,7 @@ export const openEngine = (plays: (attempt: AttemptRef) => Play): Engine => {
     clock: () => now,
     limits: () => ({ ...defaultLimits, ...scenarioLimits }),
     reminderMs,
+    routingMs,
   });
   return {
     store,

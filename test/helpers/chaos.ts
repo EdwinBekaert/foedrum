@@ -1,6 +1,6 @@
 // The chaos harness (#15, architecture §9): engine scenarios (test/helpers/simulation.ts) on an
 // event store in a file, with the engine killed at random points of its run's seed, inside
-// transactions and between them, and restarted on the same file (ADR 0032). A kill ends
+// transactions and between them, and restarted on the same file (ADR 0033). A kill ends
 // everything that lived in the engine's memory:
 // the driver, the supervisor, the fake runner and every attempt it ran. What survives is the
 // database and the code host the effects went to. No process is started or killed: the engine is

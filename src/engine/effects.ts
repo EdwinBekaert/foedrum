@@ -1,4 +1,4 @@
-// Applying an external side effect through the idempotency ledger (invariant I4, ADR 0032).
+// Applying an external side effect through the idempotency ledger (invariant I4, ADR 0033).
 
 import { effectKey } from './effect-key.ts';
 import type { EffectKey } from './event-store.ts';

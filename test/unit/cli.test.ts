@@ -73,6 +73,7 @@ const ordered = (issue: number, parentBatchId?: string): Event => ({
   type: 'batch.ordered',
   batchId: `${issue}-1`,
   order: { issue },
+  routeBy: '2026-12-31T00:00:00.000Z',
   ...(parentBatchId === undefined ? {} : { parentBatchId }),
 });
 
@@ -201,6 +202,8 @@ const brewery: Event[] = [
   }),
   ordered(24),
   stuck(24, { kind: 'deadline_passed', stepId: 'plan', deadlineAt: D1 }),
+  ordered(25),
+  stuck(25, { kind: 'routing', deadlineAt: D1 }),
 ];
 
 // The fold refuses it: an attempt that was never scheduled starts.
@@ -388,7 +391,10 @@ describe('foedrum status', () => {
 
   it('counts one batch as one', async () => {
     const result = await run(['status'], { openStore: () => storeWith([ordered(11)]) });
-    assert.equal(result.stdout, '1 batch\n\n  11-1  #11  ordered\n');
+    assert.equal(
+      result.stdout,
+      '1 batch\n\n  11-1  #11  ordered  to be routed by 2026-12-31T00:00:00.000Z\n',
+    );
   });
 
   it('says in one line, escaped, and exits 1, when reading the store throws', async () => {

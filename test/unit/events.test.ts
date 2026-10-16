@@ -31,6 +31,7 @@ const valid: Record<Event['type'], Event> = {
     type: 'batch.ordered',
     batchId: 'b2',
     order: { issue: 101 },
+    routeBy: '2026-12-31T00:00:00.000Z',
     parentBatchId: 'b1',
   },
   'batch.recipe_chosen': {
@@ -123,8 +124,13 @@ const valid: Record<Event['type'], Event> = {
   },
 };
 
-const accepts = (schema: { parse: (value: unknown) => unknown }, value: unknown): void => {
-  assert.deepEqual(schema.parse(value), value);
+const accepts = (
+  schema: { safeParse: (value: unknown) => { success: boolean; data?: unknown; error?: unknown } },
+  value: unknown,
+): void => {
+  const result = schema.safeParse(value);
+  assert.ok(result.success, `rejected: ${String(result.error)}`);
+  assert.deepEqual(result.data, value);
 };
 const rejects = (
   schema: { safeParse: (value: unknown) => { success: boolean } },
@@ -149,7 +155,12 @@ describe('Event', () => {
   }
 
   it('accepts optional fields left out', () => {
-    accepts(Event, { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 } });
+    accepts(Event, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 100 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
     accepts(Event, { type: 'step.started', batchId: 'b1', stepId: 'gauge', attempt: 1 });
     accepts(Event, {
       type: 'step.finished',
@@ -157,6 +168,14 @@ describe('Event', () => {
       stepId: 'brew',
       attempt: 2,
       outcome: { kind: 'cancelled' },
+    });
+  });
+
+  it('accepts a retry that sends a batch back to Ordered with a routing deadline', () => {
+    accepts(Event, {
+      ...valid['batch.resumed'],
+      action: 'retry',
+      routeBy: '2026-10-15T13:00:00Z',
     });
   });
 
@@ -205,6 +224,10 @@ describe('Event', () => {
     ['an unknown resume action', { ...valid['batch.resumed'], action: 'rewind' }],
     ['an unknown stuck option', { ...valid['batch.stuck'], options: ['retry', 'shrug'] }],
     ['an order without an issue number', { ...valid['batch.ordered'], order: {} }],
+    [
+      'an order without a routing deadline',
+      { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 } },
+    ],
     ['a repository without an owner', { ...valid['release.observed'], repo: 'lib-core' }],
     ['a pull request that is not a URL', { ...valid['bottle.opened'], pullRequest: '#7' }],
     [
@@ -481,6 +504,7 @@ describe('StuckReason', () => {
       lastProgressAt: '2026-10-15T12:00:00Z',
       turnsWithoutProgress: 60,
     },
+    routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
   };
   for (const [kind, reason] of Object.entries(reasons)) {
     it(`accepts ${kind}`, () => accepts(StuckReason, reason));

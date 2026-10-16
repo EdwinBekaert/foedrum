@@ -56,7 +56,7 @@ exports[`foedrum replay > shows a batch's events, with their store ids, and its 
 Batch 12-1, issue #12
 
 Events
-   2  batch.ordered        {"order":{"issue":12}}
+   2  batch.ordered        {"order":{"issue":12},"routeBy":"2026-12-31T00:00:00.000Z"}
    3  batch.recipe_chosen  {"recipe":"feature","reason":"label recipe:feature","source":"label"}
    4  step.scheduled       {"stepId":"plan","attempt":1,"deadlineAt":"2026-10-15T10:00:00.000Z"}
    5  step.started         {"stepId":"plan","attempt":1}
@@ -81,7 +81,7 @@ exports[`foedrum replay > shows a sub-order batch's parent, a human's recipe cho
 Batch 14-1, issue #14
 
 Events
-  15  batch.ordered        {"order":{"issue":14},"parentBatchId":"12-1"}
+  15  batch.ordered        {"order":{"issue":14},"parentBatchId":"12-1","routeBy":"2026-12-31T00:00:00.000Z"}
   16  batch.recipe_chosen  {"recipe":"bugfix","reason":"a smaller fix will do","source":"human","by":"alice","via":"terminal"}
   17  step.scheduled       {"stepId":"plan","attempt":1,"deadlineAt":"2026-10-15T10:00:00.000Z"}
   18  batch.stuck          {"reason":{"kind":"deadline_passed","stepId":"plan","deadlineAt":"2026-10-15T10:00:00.000Z"},"options":["retry","rewind","cancel"],"remindAt":"2026-10-17T09:00:00.000Z"}
@@ -99,9 +99,9 @@ State
 `;
 
 exports[`foedrum status > lists every batch with its issue, lane and what it waits for 1`] = `
-14 batches
+15 batches
 
-  11-1  #11  ordered
+  11-1  #11  ordered       to be routed by 2026-12-31T00:00:00.000Z
   12-1  #12  brewing       implement #1 started
   13-1  #13  conditioning  waiting for @acme/lib 2.4.0 or later in acme/lib; reminder 2026-10-17T09:00:00.000Z
   14-1  #14  brewing       between steps
@@ -115,6 +115,7 @@ exports[`foedrum status > lists every batch with its issue, lane and what it wai
   22-1  #22  stuck         waiting for a session at analyze; reminder 2026-10-17T09:00:00.000Z
   23-1  #23  stuck         stalled at implement since 2026-10-15T11:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
   24-1  #24  stuck         deadline passed at plan (2026-10-15T10:00:00.000Z); reminder 2026-10-17T09:00:00.000Z
+  25-1  #25  stuck         not routed by 2026-10-15T10:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
 
 `;
 

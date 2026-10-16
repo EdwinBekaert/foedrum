@@ -1,4 +1,4 @@
-// What a driver does with the leases its earlier run left when it starts again (ADR 0032).
+// What a driver does with the leases its earlier run left when it starts again (ADR 0033).
 
 import type { EventStore } from './event-store.ts';
 
