@@ -59,9 +59,12 @@ export const fakeGitHub = (options: { vanishOnRead?: boolean } = {}): FakeGitHub
       count('read');
       await Promise.resolve();
       const key = refKey(repo, number);
+      if (options.vanishOnRead === true) {
+        refs.delete(key);
+        return undefined;
+      }
       const message = refs.get(key);
-      if (options.vanishOnRead === true) refs.delete(key);
-      return message === undefined || options.vanishOnRead === true ? undefined : { message };
+      return message === undefined ? undefined : { message };
     },
     delete: async (repo, number) => {
       count('delete');
