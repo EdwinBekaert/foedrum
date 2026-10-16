@@ -28,6 +28,9 @@ after(() => dir.remove());
 
 let runs = 0;
 
+/** How many seeds a coverage test may try before it fails. */
+const maxSeeds = 30;
+
 /** Runs `seed`'s scenario with its kill plan, recorded into `scenario`, or replays `scenario`. */
 const chaos = async <T>(
   seed: number,
@@ -51,10 +54,17 @@ const chaos = async <T>(
 
 describe('chaos runs', () => {
   it('kill the engine at every kind of point, and restart into what it must recover from', async () => {
+    const wanted = [
+      ...killPoints.map((point) => `killed ${point}`),
+      'an effect found on the code host, not applied again',
+      'killed again soon after a restart',
+      'an attempt of the killed run lost and retried',
+    ];
     const seen = new Set<string>();
-    // Fixed seeds, so what the harness reaches does not depend on FOEDRUM_SEED: few, picked to
-    // reach every goal between them. A change to the generator may need other seeds.
-    for (const seed of [2, 3, 16, 18]) {
+    // Fixed seeds, so what the harness reaches does not depend on FOEDRUM_SEED: the first ones
+    // until every goal is reached, within a bound, so a change to the generator or the driver
+    // needs no seeds picked by hand.
+    for (let seed = 1; seed <= maxSeeds && wanted.some((what) => !seen.has(what)); seed++) {
       await chaos(seed, { moves: [], plays: [] }, false, ({ engine }) => {
         for (const { point } of engine.kills) seen.add(`killed ${point}`);
         if (engine.found > 0) seen.add('an effect found on the code host, not applied again');
@@ -87,12 +97,6 @@ describe('chaos runs', () => {
         }
       });
     }
-    const wanted = [
-      ...killPoints.map((point) => `killed ${point}`),
-      'an effect found on the code host, not applied again',
-      'killed again soon after a restart',
-      'an attempt of the killed run lost and retried',
-    ];
     assert.deepStrictEqual(
       wanted.filter((what) => !seen.has(what)),
       [],
