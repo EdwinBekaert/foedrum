@@ -27,7 +27,7 @@ interface StreamEvent {
   type: string;
   subtype?: string;
   tool_name?: string;
-  message?: { content?: { type: string; content?: unknown }[] };
+  message?: { content?: { type: string; content?: unknown; is_error?: boolean }[] };
 }
 
 /** What the brewer's tool call came to: denied, or what the command printed; and the init. */
@@ -112,10 +112,12 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
       printed: events
         .filter((e) => e.type === 'user')
         .flatMap((e) => e.message?.content ?? [])
-        .filter((block) => block.type === 'tool_result')
+        // A denied call's result is an error that quotes the command, not what it printed.
+        .filter((block) => block.type === 'tool_result' && block.is_error !== true)
         .map((block) => JSON.stringify(block.content))
         .filter((content) => content.includes('probe:')),
-      init: events[0],
+      // claude may send other system events first (ui_invalidate, seen with an API key).
+      init: events.find((e) => !(e.type === 'system' && e.subtype !== 'init')),
       sessionId,
     };
   };
