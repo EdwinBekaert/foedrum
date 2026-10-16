@@ -8,6 +8,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -91,6 +92,24 @@ describe('scripts/precheck.ts started by node', () => {
     } finally {
       pushFrom.remove();
     }
+  });
+
+  // The hook runs before every Bash and PowerShell call, so a call that does not name git or gh
+  // must cost no more than node and this one file (#41).
+  it('loads no other module for a call that does not name git or gh', async () => {
+    const recordLoads = `import { registerHooks } from 'node:module';
+      registerHooks({ load(url, context, next) {
+        if (url.startsWith('file:')) process.stderr.write('loaded ' + url + '\\n');
+        return next(url, context);
+      } });`;
+    const { code, stderr } = await run(
+      process.execPath,
+      ['--import', `data:text/javascript,${encodeURIComponent(recordLoads)}`, script],
+      hookInput('ls -la src', root),
+      { cwd: root, env: envWithoutNpm() },
+    );
+    assert.equal(code, 0);
+    assert.deepEqual(stderr.trim().split(/\r?\n/), [`loaded ${pathToFileURL(script).href}`]);
   });
 
   it('blocks a push from a checkout whose node_modules is out of date, before npm runs', async () => {
@@ -181,6 +200,11 @@ describe('the configured hook command', () => {
     const { code, stderr } = await runHook(project, project, gatedPush);
     assert.equal(code, 2);
     assert.ok(stderr.includes('Foedrum gate could not run (exit 1)'), `stderr: ${stderr}`);
+  });
+
+  it('lets a call that does not name git or gh through', async () => {
+    const { code, stdout, stderr } = await runHook(root, root, hookInput('ls -la src', root));
+    assert.deepEqual({ code, stdout, stderr }, { code: 0, stdout: '', stderr: '' });
   });
 
   it("passes precheck's own block through without saying the gate could not run", async () => {
