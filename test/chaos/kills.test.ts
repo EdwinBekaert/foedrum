@@ -42,7 +42,12 @@ const chaos = async <T>(
   const path = join(dir.path, `run-${++runs}-seed-${seed}.sqlite`);
   const source = replay ? replaying(scenario) : recording(generateScenario(seed), scenario);
   const host = fakeCodeHost();
-  const engine = openChaosEngine(path, (attempt) => source.play(attempt), killPlan(seed), host);
+  const engine = await openChaosEngine(
+    path,
+    (attempt) => source.play(attempt),
+    killPlan(seed),
+    host,
+  );
   try {
     const run: ChaosRun = { engine, host, scenario, moves: [] };
     await runChaos(run, source);
