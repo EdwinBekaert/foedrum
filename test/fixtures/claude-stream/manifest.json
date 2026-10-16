@@ -1,6 +1,8 @@
 {
-  "$comment": "Streams captured from claude 2.1.301 (native claude.exe, Windows 11, subscription login) for #17 and ADR 0042. Each run: the common arguments, then the case's own; the prompt on stdin, no prompt argument; cwd is a scratch git repository. Paths are replaced with C:\\work\\brewery\\worktree and rate-limit utilisation with 0.5; nothing else is changed.",
+  "$comment": "Streams captured for #17 with ADR 0042's command line: commonArgs, then each case's args; the prompt on stdin, no prompt argument; cwd a scratch git repository. Scrubbed: paths become C:\\work\\brewery\\worktree, rate_limit_info keeps only its status (no plan, usage or org settings), thinking signatures become synthetic-signature. Nothing the runner reads is changed.",
   "claudeVersion": "2.1.301",
+  "captured": "2026-10-16",
+  "platform": "Windows 11, native claude.exe, subscription login",
   "commonArgs": [
     "--print",
     "--verbose",
@@ -8,107 +10,196 @@
     "stream-json",
     "--permission-mode",
     "dontAsk",
+    "--permission-prompts",
+    "none",
     "--model",
-    "haiku",
+    "claude-haiku-5-5",
     "--effort",
     "low",
+    "--disable-slash-commands",
+    "--strict-mcp-config",
     "--safe-mode"
   ],
   "settings": {
     "plain": {
       "permissions": {
         "allow": ["Read"],
-        "deny": ["Bash", "AskUserQuestion", "WebFetch"]
+        "deny": ["AskUserQuestion", "Bash(git push *)", "PowerShell(git push *)"]
+      }
+    },
+    "bare-deny": {
+      "permissions": {
+        "allow": ["Read"],
+        "deny": ["AskUserQuestion", "Bash(git push *)", "PowerShell(git push *)", "Bash"]
       }
     },
     "scoped": {
       "permissions": {
         "allow": ["Read", "Bash(git status *)", "Bash(git status)"],
-        "deny": ["Bash(git push *)", "AskUserQuestion"]
+        "deny": ["AskUserQuestion", "Bash(git push *)", "PowerShell(git push *)"]
       }
     },
     "sandbox": {
+      "permissions": {
+        "allow": ["Read"],
+        "deny": ["AskUserQuestion", "Bash(git push *)", "PowerShell(git push *)"]
+      },
       "sandbox": { "enabled": true, "failIfUnavailable": true, "allowUnsandboxedCommands": false }
     }
   },
   "cases": [
     {
       "file": "success.jsonl",
-      "args": ["--settings", "<plain>", "--session-id", "<new uuid>", "--max-turns", "3"],
+      "args": [
+        "--max-turns",
+        "3",
+        "--settings",
+        "<plain>",
+        "--tools",
+        "Read",
+        "--session-id",
+        "<new uuid>"
+      ],
       "stdin": "Reply with exactly the word: ok",
       "exitCode": 0,
       "stderr": "",
-      "shows": "init with the session id given by --session-id; one assistant text; rate_limit_event; result/success"
+      "init": true,
+      "subtype": "success",
+      "shows": "init with the session id given by --session-id and exactly the --tools; one assistant text; rate_limit_event; result/success"
     },
     {
       "file": "resumed.jsonl",
       "args": [
+        "--max-turns",
+        "3",
         "--settings",
         "<plain>",
+        "--tools",
+        "Read",
         "--resume",
-        "<the session id of success.jsonl>",
-        "--max-turns",
-        "3"
+        "<the session id of success.jsonl>"
       ],
       "stdin": "What exact word did you reply with in your previous message? Answer with that word only.",
       "exitCode": 0,
       "stderr": "",
+      "init": true,
+      "subtype": "success",
       "shows": "--resume keeps the session id and the conversation; usage covers this run only, total_cost_usd both runs"
     },
     {
       "file": "tool-removed-by-deny.jsonl",
-      "args": ["--settings", "<plain>", "--no-session-persistence", "--max-turns", "6"],
+      "args": [
+        "--max-turns",
+        "6",
+        "--settings",
+        "<bare-deny>",
+        "--tools",
+        "Read,Bash",
+        "--session-id",
+        "<new uuid>"
+      ],
       "stdin": "First read note.txt with the Read tool. Then run `git status` with the Bash tool. Then reply with only the word that note.txt names.",
       "exitCode": 0,
       "stderr": "",
-      "shows": "Read tool_use and tool_result; a bare deny (Bash) removes the tool, so its call is an is_error tool_result and not a permission denial; system/thinking_tokens; num_turns 3"
+      "init": true,
+      "subtype": "success",
+      "shows": "a bare deny (Bash) removes the tool from init.tools although --tools names it; the call is an is_error tool_result 'No such tool available' and no permission denial; system/thinking_tokens"
     },
     {
       "file": "permission-denials.jsonl",
-      "args": ["--settings", "<scoped>", "--no-session-persistence", "--max-turns", "8"],
+      "args": [
+        "--max-turns",
+        "8",
+        "--settings",
+        "<scoped>",
+        "--tools",
+        "Read,Write,Bash",
+        "--session-id",
+        "<new uuid>"
+      ],
       "stdin": "Do these three steps in order, each with one tool call, and do not retry a step that is refused: 1. Write the file out.txt containing the text x, with the Write tool. 2. Run `git push origin main` with the Bash tool. 3. Run `git status` with the Bash tool. Then reply with one line per step saying whether it was allowed.",
       "exitCode": 0,
       "stderr": "",
+      "init": true,
+      "subtype": "success",
       "shows": "system/permission_denied for a tool outside the allowlist (decision_reason_type mode) and for a scoped deny rule (subcommandResults); result.permission_denials lists both; the run still ends in result/success with exit 0"
     },
     {
       "file": "max-turns.jsonl",
-      "args": ["--settings", "<plain>", "--no-session-persistence", "--max-turns", "1"],
+      "args": [
+        "--max-turns",
+        "1",
+        "--settings",
+        "<plain>",
+        "--tools",
+        "Read",
+        "--session-id",
+        "<new uuid>"
+      ],
       "stdin": "Read note.txt with the Read tool and reply with only the word it names.",
       "exitCode": 1,
       "stderr": "",
+      "init": true,
+      "subtype": "error_max_turns",
       "shows": "result/error_max_turns, is_error true, terminal_reason max_turns, errors ['Reached maximum number of turns (1)'], num_turns 2"
     },
     {
       "file": "model-not-found.jsonl",
       "args": [
-        "--settings",
-        "<scoped>",
-        "--no-session-persistence",
         "--max-turns",
         "2",
+        "--settings",
+        "<plain>",
+        "--tools",
+        "Read",
+        "--session-id",
+        "<new uuid>",
         "--model",
         "claude-nope-9-9"
       ],
       "stdin": "Reply with exactly the word: ok",
       "exitCode": 1,
       "stderr": "[claude-code:unrecognized_model] {\"model\":\"claude-nope-9-9\",\"query_source\":\"sdk\"}\n",
-      "shows": "an assistant message with error model_not_found; result subtype success but is_error true, terminal_reason api_error"
+      "init": true,
+      "subtype": "success",
+      "shows": "the second --model wins; an assistant message with error model_not_found; result subtype success but is_error true, terminal_reason api_error"
     },
     {
       "file": "resume-not-found.jsonl",
-      "args": ["--resume", "00000000-0000-4000-8000-000000000000"],
+      "args": [
+        "--max-turns",
+        "3",
+        "--settings",
+        "<plain>",
+        "--tools",
+        "Read",
+        "--resume",
+        "00000000-0000-4000-8000-000000000000"
+      ],
       "stdin": "hi",
       "exitCode": 1,
       "stderr": "No conversation found with session ID: 00000000-0000-4000-8000-000000000000\n",
+      "init": false,
+      "subtype": "error_during_execution",
       "shows": "no init event; only result/error_during_execution with errors naming the missing session"
     },
     {
       "file": "sandbox-unavailable.jsonl",
-      "args": ["--settings", "<sandbox>", "--no-session-persistence", "--max-turns", "1"],
+      "args": [
+        "--max-turns",
+        "1",
+        "--settings",
+        "<sandbox>",
+        "--tools",
+        "Read",
+        "--session-id",
+        "<new uuid>"
+      ],
       "stdin": "Reply with exactly the word: ok",
       "exitCode": 1,
       "stderr": "\nError: sandbox required but unavailable: sandbox is enabled but the Windows sandbox is not active on this session (feature gate off)\n  sandbox.failIfUnavailable is set — refusing to start without a working sandbox.\n\n",
+      "init": false,
+      "subtype": "error_during_execution",
       "shows": "native Windows with sandbox.failIfUnavailable: no init event, result/error_during_execution, no API call"
     }
   ]
