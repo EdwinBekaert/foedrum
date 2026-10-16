@@ -53,9 +53,12 @@ const helperScript = (): string => {
   return helper;
 };
 
-// A value as base64 of its UTF-8, so no quote, $ or backtick in it can change the script.
+// A value as base64 of its UTF-8, so no quote, $ or backtick in it can change the script; the
+// helper decodes it with Read-Input, defined once before the inputs.
+const DECODE =
+  'function Read-Input($b) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)) }';
 const input = (name: string, value: string): string =>
-  `$${name} = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(value, 'utf8').toString('base64')}'))`;
+  `$${name} = Read-Input '${Buffer.from(value, 'utf8').toString('base64')}'`;
 
 /** Starts the command through the helper, which runs it in `cwd` inside a kill-on-close job. */
 export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectSpawn => {
@@ -64,9 +67,13 @@ export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectS
   // decide where the program runs or which file it is.
   const directory = win32.resolve(cwd);
   const inputs = [
+    DECODE,
     input('file', win32.resolve(directory, application)),
     input('line', line),
     input('cwd', directory),
+    // Windows PowerShell gives itself a PSModulePath when it has none; the helper puts the
+    // caller's back (or none) before the program inherits its environment.
+    input('modules', environmentVariable(command.env, 'PSMODULEPATH', 'win32') ?? ''),
   ];
   const script = helperScript().replace('# Foedrum: inputs', inputs.join('\n'));
   const system32 = win32.join(
@@ -93,13 +100,16 @@ export const jobObjectCommand = (command: SpawnCommand, cwd: string): JobObjectS
 
 /**
  * Why the helper could not start the program inside a job, from how it ended; `undefined` when
- * the program ran. Only the helper writes the refusal, alone and before the program starts.
+ * the program ran. Only the helper writes the refusal, alone and before the program starts, after
+ * the byte order mark Windows PowerShell may put first.
  */
 export const jobObjectRefusal = (
   exitCode: number | null,
   stdout: string,
   stderr: string,
-): string | undefined =>
-  exitCode === JOB_OBJECT_FAILED && stderr === '' && stdout.startsWith(REFUSAL)
-    ? stdout.slice(REFUSAL.length).trim()
+): string | undefined => {
+  const text = stdout.replace(/^﻿/, '');
+  return exitCode === JOB_OBJECT_FAILED && stderr === '' && text.startsWith(REFUSAL)
+    ? text.slice(REFUSAL.length).trim()
     : undefined;
+};

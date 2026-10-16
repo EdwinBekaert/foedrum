@@ -145,7 +145,7 @@ export interface ExecOptions {
   maxOutputBytes?: number | undefined;
   /**
    * On Windows, starts the process inside a kill-on-close Job Object, so a kill also ends the
-   * processes whose parent has already exited (ADR 0039). Costs about half a second; a process
+   * processes whose parent has already exited (ADR 0039). Costs about 0.4 s per call; a process
    * that cannot be held in a job does not start. Ignored elsewhere, where the runner kills the
    * process group.
    */

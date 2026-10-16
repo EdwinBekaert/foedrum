@@ -88,8 +88,11 @@ try {
   }
   # PROCESS_INFORMATION: hProcess, hThread, dwProcessId, dwThreadId.
   $started = New-Object byte[] (2 * $size + 8)
-  # CREATE_SUSPENDED (0x4); handles inherited, the helper's environment.
-  $ok = $k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x4, [IntPtr]::Zero, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
+  # The caller's PSModulePath, which PowerShell replaced with its own when there was none; an
+  # empty value removes it, as Windows does.
+  [Environment]::SetEnvironmentVariable('PSModulePath', $modules)
+  # CREATE_SUSPENDED (0x4); handles inherited, the helper's environment, now the caller's.
+  $ok =$k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x4, [IntPtr]::Zero, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'CreateProcess' $e) }
   $process = & $read $started 0
   $thread = & $read $started $size
