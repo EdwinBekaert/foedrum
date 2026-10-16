@@ -132,6 +132,19 @@ describe('githubIssueMarks', () => {
     assert.ok(perPage(requests[0]?.url) <= longestFit, `per_page ${perPage(requests[0]?.url)}`);
   });
 
+  it('skips its own comments that carry another marker or none', async () => {
+    const own = (id: number, body: string) => ({ id, user: { login: 'alice' }, body });
+    const release = '<!-- foedrum:["web-7","release.comment"] -->';
+    const comments = [own(500, 'No marker at all.'), own(501, `Claimed.\n\n${marker}`)];
+    const { marks } = marksWith([
+      { status: 200, body: comments },
+      { status: 200, body: comments },
+    ]);
+    // The release comment is not posted yet: the claim comment must not stand in for it.
+    assert.equal(await marks.findComment(repo, 7, release), undefined);
+    assert.equal(await marks.findComment(repo, 7, marker), 501);
+  });
+
   it('finds the comment on a later page', async () => {
     const comments = fixture('comments') as unknown[];
     const { marks } = marksWith([

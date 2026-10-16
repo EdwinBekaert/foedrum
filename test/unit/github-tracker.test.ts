@@ -40,6 +40,7 @@ const pull = (fields: Record<string, unknown>): Answer => ({
 describe('githubTargetTracker', () => {
   describe('issues', () => {
     it('lists the open issues oldest first, as the intake reads them', async () => {
+      // Issue 7's body stands for hostile input: what the intake reads of an issue has no body.
       const { tracker, requests } = trackerWith([{ status: 200, body: fixture('issues') }]);
       assert.deepStrictEqual(await tracker.issues('acme/web'), [
         {
