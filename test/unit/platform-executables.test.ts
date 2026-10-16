@@ -204,20 +204,52 @@ describe('findNpmCli', () => {
     );
   });
 
+  // Where npm is under node's prefix on macOS and Linux, in the order findNpmCli looks.
+  const posixNpmClis = (prefix: string): string[] => [
+    posix.join(prefix, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    posix.join(prefix, 'libexec', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    posix.join(prefix, 'share', 'nodejs', 'npm', 'bin', 'npm-cli.js'),
+  ];
+
   for (const platform of ['linux', 'darwin'] as const) {
     it(`finds npm-cli.js in lib/node_modules under node's prefix on ${platform}`, () => {
       const npmCli = '/opt/node/lib/node_modules/npm/bin/npm-cli.js';
       assert.deepEqual(findNpmCli('/opt/node/bin/node', { platform, isFile: files(npmCli) }), {
         path: npmCli,
-        tried: [npmCli],
+        tried: posixNpmClis('/opt/node'),
       });
     });
   }
 
-  it('finds nothing, naming the path it tried, when npm is not installed with node', () => {
+  // Homebrew's node installs npm in its keg's libexec, and process.execPath is the keg's node:
+  // macOS resolves the /opt/homebrew/bin/node link (review of #117, cross-platform).
+  it("finds Homebrew's npm in libexec/lib/node_modules under the keg", () => {
+    const keg = '/opt/homebrew/Cellar/node/24.10.0';
+    const npmCli = `${keg}/libexec/lib/node_modules/npm/bin/npm-cli.js`;
+    const found = findNpmCli(`${keg}/bin/node`, { platform: 'darwin', isFile: files(npmCli) });
+    assert.equal(found.path, npmCli);
+  });
+
+  // Debian's and Ubuntu's npm package installs npm in /usr/share/nodejs, next to /usr/bin/node.
+  it("finds the Debian npm package's npm in share/nodejs under node's prefix", () => {
+    const npmCli = '/usr/share/nodejs/npm/bin/npm-cli.js';
+    const found = findNpmCli('/usr/bin/node', { platform: 'linux', isFile: files(npmCli) });
+    assert.equal(found.path, npmCli);
+  });
+
+  it('takes the first place npm is in, in that order', () => {
+    const [, libexec = '', share = ''] = posixNpmClis('/opt/node');
+    const found = findNpmCli('/opt/node/bin/node', {
+      platform: 'linux',
+      isFile: files(share, libexec),
+    });
+    assert.equal(found.path, libexec);
+  });
+
+  it('finds nothing, naming each path it tried, when npm is not installed with node', () => {
     assert.deepEqual(findNpmCli('/usr/bin/node', { platform: 'linux', isFile: files() }), {
       path: undefined,
-      tried: [posix.join('/usr', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')],
+      tried: posixNpmClis('/usr'),
     });
   });
 
