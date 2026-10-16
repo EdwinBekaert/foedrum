@@ -70,6 +70,8 @@ export interface ClaudeRunnerDeps {
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
   };
   now: () => Date;
+  /** Says what the engine's user should know, such as a claude outside the proven versions. */
+  warn: (message: string) => void;
 }
 
 /**
@@ -277,7 +279,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
 
 /** The runner with the real process runner, files and clock. */
 export function claudeBrewerRunner(
-  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'warn'>,
 ): BrewerRunner {
   return claudeBrewerRunnerWith({
     ...options,

@@ -11,6 +11,27 @@ const required = (facts: DoctorFacts) =>
     .problems.filter((problem) => problem.required)
     .map((problem) => problem.what);
 
+// #128, ADR 0048: the settings proof of ADR 0046 holds only for the versions it ran against.
+describe('diagnose: the claude version', () => {
+  it('warns, without failing, about a claude outside the proven versions', () => {
+    const diagnosis = diagnose(
+      linux({ claude: ran('/home/brewer/.local/bin/claude', '2.2.0 (Claude Code)\n') }),
+    );
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, [
+      {
+        required: false,
+        what: 'claude 2.2.0 is not a version Foedrum proved its brewer settings on (2.1.301)',
+        fix: 'until a Foedrum release proves it, keep permissions.allow and env out of your Claude Code user settings: they may widen what a brewer may do (ADR 0046)',
+      },
+    ]);
+  });
+
+  it('says nothing about a proven claude', () => {
+    assert.deepEqual(diagnose(linux()).problems, []);
+  });
+});
+
 describe('diagnose: tools', () => {
   it('reads each version from what the tool printed, and keeps its path', () => {
     assert.deepEqual(diagnose(linux()).tools, [

@@ -81,6 +81,7 @@ const setup = (
   const calls: Call[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
   const read: { file: string; maxBytes: number; root: string }[] = [];
+  const warnings: string[] = [];
   let clock = 0;
   const deps: ClaudeRunnerDeps = {
     claude: '/opt/claude/bin/claude',
@@ -116,8 +117,11 @@ const setup = (
       clock += 1;
       return at(clock);
     },
+    warn: (message) => {
+      warnings.push(message);
+    },
   };
-  return { calls, written, read, runner: claudeBrewerRunnerWith(deps) };
+  return { calls, written, read, warnings, runner: claudeBrewerRunnerWith(deps) };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });
@@ -142,6 +146,26 @@ describe('claudeBrewerRunner', () => {
     assert.deepEqual(call?.options.env, { PATH: '/usr/bin' });
     assert.equal(call?.options.jobObject, true);
     assert.ok((call?.options.maxLineBytes ?? 0) >= 1024 * 1024);
+  });
+
+  // #128, ADR 0048: outside the proven versions a user's settings may widen a brewer.
+  it('warns once about a claude outside the versions the settings proof ran against', async () => {
+    const lines = fixture('success.jsonl').map((line) =>
+      line.replace('"claude_code_version":"2.1.301"', '"claude_code_version":"2.2.0"'),
+    );
+    const { runner, warnings } = setup({ lines, result: exited(0) });
+    const end = await runner.start(attempt).ended;
+    await runner.start({ ...attempt, ref: { ...attempt.ref, attempt: 2 } }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.deepEqual(warnings, [
+      'claude 2.2.0 is not a version Foedrum proved its brewer settings on (2.1.301): a permissions.allow or env in your Claude Code user settings may widen what a brewer may do (ADR 0046)',
+    ]);
+  });
+
+  it('warns about nothing for a proven claude', async () => {
+    const { runner, warnings } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+    await runner.start(attempt).ended;
+    assert.deepEqual(warnings, []);
   });
 
   it('succeeds with the out doc, the usage and the session of a clean run', async () => {
