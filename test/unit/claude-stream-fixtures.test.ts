@@ -24,8 +24,8 @@ const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as
   cases: Case[];
 };
 
-const events = (file: string): StreamEvent[] =>
-  readFileSync(join(dir, file), 'utf8')
+const events = (text: string): StreamEvent[] =>
+  text
     .split('\n')
     .filter((line) => line !== '')
     .map((line) => JSON.parse(line) as StreamEvent);
@@ -38,7 +38,8 @@ describe('claude stream fixtures', () => {
 
   for (const { file, exitCode } of manifest.cases) {
     describe(file, () => {
-      const stream = events(file);
+      const text = readFileSync(join(dir, file), 'utf8');
+      const stream = events(text);
 
       it('is one JSON object with a type per line', () => {
         for (const event of stream) assert.equal(typeof event.type, 'string');
@@ -60,7 +61,6 @@ describe('claude stream fixtures', () => {
       });
 
       it('holds no path of the machine it was captured on', () => {
-        const text = readFileSync(join(dir, file), 'utf8');
         const paths = text.match(/[A-Za-z]:\\\\[^"]*/g) ?? [];
         for (const path of paths) {
           assert.match(path, /^C:\\\\(work\\\\brewery\\\\worktree|Windows\\\\System32\\\\)/);
