@@ -182,6 +182,37 @@ describe('fold', () => {
     for (const state of states) assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
   });
 
+  it('keeps the worktree an attempt was given from its start through its finish', () => {
+    const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
+    const worktree = {
+      repo: 'acme/api',
+      path: 'work/acme.api/attempts/b1/plan/1',
+      branch: 'foedrum/b1/plan/1',
+      commit: 'a'.repeat(40),
+    };
+    const outcome = { kind: 'cancelled' } as const;
+    const started = fold([ordered, scheduled, { type: 'step.started', ...base, worktree }]);
+    const ended = fold([
+      ordered,
+      scheduled,
+      { type: 'step.started', ...base, worktree },
+      { type: 'step.finished', ...base, outcome },
+    ]);
+    assert.deepStrictEqual(batch(started).steps.get('plan')?.attempts.get(1), {
+      phase: 'started',
+      attempt: 1,
+      deadlineAt,
+      worktree,
+    });
+    assert.deepStrictEqual(batch(ended).steps.get('plan')?.attempts.get(1), {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt,
+      worktree,
+      outcome,
+    });
+  });
+
   it('leaves out a session and usage the events do not carry', () => {
     const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
     const outcome = { kind: 'cancelled' } as const;

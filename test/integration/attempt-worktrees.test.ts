@@ -7,6 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import type { EventStore } from '../../src/engine/event-store.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { AttemptRef, Claims } from '../../src/workspace/attempt-worktrees.ts';
 import {
@@ -14,6 +16,9 @@ import {
   openAttemptWorktrees,
 } from '../../src/workspace/attempt-worktrees-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
+import { createBrewing } from '../helpers/brewing.ts';
+import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
+import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { makeReadOnly } from './read-only.ts';
 
@@ -221,5 +226,113 @@ describe('attempt worktrees with real git', () => {
 
     assert.deepEqual(foedrumBranches(clone), []);
     assert.deepEqual(records(clone), []);
+  });
+});
+
+// The engine's side (ADR 0037): the test driver gives each attempt a worktree of the user's clone,
+// records it, and cleans up when the batch ends and when it starts again.
+describe('the driver and attempt worktrees with real git', () => {
+  let dir: TempDir;
+  let user: string;
+  let workRoot: string;
+  let store: EventStore;
+  let before: string;
+
+  const snapshot = (): string =>
+    JSON.stringify({
+      head: git(user, ['symbolic-ref', 'HEAD']),
+      status: git(user, ['status', '--porcelain']),
+      branches: lines(git(user, ['for-each-ref', '--format=%(refname) %(objectname)'])).filter(
+        // A fetch updates the remote-tracking refs (and origin/HEAD), as any fetch does.
+        (line) => !line.startsWith('refs/heads/foedrum/') && !line.startsWith('refs/remotes/'),
+      ),
+    });
+  const leftovers = () => ({
+    branches: lines(
+      git(user, ['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/foedrum/']),
+    ),
+    records: existsSync(join(user, '.git', 'worktrees'))
+      ? readdirSync(join(user, '.git', 'worktrees'))
+      : [],
+  });
+
+  beforeEach(() => {
+    dir = makeTempDir('driver-worktrees');
+    const origin = join(dir.path, 'origin.git');
+    user = join(dir.path, 'user');
+    workRoot = join(dir.path, 'work');
+    git(dir.path, ['init', '-q', '--bare', '-b', 'main', origin]);
+    git(dir.path, ['init', '-q', '-b', 'main', user]);
+    writeFileSync(join(user, 'readme.txt'), 'hello\n');
+    git(user, ['add', 'readme.txt']);
+    git(user, ['commit', '-q', '-m', 'Initial commit']);
+    git(user, ['remote', 'add', 'origin', origin]);
+    git(user, ['push', '-q', '-u', 'origin', 'main']);
+    git(user, ['switch', '-q', '-c', 'topic']);
+    store = openSqliteEventStore(':memory:');
+    before = snapshot();
+  });
+  afterEach(async () => {
+    store.close();
+    assert.equal(snapshot(), before, "the user's clone changed");
+    await removeTree(dir.path);
+  });
+
+  const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'] }) });
+  const manager = () =>
+    openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/app', clone: user });
+  const driver = (worktrees: boolean) =>
+    createBrewing({
+      store,
+      runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
+      recipes,
+      clock: () => new Date('2026-10-16T12:00:00.000Z'),
+      ...(worktrees
+        ? { worktrees: { repo: 'acme/app', base: 'origin/main', manager: manager() } }
+        : {}),
+    });
+  const brewOnTap = async (brewing: ReturnType<typeof createBrewing>) => {
+    assert.ok(brewing.command({ kind: 'order', batchId: '12-1', order: { issue: 12 } }));
+    const route = { kind: 'route', batchId: '12-1', recipe: 'pint', reason: 'label' } as const;
+    assert.ok(brewing.command({ ...route, source: 'label' }));
+    await brewing.drive();
+    assert.equal(brewing.batch('12-1').lane.kind, 'on_tap');
+  };
+
+  it('records each attempt worktree, and leaves nothing behind once the batch is on tap', async () => {
+    const brewing = driver(true);
+    await brewing.start();
+    await brewOnTap(brewing);
+
+    const recorded = brewing
+      .events()
+      .flatMap((event) =>
+        event.type === 'step.started' && event.worktree !== undefined ? [event.worktree] : [],
+      );
+    assert.deepEqual(
+      recorded.map(({ repo, branch }) => [repo, branch]),
+      [
+        ['acme/app', 'foedrum/12-1/plan/1'],
+        ['acme/app', 'foedrum/12-1/implement/1'],
+      ],
+    );
+    assert.deepEqual(leftovers(), { branches: [], records: [] });
+    assert.deepEqual(readdirSync(manager().root), []);
+  });
+
+  it('removes at its start what a driver that died before cleaning up left of an ended batch', async () => {
+    // The batch went on tap, but the driver died before it cleaned up: its worktree is still there.
+    await brewOnTap(driver(false));
+    const left = await manager().create(
+      { batchId: '12-1', stepId: 'plan', attempt: 1 },
+      'origin/main',
+    );
+    assert.ok(existsSync(left.path));
+
+    const { repair } = await driver(true).start();
+
+    assert.deepEqual(repair.failed, []);
+    assert.equal(existsSync(left.path), false);
+    assert.deepEqual(leftovers(), { branches: [], records: [] });
   });
 });

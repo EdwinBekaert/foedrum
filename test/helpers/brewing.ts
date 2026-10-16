@@ -11,6 +11,8 @@ import type {
   RunningAttempt,
 } from '../../src/engine/brewer-runner.ts';
 import { type Command, decide } from '../../src/engine/decide.ts';
+import type { DriverLock } from '../../src/engine/driver-lock.ts';
+import type { DriverStart } from '../../src/engine/driver-start.ts';
 import type { EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import { expireOwnLeases } from '../../src/engine/leases.ts';
@@ -18,6 +20,8 @@ import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import type { AttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
+import { fakeLock } from './fake-lock.ts';
 
 export interface BrewingOptions {
   store: EventStore;
@@ -32,6 +36,17 @@ export interface BrewingOptions {
   reminderMs?: number;
   /** Default 1 hour. */
   routingMs?: number;
+  /** The driver's lock, which names its owner; default a fake one of driver-1, held. */
+  lock?: DriverLock;
+  /**
+   * The attempt worktrees of the one repository the attempts write in, and the base new ones start
+   * from; without them, attempts get no worktree and nothing is cleaned.
+   */
+  worktrees?: {
+    repo: string;
+    base: string;
+    manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
+  };
 }
 
 export const defaultLimits: AttemptLimits = {
@@ -48,6 +63,7 @@ export const createBrewing = (options: BrewingOptions) => {
     leaseMs = 5 * 60_000,
     reminderMs = 2 * 24 * 3_600_000,
     routingMs = 3_600_000,
+    lock = fakeLock(),
   } = options;
   const refusals: string[] = [];
   const notices: Notice[] = [];
@@ -95,7 +111,7 @@ export const createBrewing = (options: BrewingOptions) => {
     return true;
   };
 
-  const owner = 'driver-1';
+  const { owner } = lock;
   const lease = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({
       attemptKey: key,
@@ -178,8 +194,9 @@ export const createBrewing = (options: BrewingOptions) => {
    * Takes over from an earlier run of this driver on the same store: the leases that run left
    * expire now, so the supervisor's next tick loses their attempts (ADR 0033).
    */
-  const start = (): void => {
-    expireOwnLeases(store, owner, clock());
+  const start = async (): Promise<DriverStart> => {
+    const expired = expireOwnLeases(store, owner, clock());
+    return { expired, repair: { done: [], kept: [], failed: [] } };
   };
 
   return { start, command, drive, tick, events, state, batch, refusals, notices };

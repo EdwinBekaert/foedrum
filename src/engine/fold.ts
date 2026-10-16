@@ -11,6 +11,7 @@ import type {
   Surface,
   Usage,
   WaitCondition,
+  WorktreeRef,
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { effectKey } from './effect-key.ts';
@@ -36,6 +37,7 @@ export type Attempt =
       attempt: number;
       deadlineAt: string;
       session?: SessionRef;
+      worktree?: WorktreeRef;
       abandoned?: true;
     }
   | {
@@ -43,6 +45,7 @@ export type Attempt =
       attempt: number;
       deadlineAt: string;
       session?: SessionRef;
+      worktree?: WorktreeRef;
       outcome: StepOutcome;
       usage?: Usage;
     };
