@@ -78,17 +78,26 @@ export interface ClaimHost {
    * Creates the claim ref of `issue`, pointing at a commit whose message is `message`;
    * `exists` when the ref is there already. Atomic: of two calls, at most one creates it.
    */
-  create(repo: string, issue: number, message: string): Promise<'created' | 'exists'>;
+  create(
+    repo: string,
+    issue: number,
+    message: string,
+    signal?: AbortSignal,
+  ): Promise<'created' | 'exists'>;
   /**
    * The commit the claim ref points at and that commit's message, or undefined when there is no
    * ref.
    */
-  read(repo: string, issue: number): Promise<{ sha: string; message: string } | undefined>;
+  read(
+    repo: string,
+    issue: number,
+    signal?: AbortSignal,
+  ): Promise<{ sha: string; message: string } | undefined>;
   /**
    * Deletes the claim ref only while it still points at `sha`, in one step on the code host;
    * false when it points elsewhere or is gone.
    */
-  delete(repo: string, issue: number, sha: string): Promise<boolean>;
+  delete(repo: string, issue: number, sha: string, signal?: AbortSignal): Promise<boolean>;
 }
 
 /** How a claim went: created now, created by this Brewery before, or held by another. */

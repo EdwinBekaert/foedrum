@@ -491,6 +491,81 @@ describe('openDriver', () => {
       assert.deepStrictEqual(host.applied, []);
     });
 
+    describe('deadline (#130)', () => {
+      /**
+       * A target whose `apply` answers only after 300 ms, long past the deadlines below, unless
+       * its signal aborts first; and the signals it was handed.
+       */
+      const hanging = () => {
+        const signals: (AbortSignal | undefined)[] = [];
+        const target: EffectTarget = {
+          find: async () => undefined,
+          apply: (key, signal) => {
+            signals.push(signal);
+            return new Promise((resolve) => {
+              const timer = setTimeout(() => resolve({ key }), 300);
+              signal?.addEventListener('abort', () => clearTimeout(timer));
+            });
+          },
+        };
+        return { target, signals };
+      };
+
+      it('gives an effect up at its deadline, aborting it, records nothing and reports it', async () => {
+        const { target, signals } = hanging();
+        const notices: DriverNotice[] = [];
+        succeededPlan('cellar');
+        const driver = await open({
+          effects: { due: commentsDue, target, deadlineMs: 20 },
+          report: (notice) => notices.push(notice),
+        });
+        await driver.applyEffects();
+        assert.equal(signals[0]?.aborted, true);
+        assert.equal(store.findEffect({ ...plan('b1'), effect: 'comment' }), undefined);
+        assert.deepStrictEqual(
+          notices.map((notice) => notice.kind),
+          ['effect_failed'],
+        );
+        const [failed] = notices;
+        assert.match(
+          failed?.kind === 'effect_failed' ? String(failed.error) : '',
+          /\["b1","plan",1,"comment"\] took longer than its deadline of 20 ms/,
+        );
+      });
+
+      it('gives an effect half the lease when it names no deadline', async () => {
+        const { target, signals } = hanging();
+        const notices: DriverNotice[] = [];
+        succeededPlan('cellar');
+        const driver = await open({
+          leaseMs: 40,
+          effects: { due: commentsDue, target },
+          report: (notice) => notices.push(notice),
+        });
+        await driver.applyEffects();
+        assert.equal(signals[0]?.aborted, true);
+        assert.match(
+          notices[0]?.kind === 'effect_failed' ? String(notices[0].error) : '',
+          /deadline of 20 ms/,
+        );
+      });
+
+      for (const deadlineMs of [minute, 2 * minute, 0, -1, 1.5]) {
+        it(`refuses a deadline of ${deadlineMs} ms with a lease of 1 minute, letting its lock go`, async () => {
+          const lock = fakeLock('cellar');
+          await assert.rejects(
+            open({
+              lock: () => lock,
+              leaseMs: minute,
+              effects: { due: commentsDue, target: fakeHost().target, deadlineMs },
+            }),
+            /deadline of an effect must be a whole number of milliseconds below the lease of 60000 ms/,
+          );
+          assert.equal(lock.held, false);
+        });
+      }
+    });
+
     it('runs one pass at a time, so no two calls apply one effect at once', async () => {
       let open_ = (): void => {};
       const gate = new Promise<void>((resolve) => {

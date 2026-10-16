@@ -30,6 +30,7 @@ export interface DriverEffects {
   /** The effects that the recorded events of `batchId` call for (ADR 0033). */
   due(state: State, batchId: string): EffectKey[];
   target: EffectTarget;
+  deadlineMs?: number;
 }
 
 /** What the driver reports instead of failing: it keeps driving. */

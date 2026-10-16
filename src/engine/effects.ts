@@ -14,9 +14,9 @@ export interface EffectTarget {
    * what Foedrum's own identity made counts (its comments and pull requests, branches in its own
    * repositories, never a fork's): keys are predictable, and anyone who can comment could plant one.
    */
-  find(key: string): Promise<{ result: unknown } | undefined>;
+  find(key: string, signal?: AbortSignal): Promise<{ result: unknown } | undefined>;
   /** Applies the effect, carrying its key so that `find` sees it; returns its result. */
-  apply(key: string): Promise<unknown>;
+  apply(key: string, signal?: AbortSignal): Promise<unknown>;
 }
 
 /** The idempotency ledger: the `effect.applied` events of the store. */
@@ -39,6 +39,7 @@ export const applyEffect = async (
   ledger: Ledger,
   key: EffectKey,
   target: EffectTarget,
+  _signal?: AbortSignal,
 ): Promise<Applied> => {
   const text = effectKey.encode(key);
   const recorded = ledger.find(key);
