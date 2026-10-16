@@ -1,5 +1,5 @@
 {
-  "$comment": "Streams captured for #17 with ADR 0042's command line: commonArgs, then each case's args; the prompt on stdin, no prompt argument; cwd a scratch git repository. Scrubbed: paths become C:\\work\\brewery\\worktree, rate_limit_info keeps only its status (no plan, usage or org settings), thinking signatures become synthetic-signature. Nothing the runner reads is changed.",
+  "$comment": "Streams captured for #17 with ADR 0042's command line: commonArgs, then each case's args; the prompt on stdin, no prompt argument; cwd a scratch git repository. Scrubbed: paths become C:\\work\\brewery\\worktree, rate_limit_info keeps only its status (no plan, usage or org settings), thinking signatures become synthetic-signature, and every session id, event uuid and toolu_/msg_/req_ id becomes a synthetic one, the same everywhere, so resumed.jsonl resumes the session of success.jsonl and each tool result names its tool use. Nothing the runner reads is changed.",
   "claudeVersion": "2.1.301",
   "captured": "2026-10-16",
   "platform": "Windows 11, native claude.exe, subscription login",
