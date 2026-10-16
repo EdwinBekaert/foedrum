@@ -73,7 +73,7 @@ const applied = (result: unknown): Event => ({
   result,
 });
 const lease = {
-  attemptKey: 'b1/plan#1',
+  attemptKey: '["b1","plan",1]',
   owner: 'cellar',
   expiresAt: new Date('2026-10-15T10:01:00Z'),
 };
@@ -364,7 +364,7 @@ describe('SqliteEventStore in memory', () => {
   describe('leases', () => {
     it('lists only leases still alive at now', () => {
       const other = {
-        attemptKey: 'b2/plan#1',
+        attemptKey: '["b2","plan",1]',
         owner: 'session',
         expiresAt: at('2026-10-15T10:02:00Z'),
       };
@@ -380,7 +380,7 @@ describe('SqliteEventStore in memory', () => {
 
     it('lists the leases that expired at or before now, earliest first', () => {
       const later = {
-        attemptKey: 'b2/plan#1',
+        attemptKey: '["b2","plan",1]',
         owner: 'session',
         expiresAt: at('2026-10-15T10:02:00Z'),
       };

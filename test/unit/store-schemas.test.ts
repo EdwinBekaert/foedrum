@@ -86,7 +86,7 @@ describe('EffectKeyText', () => {
 
 describe('Lease', () => {
   const lease = {
-    attemptKey: 'b1/plan/1',
+    attemptKey: '["b1","plan",1]',
     owner: 'worker-1',
     expiresAt: new Date(Date.UTC(2026, 9, 15)),
   };
@@ -101,7 +101,7 @@ describe('Lease', () => {
     ['an expiry as text', { ...lease, expiresAt: '2026-10-15T00:00:00.000Z' }],
     ['an expiry as a number', { ...lease, expiresAt: Date.UTC(2026, 9, 15) }],
     ['an invalid date', { ...lease, expiresAt: new Date(Number.NaN) }],
-    ['a missing owner', { attemptKey: 'b1/plan/1', expiresAt: lease.expiresAt }],
+    ['a missing owner', { attemptKey: '["b1","plan",1]', expiresAt: lease.expiresAt }],
     ['an unknown field', { ...lease, extra: true }],
   ];
   for (const [name, value] of invalid) {
