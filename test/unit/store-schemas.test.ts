@@ -95,6 +95,16 @@ describe('Lease', () => {
     assert.deepEqual(Lease.parse(lease), lease);
   });
 
+  const canonical: [string, string][] = [
+    ['ids with separators', JSON.stringify(['a.b-c', 'x_y.z', 2])],
+    ['the largest safe attempt', JSON.stringify(['b1', 'plan', 2 ** 53 - 1])],
+  ];
+  for (const [name, attemptKey] of canonical) {
+    it(`accepts the canonical attempt key of ${name}`, () => {
+      assert.equal(Lease.parse({ ...lease, attemptKey }).attemptKey, attemptKey);
+    });
+  }
+
   const invalid: [string, unknown][] = [
     ['an empty attempt key', { ...lease, attemptKey: '' }],
     ['an empty owner', { ...lease, owner: '' }],
