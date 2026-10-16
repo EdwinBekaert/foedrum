@@ -216,6 +216,28 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
+  it('names the exit code when claude refused to start and said nothing', async () => {
+    const { runner } = setup({ lines: [], result: exited(2, '\n  \n') }, { outDoc: undefined });
+    const end = await runner.start(attempt).ended;
+    assert.match(
+      end.ending.kind === 'blocked' ? end.ending.summary : '',
+      /: claude refused to start with exit code 2$/,
+    );
+  });
+
+  it('fails, retryably, when stderr passed its limit', async () => {
+    const { runner } = setup({
+      lines: fixture('success.jsonl').slice(0, 2),
+      result: { exitCode: null, stderr: '', killed: 'too-much-output' },
+    });
+    const end = await runner.start(attempt).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: "the brewer's output passed a limit: stderr passed 4194304 bytes",
+    });
+  });
+
   it('fails, not retryably, when claude could not start', async () => {
     const { runner } = setup(
       { lines: [], result: { exitCode: null, stderr: 'claude: not found on PATH (ENOENT)' } },

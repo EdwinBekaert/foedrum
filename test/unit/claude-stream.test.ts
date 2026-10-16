@@ -219,6 +219,11 @@ describe('readClaudeStream', () => {
     assert.equal(facts.streamError, 'api_error: Overloaded');
   });
 
+  it('records a result event it cannot read as a stream error', () => {
+    const { facts } = readAll([init(), assistant('msg_1', []), result({ is_error: 'yes' })], asked);
+    assert.equal(facts.streamError, 'the result event could not be read');
+  });
+
   it('cuts a long error short', () => {
     const { facts } = readAll(
       [init(), assistant('msg_1', []), result({ is_error: true, errors: ['x'.repeat(5000)] })],
