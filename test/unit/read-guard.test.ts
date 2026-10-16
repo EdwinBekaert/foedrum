@@ -141,11 +141,17 @@ describe('readGuard: Read', () => {
     }));
 
   it('blocks a path that cannot be resolved, with the reason', () =>
-    blocks(hookInput('Read', { file_path: '/repo/loop' }), /could not resolve.*ELOOP/, {
-      realPath: () => {
-        throw Object.assign(new Error('ELOOP: too many symbolic links'), { code: 'ELOOP' });
+    blocks(
+      hookInput('Read', { file_path: '/repo/loop' }),
+      /could not resolve "\/repo\/loop".*ELOOP/,
+      {
+        // The checkout resolves; only the path read does not.
+        realPath: (path) => {
+          if (path === '/repo') return path;
+          throw Object.assign(new Error('ELOOP: too many symbolic links'), { code: 'ELOOP' });
+        },
       },
-    }));
+    ));
 
   it('keeps a path with a line break on one line', () =>
     blocks(hookInput('Read', { file_path: '/etc/x\nok' }), OUTSIDE));
@@ -162,7 +168,10 @@ describe('readGuard: Grep and Glob', () => {
     allows(hookInput('Grep', { pattern: 'token' })));
 
   it('blocks Grep without a path in a working directory outside', () =>
-    blocks(hookInput('Grep', { pattern: 'token' }, '/home/u'), /Grep is blocked/));
+    blocks(
+      hookInput('Grep', { pattern: 'token' }, '/home/u'),
+      /^Grep is blocked: .*outside the checkout/,
+    ));
 
   it('blocks Grep with a path outside', () =>
     blocks(hookInput('Grep', { pattern: 'token', path: '/home/u/.config' }), OUTSIDE));
@@ -174,7 +183,10 @@ describe('readGuard: Grep and Glob', () => {
     allows(hookInput('Glob', { pattern: 'src/**/*.ts' })));
 
   it('blocks Glob with a path outside', () =>
-    blocks(hookInput('Glob', { pattern: '*.yml', path: '/home/u/.config/gh' }), /Glob is blocked/));
+    blocks(
+      hookInput('Glob', { pattern: '*.yml', path: '/home/u/.config/gh' }),
+      /^Glob is blocked: .*outside the checkout/,
+    ));
 
   it('blocks an absolute Glob pattern outside', () =>
     blocks(hookInput('Glob', { pattern: '/home/u/.config/**/*.yml' }), OUTSIDE));

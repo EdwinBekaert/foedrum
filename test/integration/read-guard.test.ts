@@ -4,7 +4,6 @@
 // file. The guard's decisions are unit tests in test/unit/read-guard.test.ts.
 
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -61,8 +60,8 @@ const agentHookCommand = (): string => {
 };
 
 /** The short (8.3) name of an existing path on Windows, or undefined when it has none. */
-const shortName = (path: string): string | undefined => {
-  const result = spawnSync(
+const shortName = async (path: string): Promise<string | undefined> => {
+  const { code, stdout } = await run(
     'powershell.exe',
     [
       '-NoProfile',
@@ -70,10 +69,11 @@ const shortName = (path: string): string | undefined => {
       '-Command',
       '$f = New-Object -ComObject Scripting.FileSystemObject; if (Test-Path -LiteralPath $env:P -PathType Container) { $f.GetFolder($env:P).ShortPath } else { $f.GetFile($env:P).ShortPath }',
     ],
-    { encoding: 'utf8', env: { ...process.env, P: path }, timeout: 30_000 },
+    '',
+    { cwd: root, env: { ...process.env, P: path } },
   );
-  const short = result.stdout.trim();
-  return result.status === 0 && short.includes('~') ? short : undefined;
+  const short = stdout.trim();
+  return code === 0 && short.includes('~') ? short : undefined;
 };
 
 describe('the read guard hook command', () => {
@@ -146,7 +146,7 @@ describe('the read guard hook command', () => {
 
   it('blocks a short name that leads outside', { skip: !windows }, async (t) => {
     const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files';
-    const short = shortName(programFiles);
+    const short = await shortName(programFiles);
     if (short === undefined) return t.skip('no short name for Program Files on this machine');
     assert.equal(realPath(short), realpathSync.native(programFiles));
     const { code, stderr } = await runHook(hookInput('Read', { file_path: join(short, 'x.txt') }));
@@ -160,7 +160,7 @@ describe('the read guard hook command', () => {
     const long = join(dir.path, 'a folder with a long name');
     mkdirSync(long);
     writeFileSync(join(long, 'a.txt'), 'a');
-    const short = shortName(long);
+    const short = await shortName(long);
     if (short === undefined) return t.skip('short names are off on the checkout drive');
     const result = await runHook(hookInput('Read', { file_path: join(short, 'a.txt') }));
     assert.deepEqual(result, { code: 0, stdout: '', stderr: '' });
