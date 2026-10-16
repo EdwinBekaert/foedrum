@@ -5,6 +5,7 @@ import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
 import type { Readable } from 'node:stream';
 import { environmentVariable, resolveExecutable } from './executables.ts';
+import { jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
 
 export type Kill = (pid: number, signal: 0) => void;
@@ -142,6 +143,13 @@ export interface ExecOptions {
    * many bytes; default DEFAULT_MAX_OUTPUT_BYTES.
    */
   maxOutputBytes?: number | undefined;
+  /**
+   * On Windows, starts the process inside a kill-on-close Job Object, so a kill also ends the
+   * processes whose parent has already exited (ADR 0039). Costs about 0.4 s per call; a process
+   * that cannot be held in a job does not start. Ignored elsewhere, where the runner kills the
+   * process group.
+   */
+  jobObject?: boolean | undefined;
 }
 
 export interface ExecResult {
@@ -186,9 +194,11 @@ export interface Spawner {
   spawn: (
     file: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv },
+    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean },
   ) => ChildHandle;
   killTree: (pid: number) => void;
+  /** Whether `spawn` holds a process in a Job Object when asked to (the real one on Windows). */
+  jobObjects?: boolean;
   /**
    * The file a command name runs, or undefined when there is none. The runner spawns what this
    * returns; without it, the name as given.
@@ -202,11 +212,21 @@ export interface Spawner {
  * and answers at once, without waiting for output pipes that a surviving grandchild may hold open.
  */
 export const execProcessWith =
-  ({ spawn, killTree, resolve }: Spawner, timers: Timers = realTimers): ExecProcess =>
+  (
+    { spawn, killTree, resolve, jobObjects = false }: Spawner,
+    timers: Timers = realTimers,
+  ): ExecProcess =>
   (
     file,
     args,
-    { cwd, env = process.env, timeoutMs, signal, maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES },
+    {
+      cwd,
+      env = process.env,
+      timeoutMs,
+      signal,
+      maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+      jobObject = false,
+    },
   ) =>
     new Promise((done) => {
       let stdout = '';
@@ -235,7 +255,7 @@ export const execProcessWith =
       }
       let child: ChildHandle;
       try {
-        child = spawn(program, [...args], { cwd, env });
+        child = spawn(program, [...args], { cwd, env, jobObject });
       } catch (error) {
         done(failed(error));
         return;
@@ -278,27 +298,46 @@ export const execProcessWith =
         output += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
-      child.on('close', (code) => finish(ended(code)));
+      child.on('close', (code) => {
+        // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
+        const refused =
+          jobObject && jobObjects ? jobObjectRefusal(code, stdout, stderr) : undefined;
+        if (refused === undefined) {
+          finish(ended(code));
+          return;
+        }
+        const reason = `${program}: cannot run in a Job Object: ${refused}`;
+        finish({ exitCode: null, stdout: '', stderr: reason, output: reason });
+      });
     });
 
-/** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
-export const execProcess: ExecProcess = execProcessWith({
-  spawn: (file, args, { cwd, env }) => {
+// Job Objects are Windows's; elsewhere the runner kills the process group.
+const jobObjectsHere = process.platform === 'win32';
+
+/** The real spawner. Unit tests use a fake one instead (ADR 0021). */
+export const processSpawner: Spawner = {
+  spawn: (file, args, { cwd, env, jobObject = false }) => {
     const command = spawnCommand(file, args, process.platform, env);
-    return spawn(command.file, command.args, {
-      cwd,
-      env: command.env,
-      shell: command.shell,
+    const start =
+      jobObjectsHere && jobObject ? jobObjectCommand(command, cwd) : { ...command, cwd };
+    return spawn(start.file, start.args, {
+      cwd: start.cwd,
+      env: start.env,
+      shell: start.shell,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       ...killableSpawnOptions(),
     });
   },
   killTree: killProcessTree,
+  jobObjects: jobObjectsHere,
   // Never the working directory or a relative PATH folder, where a repository could plant its
   // own git.exe (#12).
   resolve: (file, env) => resolveExecutable(file, { env }),
-});
+};
+
+/** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
+export const execProcess: ExecProcess = execProcessWith(processSpawner);
 
 // The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output
 // together. Unit tests pass a fake one.
@@ -309,7 +348,7 @@ export interface ProcessOutcome {
   killed?: Killed;
 }
 
-export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal' | 'maxOutputBytes'>;
+export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal' | 'maxOutputBytes' | 'jobObject'>;
 
 export type RunProcess = (
   file: string,
