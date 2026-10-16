@@ -226,6 +226,8 @@ const LASTING_REFUSALS = [
   /\bmissing required argument\b/i,
   /\brequires --/i,
   /\binvalid session id\b/i,
+  // A session id a start that wrote its stream has taken (review of #136, claude 2.1.301).
+  /\bsession id\b.*\balready in use\b/i,
   /\bnot logged in\b/i,
   /\binvalid api key\b/i,
   /\/login\b/,
