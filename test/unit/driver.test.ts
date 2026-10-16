@@ -303,6 +303,12 @@ describe('openDriver', () => {
         types(store, 'b1').filter((type) => type.startsWith('step.started')),
         ['step.started plan#1'],
       );
+      assert.deepStrictEqual([first.held(), second.held()], [['b1'], []]);
+      assert.equal(batchLease('b1')?.owner, 'cellar');
+      // plan#2 is scheduled and nothing else keeps the second driver from starting it: the lease does.
+      intake.issue({ kind: 'lose', ...plan('b1'), reason: 'the lease of cellar expired' }, now);
+      await second.drive();
+      assert.deepStrictEqual(session.started, []);
     });
 
     it('stops at the next step boundary once another driver holds its batch', async () => {
