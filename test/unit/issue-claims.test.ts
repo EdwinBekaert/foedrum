@@ -45,6 +45,12 @@ const options = (claimant: Claimant, fields: Partial<CandidateOptions> = {}): Ca
 const record = (brewery: string, number = 7): string =>
   JSON.stringify({ brewery, issue: number, claimedAt: now });
 
+describe('claimLabel', () => {
+  it('is foedrum:claimed, apart from the lane labels such as foedrum:brewing', () => {
+    assert.equal(claimLabel, 'foedrum:claimed');
+  });
+});
+
 describe('claimRef', () => {
   it('is refs/foedrum/claims/issues/<number>', () => {
     assert.equal(claimRef(7), 'refs/foedrum/claims/issues/7');
@@ -212,6 +218,15 @@ describe('claimCandidates', () => {
     assert.deepEqual(ofAlice, { order: [7], taken: [] });
     assert.deepEqual(ofBob, { order: [], taken: [{ issue: 7, by: 'alice/brewery' }] });
     assert.deepEqual(await claimCandidates(github.host, issues, pass(bob)), ofBob);
+  });
+
+  it('orders an issue once when the listing has it twice', async () => {
+    // Pages of a listing shift while it is read, so one issue can come back on two of them.
+    const github = fakeGitHub();
+    assert.deepEqual(await claimCandidates(github.host, [issue(7), issue(7)], pass(alice)), {
+      order: [7],
+      taken: [],
+    });
   });
 
   it('claims only candidates, oldest issue first', async () => {

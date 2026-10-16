@@ -47,6 +47,11 @@ describe('effectKey', () => {
     assert.equal(effectKey.encode({ ...batch, effect: 'claim.label' }), '["b1","claim.label"]');
   });
 
+  it('refuses to encode a key with an attempt but no step, rather than make it a batch key', () => {
+    const half = { batchId: 'b1', attempt: 1, effect: 'pr' } as unknown as EffectKey;
+    assert.throws(() => effectKey.encode(half), /Invalid effect key/);
+  });
+
   it('refuses to encode a key with a step but no attempt', () => {
     const half = { batchId: 'b1', stepId: 'plan', effect: 'pr' } as unknown as EffectKey;
     assert.throws(() => effectKey.encode(half), /Invalid effect key/);
