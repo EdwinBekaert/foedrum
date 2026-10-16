@@ -74,6 +74,8 @@ export interface Batch {
   id: string;
   /** The issue this batch brews: an order or a sub-order. */
   issue: number;
+  /** The target repository of a claimed issue (ADR 0043); absent for a Brewery issue. */
+  repo?: string;
   parentBatchId?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string } & (
@@ -83,6 +85,8 @@ export interface Batch {
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
   rewinds: readonly Rewind[];
+  /** How each of its pull requests ended that has ended, by URL; absent while none has. */
+  pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
 }
 
 /** An order: a Brewery issue with batches that is not a sub-order. */
@@ -358,6 +362,8 @@ function apply(state: State, event: Event): State {
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
+    case 'pull_request.ended':
+      throw new Error('not implemented');
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

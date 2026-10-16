@@ -20,6 +20,12 @@ const ordered: Event = {
   order: { issue: 100 },
   routeBy: '2026-12-31T00:00:00.000Z',
 };
+const targetOrdered: Event = {
+  type: 'batch.ordered',
+  batchId: 'app-100',
+  order: { issue: 100, repo: 'acme/app' },
+  routeBy: '2026-12-31T00:00:00.000Z',
+};
 const scheduled: Event = {
   type: 'step.scheduled',
   batchId: 'b1',
@@ -648,6 +654,35 @@ describe('fold', () => {
     assert.deepStrictEqual(state.effects, new Map([[labelKey, null]]));
   });
 
+  it('orders a claimed target-repository issue apart from the Brewery issue of its number (ADR 0043)', () => {
+    const state = fold([ordered, targetOrdered]);
+    assert.deepStrictEqual(batch(state, 'app-100'), {
+      id: 'app-100',
+      issue: 100,
+      repo: 'acme/app',
+      lane: { kind: 'ordered', routeBy: '2026-12-31T00:00:00.000Z' },
+      steps: new Map(),
+      rewinds: [],
+    });
+    // Orders and sub-orders are the Brewery's issues, which the target issue is not.
+    assert.deepStrictEqual(state.orders.get(100)?.batchIds, ['b1']);
+    assert.deepStrictEqual(state.subOrders, new Map());
+  });
+
+  it('records the end of each pull request of a batch', () => {
+    const other = 'https://github.com/acme/api/pull/8';
+    const state = fold([
+      ordered,
+      { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest, other] },
+      { type: 'pull_request.ended', batchId: 'b1', pullRequest, state: 'merged' },
+      { type: 'pull_request.ended', batchId: 'b1', pullRequest: other, state: 'closed' },
+    ]);
+    assert.deepStrictEqual(batch(state).pullRequestEnds, {
+      [pullRequest]: 'merged',
+      [other]: 'closed',
+    });
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
@@ -856,6 +891,33 @@ describe('fold of an inconsistent log', () => {
       ],
       /issue 100 is an order, so it cannot be a sub-order/,
     ],
+    [
+      'a target-repository issue ordered as a sub-order',
+      [ordered, { ...targetOrdered, parentBatchId: 'b1' }],
+      /batch app-100 brews issue 100 of acme\/app, which is never a sub-order/,
+    ],
+    [
+      'a target-repository issue decomposed',
+      [
+        targetOrdered,
+        {
+          type: 'order.decomposed',
+          batchId: 'app-100',
+          subOrders: [{ issue: 101, repo: 'acme/app' }],
+          dependencies: [],
+        },
+      ],
+      /batch app-100 brews issue 100 of acme\/app; only a Brewery order can be decomposed/,
+    ],
+    [
+      'the end of a pull request recorded twice',
+      [
+        ordered,
+        { type: 'pull_request.ended', batchId: 'b1', pullRequest, state: 'merged' },
+        { type: 'pull_request.ended', batchId: 'b1', pullRequest, state: 'closed' },
+      ],
+      /pull request https:\/\/github.com\/acme\/api\/pull\/7 of batch b1 already ended/,
+    ],
   ];
 
   for (const [name, events, message] of cases) {
@@ -936,6 +998,7 @@ describe('fold of an inconsistent log', () => {
     },
     { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
     { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
+    { type: 'pull_request.ended', batchId: 'b1', pullRequest, state: 'merged' },
   ];
   for (const event of batchEvents) {
     it(`throws on ${event.type} for a batch that was never ordered`, () => {

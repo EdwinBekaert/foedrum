@@ -402,6 +402,18 @@ describe('foedrum status', () => {
     );
   });
 
+  it('names the repository of a claimed target-repository issue (ADR 0043)', async () => {
+    const target: Event = {
+      type: 'batch.ordered',
+      batchId: 'app-11',
+      order: { issue: 11, repo: 'acme/app' },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    };
+    const result = await run(['status'], { openStore: () => storeWith([ordered(11), target]) });
+    assert.match(result.stdout, /^ +11-1 +#11 +ordered/m);
+    assert.match(result.stdout, /^ +app-11 +acme\/app#11 +ordered/m);
+  });
+
   it('says in one line, escaped, and exits 1, when reading the store throws', async () => {
     // A stored event that no longer validates: the message repeats text from the store.
     // An error that escaped runCli becomes the result, so the assertion below shows it.

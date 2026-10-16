@@ -116,6 +116,8 @@ function rule(state: State, event: Event): string | undefined {
       return lanes(state, event, ['brewing']);
     case 'batch.cancelled':
       return lanes(state, event, nonTerminal);
+    case 'pull_request.ended':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

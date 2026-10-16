@@ -117,6 +117,12 @@ const valid: Record<Event['type'], Event> = {
   },
   'batch.on_tap': { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
   'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'comment' },
+  'pull_request.ended': {
+    type: 'pull_request.ended',
+    batchId: 'app-7',
+    pullRequest,
+    state: 'merged',
+  },
   'effect.applied': {
     type: 'effect.applied',
     key: '["b1","brew",1,"pull_request"]',
@@ -169,6 +175,19 @@ describe('Event', () => {
       attempt: 2,
       outcome: { kind: 'cancelled' },
     });
+  });
+
+  it('accepts an order of a claimed issue in a target repository (ADR 0043)', () => {
+    accepts(Event, {
+      type: 'batch.ordered',
+      batchId: 'app-7',
+      order: { issue: 7, repo: 'acme/app' },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
+  });
+
+  it('accepts a pull request that was closed without a merge', () => {
+    accepts(Event, { ...valid['pull_request.ended'], state: 'closed' });
   });
 
   it('accepts a retry that sends a batch back to Ordered with a routing deadline', () => {
@@ -237,6 +256,15 @@ describe('Event', () => {
     ['a bottle without sub-orders', { ...valid['bottle.opened'], subOrders: [] }],
     ['an abbreviated sha', { ...valid['batch.rewound'], shas: { 'acme/lib-core': 'abc1234' } }],
     ['batch.on_tap without pull requests', { ...valid['batch.on_tap'], pullRequests: [] }],
+    ['a pull request that ended open', { ...valid['pull_request.ended'], state: 'open' }],
+    [
+      'the end of a pull request that is no https URL',
+      { ...valid['pull_request.ended'], pullRequest: 'http://github.com/acme/app/pull/7' },
+    ],
+    [
+      'an order in a repository that is no owner/name',
+      { ...valid['batch.ordered'], order: { issue: 7, repo: 'acme' } },
+    ],
     [
       'an unknown dependency kind',
       {
