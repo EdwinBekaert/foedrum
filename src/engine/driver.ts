@@ -95,6 +95,10 @@ export interface Driver {
   close(): void;
 }
 
+/** The attempt `ref` in `state`, if it was scheduled. */
+const attemptOf = (state: State, ref: AttemptRef) =>
+  state.batches.get(ref.batchId)?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+
 /**
  * Takes the driver's lock and starts it on the store (`startDriver`), then returns it. Rejects,
  * letting the lock go, when the start fails; nothing is driven before it.
@@ -205,17 +209,22 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   /**
    * The heartbeat: renews the lease of every batch it holds, and of every attempt its runner still
-   * runs. At every tick, and before each effect, so a long tick lets none of them expire.
+   * runs. At every tick, and before each effect, so a long tick lets none of them expire. Not of an
+   * attempt the log shows finished or abandoned: another driver lost it, or Stuck abandoned it, and
+   * a new attempt of its step may run beside its run until the next tick stops it (I2).
    */
   const heartbeat = (): void => {
     const now = clock();
+    const current = log.state();
     store.withTransaction((tx) => {
       for (const batchId of [...held]) {
         const hold = holdBatch(tx, { batchId, owner, now, leaseMs });
         if (hold.kind === 'other') lose(batchId, hold.lease);
       }
       for (const [key, { ref }] of runs) {
-        if (runner.progress(ref) !== undefined) leaseAttempt(tx, key);
+        const attempt = attemptOf(current, ref);
+        const over = attempt?.phase === 'finished' || attempt?.abandoned === true;
+        if (!over && runner.progress(ref) !== undefined) leaseAttempt(tx, key);
       }
     });
   };
@@ -372,10 +381,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     // the log shows finished while this runner still runs them: another driver lost them.
     const current = log.state();
     for (const { ref, run } of runs.values()) {
-      const attempt = current.batches
-        .get(ref.batchId)
-        ?.steps.get(ref.stepId)
-        ?.attempts.get(ref.attempt);
+      const attempt = attemptOf(current, ref);
       if (attempt === undefined) continue;
       const lost = attempt.phase === 'finished';
       if (lost || attempt.abandoned === true || batchIsOver(current, ref.batchId)) run.stop();
