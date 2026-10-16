@@ -452,6 +452,80 @@ describe('SqliteEventStore in memory', () => {
     });
   });
 
+  describe('batch leases', () => {
+    const held = { batchId: 'b1', owner: 'cellar', expiresAt: at('2026-10-15T10:01:00Z') };
+    const other = { batchId: 'b2', owner: 'session-7', expiresAt: at('2026-10-15T10:02:00Z') };
+
+    it('lists only batch leases still alive at now, by batch id', () => {
+      store.withTransaction((tx) => {
+        tx.putBatchLease(other);
+        tx.putBatchLease(held);
+      });
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), [held, other]);
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:01:00Z')), [other]);
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:02:00Z')), []);
+    });
+
+    it('reads a batch lease in a transaction, alive or expired', () => {
+      store.withTransaction((tx) => tx.putBatchLease(held));
+      assert.deepEqual(
+        store.withTransaction((tx) => [tx.batchLease('b1'), tx.batchLease('b2')]),
+        [held, undefined],
+      );
+    });
+
+    it('replaces a batch lease in place and releases it', () => {
+      const taken = { ...held, owner: 'session-7', expiresAt: at('2026-10-15T10:05:00Z') };
+      store.withTransaction((tx) => tx.putBatchLease(held));
+      store.withTransaction((tx) => tx.putBatchLease(taken));
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:03:00Z')), [taken]);
+      store.withTransaction((tx) => tx.releaseBatchLease('b1'));
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), []);
+    });
+
+    it('keeps batch leases apart from attempt leases', () => {
+      store.withTransaction((tx) => {
+        tx.putBatchLease(held);
+        tx.putLease(lease);
+      });
+      store.withTransaction((tx) => tx.releaseLease(lease.attemptKey));
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), [held]);
+      assert.deepEqual(store.currentLeases(at('2026-10-15T10:00:00Z')), []);
+    });
+
+    it('rolls a batch lease back with its transaction', () => {
+      assert.throws(() =>
+        store.withTransaction((tx) => {
+          tx.putBatchLease(held);
+          throw new Error('crash');
+        }),
+      );
+      assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), []);
+    });
+
+    for (const [field, value] of [
+      ['batchId', 'B 1'],
+      ['owner', ''],
+    ] as const) {
+      it(`rejects a batch lease with an invalid ${field} and stores nothing`, () => {
+        assert.throws(
+          () => store.withTransaction((tx) => tx.putBatchLease({ ...held, [field]: value })),
+          new RegExp(field),
+        );
+        assert.deepEqual(store.batchLeases(at('2026-10-15T10:00:00Z')), []);
+      });
+    }
+
+    it('rejects a batch lease with an invalid expiry, and an invalid now', () => {
+      assert.throws(
+        () =>
+          store.withTransaction((tx) => tx.putBatchLease({ ...held, expiresAt: new Date('x') })),
+        /expiresAt/,
+      );
+      assert.throws(() => store.batchLeases(new Date(Number.NaN)), /now must be a valid date/);
+    });
+  });
+
   describe('batchesPastDeadline', () => {
     const now = at('2026-10-15T12:00:00Z');
 
@@ -1035,11 +1109,11 @@ describe('SqliteEventStore on a file', () => {
     dir.remove();
   });
 
-  it('uses WAL mode and records schema version 2', () => {
+  it('uses WAL mode and records schema version 3', () => {
     open(path);
     const db = raw(path);
     assert.deepEqual({ ...db.prepare('PRAGMA journal_mode').get() }, { journal_mode: 'wal' });
-    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 2 });
+    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 3 });
   });
 
   it('keeps events, leases and effects across a reopen', () => {
@@ -1064,9 +1138,9 @@ describe('SqliteEventStore on a file', () => {
     const first = open(path);
     first.withTransaction((tx) => tx.append(ordered('b1')));
     first.close();
-    // What version 1 left: no pushed table.
+    // What version 1 left: no pushed table, and no batch leases.
     const db = raw(path);
-    db.exec('DROP TABLE pushed; PRAGMA user_version = 1');
+    db.exec('DROP TABLE pushed; DROP TABLE IF EXISTS batch_leases; PRAGMA user_version = 1');
     db.close();
 
     const upgraded = open(path);
@@ -1077,7 +1151,26 @@ describe('SqliteEventStore on a file', () => {
     assert.equal(upgraded.pushedThrough(), undefined);
     upgraded.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: 'e'.repeat(40) }));
     assert.deepEqual(upgraded.pushedThrough(), { eventId: 1, commit: 'e'.repeat(40) });
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 2 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 3 });
+  });
+
+  it('upgrades a schema version 2 database, which had no batch leases, and keeps its leases', () => {
+    const first = open(path);
+    first.withTransaction((tx) => {
+      tx.append(ordered('b1'));
+      tx.putLease(lease);
+    });
+    first.close();
+    const db = raw(path);
+    db.exec('DROP TABLE IF EXISTS batch_leases; PRAGMA user_version = 2');
+    db.close();
+
+    const upgraded = open(path);
+    const held = { batchId: 'b1', owner: 'cellar', expiresAt: at('2026-10-15T10:01:00Z') };
+    upgraded.withTransaction((tx) => tx.putBatchLease(held));
+    assert.deepEqual(upgraded.batchLeases(at('2026-10-15T10:00:00Z')), [held]);
+    assert.deepEqual(upgraded.currentLeases(at('2026-10-15T10:00:00Z')), [lease]);
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 3 });
   });
 
   it('keeps the pushed-through marker across a reopen', () => {
@@ -1091,9 +1184,9 @@ describe('SqliteEventStore on a file', () => {
 
   it('refuses a database written by a newer schema version', () => {
     const db = raw(path);
-    db.exec('PRAGMA user_version = 3');
+    db.exec('PRAGMA user_version = 4');
     db.close();
-    assert.throws(() => open(path), /schema version 3/);
+    assert.throws(() => open(path), /schema version 4/);
     // The refused connection is closed: on Windows an open file could not be removed.
     rmSync(path);
   });
@@ -1267,8 +1360,8 @@ describe('SqliteEventStore read-only', () => {
     open(path);
     closeAll();
     const db = raw(path);
-    db.exec('PRAGMA user_version = 3');
+    db.exec('PRAGMA user_version = 4');
     db.close();
-    assert.throws(() => open(path, { readOnly: true }), /schema version 3/);
+    assert.throws(() => open(path, { readOnly: true }), /schema version 4/);
   });
 });
