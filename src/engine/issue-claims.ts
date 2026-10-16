@@ -3,9 +3,13 @@
 // release when the batch ends. This module decides; the GitHub layer implements `ClaimHost` and
 // turns each due effect into an `EffectTarget` (ADR 0033).
 
+import type { IntakeFilter } from '../schemas/brewery-config.ts';
 import { ClaimRecord } from '../schemas/claim.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { Lane } from './fold.ts';
+
+/** Which issues of a repository a Brewery brews: all of `labels`, and `milestone` when set. */
+export type { IntakeFilter };
 
 /** The label a claimed issue carries until its claim is released. */
 export const claimLabel = 'foedrum:claimed';
@@ -32,12 +36,6 @@ export interface TargetIssue {
   author: string;
 }
 
-/** Which issues of a repository a Brewery brews: all of `labels`, and `milestone` when set. */
-export interface IntakeFilter {
-  labels: readonly string[];
-  milestone?: string;
-}
-
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */
 export interface Claimant {
   brewery: string;
@@ -54,7 +52,8 @@ export interface CandidateOptions {
 }
 
 // GitHub compares logins, label names and repository names ignoring case.
-const same = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
+export const same = (one: string, other: string): boolean =>
+  one.toLowerCase() === other.toLowerCase();
 
 /** Whether the intake may claim `issue`: open, filtered in, unassigned or ours, never brewed. */
 export const isCandidate = (issue: TargetIssue, options: CandidateOptions): boolean => {
@@ -78,17 +77,26 @@ export interface ClaimHost {
    * Creates the claim ref of `issue`, pointing at a commit whose message is `message`;
    * `exists` when the ref is there already. Atomic: of two calls, at most one creates it.
    */
-  create(repo: string, issue: number, message: string): Promise<'created' | 'exists'>;
+  create(
+    repo: string,
+    issue: number,
+    message: string,
+    signal?: AbortSignal,
+  ): Promise<'created' | 'exists'>;
   /**
    * The commit the claim ref points at and that commit's message, or undefined when there is no
    * ref.
    */
-  read(repo: string, issue: number): Promise<{ sha: string; message: string } | undefined>;
+  read(
+    repo: string,
+    issue: number,
+    signal?: AbortSignal,
+  ): Promise<{ sha: string; message: string } | undefined>;
   /**
    * Deletes the claim ref only while it still points at `sha`, in one step on the code host;
    * false when it points elsewhere or is gone.
    */
-  delete(repo: string, issue: number, sha: string): Promise<boolean>;
+  delete(repo: string, issue: number, sha: string, signal?: AbortSignal): Promise<boolean>;
 }
 
 /** How a claim went: created now, created by this Brewery before, or held by another. */
@@ -112,8 +120,9 @@ const claimedBy = async (
   host: ClaimHost,
   repo: string,
   issue: number,
+  signal?: AbortSignal,
 ): Promise<{ found: false } | { found: true; sha: string; brewery: string | undefined }> => {
-  const ref = await host.read(repo, issue);
+  const ref = await host.read(repo, issue, signal);
   if (ref === undefined) return { found: false };
   const record = ClaimRecord.safeParse(parseJson(ref.message));
   const brewery = record.success && record.data.issue === issue ? record.data.brewery : undefined;
@@ -123,12 +132,18 @@ const claimedBy = async (
 /** Claims `issue` in `repo` for the claimant's Brewery. */
 export const claimIssue = async (
   host: ClaimHost,
-  claim: { repo: string; issue: number; brewery: string; now: string },
+  claim: {
+    repo: string;
+    issue: number;
+    brewery: string;
+    now: string;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<ClaimOutcome> => {
-  const { repo, issue, brewery, now } = claim;
+  const { repo, issue, brewery, now, signal } = claim;
   const message = JSON.stringify(ClaimRecord.parse({ brewery, issue, claimedAt: now }));
-  if ((await host.create(repo, issue, message)) === 'created') return { kind: 'won' };
-  const holder = await claimedBy(host, repo, issue);
+  if ((await host.create(repo, issue, message, signal)) === 'created') return { kind: 'won' };
+  const holder = await claimedBy(host, repo, issue, signal);
   // Gone between creating and reading it: released in between; the next poll tries again.
   if (!holder.found || holder.brewery === undefined) return { kind: 'taken', by: undefined };
   return same(holder.brewery, brewery) ? { kind: 'ours' } : { kind: 'taken', by: holder.brewery };
@@ -140,19 +155,31 @@ export interface ClaimPass {
   order: number[];
   /** The candidates another Brewery (or someone unknown) holds the claim of. */
   taken: { issue: number; by: string | undefined }[];
+  /**
+   * The candidate whose claim the code host failed: the pass stopped there, and the claims before
+   * it are in `order`, so they are ordered now and never left without a batch.
+   */
+  failed?: { issue: number; error: unknown };
 }
 
 /**
  * Claims the candidates of `issues`, one after the other, oldest issue first, until it orders
- * `limit` of them; the rest wait for the next pass, or for another Brewery.
+ * `limit` of them; the rest wait for the next pass, or for another Brewery. It stops at the first
+ * claim the code host fails, and returns what it holds so far with the failure.
  */
 export const claimCandidates = async (
   host: ClaimHost,
   issues: readonly TargetIssue[],
   /** `limit`: the Brewery's free capacity, how many batches it can start now. */
-  options: CandidateOptions & { repo: string; now: string; limit: number },
+  /** `signal`: handed to the code host; once it aborts, the next claim fails and the pass stops. */
+  options: CandidateOptions & {
+    repo: string;
+    now: string;
+    limit: number;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<ClaimPass> => {
-  const { repo, now, claimant, limit } = options;
+  const { repo, now, claimant, limit, signal } = options;
   if (!Number.isSafeInteger(limit) || limit < 0) {
     throw new RangeError(`The limit must be a whole number of batches, got ${limit}`);
   }
@@ -166,7 +193,14 @@ export const claimCandidates = async (
   for (const issue of candidates) {
     // A taken claim costs no capacity, so the pass goes on to the next candidate.
     if (pass.order.length === limit) break;
-    const outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now });
+    let outcome: ClaimOutcome;
+    try {
+      signal?.throwIfAborted();
+      outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now, signal });
+    } catch (error) {
+      pass.failed = { issue, error };
+      break;
+    }
     switch (outcome.kind) {
       case 'won':
       case 'ours':
@@ -185,14 +219,14 @@ export const claimCandidates = async (
 /** Releases the claim when its record still names `brewery`; `gone` or `not_ours` otherwise. */
 export const releaseClaim = async (
   host: ClaimHost,
-  claim: { repo: string; issue: number; brewery: string },
+  claim: { repo: string; issue: number; brewery: string; signal?: AbortSignal | undefined },
 ): Promise<'released' | 'gone' | 'not_ours'> => {
-  const { repo, issue, brewery } = claim;
-  const holder = await claimedBy(host, repo, issue);
+  const { repo, issue, brewery, signal } = claim;
+  const holder = await claimedBy(host, repo, issue, signal);
   if (!holder.found) return 'gone';
   if (holder.brewery === undefined || !same(holder.brewery, brewery)) return 'not_ours';
   // Only the commit that was read: a claim made since then is someone else's.
-  return (await host.delete(repo, issue, holder.sha)) ? 'released' : 'not_ours';
+  return (await host.delete(repo, issue, holder.sha, signal)) ? 'released' : 'not_ours';
 };
 
 /** How a pull request of a batch stands. */

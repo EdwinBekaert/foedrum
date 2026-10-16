@@ -138,6 +138,15 @@ describe('logPathOf', () => {
     ],
     'bottle.opened': [bottled, 'events.jsonl'],
     'release.observed': [released, 'events.jsonl'],
+    'pull_request.ended': [
+      {
+        type: 'pull_request.ended',
+        batchId: 'b1',
+        pullRequest: 'https://github.com/acme/api/pull/7',
+        state: 'merged',
+      },
+      'batches/b1/events.jsonl',
+    ],
     'batch.rewound': [
       {
         type: 'batch.rewound',

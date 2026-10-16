@@ -53,8 +53,11 @@ export const WorktreeRef = z.strictObject({
 });
 export type WorktreeRef = z.infer<typeof WorktreeRef>;
 
-/** An order or sub-order: an issue in the Brewery. */
-export const OrderRef = z.strictObject({ issue: IssueNumber });
+/**
+ * An order or sub-order: an issue in the Brewery, or a claimed issue of the target repository
+ * `repo` (ADR 0043).
+ */
+export const OrderRef = z.strictObject({ issue: IssueNumber, repo: Repo.optional() });
 export type OrderRef = z.infer<typeof OrderRef>;
 
 /** A sub-order writes in exactly one repository (architecture §3.2). */
@@ -278,6 +281,13 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     by: NonEmpty,
     via: Surface,
+  }),
+  // A pull request of the batch was merged or closed, as the intake saw it; recorded once (#103).
+  z.strictObject({
+    type: z.literal('pull_request.ended'),
+    batchId: BatchId,
+    pullRequest: PullRequestUrl,
+    state: z.enum(['merged', 'closed']),
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),

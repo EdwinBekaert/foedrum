@@ -147,7 +147,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 
 - One branch per issue: `<issue-number>-<short-slug>`, or `docs/…`, `ci/…` for non-feature work.
 - Work in a worktree under `.claude/worktrees/` and run `npm ci` in it right after creating it. Without its own `node_modules`, Node falls back to the main checkout's packages, which may not match the worktree's `package-lock.json` (#86).
-- Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging.
+- Small pull requests that reference their issue (`Closes #<n>`); CI must be green before merging. One pull request closes one whole issue: when the work is too big for one, split the issue before opening the pull request. Open a new issue for the rest (same milestone and labels, linked both ways, with the open questions and review inputs that belong to it), narrow the first issue to what this pull request delivers, and close it with `Closes #<n>`. Never "part 1 of #<n>" or "Part of #<n>": every pull request closes the issue it delivers.
 - Pull request and issue descriptions start with a "How it works" section written as a `/brew-sheet` (`.claude/skills/brew-sheet/`): first a line that says which part of Foedrum it touches and what that part is, then what the change or the issue does, then one mermaid picture when the change has a shape (a flow, a state change, a module layout).
 - Open pull requests as drafts and run the review skill (#23) before marking them ready: red proof, simplify, lens reviews, mutation check, coverage delta. Address or explicitly dismiss every finding in the summary comment.
 - Commit messages: imperative subject line, optional short body explaining why.

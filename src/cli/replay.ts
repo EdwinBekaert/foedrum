@@ -4,7 +4,7 @@ import type { StoredEvent } from '../engine/event-store.ts';
 import type { Attempt, Batch } from '../engine/fold.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { columns } from './columns.ts';
-import { describeLane } from './status.ts';
+import { describeLane, issueOf } from './status.ts';
 
 const outcomeOf = (outcome: StepOutcome): string => {
   switch (outcome.kind) {
@@ -52,7 +52,7 @@ export const formatReplay = (batch: Batch, events: readonly StoredEvent[]): stri
   const { lane, detail } = describeLane(batch);
   const { recipe } = batch;
   const lines = [
-    `Batch ${batch.id}, issue #${batch.issue}`,
+    `Batch ${batch.id}, issue ${issueOf(batch)}`,
     '',
     'Events',
     ...columns(

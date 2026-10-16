@@ -14,7 +14,10 @@
       },
       "testReport": { "format": "tap" },
       "setup": { "command": "npm ci", "timeout": "10m" },
-      "tools": ["Bash(npm test*)", "Bash(npm run lint*)", "Bash(npx tsc*)"]
+      "tools": ["Bash(npm test*)", "Bash(npm run lint*)", "Bash(npx tsc*)"],
+      // Claim and brew its open issues labelled foedrum, as batches web-<issue> (ADR 0043).
+      "alias": "web",
+      "intake": { "labels": ["foedrum"] }
     },
     "acme/billing": {
       "checks": {

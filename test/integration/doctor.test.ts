@@ -4,9 +4,11 @@
 // in test/unit/cli.test.ts.
 
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
+import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
 const VERSION = String.raw`\d+(?:\.\d+)+`;
@@ -58,5 +60,32 @@ describe('foedrum doctor on this machine', () => {
     assert.ok(lines.some((line) => line.startsWith('Container: ')));
     const required = lines.some((line) => / \(required\): /.test(line));
     assert.equal(exitCode, required ? 1 : 0);
+  });
+});
+
+describe('foedrum doctor in a Brewery', () => {
+  it('reads foedrum.jsonc in the working directory and refuses two repositories with one alias', async () => {
+    const dir = makeTempDir('doctor-config');
+    try {
+      const checks = { build: null, typecheck: null, lint: null, format: null, test: null };
+      const config = {
+        repositories: {
+          'acme/web': { checks, alias: 'app' },
+          'acme/api': { checks, alias: 'app' },
+        },
+      };
+      writeFileSync(join(dir.path, 'foedrum.jsonc'), JSON.stringify(config));
+      const { exitCode, stdout } = await execProcess(process.execPath, [main, 'doctor'], {
+        cwd: dir.path,
+        timeoutMs: 60_000,
+      });
+      assert.equal(exitCode, 1);
+      assert.match(
+        stdout,
+        /^ {2}foedrum\.jsonc is not valid \(required\): .*The alias app is already the alias of acme\/web/m,
+      );
+    } finally {
+      dir.remove();
+    }
   });
 });

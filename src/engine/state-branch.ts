@@ -47,6 +47,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.rewound':
     case 'batch.on_tap':
     case 'batch.cancelled':
+    case 'pull_request.ended':
       return event.batchId;
     default: {
       const unhandled: never = event;
