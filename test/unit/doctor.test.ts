@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type DoctorFacts, diagnose } from '../../src/cli/doctor.ts';
+import { type DoctorFacts, diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
 import { linux, macos, ran, windows } from '../helpers/doctor-facts.ts';
 
 const required = (facts: DoctorFacts) =>
@@ -189,6 +189,26 @@ describe('diagnose: isolation (ADR 0010)', () => {
     // The container level is optional: it is no problem, and doctor stays ok.
     assert.equal(ok, true);
     assert.deepEqual(problems, []);
+  });
+
+  it('reports Podman as not usable when neither runtime answers its version', () => {
+    const podman = ran('/usr/bin/podman', 'timed out after 3 s\n', null);
+    const docker = ran('/usr/bin/docker', 'Cannot connect to the Docker daemon\n', 1);
+    assert.deepEqual(diagnose(linux({ docker, podman })).container, {
+      name: 'podman',
+      version: undefined,
+      path: '/usr/bin/podman',
+      usable: false,
+      said: 'timed out after 3 s',
+    });
+  });
+
+  it('reports a runtime that printed nothing as not answering, without a reason', () => {
+    const docker = ran('/usr/bin/docker', '', 1);
+    assert.match(
+      formatDiagnosis(diagnose(linux({ docker }))),
+      /\nContainer: docker at \/usr\/bin\/docker does not answer its version; the container level is not available\n/,
+    );
   });
 
   it('falls through to Docker when Podman does not answer its version', () => {

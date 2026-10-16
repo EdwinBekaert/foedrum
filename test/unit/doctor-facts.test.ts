@@ -114,17 +114,16 @@ describe('gatherDoctorFacts', () => {
   });
 
   // A runtime waiting for its daemon is the common case (#99: docker.exe on the Windows runner).
+  const timedOut: ExecResult = {
+    exitCode: null,
+    stdout: '',
+    stderr: '',
+    output: '',
+    killed: 'timed-out',
+  };
   const hangingDocker: Extra = {
     onPath: { docker: '/usr/bin/docker' },
-    answers: {
-      '/usr/bin/docker': {
-        exitCode: null,
-        stdout: '',
-        stderr: '',
-        output: '',
-        killed: 'timed-out',
-      },
-    },
+    answers: { '/usr/bin/docker': timedOut },
   };
 
   it('gives a container runtime a shorter deadline than the other tools', async () => {
@@ -132,6 +131,16 @@ describe('gatherDoctorFacts', () => {
     await gatherDoctorFacts(shell);
     const docker = calls.find(({ file }) => file === '/usr/bin/docker');
     assert.equal(docker?.options.timeoutMs, 3_000);
+  });
+
+  it('gives Podman the same shorter deadline', async () => {
+    const { calls, shell } = fakeShell({
+      onPath: { podman: '/usr/bin/podman' },
+      answers: { '/usr/bin/podman': timedOut },
+    });
+    await gatherDoctorFacts(shell);
+    const podman = calls.find(({ file }) => file === '/usr/bin/podman');
+    assert.equal(podman?.options.timeoutMs, 3_000);
   });
 
   it('reports a container runtime that times out as not available', async () => {

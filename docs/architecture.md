@@ -431,7 +431,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | **Permissions only** | Native Windows | Strict tool allowlists, file-tool deny rules outside the worktree, minimal environment, `scope` guard. A warning is shown at start |
 | **Container** (optional, any OS with an OCI container runtime: Podman or Docker) | Anywhere | The brewer runner starts `claude` inside a container that mounts only the worktree |
 
-- `foedrum doctor` reports Node, npm, git and `claude` (resolved path and version), the effective isolation level, a container runtime (Podman or Docker) when there is one (one that does not answer its version within 3 s is not usable, and the next is tried), and missing prerequisites (for example `bubblewrap`). It exits 1 when a required one is missing: git, `claude`, or Node 24.15. A pure core (`src/cli/doctor.ts`) turns the facts its shell gathers through the process runner into the report.
+- `foedrum doctor` reports Node, npm, git and `claude` (resolved path and version), the effective isolation level, a container runtime (Podman or Docker) when there is one (one that does not report a version, because it fails or does not answer within 3 s, is not usable, and the next is tried), and missing prerequisites (for example `bubblewrap`). It exits 1 when a required one is missing: git, `claude`, or Node 24.15. A pure core (`src/cli/doctor.ts`) turns the facts its shell gathers through the process runner into the report.
 - A Brewery can require a minimum level (`"isolation": { "minimum": "sandboxed" }`); writing brewers then refuse to run below it. Read-only brewers may run at a lower level.
 - Recommended setup on Windows for untrusted repositories: run Foedrum inside WSL2.
 
