@@ -68,6 +68,16 @@ describe('githubTargetTracker', () => {
       );
     });
 
+    it('reads labels given as plain names, and assignees given as null', async () => {
+      const item = { number: 10, state: 'open', user: { login: 'alice' }, labels: ['foedrum'] };
+      const { tracker } = trackerWith([
+        { status: 200, body: [{ ...item, assignees: null, milestone: null }] },
+      ]);
+      const [issue] = await tracker.issues('acme/web');
+      assert.deepStrictEqual(issue?.labels, ['foedrum']);
+      assert.deepStrictEqual(issue?.assignees, []);
+    });
+
     it('asks again with the ETag, and an unchanged listing answers the same issues', async () => {
       const { tracker, requests } = trackerWith([
         { status: 200, body: fixture('issues'), headers: { etag: 'W/"issues"' } },
@@ -123,6 +133,13 @@ describe('githubTargetTracker', () => {
       const { tracker, requests } = trackerWith([{ status: 200, body: fixture('pull-merged') }]);
       assert.equal(await tracker.pullRequest(pullRequest), 'merged');
       assert.equal(requests[0]?.url, `${api}/repos/acme/web/pulls/12`);
+    });
+
+    it('reads a pull request as merged from either merged or merged_at alone', async () => {
+      const byTime = trackerWith([pull({ merged: undefined, merged_at: '2026-10-16T09:00:00Z' })]);
+      assert.equal(await byTime.tracker.pullRequest(pullRequest), 'merged');
+      const byFlag = trackerWith([pull({ merged: true, merged_at: null })]);
+      assert.equal(await byFlag.tracker.pullRequest(pullRequest), 'merged');
     });
 
     it('reads a closed pull request that was not merged as closed, and an open one as open', async () => {

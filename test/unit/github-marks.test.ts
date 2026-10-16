@@ -39,6 +39,16 @@ describe('githubIssueMarks', () => {
     assert.equal(requests[0]?.url, `${api}/repos/acme/web/issues/7`);
   });
 
+  it('reads assignees given as null as none, and labels given as plain names', async () => {
+    const issue = { ...(fixture('issue') as object), assignees: null, labels: ['foedrum'] };
+    const { marks } = marksWith([
+      { status: 200, body: issue },
+      { status: 200, body: issue },
+    ]);
+    assert.deepStrictEqual(await marks.assignees(repo, 7), []);
+    assert.deepStrictEqual(await marks.labels(repo, 7), ['foedrum']);
+  });
+
   it('reads the issue again with its ETag', async () => {
     const { marks, requests } = marksWith([
       { status: 200, body: fixture('issue'), headers: { etag: '"seven"' } },
