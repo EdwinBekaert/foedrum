@@ -74,6 +74,28 @@ describe('outcomesReporter', () => {
     ]);
   });
 
+  it('writes a suite that failed on its own, as when a hook throws, but not one whose tests failed', async () => {
+    const outcomes = await report([
+      start(fileA, 0, 'cleanup'),
+      start(fileA, 1, 'passes'),
+      end(true, fileA, 1, 'passes'),
+      end(false, fileA, 0, 'cleanup', {
+        details: { type: 'suite', error: { failureType: 'hookFailed' } },
+      }),
+      start(fileB, 0, 'parent'),
+      start(fileB, 1, 'fails'),
+      end(false, fileB, 1, 'fails'),
+      end(false, fileB, 0, 'parent', {
+        details: { type: 'suite', error: { failureType: 'subtestsFailed' } },
+      }),
+    ]);
+    assert.deepEqual(outcomes, [
+      { file: 'test/unit/a.test.ts', test: ['cleanup', 'passes'], ok: true },
+      { file: 'test/unit/a.test.ts', test: ['cleanup'], ok: false },
+      { file: 'test/unit/b.test.ts', test: ['parent', 'fails'], ok: false },
+    ]);
+  });
+
   it('writes a file that failed to load as a failed test named after the file', async () => {
     const name = join('test', 'unit', 'b.test.ts');
     assert.deepEqual(await report([start(fileB, 0, name), end(false, fileB, 0, name)]), [

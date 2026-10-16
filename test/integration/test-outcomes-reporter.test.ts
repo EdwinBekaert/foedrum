@@ -38,7 +38,8 @@ describe('test-outcomes-reporter under node --test', () => {
   });
   after(() => dir.remove());
 
-  it('writes one line per test that ran, with its file, suites and outcome', () => {
+  // The outcome lines the reporter writes for a run of the given files, sorted.
+  const outcomesOf = (...files: string[]): unknown[] => {
     const out = join(dir.path, 'outcomes.jsonl');
     const run = spawnSync(
       process.execPath,
@@ -46,8 +47,7 @@ describe('test-outcomes-reporter under node --test', () => {
         '--test',
         `--test-reporter=${pathToFileURL(reporter).href}`,
         `--test-reporter-destination=${out}`,
-        'a.test.ts',
-        'b.test.ts',
+        ...files,
       ],
       // Without NODE_TEST_CONTEXT, which would make the child skip its files as a nested run.
       {
@@ -58,18 +58,37 @@ describe('test-outcomes-reporter under node --test', () => {
       },
     );
     assert.equal(run.error, undefined);
-    const outcomes = readFileSync(out, 'utf8')
+    return readFileSync(out, 'utf8')
       .split('\n')
       .filter((line) => line !== '')
-      .map((line) => JSON.parse(line));
-    assert.deepEqual(
-      outcomes.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      .map((line) => JSON.parse(line))
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  };
+
+  it('writes a suite whose after hook throws as a failure, though its tests pass', () => {
+    writeFileSync(
+      join(dir.path, 'c.test.ts'),
       [
-        { file: 'a.test.ts', test: ['suite', 'inner', 'fails'], ok: false },
-        { file: 'a.test.ts', test: ['suite', 'inner', 'passes'], ok: true },
-        { file: 'a.test.ts', test: ['top level'], ok: true },
-        { file: 'b.test.ts', test: ['b.test.ts'], ok: false },
-      ],
+        "import { after, describe, it } from 'node:test';",
+        "describe('cleanup', () => {",
+        "  after(() => { throw new Error('cleanup failed'); });",
+        "  it('passes', () => {});",
+        '});',
+        '',
+      ].join('\n'),
     );
+    assert.deepEqual(outcomesOf('c.test.ts'), [
+      { file: 'c.test.ts', test: ['cleanup'], ok: false },
+      { file: 'c.test.ts', test: ['cleanup', 'passes'], ok: true },
+    ]);
+  });
+
+  it('writes one line per test that ran, with its file, suites and outcome', () => {
+    assert.deepEqual(outcomesOf('a.test.ts', 'b.test.ts'), [
+      { file: 'a.test.ts', test: ['suite', 'inner', 'fails'], ok: false },
+      { file: 'a.test.ts', test: ['suite', 'inner', 'passes'], ok: true },
+      { file: 'a.test.ts', test: ['top level'], ok: true },
+      { file: 'b.test.ts', test: ['b.test.ts'], ok: false },
+    ]);
   });
 });

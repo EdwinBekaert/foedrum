@@ -15,7 +15,7 @@ export interface OutcomeEvent extends TestEvent {
     name?: string;
     skip?: boolean | string;
     todo?: boolean | string;
-    details?: { type?: string };
+    details?: { type?: string; error?: { failureType?: string } };
   };
 }
 
