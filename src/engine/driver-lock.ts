@@ -8,6 +8,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { errorCode } from '../platform/remove.ts';
 import { Repo } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
+import { readJsonc } from '../schemas/read.ts';
+import { BreweryMarker, DriverHolder } from '../schemas/work-root.ts';
 
 /** A driver's held lock; `held` turns false once it is released. */
 export interface DriverLock {
@@ -36,12 +38,6 @@ export interface DriverLockOptions {
   waitMs?: number;
 }
 
-/** Who held a driver's lock, as recorded when it took the lock. */
-export interface Holder {
-  pid: number;
-  startedAt: string;
-}
-
 /** The work root belongs to another Brewery. */
 export class OtherBreweryError extends Error {
   readonly marker: string;
@@ -60,9 +56,9 @@ export class OtherBreweryError extends Error {
 /** Another process runs this driver: its lock is taken. */
 export class DriverRunningError extends Error {
   readonly path: string;
-  readonly holder: Holder | undefined;
+  readonly holder: DriverHolder | undefined;
 
-  constructor(owner: string, path: string, holder: Holder | undefined) {
+  constructor(owner: string, path: string, holder: DriverHolder | undefined) {
     const by =
       holder === undefined ? '' : ` by process ${holder.pid}, started at ${holder.startedAt}`;
     super(
@@ -76,16 +72,8 @@ export class DriverRunningError extends Error {
 
 // SQLite's result code when another connection holds a lock it needs.
 const SQLITE_BUSY = 5;
-
-const breweryOf = (text: string): string | undefined => {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    const brewery = (parsed as { brewery?: unknown } | null)?.brewery;
-    return typeof brewery === 'string' ? brewery : undefined;
-  } catch {
-    return undefined;
-  }
-};
+/** Windows may free the lock of a process that died a little after the process is gone. */
+const WAIT_MS = 2_000;
 
 // Claims the work root for the Brewery, or checks that it is the Brewery's. The marker is made
 // whole next to its place and linked in, so it appears complete and only once, whoever is first.
@@ -100,24 +88,25 @@ const claimWorkRoot = (workRoot: string, brewery: string, pid: number): void => 
   } finally {
     rmSync(draft, { force: true });
   }
-  const recorded = breweryOf(readFileSync(marker, 'utf8'));
-  if (recorded === undefined) {
+  // A BOM or CRLF from an editor is fine; anything but exactly a Brewery is not.
+  const read = readJsonc(readFileSync(marker, 'utf8'), BreweryMarker);
+  if (!read.valid) {
     throw new Error(
-      `The work root's Brewery marker ${marker} cannot be read: remove it only when no other Brewery uses this work root`,
+      `The work root's Brewery marker ${marker} cannot be read (${read.reason}): remove it only when no other Brewery uses this work root`,
     );
   }
+  const recorded = read.value.brewery;
   // GitHub names are case-insensitive.
   if (recorded.toLowerCase() !== brewery.toLowerCase()) {
     throw new OtherBreweryError(marker, recorded, brewery);
   }
 };
 
-const holderOf = (path: string): Holder | undefined => {
+// Only for a refusal's message: a holder file that is missing or broken names no one.
+const holderOf = (path: string): DriverHolder | undefined => {
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<Holder>;
-    return typeof parsed.pid === 'number' && typeof parsed.startedAt === 'string'
-      ? { pid: parsed.pid, startedAt: parsed.startedAt }
-      : undefined;
+    const read = readJsonc(readFileSync(path, 'utf8'), DriverHolder);
+    return read.valid ? read.value : undefined;
   } catch {
     return undefined;
   }
@@ -130,7 +119,7 @@ const holderOf = (path: string): Holder | undefined => {
  * free: its file lock died with it, so it is taken over without any cleanup.
  */
 export const lockDriver = (workRoot: string, options: DriverLockOptions): DriverLock => {
-  const { brewery, owner, pid = process.pid, now = () => new Date() } = options;
+  const { brewery, owner, pid = process.pid, now = () => new Date(), waitMs = WAIT_MS } = options;
   if (!Repo.safeParse(brewery).success) {
     throw new Error(`The Brewery ${JSON.stringify(brewery)} is no owner/name`);
   }
@@ -144,8 +133,8 @@ export const lockDriver = (workRoot: string, options: DriverLockOptions): Driver
   const holderPath = join(workRoot, 'drivers', `${owner}.holder.json`);
   // A SQLite database in exclusive locking mode keeps the lock of its first write until it is
   // closed, and the file lock under it (fcntl, LockFileEx) dies with the process: no stale lock
-  // to detect, and no pid that a new process may reuse. `timeout: 0` refuses at once.
-  const db = new DatabaseSync(path, { timeout: 0 });
+  // to detect, and no pid that a new process may reuse. A held lock is waited for `waitMs`.
+  const db = new DatabaseSync(path, { timeout: waitMs });
   try {
     db.exec('PRAGMA locking_mode = EXCLUSIVE');
     db.exec('BEGIN EXCLUSIVE');
@@ -160,9 +149,15 @@ export const lockDriver = (workRoot: string, options: DriverLockOptions): Driver
     }
     throw error;
   }
-  // Written under the lock, for the message a refused driver shows; nothing decides by it.
-  const holder: Holder = { pid, startedAt: now().toISOString() };
-  writeFileSync(holderPath, `${JSON.stringify(holder)}\n`);
+  // Written under the lock, for the message a refused driver shows; nothing decides by it. When
+  // it cannot be written, the lock goes too: no handle would be left to release it.
+  const holder: DriverHolder = { pid, startedAt: now().toISOString() };
+  try {
+    writeFileSync(holderPath, `${JSON.stringify(holder)}\n`);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   let held = true;
   return {
     owner,
@@ -173,8 +168,13 @@ export const lockDriver = (workRoot: string, options: DriverLockOptions): Driver
     release() {
       if (!held) return;
       held = false;
-      rmSync(holderPath, { force: true });
+      // The lock first: a holder file a scanner keeps busy must not keep the lock taken.
       db.close();
+      try {
+        rmSync(holderPath, { force: true });
+      } catch {
+        // The next holder overwrites it.
+      }
     },
   };
 };
