@@ -10,7 +10,12 @@ import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
-import { type Driver, type DriverOptions, openDriver } from '../../src/engine/driver.ts';
+import {
+  type Driver,
+  type DriverNotice,
+  type DriverOptions,
+  openDriver,
+} from '../../src/engine/driver.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
 import type { EffectKey, EventStore } from '../../src/engine/event-store.ts';
@@ -20,6 +25,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 
 const minute = 60_000;
 const t0 = new Date('2026-10-15T12:00:00.000Z');
@@ -312,6 +318,75 @@ describe('openDriver', () => {
       assert.deepStrictEqual(after.held(), ['b1']);
       await after.tick();
       assert.deepStrictEqual(second.started, [plan('b1', 2)]);
+    });
+  });
+
+  describe('attempt worktrees (ADR 0037)', () => {
+    const worktreesOf = (manager: FakeWorktrees) => ({
+      worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+    });
+
+    it('records the worktree of each attempt, and cleans them once the batch ended', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      const driver = await open({
+        runner,
+        ...worktreesOf(manager),
+        report: (notice) => notices.push(notice),
+      });
+      await driver.drive();
+      const start = store.eventsAfter(0).at(-1)?.event;
+      assert.equal(start?.type === 'step.started' && start.worktree?.commit, FAKE_COMMIT);
+      end(plan('b1'));
+      await driver.drive();
+      end({ batchId: 'b1', stepId: 'implement', attempt: 1 });
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.cleans().map(({ scope }) => scope),
+        [{}, { batchId: 'b1' }],
+      );
+      assert.deepStrictEqual(
+        notices.map((notice) => notice.kind),
+        ['cleaned'],
+      );
+    });
+
+    it('fails an attempt that cannot get its worktree retryably, and lets its lease go', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const manager = fakeWorktrees({
+        refuse: (ref) => (ref.attempt === 1 ? 'the worktree is in the way' : undefined),
+      });
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      assert.deepStrictEqual(types(store, 'b1').slice(-4), [
+        'step.started plan#1',
+        'step.finished plan#1',
+        'step.scheduled plan#2',
+        'step.started plan#2',
+      ]);
+      assert.deepStrictEqual(started, [plan('b1', 2)]);
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode(plan('b1', 2))],
+      );
+    });
+
+    it('lets the lease go when the batch was cancelled while its worktree was made', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const manager = fakeWorktrees();
+      const create = manager.create.bind(manager);
+      manager.create = async (ref, base) => {
+        intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+        return create(ref, base);
+      };
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(store.currentLeases(now), []);
     });
   });
 
