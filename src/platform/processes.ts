@@ -3,7 +3,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { environmentVariable, resolveExecutable } from './executables.ts';
 import { jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
@@ -172,6 +172,8 @@ export type ExecProcess = (
 /** The part of a started process the runner uses; a fake one in unit tests (ADR 0021). */
 export interface ChildHandle {
   readonly pid?: number | undefined;
+  /** Set when the runner asked for a pipe to the program's stdin. */
+  readonly stdin?: Writable | null | undefined;
   readonly stdout: Readable;
   readonly stderr: Readable;
   on(event: 'error', listener: (error: Error) => void): unknown;
@@ -194,7 +196,7 @@ export interface Spawner {
   spawn: (
     file: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean },
+    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean; stdin?: boolean },
   ) => ChildHandle;
   killTree: (pid: number) => void;
   /** Whether `spawn` holds a process in a Job Object when asked to (the real one on Windows). */
@@ -311,6 +313,57 @@ export const execProcessWith =
       });
     });
 
+/** How the runner ended a process it streams: as execProcess, or at a line past its limit. */
+export type StreamKilled = Killed | 'line-too-long';
+
+export interface StreamOptions {
+  cwd: string;
+  /** The process's environment; default this process's. */
+  env?: NodeJS.ProcessEnv | undefined;
+  /** Kills the process and every process it started after this long. */
+  timeoutMs?: number | undefined;
+  /** Kills the process and every process it started when it aborts. */
+  signal?: AbortSignal | undefined;
+  /** As ExecOptions.jobObject (ADR 0039). */
+  jobObject?: boolean | undefined;
+  /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
+  stdin?: string | undefined;
+  /** Each line of stdout as it comes, without its line ending (LF or CRLF). */
+  onLine: (line: string) => void;
+  /** Kills the process and every process it started when one line of stdout passes this. */
+  maxLineBytes: number;
+  /**
+   * Kills the process and every process it started when stderr passes this many bytes; default
+   * DEFAULT_MAX_OUTPUT_BYTES.
+   */
+  maxStderrBytes?: number | undefined;
+}
+
+export interface StreamResult {
+  /** The exit code; `null` when the process could not start or was killed. */
+  exitCode: number | null;
+  /** What the process wrote to stderr, then why it failed when it could not start. */
+  stderr: string;
+  /** Set when the runner killed the process and every process it started. */
+  killed?: StreamKilled;
+}
+
+export type StreamProcess = (
+  file: string,
+  args: readonly string[],
+  options: StreamOptions,
+) => Promise<StreamResult>;
+
+/**
+ * A runner that hands a program's stdout to the caller line by line and keeps none of it, so a
+ * long stream has no total limit, only one per line (ADR 0045).
+ */
+export const streamProcessWith =
+  (_spawner: Spawner, _timers: Timers = realTimers): StreamProcess =>
+  () => {
+    throw new Error('not implemented');
+  };
+
 // Job Objects are Windows's; elsewhere the runner kills the process group.
 const jobObjectsHere = process.platform === 'win32';
 
@@ -338,6 +391,9 @@ export const processSpawner: Spawner = {
 
 /** The real runner. Unit tests use execProcessWith with a fake spawner instead (ADR 0021). */
 export const execProcess: ExecProcess = execProcessWith(processSpawner);
+
+/** The real line-by-line runner. Unit tests use streamProcessWith with a fake spawner. */
+export const streamProcess: StreamProcess = streamProcessWith(processSpawner);
 
 // The narrower runner the scripts' shells inject (ADR 0021): the exit code and the output
 // together. Unit tests pass a fake one.

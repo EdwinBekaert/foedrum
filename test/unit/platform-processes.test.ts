@@ -15,6 +15,7 @@ import {
   type Spawner,
   spawnCommand,
   stopOnSignals,
+  streamProcessWith,
   type Timers,
   whyKilled,
 } from '../../src/platform/processes.ts';
@@ -169,6 +170,7 @@ describe('killProcessTree', () => {
 // A started process that does what the test tells it to; no real process runs (ADR 0021).
 // 'none' is a program that did not start, which has no pid.
 class FakeChild extends EventEmitter implements ChildHandle {
+  readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly pid: number | undefined;
@@ -602,6 +604,282 @@ describe('execProcessWith', () => {
     await done;
     stop.abort();
     assert.deepEqual(killed, []);
+  });
+});
+
+// The brewer runner reads claude's stream-json as it comes: a long attempt writes far more than
+// 4 MiB in total, but each line is one event (ADR 0045).
+describe('streamProcessWith', () => {
+  const streamer = (child: FakeChild | Error = new FakeChild(), jobObjects = false) => {
+    const spawned: { file: string; args: string[]; stdin: boolean | undefined }[] = [];
+    const killed: number[] = [];
+    const spawner: Spawner = {
+      spawn: (file, args, { stdin }) => {
+        spawned.push({ file, args, stdin });
+        if (child instanceof Error) throw child;
+        return child;
+      },
+      killTree: (pid) => {
+        killed.push(pid);
+      },
+      jobObjects,
+    };
+    const lines: string[] = [];
+    const stream = streamProcessWith(spawner);
+    const options = { cwd: '/work/tree', onLine: (line: string) => lines.push(line) };
+    return { spawned, killed, lines, stream, options };
+  };
+
+  it('hands over each line of stdout as it comes, without its line ending', async () => {
+    const child = new FakeChild();
+    const { lines, stream, options } = streamer(child);
+    const done = stream('claude', ['-p'], { ...options, maxLineBytes: 100 });
+    child.stdout.write('{"type":"system"}\n{"type":');
+    await settle();
+    assert.deepEqual(lines, ['{"type":"system"}']);
+    child.stdout.write('"assistant"}\r\n\n');
+    await settle();
+    assert.deepEqual(lines, ['{"type":"system"}', '{"type":"assistant"}', '']);
+    child.stderr.write('warning');
+    child.close(0);
+    assert.deepEqual(await done, { exitCode: 0, stderr: 'warning' });
+  });
+
+  it('hands over a last line that has no line ending when the process closes', async () => {
+    const child = new FakeChild();
+    const { lines, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100 });
+    child.stdout.write('one\ntwo');
+    await settle();
+    child.close(1);
+    assert.deepEqual(await done, { exitCode: 1, stderr: '' });
+    assert.deepEqual(lines, ['one', 'two']);
+  });
+
+  it('keeps a character whose bytes arrive in two chunks', async () => {
+    const child = new FakeChild();
+    const { lines, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100 });
+    const bytes = Buffer.from('é\n');
+    child.stdout.write(bytes.subarray(0, 1));
+    child.stdout.write(bytes.subarray(1));
+    await settle();
+    child.close(0);
+    await done;
+    assert.deepEqual(lines, ['é']);
+  });
+
+  it('has no total limit: many lines may pass 4 MiB together', async () => {
+    const child = new FakeChild();
+    const { killed, stream } = streamer(child);
+    let count = 0;
+    const done = stream('claude', [], {
+      cwd: '/work/tree',
+      maxLineBytes: 64 * 1024,
+      onLine: () => {
+        count += 1;
+      },
+    });
+    const line = `${'x'.repeat(32 * 1024 - 1)}\n`;
+    for (let i = 0; i < 160; i += 1) child.stdout.write(line);
+    await settle();
+    child.close(0);
+    assert.equal((await done).killed, undefined);
+    assert.equal(count, 160);
+    assert.deepEqual(killed, []);
+  });
+
+  it('writes its input to stdin and closes it, asking for a pipe only then', async () => {
+    const child = new FakeChild();
+    const { spawned, stream, options } = streamer(child);
+    let input = '';
+    child.stdin.setEncoding('utf8').on('data', (chunk: string) => {
+      input += chunk;
+    });
+    const ended = new Promise((resolve) => child.stdin.on('finish', resolve));
+    const done = stream('claude', ['-p'], { ...options, maxLineBytes: 100, stdin: 'prompt ✓' });
+    await ended;
+    child.close(0);
+    await done;
+    assert.equal(input, 'prompt ✓');
+    const plain = new FakeChild();
+    const second = streamer(plain);
+    const without = second.stream('git', [], { ...second.options, maxLineBytes: 100 });
+    plain.close(0);
+    await without;
+    assert.deepEqual([spawned[0]?.stdin, second.spawned[0]?.stdin], [true, false]);
+  });
+
+  // claude may exit before reading its stdin (a refused argument); the write then fails with
+  // EPIPE, which must not crash the engine.
+  it('answers from how the process ended when its stdin cannot be written', async () => {
+    const child = new FakeChild();
+    const { stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100, stdin: 'prompt' });
+    child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    child.stderr.write('error: unknown option');
+    child.close(1);
+    assert.deepEqual(await done, { exitCode: 1, stderr: 'error: unknown option' });
+  });
+
+  describe('with a line limit', () => {
+    it('kills the whole tree when one line passes it, and hands over none of that line', async () => {
+      const child = new FakeChild(81);
+      const { killed, lines, stream, options } = streamer(child);
+      const done = stream('claude', [], { ...options, maxLineBytes: 8 });
+      child.stdout.write('12345678\n1234');
+      await settle();
+      assert.deepEqual(killed, []);
+      child.stdout.write('5');
+      await settle();
+      child.stdout.write('6789\n');
+      await settle();
+      child.close(0);
+      assert.deepEqual(await done, { exitCode: null, stderr: '', killed: 'line-too-long' });
+      assert.deepEqual(killed, [81]);
+      assert.deepEqual(lines, ['12345678']);
+      assert.ok(child.stdout.destroyed && child.stderr.destroyed, 'stops reading its output');
+    });
+
+    it('counts bytes, not characters, and not the line ending', async () => {
+      const child = new FakeChild();
+      const { lines, stream, options } = streamer(child);
+      const done = stream('claude', [], { ...options, maxLineBytes: 4 });
+      child.stdout.write('éé\r\nééé\n');
+      await settle();
+      child.close(0);
+      assert.equal((await done).killed, 'line-too-long');
+      assert.deepEqual(lines, ['éé']);
+    });
+
+    it('counts a last line without a line ending too', async () => {
+      const child = new FakeChild(82);
+      const { killed, stream, options } = streamer(child);
+      const done = stream('claude', [], { ...options, maxLineBytes: 4 });
+      child.stdout.write('12345');
+      await settle();
+      child.close(0);
+      assert.equal((await done).killed, 'line-too-long');
+      assert.deepEqual(killed, [82]);
+    });
+  });
+
+  it('kills the whole tree when stderr passes its limit, keeping what came within it', async () => {
+    const child = new FakeChild(83);
+    const { killed, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100, maxStderrBytes: 4 });
+    child.stderr.write('abcd');
+    await settle();
+    assert.deepEqual(killed, []);
+    child.stderr.write('e');
+    await settle();
+    child.close(0);
+    assert.deepEqual(await done, { exitCode: null, stderr: 'abcd', killed: 'too-much-output' });
+    assert.deepEqual(killed, [83]);
+  });
+
+  it('kills the whole tree at the deadline and answers at once, as timed out', async () => {
+    const child = new FakeChild(84);
+    const { killed, stream, options } = streamer(child);
+    const result = await stream('claude', [], { ...options, maxLineBytes: 100, timeoutMs: 5 });
+    assert.deepEqual(result, { exitCode: null, stderr: '', killed: 'timed-out' });
+    assert.deepEqual(killed, [84]);
+  });
+
+  // The brewer runner stops the attempt from a line (a mismatched init, maxDenials): the lines
+  // after it in the same chunk must not be handed over.
+  it('hands over no further line once the signal aborts, and answers as stopped', async () => {
+    const child = new FakeChild(85);
+    const { killed, stream } = streamer(child);
+    const stop = new AbortController();
+    const lines: string[] = [];
+    const done = stream('claude', [], {
+      cwd: '/work/tree',
+      maxLineBytes: 100,
+      signal: stop.signal,
+      onLine: (line) => {
+        lines.push(line);
+        if (line === 'stop') stop.abort();
+      },
+    });
+    child.stdout.write('a\nstop\nb\n');
+    await settle();
+    assert.deepEqual(await done, { exitCode: null, stderr: '', killed: 'stopped' });
+    assert.deepEqual(lines, ['a', 'stop']);
+    assert.deepEqual(killed, [85]);
+  });
+
+  it('starts nothing when the signal has already aborted', async () => {
+    const { spawned, stream, options } = streamer();
+    const result = await stream('claude', [], {
+      ...options,
+      maxLineBytes: 100,
+      signal: AbortSignal.abort(),
+    });
+    assert.deepEqual(spawned, []);
+    assert.deepEqual(result, { exitCode: null, stderr: '', killed: 'stopped' });
+  });
+
+  it('answers without an exit code, with the reason, when the program cannot start', async () => {
+    const { stream, options } = streamer(new Error('spawn claude ENOENT'));
+    const result = await stream('claude', [], { ...options, maxLineBytes: 100 });
+    assert.deepEqual(result, { exitCode: null, stderr: 'spawn claude ENOENT' });
+  });
+
+  it('answers without an exit code, with the reason, when the process fails', async () => {
+    const child = new FakeChild();
+    const { stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 100 });
+    child.stderr.write('partial\n');
+    await settle();
+    child.emit('error', new Error('read EPIPE'));
+    assert.deepEqual(await done, { exitCode: null, stderr: 'partial\nread EPIPE' });
+  });
+
+  describe('in a Job Object', () => {
+    const refusal = 'foedrum job object: PowerShell runs in ConstrainedLanguage mode\r\n';
+
+    // Fail closed (ADR 0039): the helper's refusal is not a line of the program's.
+    it('answers as not started, and hands over no line, when the helper could not start it', async () => {
+      const child = new FakeChild();
+      const { lines, stream, options } = streamer(child, true);
+      const done = stream('C:\\tools\\claude.exe', [], {
+        ...options,
+        maxLineBytes: 1000,
+        jobObject: true,
+      });
+      child.stdout.write(`\uFEFF${refusal}`);
+      await settle();
+      child.close(125);
+      assert.deepEqual(await done, {
+        exitCode: null,
+        stderr:
+          'C:\\tools\\claude.exe: cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode',
+      });
+      assert.deepEqual(lines, []);
+    });
+
+    it("hands over a program's own first line that looks like the refusal once it ends otherwise", async () => {
+      const child = new FakeChild();
+      const { lines, stream, options } = streamer(child, true);
+      const done = stream('claude', [], { ...options, maxLineBytes: 1000, jobObject: true });
+      child.stdout.write(`${refusal}next\n`);
+      await settle();
+      child.close(0);
+      assert.deepEqual(await done, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lines, [refusal.trimEnd(), 'next']);
+    });
+
+    it('hands over the first line at once when no job was asked for', async () => {
+      const child = new FakeChild();
+      const { lines, stream, options } = streamer(child, true);
+      const done = stream('claude', [], { ...options, maxLineBytes: 1000 });
+      child.stdout.write(refusal);
+      await settle();
+      assert.deepEqual(lines, [refusal.trimEnd()]);
+      child.close(125);
+      assert.equal((await done).exitCode, 125);
+    });
   });
 });
 
