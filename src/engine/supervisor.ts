@@ -32,14 +32,15 @@ export interface TickInput {
   now: Date;
 }
 
+/** An engine command about one batch. */
+type BatchCommand = Extract<EngineCommand, { batchId: string }>;
+
 export interface TickPlan {
   /** At most one per batch, to decide in this order. */
-  commands: EngineCommand[];
+  commands: BatchCommand[];
   /** Every expired lease: its attempt is lost, or no longer runs. */
   releaseLeases: string[];
 }
-
-type BatchCommand = Extract<EngineCommand, { batchId: string }>;
 
 /** The commands one tick issues: deadlines first (invariant I5), then lost, then stalled attempts. */
 export const planTick = (input: TickInput): TickPlan => {
