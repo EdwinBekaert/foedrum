@@ -24,11 +24,24 @@ const run = (fixture: string, preload: boolean) =>
     { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined } },
   );
 
+const ADR_0021 = /unit, property and chaos tests start no processes.*test\/integration\/.*ADR 0021/;
+
 describe('refusing process starts under node --test', () => {
   for (const fixture of ['named-import.test.ts', 'runner-swallows.test.ts']) {
     it(`${fixture} starts a process without the preload`, () => {
       const result = run(fixture, false);
       assert.equal(result.status, 0, result.stdout + result.stderr);
     });
+
+    it(`${fixture} fails with the ADR 0021 message under npm test's preload`, () => {
+      const result = run(fixture, true);
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stdout, ADR_0021);
+    });
   }
+
+  it('names the module that started the process', () => {
+    const result = run('named-import.test.ts', true);
+    assert.match(result.stdout, /node-version\.ts/);
+  });
 });
