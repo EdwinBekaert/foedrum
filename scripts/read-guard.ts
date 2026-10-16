@@ -4,7 +4,8 @@
 // `node "${CLAUDE_PROJECT_DIR}/scripts/read-guard.ts"`, failing closed like the local gate.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // Like scripts/precheck.ts, the module has no static imports: a tool it does not guard exits
-// before anything loads, and a guarded one loads node:path, node:os and the resolver only.
+// before anything loads, and a guarded one loads node:path, node:os and src/platform/real-path.ts
+// only.
 //
 // A path is resolved as a read would open it: `~` is the home folder, a relative path is relative
 // to the working directory, and the deepest existing part goes through the operating system's
@@ -63,7 +64,10 @@ export const readGuard = async (
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : undefined;
 
   const deps = await loadDeps();
-  const { posix, win32 } = await import('node:path');
+  const [{ posix, win32 }, { windowsPathProblem }] = await Promise.all([
+    import('node:path'),
+    import('../src/platform/real-path.ts'),
+  ]);
   const path = deps.platform === 'win32' ? win32 : posix;
   const separators = deps.platform === 'win32' ? /[\\/]/ : '/';
   const no = (why: string) => blocked(`${tool} is blocked: ${why}`);
@@ -81,19 +85,20 @@ export const readGuard = async (
   }
   const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
 
-  // Undefined when the path resolves inside the checkout, otherwise why the call is blocked.
   // On Windows, what is not a full drive path, before it touches the disk or the network.
   const notADrivePath = (path: string, name: string): string | undefined => {
     if (deps.platform !== 'win32') return undefined;
-    if (/^[\\/]{2}/.test(path)) {
-      return `${name} is a network or device path; read files inside the checkout (${root}) by a drive path or a relative path.`;
+    switch (windowsPathProblem(path)) {
+      case 'network':
+        return `${name} is a network or device path; read files inside the checkout (${root}) by a drive path or a relative path.`;
+      case 'no-drive':
+        return `${name} has no full drive path; give one such as ${root}\\… or a path relative to the working directory.`;
+      case undefined:
+        return undefined;
     }
-    if (/^[\\/]|^[A-Za-z]:(?![\\/])/.test(path)) {
-      return `${name} has no full drive path; give one such as ${root}\\… or a path relative to the working directory.`;
-    }
-    return undefined;
   };
 
+  // Undefined when the path resolves inside the checkout, otherwise why the call is blocked.
   const outside = (given: string): string | undefined => {
     const name = quoted(given);
     let absolute: string;

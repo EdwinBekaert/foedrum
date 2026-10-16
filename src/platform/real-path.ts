@@ -9,6 +9,17 @@
 import { realpathSync } from 'node:fs';
 import { join, parse, sep } from 'node:path';
 
+/**
+ * How a Windows path would go further than a local drive if it were opened: through the network
+ * or a device (`\\server\share`, `\\?\…`, `\\.\…`), or from a drive's current folder or the
+ * current drive (`D:x`, `\x`, `/d/x`). Undefined for a full drive path or a relative one.
+ */
+export function windowsPathProblem(path: string): 'network' | 'no-drive' | undefined {
+  if (/^[\\/]{2}/.test(path)) return 'network';
+  if (/^[\\/]|^[A-Za-z]:(?![\\/])/.test(path)) return 'no-drive';
+  return undefined;
+}
+
 // A part of the path that does not exist (yet): try its parent.
 const MISSING = new Set(['ENOENT', 'ENOTDIR']);
 
