@@ -61,7 +61,7 @@ export const oneLeasePerStep = ({ engine }: ChaosRun): void => {
 };
 
 /** Every batch comes to rest, no effect is applied twice or lost, none sits past its deadline. */
-export const restsWithEffectsOnce: ChaosChecks = {
+export const restsWithEffectsOnce: Required<ChaosChecks> = {
   afterMove: (run, move, survived) => {
     oneLeasePerStep(run);
     // A tick the engine lived through has handled every deadline that was due (I5, I1).

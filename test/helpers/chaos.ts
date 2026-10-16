@@ -10,12 +10,19 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { AttemptRef } from '../../src/engine/attempt-key.ts';
+import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
+import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { type DriverLock, DriverRunningError } from '../../src/engine/driver-lock.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
-import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
+import type {
+  BatchLease,
+  EffectKey,
+  EventStore,
+  EventStoreTransaction,
+} from '../../src/engine/event-store.ts';
 import type { Batch, State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -26,6 +33,7 @@ import {
   type Move,
   type MoveSource,
   type Play,
+  type Random,
   recording,
   type Scenario,
   scenarioLimits,
@@ -144,7 +152,11 @@ const killer = (plan: KillPlan) => {
  * transaction and after every commit. A kill in a transaction throws inside it, so the store rolls
  * it back: what a database shows after its process died with a transaction open.
  */
-const killableStore = (inner: EventStore, life: Life): EventStore => {
+const killableStore = (
+  inner: EventStore,
+  life: Life,
+  read: (lease: BatchLease | undefined) => void = () => {},
+): EventStore => {
   const writes = (tx: EventStoreTransaction): EventStoreTransaction => ({
     append: (event) => {
       life.point('in a transaction');
@@ -160,7 +172,9 @@ const killableStore = (inner: EventStore, life: Life): EventStore => {
     },
     batchLease: (batchId) => {
       life.alive();
-      return tx.batchLease(batchId);
+      const lease = tx.batchLease(batchId);
+      read(lease);
+      return lease;
     },
     putBatchLease: (lease) => {
       life.point('in a transaction');
@@ -179,7 +193,7 @@ const killableStore = (inner: EventStore, life: Life): EventStore => {
       tx.markPushed(marker);
     },
   });
-  const read =
+  const reading =
     <A extends unknown[], R>(fn: (...args: A) => R) =>
     (...args: A): R => {
       life.alive();
@@ -192,16 +206,16 @@ const killableStore = (inner: EventStore, life: Life): EventStore => {
       life.point('after a commit');
       return result;
     },
-    eventsAfter: read(inner.eventsAfter),
-    batchesPastDeadline: read(inner.batchesPastDeadline),
-    currentLeases: read(inner.currentLeases),
-    expiredLeases: read(inner.expiredLeases),
-    batchLeases: read(inner.batchLeases),
-    replay: read(inner.replay),
-    lastEventId: read(inner.lastEventId),
-    pushedThrough: read(inner.pushedThrough),
-    restore: read(inner.restore),
-    findEffect: read(inner.findEffect),
+    eventsAfter: reading(inner.eventsAfter),
+    batchesPastDeadline: reading(inner.batchesPastDeadline),
+    currentLeases: reading(inner.currentLeases),
+    expiredLeases: reading(inner.expiredLeases),
+    batchLeases: reading(inner.batchLeases),
+    replay: reading(inner.replay),
+    lastEventId: reading(inner.lastEventId),
+    pushedThrough: reading(inner.pushedThrough),
+    restore: reading(inner.restore),
+    findEffect: reading(inner.findEffect),
     // The run's connection outlives every driver.
     close: () => {},
   };
@@ -237,6 +251,16 @@ const fakeLocks = () => {
   };
 };
 
+/** How a driver's calls reach the code host. */
+export interface HostCall {
+  /** Lets the other drivers run before the call goes on, as a request over the network would. */
+  pause(): Promise<void>;
+  /** Called as the effect of `key` is applied. */
+  applying(key: string): void;
+}
+
+const direct: HostCall = { pause: async () => {}, applying: () => {} };
+
 /**
  * The code host the effects land on. Like GitHub, it applies what it is asked to as often as it
  * is asked, and finds an effect by the key it carries (a marker in a comment's body).
@@ -244,27 +268,51 @@ const fakeLocks = () => {
 export const fakeCodeHost = () => {
   /** Every result applied, by effect key, in order. */
   const applied = new Map<string, unknown[]>();
+  /** Calls of `applyEffect` for one key that overlapped: two live drivers between find and apply. */
+  const overlaps: string[] = [];
+  // The driver that found nothing for a key and has not applied it yet.
+  const finding = new Map<string, Life>();
   let comments = 0;
   let found = 0;
-  const target = (life: Life): EffectTarget => ({
-    find: async (key) => {
-      life.alive();
-      const [first] = applied.get(key) ?? [];
-      if (first === undefined) return undefined;
-      found++;
-      return { result: first };
-    },
-    apply: async (key) => {
-      life.point('before an effect reached its target');
-      const result = { comment: ++comments };
-      applied.set(key, [...(applied.get(key) ?? []), result]);
-      // The comment exists; the driver dies before it hears so.
-      life.point('after an effect reached its target');
-      return result;
-    },
-  });
+  const target = (life: Life, call: HostCall = direct): EffectTarget => {
+    const overlapping = (key: string): void => {
+      const other = finding.get(key);
+      if (other !== undefined && other !== life && !other.dead) {
+        overlaps.push(`${key}: ${other.driver} and ${life.driver}`);
+      }
+    };
+    return {
+      find: async (key) => {
+        life.alive();
+        await call.pause();
+        life.alive();
+        overlapping(key);
+        const [first] = applied.get(key) ?? [];
+        if (first === undefined) {
+          finding.set(key, life);
+          return undefined;
+        }
+        found++;
+        return { result: first };
+      },
+      apply: async (key) => {
+        life.point('before an effect reached its target');
+        await call.pause();
+        life.alive();
+        overlapping(key);
+        call.applying(key);
+        const result = { comment: ++comments };
+        applied.set(key, [...(applied.get(key) ?? []), result]);
+        if (finding.get(key) === life) finding.delete(key);
+        // The comment exists; the driver dies before it hears so.
+        life.point('after an effect reached its target');
+        return result;
+      },
+    };
+  };
   return {
     applied,
+    overlaps,
     target,
     /** How often an effect was found here rather than applied: a kill's window closed. */
     get found() {
@@ -306,6 +354,29 @@ const openDatabase = (file: string, options: ConstructorParameters<typeof Databa
   return db;
 };
 
+/** An attempt a driver started, or an effect it applied, and whether it held the batch then. */
+export interface Act {
+  driver: string;
+  kind: 'start' | 'apply';
+  /** The attempt key, or the effect key. */
+  key: string;
+  batchId: string;
+  /** Whether the store showed the driver's live lease of the batch at that moment. */
+  held: boolean;
+}
+
+/** A driver that read another driver's live lease of a batch it wanted. */
+export interface Contest {
+  driver: string;
+  batchId: string;
+  holder: string;
+}
+
+export interface ChaosOptions {
+  /** The owners of the drivers on the store; default one, `cellar`. Each takes every batch. */
+  drivers?: readonly string[];
+}
+
 /** The drivers of a chaos run: a fresh process of a driver starts on the same database after every kill. */
 export interface ChaosEngine {
   now(): Date;
@@ -325,6 +396,10 @@ export interface ChaosEngine {
   readonly restarts: readonly Date[];
   /** What the drivers reported, in order. */
   readonly notices: readonly DriverNotice[];
+  /** Every attempt the drivers started and every effect they applied, in order. */
+  readonly acts: readonly Act[];
+  /** Every time a driver found another's live lease on a batch it wanted. */
+  readonly contests: readonly Contest[];
   close(): void;
 }
 
@@ -339,7 +414,9 @@ export const openChaosEngine = async (
   plays: (attempt: AttemptRef) => Play,
   plan: KillPlan,
   host: FakeCodeHost,
+  options: ChaosOptions = {},
 ): Promise<ChaosEngine> => {
+  const { drivers = ['cellar'] } = options;
   // A run on another run's database would not start from scratch.
   if (existsSync(path)) throw new Error(`A chaos run needs a database of its own: ${path} exists`);
   const kill = killer(plan);
@@ -347,22 +424,59 @@ export const openChaosEngine = async (
   let now = t0;
   const restarts: Date[] = [];
   const notices: DriverNotice[] = [];
+  const acts: Act[] = [];
+  const contests: Contest[] = [];
   // One connection for the whole run, which every driver process sees through its life. One
   // thread runs each transaction to its end before the next begins, so a connection per process
   // would show the same committed events and cost only page cache reloads. The terminal and the
   // checks use it as it is: they are never killed.
   const outside = openSqliteEventStore(path, { openDatabase });
   const terminal: CommandLog = createCommandLog({ store: outside, recipes, reminderMs, routingMs });
-  const owner = 'cellar';
+  const holds = (owner: string, batchId: string): boolean =>
+    outside.batchLeases(now).some((lease) => lease.batchId === batchId && lease.owner === owner);
+  // With several drivers, each call to the code host lets the others run for a few turns of the
+  // event loop, from a random stream of the run's seed, so their passes interleave.
+  const interleaving: Random | undefined =
+    drivers.length > 1 ? seededRandom(plan.seed ^ 0x1e_a5ed) : undefined;
+  const pause = async (): Promise<void> => {
+    for (let turns = interleaving?.int(3) ?? 0; turns > 0; turns--) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
 
-  /** Starts a new process of the driver, until one survives its start, drive and effects. */
-  const boot = async (): Promise<Process> => {
+  /** The fake runner of a driver process, which notes every attempt it starts. */
+  const runnerOf = (life: Life): BrewerRunner => {
+    const runner = fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now));
+    return {
+      start: (start) => {
+        life.alive();
+        const { driver } = life;
+        const { batchId } = start.ref;
+        const key = attemptKey.encode(start.ref);
+        acts.push({ driver, kind: 'start', key, batchId, held: holds(driver, batchId) });
+        return runner.start(start);
+      },
+      progress: runner.progress,
+    };
+  };
+
+  /** Starts a new process of `owner`'s driver, until one survives its start, drive and effects. */
+  const boot = async (owner: string): Promise<Process> => {
     for (;;) {
       const life = kill.life(owner);
+      const read = (lease: BatchLease | undefined): void => {
+        if (lease !== undefined && lease.owner !== owner && lease.expiresAt > now) {
+          contests.push({ driver: owner, batchId: lease.batchId, holder: lease.owner });
+        }
+      };
+      const applying = (key: string): void => {
+        const { batchId } = effectKey.decode(key);
+        acts.push({ driver: owner, kind: 'apply', key, batchId, held: holds(owner, batchId) });
+      };
       try {
         const driver = await openDriver({
-          store: killableStore(outside, life),
-          runner: fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now)),
+          store: killableStore(outside, life, read),
+          runner: runnerOf(life),
           recipes,
           clock: () => now,
           lock: () => locks.take(life),
@@ -374,7 +488,7 @@ export const openChaosEngine = async (
               const batch = state.batches.get(batchId);
               return batch === undefined ? [] : batchEffectsDue(batch);
             },
-            target: host.target(life),
+            target: host.target(life, { pause, applying }),
           },
           reminderMs,
           routingMs,
@@ -391,35 +505,53 @@ export const openChaosEngine = async (
       restarts.push(now);
     }
   };
-  let current = await boot();
+  const processes = new Map<string, Process>();
+  for (const owner of drivers) processes.set(owner, await boot(owner));
+  const processOf = (owner: string): Process => {
+    const found = processes.get(owner);
+    if (found === undefined) throw new Error(`No driver ${owner}`);
+    return found;
+  };
 
-  /** Runs `fn` on the driver; true when it survived, else restarts it until it is up again. */
-  const surviving = async (fn: (driver: Driver) => Promise<void>): Promise<boolean> => {
+  /** Runs `fn` on `owner`'s driver; true when it survived, else restarts it until it is up again. */
+  const surviving = async (
+    owner: string,
+    fn: (driver: Driver) => Promise<void>,
+  ): Promise<boolean> => {
+    const { life, driver } = processOf(owner);
     try {
-      await fn(current.driver);
+      await fn(driver);
     } catch (error) {
       if (!(error instanceof EngineKilled)) throw error;
     }
     // A kill the driver caught and reported (a failed effect, a failed tick) still killed it.
-    if (!current.life.dead) return true;
+    if (!life.dead) return true;
     restarts.push(now);
-    current = await boot();
+    processes.set(owner, await boot(owner));
     return false;
+  };
+
+  /** Runs `fn` on every driver at once, the first picked at random; true when they all lived through it. */
+  const everyDriver = async (fn: (driver: Driver) => Promise<void>): Promise<boolean> => {
+    const first = interleaving?.int(drivers.length) ?? 0;
+    const order = [...drivers.slice(first), ...drivers.slice(0, first)];
+    const survived = await Promise.all(order.map((owner) => surviving(owner, fn)));
+    return survived.every(Boolean);
   };
 
   const play = async (move: Move): Promise<boolean> => {
     kill.moved();
     switch (move.kind) {
       case 'command':
-        // A command from the terminal, beside the driver; the driver drives on what it decided.
+        // A command from the terminal, beside the drivers; they drive on what it decided.
         terminal.issue(move.command, now);
-        return surviving(async (driver) => {
+        return everyDriver(async (driver) => {
           await driver.drive();
           await driver.applyEffects();
         });
       case 'tick':
         now = new Date(now.getTime() + move.advanceMs);
-        return surviving((driver) => driver.tick());
+        return everyDriver((driver) => driver.tick());
       default: {
         const unhandled: never = move;
         throw new Error(`Unhandled move ${JSON.stringify(unhandled)}`);
@@ -434,16 +566,18 @@ export const openChaosEngine = async (
     events: () => outside.eventsAfter(0).map(({ event }) => event),
     play,
     applyEffects: async () => {
-      await surviving((driver) => driver.applyEffects());
+      await everyDriver((driver) => driver.applyEffects());
     },
     kills: kill.kills,
     restarts,
     notices,
+    acts,
+    contests,
     get found() {
       return host.found;
     },
     close: () => {
-      if (!current.life.dead) current.driver.close();
+      for (const { life, driver } of processes.values()) if (!life.dead) driver.close();
       outside.close();
     },
   };
@@ -518,7 +652,11 @@ const chaosRuns = 5;
  * Runs the generated scenario of each seed with that seed's kill plan, on a database in `dir`, and
  * checks `checks`. A failure names the seed and shows the kills, the moves and the events.
  */
-export const holdsAcrossKills = (dir: string, checks: ChaosChecks): Promise<void> =>
+export const holdsAcrossKills = (
+  dir: string,
+  checks: ChaosChecks,
+  options: ChaosOptions = {},
+): Promise<void> =>
   forEachSeedAsync(chaosRuns, async (seed) => {
     // A folder per seed: the database, its -wal and -shm files go together.
     const folder = join(dir, `seed-${seed}`);
@@ -530,7 +668,8 @@ export const holdsAcrossKills = (dir: string, checks: ChaosChecks): Promise<void
     let engine: ChaosEngine | undefined;
     const moves: Move[] = [];
     try {
-      engine = await openChaosEngine(path, (attempt) => source.play(attempt), killPlan(seed), host);
+      const plays = (attempt: AttemptRef) => source.play(attempt);
+      engine = await openChaosEngine(path, plays, killPlan(seed), host, options);
       await runChaos({ engine, host, scenario, moves }, source, checks);
     } catch (error) {
       throw noted(error, engine === undefined ? '' : report({ engine, host, scenario, moves }));
