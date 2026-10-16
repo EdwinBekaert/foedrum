@@ -3,8 +3,49 @@
 // new costs no rate limit. Everything it reads is untrusted input, checked field by field.
 
 import type { TargetTracker } from '../engine/intake.ts';
+import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
+import { Repo } from '../schemas/events.ts';
+import { GitHubIssue, GitHubPullRequest } from '../schemas/github.ts';
+import { checked, labelNames, refused, repoPath } from './answers.ts';
 import type { GitHubReads } from './reads.ts';
 
-export const githubTargetTracker = (_reads: GitHubReads): TargetTracker => {
-  throw new Error('not implemented');
+/** What the intake reads of an issue GitHub listed. */
+const targetIssue = (body: unknown, what: string): TargetIssue => {
+  const issue = checked(GitHubIssue, body, what);
+  return {
+    number: issue.number,
+    state: issue.state,
+    pullRequest: issue.pull_request !== undefined,
+    labels: labelNames(issue.labels),
+    milestone: issue.milestone?.title,
+    assignees: (issue.assignees ?? []).map(({ login }) => login),
+    // A deleted account is nobody, so never an allow-listed author.
+    author: issue.user?.login ?? '',
+  };
 };
+
+// `owner/name` and the number of the pull request at `url`, a web URL such as a batch records.
+const pullRequestOf = (url: string): { repo: string; number: number } => {
+  const match = /^\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/.exec(URL.parse(url)?.pathname ?? '');
+  const [, repo = '', number] = match ?? [];
+  if (!Repo.safeParse(repo).success) throw new Error(`${url} is not a pull request`);
+  return { repo, number: Number(number) };
+};
+
+export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
+  issues: async (repo, signal) => {
+    const what = `the open issues of ${repo}`;
+    const path = `/repos/${repoPath(repo)}/issues?state=open&sort=created&direction=asc&per_page=100`;
+    const items = await reads.pages(path, what, signal);
+    return items.map((item) => targetIssue(item, what));
+  },
+  pullRequest: async (url, signal): Promise<PullRequestState> => {
+    const { repo, number } = pullRequestOf(url);
+    const what = `the pull request ${repo}#${number}`;
+    const answer = await reads.get(`/repos/${repoPath(repo)}/pulls/${number}`, signal);
+    if (answer.status !== 200) throw refused(answer.status, answer.body, what);
+    const pull = checked(GitHubPullRequest, answer.body, what);
+    if (pull.merged === true || (pull.merged_at ?? null) !== null) return 'merged';
+    return pull.state;
+  },
+});

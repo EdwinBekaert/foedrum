@@ -3,7 +3,7 @@
 // refusal named by its status and GitHub's message, never by the token.
 
 import { Repo } from '../schemas/events.ts';
-import { GitHubError } from '../schemas/github.ts';
+import { GitHubError, type GitHubIssue } from '../schemas/github.ts';
 import type { z } from '../schemas/zod.ts';
 
 /** `owner/name` as path segments; checked first, since it becomes part of a URL. */
@@ -19,6 +19,10 @@ export const checked = <T>(schema: z.ZodType<T>, body: unknown, what: string): T
   if (!parsed.success) throw new Error(`GitHub's answer to ${what} is not what it should be`);
   return parsed.data;
 };
+
+/** The names of an issue's labels, which GitHub gives as names or as objects. */
+export const labelNames = (labels: z.infer<typeof GitHubIssue>['labels']): string[] =>
+  labels.map((label) => (typeof label === 'string' ? label : label.name));
 
 /** The error for an answer `what` did not expect: its status, and GitHub's message when it has one. */
 export const refused = (status: number, body: unknown, what: string): Error => {

@@ -2,6 +2,8 @@
 // before, and a 304 answers that same body again without counting against the rate limit. A list
 // is read page by page along GitHub's `Link` header, each page conditional on its own.
 
+import { z } from '../schemas/zod.ts';
+import { checked, refused } from './answers.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 
 export interface GitHubReadsOptions {
@@ -18,9 +20,71 @@ export interface GitHubReads {
   pages(path: string, what: string, signal?: AbortSignal): Promise<unknown[]>;
 }
 
+const Page = z.array(z.unknown());
+
+/** The URL of the `next` relation in a `Link` header, or undefined when there is none. */
+const nextPage = (link: string | null): string | undefined => {
+  for (const [, url, rel] of link?.matchAll(/<([^>]*)>\s*;\s*rel="([^"]*)"/g) ?? []) {
+    if (rel?.split(/\s+/).includes('next')) return url;
+  }
+  return undefined;
+};
+
+const positive = (value: number, name: string): number => {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError(`${name} must be a positive whole number, got ${value}`);
+  }
+  return value;
+};
+
 export const createGitHubReads = (
-  _client: GitHubClient,
-  _options: GitHubReadsOptions = {},
+  client: GitHubClient,
+  options: GitHubReadsOptions = {},
 ): GitHubReads => {
-  throw new Error('not implemented');
+  const maxEntries = positive(options.maxEntries ?? 256, 'maxEntries');
+  const maxPages = positive(options.maxPages ?? 50, 'maxPages');
+  // The last answer with an ETag of each path, least recently used first.
+  const cache = new Map<string, { etag: string; answer: GitHubAnswer }>();
+
+  const get: GitHubReads['get'] = async (path, signal) => {
+    const cached = cache.get(path);
+    const headers = cached === undefined ? {} : { 'if-none-match': cached.etag };
+    const answer = await client.rest('GET', path, undefined, signal, headers);
+    cache.delete(path);
+    if (answer.status === 304) {
+      if (cached === undefined)
+        throw new Error(`GitHub answered 304 to ${path}, which named no ETag`);
+      cache.set(path, cached);
+      return cached.answer;
+    }
+    const etag = answer.headers.get('etag');
+    if (answer.status === 200 && etag !== null) {
+      cache.set(path, { etag, answer });
+      for (const oldest of cache.keys()) {
+        if (cache.size <= maxEntries) break;
+        cache.delete(oldest);
+      }
+    }
+    return answer;
+  };
+
+  return {
+    get,
+    pages: async (path, what, signal) => {
+      const items: unknown[] = [];
+      for (let next: string | undefined = path, page = 1; next !== undefined; page++) {
+        if (page > maxPages) throw new Error(`${what} has more than ${maxPages} pages`);
+        const answer = await get(next, signal);
+        if (answer.status !== 200) throw refused(answer.status, answer.body, what);
+        items.push(...checked(Page, answer.body, what));
+        const url = nextPage(answer.headers.get('link'));
+        // The token goes with every request: never to a page off the API.
+        if (url !== undefined && !url.startsWith(`${client.baseUrl}/`)) {
+          throw new Error(`The next page of ${what} is not on ${client.baseUrl}: ${url}`);
+        }
+        next = url?.slice(client.baseUrl.length);
+      }
+      return items;
+    },
+  };
 };
