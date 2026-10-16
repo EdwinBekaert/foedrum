@@ -13,7 +13,7 @@ export const ModelAlias = z
 
 // Passed to `claude --model`, which on Windows runs through a shell: no spaces, quotes or
 // operators, and no leading dash that could read as an option.
-const ModelId = z
+export const ModelId = z
   .string()
   .regex(
     /^[a-z0-9][a-z0-9._:-]{0,127}(?:\[1m\])?$/,

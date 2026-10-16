@@ -72,6 +72,26 @@ describe('settleAttempt', () => {
     });
   });
 
+  // ADR 0046: the session claude set up is not the one asked for (dropped settings, a user's
+  // settings); another attempt would meet the same environment, so it is Stuck at once.
+  it('blocks on the environment when the session is not what the runner asked for, before anything else', () => {
+    const ending = settleAttempt(
+      facts({
+        environment: 'permission mode "default", not dontAsk',
+        exit: { kind: 'unstartable', reason: 'claude was not found' },
+        denials: 9,
+        turns: 101,
+      }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'claude did not set up the session the runner asked for: permission mode "default", not dontAsk',
+    });
+  });
+
   it('puts a crash before garbage in the stream', () => {
     const killed = { kind: 'killed', signal: 'SIGSEGV' } as const;
     assert.deepStrictEqual(settleAttempt(facts({ exit: killed, garbage: 'x' }), limits), {

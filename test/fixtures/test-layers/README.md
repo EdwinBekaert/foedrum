@@ -14,5 +14,7 @@ Input for `test/unit/check-test-layers.test.ts`: small source files that do or d
   `execProcess` from `src/platform/processes.ts` or `scripts/process-runner.ts`: named,
   namespace, dynamic `import()`, `require`, a named and an `export *` re-export from a helper). Its `clean/` folder imports only the
   runner's types, the runner with a fake spawner and the module's other helpers.
+- `stream-runner/`: a file that imports `streamProcess`, the runner for long streams, which must be
+  reported, and one that imports only `streamProcessWith`, which must not be.
 
 Biome skips this folder: the bare `child_process` specifier is a deliberate lint error here.
