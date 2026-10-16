@@ -1,6 +1,7 @@
 // Decides whether a Brett mutant is valid and what it does to its file (ADR 0021, issue #43).
 // Brett answers with structured edits instead of patches, so no hand-written hunk header can
-// make a mutant fail to apply: each mutant replaces one existing line of a file under src/.
+// make a mutant fail to apply: each mutant replaces one existing line of a file under src/ or
+// scripts/, where the gate, the check and the review tooling live (ADR 0039).
 
 export interface Mutant {
   file: string;
@@ -16,15 +17,21 @@ export type MutantEdit =
   | { ok: true; content: string; line: number }
   | { ok: false; reason: string };
 
-// A relative path with forward slashes, under src/, with no empty, `.` or `..` segment.
-const underSrc = (file: string): boolean => {
-  const segments = file.split('/');
-  return (
-    segments[0] === 'src' &&
-    segments.length > 1 &&
-    segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
-    !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file)
-  );
+// The folders whose files a mutant may edit.
+const MUTABLE_FOLDERS = ['src', 'scripts'];
+
+// A relative path with forward slashes, with no empty, `.` or `..` segment, and no backslash,
+// drive colon, control character or line separator.
+export const isPlainPath = (file: string): boolean =>
+  file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
+  !/[\\:\p{Cc}\p{Zl}\p{Zp}]/u.test(file);
+
+// The folder of a plain path to a file under src/ or scripts/; undefined for any other path.
+export const mutableFolder = (file: string): string | undefined => {
+  const [folder, ...rest] = file.split('/');
+  return isPlainPath(file) && rest.length > 0 && MUTABLE_FOLDERS.includes(folder ?? '')
+    ? folder
+    : undefined;
 };
 
 const strings = /(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
@@ -66,9 +73,12 @@ export const parseMutant = (value: unknown): MutantCheck => {
     return { ok: false, reason: '"line" is not a line number' };
   }
   const mutant = { file, line, original, replacement } as Mutant;
-  if (!underSrc(mutant.file)) {
+  if (mutableFolder(mutant.file) === undefined) {
     // The name is model output; quoted, its control characters cannot forge an output line.
-    return { ok: false, reason: `${JSON.stringify(mutant.file)} is not a file under src/` };
+    return {
+      ok: false,
+      reason: `${JSON.stringify(mutant.file)} is not a file under src/ or scripts/`,
+    };
   }
   if (/[\r\n\p{Zl}\p{Zp}]/u.test(mutant.replacement)) {
     return { ok: false, reason: 'the replacement is more than one line' };
