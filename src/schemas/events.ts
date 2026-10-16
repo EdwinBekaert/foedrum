@@ -39,6 +39,20 @@ export const SessionRef = z.strictObject({
 });
 export type SessionRef = z.infer<typeof SessionRef>;
 
+/**
+ * The worktree an attempt was given (ADR 0029): in which repository, where, on which branch and at
+ * which commit, so it survives restarts and a resumed attempt can get it back (ADR 0019). The path
+ * and branch say where it was and nothing acts on them: `recreate` builds both from the attempt
+ * again and takes only the commit (ADR 0037).
+ */
+export const WorktreeRef = z.strictObject({
+  repo: Repo,
+  path: NonEmpty,
+  branch: NonEmpty,
+  commit: CommitSha,
+});
+export type WorktreeRef = z.infer<typeof WorktreeRef>;
+
 /** An order or sub-order: an issue in the Brewery. */
 export const OrderRef = z.strictObject({ issue: IssueNumber });
 export type OrderRef = z.infer<typeof OrderRef>;
@@ -184,7 +198,14 @@ export const Event = z.discriminatedUnion('type', [
   recipeChosen,
   z.strictObject({ type: z.literal('step.scheduled'), ...step, deadlineAt: Timestamp }),
   // `session` is required for brewer and session steps; the schema cannot tell the step kind.
-  z.strictObject({ type: z.literal('step.started'), ...step, session: SessionRef.optional() }),
+  // `worktree` is the one this attempt was given; a resumed session's attempt runs in the
+  // worktree of the attempt it continues, named by `session.worktree`, and has none (ADR 0029).
+  z.strictObject({
+    type: z.literal('step.started'),
+    ...step,
+    session: SessionRef.optional(),
+    worktree: WorktreeRef.optional(),
+  }),
   z.strictObject({
     type: z.literal('step.finished'),
     ...step,

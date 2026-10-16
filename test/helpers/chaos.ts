@@ -308,7 +308,7 @@ export const openChaosEngine = (
       // A new engine takes over the leases, starts the attempts that were scheduled and applies
       // the effects due.
       try {
-        engine.brewing.start();
+        await engine.brewing.start();
         await engine.brewing.drive();
         await applyEffects();
       } catch (error) {

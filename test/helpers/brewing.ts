@@ -1,7 +1,8 @@
 // A minimal driver for engine tests (ADR 0019): it starts every scheduled attempt on a brewer
 // runner, keeps the lease of every attempt the runner reports, finishes attempts as they end, and
-// runs the supervisor's ticks. Everything goes through decide and an event store, with the clock
-// the test controls.
+// runs the supervisor's ticks. With attempt worktrees, it gives each attempt its worktree and
+// records it, and cleans a batch's worktrees once the batch has ended (ADR 0037). Everything goes
+// through decide and an event store, with the clock the test controls.
 
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type {
@@ -11,13 +12,25 @@ import type {
   RunningAttempt,
 } from '../../src/engine/brewer-runner.ts';
 import { type Command, decide } from '../../src/engine/decide.ts';
+import type { DriverLock } from '../../src/engine/driver-lock.ts';
+import { type DriverStart, startDriver } from '../../src/engine/driver-start.ts';
 import type { EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
-import { expireOwnLeases } from '../../src/engine/leases.ts';
 import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
+import {
+  batchIsOver,
+  createWorktreeCleanup,
+  endedBatches,
+} from '../../src/engine/worktree-cleanup.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import type {
+  AttemptWorktree,
+  AttemptWorktrees,
+  CleanReport,
+} from '../../src/workspace/attempt-worktrees-git.ts';
+import { fakeLock } from './fake-lock.ts';
 
 export interface BrewingOptions {
   store: EventStore;
@@ -32,6 +45,17 @@ export interface BrewingOptions {
   reminderMs?: number;
   /** Default 1 hour. */
   routingMs?: number;
+  /** The driver's lock, which names its owner; default a fake one of driver-1, held. */
+  lock?: DriverLock;
+  /**
+   * The attempt worktrees of the one repository the attempts write in, and the base new ones start
+   * from; without them, attempts get no worktree and nothing is cleaned.
+   */
+  worktrees?: {
+    repo: string;
+    base: string;
+    manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
+  };
 }
 
 export const defaultLimits: AttemptLimits = {
@@ -48,6 +72,8 @@ export const createBrewing = (options: BrewingOptions) => {
     leaseMs = 5 * 60_000,
     reminderMs = 2 * 24 * 3_600_000,
     routingMs = 3_600_000,
+    lock = fakeLock(),
+    worktrees,
   } = options;
   const refusals: string[] = [];
   const notices: Notice[] = [];
@@ -81,6 +107,16 @@ export const createBrewing = (options: BrewingOptions) => {
     return folded.state;
   };
 
+  const cleanup = createWorktreeCleanup({
+    worktrees: worktrees === undefined ? [] : [worktrees.manager],
+    state,
+    leases: () => store.currentLeases(clock()),
+  });
+  // Ended batches whose worktrees drive() cleans next, and what each cleanup did.
+  const toClean = new Set<string>();
+  const cleanups: CleanReport[] = [];
+  const isOver = (batchId: string): boolean => batchIsOver(state(), batchId);
+
   /** Decides `command` and appends its events with `also`'s writes; false when it is refused. */
   const command = (cmd: Command, also: (tx: EventStoreTransaction) => void = () => {}) => {
     const decision = decide(state(), cmd, { now: clock(), recipes, reminderMs, routingMs });
@@ -92,10 +128,13 @@ export const createBrewing = (options: BrewingOptions) => {
       for (const event of decision.events) tx.append(event);
       also(tx);
     });
+    if (worktrees !== undefined) {
+      for (const batchId of endedBatches(decision.events)) toClean.add(batchId);
+    }
     return true;
   };
 
-  const owner = 'driver-1';
+  const { owner } = lock;
   const lease = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({
       attemptKey: key,
@@ -103,7 +142,40 @@ export const createBrewing = (options: BrewingOptions) => {
       expiresAt: new Date(clock().getTime() + leaseMs),
     });
 
-  /** Starts the scheduled attempts and finishes the ended ones until nothing moves. */
+  /**
+   * Records the start of an attempt under its lease, with the worktree it was given; false when it
+   * cannot start. An attempt whose worktree cannot be made fails retryably: whatever is in the way
+   * stays, and the next attempt has names of its own (ADR 0029).
+   */
+  const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
+    const started = { type: 'step.started', ...ref } as const;
+    if (worktrees === undefined) {
+      return command({ kind: 'record', event: started }, (tx) => lease(tx, key));
+    }
+    // The lease first: only the holder of an attempt's lease may make its worktree.
+    store.withTransaction((tx) => lease(tx, key));
+    let made: AttemptWorktree;
+    try {
+      made = await worktrees.manager.create(ref, worktrees.base);
+    } catch (error) {
+      const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
+      const ending = { kind: 'failed', retryable: true, reason } as const;
+      if (command({ kind: 'record', event: started })) {
+        command({ kind: 'finish', ...ref, ending });
+      }
+      store.withTransaction((tx) => tx.releaseLease(key));
+      return false;
+    }
+    const worktree = { repo: worktrees.repo, ...made };
+    if (command({ kind: 'record', event: { ...started, worktree } })) return true;
+    store.withTransaction((tx) => tx.releaseLease(key));
+    return false;
+  };
+
+  /**
+   * Starts the scheduled attempts, finishes the ended ones and cleans the worktrees of batches that
+   * ended, until nothing moves.
+   */
   const drive = async (): Promise<void> => {
     for (;;) {
       let moved = false;
@@ -114,16 +186,14 @@ export const createBrewing = (options: BrewingOptions) => {
           if (latest?.phase !== 'scheduled' || latest.abandoned === true) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
           const key = attemptKey.encode(ref);
-          command({ kind: 'record', event: { type: 'step.started', ...ref } }, (tx) =>
-            lease(tx, key),
-          );
+          moved = true;
+          if (!(await startAttempt(ref, key))) continue;
           const run = runner.start({ ref, limits: limits(stepId) });
           runs.set(key, { ref, run });
           run.ended.then(
             (end) => ended.push({ ref, end }),
             (error: unknown) => errors.push(error),
           );
-          moved = true;
         }
       }
       // Let the runs that ended settle their promises.
@@ -138,7 +208,13 @@ export const createBrewing = (options: BrewingOptions) => {
         if (!command({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
           store.withTransaction((tx) => tx.releaseLease(key));
         }
+        // An attempt of an ended batch held its worktree until now.
+        if (worktrees !== undefined && isOver(ref.batchId)) toClean.add(ref.batchId);
         moved = true;
+      }
+      for (const batchId of [...toClean]) {
+        toClean.delete(batchId);
+        cleanups.push(await cleanup.batchEnded(batchId));
       }
       if (!moved) return;
     }
@@ -146,7 +222,7 @@ export const createBrewing = (options: BrewingOptions) => {
 
   /**
    * Renews the leases of the attempts the runner reports, runs a supervisor tick, stops the
-   * processes of attempts that Stuck abandoned (ADR 0027), and drives on.
+   * processes of attempts that Stuck abandoned (ADR 0027) or whose batch has ended, and drives on.
    */
   const tick = async (): Promise<void> => {
     store.withTransaction((tx) => {
@@ -161,9 +237,8 @@ export const createBrewing = (options: BrewingOptions) => {
         .get(ref.batchId)
         ?.steps.get(ref.stepId)
         ?.attempts.get(ref.attempt);
-      if (attempt !== undefined && attempt.phase !== 'finished' && attempt.abandoned === true) {
-        run.stop();
-      }
+      if (attempt === undefined || attempt.phase === 'finished') continue;
+      if (attempt.abandoned === true || isOver(ref.batchId)) run.stop();
     }
     await drive();
   };
@@ -176,11 +251,10 @@ export const createBrewing = (options: BrewingOptions) => {
 
   /**
    * Takes over from an earlier run of this driver on the same store: the leases that run left
-   * expire now, so the supervisor's next tick loses their attempts (ADR 0033).
+   * expire now, so the supervisor's next tick loses their attempts (ADR 0033), and the attempt
+   * worktrees are repaired with the claims that are left (ADR 0037).
    */
-  const start = (): void => {
-    expireOwnLeases(store, owner, clock());
-  };
+  const start = (): Promise<DriverStart> => startDriver({ store, lock, now: clock(), cleanup });
 
-  return { start, command, drive, tick, events, state, batch, refusals, notices };
+  return { start, command, drive, tick, events, state, batch, refusals, notices, cleanups };
 };
