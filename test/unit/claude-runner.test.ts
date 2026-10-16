@@ -72,13 +72,18 @@ type Play =
 const at = (seconds: number): Date => new Date(Date.UTC(2026, 9, 16, 12, 0, seconds));
 
 const setup = (
-  play: Play,
+  plays: Play | readonly Play[],
   more: {
     plan?: () => Promise<ClaudeAttemptPlan>;
     outDoc?: string | undefined | { unread: string };
+    /** A wait that never ends, so the attempt can be stopped while it waits. */
+    waitForever?: boolean;
   } = {},
 ) => {
+  // One play per start of claude, the last one again for every start after it.
+  const queue = Array.isArray(plays) ? [...plays] : [plays];
   const calls: Call[] = [];
+  const waits: number[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
   const read: { file: string; maxBytes: number; root: string }[] = [];
   const warnings: string[] = [];
@@ -88,6 +93,7 @@ const setup = (
     plan: more.plan ?? (async () => plan()),
     stream: async (file, args, options) => {
       calls.push({ file, args, options });
+      const play = (queue.length > 1 ? queue.shift() : queue[0]) as Play;
       if ('throws' in play) throw play.throws;
       for (const line of play.lines) {
         if (options.signal?.aborted) break;
@@ -120,8 +126,13 @@ const setup = (
     warn: (message) => {
       warnings.push(message);
     },
+    wait: (ms, signal) => {
+      waits.push(ms);
+      if (more.waitForever !== true) return Promise.resolve();
+      return new Promise<void>((done) => signal.addEventListener('abort', () => done()));
+    },
   };
-  return { calls, written, read, warnings, runner: claudeBrewerRunnerWith(deps) };
+  return { calls, written, read, warnings, waits, runner: claudeBrewerRunnerWith(deps) };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });
@@ -255,6 +266,67 @@ describe('claudeBrewerRunner', () => {
       end.ending.kind === 'blocked' ? end.ending.summary : '',
       /claude failed before the model replied: model_not_found/,
     );
+  });
+
+  // #134: a refusal claude says it will repeat is the environment at once, without a retry.
+  it('blocks on a lasting refusal from the first start, without starting claude again', async () => {
+    for (const said of [
+      "error: unknown option '--bogus'",
+      "error: option '--model <model>' argument missing",
+      'Error: When using --print, --output-format=stream-json requires --verbose',
+      'Error: Invalid session ID. Must be a valid UUID.',
+      'Invalid API key · Please run /login',
+      'Not logged in · Please run /login',
+    ]) {
+      const { calls, waits, runner } = setup(
+        { lines: [], result: exited(1, `${said}\n`) },
+        { outDoc: undefined },
+      );
+      const end = await runner.start(attempt).ended;
+      assert.equal(end.ending.kind, 'blocked', said);
+      assert.equal(calls.length, 1, said);
+      assert.deepEqual(waits, [], said);
+    }
+  });
+
+  // #134: a network blip at startup must not get the batch Stuck.
+  it('starts claude once more after a failure before its first line that names no lasting cause', async () => {
+    const { calls, waits, runner } = setup([
+      { lines: [], result: exited(1, 'Error: connect ECONNRESET 160.79.104.10:443\n') },
+      { lines: fixture('success.jsonl'), result: exited(0) },
+    ]);
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.equal(calls.length, 2);
+    assert.deepEqual(waits, [5000]);
+    assert.deepEqual(calls[1]?.args, calls[0]?.args);
+  });
+
+  it('blocks on the environment when the second start fails before its first line too', async () => {
+    const { calls, runner } = setup(
+      { lines: [], result: exited(1, 'Error: connect ECONNRESET 160.79.104.10:443\n') },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(calls.length, 2);
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'claude did not set up the session the runner asked for: claude refused to start: Error: connect ECONNRESET 160.79.104.10:443',
+    });
+  });
+
+  it('cancels an attempt stopped while it waits to start claude again', async () => {
+    const { calls, runner } = setup(
+      { lines: [], result: exited(1, 'Error: connect ECONNRESET\n') },
+      { outDoc: undefined, waitForever: true },
+    );
+    const running = runner.start(attempt);
+    await new Promise((settled) => setImmediate(settled));
+    running.stop();
+    assert.deepEqual((await running.ended).ending, { kind: 'cancelled' });
+    assert.equal(calls.length, 1);
   });
 
   it('blocks on the environment when claude refused its arguments and wrote no event', async () => {

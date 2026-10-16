@@ -74,6 +74,8 @@ export interface ClaudeRunnerDeps {
   now: () => Date;
   /** Says what the engine's user should know, such as a claude outside the proven versions. */
   warn: (message: string) => void;
+  /** Resolves after `ms`, or at once when `signal` aborts. */
+  wait: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
 /**
@@ -308,5 +310,8 @@ export function claudeBrewerRunner(
     stream: streamProcess,
     files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
     now: () => new Date(),
+    wait: () => {
+      throw new Error('not implemented');
+    },
   });
 }
