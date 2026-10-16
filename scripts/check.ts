@@ -5,6 +5,7 @@
 // place for their commands and nothing starts a shell.
 
 import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
+import { lowerOwnPriority } from './below-normal-priority.ts';
 import { outOfDate, type ReadText } from './deps-sync.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
@@ -57,7 +58,9 @@ export const runCheck = async ({
   write,
   stepTimeoutMs = STEP_TIMEOUT_MS,
   signal,
+  lowerPriority,
 }: CheckOptions): Promise<number> => {
+  lowerPriority?.();
   // A worktree without node_modules of its own would run every step against the packages of the
   // checkout above it (#86): say so in the gate's line before starting anything.
   const stale = await outOfDate(cwd, read);
@@ -110,5 +113,7 @@ if (import.meta.main) {
     cwd: process.cwd(),
     write: (text) => process.stdout.write(text),
     signal: stopOnSignals(),
+    // Below normal outside CI, so the steps leave the desktop responsive (#140).
+    lowerPriority: () => lowerOwnPriority(process.env),
   });
 }
