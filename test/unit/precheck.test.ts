@@ -384,7 +384,7 @@ describe('forbiddenReason', () => {
   ];
   for (const command of merges) {
     it(`forbids merging a pull request: ${command}`, () => {
-      assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
     });
   }
 
@@ -421,6 +421,515 @@ describe('forbiddenReason', () => {
   for (const command of allowed) {
     it(`does not forbid: ${command}`, () => {
       assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+// The bypasses from the independent review of #30 (#42): wrappers, other shells, aliases,
+// substitutions, variables and quoted paths. Each case is a force push or a merge in disguise.
+describe('forbiddenReason through wrappers, other shells and aliases', () => {
+  const encoded = (command: string): string => Buffer.from(command, 'utf16le').toString('base64');
+  const forcePushes = [
+    // Wrapper words before the program.
+    'command git push -f',
+    'exec git push --force',
+    'env git push -f',
+    'env -i GIT_TRACE=1 git push -f',
+    'env -u HOME git push -f',
+    'time git push -f',
+    'time -p git push -f',
+    'nohup git push -f',
+    'nice -n 5 git push -f',
+    'timeout 60 git push -f',
+    'echo origin | xargs git push -f',
+    'xargs -n 1 git push --force',
+    'npx git push -f',
+    'command env time git push -f',
+    'env -S "git push -f"',
+    "Start-Process git -ArgumentList 'push','-f'",
+    'Start-Process -FilePath git -ArgumentList "push --force" -Wait',
+    "Start-Process git 'push -f'",
+    "Start-Process git -ArgumentList @('push', '-f') -NoNewWindow",
+    'start git push -f',
+    // Other shells.
+    'bash -c "git push -f"',
+    "sh -c 'git push --force'",
+    'zsh -c "git push origin +main"',
+    'pwsh -c "git push -f"',
+    'pwsh -Command "git push -f"',
+    'powershell -NoProfile -Command "git push -f"',
+    'pwsh -c git push -f',
+    'powershell "git push -f"',
+    `pwsh -EncodedCommand ${encoded('git push -f')}`,
+    `powershell -enc ${encoded('git push --force')}`,
+    'cmd /c git push -f',
+    'cmd.exe /C "git push -f"',
+    'cmd /s /c "git push --force"',
+    'cmd /c g^it push -f',
+    'iex "git push -f"',
+    "Invoke-Expression 'git push -f'",
+    '$c = "git push -f"; iex $c',
+    'eval "git push -f"',
+    "echo 'git push -f' | bash",
+    'echo git push -f | sh',
+    // Substitutions and variables.
+    '$(echo git) push -f',
+    '`echo git` push -f',
+    'echo "`git push -f`"',
+    '$g="git"; & $g push -f',
+    'g=git; $g push -f',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell variable, not a placeholder
+    '"${g}" push --force',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell variable, not a placeholder
+    '${g} push -f',
+    // A quoted path with a space, and escapes inside the program name.
+    '"C:\\Program Files\\Git\\cmd\\git.exe" push -f',
+    "& 'C:\\Program Files\\Git\\cmd\\git.exe' push --force",
+    '"/c/Program Files/Git/cmd/git" push -f',
+    'g\\it push -f',
+    'g`it push -f',
+    'git.cmd push -f',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  const merges = [
+    'command gh pr merge 30',
+    'env GH_TOKEN=x gh pr merge 30',
+    'bash -c "gh pr merge 30"',
+    'pwsh -Command "gh pr merge 30 --squash"',
+    'cmd /c gh pr merge 30',
+    "iex 'gh pr merge 30'",
+    "Start-Process gh -ArgumentList 'pr','merge','30'",
+    '"C:\\Program Files\\GitHub CLI\\gh.exe" pr merge 30',
+    '$gh pr merge 30',
+  ];
+  for (const command of merges) {
+    it(`forbids merging a pull request: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
+    });
+  }
+
+  // gh pr with an action computed at run time could be a merge.
+  for (const command of ['gh pr $(echo merge) 30', 'gh pr $action 30', 'gh $(echo pr) merge 30']) {
+    it(`forbids a gh pr action it cannot read: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /computed at run time/);
+    });
+  }
+
+  // A git or gh alias hides the push or merge behind another name, so defining one is blocked.
+  const aliases = [
+    'git config alias.p push && git p -f',
+    'git config --global alias.p "push -f"',
+    'git config alias.p push',
+    "git config alias.p '!git push -f'",
+    'git config set alias.p push',
+    'git -c alias.p=push p -f',
+    'git -c alias.p=push p',
+    "gh alias set m 'pr merge'",
+    "gh alias set c 'pr create --draft'",
+    "gh alias set --shell m 'gh pr merge $1'",
+    "bash -c 'git config alias.p push'",
+  ];
+  for (const command of aliases) {
+    it(`forbids defining an alias that pushes, merges or opens a pull request: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /alias/);
+    });
+  }
+
+  it('blocks commands nested too deeply to check', () => {
+    assert.match(forbiddenReason(`${'eval '.repeat(40)}git status`) ?? '', /too deeply/);
+  });
+
+  // Quotes are honoured, so a separator in a string does not start a command.
+  for (const command of [
+    'git commit -m "fix; git push -f later"',
+    "git commit -m 'never; gh pr merge 30'",
+  ]) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+// A command bash or PowerShell could not run (an unclosed quote) is read without its quotes, so
+// honouring quotes never hides a push behind a stray one (#42).
+describe('forbiddenReason on a command with an unclosed quote', () => {
+  for (const command of ['echo "unclosed; git push -f', "echo 'unclosed\ngit push -f"]) {
+    it(`reads it without its quotes: ${JSON.stringify(command)}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+});
+
+// Commands that look like the bypasses above but neither push nor merge (#42).
+describe('forbiddenReason and isGatedCommand on look-alikes of the bypasses', () => {
+  // Text in a string is not a command unless something runs it.
+  const allowed = [
+    'echo "git push -f"',
+    "echo 'gh pr merge 30'",
+    'git push -u origin "$(git branch --show-current)"',
+    'gh pr create --body "$(cat body.md)"',
+    'time npm test',
+    'env',
+    'xargs rm < list.txt',
+    'bash scripts/build.sh',
+    'pwsh -File scripts/build.ps1',
+    'cmd /c dir',
+    'Start-Process notepad -ArgumentList notes.txt',
+    'git config alias.st status',
+    'git config user.name "Synthetic Person"',
+    "gh alias set co 'pr checkout'",
+    '$x = 1; Write-Output $x',
+    'bash -c "git push"',
+    'echo $HOME',
+  ];
+  for (const command of allowed) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+
+  const ungated = [
+    'git commit -m "then git push"',
+    'echo "gh pr create"',
+    'bash -c "git status"',
+    'pwsh -Command "gh pr view 30"',
+    '$x = 1',
+  ];
+  for (const command of ungated) {
+    it(`lets through: ${command}`, () => {
+      assert.equal(isGatedCommand(command), false);
+    });
+  }
+});
+
+// Disguises the gate already caught because it split on ( { & | ; even inside quotes, or stripped
+// quotes from words. They must stay caught once it honours quotes (#42).
+describe('forbiddenReason and isGatedCommand on disguises caught before #42', () => {
+  const forcePushes = [
+    "'git push -f' | iex",
+    'Invoke-Command -ScriptBlock ([scriptblock]::Create("git push -f"))',
+    "Invoke-Expression('git push -f')",
+    'bash -lc "cd repo && git push -f"',
+    'echo "$(git push -f)"',
+    'echo $(git push -f)',
+    'git push "-f"',
+    'git push origin "+main"',
+    'powershell.exe -Command "& { git push -f }"',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  it('forbids merging a pull request: gh pr "merge" 30', () => {
+    assert.match(forbiddenReason('gh pr "merge" 30') ?? '', /^`gh pr merge` is blocked/);
+  });
+
+  it('gates: X=$(date) git push', () => {
+    assert.equal(isGatedCommand('X=$(date) git push'), true);
+  });
+});
+
+// Each shell's own escapes inside quotes, and the ends of options and substitutions (#42).
+describe('forbiddenReason on quoting details', () => {
+  const forcePushes = [
+    // PowerShell doubles a quote inside a string; bash reads '' as two empty strings.
+    "iex 'echo ''it''; git push -f'",
+    'iex "echo ""it""; git push -f"',
+    // -- ends a wrapper's options.
+    'env -- git push -f',
+    'nice -n 5 -- git push --force',
+    // An unclosed substitution is read without it.
+    'echo $(git push -f',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  const allowed = [
+    // A doubled quote stays inside the PowerShell string; an escaped one inside the bash string.
+    "git commit -m 'it''s; git push -f'",
+    'git commit -m "say \\"hi\\"; git push -f"',
+  ];
+  for (const command of allowed) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+describe('isGatedCommand through wrappers, other shells and aliases', () => {
+  const gated = [
+    'command git push',
+    'env FOO=1 git push -u origin 42-harden-gate',
+    'time git push',
+    'bash -c "git push"',
+    'pwsh -Command "gh pr create --draft"',
+    'cmd /c git push',
+    "iex 'git push'",
+    '"C:\\Program Files\\Git\\cmd\\git.exe" push',
+    "& 'C:\\Program Files\\GitHub CLI\\gh.exe' pr create --draft",
+    'Start-Process git -ArgumentList push',
+    // A program or subcommand computed at run time may be git push.
+    '$g push',
+    '& $g push origin main',
+    'git $(echo push)',
+    'git $sub',
+  ];
+  for (const command of gated) {
+    it(`gates: ${command}`, () => {
+      assert.equal(isGatedCommand(command), true);
+    });
+  }
+});
+
+describe('precheck on pushes hidden from a plain search for git', () => {
+  // A command that never spells git or gh still reaches the parser when it may push or merge.
+  const hidden = [
+    `pwsh -EncodedCommand ${Buffer.from('git push -f', 'utf16le').toString('base64')}`,
+    '$a = [char]103 + "it"; & $a push -f',
+  ];
+  for (const command of hidden) {
+    it(`blocks: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const result = await precheck(hookInput(command, root, 'PowerShell'), runCheck);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /force push/i);
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  it('checks HEAD for a push through another shell', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const heads: string[] = [];
+    const headIsDetached = async (cwd: string): Promise<boolean> => {
+      heads.push(cwd);
+      return true;
+    };
+    const result = await precheck(
+      hookInput('bash -c "git push"', '/work/tree'),
+      runCheck,
+      async () => undefined,
+      headIsDetached,
+    );
+    assert.match(result.stderr, /^git push is blocked: HEAD is detached/);
+    assert.deepEqual(heads, ['/work/tree']);
+  });
+});
+
+// The tool says which shell runs the command, so the gate reads it that way only; what that
+// command runs in turn is still read both ways (#42).
+describe("precheck reads a command in its tool's shell", () => {
+  const cases: [name: string, tool: string | undefined, command: string, gated: boolean][] = [
+    ['an escaped quote in a bash string', 'Bash', 'grep -E "a \\"|gh pr create" notes.md', false],
+    [
+      'an escaped quote in a PowerShell string',
+      'PowerShell',
+      'Write-Output "a `"|git push"',
+      false,
+    ],
+    ['a bash escape PowerShell does not know', 'PowerShell', 'echo a \\"|git push', true],
+    ['a nested shell, read both ways', 'Bash', `pwsh -c 'Write-Output "a \\"|git push"'`, true],
+    ['a command from an unknown tool, read both ways', undefined, 'echo "a \\"|git push"', true],
+  ];
+  for (const [name, tool, command, gated] of cases) {
+    it(`${gated ? 'gates' : 'lets through'} ${name}: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        ...(tool === undefined ? {} : { tool_name: tool }),
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, gated ? ['/work/tree'] : []);
+    });
+  }
+});
+
+// Bypasses found by the review of #123 (#42), most of which the old gate caught.
+describe('forbiddenReason on the bypasses found in review', () => {
+  const forcePushes = [
+    // An apostrophe in a comment or a heredoc body is no quote to the shell.
+    "# don't rebase\ngit push -f\n# it's fine",
+    "cat > a.md <<'EOF'\nIt's a fix\nEOF\ngit push -f\necho it's",
+    "<# don't #>\ngit push -f\n# it's",
+    // Reserved words and PowerShell assignments before the program.
+    'if true; then git push -f; fi',
+    'for b in x; do git push --force origin $b; done',
+    'while true; do git push -f; done',
+    '! git push -f',
+    '$out = git push -f 2>&1',
+    '$log += git push --force',
+    // cmd as Git Bash spells it.
+    'cmd //c git push -f',
+    // A quoted program path with a space, through Start-Process.
+    'Start-Process -FilePath "C:\\Program Files\\Git\\cmd\\git.exe" -ArgumentList "push -f"',
+    // A line continuation before CRLF.
+    'git push origin main `\r\n  --force',
+    'git push origin main \\\r\n  --force',
+    // Interpreters that run code given on the command line.
+    `node -e "cp.execSync('git push -f', { stdio: 'inherit' })"`,
+    `node --eval "execSync('git push --force')"`,
+    `python -c "import os; os.system('git push -f')"`,
+    `python3 -c "import subprocess; subprocess.run(['git', 'push', '-f'])"`,
+    `perl -e "system('git push -f')"`,
+    `ruby -e "system('git push -f')"`,
+    // bash's $'…' escapes a quote with a backslash.
+    "echo $'\\'' ; git push -f ; echo \\'",
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${JSON.stringify(command)}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  for (const command of ['$null = gh pr merge 30', 'if true; then gh pr merge 30; fi']) {
+    it(`forbids merging a pull request: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
+    });
+  }
+});
+
+// Bypasses found by the second review of #123 (#42).
+describe('precheck on words split by quotes and escapes', () => {
+  // The pre-filter reads the raw hook input, where quotes and escapes still split the words.
+  const split: [tool: string | undefined, command: string, reason: RegExp][] = [
+    ['Bash', "gi''t pu''sh -f", /force push/i],
+    ['Bash', 'g\\it pu\\sh -f', /force push/i],
+    ['Bash', 'g"i"t p"u"sh --force', /force push/i],
+    ['Bash', 'cmd /c g^h pr m^erge 30', /^`gh pr merge` is blocked/],
+    // PowerShell takes typographic quotes as quotes.
+    [undefined, '& “g”it pu“”sh -f', /force push/i],
+  ];
+  for (const [tool, command, reason] of split) {
+    it(`blocks: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        ...(tool === undefined ? {} : { tool_name: tool }),
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      assert.doesNotMatch(input, /git|gh|push|merge|pwsh|powershell/i);
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2, result.stderr);
+      assert.match(result.stderr, reason);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
+describe('forbiddenReason on the bypasses found in the second review', () => {
+  const forcePushes = [
+    // PowerShell's typographic quotes.
+    '& “C:\\Program Files\\Git\\cmd\\git.exe” push -f',
+    'iex “git push -f”',
+    'iex ‘git push -f’',
+    // A shell computed at run time runs its strings.
+    '"$SHELL" -c "git push --force origin main"',
+    // wsl runs git against the same checkout.
+    'wsl git push -f',
+    'wsl -e git push -f',
+    'wsl.exe -- git push --force',
+    'wsl -d Ubuntu git push -f',
+    // PowerShell's dot operator runs a command too.
+    '. git push -f',
+  ];
+  for (const command of forcePushes) {
+    it(`forbids force push: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /force push/i);
+    });
+  }
+
+  it("forbids merging a pull request: & $pwsh -Command 'gh pr merge 12'", () => {
+    assert.match(
+      forbiddenReason("& $pwsh -Command 'gh pr merge 12'") ?? '',
+      /^`gh pr merge` is blocked/,
+    );
+  });
+
+  it("does not block a closed @( that holds a parenthesis: $p = @('(') ; git status", () => {
+    assert.equal(forbiddenReason("$p = @('(') ; git status"), undefined);
+  });
+});
+
+// Limits and the pre-filter, pinned after the review of #123 (#42).
+describe('precheck limits and pre-filter', () => {
+  it('blocks a command too wide to read, though shallow', () => {
+    const strings = Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ');
+    assert.match(forbiddenReason(`bash -c ${strings}`) ?? '', /too deeply/);
+  });
+
+  // A Bash call that never spells git, gh, push or pwsh still reaches the parser.
+  const hidden: [command: string, reason: RegExp][] = [
+    ["a=$(printf '\\x67h'); $a pr merge 30", /^`gh pr merge` is blocked/],
+    [`powershell -enc ${Buffer.from('git push -f', 'utf16le').toString('base64')}`, /force push/i],
+  ];
+  for (const [command, reason] of hidden) {
+    it(`blocks: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = hookInput(command, '/work/tree', 'Bash');
+      assert.doesNotMatch(input.replace(/powershell|merge/gi, ''), /git|gh|push|pwsh/i);
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, reason);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
+describe('precheck when the HEAD check cannot answer', () => {
+  // A check that times out also blocks (#42): a hung git must not hold the gate until the hook's
+  // own limit, and must not let the push through.
+  it('blocks a push with one line, without running the check', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const headIsDetached = async (): Promise<boolean> => {
+      throw new Error('git symbolic-ref -q HEAD timed out after 10 s');
+    };
+    // The gate answers; a rejection would end the hook with a crash instead of the reason.
+    const result = await precheck(
+      hookInput('git push', '/work/tree'),
+      runCheck,
+      async () => undefined,
+      headIsDetached,
+    ).catch((error: unknown) => ({ rejected: String(error) }));
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr:
+        'git push is blocked: could not tell whether HEAD is detached in /work/tree (git symbolic-ref -q HEAD timed out after 10 s).\n',
+    });
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe('gitHeadIsDetached deadline', () => {
+  it('gives git symbolic-ref a deadline of at most 10 s', async () => {
+    const options: (RunOptions | undefined)[] = [];
+    const runProcess: RunProcess = async (_file, _args, _cwd, given) => {
+      options.push(given);
+      return { exitCode: 0, output: 'refs/heads/main\n' };
+    };
+    await gitHeadIsDetached(runProcess)('/work/tree');
+    const timeoutMs = options[0]?.timeoutMs ?? Number.POSITIVE_INFINITY;
+    assert.ok(timeoutMs > 0 && timeoutMs <= 10_000, String(timeoutMs));
+  });
+
+  for (const [killed, reason] of [
+    ['timed-out', /git symbolic-ref -q HEAD timed out after 10 s/],
+    ['stopped', /git symbolic-ref -q HEAD was stopped/],
+    ['too-much-output', /git symbolic-ref -q HEAD .*output/],
+  ] as const) {
+    it(`rejects, saying why, when git was killed (${killed})`, async () => {
+      const runProcess: RunProcess = async () => ({ exitCode: null, output: '', killed });
+      await assert.rejects(gitHeadIsDetached(runProcess)('/work/tree'), reason);
     });
   }
 });

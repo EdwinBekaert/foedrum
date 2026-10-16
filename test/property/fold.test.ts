@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { Event } from '../../src/schemas/events.ts';
+import type { AttemptEffectKey } from '../../src/schemas/store.ts';
 import { generateEvents } from '../helpers/event-sequences.ts';
 import { forEachSeed as forSeeds } from '../helpers/property.ts';
 
@@ -25,7 +26,8 @@ describe('generated event sequences', () => {
           scheduled.add(JSON.stringify([event.batchId, event.stepId, event.attempt]));
         }
         if (event.type === 'effect.applied') {
-          const { batchId, stepId, attempt } = effectKey.decode(event.key);
+          // The generated sequences apply effects of attempts only.
+          const { batchId, stepId, attempt } = effectKey.decode(event.key) as AttemptEffectKey;
           assert.ok(scheduled.has(JSON.stringify([batchId, stepId, attempt])), event.key);
           effects++;
         }

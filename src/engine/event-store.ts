@@ -101,9 +101,8 @@ export class DuplicateEffectError extends Error {
   readonly key: EffectKey;
 
   constructor(key: EffectKey) {
-    super(
-      `Effect ${key.effect} of ${key.batchId}/${key.stepId}#${key.attempt} was already applied`,
-    );
+    const of = 'stepId' in key ? `${key.batchId}/${key.stepId}#${key.attempt}` : key.batchId;
+    super(`Effect ${key.effect} of ${of} was already applied`);
     this.name = 'DuplicateEffectError';
     this.key = key;
   }

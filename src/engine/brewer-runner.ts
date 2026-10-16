@@ -28,6 +28,8 @@ export interface AttemptStart {
 export interface AttemptEnd {
   ending: Ending;
   usage?: Usage;
+  /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
+  session?: { sessionId: string; model: string; claudeVersion: string };
 }
 
 export interface RunningAttempt {
@@ -52,19 +54,26 @@ export type ProcessExit =
   | { kind: 'killed'; signal: string }
   /** The runner stopped it: a limit was reached, or the engine stopped the attempt. */
   | { kind: 'stopped' }
-  /** The process could not be started at all (the CLI is missing, an argument was refused). */
-  | { kind: 'unstartable'; reason: string };
+  /** The process could not be started at all (the CLI is missing, the settings could not be written). */
+  | { kind: 'unstartable'; reason: string }
+  /** The runner stopped it because its output passed a limit: a stream line, or stderr. */
+  | { kind: 'overflowed'; what: string };
 
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
   /**
-   * Why the session claude set up is not the one the runner asked for (its init event: tools,
-   * permission mode, MCP servers, skills); the runner stops the attempt when it sees it.
+   * Why claude did not set up the session the runner asked for: its init event (tools, permission
+   * mode, MCP servers, skills; the runner stops the attempt when it sees it), a result before
+   * init, a lasting error before the first model reply, or refused arguments (ADR 0046, ADR 0047).
    */
   environment?: string | undefined;
   exit: ProcessExit;
   /** The out doc's text, or `undefined` when the brewer did not write it. */
   outDoc: string | undefined;
+  /** Why the result event reported an error (`is_error`, ADR 0042), when it did. */
+  streamError?: string | undefined;
+  /** Why the runner did not read the out doc it found (larger than its limit, not a file). */
+  outDocUnread?: string | undefined;
   /** The first line of the event stream that was not a stream-json event. */
   garbage?: string;
   /** Permission denials in the event stream, every one counted. */
@@ -128,7 +137,13 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
       return { kind: 'cancelled' };
     case 'killed':
       return failed(true, `the brewer process was killed by ${exit.signal}`);
+    case 'overflowed':
+      return failed(true, `the brewer's output passed a limit: ${exit.what}`);
     case 'exited':
+      // is_error decides, not the exit code: an API error can end with a clean exit (ADR 0042).
+      if (facts.streamError !== undefined) {
+        return failed(true, `claude reported an error: ${facts.streamError}`);
+      }
       if (exit.code !== 0) return failed(true, `the brewer process exited with code ${exit.code}`);
       break;
     default: {
@@ -139,6 +154,9 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   if (facts.garbage !== undefined) {
     const line = JSON.stringify(facts.garbage.slice(0, quoted));
     return failed(true, `the event stream is not stream-json: ${line}`);
+  }
+  if (facts.outDocUnread !== undefined) {
+    return failed(true, `the out doc ${outDoc.file} was not read: ${facts.outDocUnread}`);
   }
   if (facts.outDoc === undefined) return failed(true, `the out doc ${outDoc.file} is missing`);
   const read = readOutDoc(facts.outDoc, outDoc.schema);

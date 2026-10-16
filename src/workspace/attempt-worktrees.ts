@@ -67,6 +67,23 @@ export const attemptBranch = (ref: AttemptRef): string => {
   return `foedrum/${batchId}/${stepId}/${attempt}`;
 };
 
+/**
+ * The name the local branch `foedrum/<rest>` is pushed under in a target repository:
+ * `foedrum/<brewery>/<rest>`, with the Brewery as `<owner>.<name>` in lower case, so two Breweries
+ * never push the same branch (ADR 0043).
+ */
+export const remoteBranch = (brewery: string, local: string): string => {
+  const [namespace, ...rest] = local.split('/');
+  if (namespace !== 'foedrum' || rest.length === 0 || rest.includes('')) {
+    throw new Error(`${JSON.stringify(local)} is not a branch in foedrum/`);
+  }
+  const prefix = repoFolder(brewery);
+  if (!refSegment(prefix)) {
+    throw new Error(`The Brewery ${JSON.stringify(brewery)} is no part of a branch name`);
+  }
+  return `foedrum/${prefix}/${rest.join('/')}`;
+};
+
 /** The attempt whose branch this is, or undefined for any other branch. */
 export const parseAttemptBranch = (name: string): AttemptRef | undefined => {
   const [namespace, ...parts] = name.split('/');
