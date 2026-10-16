@@ -51,11 +51,30 @@ export const cut = (text: string): string =>
 /** The tools that write a file; a shell command counts only when it commits. */
 const WRITERS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SHELLS = new Set(['Bash', 'PowerShell']);
-const commits = /\bgit\b[^\n;&|]*\bcommit\b/;
+/**
+ * Whether a shell command runs `git … commit`: `commit` after `git` within one command between
+ * separators. The command is model output, so each test is linear (review of #133).
+ */
+const commits = (command: string): boolean =>
+  command.split(/[\n;&|]/).some((part) => {
+    const git = part.search(/\bgit\b/);
+    return git !== -1 && /\bcommit\b/.test(part.slice(git));
+  });
 
 const writes = (name: string, input: Record<string, unknown>): boolean =>
   WRITERS.has(name) ||
-  (SHELLS.has(name) && typeof input.command === 'string' && commits.test(input.command));
+  (SHELLS.has(name) && typeof input.command === 'string' && commits(input.command));
+
+/**
+ * Errors of a failed call before the first reply that the next attempt would meet again: the
+ * environment. A rate limit, an overloaded or failing server, or an unknown error may pass.
+ */
+const LASTING = new Set([
+  'authentication_failed',
+  'billing_error',
+  'invalid_request',
+  'model_not_found',
+]);
 
 /** Why a result reported an error: its terminal reason, then what it said. */
 const errorOf = (result: ClaudeResult): string => {
@@ -110,7 +129,6 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     }
     if (!result.is_error) return;
     streamError = errorOf(result);
-    failBeforeReply(streamError);
   };
 
   const beforeInit = (event: unknown, type: string, subtype: unknown): 'go' | 'stop' => {
@@ -136,6 +154,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
 
   const readAssistant = (event: ClaudeAssistant): void => {
     if (event.error !== undefined) {
+      if (!LASTING.has(event.error)) return;
       const text = textOf(event.message.content);
       failBeforeReply(text === '' ? event.error : `${event.error}: ${text}`);
       return;
@@ -184,7 +203,9 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
         if (!denial.success) return 'go';
         denials = noteDenial(denials, denial.data.tool_name);
         const { maxDenials } = asked;
-        return maxDenials !== undefined && denials.denials >= maxDenials ? 'stop' : 'go';
+        if (maxDenials === undefined || denials.denials < maxDenials) return 'go';
+        stopped = true;
+        return 'stop';
       }
       default:
         // Every other type, including those claude adds later (ADR 0042).

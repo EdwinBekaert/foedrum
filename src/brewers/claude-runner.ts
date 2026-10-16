@@ -110,6 +110,8 @@ export function readOutDocFile(file: string, maxBytes: number, root: string): Ou
     try {
       const opened = fstatSync(fd);
       if (!opened.isFile()) return notAFile;
+      // A hard link keeps its name in the worktree, but its content may be any file of the volume.
+      if (opened.nlink > 1) return { kind: 'unread', reason: 'it has more than one link' };
       if (opened.size > maxBytes) return tooLarge;
       // Never more than the limit, even when the file grew since.
       const buffer = Buffer.alloc(maxBytes + 1);
@@ -157,6 +159,8 @@ const environmentOf = (
 ): string | undefined => {
   if (seen.environment !== undefined) return seen.environment;
   if (exit.kind !== 'exited' || exit.code === 0 || seen.lines > 0) return undefined;
+  // Past 255 it is a Windows crash status (NTSTATUS), which claude never exits with: a crash.
+  if (exit.code > 255) return undefined;
   const said = lastLine(stderr);
   return said === ''
     ? `claude refused to start with exit code ${exit.code}`
@@ -190,11 +194,20 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       ending: settleAttempt(noFacts({ kind: 'unstartable', reason: messageOf(error) }), limits),
     });
 
+    // A stop does not wait for a plan that may never come.
+    const aborted = new Promise<undefined>((settle) => {
+      stopping.signal.addEventListener('abort', () => settle(undefined), { once: true });
+    });
+
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
       let args: string[];
       try {
-        plan = await deps.plan(attempt);
+        const prepared = await Promise.race([deps.plan(attempt), aborted]);
+        if (prepared === undefined) {
+          return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
+        }
+        plan = prepared;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         args = claudeArgs({ ...plan.call, settingsFile: plan.settingsFile });
       } catch (error) {
