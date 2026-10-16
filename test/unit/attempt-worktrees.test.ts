@@ -14,6 +14,7 @@ import {
   parseAttemptFolder,
   planClean,
   planWorktree,
+  remoteBranch,
   repoFolder,
 } from '../../src/workspace/attempt-worktrees.ts';
 
@@ -32,6 +33,40 @@ describe('repoFolder', () => {
   it('refuses a repository whose folder would not be one safe path segment', () => {
     for (const repo of ['acme', 'acme/x/y', 'acme/app-', 'con/app', `acme/${'a'.repeat(64)}`]) {
       assert.throws(() => repoFolder(repo), /repository/i, repo);
+    }
+  });
+});
+
+describe('remoteBranch', () => {
+  it('pushes foedrum/<rest> as foedrum/<brewery>/<rest>, the Brewery as owner.name in lower case', () => {
+    assert.equal(
+      remoteBranch('Alice/Brewery', 'foedrum/12-1/bottle'),
+      'foedrum/alice.brewery/12-1/bottle',
+    );
+    assert.equal(
+      remoteBranch('alice/brewery', attemptBranch(ref('12-1', 'implement', 2))),
+      'foedrum/alice.brewery/12-1/implement/2',
+    );
+  });
+
+  it('gives two Breweries different branches for the same batch (ADR 0043)', () => {
+    assert.notEqual(
+      remoteBranch('alice/brewery', 'foedrum/12-1/bottle'),
+      remoteBranch('bob/brewery', 'foedrum/12-1/bottle'),
+    );
+  });
+
+  it('refuses a branch outside foedrum/ and a Brewery that is no part of a branch name', () => {
+    const invalid: [string, string][] = [
+      ['alice/brewery', 'main'],
+      ['alice/brewery', 'foedrum/'],
+      ['alice/brewery', 'foedrumx/12-1/bottle'],
+      ['acme/.github', 'foedrum/12-1/bottle'],
+      ['alice/x.lock', 'foedrum/12-1/bottle'],
+      ['alice', 'foedrum/12-1/bottle'],
+    ];
+    for (const [brewery, local] of invalid) {
+      assert.throws(() => remoteBranch(brewery, local), /branch|Brewery|repository/i, local);
     }
   });
 });

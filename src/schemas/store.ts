@@ -7,17 +7,28 @@ import { z } from './zod.ts';
 const Filled = z.string().min(1);
 const Attempt = z.int().positive();
 
-/** The key of an external side effect: applied at most once (invariant I4). */
-export const EffectKey = z.strictObject({
+/** The key of an effect of an attempt. */
+export const AttemptEffectKey = z.strictObject({
   batchId: PathSafeId,
   stepId: PathSafeId,
   attempt: Attempt,
   effect: Filled,
 });
+export type AttemptEffectKey = z.infer<typeof AttemptEffectKey>;
+
+/** The key of an effect of a batch rather than one of its attempts (ADR 0043). */
+export const BatchEffectKey = z.strictObject({ batchId: PathSafeId, effect: Filled });
+export type BatchEffectKey = z.infer<typeof BatchEffectKey>;
+
+/** The key of an external side effect: applied at most once (invariant I4). */
+export const EffectKey = z.union([AttemptEffectKey, BatchEffectKey]);
 export type EffectKey = z.infer<typeof EffectKey>;
 
-/** The parts of an effect key in the order of its text. */
-export const EffectKeyParts = z.tuple([PathSafeId, PathSafeId, Attempt, Filled]);
+/** The parts of an effect key in the order of its text: an attempt's four, or a batch's two. */
+export const EffectKeyParts = z.union([
+  z.tuple([PathSafeId, PathSafeId, Attempt, Filled]),
+  z.tuple([PathSafeId, Filled]),
+]);
 
 /** The parts of an attempt key, the `attemptKey` of a lease, in the order of its text (ADR 0027). */
 export const AttemptKeyParts = z.tuple([PathSafeId, PathSafeId, Attempt]);
@@ -47,13 +58,14 @@ const canonicalText = (parts: z.ZodType, shape: RegExp, message: string) =>
     }, message);
 
 /**
- * The canonical text of an effect key: the JSON array `[batchId, stepId, attempt, effect]`, so no
- * part can collide with a separator, written exactly as `JSON.stringify` writes it.
+ * The canonical text of an effect key: the JSON array `[batchId, stepId, attempt, effect]`, or
+ * `[batchId, effect]` for an effect of a batch (ADR 0043), so no part can collide with a
+ * separator, written exactly as `JSON.stringify` writes it.
  */
 export const EffectKeyText = canonicalText(
   EffectKeyParts,
-  new RegExp(String.raw`^\[${jsonString},${jsonString},${attemptNumber},${jsonString}\]$`),
-  'Must be a canonical effect key: ["batchId","stepId",attempt,"effect"]',
+  new RegExp(String.raw`^\[${jsonString},(?:${jsonString},${attemptNumber},)?${jsonString}\]$`),
+  'Must be a canonical effect key: ["batchId","stepId",attempt,"effect"] or ["batchId","effect"]',
 );
 
 /**

@@ -83,13 +83,13 @@ Foedrum separates three roles that GitHub happens to play all at once in 1.0:
 
 The user chooses a tracker and a code host per Brewery (`foedrum.jsonc`), and they may differ (for example Jira orders, GitHub pull requests).
 
-**Design rule: a tracker is intake and projection only.** The event store is the source of truth; Foedrum reads orders and commands from the tracker and writes status back to it, but never synchronises workflow state two ways. Tracker-specific concepts (issue types, workflow transitions, re-parenting, key renames) are mapped at the edge, in the adapter, and never leak into the engine. Two-way tracker synchronisation is the most expensive part of an orchestrator to build and keep correct; this rule keeps adapters small.
+**Design rule: a tracker is intake and projection only.** The event store is the source of truth; Foedrum reads orders and commands from the tracker and writes status back to it, but never synchronises workflow state two ways. Tracker-specific concepts (issue types, workflow transitions, re-parenting, key renames) are mapped at the edge, in the adapter, and never leak into the engine. Two-way tracker synchronisation is the most expensive part of an orchestrator to build and keep correct; this rule keeps adapters small. The claim on a target-repository issue (§3.3) is no exception: its ref is the one fact Breweries share: the engine creates it, reads only its record to tell its own claim from another's, and deletes it, and never reads workflow state back from it.
 
 ### 3.2 Work breakdown: orders, sub-orders and bottles
 
 Enterprise changes usually span several repositories. Cross-repository work is a core capability, not an add-on ([ADR 0013](adr/0013-single-repo-sub-orders-bottles-and-releases.md)).
 
-- **All work items live in the Brewery.** Orders and sub-orders are Brewery issues; Foedrum never creates or edits issues in target repositories.
+- **Work items live in the Brewery, or are claimed from a target repository.** Orders and sub-orders are Brewery issues, private to the Brewery; an order may also be an issue of a target repository that this Brewery claimed (§3.3, [ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)). Foedrum never creates issues in target repositories, and edits only the issues it claimed.
 - **Decomposition.** A decomposition step (Maltster + Brewmaster) splits an order into **sub-orders** — GitHub sub-issues of the order — and records dependencies between them as native "blocked by" links. The breakdown is posted as **READY / NOT READY** and brewing starts after `/foedrum approve` — **approval is on by default**; recipes can switch it off. A breakdown produced interactively with the `/foedrum:refine` plugin (§3.5) counts as approved.
 - **One sub-order, one repository.** A sub-order never spans repositories. A brewer *writes* in exactly one repository and may *read* sibling repositories for context.
 - **Each sub-order gets its own batch** and recipe; batches are scheduled in dependency order.
@@ -115,9 +115,17 @@ Bottle B  api       #103 → waits for lib-core ≥ 2.4.0 → bump → PR
 Bottle C  web       #104 → PR
 ```
 
-### 3.3 Triage of target-repository issues
+### 3.3 Target-repository issues: a work queue, and triage
 
-Issues filed in target repositories (bug reports, user requests) are a **triage source**, never a work queue. The Infection check recipe reads them — selected by repository and label/filter, by explicit references, or on a schedule — reproduces the problem in a clean worktree, confirms the root cause at file and line, and records the findings as one or more **orders in the Brewery** that link back to the source issue. It stops there: it never fixes, assigns, labels or closes anything in the target repository. Commenting a link back on the source issue is an opt-in setting.
+A team often shares a target repository while every member has a private Brewery, so several Breweries pick issues from one repository ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
+
+- **A work queue where a Brewery asks for it.** A repository with an **intake filter** (labels, optionally a milestone) has its open issues polled. The intake picks an issue that passes the filter, has no assignee or only this Brewery's own GitHub user (assign an issue to yourself and your Brewery picks it up), was opened by one of the Brewery's allow-listed users (§10), and has no batch in this Brewery in any lane (`isCandidate`, `src/engine/issue-claims.ts`). A pass claims candidates oldest first, only up to the Brewery's free capacity (`claimCandidates`'s `limit`), and leaves the rest for the next pass and for the other Breweries.
+- **The claim** is the ref `refs/foedrum/claims/issues/<n>` in the target repository, created through the API: creating a ref that exists fails, so exactly one Brewery wins. It points at a commit whose message names the Brewery (`{"brewery","issue","claimedAt"}`, no host or user names). A ref that names this Brewery is its own claim, left by a run killed before it ordered the batch; any other ref, or one that cannot be read, skips the issue. The claim comes before the order, and is the second effect outside the idempotency ledger next to the state branch's push: it is idempotent by its own atomic creation, and `batch.ordered` records it.
+- **The marks** follow the order, through the ledger as effects of the batch (`claimEffectsDue`): the issue is assigned to the Brewery's user, labelled `foedrum:claimed` (the claim, not the lane: it stays through Stuck and Conditioning), and gets a claim comment naming the Brewery and batch, a comment of its own next to the status comment (§8).
+- **Release** when the batch is cancelled or every pull request it opened is merged or closed: the label goes, a release comment says why, and the ref is deleted if it still names this Brewery, only while it points at the commit that was read (unproven against GitHub; ADR 0043 names the fallback). The assignee stays, so the release comment of a batch that was not merged ends with "Unassign the issue to make it available again." A silent Brewery's claim is never taken over automatically; a human releases it (delete the ref, unassign the issue).
+- Orders made in the Brewery and their sub-orders need no claim: nobody else can see them. Every branch pushed to a target repository carries the Brewery (§3.4), so two Breweries never push the same branch.
+
+**Triage.** Issues filed in target repositories configured as triage sources (bug reports, user requests) go to the Infection check recipe instead. It reads them — selected by repository and label/filter, by explicit references, or on a schedule — reproduces the problem in a clean worktree, confirms the root cause at file and line, and records the findings as one or more **orders in the Brewery** that link back to the source issue. It stops there: it never fixes, assigns, labels or closes anything in the target repository. Commenting a link back on the source issue is an opt-in setting.
 
 ### 3.4 State in the Brewery repository
 
@@ -128,7 +136,7 @@ The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 
 - The branch has its own worktree of the Brewery clone in the work root. Commits and pushes skip the user's git hooks; signing follows the clone, and a test commit at start-up refuses to start when signing cannot work unattended.
 - **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging. At start-up a missing or behind database is rebuilt from the branch; unpushed local events while the branch moved stop the engine with an error naming both heads. Foedrum never merges or rewrites state history.
 - **Rewind:** every step records the commit SHA of each repository involved. `/foedrum rewind <step>`, offered when a batch is Stuck, resets the batch's branches to those SHAs and appends a `batch.rewound` event that records them. History is never rewritten; work continues from an earlier point. An already open bottle is **updated in place**: its branch is force-pushed to the rewound state and a comment on the pull request explains the rewind.
-- **No duplicate pull requests after a crash:** branch names are deterministic (`foedrum/<batch>/<repo>`), so Foedrum looks up an existing pull request before creating one, even if the last event never reached the state branch.
+- **No duplicate pull requests after a crash:** branch names are deterministic (`foedrum/<batch>/<repo>`), so Foedrum looks up an existing pull request before creating one, even if the last event never reached the state branch. A branch is pushed to a target repository as `foedrum/<brewery>/<rest>` for the local `foedrum/<rest>`, the Brewery as `<owner>.<name>` in lower case (`remoteBranch`, `src/workspace/attempt-worktrees.ts`), so two Breweries with the same batch ids never push the same branch; the lookup uses that name ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
 
 ### 3.5 Interactive refinement
 
@@ -206,7 +214,7 @@ type WaitCondition =
   | { kind: 'sibling'; batchId: string }
 ```
 
-The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), batch and step ids are path segments ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, an effect key is the canonical JSON text `["batchId","stepId",attempt,"effect"]` exactly as `JSON.stringify` writes it, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
+The zod schemas in `src/schemas/` are the source of these types. Every object is strict (unknown fields are rejected), batch and step ids are path segments ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)), timestamps are ISO 8601 in UTC, pull requests are `https` URLs without credentials, shas are full commit hashes, an effect key is the canonical JSON text `["batchId","stepId",attempt,"effect"]`, or `["batchId","effect"]` for an effect of a batch rather than one of its attempts (a claim's marks and release, [ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)), exactly as `JSON.stringify` writes it, and a breakdown's dependencies may only name its own sub-orders and never form a cycle.
 
 Leases live in a separate mutable table (`attempt_key, owner, expires_at`; a lease covers the attempt's session as well): they are renewed every few seconds. An attempt that ended releases its lease, also when its finish is refused because Stuck abandoned it: a step runs one attempt at a time, so a second live lease of a step is an attempt that no longer runs (I2). Once expired, a lease is released; when its attempt is still the started, running latest attempt of its step, the supervisor treats that attempt as lost. A driver that starts on a store sets the leases its own earlier run left to expire at once (`expireOwnLeases`, `src/engine/leases.ts`): their processes died with that run, so the supervisor's next tick loses those attempts, and no new attempt of a step runs beside one of them ([ADR 0033](adr/0033-chaos-tests-effects-found-by-key-and-leases-at-start.md)). It does so through `startDriver`, only under its own driver lock, whose owner it takes, so a second process with the same owner cannot expire the live leases of the first ([ADR 0037](adr/0037-attempt-worktrees-in-the-engine-and-driver-locks.md)). An attempt key is the canonical JSON text `["batchId","stepId",attempt]` (`src/engine/attempt-key.ts`); the store refuses a lease under any other key (`AttemptKeyText` in `src/schemas/store.ts`), so a runner that writes a wrong one finds out at once instead of when the lease expires. The store lists both the leases alive and those expired at a given time, so the supervisor can tell which attempt an expired lease held ([ADR 0027](adr/0027-supervisor-lost-and-stalled-attempts.md)).
 
@@ -214,7 +222,7 @@ A batch lease says which driver drives a batch until when (`batch_id, owner, exp
 
 The `EventStore` interface (`src/engine/event-store.ts`) hides the storage; its implementation on `node:sqlite` keeps six tables under a schema version (`PRAGMA user_version`) with a migration per version: `events`, append-only through triggers; `leases`; `batch_leases`; `pushed`, the state branch's pushed-through marker (the last event on the remote branch and the commit that holds it; it only moves forward); and two indexes of the events, maintained on append, so `replay` and `restore` rebuild them from a log (ADR 0011, ADR 0024). `restore` appends events read from the state branch keeping their ids, after every stored event, and marks them pushed in the same transaction:
 
-- `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A trigger on `events` fills it, so the database itself refuses a second event for a key (the failed insert leaves no row), and `replay` refuses a log that contains one. An effect is applied through `applyEffect` (`src/engine/effects.ts`): the ledger's result when it is recorded, else the target's when the target finds the effect by its key (an engine killed after applying it and before recording it), else the result of applying it now. So every effect carries its key to its target, where only an object Foedrum's own identity made counts as found (keys are predictable), and is due because of recorded events, so a restarted engine finds it due again with the same key ([ADR 0033](adr/0033-chaos-tests-effects-found-by-key-and-leases-at-start.md)).
+- `effects`: the idempotency ledger is the `effect.applied` events. Recording an effect appends one, keyed by the canonical JSON array `[batch, step, attempt, effect]` or `[batch, effect]` (`src/engine/effect-key.ts`), and the index holds each key once. A trigger on `events` fills it, so the database itself refuses a second event for a key (the failed insert leaves no row), and `replay` refuses a log that contains one. An effect is applied through `applyEffect` (`src/engine/effects.ts`): the ledger's result when it is recorded, else the target's when the target finds the effect by its key (an engine killed after applying it and before recording it), else the result of applying it now. So every effect carries its key to its target, where only an object Foedrum's own identity made counts as found (keys are predictable), and is due because of recorded events, so a restarted engine finds it due again with the same key ([ADR 0033](adr/0033-chaos-tests-effects-found-by-key-and-leases-at-start.md)).
 - `deadlines`: the pending deadline of each step of a batch, and of the batch itself while it waits to be routed or for a reminder, so "batches past their deadline" is one indexed query (a batch's earliest). `batch.ordered` sets the routing deadline, and so does `batch.resumed` when a retry sends the batch back to Ordered ([ADR 0032](adr/0032-routing-deadline-for-ordered-batches.md)); `step.scheduled` sets its step's deadline and ends a routing deadline or a Conditioning or Stuck reminder; `batch.waiting` sets the reminder in place of a routing deadline; `batch.stuck` replaces every deadline of the batch with its reminder ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)); `step.finished` clears its own attempt's deadline; `batch.on_tap` and `batch.cancelled` clear every deadline of the batch.
 
 Events are validated against the zod schemas when appended and when read. All writes go through `withTransaction` (`BEGIN IMMEDIATE`; rolled back on any throw; not nestable), in WAL mode with a busy timeout. The store reads no clock: callers pass `now`.
@@ -223,7 +231,7 @@ Current state is a pure fold over events (`src/engine/fold.ts`): orders and sub-
 
 The fold records what the events say and leaves the batch lifecycle to the state machine; it only requires attempts to go from scheduled to started to finished. It throws an `InvalidLogError`, naming the index and type of the event and the reason, when an event:
 
-- refers to a batch, step or attempt the log never created (an applied effect refers to the attempt its key names), repeats one, or takes an attempt out of that order;
+- refers to a batch, step or attempt the log never created (an applied effect refers to the batch or attempt its key names), repeats one, or takes an attempt out of that order;
 - opens a bottle or applies an effect twice (invariant I4);
 - decomposes a sub-order, lists an order as a sub-order, or moves a sub-order to another order.
 
@@ -277,7 +285,7 @@ Property-tested (see §9):
 - **I1** Every non-terminal batch has exactly one pending action with a deadline (for ordered batches: a routing deadline; for conditioning and stuck batches: a reminder deadline).
 - **I2** At most one live lease per attempt and per worktree.
 - **I3** Replaying the log yields identical state.
-- **I4** Every external side effect is keyed `(batch, step, attempt, effect)` and applied at most once.
+- **I4** Every external side effect is keyed `(batch, step, attempt, effect)`, or `(batch, effect)` for an effect of the batch, and applied at most once.
 - **I5** A batch past its deadline becomes `stuck` within one supervisor tick.
 - **I6** From every reachable state, a terminal state is reachable.
 
@@ -349,7 +357,7 @@ On GitHub, for the autonomous driver and asynchronous teammates:
 
 - One **status comment** per order, edited in place: recipe (as a Mermaid diagram with the current step highlighted), steps, state, assumptions brewers made, cost.
 - A **GitHub Projects board** with one column per lane serves as the kanban view until the Brewhouse dashboard (M6).
-- **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`.
+- **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`. A claimed target-repository issue also carries `foedrum:claimed` until its claim is released (§3.3).
 - **Commands** in comments, from allow-listed users only, processed exactly once (the comment id is the idempotency key) and acknowledged with a reaction: 👀 received, 🚀 done, 😕 rejected with the reason in the status comment.
 
 ## 9. Testing strategy
@@ -498,5 +506,9 @@ Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.m
 **A target repository** receives only what its bottles bring, plus:
 
 ```
-.foedrum/house-yeast/   repository-layer rules (one Markdown file per rule), committed in bottles (§12b)
+.foedrum/house-yeast/                repository-layer rules (one Markdown file per rule), committed in bottles (§12b)
+refs/foedrum/claims/issues/<n>       the claim on an issue a Brewery took from it (§3.3, ADR 0043)
+foedrum/<owner>.<name>/<rest>        branches, prefixed with the Brewery that pushed them (§3.4)
 ```
+
+On a claimed issue it also gets the Brewery's assignee, the `foedrum:claimed` label until the claim is released, and claim and release comments (§3.3).

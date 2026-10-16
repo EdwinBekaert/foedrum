@@ -7,13 +7,14 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | Term | Meaning |
 |---|---|
 | **Brewery** | The control repository: configuration, brewers, recipes, house yeast, evaluations |
-| **Order** | An issue in the Brewery; the unit of intake |
+| **Order** | An issue in the Brewery, or an issue of a target repository the Brewery claimed (an issue claim); the unit of intake |
+| **Issue claim** | The ref `refs/foedrum/claims/issues/<n>` by which one Brewery takes a target-repository issue; exactly one Brewery can create it, and it is released when the batch ends. Not the claims of attempt worktrees (ADR 0029), which say what a cleanup must keep |
 | **Sub-order** | A sub-issue of an order, targeting exactly one repository |
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
 | **Conditioning** ⏳ | Waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure |
 | **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
-| **Triage source** | Issues in target repositories, read by Infection check and turned into Brewery orders |
+| **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
 | **Brewer** | A reusable agent role: prompt, in-docs, out doc, model, effort, tools, permissions, budget, guards |
 | **Recipe** | A pipeline: brewers, checks and actions in order, with loops |

@@ -1,6 +1,6 @@
 # 0024. The state branch: layout, outbox and divergence
 
-Date: 2026-10-15 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md) and [0011](0011-state-in-the-brewery-repository.md) · Amended by [0027](0027-supervisor-lost-and-stalled-attempts.md), [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)
+Date: 2026-10-15 · Status: Accepted · Amends [0002](0002-event-sourced-engine-on-node-sqlite.md) and [0011](0011-state-in-the-brewery-repository.md) · Amended by [0027](0027-supervisor-lost-and-stalled-attempts.md), [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)
 
 ## Context
 [ADR 0011](0011-state-in-the-brewery-repository.md) puts the durable record on the branch `foedrum/state` of the Brewery, committed and pushed at every step boundary, with SQLite as the local index that is rebuilt from the branch. It leaves open how the files rebuild the same store, where events without a batch go, in which order SQLite and git are written, what a step boundary is, what "behind" means, and how ids that become file names stay safe. A rebuild that changes event ids, or a crash between SQLite and git that loses or doubles an event, would break invariant I3 (replaying the log yields identical state) across machines.
