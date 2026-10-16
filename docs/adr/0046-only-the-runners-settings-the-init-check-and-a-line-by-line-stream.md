@@ -12,7 +12,7 @@ Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcome
 ## Decision
 
 ### Only the runner's own settings
-- The command line passes `--setting-sources ""`: `claude` loads no user, project or local settings file, only the one given with `--settings`, which the runner writes. `claudeArgs` (`src/brewers/claude-command.ts`) builds ADR 0042's command line with it, and refuses a model, tool name, session id or `maxTurns` that could read as an option or reach cmd.exe (ADR 0031).
+- The command line passes `--setting-sources ""`: `claude` loads no user, project or local settings file, only the one given with `--settings`, which the runner writes. `claudeArgs` (`src/brewers/claude-command.ts`) builds ADR 0042's command line with it, and refuses a model, tool name, session id or `maxTurns` that is not valid, so none reads as an option. That is not all that npm's `claude.cmd` needs: `windowsCommandLine` (ADR 0031) also refuses `[`, `]` and other characters, so a model id with `[1m]` or a path with `&` cannot start `claude.cmd`, and the attempt fails closed as one that could not start. The runner supports the native `claude.exe` first, and doctor is to report a `.cmd`-only install (item 8 of the consultant's list), with the runner.
 - **Verified** against `claude` 2.1.301 by `test/integration/claude-cli.test.ts`. The test points `CLAUDE_CONFIG_DIR` at a throwaway folder whose `settings.json` allows `Bash(*)` and sets a variable, and `ANTHROPIC_BASE_URL` at a fake Messages API on 127.0.0.1 (`test/integration/fake-messages-api.ts`), whose "model" runs one `node -e` command through Bash. So the test needs no login, spends no tokens and sends nothing off the machine.
   - Without the flag, the command runs and prints the user's variable. This control case proves that the throwaway file is read at all.
   - With the runner's command line, the same call is a `permission_denied` (`decision_reason_type: "mode"`).
@@ -35,7 +35,7 @@ Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcome
   - there is an MCP server, a skill or a slash command;
   - a field it reads is missing or of another type: what cannot be read cannot be shown to match.
 
-  A brewer's own `skills` and `mcp` are not supported yet; when they are, the asked session names them.
+  A brewer's own `skills` and `mcp` are not supported yet; when they are, the asked session names them. What claude loaded may come from an untrusted repository, and the reason ends in a summary a human reads, so it names at most three entries of each kind, each cut to 40 characters, and how many more.
 - The runner checks the init event before it reads anything else of the stream. **Other system events can come first:** with an API key, or a configuration folder `claude` has not seen, 2.1.301 sends `system/ui_invalidate` before `init`; the fixtures, captured with a subscription login, do not show it. The stream parser skips `system` events before `init`. A `result` before `init` is a start failure (ADR 0042's `--resume` of a missing session), and any other event before `init` is a mismatch.
 - **A mismatch is an environment failure.** It is a new fact of [ADR 0028](0028-brewer-runner-outcomes-environment-and-test-first.md), `environment` (why the session is not what was asked), and the first row of its table:
 
@@ -56,7 +56,7 @@ Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcome
   - A deadline, an aborted signal and a program that cannot start answer as `execProcess` does. Once the runner kills or stops the process, no further line is handed over, not even the rest of the chunk that was being read. So a caller that stops the attempt from a line (a mismatched init, `maxDenials`) sees nothing after it.
   - A last line without a line ending is handed over when the process closes.
 - With `jobObject: true` (ADR 0039), stdin reaches the program through the helper, which passes its own handles on; this is verified on Windows. The helper's refusal is written alone on stdout before the program exists, so a first line that looks like it is held back until the process writes more or ends. When the process ends as the refusal says, nothing is handed over and the answer is "not started", as in `execProcess`.
-- `execProcess` and its 4 MiB default are unchanged.
+- `execProcess` and its 4 MiB default are unchanged. The test-layer guard (`scripts/check-test-layers.ts`, ADR 0021) reports a unit, property or chaos test that imports `streamProcess`, as it does `execProcess` and `spawnProcess`.
 
 ### The longest command line
 - With a model id with `[1m]`, `xhigh`, 99,999 turns, 13 tools, a resumed session, and three paths of about 250 characters each (`claude.exe`, the settings file, a system prompt file), the program's command line is 640 characters, and 14,037 through the Job Object helper with a working directory of the same length, against Windows's 32,767. A unit test pins it at 1,500 and under the limit.
