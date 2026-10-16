@@ -1,5 +1,6 @@
 // Applying an external side effect through the idempotency ledger (invariant I4, ADR 0032).
 
+import { effectKey } from './effect-key.ts';
 import type { EffectKey } from './event-store.ts';
 
 /** Where an effect lands (a pull request, a comment, a label on the code host). */
@@ -20,10 +21,24 @@ export interface Ledger {
 /** How an effect's result was had: from the ledger, found on the target, or applied now. */
 export type Applied = { result: unknown; via: 'ledger' | 'found' | 'applied' };
 
+/**
+ * Applies the effect of `key` at most once: the ledger's result when it is recorded, else the
+ * target's when a run before applied it and was killed before recording it, else the result of
+ * applying it now. Whatever the target answered is recorded; nothing is recorded when it fails.
+ */
 export const applyEffect = async (
-  _ledger: Ledger,
-  _key: EffectKey,
-  _target: EffectTarget,
+  ledger: Ledger,
+  key: EffectKey,
+  target: EffectTarget,
 ): Promise<Applied> => {
-  throw new Error('not implemented');
+  const text = effectKey.encode(key);
+  const recorded = ledger.find(key);
+  if (recorded !== undefined) return { result: recorded.result, via: 'ledger' };
+  const found = await target.find(text);
+  const applied: Applied =
+    found === undefined
+      ? { result: await target.apply(text), via: 'applied' }
+      : { result: found.result, via: 'found' };
+  ledger.record(key, applied.result);
+  return applied;
 };
