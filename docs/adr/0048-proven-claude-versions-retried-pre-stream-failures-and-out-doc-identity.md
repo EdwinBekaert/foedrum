@@ -14,7 +14,7 @@ The consultant's reviews of #127 and #133 left follow-ups that were not blocking
 ### The proven claude versions
 - `PROVEN_CLAUDE` (`src/brewers/claude-version.ts`) is the range of `claude` versions that `test/integration/claude-cli.test.ts` passed on, both ends included: today 2.1.301 to 2.1.301. Versions compare as three numbers; anything else is not proven.
 - `foedrum doctor` reports another version as a problem that does not fail it: *claude 2.2.0 is not a version Foedrum proved its brewer settings on (2.1.301)*, with the advice to keep `permissions.allow` and `env` out of the user's Claude Code settings until a Foedrum release proves it.
-- The runner warns once per version through its new `warn` dependency, when an init shows an unproven one. It does not refuse: the init check of ADR 0046 still catches a changed session, and refusing every new release would stop brewers on the day `claude` updates.
+- The runner warns once per version through its new `warn` dependency, when an init shows an unproven one. The version comes from `claude`'s stream, so one that is not a short `major.minor.patch` is not repeated: the warning says `claude` reported a version Foedrum cannot read. It does not refuse: the init check of ADR 0046 still catches a changed session, and refusing every new release would stop brewers on the day `claude` updates.
 - The range is widened only after the proof passed on the new version, in the same change.
 
 ### A failure before the stream is retried once
@@ -23,11 +23,12 @@ The consultant's reviews of #127 and #133 left follow-ups that were not blocking
 - The session id is reused: a `claude` that wrote no line did not set up the session.
 
 ### Commit means git's subcommand
-- A shell command counts as a commit for the stall watchdog only when one of its simple commands (split at `;`, `&`, `|` and line ends) is `git` itself, by any path and with or without `.exe`, after optional `NAME=value` variables, and the first word after git's global options is `commit`. `-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace` and `--config-env` take the next word as their value. A quoted word is one word.
+- A shell command counts as a commit for the stall watchdog only when one of its simple commands (split at `;`, `&`, `|` and line ends outside quotes) is `git` itself, by any path and with or without `.exe`, after optional `NAME=value` variables, and the first word after git's global options is `commit`. `-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace` and `--config-env` take the next word as their value. A quoted word is one word.
 - Each step is linear in the command's length: the command is model output (ADR 0047).
 
 ### The out doc read is the file checked
-- The runner takes the device and file id of the real path it checked (`stat`) before it opens the out doc, opens it by that path, and compares them with those of the open file (`fstat`), as big integers because a Windows file id may not fit a number. The identity must come from before the open: a folder swapped for a link after the check is followed by the open and by any later look at the same path, so a `stat` after the open would see the swapped file too. When they differ, it does not read the out doc: *it changed while it was read*. The type, link count and size checks use the open file too.
+- The runner takes the device and file id of the real path it checked (`stat`) before it opens the out doc, opens it by that path, and compares them with those of the open file (`fstat`), as big integers because a Windows file id may not fit a number. The identity must come from before the open: a folder swapped for a link after the check is followed by the open and by any later look at the same path, so a `stat` after the open would see the swapped file too. After the open it also resolves the real path again: a swap that came before the identity was taken, and is still in place, moved it. When either differs, it does not read the out doc: *it changed while it was read*. The type, link count and size checks use the open file too.
+- **This narrows the window, it does not close it.** A swap made and undone between the containment check and the second real path, while the open happens, is not seen. Node has no way to open a path one folder at a time without following links (`openat` with `O_NOFOLLOW` on each part), which would close it. A brewer needs a process that outlives `claude` and races the runner within a few system calls; the sandbox (ADR 0010) and the Job Object on Windows (ADR 0039) make that harder.
 
 ## Consequences
 - A user on a newer `claude` sees a warning in `foedrum doctor` and in the engine's output until Foedrum proves that version. Updating `PROVEN_CLAUDE` is part of moving to a new `claude`.
