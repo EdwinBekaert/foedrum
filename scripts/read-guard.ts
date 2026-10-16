@@ -115,6 +115,9 @@ export const readGuard = async (
     } else {
       return `${name} is relative and the working directory is not known.`;
     }
+    // A relative path in a working directory on a network share is one too.
+    const notResolved = notADrivePath(absolute, quoted(absolute));
+    if (notResolved !== undefined) return notResolved;
     let real: string;
     try {
       real = path.resolve(deps.realPath(absolute));
