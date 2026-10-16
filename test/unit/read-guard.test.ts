@@ -233,6 +233,14 @@ describe('readGuard: Windows paths', () => {
       blocks(winInput('Read', { file_path }), /drive/, win));
   }
 
+  it('blocks a relative path in a working directory on a network share, without touching it', async () => {
+    const input = hookInput('Grep', { pattern: 'x', path: 'src' }, '\\\\server\\share\\repo');
+    const { exitCode, stderr, calls } = await guard(input, win);
+    assert.equal(exitCode, 2);
+    assert.match(stderr, /network or device path/);
+    assert.deepEqual(calls, ['D:\\repo']);
+  });
+
   it('blocks a Glob pattern with backslashes that leaves the checkout', () =>
     blocks(winInput('Glob', { pattern: '..\\..\\Users\\*' }), OUTSIDE, win));
 
