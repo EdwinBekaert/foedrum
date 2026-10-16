@@ -1,6 +1,6 @@
 # 0036. The per-file test budget is CPU time
 
-Date: 2026-10-16 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md) · Amended by [0038](0038-npm-test-processes-refuse-process-starts.md)
 
 ## Context
 `npm test` fails when one file in `test/unit/` takes more than 5 s, and when a file in `test/property/` or `test/chaos/` takes more than 15 s (`scripts/test-budget-reporter.ts`, #87). It measured wall time, the only time `node:test` reports per file. A file's wall time grows with the machine's load: `npm run check` runs its steps at once, and several sessions often run on one machine, one of them in a mutation run. On 2026-10-16 both pushes of #102 were blocked by unit files that went over 5 s on load alone, none of them slow on a quiet machine. A gate that fails on load makes unattended sessions wait and retry by hand, and teaches them to re-run it.
@@ -17,7 +17,7 @@ The budget is meant to catch a file that is costly, not a machine that is busy.
 ## Consequences
 - Load from other sessions or the check's other steps no longer fails the budget, so it no longer blocks a push. A file that does more work than the budget allows still fails `npm test`, `npm run check` and the gate, whatever the load.
 - A file that only waits (real timers, a slow disk) passes, however long it takes. The 20 s goal for the whole check, the list's wall column and review catch that.
-- The budget no longer catches a process that slipped into a unit test: the process's CPU time is its own, and waiting for it costs the test process almost none. The test-layer guard (`scripts/check-test-layers.ts`) still catches a test that imports `node:child_process` or the process runner; one that starts a process through a module it imports is left to review, until the preload also refuses process starts in the layers `npm test` runs (a follow-up, #111).
+- The budget no longer catches a process that slipped into a unit test: the process's CPU time is its own, and waiting for it costs the test process almost none. The test-layer guard (`scripts/check-test-layers.ts`) still catches a test that imports `node:child_process` or the process runner; one that starts a process through a module it imports is caught by the preload, which refuses process starts in the layers `npm test` runs ([0038](0038-npm-test-processes-refuse-process-starts.md), #111).
 - CPU time is not quite load-free: on a machine with simultaneous multithreading, a busy sibling core makes the same work take more CPU time. The effect is much smaller than the queueing that stretches wall time, and the budget keeps its margin (the costliest unit file used about 3.5 s on a quiet machine).
 - Garbage collection and coverage threads count, so a file's CPU time can be higher than its wall time.
 - `npm test` depends on two more files and on `node:test` passing a root `after` hook's diagnostic on with the file. The integration test runs the reporters and the preload under the real runner and fails when that changes.
