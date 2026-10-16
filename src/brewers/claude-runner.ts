@@ -10,6 +10,7 @@ import {
   openSync,
   readSync,
   realpathSync,
+  statSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
 import { attemptKey } from '../engine/attempt-key.ts';
@@ -100,7 +101,7 @@ export function readOutDocFile(
   file: string,
   maxBytes: number,
   root: string,
-  _open: (path: string, flags: number) => number = openSync,
+  open: (path: string, flags: number) => number = openSync,
 ): OutDocRead {
   const tooLarge: OutDocRead = { kind: 'unread', reason: `it is larger than ${maxBytes} bytes` };
   const notAFile: OutDocRead = { kind: 'unread', reason: 'it is not a regular file' };
@@ -110,17 +111,24 @@ export function readOutDocFile(
     // A link could point the out doc, which reaches the event log, at any file of the machine.
     if (!found.isFile()) return notAFile;
     // So could a linked folder on its path (a junction needs no privilege on Windows), or `..`.
-    if (pathInside(realpathSync(root), realpathSync(file)) === undefined) {
+    const real = realpathSync(file);
+    if (pathInside(realpathSync(root), real) === undefined) {
       return { kind: 'unread', reason: 'it is outside the worktree' };
     }
     // Where the platform has it, a link swapped in since the checks is not followed (ADR 0047).
-    const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const fd = open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
-      const opened = fstatSync(fd);
-      if (!opened.isFile()) return notAFile;
+      // O_NOFOLLOW covers only the last part of the path: the file opened must be the one checked
+      // (#134). Big integers, as a Windows file id may not fit a number.
+      const checked = statSync(real, { bigint: true });
+      const held = fstatSync(fd, { bigint: true });
+      if (held.dev !== checked.dev || held.ino !== checked.ino) {
+        return { kind: 'unread', reason: 'it changed while it was read' };
+      }
+      if (!held.isFile()) return notAFile;
       // A hard link keeps its name in the worktree, but its content may be any file of the volume.
-      if (opened.nlink > 1) return { kind: 'unread', reason: 'it has more than one link' };
-      if (opened.size > maxBytes) return tooLarge;
+      if (held.nlink > 1n) return { kind: 'unread', reason: 'it has more than one link' };
+      if (held.size > BigInt(maxBytes)) return tooLarge;
       // Never more than the limit, even when the file grew since.
       const buffer = Buffer.alloc(maxBytes + 1);
       const length = readSync(fd, buffer, 0, maxBytes + 1, 0);
