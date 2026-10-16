@@ -176,6 +176,7 @@ export const precheck = async (
 };
 
 // Type-only, so erased: the module still has no static imports.
+import type { NpmCliLookup } from '../src/platform/executables.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export type { ProcessOutcome, RunProcess } from './process-runner.ts';
@@ -184,33 +185,21 @@ export type { ProcessOutcome, RunProcess } from './process-runner.ts';
 // before the hook's 600 s, which would end this process without killing the check.
 const CHECK_TIMEOUT_MS = 540_000;
 
-// `npm run check` through npm's own CLI script (npm_execpath, set by `npm run hook:gate`), run
-// by this node, so the check starts without a shell. Outside Windows the check leads a process
-// group of its own, which a Ctrl+C on the push does not reach: `stop` kills its tree.
+// Finds npm's CLI script next to the node at the given path (findNpmCli in the platform module).
+export type FindNpmCli = (execPath: string) => Promise<NpmCliLookup>;
+
+// `npm run check` through npm's own CLI script, found next to this node, run by this node, so
+// the check starts without a shell. Outside Windows the check leads a process group of its own,
+// which a Ctrl+C on the push does not reach: `stop` kills its tree.
 export const npmCheck =
   (
-    env: NodeJS.ProcessEnv,
-    execPath: string,
-    runProcess: RunProcess,
-    stop?: AbortSignal,
+    _execPath: string,
+    _findNpmCli: FindNpmCli,
+    _runProcess: RunProcess,
+    _stop?: AbortSignal,
   ): RunCheck =>
-  async (cwd) => {
-    const npmCli = env.npm_execpath;
-    if (npmCli === undefined || npmCli === '') {
-      return {
-        ok: false,
-        output: 'npm_execpath is not set: run this hook as `npm run --silent hook:gate`.',
-      };
-    }
-    const { exitCode, output, killed } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd, {
-      timeoutMs: CHECK_TIMEOUT_MS,
-      signal: stop,
-    });
-    const { whyKilled } = await import('../src/platform/processes.ts');
-    const why = whyKilled(killed, CHECK_TIMEOUT_MS);
-    if (why === undefined) return { ok: exitCode === 0, output };
-    const what = killed === 'stopped' ? 'npm run check was stopped' : `npm run check ${why}`;
-    return { ok: false, output: `${output.trimEnd()}\n${what}` };
+  async (_cwd) => {
+    throw new Error('not implemented');
   };
 
 // `git symbolic-ref -q HEAD` exits 1, silently, only when HEAD is detached. It exits 0 on a branch
@@ -231,7 +220,9 @@ const readStdin = async (): Promise<string> => {
 if (import.meta.main) {
   const { spawnProcess } = await import('./process-runner.ts');
   const { stopOnSignals } = await import('../src/platform/processes.ts');
-  const runCheck = npmCheck(process.env, process.execPath, spawnProcess, stopOnSignals());
+  const findNpmCli: FindNpmCli = async (execPath) =>
+    (await import('../src/platform/executables.ts')).findNpmCli(execPath);
+  const runCheck = npmCheck(process.execPath, findNpmCli, spawnProcess, stopOnSignals());
   // Loaded only for gated commands.
   const staleReason = async (cwd: string) => {
     const { outOfDate } = await import('./deps-sync.ts');

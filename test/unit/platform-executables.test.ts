@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, posix, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { resolveExecutable } from '../../src/platform/executables.ts';
+import { findNpmCli, resolveExecutable } from '../../src/platform/executables.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 // A file system with only these runnable files.
@@ -188,5 +188,68 @@ describe('resolveExecutable on this machine', () => {
     assert.equal(resolveExecutable('tool', { env: { PATH: dir.path } }), undefined);
     chmodSync(join(dir.path, 'tool'), 0o755);
     assert.equal(resolveExecutable('tool', { env: { PATH: dir.path } }), join(dir.path, 'tool'));
+  });
+});
+
+// The gate runs npm run check with npm's CLI script as installed with the node running it (#41).
+describe('findNpmCli', () => {
+  it('finds npm-cli.js in node_modules next to node.exe on Windows', () => {
+    const npmCli = 'C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js';
+    assert.deepEqual(
+      findNpmCli('C:\\Program Files\\nodejs\\node.exe', {
+        platform: 'win32',
+        isFile: files(npmCli),
+      }),
+      { path: npmCli, tried: [npmCli] },
+    );
+  });
+
+  for (const platform of ['linux', 'darwin'] as const) {
+    it(`finds npm-cli.js in lib/node_modules under node's prefix on ${platform}`, () => {
+      const npmCli = '/opt/node/lib/node_modules/npm/bin/npm-cli.js';
+      assert.deepEqual(findNpmCli('/opt/node/bin/node', { platform, isFile: files(npmCli) }), {
+        path: npmCli,
+        tried: [npmCli],
+      });
+    });
+  }
+
+  it('finds nothing, naming the path it tried, when npm is not installed with node', () => {
+    assert.deepEqual(findNpmCli('/usr/bin/node', { platform: 'linux', isFile: files() }), {
+      path: undefined,
+      tried: [posix.join('/usr', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')],
+    });
+  });
+
+  // npm-cli.js where npm would be on another platform is not npm for this one.
+  it('looks only where npm is on the given platform', () => {
+    const elsewhere = '/opt/node/bin/node_modules/npm/bin/npm-cli.js';
+    assert.equal(
+      findNpmCli('/opt/node/bin/node', { platform: 'linux', isFile: files(elsewhere) }).path,
+      undefined,
+    );
+  });
+
+  // CI runs this on Windows, macOS and Linux, with the node and npm that setup-node installs.
+  it('finds the npm installed with this node', () => {
+    const { path, tried } = findNpmCli(process.execPath);
+    assert.ok(path !== undefined, `tried ${tried.join(', ')}`);
+    assert.match(path, /npm-cli\.js$/);
+  });
+
+  it('skips a folder named npm-cli.js', () => {
+    const dir = makeTempDir('npm-cli');
+    try {
+      const bin = join(dir.path, 'bin');
+      mkdirSync(bin);
+      const npmCli =
+        process.platform === 'win32'
+          ? join(bin, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+          : join(dir.path, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      mkdirSync(npmCli, { recursive: true });
+      assert.equal(findNpmCli(join(bin, 'node')).path, undefined);
+    } finally {
+      dir.remove();
+    }
   });
 });

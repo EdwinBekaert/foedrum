@@ -74,3 +74,24 @@ export const resolveExecutable = (
   }
   return undefined;
 };
+
+/** Where npm's CLI script is next to a node, or undefined; `tried` lists every path checked. */
+export interface NpmCliLookup {
+  path: string | undefined;
+  tried: string[];
+}
+
+export interface FindNpmCliOptions {
+  platform?: NodeJS.Platform;
+  /** Whether a regular file is at the path. */
+  isFile?: (path: string) => boolean;
+}
+
+/**
+ * npm's CLI script as installed with the node at `execPath`, so npm runs without npm's shims
+ * or a shell: `<node dir>/node_modules/npm/bin/npm-cli.js` on Windows,
+ * `<prefix>/lib/node_modules/npm/bin/npm-cli.js` elsewhere, where node is `<prefix>/bin/node`.
+ */
+export const findNpmCli = (_execPath: string, _options: FindNpmCliOptions = {}): NpmCliLookup => {
+  throw new Error('not implemented');
+};

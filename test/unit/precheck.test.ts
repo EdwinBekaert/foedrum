@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   type CheckResult,
+  type FindNpmCli,
   forbiddenReason,
   gitHeadIsDetached,
   isDetached,
@@ -444,6 +445,11 @@ describe('precheck on forbidden commands', () => {
 describe('npmCheck', () => {
   const execPath = '/usr/local/bin/node';
   const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
+  // A lookup that finds npm's CLI at npmCli, and one that finds nothing at the given paths.
+  const found: FindNpmCli = async () => ({ path: npmCli, tried: [npmCli] });
+  const notFound =
+    (...tried: string[]): FindNpmCli =>
+    async () => ({ path: undefined, tried });
 
   // A fake process runner that records each call and answers with the given outcome.
   const fakeProcess = (outcome: ProcessOutcome) => {
@@ -455,42 +461,47 @@ describe('npmCheck', () => {
     return { calls, runProcess };
   };
 
-  it('runs npm run check with this node and npm_execpath in the given directory', async () => {
+  it('runs npm run check with this node and the npm CLI found next to it, in the given directory', async () => {
     const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
-    await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    const looked: string[] = [];
+    const findNpmCli: FindNpmCli = async (path) => {
+      looked.push(path);
+      return { path: npmCli, tried: [npmCli] };
+    };
+    await npmCheck(execPath, findNpmCli, runProcess)('/work/tree');
+    assert.deepEqual(looked, [execPath]);
     assert.deepEqual(calls, [[execPath, [npmCli, 'run', 'check'], '/work/tree']]);
   });
 
   it('passes when npm exits 0, keeping its output', async () => {
     const { runProcess } = fakeProcess({ exitCode: 0, output: 'all green\n' });
-    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    const result = await npmCheck(execPath, found, runProcess)('/work/tree');
     assert.deepEqual(result, { ok: true, output: 'all green\n' });
   });
 
   it('fails when npm exits non-zero, keeping its output', async () => {
     const { runProcess } = fakeProcess({ exitCode: 1, output: 'not ok 1 - café\n' });
-    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    const result = await npmCheck(execPath, found, runProcess)('/work/tree');
     assert.deepEqual(result, { ok: false, output: 'not ok 1 - café\n' });
   });
 
   it('fails when npm could not start or was killed', async () => {
     const { runProcess } = fakeProcess({ exitCode: null, output: 'spawn ENOENT' });
-    const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+    const result = await npmCheck(execPath, found, runProcess)('/work/tree');
     assert.deepEqual(result, { ok: false, output: 'spawn ENOENT' });
   });
 
-  for (const [name, env] of [
-    ['missing', {}],
-    ['empty', { npm_execpath: '' }],
-  ] as const) {
-    it(`fails without starting a process when npm_execpath is ${name}`, async () => {
-      const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
-      const result = await npmCheck(env, execPath, runProcess)('/work/tree');
-      assert.equal(result.ok, false);
-      assert.match(result.output, /npm_execpath is not set/);
-      assert.deepEqual(calls, []);
-    });
-  }
+  // The gate never lets a command through because it could not find npm (#41).
+  it('fails without starting a process when npm CLI is not next to node, naming each path it tried', async () => {
+    const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
+    const tried = ['/opt/node/lib/node_modules/npm/bin/npm-cli.js', '/elsewhere/npm-cli.js'];
+    const result = await npmCheck(execPath, notFound(...tried), runProcess)('/work/tree');
+    assert.equal(result.ok, false);
+    assert.match(result.output, /npm's CLI was not found next to node/);
+    assert.ok(result.output.includes(execPath), result.output);
+    for (const path of tried) assert.ok(result.output.includes(path), result.output);
+    assert.deepEqual(calls, []);
+  });
 
   // Outside Windows the check leads a process group of its own, which a Ctrl+C on the push or
   // the end of the hook does not reach: the gate passes its stop on and sets a deadline (#12).
@@ -501,7 +512,7 @@ describe('npmCheck', () => {
       return { exitCode: 0, output: '' };
     };
     const stop = new AbortController();
-    await npmCheck({ npm_execpath: npmCli }, execPath, runProcess, stop.signal)('/work/tree');
+    await npmCheck(execPath, found, runProcess, stop.signal)('/work/tree');
     assert.equal(options.length, 1);
     assert.equal(options[0]?.signal, stop.signal);
     const timeoutMs = options[0]?.timeoutMs ?? 0;
@@ -515,7 +526,7 @@ describe('npmCheck', () => {
   ] as const) {
     it(`fails, saying why, when the check was killed (${killed})`, async () => {
       const { runProcess } = fakeProcess({ exitCode: null, output: '> npm test\n', killed });
-      const result = await npmCheck({ npm_execpath: npmCli }, execPath, runProcess)('/work/tree');
+      const result = await npmCheck(execPath, found, runProcess)('/work/tree');
       assert.equal(result.ok, false);
       assert.match(result.output, /^> npm test\n/);
       assert.match(result.output, reason);
@@ -540,17 +551,20 @@ const readJson = <T>(path: string): T =>
   (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {}) as T;
 
 describe('local gate wiring', () => {
-  it('package.json has a check script and the hook entry point', () => {
+  // The hook runs node on precheck.ts itself, without npm (#41), so no npm script is its entry.
+  it('package.json has a check script and no hook entry point', () => {
     const { scripts } = readJson<{ scripts?: Record<string, string> }>(join(root, 'package.json'));
     assert.equal(scripts?.check, 'node scripts/check.ts');
-    assert.equal(scripts?.['hook:gate'], 'node scripts/precheck.ts');
+    assert.equal(scripts?.['hook:gate'], undefined);
   });
 
   // No `if` filter: it only sees the start of a compound command, so `mkdir x && git push`
   // slipped through. precheck.ts decides for every call and exits early for most of them.
-  // The command is anchored to the project and fails closed: when npm or the hook:gate script
-  // cannot run, it explains why on stderr and exits 2, even on Claude Code versions without
-  // onFailure. The shell is pinned to bash so PowerShell never parses `||` or `{ …; }`.
+  // node runs precheck.ts directly, without npm (#41): npm cost about 0.4 s per call. The
+  // command is anchored to the project and fails closed: when node or precheck.ts cannot run, it
+  // explains why on stderr and exits 2, even on Claude Code versions without onFailure; precheck's
+  // own exit 2 passes through without that message. The shell is pinned to bash so PowerShell
+  // never parses `||` or `{ …; }`.
   for (const tool of ['Bash', 'PowerShell']) {
     it(`.claude/settings.json runs the gate before every ${tool} call`, () => {
       const settings = readJson<Settings>(join(root, '.claude', 'settings.json'));
@@ -564,7 +578,7 @@ describe('local gate wiring', () => {
             type: 'command',
             command:
               // biome-ignore lint/suspicious/noTemplateCurlyInString: a placeholder Claude Code expands
-              'npm run --silent --prefix "${CLAUDE_PROJECT_DIR}" hook:gate || { echo "Foedrum gate could not run (npm failed); command blocked. Run npm run check yourself to see why." >&2; exit 2; }',
+              'node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts" || { s=$?; [ "$s" = 2 ] || echo "Foedrum gate could not run (exit $s); command blocked." >&2; exit 2; }',
             shell: 'bash',
             onFailure: 'block',
             timeout: undefined,
