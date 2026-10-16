@@ -142,6 +142,13 @@ export interface ExecOptions {
    * many bytes; default DEFAULT_MAX_OUTPUT_BYTES.
    */
   maxOutputBytes?: number | undefined;
+  /**
+   * On Windows, starts the process inside a kill-on-close Job Object, so a kill also ends the
+   * processes whose parent has already exited (ADR 0039). Costs about half a second; a process
+   * that cannot be held in a job does not start. Ignored elsewhere, where the runner kills the
+   * process group.
+   */
+  jobObject?: boolean | undefined;
 }
 
 export interface ExecResult {
@@ -186,9 +193,11 @@ export interface Spawner {
   spawn: (
     file: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv },
+    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean },
   ) => ChildHandle;
   killTree: (pid: number) => void;
+  /** Whether `spawn` holds a process in a Job Object when asked to (the real one on Windows). */
+  jobObjects?: boolean;
   /**
    * The file a command name runs, or undefined when there is none. The runner spawns what this
    * returns; without it, the name as given.
@@ -312,7 +321,7 @@ export interface ProcessOutcome {
   killed?: Killed;
 }
 
-export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal' | 'maxOutputBytes'>;
+export type RunOptions = Pick<ExecOptions, 'timeoutMs' | 'signal' | 'maxOutputBytes' | 'jobObject'>;
 
 export type RunProcess = (
   file: string,

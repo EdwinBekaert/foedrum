@@ -466,6 +466,90 @@ describe('execProcessWith', () => {
     });
   });
 
+  describe('in a Job Object', () => {
+    // A spawner that holds processes in jobs, as the real one does on Windows (ADR 0039).
+    const jobSpawner = (child: FakeChild, jobObjects = true) => {
+      const asked: (boolean | undefined)[] = [];
+      const exec = execProcessWith({
+        spawn: (_file, _args, { jobObject }) => {
+          asked.push(jobObject);
+          return child;
+        },
+        killTree: () => {},
+        jobObjects,
+      });
+      return { asked, exec };
+    };
+    // What the helper writes when it could not start the program inside a job.
+    const refusal = 'foedrum job object: PowerShell runs in ConstrainedLanguage mode\r\n';
+
+    it('asks the spawner for a job only when the caller does', async () => {
+      const child = new FakeChild();
+      const { asked, exec } = jobSpawner(child);
+      const held = exec('claude', [], { cwd: '/work/tree', jobObject: true });
+      const plain = exec('git', [], { cwd: '/work/tree' });
+      child.close(0);
+      await Promise.all([held, plain]);
+      assert.deepEqual(asked, [true, false]);
+    });
+
+    // Fail closed: a program that cannot be held in a job must not run outside one.
+    it('answers without an exit code, with the reason, when the helper could not start it', async () => {
+      const child = new FakeChild();
+      const { exec } = jobSpawner(child);
+      const done = exec('C:\\tools\\claude.exe', ['-p'], { cwd: 'D:\\work', jobObject: true });
+      child.stdout.write(refusal);
+      await settle();
+      child.close(125);
+      const reason =
+        'C:\\tools\\claude.exe: cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode';
+      assert.deepEqual(await done, { exitCode: null, stdout: '', stderr: reason, output: reason });
+    });
+
+    // The program's own exit code 125 and output stay its own.
+    it('keeps the answer of a program that ran, whatever its exit code', async () => {
+      const child = new FakeChild();
+      const { exec } = jobSpawner(child);
+      const done = exec('C:\\tools\\tool.exe', [], { cwd: 'D:\\work', jobObject: true });
+      child.stdout.write('done\n');
+      await settle();
+      child.close(125);
+      assert.deepEqual(await done, {
+        exitCode: 125,
+        stdout: 'done\n',
+        stderr: '',
+        output: 'done\n',
+      });
+    });
+
+    it('keeps the answer when the program also wrote to stderr', async () => {
+      const child = new FakeChild();
+      const { exec } = jobSpawner(child);
+      const done = exec('C:\\tools\\tool.exe', [], { cwd: 'D:\\work', jobObject: true });
+      child.stdout.write(refusal);
+      child.stderr.write('mine\n');
+      await settle();
+      child.close(125);
+      assert.equal((await done).exitCode, 125);
+    });
+
+    // Elsewhere, and without the option, no helper runs, so nothing it could say is looked for.
+    it('reads nothing as the helper when no job was asked for or none is held', async () => {
+      for (const [jobObjects, jobObject] of [
+        [false, true],
+        [true, false],
+      ] as const) {
+        const child = new FakeChild();
+        const { exec } = jobSpawner(child, jobObjects);
+        const done = exec('/usr/bin/tool', [], { cwd: '/work', jobObject });
+        child.stdout.write(refusal);
+        await settle();
+        child.close(125);
+        assert.equal((await done).exitCode, 125);
+      }
+    });
+  });
+
   it('starts nothing when the signal has already aborted', async () => {
     const { spawned, exec } = fakeSpawner();
     const result = await exec('npm', ['test'], { cwd: '/work/tree', signal: AbortSignal.abort() });

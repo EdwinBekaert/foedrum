@@ -23,6 +23,11 @@ export interface DoctorFacts {
   node: string;
   /** Each tool, or `undefined` when it is not on PATH. */
   tools: Readonly<Record<ToolName, ToolRun | undefined>>;
+  /**
+   * On Windows, how a process held in a Job Object answered (ADR 0039): brewers run only in one.
+   * `undefined` elsewhere.
+   */
+  jobObject?: { exitCode: number | null; output: string } | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */

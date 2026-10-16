@@ -57,6 +57,7 @@ const fakeShell = (extra: Extra = { onPath: {}, answers: {} }) => {
     platform: 'linux',
     kernelRelease: '6.8.0-45-generic',
     node: '24.20.0',
+    execPath: '/usr/bin/node',
     cwd: '/work/brewery',
   };
   return { calls, shell };
@@ -111,6 +112,29 @@ describe('gatherDoctorFacts', () => {
       podman: undefined,
       docker: undefined,
     });
+  });
+
+  // Brewers run only in a Job Object on Windows (ADR 0039), so doctor tries one: node, doing
+  // nothing, held in a job by the runner.
+  it('on Windows, holds node in a Job Object and records how it answered', async () => {
+    const said =
+      'node.exe: cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode';
+    const refused: ExecResult = { exitCode: null, stdout: '', stderr: said, output: said };
+    const { calls, shell } = fakeShell({ onPath: {}, answers: { '/usr/bin/node': refused } });
+    const facts = await gatherDoctorFacts({ ...shell, platform: 'win32' });
+    const held = calls.filter(({ options }) => options.jobObject === true);
+    assert.deepEqual(
+      held.map(({ file, args, options }) => [file, args, options.cwd, options.timeoutMs]),
+      [['/usr/bin/node', ['-e', ''], '/work/brewery', 10_000]],
+    );
+    assert.deepEqual(facts.jobObject, { exitCode: null, output: said });
+  });
+
+  it('holds nothing in a Job Object elsewhere', async () => {
+    const { calls, shell } = fakeShell();
+    const facts = await gatherDoctorFacts(shell);
+    assert.equal(facts.jobObject, undefined);
+    assert.ok(calls.every(({ options }) => options.jobObject !== true));
   });
 
   // A runtime waiting for its daemon is the common case (#99: docker.exe on the Windows runner).

@@ -9,7 +9,16 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolveExecutable } from '../../src/platform/executables.ts';
-import { execProcess, isPidAlive, spawnProcess } from '../../src/platform/processes.ts';
+import { jobObjectCommand } from '../../src/platform/job-object.ts';
+import {
+  execProcess,
+  execProcessWith,
+  isPidAlive,
+  processSpawner,
+  type Spawner,
+  spawnCommand,
+  spawnProcess,
+} from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { windowsCommandLine } from '../../src/platform/shell.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -113,25 +122,19 @@ describe('execProcess with a real tree of processes', () => {
     await assertAllEnd([Number(result.stdout.split('\n')[0])]);
   });
 
-  // #92: on Windows the runner answers as soon as its child exits, and taskkill /T would find the
-  // tree only through a parent that is still alive, so the grandchild keeps running. The case
-  // fails there until the runner holds its children in a Job Object (kill-on-close), so it is
-  // skipped there: a todo would still run, and leave a grandchild running for 30 s next to the
-  // other integration tests on every Windows run (#109). CI still lists it as skipped. Elsewhere
+  // #92: on Windows taskkill /T finds the tree only through a parent that is still alive, so a
+  // grandchild whose parent has exited would keep running. The runner holds the tree in a
+  // kill-on-close Job Object instead (ADR 0039), which ends it when the parent exits. Elsewhere
   // the grandchild holds the output open and the deadline kills its process group. The levels
   // left over end by themselves after 30 s, so the test waits for them and never kills a pid
   // itself: the exited parent's may be reused.
-  it('leaves no process of the tree running when the parent exits before its grandchild', {
-    skip:
-      process.platform === 'win32'
-        ? 'taskkill /T misses the children of an exited parent; needs a Job Object (#92)'
-        : false,
-  }, async () => {
+  it('leaves no process of the tree running when the parent exits before its grandchild', async () => {
     // Run outside dir.path: on Windows a surviving orphan's working directory could not be
     // removed after the test.
     const cwd = import.meta.dirname;
     const done = spawnProcess(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
       timeoutMs: 6000,
+      jobObject: true,
     });
     await waitFor('the grandchild to start and its parent to exit', () => {
       const [parent, grandchild] = pidsIn(pidFile);
@@ -149,6 +152,108 @@ describe('execProcess with a real tree of processes', () => {
     assert.equal(result.exitCode, null);
     assert.equal(result.killed, undefined);
     assert.match(result.output, /ENOENT/);
+  });
+});
+
+// The Job Object helper (ADR 0039) with real processes: Windows PowerShell holds the program in
+// a kill-on-close job, which the kernel closes when the helper ends.
+describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, () => {
+  let dir: TempDir;
+  let pidFile: string;
+  beforeEach(() => {
+    dir = makeTempDir('job-object');
+    pidFile = join(dir.path, 'pids');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  it('answers with the exit code and output, every argument intact, in the working directory', async () => {
+    const script =
+      'process.stdout.write(JSON.stringify([process.argv.slice(1), process.cwd()]));' +
+      " process.stderr.write('err'); process.exit(7)";
+    const args = ['a b', 'c"d', '', 'trailing\\', 'José'];
+    const result = await execProcess(process.execPath, ['-e', script, ...args], {
+      cwd: dir.path,
+      jobObject: true,
+    });
+    assert.deepEqual(
+      { exitCode: result.exitCode, stdout: JSON.parse(result.stdout), stderr: result.stderr },
+      { exitCode: 7, stdout: [args, dir.path], stderr: 'err' },
+    );
+  });
+
+  it('passes on an exit code above 2^31, as Windows reports a crash', async () => {
+    const result = await execProcess(process.execPath, ['-e', 'process.exit(3221225786)'], {
+      cwd: dir.path,
+      jobObject: true,
+    });
+    assert.equal(result.exitCode, 3221225786);
+  });
+
+  it('starts a .cmd file through cmd.exe with every argument intact', async () => {
+    const printArgs = join(import.meta.dirname, '..', 'fixtures', 'processes', 'print-args.cmd');
+    const args = ['--version', 'C:\\Program Files (x86)\\nodejs', ''];
+    const result = await execProcess(printArgs, args, { cwd: dir.path, jobObject: true });
+    assert.equal(result.exitCode, 0, result.output);
+    assert.deepEqual(JSON.parse(result.stdout), args);
+  });
+
+  // The job, not taskkill: a kill of the helper alone, with no tree walk, must end every level.
+  // The levels are detached, so no node holds the next in a job of its own, as cmd.exe does not;
+  // the levels left over end by themselves after 30 s.
+  it('ends the whole tree when only the helper is killed', async () => {
+    const exec = execProcessWith({ ...processSpawner, killTree: (pid) => process.kill(pid) });
+    const stop = new AbortController();
+    const done = exec(process.execPath, [tree, pidFile, '2', 'orphan'], {
+      cwd: dir.path,
+      signal: stop.signal,
+      jobObject: true,
+    });
+    await waitFor('three levels to start', () => pidsIn(pidFile).length === 3);
+    stop.abort();
+    assert.equal((await done).killed, 'stopped');
+    await assertAllEnd(pidsIn(pidFile));
+  });
+
+  // Fail closed: nothing runs outside a job when the helper cannot make one.
+  it('starts nothing, and says why, when the program cannot start', async () => {
+    const result = await execProcess(process.execPath, ['-e', ''], {
+      cwd: join(dir.path, 'no-such-folder'),
+      jobObject: true,
+    });
+    assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /node\.exe: cannot run in a Job Object: /);
+  });
+
+  // Where a policy keeps PowerShell in Constrained Language Mode, no job can be made. The mode is
+  // switched on at the start of the helper's own script, as such a policy would have it.
+  it('starts nothing, and says why, in Constrained Language Mode', async () => {
+    const constrained: Spawner = {
+      ...processSpawner,
+      spawn: (file, args, { cwd, env }) => {
+        const helper = jobObjectCommand(spawnCommand(file, args, 'win32', env), cwd);
+        const script = Buffer.from(helper.args.at(-1) ?? '', 'base64').toString('utf16le');
+        const locked = `$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n${script}`;
+        return spawn(
+          helper.file,
+          [...helper.args.slice(0, -1), Buffer.from(locked, 'utf16le').toString('base64')],
+          {
+            cwd: helper.cwd,
+            env: helper.env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+          },
+        );
+      },
+    };
+    const result = await execProcessWith(constrained)(process.execPath, ['-e', ''], {
+      cwd: dir.path,
+      jobObject: true,
+    });
+    assert.equal(result.exitCode, null);
+    assert.match(
+      result.stderr,
+      /cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode/,
+    );
   });
 });
 

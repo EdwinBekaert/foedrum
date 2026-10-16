@@ -31,6 +31,8 @@ export interface DoctorShell {
   platform: NodeJS.Platform;
   kernelRelease: string;
   node: string;
+  /** `process.execPath`: the program doctor holds in a Job Object to see that it can. */
+  execPath: string;
   cwd: string;
 }
 
