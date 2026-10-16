@@ -78,7 +78,8 @@ const mostDoublingMs = 15 * minuteMs;
 /** The longest pause of all, whatever a header says: GitHub's primary limit resets every hour. */
 const mostPauseMs = 60 * minuteMs;
 
-// A header that holds a whole number, such as a reset in epoch seconds; undefined for anything else.
+// A header that holds a whole number, such as a reset in epoch seconds; undefined for anything
+// else.
 const wholeNumber = (text: string | null): number | undefined =>
   text !== null && /^\d+$/.test(text.trim()) ? Number(text.trim()) : undefined;
 

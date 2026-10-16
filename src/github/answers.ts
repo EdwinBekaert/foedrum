@@ -28,7 +28,9 @@ export const labelNames = (labels: z.infer<typeof GitHubIssue>['labels']): strin
 export const assigneeLogins = (assignees: z.infer<typeof GitHubIssue>['assignees']): string[] =>
   (assignees ?? []).map(({ login }) => login);
 
-/** The error for an answer `what` did not expect: its status, and GitHub's message when it has one. */
+/**
+ * The error for an answer `what` did not expect: its status, and GitHub's message when it has one.
+ */
 export const refused = (status: number, body: unknown, what: string): Error => {
   const parsed = GitHubError.safeParse(body);
   const said = parsed.success ? `: ${parsed.data.message}` : '';
