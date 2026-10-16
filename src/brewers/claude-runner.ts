@@ -18,9 +18,14 @@ import {
   DEFAULT_MAX_OUTPUT_BYTES,
   type StreamProcess,
   type StreamResult,
+  streamProcess,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
-import { type AttemptPermissions, attemptSettings } from './attempt-settings.ts';
+import {
+  type AttemptPermissions,
+  attemptSettings,
+  writeAttemptSettings,
+} from './attempt-settings.ts';
 import { type ClaudeCall, claudeArgs } from './claude-command.ts';
 import { readClaudeStream, type StreamFacts, type StreamReader } from './claude-stream.ts';
 import type { BrewerPrompt } from './prompt.ts';
@@ -237,7 +242,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
 
 /** The runner with the real process runner, files and clock. */
 export function claudeBrewerRunner(
-  _options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
 ): BrewerRunner {
-  throw new Error('not implemented');
+  return claudeBrewerRunnerWith({
+    ...options,
+    stream: streamProcess,
+    files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
+    now: () => new Date(),
+  });
 }
