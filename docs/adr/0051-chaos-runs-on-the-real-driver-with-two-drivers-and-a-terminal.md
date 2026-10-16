@@ -1,4 +1,4 @@
-# 0048. Chaos runs on the real driver, with two drivers and a terminal on one store
+# 0051. Chaos runs on the real driver, with two drivers and a terminal on one store
 
 Date: 2026-10-16 · Status: Accepted · Amends [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (how the harness kills and restarts, and what it checks) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (which attempt leases the heartbeat renews)
 
