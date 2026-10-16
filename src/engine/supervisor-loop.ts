@@ -50,6 +50,11 @@ export interface SupervisorOptions {
   /** How long flushes may fail before the supervisor reports it; default 10 minutes. */
   flushDeadlineMs?: number;
   report?: (notice: Notice) => void;
+  /**
+   * Whether the supervisor acts on a batch now: a driver's own batches and the free ones, never one
+   * another driver holds (ADR 0019). Default every batch.
+   */
+  acts?: (batchId: string) => boolean;
 }
 
 export interface TickReport {

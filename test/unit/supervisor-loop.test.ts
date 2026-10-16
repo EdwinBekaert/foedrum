@@ -308,6 +308,29 @@ describe('createSupervisor', () => {
       );
     });
 
+    it('acts only on the batches it is told to, and releases only their expired leases', async () => {
+      append(...brewing('b1', 30), ...brewing('b2', 30), ...brewing('b3', 120));
+      const lost = (batchId: string) => ({
+        attemptKey: attemptKey.encode(plan(batchId)),
+        owner: 'session-7',
+        expiresAt: at(5),
+      });
+      store.withTransaction((tx) => {
+        tx.putLease(lost('b3'));
+      });
+      now = at(45);
+      const engine = supervisor({ acts: (batchId) => batchId === 'b1' });
+      assert.equal((await engine.tick()).appended, 1);
+      assert.deepStrictEqual(
+        ['b1', 'b2', 'b3'].map((batchId) => batchOf(store, batchId).lane.kind),
+        ['stuck', 'brewing', 'brewing'],
+      );
+      assert.deepStrictEqual(
+        store.expiredLeases(now).map((lease) => lease.attemptKey),
+        [lost('b3').attemptKey],
+      );
+    });
+
     it('keeps deciding the other commands when one throws, and still flushes', async () => {
       append(...brewing('b1', 60), ...brewing('b2', 60));
       // An invalid date from the runner makes decide throw for b1's stall.
