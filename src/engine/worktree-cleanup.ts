@@ -32,6 +32,12 @@ export const endedBatches = (events: readonly Event[]): string[] => [
   ),
 ];
 
+/** Whether the batch has ended: on tap or cancelled. */
+export const batchIsOver = (state: State, batchId: string): boolean => {
+  const lane = state.batches.get(batchId)?.lane.kind;
+  return lane === 'on_tap' || lane === 'cancelled';
+};
+
 export const createWorktreeCleanup = (options: WorktreeCleanupOptions): WorktreeCleanup => {
   const { worktrees, state, leases } = options;
   // One repository after another, each with the claims of now. A repository whose facts cannot
@@ -52,11 +58,7 @@ export const createWorktreeCleanup = (options: WorktreeCleanupOptions): Worktree
   };
   return {
     repair: () => clean({}),
-    batchEnded: async (batchId) => {
-      const lane = state().batches.get(batchId)?.lane.kind;
-      return lane === 'on_tap' || lane === 'cancelled'
-        ? clean({ batchId })
-        : { done: [], kept: [], failed: [] };
-    },
+    batchEnded: async (batchId) =>
+      batchIsOver(state(), batchId) ? clean({ batchId }) : { done: [], kept: [], failed: [] },
   };
 };

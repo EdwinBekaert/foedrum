@@ -18,7 +18,11 @@ import type { EventStore, EventStoreTransaction } from '../../src/engine/event-s
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
-import { createWorktreeCleanup, endedBatches } from '../../src/engine/worktree-cleanup.ts';
+import {
+  batchIsOver,
+  createWorktreeCleanup,
+  endedBatches,
+} from '../../src/engine/worktree-cleanup.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import type {
@@ -111,10 +115,7 @@ export const createBrewing = (options: BrewingOptions) => {
   // Ended batches whose worktrees drive() cleans next, and what each cleanup did.
   const toClean = new Set<string>();
   const cleanups: CleanReport[] = [];
-  const isOver = (batchId: string): boolean => {
-    const lane = state().batches.get(batchId)?.lane.kind;
-    return lane === 'on_tap' || lane === 'cancelled';
-  };
+  const isOver = (batchId: string): boolean => batchIsOver(state(), batchId);
 
   /** Decides `command` and appends its events with `also`'s writes; false when it is refused. */
   const command = (cmd: Command, also: (tx: EventStoreTransaction) => void = () => {}) => {
