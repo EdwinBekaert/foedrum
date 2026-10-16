@@ -66,6 +66,8 @@ export const isCandidate = (issue: TargetIssue, options: CandidateOptions): bool
     (filter.milestone === undefined || issue.milestone === filter.milestone) &&
     // An issue assigned to a person is that person's; this Brewery's own user is its person.
     issue.assignees.every((assignee) => same(assignee, claimant.login)) &&
+    // A target repository may be open to anyone; only allow-listed users order work.
+    options.authors.some((author) => same(author, issue.author)) &&
     !brewed.has(issue.number)
   );
 };
@@ -110,12 +112,12 @@ const claimedBy = async (
   host: ClaimHost,
   repo: string,
   issue: number,
-): Promise<{ found: false } | { found: true; brewery: string | undefined }> => {
+): Promise<{ found: false } | { found: true; sha: string; brewery: string | undefined }> => {
   const ref = await host.read(repo, issue);
   if (ref === undefined) return { found: false };
   const record = ClaimRecord.safeParse(parseJson(ref.message));
   const brewery = record.success && record.data.issue === issue ? record.data.brewery : undefined;
-  return { found: true, brewery };
+  return { found: true, sha: ref.sha, brewery };
 };
 
 /** Claims `issue` in `repo` for the claimant's Brewery. */
@@ -162,10 +164,15 @@ export const claimCandidates = async (
 
 /** Releases the claim when its record still names `brewery`; `gone` or `not_ours` otherwise. */
 export const releaseClaim = async (
-  _host: ClaimHost,
-  _claim: { repo: string; issue: number; brewery: string },
+  host: ClaimHost,
+  claim: { repo: string; issue: number; brewery: string },
 ): Promise<'released' | 'gone' | 'not_ours'> => {
-  throw new Error('not implemented');
+  const { repo, issue, brewery } = claim;
+  const holder = await claimedBy(host, repo, issue);
+  if (!holder.found) return 'gone';
+  if (holder.brewery === undefined || !same(holder.brewery, brewery)) return 'not_ours';
+  // Only the commit that was read: a claim made since then is someone else's.
+  return (await host.delete(repo, issue, holder.sha)) ? 'released' : 'not_ours';
 };
 
 /** How a pull request of a batch stands. */
