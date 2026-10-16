@@ -28,7 +28,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | Field | Purpose |
 |---|---|
 | `inputs[]` | Named documents (`name` is the `{variable}` in the body): `"from": "order"`, an earlier step's out doc (`"step:<id>"`) or a repository file (`"file:<relative path>"`) |
-| `inputs[].trusted` | Untrusted input is wrapped in delimiters and marked as data, never instructions. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
+| `inputs[].trusted` | Untrusted input goes between `untrusted-input-<nonce>` tags with a new random nonce per prompt and its source, below the rule that it is data, never instructions; input containing the nonce is refused as a likely injection ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)). The tags are a mitigation, not the security boundary. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
 | `houseYeast` | Receive learned rules from all three layers (defaults, Brewery, repository), selected by scope within a token budget (architecture §12b) |
 | `toolbox` | A short brief of extra command-line tools this brewer may use |
 
@@ -134,7 +134,7 @@ and everything is committed.
 
 ## 2. The out doc contract
 
-The only text Foedrum adds to every brewer prompt:
+The only text Foedrum adds to every brewer prompt, besides the rule about tagged input when the brewer has inputs ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)):
 
 ```markdown
 When you finish, write {outDoc}. It must start with JSON frontmatter:
