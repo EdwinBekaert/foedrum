@@ -101,6 +101,57 @@ describe('settleAttempt', () => {
     });
   });
 
+  // ADR 0042: is_error decides, not the subtype or the exit code; an API error ends as success.
+  it('fails, retryably, when claude reported an error, even after a clean exit and a valid out doc', () => {
+    for (const exit of [
+      { kind: 'exited', code: 0 },
+      { kind: 'exited', code: 1 },
+    ] as const) {
+      assert.deepStrictEqual(
+        settleAttempt(facts({ exit, streamError: 'api_error: Overloaded' }), limits),
+        {
+          kind: 'failed',
+          retryable: true,
+          reason: 'claude reported an error: api_error: Overloaded',
+        },
+      );
+    }
+  });
+
+  it('puts a crash before an error claude reported, and the error before garbage', () => {
+    const killed = { kind: 'killed', signal: 'SIGSEGV' } as const;
+    const crashed = settleAttempt(facts({ exit: killed, streamError: 'api_error' }), limits);
+    assert.equal(
+      crashed.kind === 'failed' && crashed.reason,
+      'the brewer process was killed by SIGSEGV',
+    );
+    const both = settleAttempt(facts({ streamError: 'api_error', garbage: 'x' }), limits);
+    assert.equal(both.kind === 'failed' && both.reason, 'claude reported an error: api_error');
+  });
+
+  // ADR 0028: the runner caps the out doc it reads, so an oversized one never reaches the log.
+  it('fails, retryably, with the reason when the runner did not read the out doc', () => {
+    const ending = settleAttempt(
+      facts({ outDoc: undefined, outDocUnread: 'it is larger than 1 MiB' }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the out doc plan.md was not read: it is larger than 1 MiB',
+    });
+  });
+
+  // A line or stderr past the runner's limit (ADR 0046): another attempt may read less.
+  it('fails, retryably, when the output passed a limit of the runner', () => {
+    const exit = { kind: 'overflowed', what: 'a stream line passed 8 MiB' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ exit }), limits), {
+      kind: 'failed',
+      retryable: true,
+      reason: "the brewer's output passed a limit: a stream line passed 8 MiB",
+    });
+  });
+
   it('cancels an attempt the engine stopped within its limits', () => {
     assert.deepStrictEqual(settleAttempt(facts({ exit: { kind: 'stopped' } }), limits), {
       kind: 'cancelled',

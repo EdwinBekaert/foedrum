@@ -53,7 +53,9 @@ export type ProcessExit =
   /** The runner stopped it: a limit was reached, or the engine stopped the attempt. */
   | { kind: 'stopped' }
   /** The process could not be started at all (the CLI is missing, an argument was refused). */
-  | { kind: 'unstartable'; reason: string };
+  | { kind: 'unstartable'; reason: string }
+  /** The runner stopped it because its output passed a limit: a stream line, or stderr. */
+  | { kind: 'overflowed'; what: string };
 
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
@@ -65,6 +67,10 @@ export interface AttemptFacts {
   exit: ProcessExit;
   /** The out doc's text, or `undefined` when the brewer did not write it. */
   outDoc: string | undefined;
+  /** Why the result event reported an error (`is_error`, ADR 0042), when it did. */
+  streamError?: string | undefined;
+  /** Why the runner did not read the out doc it found (larger than its limit, not a file). */
+  outDocUnread?: string | undefined;
   /** The first line of the event stream that was not a stream-json event. */
   garbage?: string;
   /** Permission denials in the event stream, every one counted. */
@@ -131,6 +137,8 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
     case 'exited':
       if (exit.code !== 0) return failed(true, `the brewer process exited with code ${exit.code}`);
       break;
+    case 'overflowed':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = exit;
       throw new Error(`Unhandled exit ${JSON.stringify(unhandled)}`);
