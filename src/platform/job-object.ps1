@@ -91,18 +91,12 @@ try {
   if (-not $ok) { Fail (Why 'CreateProcess' $e) }
   $process = & $read $started 0
   $thread = & $read $started $size
+  # The program exists but never ran: end it before saying so.
+  function Abandon($why) { [void]$k::TerminateProcess($process, 1); Fail $why }
   $ok = $k::AssignProcessToJobObject($job, $process); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-  if (-not $ok) {
-    $why = Why 'AssignProcessToJobObject' $e
-    [void]$k::TerminateProcess($process, 1)
-    Fail $why
-  }
+  if (-not $ok) { Abandon (Why 'AssignProcessToJobObject' $e) }
   $suspended = $k::ResumeThread($thread); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-  if ($suspended -eq -1) {
-    $why = Why 'ResumeThread' $e
-    [void]$k::TerminateProcess($process, 1)
-    Fail $why
-  }
+  if ($suspended -eq -1) { Abandon (Why 'ResumeThread' $e) }
 } catch {
   Fail $_.Exception.Message
 }

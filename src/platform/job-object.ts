@@ -8,7 +8,7 @@ import { environmentVariable } from './executables.ts';
 import type { SpawnCommand } from './processes.ts';
 
 /** The exit code of the helper when it could not start the program inside a job. */
-export const JOB_OBJECT_FAILED = 125;
+const JOB_OBJECT_FAILED = 125;
 
 // The line the helper writes, alone on stdout, when it could not start the program in a job.
 const REFUSAL = 'foedrum job object: ';

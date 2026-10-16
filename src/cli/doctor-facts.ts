@@ -57,14 +57,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
       jobObject: true,
     });
     const why = whyKilled(killed, timeoutMs);
-    return {
-      exitCode,
-      output:
-        why === undefined
-          ? output
-          : `${why}
-${output}`,
-    };
+    return { exitCode, output: why === undefined ? output : `${why}\n${output}` };
   };
   const [jobObject, npm, git, claude, bwrap, socat, podman, docker] = await Promise.all([
     shell.platform === 'win32' ? holdInJob() : undefined,
