@@ -1,6 +1,6 @@
 // The marks of a claimed issue on GitHub (ADR 0043, ADR 0050): assignee, label and the Brewery's
-// own comments, from recorded GitHub answers (test/fixtures/github/) through a fake `fetch`; no
-// network (ADR 0021).
+// own comments, from synthetic answers in the shape GitHub's REST API gives
+// (test/fixtures/github/), through a fake `fetch`; no network (ADR 0021).
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { githubIssueMarks } from '../../src/github/marks.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 
-const recorded = (name: string): unknown =>
+const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`../fixtures/github/${name}.json`, import.meta.url), 'utf8'));
 
 const api = 'https://api.github.com';
@@ -31,8 +31,8 @@ const asked = (requests: { method: string; url: string; body: unknown }[]) =>
 describe('githubIssueMarks', () => {
   it('reads the assignees and the labels of the issue', async () => {
     const { marks, requests } = marksWith([
-      { status: 200, body: recorded('issue') },
-      { status: 200, body: recorded('issue') },
+      { status: 200, body: fixture('issue') },
+      { status: 200, body: fixture('issue') },
     ]);
     assert.deepStrictEqual(await marks.assignees(repo, 7), ['Alice', 'carol']);
     assert.deepStrictEqual(await marks.labels(repo, 7), ['foedrum', 'foedrum:claimed']);
@@ -41,7 +41,7 @@ describe('githubIssueMarks', () => {
 
   it('reads the issue again with its ETag', async () => {
     const { marks, requests } = marksWith([
-      { status: 200, body: recorded('issue'), headers: { etag: '"seven"' } },
+      { status: 200, body: fixture('issue'), headers: { etag: '"seven"' } },
       { status: 304 },
     ]);
     await marks.assignees(repo, 7);
@@ -50,7 +50,7 @@ describe('githubIssueMarks', () => {
   });
 
   it('assigns the issue, and fails when GitHub left the assignee out', async () => {
-    const { marks, requests } = marksWith([{ status: 201, body: recorded('issue') }], 'Alice');
+    const { marks, requests } = marksWith([{ status: 201, body: fixture('issue') }], 'Alice');
     await marks.assign(repo, 7, 'alice');
     assert.deepStrictEqual(asked(requests), [
       {
@@ -60,7 +60,7 @@ describe('githubIssueMarks', () => {
       },
     ]);
     // GitHub drops an assignee without access to the repository, and answers 201 all the same.
-    const dropped = marksWith([{ status: 201, body: recorded('issue') }]);
+    const dropped = marksWith([{ status: 201, body: fixture('issue') }]);
     await assert.rejects(dropped.marks.assign(repo, 7, 'dave'), /did not assign dave/);
   });
 
@@ -98,16 +98,16 @@ describe('githubIssueMarks', () => {
   });
 
   it('finds only a comment of its own login that carries the marker', async () => {
-    const { marks, requests } = marksWith([{ status: 200, body: recorded('comments') }]);
+    const { marks, requests } = marksWith([{ status: 200, body: fixture('comments') }]);
     // mallory's comment 501 carries the marker too, and comes first.
     assert.equal(await marks.findComment(repo, 7, marker), 502);
     assert.equal(requests[0]?.url, `${api}/repos/acme/web/issues/7/comments?per_page=100`);
-    const other = marksWith([{ status: 200, body: recorded('comments') }], 'bob');
+    const other = marksWith([{ status: 200, body: fixture('comments') }], 'bob');
     assert.equal(await other.marks.findComment(repo, 7, marker), undefined);
   });
 
   it('finds the comment on a later page', async () => {
-    const comments = recorded('comments') as unknown[];
+    const comments = fixture('comments') as unknown[];
     const { marks } = marksWith([
       {
         status: 200,

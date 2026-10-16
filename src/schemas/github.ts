@@ -13,6 +13,9 @@ export const GitRef = z.object({
   object: z.object({ type: z.string(), sha: CommitSha }),
 });
 
+/** One page of a REST list: its items are checked by whoever reads them. */
+export const GitHubPage = z.array(z.unknown());
+
 /** A REST error's body. */
 export const GitHubError = z.object({ message: z.string() });
 

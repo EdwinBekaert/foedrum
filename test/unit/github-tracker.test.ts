@@ -1,6 +1,6 @@
 // The intake's reads of GitHub (ADR 0050, ADR 0052): the open issues of a target repository and
-// how a pull request stands, from recorded GitHub answers (test/fixtures/github/) through a fake
-// `fetch`; no network (ADR 0021).
+// how a pull request stands, from synthetic answers in the shape GitHub's REST API gives
+// (test/fixtures/github/), through a fake `fetch`; no network (ADR 0021).
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { createGitHubReads } from '../../src/github/reads.ts';
 import { githubTargetTracker } from '../../src/github/tracker.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 
-const recorded = (name: string): unknown =>
+const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`../fixtures/github/${name}.json`, import.meta.url), 'utf8'));
 
 const api = 'https://api.github.com';
@@ -25,13 +25,13 @@ const trackerWith = (answers: Answer[]) => {
 
 const pull = (fields: Record<string, unknown>): Answer => ({
   status: 200,
-  body: { ...(recorded('pull-merged') as object), ...fields },
+  body: { ...(fixture('pull-merged') as object), ...fields },
 });
 
 describe('githubTargetTracker', () => {
   describe('issues', () => {
     it('lists the open issues oldest first, as the intake reads them', async () => {
-      const { tracker, requests } = trackerWith([{ status: 200, body: recorded('issues') }]);
+      const { tracker, requests } = trackerWith([{ status: 200, body: fixture('issues') }]);
       assert.deepStrictEqual(await tracker.issues('acme/web'), [
         {
           number: 7,
@@ -70,7 +70,7 @@ describe('githubTargetTracker', () => {
 
     it('asks again with the ETag, and an unchanged listing answers the same issues', async () => {
       const { tracker, requests } = trackerWith([
-        { status: 200, body: recorded('issues'), headers: { etag: 'W/"issues"' } },
+        { status: 200, body: fixture('issues'), headers: { etag: 'W/"issues"' } },
         { status: 304 },
       ]);
       const first = await tracker.issues('acme/web');
@@ -79,7 +79,7 @@ describe('githubTargetTracker', () => {
     });
 
     it('reads every page of the listing', async () => {
-      const [first, ...rest] = recorded('issues') as unknown[];
+      const [first, ...rest] = fixture('issues') as unknown[];
       const { tracker } = trackerWith([
         {
           status: 200,
@@ -120,7 +120,7 @@ describe('githubTargetTracker', () => {
 
   describe('pullRequest', () => {
     it('reads a merged pull request as merged', async () => {
-      const { tracker, requests } = trackerWith([{ status: 200, body: recorded('pull-merged') }]);
+      const { tracker, requests } = trackerWith([{ status: 200, body: fixture('pull-merged') }]);
       assert.equal(await tracker.pullRequest(pullRequest), 'merged');
       assert.equal(requests[0]?.url, `${api}/repos/acme/web/pulls/12`);
     });
@@ -136,7 +136,7 @@ describe('githubTargetTracker', () => {
 
     it('asks again with the ETag', async () => {
       const { tracker, requests } = trackerWith([
-        { status: 200, body: recorded('pull-merged'), headers: { etag: '"pr"' } },
+        { status: 200, body: fixture('pull-merged'), headers: { etag: '"pr"' } },
         { status: 304 },
       ]);
       await tracker.pullRequest(pullRequest);

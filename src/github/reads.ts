@@ -2,7 +2,7 @@
 // before, and a 304 answers that same body again without counting against the rate limit. A list
 // is read page by page along GitHub's `Link` header, each page conditional on its own.
 
-import { z } from '../schemas/zod.ts';
+import { GitHubPage } from '../schemas/github.ts';
 import { checked, refused } from './answers.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 
@@ -19,8 +19,6 @@ export interface GitHubReads {
   /** Every item of the list at `path`, page after page; `what` names it in an error. */
   pages(path: string, what: string, signal?: AbortSignal): Promise<unknown[]>;
 }
-
-const Page = z.array(z.unknown());
 
 /** The URL of the `next` relation in a `Link` header, or undefined when there is none. */
 const nextPage = (link: string | null): string | undefined => {
@@ -76,7 +74,7 @@ export const createGitHubReads = (
         if (page > maxPages) throw new Error(`${what} has more than ${maxPages} pages`);
         const answer = await get(next, signal);
         if (answer.status !== 200) throw refused(answer.status, answer.body, what);
-        items.push(...checked(Page, answer.body, what));
+        items.push(...checked(GitHubPage, answer.body, what));
         const url = nextPage(answer.headers.get('link'));
         // The token goes with every request: never to a page off the API.
         if (url !== undefined && !url.startsWith(`${client.baseUrl}/`)) {
