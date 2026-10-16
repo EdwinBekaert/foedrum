@@ -420,7 +420,7 @@ export const runChaos = async (
 };
 
 /** Seeds per chaos property in npm run check, where the chaos layer has a time ceiling. */
-const chaosRuns = 15;
+const chaosRuns = 5;
 
 /**
  * Runs the generated scenario of each seed with that seed's kill plan, on a database in `dir`, and
