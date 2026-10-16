@@ -809,6 +809,98 @@ describe('streamProcessWith', () => {
     assert.deepEqual(killed, [85]);
   });
 
+  // The brewer runner relies on the job (ADR 0039): a stream must reach spawn as it was asked.
+  it('starts the program with its arguments, directory, environment and Job Object', async () => {
+    const child = new FakeChild();
+    const asked: unknown[] = [];
+    const stream = streamProcessWith({
+      spawn: (file, args, options) => {
+        asked.push({ file, args, ...options });
+        return child;
+      },
+      killTree: () => {},
+    });
+    const done = stream('claude', ['-p'], {
+      cwd: '/work/tree',
+      env: { PATH: '/bin' },
+      jobObject: true,
+      maxLineBytes: 100,
+      onLine: () => {},
+    });
+    child.close(0);
+    await done;
+    assert.deepEqual(asked, [
+      {
+        file: 'claude',
+        args: ['-p'],
+        cwd: '/work/tree',
+        env: { PATH: '/bin' },
+        jobObject: true,
+        stdin: false,
+      },
+    ]);
+  });
+
+  it('sets the deadline on the given clock, kills only at it, and clears it once the process ended', async () => {
+    const pending = new Map<number, () => void>();
+    let next = 0;
+    const timers: Timers = {
+      set: (callback, ms) => {
+        next += 1;
+        pending.set(next, callback);
+        assert.equal(ms, 60_000);
+        return next;
+      },
+      clear: (timer) => {
+        pending.delete(timer as number);
+      },
+    };
+    const killed: number[] = [];
+    const spawnerOf = (child: FakeChild): Spawner => ({
+      spawn: () => child,
+      killTree: (pid) => {
+        killed.push(pid);
+      },
+    });
+    const options = { cwd: '/work/tree', maxLineBytes: 100, timeoutMs: 60_000, onLine: () => {} };
+    const ending = new FakeChild(86);
+    const ended = streamProcessWith(spawnerOf(ending), timers)('claude', [], options);
+    ending.close(0);
+    await ended;
+    assert.equal(pending.size, 0);
+    const hanging = new FakeChild(87);
+    const hung = streamProcessWith(spawnerOf(hanging), timers)('claude', [], options);
+    assert.deepEqual(killed, []);
+    for (const fire of pending.values()) fire();
+    assert.deepEqual(await hung, { exitCode: null, stderr: '', killed: 'timed-out' });
+    assert.deepEqual(killed, [87]);
+  });
+
+  it('kills a line without end while it is still being written, not only when the process closes', async () => {
+    const child = new FakeChild(88);
+    const { killed, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 4 });
+    child.stdout.write('123456');
+    await settle();
+    assert.deepEqual(killed, [88]);
+    assert.equal((await done).killed, 'line-too-long');
+  });
+
+  // The CR of a CRLF may arrive in one chunk and its LF in the next.
+  it('lets a line of exactly the limit through when its CR and LF arrive apart', async () => {
+    const child = new FakeChild();
+    const { killed, lines, stream, options } = streamer(child);
+    const done = stream('claude', [], { ...options, maxLineBytes: 4 });
+    child.stdout.write('abcd\r');
+    await settle();
+    child.stdout.write('\n');
+    await settle();
+    child.close(0);
+    assert.deepEqual(await done, { exitCode: 0, stderr: '' });
+    assert.deepEqual(lines, ['abcd']);
+    assert.deepEqual(killed, []);
+  });
+
   it('starts nothing when the signal has already aborted', async () => {
     const { spawned, stream, options } = streamer();
     const result = await stream('claude', [], {
@@ -891,6 +983,18 @@ describe('streamProcessWith', () => {
       child.close(0);
       assert.deepEqual(await done, { exitCode: 0, stderr: '' });
       assert.deepEqual(lines, [refusal.trimEnd(), 'next']);
+    });
+
+    it("hands over a program's only line that looks like the refusal when it ends otherwise", async () => {
+      const child = new FakeChild();
+      const { lines, stream, options } = streamer(child, true);
+      const done = stream('claude', [], { ...options, maxLineBytes: 1000, jobObject: true });
+      child.stdout.write(refusal);
+      await settle();
+      assert.deepEqual(lines, []);
+      child.close(0);
+      assert.deepEqual(await done, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lines, [refusal.trimEnd()]);
     });
 
     it('hands over the first line at once when no job was asked for', async () => {
