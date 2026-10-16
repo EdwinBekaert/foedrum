@@ -330,7 +330,7 @@ Orchestration should cost (almost) nothing:
 - Brewers run with a **lean context** by default (no project instructions, hooks, plugins or MCP unless the brewer declares them).
 - Brewers receive the previous step's out doc, never full histories or transcripts.
 - Prompts are ordered static-first for prompt-cache reuse (instructions and contract, then the rule with its per-prompt nonce, then the inputs); effort stays constant per brewer.
-- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract tokens ÷ total). Target: below 5 %.
+- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract + input-rule tokens ÷ total). Target: below 5 %.
 
 ## 8. Humans in the loop
 
