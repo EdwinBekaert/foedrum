@@ -280,3 +280,39 @@ describe('invalidRecipes', () => {
     );
   });
 });
+
+describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)', () => {
+  it('refuses a lens or a blocking flag, which the engine does not follow yet', () => {
+    const steps = [
+      { id: 'taste', brewer: 'brewmaster', lens: 'security' },
+      { id: 'mutants', brewer: 'maltster', blocking: true },
+    ];
+    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
+      'recipes/pale.jsonc: step "taste" has a "lens", which the engine does not follow yet (ADR 0053)',
+      'recipes/pale.jsonc: step "mutants" has "blocking", which the engine does not follow yet (ADR 0053)',
+    ]);
+  });
+
+  it('refuses a deadline longer than 365 days, which a step could not be scheduled with', () => {
+    const files = brewery({
+      recipes: [
+        recipe('pale', [
+          { brewer: 'maltster' },
+          { id: 'plan', brewer: 'brewmaster', deadline: '999999999999h' },
+        ]),
+      ],
+      brewers: [brewer('maltster', { deadline: '366d' }), brewmaster],
+    });
+    assert.deepEqual(problemsOf(files), [
+      'recipes/pale.jsonc: step "maltster" has a deadline of 366d, longer than 365 days',
+      'recipes/pale.jsonc: step "plan" has a deadline of 999999999999h, longer than 365 days',
+    ]);
+    const year = recipe('pale', [{ brewer: 'maltster', deadline: '365d' }]);
+    assert.equal(
+      loaded(loadRecipes(brewery({ recipes: [year] })))
+        .find('pale')
+        ?.deadlineMs('maltster'),
+      365 * 86_400_000,
+    );
+  });
+});
