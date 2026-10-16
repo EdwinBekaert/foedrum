@@ -608,7 +608,7 @@ describe('execProcessWith', () => {
 });
 
 // The brewer runner reads claude's stream-json as it comes: a long attempt writes far more than
-// 4 MiB in total, but each line is one event (ADR 0045).
+// 4 MiB in total, but each line is one event (ADR 0046).
 describe('streamProcessWith', () => {
   const streamer = (child: FakeChild | Error = new FakeChild(), jobObjects = false) => {
     const spawned: { file: string; args: string[]; stdin: boolean | undefined }[] = [];

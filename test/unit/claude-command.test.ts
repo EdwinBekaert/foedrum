@@ -33,7 +33,7 @@ describe('claudeArgs', () => {
       '40',
       '--settings',
       '/work/attempt/settings.json',
-      // Only the runner's own --settings: no user, project or local settings file (ADR 0045).
+      // Only the runner's own --settings: no user, project or local settings file (ADR 0046).
       '--setting-sources',
       '',
       '--tools',

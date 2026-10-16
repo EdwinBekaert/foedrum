@@ -52,7 +52,7 @@ describe('checkInit', () => {
     assert.equal(checkInit(init, { ...asked, tools: ['Bash', 'Write', 'Read'] }).kind, 'matches');
   });
 
-  // The settings were dropped, or a user's settings changed the mode (ADR 0045).
+  // The settings were dropped, or a user's settings changed the mode (ADR 0046).
   it('refuses a permission mode other than dontAsk', () => {
     assert.match(mismatch({ ...init, permissionMode: 'default' }), /permission mode "default"/);
   });

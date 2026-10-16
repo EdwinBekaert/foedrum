@@ -156,7 +156,7 @@ describe('execProcess with a real tree of processes', () => {
   });
 });
 
-// The line-by-line runner the brewer runner reads claude's stream with (ADR 0045).
+// The line-by-line runner the brewer runner reads claude's stream with (ADR 0046).
 describe('streamProcess with real processes', () => {
   let dir: TempDir;
   beforeEach(() => {

@@ -1,4 +1,4 @@
-// Writing an attempt's `claude --settings` file (ADR 0045): always from an AttemptSettings that
+// Writing an attempt's `claude --settings` file (ADR 0046): always from an AttemptSettings that
 // passed its schema, so the file is never one claude would drop.
 
 import { writeFileSync } from 'node:fs';

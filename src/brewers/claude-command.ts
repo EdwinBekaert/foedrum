@@ -1,4 +1,4 @@
-// The `claude` command line of a brewer attempt (ADR 0042, ADR 0045). The prompt is not part of
+// The `claude` command line of a brewer attempt (ADR 0042, ADR 0046). The prompt is not part of
 // it: it goes on stdin, so the line stays short enough for the Job Object helper (ADR 0039).
 
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
@@ -55,7 +55,7 @@ export function claudeArgs(call: ClaudeCall): string[] {
     ...(maxTurns === undefined ? [] : ['--max-turns', String(maxTurns)]),
     '--settings',
     settingsFile,
-    // No user, project or local settings file: only --settings, which is the runner's (ADR 0045).
+    // No user, project or local settings file: only --settings, which is the runner's (ADR 0046).
     '--setting-sources',
     '',
     '--tools',

@@ -1,4 +1,4 @@
-// The first check of an attempt's stream (ADR 0045): claude's init event must show the session
+// The first check of an attempt's stream (ADR 0046): claude's init event must show the session
 // the runner asked for before anything else of the stream is read. claude drops a settings file
 // silently, and settings of the user could widen a brewer, so what it set up is checked, not
 // trusted. A mismatch is an environment failure, never retried.

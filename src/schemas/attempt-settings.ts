@@ -1,5 +1,5 @@
 // The settings file the brewer runner writes for each attempt and passes as `claude --settings`
-// (ADR 0042, ADR 0045). claude drops a file that fails its own validation silently, deny rules
+// (ADR 0042, ADR 0046). claude drops a file that fails its own validation silently, deny rules
 // included, so only the keys the runner uses exist here, strictly.
 
 import { AllowedTool, parseRule, ToolRule } from './primitives.ts';

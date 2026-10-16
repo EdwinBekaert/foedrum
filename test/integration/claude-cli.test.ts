@@ -1,4 +1,4 @@
-// The user's own Claude Code settings must not widen a brewer (#11, ADR 0045): the runner passes
+// The user's own Claude Code settings must not widen a brewer (#11, ADR 0046): the runner passes
 // `--setting-sources ""`, so the only settings file is its own `--settings`. Proven against the
 // installed `claude` with a throwaway user settings folder (CLAUDE_CONFIG_DIR) and a fake
 // Messages API, so it needs no login and spends no tokens; skipped where `claude` is not on PATH.
@@ -148,7 +148,7 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
     assert.match(outcome.printed[0] ?? '', /probe:unset/);
   });
 
-  // The init check of ADR 0045 against the real CLI: what it reports is what the runner asked.
+  // The init check of ADR 0046 against the real CLI: what it reports is what the runner asked.
   it('sets up the session the runner asked for, as its init event shows', async () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
     const outcome = await run((file) => writeAttemptSettings(file, settings));

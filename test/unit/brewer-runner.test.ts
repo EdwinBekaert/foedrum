@@ -72,7 +72,7 @@ describe('settleAttempt', () => {
     });
   });
 
-  // ADR 0045: the session claude set up is not the one asked for (dropped settings, a user's
+  // ADR 0046: the session claude set up is not the one asked for (dropped settings, a user's
   // settings); another attempt would meet the same environment, so it is Stuck at once.
   it('blocks on the environment when the session is not what the runner asked for, before anything else', () => {
     const ending = settleAttempt(

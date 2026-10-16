@@ -356,7 +356,7 @@ export type StreamProcess = (
 
 /**
  * A runner that hands a program's stdout to the caller line by line and keeps none of it, so a
- * long stream has no total limit, only one per line (ADR 0045).
+ * long stream has no total limit, only one per line (ADR 0046).
  */
 export const streamProcessWith =
   (
