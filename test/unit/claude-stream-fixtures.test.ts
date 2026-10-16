@@ -10,7 +10,10 @@ const dir = join(import.meta.dirname, '..', 'fixtures', 'claude-stream');
 
 interface Case {
   file: string;
+  args: string[];
   exitCode: number;
+  init: boolean;
+  subtype: string;
 }
 
 interface StreamEvent {
@@ -20,11 +23,32 @@ interface StreamEvent {
   is_error?: boolean;
   parent_tool_use_id?: string | null;
   tool_use_id?: string;
-  message?: { content: { type: string }[] };
+  message?: { content: { type: string; is_error?: boolean; content?: unknown }[] };
   num_turns?: number;
   terminal_reason?: string;
   permission_denials?: { tool_use_id: string }[];
+  model?: string;
+  permissionMode?: string;
+  claude_code_version?: string;
+  tools?: string[];
+  usage?: Record<string, unknown>;
 }
+
+/** Every string in a JSON value, however deep. */
+const strings = (value: unknown): string[] => {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(strings);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(strings);
+  return [];
+};
+
+/** The prefixes the scrub replaced paths with, in both slash styles, and the named pipe. */
+const synthetic = [
+  'C:\\work\\brewery\\worktree',
+  'C:/work/brewery/worktree',
+  'C:\\Windows\\System32\\',
+  '\\\\.\\pipe\\',
+];
 
 const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as {
   cases: Case[];
@@ -42,7 +66,7 @@ describe('claude stream fixtures', () => {
     assert.deepEqual(manifest.cases.map((c) => c.file).sort(), files.sort());
   });
 
-  for (const { file, exitCode } of manifest.cases) {
+  for (const { file, args, exitCode, init: hasInit, subtype } of manifest.cases) {
     describe(file, () => {
       const text = readFileSync(join(dir, file), 'utf8');
       const stream = events(text);
@@ -75,6 +99,52 @@ describe('claude stream fixtures', () => {
         assert.doesNotMatch(text, /\/(Users|home)\//);
       });
 
+      it('has init exactly when the manifest says, and ends with its subtype', () => {
+        assert.equal(stream[0]?.subtype === 'init', hasInit);
+        assert.equal(stream.at(-1)?.subtype, subtype);
+      });
+
+      it('names only synthetic paths: every absolute path starts with a scrubbed prefix', () => {
+        const absolute = (v: string) => /^([A-Za-z]:[\\/]|\/|\\\\)/.test(v);
+        for (const value of stream.flatMap(strings).filter(absolute)) {
+          assert.ok(
+            synthetic.some((prefix) => value.startsWith(prefix)),
+            `${JSON.stringify(value.slice(0, 80))} is not a scrubbed path`,
+          );
+        }
+      });
+
+      it('reports the four usage counts the runner maps to Usage', () => {
+        const usage = stream.at(-1)?.usage ?? {};
+        for (const key of [
+          'input_tokens',
+          'output_tokens',
+          'cache_read_input_tokens',
+          'cache_creation_input_tokens',
+        ]) {
+          assert.equal(typeof usage[key], 'number', key);
+        }
+      });
+
+      if (hasInit) {
+        it('starts with an init that passes the start check of ADR 0042', () => {
+          const init = stream[0];
+          for (const key of [
+            'session_id',
+            'model',
+            'permissionMode',
+            'claude_code_version',
+          ] as const) {
+            assert.equal(typeof init?.[key], 'string', key);
+          }
+          assert.equal(init?.permissionMode, 'dontAsk');
+          const tools = args[args.indexOf('--tools') + 1]?.split(',') ?? [];
+          assert.ok(Array.isArray(init?.tools));
+          for (const tool of init?.tools ?? []) assert.ok(tools.includes(tool), tool);
+        });
+      }
+
+      // Every captured turn made at most one tool call; a turn with parallel calls would differ.
       it('counts one turn more than its tool results when it started, none when it did not', () => {
         const toolResults = stream
           .filter((e) => e.type === 'user' && e.parent_tool_use_id === null)
@@ -102,6 +172,20 @@ describe('claude stream fixtures', () => {
     assert.deepEqual(
       stream.at(-1)?.permission_denials?.map((d) => d.tool_use_id),
       live,
+    );
+  });
+
+  it('turns a call to a tool a bare deny removed into an error result, not a denial', () => {
+    const stream = events(readFileSync(join(dir, 'tool-removed-by-deny.jsonl'), 'utf8'));
+    assert.equal(stream[0]?.tools?.includes('Bash'), false);
+    const removed = stream
+      .filter((e) => e.type === 'user')
+      .flatMap((e) => e.message?.content ?? [])
+      .filter((b) => b.is_error === true && String(b.content).includes('No such tool available'));
+    assert.equal(removed.length, 1);
+    assert.equal(
+      stream.some((e) => e.subtype === 'permission_denied'),
+      false,
     );
   });
 
