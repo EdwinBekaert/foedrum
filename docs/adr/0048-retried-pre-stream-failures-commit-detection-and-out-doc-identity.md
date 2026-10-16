@@ -1,26 +1,19 @@
-# 0048. Proven claude versions, retried failures before the stream, and the out doc's identity
+# 0048. Retried failures before the stream, commit detection, and the out doc's identity
 
-Date: 2026-10-17 · Status: Accepted · Amends [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) and [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)
+Date: 2026-10-17 · Status: Accepted · Amends [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)
 
 ## Context
-The consultant's reviews of #127 and #133 left follow-ups that were not blocking:
-- **#128.** The proof that `--setting-sources ""` keeps the user's settings away from a brewer (ADR 0046) ran against `claude` 2.1.301 only, and CI does not run it. Nothing tells a user whose `claude` has moved on.
-- **#134, item 1.** ADR 0047 makes every exit before the first stream line (code 1 to 255) the environment: a network failure while `claude` starts gets the batch Stuck.
-- **#134, item 2.** Progress counted any shell command with `git` and later `commit` in it, such as `git log --grep commit` or `echo git commit`.
-- **#134, item 3.** The out doc is checked by its real path and then opened with `O_NOFOLLOW`, which covers only the last part of the path: a folder swapped in between hands the runner another file.
+The consultant's review of #133 left follow-ups that were not blocking (#134):
+- **Item 1.** ADR 0047 makes every exit before the first stream line (code 1 to 255) the environment: a network failure while `claude` starts gets the batch Stuck.
+- **Item 2.** Progress counted any shell command with `git` and later `commit` in it, such as `git log --grep commit` or `echo git commit`.
+- **Item 3.** The out doc is checked by its real path and then opened with `O_NOFOLLOW`, which covers only the last part of the path: a folder swapped in between hands the runner another file.
 
 ## Decision
 
-### The proven claude versions
-- `PROVEN_CLAUDE` (`src/brewers/claude-version.ts`) is the range of `claude` versions that `test/integration/claude-cli.test.ts` passed on, both ends included: today 2.1.301 to 2.1.301. Versions compare as three numbers; anything else is not proven.
-- `foedrum doctor` reports another version as a problem that does not fail it: *claude 2.2.0 is not a version Foedrum proved its brewer settings on (2.1.301)*, with the advice to keep `permissions.allow` and `env` out of the user's Claude Code settings until a Foedrum release proves it.
-- The runner warns once per version through its new `warn` dependency, when an init shows an unproven one. The version comes from `claude`'s stream, so one that is not a short `major.minor.patch` is not repeated: the warning says `claude` reported a version Foedrum cannot read. It does not refuse: the init check of ADR 0046 still catches a changed session, and refusing every new release would stop brewers on the day `claude` updates.
-- The range is widened only after the proof passed on the new version, in the same change.
-
 ### A failure before the stream is retried once
-- When `claude` exits with a code from 1 to 255 before writing any stream line, the runner reads its stderr. A refusal it will repeat goes to the environment at once, as ADR 0047 decided: an unknown option or a missing argument, an option that requires another (`requires --verbose`), an invalid session id, no login or an invalid API key (`Please run /login`).
+- When `claude` exits with a code from 1 to 255 before writing any stream line, the runner reads its stderr. A refusal it will repeat goes to the environment at once, as ADR 0047 decided: an unknown option or a missing argument, an option that requires another (`requires --verbose`), an invalid session id or one already in use, no login or an invalid API key (`Please run /login`).
 - Any other such failure (a network error, a crash with a small code) may pass. The runner waits 5 s, through its new `wait` dependency, and starts `claude` once more with the same command line and prompt. A second failure before the stream is the environment. A stop during the wait, or one that came before it began, cancels the attempt without waiting.
-- The session id is reused: a `claude` that wrote no line did not set up the session.
+- The session id is reused. A start that wrote no line has not taken it; a start that wrote its stream has, and a second start with that id is refused with `Session ID <id> is already in use.`, but such a start is never retried. Checked against `claude` 2.1.301 when this was decided, with the fake Messages API of `test/integration/`: a start killed before its first line, then a second start with the same id, which ran.
 
 ### Commit means git's subcommand
 - A shell command counts as a commit for the stall watchdog only when one of its simple commands (split at `;`, `&`, `|` and line ends outside quotes) is `git` itself, by any path and with or without `.exe`, after optional `NAME=value` variables, and the first word after git's global options is `commit`. `-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace` and `--config-env` take the next word as their value. A quoted word is one word.
@@ -31,12 +24,13 @@ The consultant's reviews of #127 and #133 left follow-ups that were not blocking
 - **This narrows the window, it does not close it.** A swap made and undone between the containment check and the second real path, while the open happens, is not seen. Node has no way to open a path one folder at a time without following links (`openat` with `O_NOFOLLOW` on each part), which would close it. A brewer needs a process that outlives `claude` and races the runner within a few system calls; the sandbox (ADR 0010) and the Job Object on Windows (ADR 0039) make that harder.
 
 ## Consequences
-- A user on a newer `claude` sees a warning in `foedrum doctor` and in the engine's output until Foedrum proves that version. Updating `PROVEN_CLAUDE` is part of moving to a new `claude`.
 - A network failure at start costs 5 s and one more process start, and no longer gets a batch Stuck. A lasting refusal still does at once. A `claude` message that is lasting but not on the list costs one retry before it reaches the environment.
 - The commit check misses a commit through an alias (`git ci`) or a wrapper script; the brewer's next file write or a later commit counts.
+- Foedrum relies on `claude`'s documented flags and does not track which `claude` versions it ran against, as for git: the checks against the CLI named in this ADR and in ADR 0046 record what was true when they were decided.
 
 ## Alternatives considered
-- **Refuse brewers on an unproven `claude`** (the consultant's other option): safe, but it would stop every Brewery on the day `claude` updates, for a risk that only a user settings file with `permissions.allow` or `env` brings.
 - **Retry every failure before the stream, lasting refusals too:** simpler, but it spends a start and 5 s on what will fail again.
 - **Leave a passing failure to the next attempt** (retryable, `maxAttempts`): no wait in the runner, but a brewer with one attempt would get Stuck as `attempts_exhausted`, and the next attempt could not tell a second network error from a first.
+- **A fresh session id for the second start:** avoids any reuse, but the engine chose and may have recorded the first id (ADR 0047), and the check above shows the reuse is safe for the only start that is retried.
 - **Parse the command with a shell grammar:** exact, but large and not linear; the simple-command split covers what brewers write.
+- **Warn about a `claude` outside the versions the settings proof ran against** (#128): dropped. Foedrum does not test whether third-party tools work; it relies on their documented flags.
