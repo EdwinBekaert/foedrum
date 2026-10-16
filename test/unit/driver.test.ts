@@ -360,6 +360,47 @@ describe('openDriver', () => {
       );
     });
 
+    it('decides which attempt leases to renew on the events its heartbeat transaction sees', async () => {
+      const { runner, end } = handRunner();
+      const host = fakeHost();
+      order('b1');
+      order('b2');
+      // Another driver's process may append as this driver's next transaction begins, after it
+      // read the log.
+      let beginning: (() => void) | undefined;
+      const watched: EventStore = {
+        ...store,
+        withTransaction: (fn) => {
+          const other = beginning;
+          beginning = undefined;
+          other?.();
+          return store.withTransaction(fn);
+        },
+      };
+      const effects = { due: commentsDue, target: host.target };
+      const driver = await open({ store: watched, runner, effects });
+      await driver.drive();
+      end(plan('b2'));
+      await driver.drive();
+      // It stalled past its leases. As the heartbeat before b2's comment begins, another driver
+      // takes b1 over and loses its plan#1.
+      now = at(6);
+      beginning = () => {
+        store.withTransaction((tx) =>
+          tx.putBatchLease({ batchId: 'b1', owner: 'session-7', expiresAt: at(11) }),
+        );
+        const lose = { kind: 'lose', ...plan('b1'), reason: 'the attempt was lost' } as const;
+        assert.equal(intake.issue(lose, now).kind, 'accepted');
+      };
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode({ batchId: 'b2', stepId: 'implement', attempt: 1 })],
+        "plan#1 of b1 keeps no live lease beside the new holder's",
+      );
+    });
+
     it('renews no attempt lease of a run that Stuck abandoned while its stop takes time', async () => {
       // plan stalls after 10 minutes without progress, and a stopped run ends only when its
       // process is gone, later.
