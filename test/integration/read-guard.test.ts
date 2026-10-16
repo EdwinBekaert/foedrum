@@ -184,7 +184,7 @@ interface StreamEvent {
 // The brewer runner's command line (ADR 0046) with a PreToolUse hook in its `--settings` file.
 // `--safe-mode` turns that file's hooks off too (ADR 0048), so the hook is tested without it.
 // The fake model reads a file next to the worktree.
-describe('claude with the read guard in its settings file', { skip: claude === undefined }, () => {
+describe('claude and reads outside its worktree', { skip: claude === undefined }, () => {
   let dir: TempDir;
   let api: FakeMessagesApi;
   let secret: string;
