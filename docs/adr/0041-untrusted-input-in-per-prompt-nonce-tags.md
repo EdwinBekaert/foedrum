@@ -1,6 +1,6 @@
 # 0041. Untrusted input in per-prompt nonce tags
 
-Date: 2026-10-16 · Status: Accepted
+Date: 2026-10-16 · Status: Accepted · Amends [0018](0018-house-yeast-layers.md) and [0019](0019-interactive-sessions-and-one-command-layer.md): it decides how their "delimited and marked as data" works
 
 ## Context
 The design promises that untrusted text reaches brewers "delimited and marked as data, never instructions": architecture §10 (the threat table), `inputs[].trusted` in brewers-and-recipes §1.1, house-yeast rules from a repository ([ADR 0018](0018-house-yeast-layers.md)) and the free text of comments ([ADR 0019](0019-interactive-sessions-and-one-command-layer.md)). Every input is untrusted for now (`src/schemas/brewer.ts`), including the out docs of earlier steps: they are model output that read the order. Nothing said *how* the delimiting works, and nothing in `src/` built a brewer's prompt yet (#106). The real `claude` runner of M1 will.
