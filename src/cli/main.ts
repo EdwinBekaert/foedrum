@@ -3,7 +3,7 @@
 // this machine and the Brewery in the working directory.
 
 import { existsSync } from 'node:fs';
-import { release } from 'node:os';
+import { release, userInfo } from 'node:os';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { execProcess } from '../platform/processes.ts';
@@ -29,22 +29,13 @@ try {
     openStore: (path) =>
       existsSync(path) ? openSqliteEventStore(path, { readOnly: true }) : undefined,
     // A command that changes state never creates a store either; it opens the Brewery's.
-    // Stubs until the commands that change state run.
-    openWritableStore: () => {
-      throw new Error('not implemented');
-    },
-    recipes: {
-      find: () => {
-        throw new Error('not implemented');
-      },
-    },
-    user: () => {
-      throw new Error('not implemented');
-    },
+    openWritableStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
+    // Recipe files reach the engine's Recipe interface in a follow-up of #37: until then a
+    // command that schedules a step is refused with "the Brewery has no recipe <name>".
+    recipes: { find: () => undefined },
+    user: () => userInfo().username,
     surface: 'terminal',
-    now: () => {
-      throw new Error('not implemented');
-    },
+    now: () => new Date(),
   });
   process.stdout.write(stdout);
   process.stderr.write(stderr);

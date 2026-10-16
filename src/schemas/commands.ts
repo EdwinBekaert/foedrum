@@ -2,8 +2,10 @@
 // whichever surface it came from. doctor, status, stuck and replay are read-only (ADR 0030); the
 // others change state, and parse untrusted input into the engine's human commands (ADR 0025).
 
+import { Repo } from './events.ts';
 import { PathSafeId } from './ids.ts';
 import { NonEmpty } from './step-outcome.ts';
+import { CommitSha } from './store.ts';
 import { z } from './zod.ts';
 
 export const DoctorCommand = z.strictObject({ command: z.literal('doctor') });
@@ -27,9 +29,11 @@ export type SkipCommand = z.infer<typeof SkipCommand>;
 export const CancelCommand = z.strictObject({ command: z.literal('cancel'), batch: PathSafeId });
 export type CancelCommand = z.infer<typeof CancelCommand>;
 
-// A stub until the terminal parses answers: every parse throws.
-export const AnswerCommand = z.unknown().transform((): never => {
-  throw new Error('not implemented');
+/** One answer per question the batch asked, in the order it asked them. */
+export const AnswerCommand = z.strictObject({
+  command: z.literal('answer'),
+  batch: PathSafeId,
+  answers: z.array(NonEmpty).min(1),
 });
 export type AnswerCommand = z.infer<typeof AnswerCommand>;
 
@@ -41,8 +45,30 @@ export const RecipeCommand = z.strictObject({
 });
 export type RecipeCommand = z.infer<typeof RecipeCommand>;
 
-// A stub until the terminal parses commits: every parse throws.
-export const RewindCommand = z.unknown().transform((): never => {
-  throw new Error('not implemented');
+// `owner/name=<commit>` split at its last `=`; `undefined` when either part is not one.
+const splitRepoCommit = (text: string): [string, string] | undefined => {
+  const at = text.lastIndexOf('=');
+  const repo = Repo.safeParse(text.slice(0, at));
+  const commit = CommitSha.safeParse(text.slice(at + 1));
+  return at > 0 && repo.success && commit.success ? [repo.data, commit.data] : undefined;
+};
+
+/** `owner/name=<commit>`: the commit a rewind resets a repository to (ADR 0025). */
+export const RepoCommit = z
+  .string()
+  .refine((text) => splitRepoCommit(text) !== undefined, 'Must be owner/name=<full commit sha>')
+  .transform((text) => splitRepoCommit(text) as [string, string]);
+
+export const RewindCommand = z.strictObject({
+  command: z.literal('rewind'),
+  batch: PathSafeId,
+  step: PathSafeId,
+  commits: z
+    .array(RepoCommit)
+    .min(1)
+    .refine(
+      (commits) => new Set(commits.map(([repo]) => repo.toLowerCase())).size === commits.length,
+      'Must name each repository once',
+    ),
 });
 export type RewindCommand = z.infer<typeof RewindCommand>;

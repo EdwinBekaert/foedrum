@@ -55,21 +55,31 @@ const printable = (text: string): string =>
 const usageError = (line: string): CliResult => ({ exitCode: 2, stdout: '', stderr: `${line}\n` });
 
 const usage = (): CliResult => {
-  const rows = commands.map(({ name, summary, positionals }) => [
-    [name, ...positionals.map((positional) => `<${positional}>`)].join(' '),
+  const rows = commands.map(({ name, summary, positionals, rest }) => [
+    [
+      name,
+      ...positionals.map((positional) => `<${positional}>`),
+      ...(rest === undefined ? [] : [`<${rest}>...`]),
+    ].join(' '),
     summary,
   ]);
   const lines = ['Usage: foedrum <command> [arguments]', '', 'Commands:', ...columns(rows)];
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 };
 
-// The first problem the schema found, named as on the command line.
-const invalid = (prefix: string, input: Record<string, string>, error: z.ZodError): CliResult => {
+// The first problem the schema found, named as on the command line: with the argument it is about,
+// or without one when it is about the whole list.
+const invalid = (
+  prefix: string,
+  input: Record<string, string | string[]>,
+  error: z.ZodError,
+): CliResult => {
   const [issue] = error.issues;
   const field = String(issue?.path[0]);
-  return usageError(
-    `${prefix}: invalid <${field}> ${JSON.stringify(input[field])}: ${issue?.message}`,
-  );
+  const given = input[field];
+  const value = Array.isArray(given) ? given[Number(issue?.path[1])] : given;
+  const shown = value === undefined ? '' : ` ${JSON.stringify(value)}`;
+  return usageError(`${prefix}: invalid <${field}>${shown}: ${issue?.message}`);
 };
 
 /** Runs `foedrum <argv>`: exit 2 with one line on stderr when the command line is wrong. */
@@ -100,15 +110,21 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   });
   const options = tokens.filter((token) => token.kind === 'option');
   if (options.some((option) => option.name === 'help')) return usage();
-  // No command takes an option yet (#37 adds them).
+  // No command takes an option yet.
   const [unknown] = options;
   if (unknown !== undefined) return usageError(`${prefix}: unknown option "${unknown.rawName}"`);
   const values = tokens.flatMap((token) => (token.kind === 'positional' ? [token.value] : []));
-  const extra = values[command.positionals.length];
-  if (extra !== undefined) return usageError(`${prefix}: unexpected argument "${extra}"`);
-  const missing = command.positionals[values.length];
+  const { positionals, rest: restField } = command;
+  const extra = values[positionals.length];
+  if (extra !== undefined && restField === undefined) {
+    return usageError(`${prefix}: unexpected argument "${extra}"`);
+  }
+  const missing = [...positionals, ...(restField === undefined ? [] : [restField])][values.length];
   if (missing !== undefined) return usageError(`${prefix}: missing <${missing}>`);
-  const input = Object.fromEntries(command.positionals.map((field, i) => [field, values[i] ?? '']));
+  const input: Record<string, string | string[]> = Object.fromEntries(
+    positionals.map((field, i) => [field, values[i] ?? '']),
+  );
+  if (restField !== undefined) input[restField] = values.slice(positionals.length);
   try {
     const result = await command.run({ command: name, ...input }, context);
     return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;
