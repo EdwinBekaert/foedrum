@@ -64,6 +64,22 @@ describe('citations in a reviewer answer', () => {
     });
   });
 
+  it('reads an answer that starts with a byte order mark', async () => {
+    writeFileSync(answer, `﻿${JSON.stringify({ findings: [at('src/engine/wait.ts', 1)] })}`);
+    assert.deepEqual(await checkCitations(checkout, answer), {
+      ok: true,
+      lines: ['finding 1: ok src/engine/wait.ts:1'],
+    });
+  });
+
+  it('says a path in the wrong case does not exist, on every file system', async () => {
+    write({ findings: [at('SRC/Engine/wait.ts', 1)] });
+    assert.deepEqual(await checkCitations(checkout, answer), {
+      ok: true,
+      lines: ['finding 1: unverified: SRC/Engine/wait.ts does not exist'],
+    });
+  });
+
   it('fails on an answer that cannot be read or has no findings list', async () => {
     writeFileSync(answer, '{ "findings": [ ');
     const unreadable = await checkCitations(checkout, answer);

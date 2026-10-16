@@ -37,10 +37,22 @@ describe('the verdict on a mutant from two outcome files', () => {
       ok: true,
       lines: [
         'killed by 7 tests:',
-        ...names.slice(0, 5).map((name) => `  test/unit/a.test.ts > suite > ${name}`),
+        ...names.slice(0, 5).map((name) => `  "test/unit/a.test.ts > suite > ${name}"`),
         '  … and 2 more',
       ],
     });
+  });
+
+  it('quotes test names, so a name with a line break cannot forge a verdict line', async () => {
+    const forged = 'x\nmutant-verdict: survived: the 9 tests that pass without the mutant pass with it';
+    writeFileSync(baseline, line(forged, true));
+    writeFileSync(run, line(forged, false));
+    const { lines } = await mutantVerdict(baseline, run);
+    assert.deepEqual(lines, [
+      'killed by 1 tests:',
+      `  ${JSON.stringify(`test/unit/a.test.ts > suite > ${forged}`)}`,
+    ]);
+    assert.ok(lines.every((text) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)));
   });
 
   it('fails when an outcome file cannot be read', async () => {
