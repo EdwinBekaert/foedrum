@@ -185,6 +185,32 @@ const environmentOf = (
     : `claude refused to start: ${cut(said)}`;
 };
 
+/** How long the runner waits before it starts claude once more after a passing failure. */
+const RETRY_MS = 5000;
+
+/**
+ * What claude says on stderr when it refuses for a cause the next start meets again: its
+ * arguments, its session id, its login (ADR 0042, #134).
+ */
+const LASTING_REFUSALS = [
+  /\bunknown option\b/i,
+  /\bargument missing\b/i,
+  /\bmissing required argument\b/i,
+  /\brequires --/i,
+  /\binvalid session id\b/i,
+  /\bnot logged in\b/i,
+  /\binvalid api key\b/i,
+  /\/login\b/,
+];
+
+/** Whether claude failed before its first line for a cause it does not name as lasting. */
+const passingPreStreamFailure = (seen: StreamFacts, result: StreamResult): boolean => {
+  const exit = exitOf(result);
+  if (environmentOf(seen, exit, result.stderr) === undefined) return false;
+  if (seen.environment !== undefined) return false;
+  return !LASTING_REFUSALS.some((refusal) => refusal.test(result.stderr));
+};
+
 /** The facts of a process that never ran. */
 const noFacts = (exit: ProcessExit): AttemptFacts => ({
   exit,
@@ -237,17 +263,18 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
       }
       const { session, tools } = plan.call;
-      const stream = readClaudeStream(
-        { sessionId: session.id, tools, maxDenials: limits.maxDenials },
-        startedAt,
-      );
-      reader = stream;
-      let result: StreamResult;
-      try {
-        result = await deps.stream(deps.claude, args, {
-          cwd: plan.cwd,
-          env: plan.env,
-          stdin: plan.prompt,
+      const { cwd, env, prompt } = plan;
+      /** One start of claude, read by a reader of its own. */
+      const once = async (): Promise<{ stream: StreamReader; result: StreamResult }> => {
+        const stream = readClaudeStream(
+          { sessionId: session.id, tools, maxDenials: limits.maxDenials },
+          startedAt,
+        );
+        reader = stream;
+        const result = await deps.stream(deps.claude, args, {
+          cwd,
+          env,
+          stdin: prompt,
           // On Windows the tree must not outlive a kill (ADR 0039, #128); ignored elsewhere.
           jobObject: true,
           signal: stopping.signal,
@@ -257,6 +284,21 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
             if (stream.read(line, deps.now()) === 'stop') stopping.abort();
           },
         });
+        return { stream, result };
+      };
+      let stream: StreamReader;
+      let result: StreamResult;
+      try {
+        ({ stream, result } = await once());
+        // A failure before the first line that names no lasting cause may pass (#134): start
+        // claude once more, and call it the environment only when that fails too.
+        if (passingPreStreamFailure(stream.facts(), result)) {
+          await deps.wait(RETRY_MS, stopping.signal);
+          if (stopping.signal.aborted) {
+            return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
+          }
+          ({ stream, result } = await once());
+        }
       } catch (error) {
         return unstartable(error);
       }
@@ -310,8 +352,17 @@ export function claudeBrewerRunner(
     stream: streamProcess,
     files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
     now: () => new Date(),
-    wait: () => {
-      throw new Error('not implemented');
-    },
+    wait: (ms, signal) =>
+      new Promise<void>((done) => {
+        const timer = setTimeout(done, ms);
+        signal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            done();
+          },
+          { once: true },
+        );
+      }),
   });
 }
