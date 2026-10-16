@@ -39,19 +39,21 @@ describe('the GitHub tracker and marks on GitHub', {
     assert.ok(statuses.includes(304), `no 304 among ${statuses.join(', ')}`);
   });
 
-  it('reads the marks and the comments of an issue, and how a pull request stands', async () => {
-    const listed = await tracker.issues(target);
-    const issue = listed.find((item) => !item.pullRequest);
-    if (issue !== undefined) {
-      assert.ok(Array.isArray(await marks.assignees(target, issue.number)));
-      assert.deepStrictEqual(await marks.labels(target, issue.number), issue.labels);
-      const marker = '<!-- foedrum:["no-such-batch","claim.comment"] -->';
-      assert.equal(await marks.findComment(target, issue.number, marker), undefined);
-    }
-    const pull = listed.find((item) => item.pullRequest);
-    if (pull !== undefined) {
-      const url = `https://github.com/${target}/pull/${pull.number}`;
-      assert.equal(await tracker.pullRequest(url), 'open');
-    }
+  // Skipped, and said so, when the repository has nothing to read: a pass must mean GitHub's
+  // answers were checked.
+  it('reads the marks and the comments of an open issue', async (t) => {
+    const issue = (await tracker.issues(target)).find((item) => !item.pullRequest);
+    if (issue === undefined) return t.skip(`${target} has no open issue to read`);
+    assert.ok(Array.isArray(await marks.assignees(target, issue.number)));
+    assert.deepStrictEqual(await marks.labels(target, issue.number), issue.labels);
+    const marker = '<!-- foedrum:["no-such-batch","claim.comment"] -->';
+    assert.equal(await marks.findComment(target, issue.number, marker), undefined);
+  });
+
+  it('reads how an open pull request stands', async (t) => {
+    const pull = (await tracker.issues(target)).find((item) => item.pullRequest);
+    if (pull === undefined) return t.skip(`${target} has no open pull request to read`);
+    const url = `https://github.com/${target}/pull/${pull.number}`;
+    assert.equal(await tracker.pullRequest(url), 'open');
   });
 });
