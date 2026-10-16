@@ -86,6 +86,23 @@ describe('applyEffect', () => {
     assert.deepEqual(records, []);
   });
 
+  it('neither applies nor records when the target cannot be asked', async () => {
+    const { ledger, records } = memoryLedger();
+    const calls: string[] = [];
+    const target: EffectTarget = {
+      find: async () => {
+        throw new Error('503 Service Unavailable');
+      },
+      apply: async (k) => {
+        calls.push(`apply ${k}`);
+        return { number: 12 };
+      },
+    };
+    await assert.rejects(applyEffect(ledger, key, target), /503 Service Unavailable/);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(records, []);
+  });
+
   it('refuses an invalid key before it reaches the target', async () => {
     // A ledger that never looks at the key, so only applyEffect can refuse it.
     const ledger: Ledger = { find: () => undefined, record: () => {} };

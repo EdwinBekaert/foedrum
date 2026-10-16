@@ -76,6 +76,8 @@ it('every batch comes to rest, no effect is applied twice or lost, none sits pas
     },
     atEnd: (run) => {
       const state = run.engine.state();
+      // runChaos gets here only once no batch is brewing, and fails when they never stop: that
+      // is the check that every batch comes to rest. This one guards against a lane added later.
       for (const batch of state.batches.values()) {
         assert.ok(
           ['on_tap', 'cancelled', 'stuck', 'conditioning', 'ordered'].includes(batch.lane.kind),
