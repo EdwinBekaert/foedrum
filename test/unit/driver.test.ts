@@ -334,6 +334,32 @@ describe('openDriver', () => {
       assert.deepStrictEqual(started, [plan('b1')], 'it starts nothing more there');
     });
 
+    it('renews no attempt lease of a run whose attempt another driver lost meanwhile', async () => {
+      const { runner, end } = handRunner();
+      const host = fakeHost();
+      order('b1');
+      order('b2');
+      const driver = await open({ runner, effects: { due: commentsDue, target: host.target } });
+      await driver.drive();
+      // The driver stalled past its leases: another driver took b1 over and lost its plan#1.
+      now = at(6);
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: 'b1', owner: 'session-7', expiresAt: at(11) }),
+      );
+      const lose = { kind: 'lose', ...plan('b1'), reason: 'the attempt was lost' } as const;
+      assert.equal(intake.issue(lose, now).kind, 'accepted');
+      // It goes on with a drive and an effect pass, before any tick: b2's plan#1 has a comment due.
+      end(plan('b2'));
+      await driver.drive();
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      assert.deepStrictEqual(
+        store.currentLeases(now).map((lease) => lease.attemptKey),
+        [attemptKey.encode({ batchId: 'b2', stepId: 'implement', attempt: 1 })],
+        "plan#1 of b1 keeps no live lease beside the new holder's",
+      );
+    });
+
     it('reports a batch it lost to another driver', async () => {
       order('b1');
       const notices: unknown[] = [];
