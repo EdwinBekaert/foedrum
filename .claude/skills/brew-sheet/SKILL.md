@@ -82,6 +82,14 @@ ASCII by default: it reads the same in a terminal, an editor and the web. Use me
 `--mermaid` or when asked in words ("for the PR", "as mermaid"), for text that goes to GitHub, where
 it renders.
 
+GitHub shows a parse error instead of a mermaid picture that breaks its syntax, so:
+
+- In a `sequenceDiagram`, `;` ends a statement and `#` starts an entity code, so neither may appear
+  in a message or a note: write `,` instead, or `#59;` for a semicolon you need.
+- In a `flowchart`, put a label with `( ) [ ] { } < > | "` or a leading `-` in quotes: `A["f(x) > 0"]`.
+- Use `<br/>` for a line break, never a real newline inside a label.
+- Read the block once more for these before posting it.
+
 ## Budget
 
 - One picture; two only when they show two genuinely different layers.
