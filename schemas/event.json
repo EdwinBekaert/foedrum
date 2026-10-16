@@ -213,6 +213,34 @@
             "claudeVersion"
           ],
           "additionalProperties": false
+        },
+        "worktree": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*\\/(?!\\.\\.?$)[\\w.][\\w.-]*$"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "branch": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            }
+          },
+          "required": [
+            "repo",
+            "path",
+            "branch",
+            "commit"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
