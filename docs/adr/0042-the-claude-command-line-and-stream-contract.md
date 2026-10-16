@@ -1,6 +1,6 @@
 # 0042. The `claude` command line and the stream the brewer runner reads
 
-Date: 2026-10-16 · Status: Accepted · Amends [0003](0003-drive-the-claude-cli.md), [0019](0019-interactive-sessions-and-one-command-layer.md) and [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) · Amended by [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0003](0003-drive-the-claude-cli.md), [0019](0019-interactive-sessions-and-one-command-layer.md) and [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) · Amended by [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) and [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)
 
 ## Context
 [ADR 0003](0003-drive-the-claude-cli.md) runs brewers through the user's `claude` CLI with `--output-format stream-json`, and [brewers-and-recipes.md §4](../brewers-and-recipes.md#4-how-a-brewer-runs) sketches the command line. Both were written from memory. Before the real brewer runner (#11, ADR 0028) is built, #17 checks them against the installed CLI: the flags, the stream events and fields the runner reads, exit codes, how the prompt goes in, sandbox settings, and spawning on Windows.
