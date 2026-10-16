@@ -300,7 +300,7 @@ The remaining risk is honest: brewers are still external processes. Deadlines, s
 
 Brewers are defined first, then composed into recipes. Full specification: [brewers-and-recipes.md](brewers-and-recipes.md).
 
-- A **brewer** is a Markdown file with JSON frontmatter (read as JSONC, [ADR 0020](adr/0020-jsonc-frontmatter.md)): inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt.
+- A **brewer** is a Markdown file with JSON frontmatter (read as JSONC, [ADR 0020](adr/0020-jsonc-frontmatter.md)): inputs (in-docs), output (out doc + schema), model, effort, tools, permissions, workspace, budget, retries and guards. The body is the prompt. Every brewer prompt is built by one function, `assembleBrewerPrompt` (`src/brewers/prompt.ts`): the instructions, then the rule, then each input between `untrusted-input-<nonce>` tags with its source ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)).
 - A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
 - **Test-first by structure:** recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
 - **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](adr/0022-five-default-lenses.md)) in a parallel group. Brett proposes mutants as one-line structured edits ([ADR 0034](adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
@@ -326,11 +326,11 @@ Brewers are defined first, then composed into recipes. Full specification: [brew
 Orchestration should cost (almost) nothing:
 
 - The engine is plain code: advancing, routing by label, loops, checks, git and GitHub use **zero model tokens**.
-- The only text Foedrum adds to a brewer prompt is a short contract (~300 tokens) describing the out doc.
+- The only text Foedrum adds to a brewer prompt is a short contract (~300 tokens) describing the out doc and, when the brewer has inputs, the rule that tagged input is data (~100 tokens; [ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)).
 - Brewers run with a **lean context** by default (no project instructions, hooks, plugins or MCP unless the brewer declares them).
 - Brewers receive the previous step's out doc, never full histories or transcripts.
-- Prompts are ordered static-first for prompt-cache reuse; effort stays constant per brewer.
-- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract tokens ÷ total). Target: below 5 %.
+- Prompts are ordered static-first for prompt-cache reuse (instructions and contract, then the rule with its per-prompt nonce, then the inputs); effort stays constant per brewer.
+- Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract + input-rule tokens ÷ total). Target: below 5 %.
 
 ## 8. Humans in the loop
 
@@ -374,7 +374,7 @@ Published metrics: chaos runs passed, stuck-without-transition count (target 0),
 
 | Threat | Mitigation |
 |---|---|
-| Prompt injection through issue or PR text | Only allow-listed authors create orders and commands; untrusted text is delimited and marked as data; brewers have tool allowlists; `AskUserQuestion` and pushing are always denied |
+| Prompt injection through issue or PR text | Only allow-listed authors create orders and commands; untrusted text goes between tags with a fresh random nonce per prompt, as data, and input containing the nonce is refused ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md); a mitigation, not the boundary); brewers have tool allowlists; `AskUserQuestion` and pushing are always denied |
 | Agents running malicious install scripts in target repos | Brewer environment forces `npm_config_ignore_scripts=true`; sandbox by default, container optional |
 | Repository-controlled agent settings or hooks | Lean context ignores project settings unless the brewer opts in |
 | Secret leakage | Minimal environment per brewer; short-lived, repository-scoped tokens; orchestrator credentials never passed to brewers |
@@ -446,7 +446,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | CI | Every pull request, push to `main` and nightly run uses `ubuntu-latest`, `macos-latest` and `windows-latest`, on Node 24 and the current LTS. `npm test` fails below the coverage thresholds (Node's built-in coverage, still experimental). The single required check is `ci-ok` |
 | Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
 | Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
-| Spawning `claude` | On Windows only possible through a shell: every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files. The process runner does this for every `.cmd` and `.bat` file on Windows (npm's `claude.cmd`, `npm.cmd`), through `%SystemRoot%\System32\cmd.exe` by its full path and with `NoDefaultCurrentDirectoryInExePath` set, and starts everything else without a shell ([ADR 0031](adr/0031-cmd-and-bat-files-through-cmd-exe.md)) |
+| Spawning `claude` | The native installer's `claude.exe` starts directly, without a shell; on Windows, inside a Job Object (ADR 0039). Only npm's `claude.cmd` needs one ([ADR 0042](adr/0042-the-claude-command-line-and-stream-contract.md)): every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files. The process runner does this for every `.cmd` and `.bat` file on Windows (npm's `claude.cmd`, `npm.cmd`), through `%SystemRoot%\System32\cmd.exe` by its full path and with `NoDefaultCurrentDirectoryInExePath` set, and starts everything else without a shell ([ADR 0031](adr/0031-cmd-and-bat-files-through-cmd-exe.md)) |
 | Spawning git and checks | Argument arrays and no shell for git, through the one process runner in `src/platform/processes.ts` (`execProcess`; `spawn`, not `execFile`, which answers only once every output pipe closes); check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
 | Killing process trees | POSIX: process groups (`detached` + negative pid), SIGTERM first so a process in the group can end its own children's groups, SIGKILL 2.5 s later; Windows: `taskkill /T /F /PID`. The runner kills the tree at the call's deadline, when its signal aborts, or when stdout and stderr together pass the call's `maxOutputBytes` (4 MiB by default), answers at once, and reports `timed-out`, `stopped` or `too-much-output` apart from an exit code ([ADR 0035](adr/0035-the-process-runner-kills-at-an-output-limit.md)). **Windows limit (#92):** taskkill finds the tree only through a parent that is still alive, so a grandchild whose parent has exited (one started detached, or by a parent such as cmd.exe that, unlike node, does not hold its children in a job) keeps running. A call with `jobObject: true` therefore starts its program through a helper (`src/platform/job-object.ps1`, Windows PowerShell by its full path) that starts it suspended, with exactly the caller's environment, assigns it to a kill-on-close Job Object that nothing can break away from, and resumes it; killing the helper, or its exit with the program, closes the job and Windows ends the whole tree. It costs about 0.4 s per call, so the brewer runner uses it and git calls do not. A program that cannot be held in a job (PowerShell in Constrained Language Mode) does not start, and `foedrum doctor` reports it with the WSL2 advice ([ADR 0039](adr/0039-windows-job-objects-through-a-powershell-helper.md)) |
 | Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
@@ -462,7 +462,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 src/
   cli/          entry point and commands
   engine/       events, fold, store, state branch, scheduler, supervisor, executor
-  brewers/      brewer loading, prompt rendering, CLI invocation
+  brewers/      brewer loading, prompt assembly (ADR 0041), CLI invocation
   recipes/      schema and loading
   github/       client, auth, intake, projection
   workspace/    git (a non-interactive runner with timeouts) and worktrees

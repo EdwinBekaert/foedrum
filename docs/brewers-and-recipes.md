@@ -28,7 +28,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | Field | Purpose |
 |---|---|
 | `inputs[]` | Named documents (`name` is the `{variable}` in the body): `"from": "order"`, an earlier step's out doc (`"step:<id>"`) or a repository file (`"file:<relative path>"`) |
-| `inputs[].trusted` | Untrusted input is wrapped in delimiters and marked as data, never instructions. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
+| `inputs[].trusted` | Untrusted input goes between `untrusted-input-<nonce>` tags with a new random nonce per prompt and its source, below the rule that it is data, never instructions; input containing the nonce is refused as a likely injection ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)). The tags are a mitigation, not the security boundary. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
 | `houseYeast` | Receive learned rules from all three layers (defaults, Brewery, repository), selected by scope within a token budget (architecture §12b) |
 | `toolbox` | A short brief of extra command-line tools this brewer may use |
 
@@ -134,7 +134,7 @@ and everything is committed.
 
 ## 2. The out doc contract
 
-The only text Foedrum adds to every brewer prompt:
+The only text Foedrum adds to every brewer prompt, besides the rule about tagged input when the brewer has inputs ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)):
 
 ```markdown
 When you finish, write {outDoc}. It must start with JSON frontmatter:
@@ -245,22 +245,29 @@ A step has exactly one of these kind fields. A `session` step needs a `deadline`
 
 ## 4. How a brewer runs
 
-A brewer compiles to one `claude` CLI invocation plus a generated per-attempt settings file:
+A brewer compiles to one `claude` CLI invocation plus a generated per-attempt settings file, verified against `claude` 2.1.301 ([ADR 0042](adr/0042-the-claude-command-line-and-stream-contract.md)):
 
 ```
 claude --print --verbose --output-format stream-json
-       --permission-mode dontAsk
-       --model <model> --effort <effort>
-       --settings <per-attempt settings: allow/deny, environment>
-       [--safe-mode] [--system-prompt-file <file>]
-       [--resume <session-id>]
-       -p -                      # prompt via stdin
+       --permission-mode dontAsk --permission-prompts none
+       --model <model id> --effort <effort> --max-turns <maxTurns>
+       --settings <per-attempt settings file: allow/deny, sandbox, environment>
+       --tools <the built-in tools named in tools.allow>
+       --disable-slash-commands                       # unless skills
+       --strict-mcp-config [--mcp-config <file>]      # always; the file holds the brewer's mcp
+       --safe-mode                                    # context: lean
+       --session-id <new uuid> | --resume <session id>
+       [--append-system-prompt-file <file>]
+                                                      # the prompt on stdin, no prompt argument
 ```
 
+- The settings file is written from a strict schema: `claude` silently drops a settings file that fails its validation, deny rules included. A bare tool name in `deny` removes the tool, a scoped rule denies matching calls.
+- The runner reads `system/init` (session id, model, permission mode, tools, CLI version), `assistant` and `user` messages (tool calls and results), `system/permission_denied` (one denial each, counted live) and the final `result` (`is_error`, `num_turns`, `terminal_reason`, `usage`); it ignores every other event type. `is_error`, not `subtype`, says whether the run failed; when the stream ends with a `result`, the exit code is 0 exactly when `is_error` is false. A run with no `result` (a refused argument, a kill) is a crash. Captured streams for the parser: `test/fixtures/claude-stream/`.
+- The runner chooses the session id (`--session-id`), so the session is recorded before the process starts.
 - The engine owns the child process, reads the event stream live (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
 - How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): `maxDenials` reached → `blocked` + `environment`, naming the denied tools; `maxTurns` passed → a failure that is not retried; a crash, garbage in the stream, or a missing or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status.
-- On Windows the CLI can only be spawned through a shell; every argument is therefore validated against a strict pattern, and prompts and settings travel via stdin and files only.
-- `--safe-mode` implements `context: lean`.
+- On Windows the native `claude.exe` starts without a shell, inside a Job Object (ADR 0039); npm's `claude.cmd` goes through cmd.exe with every argument validated (ADR 0031). Either way, prompts and settings travel via stdin and files only, never arguments.
+- `--safe-mode` implements `context: lean`: without it, `claude -p` loads the target repository's `CLAUDE.md`, hooks and MCP servers. How `context: repo` gives a brewer the repository's instructions without its hooks is open (ADR 0042).
 - Sessions are persisted for the lifetime of the batch, so anyone on the machine can step into them with `/foedrum:resume` (ADR 0019); they are cleaned up with the batch.
 
 ## 5. Default brewers

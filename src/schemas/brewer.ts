@@ -23,7 +23,7 @@ const Input = z.strictObject({
       if (step !== undefined) return PathSafeId.safeParse(step).success;
       return file === undefined || RelativePath.safeParse(file).success;
     }, 'Must name a path-safe step id or a relative path'),
-  // Untrusted input is wrapped in delimiters and marked as data, never instructions. Every
+  // Untrusted input goes between per-prompt nonce tags, as data (ADR 0041). Every
   // source is untrusted for now; a trusted one needs an ADR (brewers-and-recipes §1.1).
   trusted: z
     .literal(false, 'Every input is untrusted for now (brewers-and-recipes §1.1)')
