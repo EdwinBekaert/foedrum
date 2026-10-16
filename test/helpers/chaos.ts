@@ -92,7 +92,6 @@ const killer = (plan: KillPlan) => {
   let move = 0;
   return {
     kills,
-    passed: (): number => passed,
     /** Passes a kill point; throws when the engine dies here or is already dead. */
     point: (point: KillPoint): void => {
       if (dead) throw new EngineKilled('dead');
@@ -238,8 +237,6 @@ export interface ChaosEngine {
   /** Applies the effects the state calls for and that are not in the ledger. */
   applyEffects(): Promise<void>;
   readonly kills: readonly Kill[];
-  /** How many kill points the run passed. */
-  passed(): number;
   /** How often an effect was found on the code host rather than applied: a kill's window closed. */
   readonly found: number;
   /** When the engine started again after each kill. */
@@ -351,7 +348,6 @@ export const openChaosEngine = (
       await surviving(applyEffects);
     },
     kills: kill.kills,
-    passed: kill.passed,
     restarts,
     get found() {
       return found;
@@ -418,7 +414,7 @@ export const runChaos = async (
 };
 
 /** Seeds per chaos property in npm run check, where the chaos layer has a time ceiling. */
-export const chaosRuns = 15;
+const chaosRuns = 15;
 
 /**
  * Runs the generated scenario of each seed with that seed's kill plan, on a database in `dir`, and
