@@ -86,6 +86,21 @@ describe('checkInit', () => {
     assert.match(mismatch({ ...init, slash_commands: ['deploy'] }), /slash commands/);
   });
 
+  // What claude loaded may come from an untrusted repository, and the reason ends in a summary a
+  // human reads: a few names, each short, and how many more.
+  it('keeps the reason short however much claude loaded', () => {
+    const many = Array.from({ length: 40 }, (_, i) => `skill-${i}-${'x'.repeat(500)}`);
+    const reason = mismatch({
+      ...init,
+      skills: many,
+      slash_commands: many.map((name) => ({ name, description: 'y'.repeat(500) })),
+      tools: [...asked.tools, ...many],
+    });
+    assert.ok(reason.length < 1_000, `${reason.length} characters`);
+    assert.match(reason, /skill-0-x/);
+    assert.match(reason, /and 37 more/);
+  });
+
   it('refuses another session id than the one the runner chose', () => {
     const reason = mismatch(init, { ...asked, sessionId: '6f1c2b9e-4d3a-4e8f-9a7b-1c2d3e4f5a6b' });
     assert.match(reason, /session/);

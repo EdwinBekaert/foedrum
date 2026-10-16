@@ -901,6 +901,21 @@ describe('streamProcessWith', () => {
     assert.deepEqual(killed, []);
   });
 
+  // A killed process still closes, with a line it had only begun; the caller already has its
+  // answer and must not get a cut-off line after it.
+  it('hands over no half-written line when the process closes after it was stopped', async () => {
+    const child = new FakeChild();
+    const { lines, stream, options } = streamer(child);
+    const stop = new AbortController();
+    const done = stream('claude', [], { ...options, maxLineBytes: 100, signal: stop.signal });
+    child.stdout.write('{"type":"assis');
+    await settle();
+    stop.abort();
+    child.close(null);
+    assert.equal((await done).killed, 'stopped');
+    assert.deepEqual(lines, []);
+  });
+
   it('starts nothing when the signal has already aborted', async () => {
     const { spawned, stream, options } = streamer();
     const result = await stream('claude', [], {
