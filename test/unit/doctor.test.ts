@@ -4,6 +4,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { type DoctorFacts, diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
+import { INVALID_RECIPES, invalidRecipes } from '../../src/engine/recipe-files.ts';
+import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { linux, macos, ran, windows } from '../helpers/doctor-facts.ts';
 
 const required = (facts: DoctorFacts) =>
@@ -304,5 +306,32 @@ describe('diagnose: the Brewery config (ADR 0043)', () => {
       diagnosis.problems.find(({ what }) => /foedrum.jsonc/.test(what)),
       { required: true, what: 'foedrum.jsonc cannot be read', fix: 'EACCES: permission denied' },
     );
+  });
+});
+
+describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
+  const brewer = { path: 'brewers/maltster.md', text: brewerText('maltster') };
+  const pale = {
+    path: 'recipes/pale.jsonc',
+    text: recipeText('pale', [{ brewer: 'maltster' }, { id: 'green', check: 'test' }]),
+  };
+
+  it('is not ok when a recipe file is not valid, with the line a refused command gives, and ok when they are valid', () => {
+    const diagnosis = diagnose({ ...linux(), brewery: { recipes: [pale], brewers: [brewer] } });
+    assert.equal(diagnosis.ok, false);
+    const problem = diagnosis.problems.find(({ what }) => what === INVALID_RECIPES);
+    const line =
+      'recipes/pale.jsonc: step "green" is a check step, which the engine does not brew yet (ADR 0053)';
+    assert.deepEqual(problem, { required: true, what: INVALID_RECIPES, fix: line });
+    assert.equal(`${problem?.what}: ${problem?.fix}`, invalidRecipes([line]));
+    // Valid recipe files, none, or none read: no problem.
+    const valid = { ...pale, text: recipeText('pale', [{ brewer: 'maltster' }]) };
+    for (const brewery of [
+      { recipes: [valid], brewers: [brewer] },
+      { recipes: [], brewers: [] },
+    ]) {
+      assert.deepEqual(diagnose({ ...linux(), brewery }).problems, []);
+    }
+    assert.deepEqual(diagnose(linux()).problems, []);
   });
 });

@@ -2,6 +2,7 @@
 // the tools Foedrum needs, the effective isolation level (ADR 0010, architecture §13) and what
 // is missing. doctor-facts.ts gathers the facts.
 
+import type { BreweryFiles } from '../engine/recipe-files.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
@@ -34,6 +35,8 @@ export interface DoctorFacts {
   config?: string | undefined;
   /** Why foedrum.jsonc could not be read, when it is there and could not be. */
   configUnreadable?: string | undefined;
+  /** The Brewery's recipe and brewer files in the working directory (ADR 0053). */
+  brewery?: BreweryFiles | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
