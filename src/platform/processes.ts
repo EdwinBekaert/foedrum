@@ -177,7 +177,10 @@ export interface ChildHandle {
   readonly stdout: Readable;
   readonly stderr: Readable;
   on(event: 'error', listener: (error: Error) => void): unknown;
-  on(event: 'close', listener: (code: number | null) => void): unknown;
+  on(
+    event: 'close',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): unknown;
 }
 
 /** The clock for deadlines; unit tests pass a fake one. */
@@ -329,7 +332,10 @@ export interface StreamOptions {
   timeoutMs?: number | undefined;
   /** Kills the process and every process it started when it aborts. */
   signal?: AbortSignal | undefined;
-  /** As ExecOptions.jobObject (ADR 0039). */
+  /**
+   * As ExecOptions.jobObject (ADR 0039), but required on Windows: without it nothing starts and
+   * the answer is "not started" (ADR 0047). Ignored elsewhere.
+   */
   jobObject?: boolean | undefined;
   /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
   stdin?: string | undefined;
@@ -351,6 +357,8 @@ export interface StreamResult {
   stderr: string;
   /** Set when the runner killed the process and every process it started. */
   killed?: StreamKilled;
+  /** The signal that ended the process when the runner did not: a crash, the OOM killer. */
+  signal?: string;
 }
 
 export type StreamProcess = (
@@ -392,6 +400,12 @@ export const streamProcessWith =
       });
       if (signal?.aborted) {
         done({ exitCode: null, stderr, killed: 'stopped' });
+        return;
+      }
+      // Between the direct child's exit and the close of its pipes, a kill would use an exited
+      // pid, which taskkill /T cannot follow to the grandchildren (#128).
+      if (jobObjects && !jobObject) {
+        done(failed(`${file}: streamProcess runs a program only in a Job Object here (ADR 0039)`));
         return;
       }
       const program = resolve === undefined ? file : resolve(file, env);
@@ -438,8 +452,12 @@ export const streamProcessWith =
         timeoutMs === undefined ? undefined : timers.set(() => kill('timed-out'), timeoutMs);
       signal?.addEventListener('abort', stop, { once: true });
       // A program that exits before reading its input makes the write fail (EPIPE); how it ended
-      // says more than that.
-      if (stdin !== undefined && child.stdin) {
+      // says more than that. Without a pipe it would run without its input (#128).
+      if (stdin !== undefined) {
+        if (!child.stdin) {
+          end(failed(`${file}: no pipe to its stdin`));
+          return;
+        }
         child.stdin.on('error', () => {});
         child.stdin.end(stdin);
       }
@@ -497,7 +515,7 @@ export const streamProcessWith =
         else stderr += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
         closed = true;
         // A process the runner killed or stopped may close with a line it had only begun.
         if (!finished && pendingBytes > 0) endLine(pending, pendingBytes);
@@ -510,7 +528,8 @@ export const streamProcessWith =
         }
         if (held !== undefined) hand(held);
         if (finished) return;
-        finish({ exitCode: code, stderr });
+        // Ended by a signal the runner did not send: a crash, or the OOM killer.
+        finish({ exitCode: code, stderr, ...(signal === null ? {} : { signal }) });
       });
     });
 
