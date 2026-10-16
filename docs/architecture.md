@@ -121,8 +121,8 @@ A team often shares a target repository while every member has a private Brewery
 
 - **A work queue where a Brewery asks for it.** A repository with an **intake filter** (labels, optionally a milestone) has its open issues polled. The intake picks an issue that passes the filter, has no assignee or only this Brewery's own GitHub user (assign an issue to yourself and your Brewery picks it up), was opened by one of the Brewery's allow-listed users (§10), and has no batch in this Brewery in any lane (`isCandidate`, `src/engine/issue-claims.ts`).
 - **The claim** is the ref `refs/foedrum/claims/issues/<n>` in the target repository, created through the API: creating a ref that exists fails, so exactly one Brewery wins. It points at a commit whose message names the Brewery (`{"brewery","issue","claimedAt"}`, no host or user names). A ref that names this Brewery is its own claim, left by a run killed before it ordered the batch; any other ref, or one that cannot be read, skips the issue. The claim comes before the order, and is the second effect outside the idempotency ledger next to the state branch's push: it is idempotent by its own atomic creation, and `batch.ordered` records it.
-- **The marks** follow the order, through the ledger as effects of the batch (`claimEffectsDue`): the issue is assigned to the Brewery's user, labelled `foedrum: brewing`, and gets a status comment naming the Brewery and batch.
-- **Release** when the batch is cancelled or every pull request it opened is merged or closed: the label goes, a comment says why, and the ref is deleted if it still names this Brewery, only while it points at the commit that was read. The assignee stays. A silent Brewery's claim is never taken over automatically; a human releases it (delete the ref, unassign the issue).
+- **The marks** follow the order, through the ledger as effects of the batch (`claimEffectsDue`): the issue is assigned to the Brewery's user, labelled `foedrum:claimed` (the claim, not the lane: it stays through Stuck and Conditioning), and gets a claim comment naming the Brewery and batch, a comment of its own next to the status comment (§8).
+- **Release** when the batch is cancelled or every pull request it opened is merged or closed: the label goes, a release comment says why, and the ref is deleted if it still names this Brewery, only while it points at the commit that was read. The assignee stays. A silent Brewery's claim is never taken over automatically; a human releases it (delete the ref, unassign the issue).
 - Orders made in the Brewery and their sub-orders need no claim: nobody else can see them. Every branch pushed to a target repository carries the Brewery (§3.4), so two Breweries never push the same branch.
 
 **Triage.** Issues filed in target repositories configured as triage sources (bug reports, user requests) go to the Infection check recipe instead. It reads them — selected by repository and label/filter, by explicit references, or on a schedule — reproduces the problem in a clean worktree, confirms the root cause at file and line, and records the findings as one or more **orders in the Brewery** that link back to the source issue. It stops there: it never fixes, assigns, labels or closes anything in the target repository. Commenting a link back on the source issue is an opt-in setting.
@@ -355,7 +355,7 @@ On GitHub, for the autonomous driver and asynchronous teammates:
 
 - One **status comment** per order, edited in place: recipe (as a Mermaid diagram with the current step highlighted), steps, state, assumptions brewers made, cost.
 - A **GitHub Projects board** with one column per lane serves as the kanban view until the Brewhouse dashboard (M6).
-- **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`.
+- **Labels** mirror lanes: `foedrum:brewing`, `foedrum:stuck`, `foedrum:on-tap`. A claimed target-repository issue also carries `foedrum:claimed` until its claim is released (§3.3).
 - **Commands** in comments, from allow-listed users only, processed exactly once (the comment id is the idempotency key) and acknowledged with a reaction: 👀 received, 🚀 done, 😕 rejected with the reason in the status comment.
 
 ## 9. Testing strategy
@@ -509,4 +509,4 @@ refs/foedrum/claims/issues/<n>       the claim on an issue a Brewery took from i
 foedrum/<owner>.<name>/<rest>        branches, prefixed with the Brewery that pushed them (§3.4)
 ```
 
-On a claimed issue it also gets the Brewery's assignee, the `foedrum: brewing` label while the batch brews, and status comments (§3.3).
+On a claimed issue it also gets the Brewery's assignee, the `foedrum:claimed` label until the claim is released, and claim and release comments (§3.3).
