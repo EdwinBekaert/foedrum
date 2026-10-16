@@ -42,7 +42,7 @@ const replayHint = (seed: number): string =>
  * code under test. The stack too: the test runner prints the stack, which holds the message as it
  * was when the error was made.
  */
-const noted = (error: unknown, text: string): unknown => {
+export const noted = (error: unknown, text: string): unknown => {
   if (!(error instanceof Error)) return new Error(`${String(error)}\n${text}`, { cause: error });
   const { message } = error;
   error.message = `${message}\n${text}`;
@@ -58,6 +58,20 @@ export const forEachSeed = (runs: number, property: (seed: number) => void): voi
   for (let seed = firstSeed; seed < firstSeed + runCount(runs); seed++) {
     try {
       property(seed);
+    } catch (error) {
+      throw noted(error, replayHint(seed));
+    }
+  }
+};
+
+/** `forEachSeed` for a property that runs asynchronously, one seed after the other. */
+export const forEachSeedAsync = async (
+  runs: number,
+  property: (seed: number) => Promise<void>,
+): Promise<void> => {
+  for (let seed = firstSeed; seed < firstSeed + runCount(runs); seed++) {
+    try {
+      await property(seed);
     } catch (error) {
       throw noted(error, replayHint(seed));
     }
@@ -196,16 +210,16 @@ const rest = (fields: object, shown: readonly string[]): string => {
   return Object.keys(left).length === 0 ? '' : ` ${JSON.stringify(left)}`;
 };
 
-const describeCommand = (command: Command): string =>
+export const describeCommand = (command: Command): string =>
   command.kind === 'record'
     ? `record ${describeEvent(command.event)}`
     : `${command.kind} ${'batchId' in command ? command.batchId : ''}${rest(command, ['kind', 'batchId', 'by', 'via'])}`;
 
-const describePlay = ({ attempt, play }: Scenario['plays'][number]): string =>
+export const describePlay = ({ attempt, play }: Scenario['plays'][number]): string =>
   `${attempt.batchId} ${attempt.stepId}#${attempt.attempt}: ${play.kind}${rest(play, ['kind'])}`;
 
 /** One event on one line: its type, batch, step and attempt, then its other fields. */
-const describeEvent = (event: Event): string => {
+export const describeEvent = (event: Event): string => {
   const parts: string[] = [event.type];
   if ('batchId' in event) parts.push(event.batchId);
   if ('stepId' in event && 'attempt' in event) parts.push(`${event.stepId}#${event.attempt}`);
