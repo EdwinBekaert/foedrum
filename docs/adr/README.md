@@ -36,6 +36,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0030](0030-only-commands-that-change-state-are-recorded.md) | Only commands that change state are recorded (amends 0019) | Accepted |
 | [0031](0031-cmd-and-bat-files-through-cmd-exe.md) | `.cmd` and `.bat` files start through cmd.exe | Accepted |
 | [0032](0032-routing-deadline-for-ordered-batches.md) | A routing deadline for Ordered batches (amends 0025 and 0027) | Accepted |
+| [0033](0033-the-process-runner-kills-at-an-output-limit.md) | The process runner kills a process at an output limit | Accepted |
 
 ## Template
 
