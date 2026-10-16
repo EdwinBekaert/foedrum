@@ -5,7 +5,8 @@
 // clean. Exit 1: one line per problem on stdout.
 // It sees direct imports only: a test that starts a process through a script it imports is not
 // caught here. Review is the backstop: the per-file budget (scripts/test-budget-reporter.ts)
-// counts only the test process's own CPU time (ADR 0035), not the process it waits for.
+// counts only the test process's own CPU time (ADR 0036), not the process it waits for. #111
+// closes the gap: the CPU time preload refuses child_process calls in npm test's processes.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
