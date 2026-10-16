@@ -7,7 +7,7 @@ import { claimRef, same } from '../engine/issue-claims.ts';
 import { GitHubComment, GitHubError, GitHubIssue } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
-import type { GitHubReads } from './reads.ts';
+import { type GitHubReads, pageSize } from './reads.ts';
 
 export interface GitHubIssueMarksOptions {
   client: GitHubClient;
@@ -71,7 +71,7 @@ export const githubIssueMarks = (options: GitHubIssueMarksOptions): IssueMarks =
     },
     findComment: async (repo, issue, marker, signal) => {
       const what = `the comments of ${repo}#${issue}`;
-      const path = `${issuePath(repo, issue)}/comments?per_page=100`;
+      const path = `${issuePath(repo, issue)}/comments?per_page=${pageSize}`;
       for (const item of await reads.pages(path, what, signal)) {
         const comment = checked(GitHubComment, item, what);
         // Keys are predictable: a comment by anyone else never counts.

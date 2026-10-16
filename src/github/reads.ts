@@ -9,9 +9,16 @@ import type { GitHubAnswer, GitHubClient } from './client.ts';
 export interface GitHubReadsOptions {
   /** How many answers the cache keeps; the least recently used goes first. Default 256. */
   maxEntries?: number;
-  /** How many pages one list may have; more fails the read. Default 50 (5,000 items). */
+  /** How many pages one list may have; more fails the read. Default 500 (5,000 items). */
   maxPages?: number;
 }
+
+/**
+ * How many items a list asks for per page. Anyone who can open an issue or comment on a public
+ * repository can write a body of 65,536 characters, up to 6 bytes each in JSON, so a page of 10
+ * stays under the client's 4 MiB answer limit, and long bodies cannot stop a read (ADR 0052).
+ */
+export const pageSize = 10;
 
 export interface GitHubReads {
   /** A GET of `path`, conditional on the answer before; a 304 answers that one as 200. */
@@ -40,7 +47,7 @@ export const createGitHubReads = (
   options: GitHubReadsOptions = {},
 ): GitHubReads => {
   const maxEntries = positive(options.maxEntries ?? 256, 'maxEntries');
-  const maxPages = positive(options.maxPages ?? 50, 'maxPages');
+  const maxPages = positive(options.maxPages ?? 500, 'maxPages');
   // The last answer with an ETag of each path, least recently used first.
   const cache = new Map<string, { etag: string; answer: GitHubAnswer }>();
 

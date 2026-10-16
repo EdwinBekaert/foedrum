@@ -7,7 +7,7 @@ import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
 import { Repo } from '../schemas/events.ts';
 import { GitHubIssue, GitHubPullRequest } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
-import type { GitHubReads } from './reads.ts';
+import { type GitHubReads, pageSize } from './reads.ts';
 
 /** What the intake reads of an issue GitHub listed. */
 const targetIssue = (body: unknown, what: string): TargetIssue => {
@@ -35,7 +35,7 @@ const pullRequestOf = (url: string): { repo: string; number: number } => {
 export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
   issues: async (repo, signal) => {
     const what = `the open issues of ${repo}`;
-    const path = `/repos/${repoPath(repo)}/issues?state=open&sort=created&direction=asc&per_page=100`;
+    const path = `/repos/${repoPath(repo)}/issues?state=open&sort=created&direction=asc&per_page=${pageSize}`;
     const items = await reads.pages(path, what, signal);
     return items.map((item) => targetIssue(item, what));
   },
