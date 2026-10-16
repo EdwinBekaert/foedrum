@@ -5,7 +5,8 @@
 // coverage thresholds or a test that fails anyway, which all fail npm test.
 //
 // A file that fails to load is reported by the runner as a failed test named after the file.
-// Suites, skipped and todo tests are left out.
+// Skipped and todo tests are left out, and so are suites, unless one fails on its own (a hook
+// threw).
 
 import { relative, sep } from 'node:path';
 import type { TestEvent } from './test-budget-reporter.ts';
@@ -32,7 +33,13 @@ export const outcomesReporter = ({ cwd }: { cwd: string }) =>
         names.length = nesting;
         names.push(name);
       } else if (type === 'test:pass' || type === 'test:fail') {
-        if (data?.details?.type === 'suite' || data?.skip || data?.todo) continue;
+        if (data?.skip || data?.todo) continue;
+        // A suite counts only when it failed on its own (a hook threw), not when it passed or
+        // failed because its tests did, which are written already.
+        const failureType = data?.details?.error?.failureType;
+        const failedOnItsOwn =
+          type === 'test:fail' && failureType !== undefined && failureType !== 'subtestsFailed';
+        if (data?.details?.type === 'suite' && !failedOnItsOwn) continue;
         const test = [...names.slice(0, nesting), name];
         const path = relative(cwd, file).split(sep).join('/');
         yield `${JSON.stringify({ file: path, test, ok: type === 'test:pass' })}\n`;
