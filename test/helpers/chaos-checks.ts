@@ -1,9 +1,17 @@
 // The checks every chaos run must pass (#15, ADR 0033), for the chaos tests to share.
 
 import assert from 'node:assert/strict';
+import { check } from '../../src/engine/admit.ts';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
-import { type ChaosChecks, type ChaosRun, effectsDue, progressComment } from './chaos.ts';
+import { emptyState, type State } from '../../src/engine/fold.ts';
+import {
+  type ChaosChecks,
+  type ChaosEngine,
+  type ChaosRun,
+  effectsDue,
+  progressComment,
+} from './chaos.ts';
 import { running } from './simulation.ts';
 
 /**
@@ -70,11 +78,15 @@ export const nothingOverdue = (run: ChaosRun): void => {
 /**
  * Nothing waits for a driver that is gone: every scheduled attempt is started and every effect due
  * is in the ledger, except in a batch a driver that is down holds. Once that lease expired, the
- * other driver takes the batch over (ADR 0044).
+ * other driver takes the batch over (ADR 0044). And except in a batch a terminal command changed
+ * in this move: one that came after the drivers' last drive waits for their next (ADR 0044).
  */
 export const nothingLeftWaiting = (run: ChaosRun): void => {
   const { engine } = run;
   const waiting = heldByTheDown(run);
+  for (const { move, batchId } of engine.interjections) {
+    if (move === run.moves.length) waiting.add(batchId);
+  }
   const state = engine.state();
   for (const batch of state.batches.values()) {
     if (waiting.has(batch.id) || batch.lane.kind !== 'brewing') continue;
@@ -91,6 +103,26 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
     const text = effectKey.encode(key);
     assert.ok(state.effects.has(text), `effect ${text} is due and not in the ledger`);
   }
+};
+
+// What the guard has accepted of each run's log so far, so each check reads only the new events.
+const guarded = new WeakMap<ChaosEngine, { state: State; lastId: number }>();
+
+/**
+ * The log holds: every committed event is one the guard accepts after the events before it, as
+ * when it was decided. Two writers that decided on what they read before their transaction would
+ * append events the guard refuses (ADR 0044).
+ */
+export const theLogHolds = ({ engine }: ChaosRun): void => {
+  const seen = guarded.get(engine) ?? { state: emptyState, lastId: 0 };
+  const stored = engine.store().eventsAfter(seen.lastId);
+  for (const { id, event } of stored) {
+    const checked = check(seen.state, event);
+    if (checked.kind === 'refused') assert.fail(`event ${id} breaks the log: ${checked.reason}`);
+    seen.state = checked.state;
+    seen.lastId = id;
+  }
+  guarded.set(engine, seen);
 };
 
 /** I2 across restarts: the leases a killed engine left behind count too. */

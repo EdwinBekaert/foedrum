@@ -13,6 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
+import type { Command, EngineCommand } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { type DriverLock, DriverRunningError } from '../../src/engine/driver-lock.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -30,6 +31,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from './brewing.ts';
 import {
   generateScenario,
+  human,
   type Move,
   type MoveSource,
   type Play,
@@ -47,7 +49,7 @@ import {
   forEachSeedAsync,
   noted,
 } from './property.ts';
-import { behaviourOf, recipes, reminderMs, routingMs, t0 } from './simulation.ts';
+import { behaviourOf, isLive, recipes, reminderMs, routingMs, t0 } from './simulation.ts';
 
 export const killPoints = [
   'in a transaction',
@@ -147,16 +149,20 @@ const killer = (plan: KillPlan) => {
   };
 };
 
+/** What the harness watches in a driver's store. */
+interface StoreWatch {
+  /** A batch lease the driver read in a transaction. */
+  read(lease: BatchLease | undefined): void;
+  /** Called as the driver begins a transaction, after it read what it decides on. */
+  beginning(): void;
+}
+
 /**
  * The store as the driver of `life` sees it: `inner` with a kill point before every write in a
  * transaction and after every commit. A kill in a transaction throws inside it, so the store rolls
  * it back: what a database shows after its process died with a transaction open.
  */
-const killableStore = (
-  inner: EventStore,
-  life: Life,
-  read: (lease: BatchLease | undefined) => void = () => {},
-): EventStore => {
+const killableStore = (inner: EventStore, life: Life, watch: StoreWatch): EventStore => {
   const writes = (tx: EventStoreTransaction): EventStoreTransaction => ({
     append: (event) => {
       life.point('in a transaction');
@@ -173,7 +179,7 @@ const killableStore = (
     batchLease: (batchId) => {
       life.alive();
       const lease = tx.batchLease(batchId);
-      read(lease);
+      watch.read(lease);
       return lease;
     },
     putBatchLease: (lease) => {
@@ -202,6 +208,7 @@ const killableStore = (
   return {
     withTransaction: (fn) => {
       life.alive();
+      watch.beginning();
       const result = inner.withTransaction((tx) => fn(writes(tx)));
       life.point('after a commit');
       return result;
@@ -398,6 +405,16 @@ export interface Loss {
   running: string[];
 }
 
+/** A command the terminal issued as a driver began a transaction: between its read and its append. */
+export interface Interjection {
+  move: number;
+  /** The driver whose transaction it came before. */
+  driver: string;
+  batchId: string;
+  command: Command;
+  accepted: boolean;
+}
+
 export interface ChaosOptions {
   /** The owners of the drivers on the store; default one, `cellar`. Each takes every batch. */
   drivers?: readonly string[];
@@ -439,6 +456,10 @@ export interface ChaosEngine {
   readonly losses: readonly Loss[];
   /** The attempts whose runs a driver stopped, by attempt key, with the driver. */
   readonly stops: readonly { driver: string; key: string }[];
+  /** Every command the terminal issued between a driver's read and its append. */
+  readonly interjections: readonly Interjection[];
+  /** The commands of drivers that were refused in a move with an interjection before them. */
+  readonly moot: readonly { driver: string; command: EngineCommand; reason: string }[];
   close(): void;
 }
 
@@ -467,6 +488,8 @@ export const openChaosEngine = async (
   const notices: { driver: string; notice: DriverNotice }[] = [];
   const losses: Loss[] = [];
   const stops: { driver: string; key: string }[] = [];
+  const interjections: Interjection[] = [];
+  const moot: { driver: string; command: EngineCommand; reason: string }[] = [];
   const acts: Act[] = [];
   const contests: Contest[] = [];
   const takeovers: Takeover[] = [];
@@ -496,6 +519,22 @@ export const openChaosEngine = async (
   // on (ADR 0044).
   const stalling: Random | undefined =
     drivers.length > 1 ? seededRandom(plan.seed ^ 0x57_a11) : undefined;
+  // With several drivers, the terminal now and then issues a human command on a live batch as a
+  // driver begins a transaction: after it read the events and before it appends (ADR 0044).
+  const interjecting: Random | undefined =
+    drivers.length > 1 ? seededRandom(plan.seed ^ 0x7e_a1) : undefined;
+  const interject = (driver: string): void => {
+    if (interjecting === undefined || !interjecting.chance(0.02)) return;
+    const live = [...terminal.state().batches.values()].filter(isLive);
+    if (live.length === 0) return;
+    const batchId = interjecting.pick(live).id;
+    const kind = interjecting.chance(0.2)
+      ? 'cancel'
+      : interjecting.pick(['retry', 'skip'] as const);
+    const command: Command = { kind, batchId, ...human };
+    const accepted = terminal.issue(command, now).kind === 'accepted';
+    interjections.push({ move, driver, batchId, command, accepted });
+  };
   const pause = async (): Promise<void> => {
     for (let turns = interleaving?.int(3) ?? 0; turns > 0; turns--) {
       await new Promise((resolve) => setImmediate(resolve));
@@ -549,6 +588,12 @@ export const openChaosEngine = async (
       const runner = runnerOf(life);
       const report = (notice: DriverNotice): void => {
         notices.push({ driver: owner, notice });
+        if (
+          notice.kind === 'refused' &&
+          interjections.some((i) => i.move === move && i.driver === owner)
+        ) {
+          moot.push({ driver: owner, command: notice.command, reason: notice.reason });
+        }
         if (notice.kind !== 'batch_lost') return;
         const { batchId } = notice;
         const ran = [...runner.running].filter(([, ref]) => ref.batchId === batchId);
@@ -560,7 +605,7 @@ export const openChaosEngine = async (
       };
       try {
         const driver = await openDriver({
-          store: killableStore(outside, life, read),
+          store: killableStore(outside, life, { read, beginning: () => interject(owner) }),
           runner,
           recipes,
           clock: () => now,
@@ -701,6 +746,8 @@ export const openChaosEngine = async (
     downs,
     losses,
     stops,
+    interjections,
+    moot,
     get found() {
       return host.found;
     },
@@ -832,6 +879,13 @@ const report = ({ engine, scenario, moves }: ChaosRun): string => {
     numbered(
       engine.downs.map(
         ({ driver, why, from, until }) => `${driver} ${why}, from move ${from} until move ${until}`,
+      ),
+    ),
+    "Terminal commands between a driver's read and its append:",
+    numbered(
+      engine.interjections.map(
+        ({ move, driver, command, accepted }) =>
+          `in move ${move}, before ${driver}: ${describeCommand(command)}, ${accepted ? 'accepted' : 'refused'}`,
       ),
     ),
     'Moves:',

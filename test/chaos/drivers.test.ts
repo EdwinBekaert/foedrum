@@ -15,7 +15,7 @@ import {
   openChaosEngine,
   runChaos,
 } from '../helpers/chaos.ts';
-import { nothingLeftWaiting, restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
+import { nothingLeftWaiting, restsWithEffectsOnce, theLogHolds } from '../helpers/chaos-checks.ts';
 import { generateScenario, recording, type Scenario } from '../helpers/event-sequences.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -49,11 +49,12 @@ const noOverlap = ({ host }: ChaosRun): void => {
   assert.deepStrictEqual(host.overlaps, [], 'calls for one effect key overlapped');
 };
 
-/** What two drivers competing for batches must keep: after every move, and at the end. */
+/** What two drivers and a terminal writing to one store must keep: after every move, and at the end. */
 const competing = (run: ChaosRun): void => {
   startsOnce(run);
   underItsLease(run);
   noOverlap(run);
+  theLogHolds(run);
 };
 
 /** Who started each attempt, by attempt key. */
@@ -109,6 +110,13 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
     engine.stops.some(({ driver, key }) =>
       engine.losses.some((loss) => loss.driver === driver && loss.running.includes(key)),
     ),
+  // A terminal command between a driver's read and its append: the command log decides on the
+  // latest events, so the driver's command is refused or decided on them, and the log never
+  // breaks (every read folds it).
+  "a terminal command accepted between a driver's read and its append": (engine) =>
+    engine.interjections.some(({ accepted }) => accepted),
+  "a driver's command refused after a terminal command came before it": (engine) =>
+    engine.moot.length > 0,
 };
 
 describe('two drivers on one store', () => {
@@ -135,7 +143,7 @@ describe('two drivers on one store', () => {
   /** How many seeds the coverage test may try before it fails. */
   const maxSeeds = 30;
 
-  it('reach every case of #107: competing drivers, a takeover, a batch lost while it ran', async () => {
+  it('reach every case of #107', async () => {
     const wanted = Object.keys(goals);
     const seen = new Set<string>();
     // Fixed seeds, the first ones until every goal is reached: what the harness reaches does not
