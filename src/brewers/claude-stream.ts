@@ -55,11 +55,29 @@ const SHELLS = new Set(['Bash', 'PowerShell']);
  * Whether a shell command runs `git … commit`: `commit` after `git` within one command between
  * separators. The command is model output, so each test is linear (review of #133).
  */
-const commits = (command: string): boolean =>
-  command.split(/[\n;&|]/).some((part) => {
-    const git = part.search(/\bgit\b/);
-    return git !== -1 && /\bcommit\b/.test(part.slice(git));
-  });
+const commits = (command: string): boolean => command.split(/[\n;&|]/).some(runsCommit);
+
+/** git's global options that take the next word as their value (unless given with `=`). */
+const VALUED = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env']);
+
+/**
+ * Whether one simple command is `git … commit`: after variables, git itself (by any path, with or
+ * without `.exe`), then its global options, the first word is `commit` (#134).
+ */
+const runsCommit = (part: string): boolean => {
+  // Words, with a quoted word as one; each pattern is linear.
+  const words = (part.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((word) =>
+    /^(["']).*\1$/s.test(word) ? word.slice(1, -1) : word,
+  );
+  let at = 0;
+  while (at < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at] ?? '')) at += 1;
+  if (!/(?:^|[\\/])git(?:\.exe)?$/i.test(words[at] ?? '')) return false;
+  at += 1;
+  while (at < words.length && (words[at] ?? '').startsWith('-')) {
+    at += VALUED.has(words[at] ?? '') ? 2 : 1;
+  }
+  return words[at] === 'commit';
+};
 
 const writes = (name: string, input: Record<string, unknown>): boolean =>
   WRITERS.has(name) ||
