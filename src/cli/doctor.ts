@@ -43,11 +43,25 @@ export interface Problem {
   fix: string;
 }
 
+export type ContainerName = 'podman' | 'docker';
+
 export interface Diagnosis {
   tools: readonly ToolLine[];
   isolation: { level: IsolationLevel; why: string };
-  /** A container runtime, which makes the optional container level possible. */
-  container: { name: 'podman' | 'docker'; version: string | undefined; path: string } | undefined;
+  /**
+   * The container runtime that makes the optional container level possible; one that is on PATH
+   * but does not answer its version is not usable, with what it said first.
+   */
+  container:
+    | { name: ContainerName; version: string; path: string; usable: true }
+    | {
+        name: ContainerName;
+        version: undefined;
+        path: string;
+        usable: false;
+        said: string | undefined;
+      }
+    | undefined;
   advice: readonly string[];
   problems: readonly Problem[];
   /** No required problem. */
@@ -65,6 +79,13 @@ const WSL2_ADVICE =
 const versionOf = (run: ToolRun | undefined): string | undefined =>
   run?.exitCode === 0 ? /\d+(?:\.\d+)+/.exec(run.output)?.[0] : undefined;
 
+/** What a tool, or the runner that could not start it, said first. */
+const firstLine = (run: ToolRun): string | undefined =>
+  run.output
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line !== '');
+
 const toolLine = (name: ToolName, run: ToolRun | undefined): ToolLine => ({
   name,
   version: versionOf(run),
@@ -80,11 +101,7 @@ const isTooOld = (node: string): boolean => {
 const requiredProblems = (name: 'git' | 'claude', run: ToolRun | undefined, fix: string) => {
   if (run === undefined) return [{ required: true, what: `${name} not found`, fix }];
   if (versionOf(run) === undefined) {
-    // What the tool, or the runner that could not start it, said first.
-    const said = run.output
-      .split('\n')
-      .map((line) => line.trim())
-      .find((line) => line !== '');
+    const said = firstLine(run);
     return [
       {
         required: true,
@@ -186,11 +203,22 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ),
     ...sandboxProblems,
   ];
-  // Podman first: it runs without a daemon or root.
-  const [container] = (['podman', 'docker'] as const).flatMap((name) => {
-    const run = tools[name];
-    return run === undefined ? [] : [{ name, version: versionOf(run), path: run.path }];
-  });
+  // Podman first: it runs without a daemon or root. One that does not answer its version (a
+  // runtime waiting for its daemon) is passed over for the next; when none answers, the first
+  // is reported as not usable.
+  const containers = (['podman', 'docker'] as const).flatMap(
+    (name): NonNullable<Diagnosis['container']>[] => {
+      const run = tools[name];
+      if (run === undefined) return [];
+      const version = versionOf(run);
+      return [
+        version === undefined
+          ? { name, version, path: run.path, usable: false, said: firstLine(run) }
+          : { name, version, path: run.path, usable: true },
+      ];
+    },
+  );
+  const container = containers.find((found) => found.usable) ?? containers[0];
   return {
     tools: [
       { name: 'node', version: facts.node, path: undefined },
@@ -234,7 +262,9 @@ export const formatDiagnosis = ({
     ...advice.map((line) => `  ${line}`),
     container === undefined
       ? 'Container: no Podman or Docker (optional)'
-      : `Container: ${container.name} ${container.version ?? 'of unknown version'} at ${container.path}; the container level is available`,
+      : container.usable
+        ? `Container: ${container.name} ${container.version} at ${container.path}; the container level is available`
+        : `Container: ${container.name} at ${container.path} does not answer its version${container.said === undefined ? '' : ` (${container.said})`}; the container level is not available`,
     '',
   ];
   if (problems.length > 0) {
