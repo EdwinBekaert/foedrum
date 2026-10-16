@@ -2,7 +2,15 @@
 // with the runner's own settings file, its prompt on stdin, inside a Job Object on Windows, and
 // reads its stream line by line. What it saw goes through settleAttempt, as with the fake.
 
-import { closeSync, fstatSync, lstatSync, openSync, readSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import { attemptKey } from '../engine/attempt-key.ts';
 import {
@@ -14,6 +22,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { pathInside } from '../platform/paths.ts';
 import {
   DEFAULT_MAX_OUTPUT_BYTES,
   type StreamProcess,
@@ -58,7 +67,7 @@ export interface ClaudeRunnerDeps {
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Reads the out doc only inside `root`, the worktree. */
-    readOutDoc: (file: string, maxBytes: number, root?: string) => OutDocRead;
+    readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
   };
   now: () => Date;
 }
@@ -83,17 +92,25 @@ const lastLine = (text: string): string =>
     .filter((line) => line !== '')
     .at(-1) ?? '';
 
-/** Reads an out doc of at most `maxBytes`, and only a regular file. */
-export function readOutDocFile(file: string, maxBytes: number, _root?: string): OutDocRead {
+/** Reads an out doc of at most `maxBytes`, only a regular file, and only inside `root`. */
+export function readOutDocFile(file: string, maxBytes: number, root: string): OutDocRead {
   const tooLarge: OutDocRead = { kind: 'unread', reason: `it is larger than ${maxBytes} bytes` };
+  const notAFile: OutDocRead = { kind: 'unread', reason: 'it is not a regular file' };
   try {
     const found = lstatSync(file, { throwIfNoEntry: false });
     if (found === undefined) return { kind: 'missing' };
     // A link could point the out doc, which reaches the event log, at any file of the machine.
-    if (!found.isFile()) return { kind: 'unread', reason: 'it is not a regular file' };
-    const fd = openSync(file, 'r');
+    if (!found.isFile()) return notAFile;
+    // So could a linked folder on its path (a junction needs no privilege on Windows), or `..`.
+    if (pathInside(realpathSync(root), realpathSync(file)) === undefined) {
+      return { kind: 'unread', reason: 'it is outside the worktree' };
+    }
+    // Where the platform has it, a link swapped in since the checks is not followed (ADR 0047).
+    const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
-      if (fstatSync(fd).size > maxBytes) return tooLarge;
+      const opened = fstatSync(fd);
+      if (!opened.isFile()) return notAFile;
+      if (opened.size > maxBytes) return tooLarge;
       // Never more than the limit, even when the file grew since.
       const buffer = Buffer.alloc(maxBytes + 1);
       const length = readSync(fd, buffer, 0, maxBytes + 1, 0);
@@ -111,9 +128,10 @@ export function readOutDocFile(file: string, maxBytes: number, _root?: string): 
 const exitOf = (result: StreamResult): ProcessExit => {
   switch (result.killed) {
     case undefined:
-      return result.exitCode === null
-        ? { kind: 'unstartable', reason: cut(result.stderr.trim()) }
-        : { kind: 'exited', code: result.exitCode };
+      if (result.exitCode !== null) return { kind: 'exited', code: result.exitCode };
+      // A crash or the OOM killer on macOS and Linux: it ran, so it is retried.
+      if (result.signal !== undefined) return { kind: 'killed', signal: result.signal };
+      return { kind: 'unstartable', reason: cut(result.stderr.trim()) };
     case 'stopped':
     case 'timed-out':
       return { kind: 'stopped' };
@@ -211,7 +229,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       }
       const seen = stream.facts();
       const exit = exitOf(result);
-      const out = deps.files.readOutDoc(resolve(plan.cwd, limits.outDoc.file), MAX_OUT_DOC_BYTES);
+      const out = deps.files.readOutDoc(
+        resolve(plan.cwd, limits.outDoc.file),
+        MAX_OUT_DOC_BYTES,
+        plan.cwd,
+      );
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         exit,

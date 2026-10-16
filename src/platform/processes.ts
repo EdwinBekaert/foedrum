@@ -512,7 +512,7 @@ export const streamProcessWith =
         else stderr += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
         closed = true;
         // A process the runner killed or stopped may close with a line it had only begun.
         if (!finished && pendingBytes > 0) endLine(pending, pendingBytes);
@@ -525,7 +525,8 @@ export const streamProcessWith =
         }
         if (held !== undefined) hand(held);
         if (finished) return;
-        finish({ exitCode: code, stderr });
+        // Ended by a signal the runner did not send: a crash, or the OOM killer.
+        finish({ exitCode: code, stderr, ...(signal === null ? {} : { signal }) });
       });
     });
 
