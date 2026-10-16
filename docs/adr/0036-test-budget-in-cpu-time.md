@@ -1,4 +1,4 @@
-# 0035. The per-file test budget is CPU time
+# 0036. The per-file test budget is CPU time
 
 Date: 2026-10-16 · Status: Accepted · Amends [0021](0021-unit-tests-spawn-no-processes.md)
 
@@ -17,7 +17,7 @@ The budget is meant to catch a file that is costly, not a machine that is busy.
 ## Consequences
 - Load from other sessions or the check's other steps no longer fails the budget, so it no longer blocks a push. A file that does more work than the budget allows still fails `npm test`, `npm run check` and the gate, whatever the load.
 - A file that only waits (real timers, a slow disk) passes, however long it takes. The 20 s goal for the whole check, the list's wall column and review catch that.
-- The budget no longer catches a process that slipped into a unit test: the process's CPU time is its own, and waiting for it costs the test process almost none. The test-layer guard (`scripts/check-test-layers.ts`) still catches a test that imports `node:child_process` or the process runner; one that starts a process through a module it imports is left to review, until the preload also refuses process starts in the layers `npm test` runs (a follow-up).
+- The budget no longer catches a process that slipped into a unit test: the process's CPU time is its own, and waiting for it costs the test process almost none. The test-layer guard (`scripts/check-test-layers.ts`) still catches a test that imports `node:child_process` or the process runner; one that starts a process through a module it imports is left to review, until the preload also refuses process starts in the layers `npm test` runs (a follow-up, #111).
 - CPU time is not quite load-free: on a machine with simultaneous multithreading, a busy sibling core makes the same work take more CPU time. The effect is much smaller than the queueing that stretches wall time, and the budget keeps its margin (the costliest unit file used about 3.5 s on a quiet machine).
 - Garbage collection and coverage threads count, so a file's CPU time can be higher than its wall time.
 - `npm test` depends on two more files and on `node:test` passing a root `after` hook's diagnostic on with the file. The integration test runs the reporters and the preload under the real runner and fails when that changes.
