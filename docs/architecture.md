@@ -83,7 +83,7 @@ Foedrum separates three roles that GitHub happens to play all at once in 1.0:
 
 The user chooses a tracker and a code host per Brewery (`foedrum.jsonc`), and they may differ (for example Jira orders, GitHub pull requests).
 
-**Design rule: a tracker is intake and projection only.** The event store is the source of truth; Foedrum reads orders and commands from the tracker and writes status back to it, but never synchronises workflow state two ways. Tracker-specific concepts (issue types, workflow transitions, re-parenting, key renames) are mapped at the edge, in the adapter, and never leak into the engine. Two-way tracker synchronisation is the most expensive part of an orchestrator to build and keep correct; this rule keeps adapters small. The claim on a target-repository issue (§3.3) is no exception: its ref is the one fact Breweries share, and the engine only creates and deletes it, never reads workflow state back from it.
+**Design rule: a tracker is intake and projection only.** The event store is the source of truth; Foedrum reads orders and commands from the tracker and writes status back to it, but never synchronises workflow state two ways. Tracker-specific concepts (issue types, workflow transitions, re-parenting, key renames) are mapped at the edge, in the adapter, and never leak into the engine. Two-way tracker synchronisation is the most expensive part of an orchestrator to build and keep correct; this rule keeps adapters small. The claim on a target-repository issue (§3.3) is no exception: its ref is the one fact Breweries share: the engine creates it, reads only its record to tell its own claim from another's, and deletes it, and never reads workflow state back from it.
 
 ### 3.2 Work breakdown: orders, sub-orders and bottles
 
@@ -119,10 +119,10 @@ Bottle C  web       #104 → PR
 
 A team often shares a target repository while every member has a private Brewery, so several Breweries pick issues from one repository ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
 
-- **A work queue where a Brewery asks for it.** A repository with an **intake filter** (labels, optionally a milestone) has its open issues polled. The intake picks an issue that passes the filter, has no assignee or only this Brewery's own GitHub user (assign an issue to yourself and your Brewery picks it up), and has no batch in this Brewery in any lane (`isCandidate`, `src/engine/issue-claims.ts`).
+- **A work queue where a Brewery asks for it.** A repository with an **intake filter** (labels, optionally a milestone) has its open issues polled. The intake picks an issue that passes the filter, has no assignee or only this Brewery's own GitHub user (assign an issue to yourself and your Brewery picks it up), was opened by one of the Brewery's allow-listed users (§10), and has no batch in this Brewery in any lane (`isCandidate`, `src/engine/issue-claims.ts`).
 - **The claim** is the ref `refs/foedrum/claims/issues/<n>` in the target repository, created through the API: creating a ref that exists fails, so exactly one Brewery wins. It points at a commit whose message names the Brewery (`{"brewery","issue","claimedAt"}`, no host or user names). A ref that names this Brewery is its own claim, left by a run killed before it ordered the batch; any other ref, or one that cannot be read, skips the issue. The claim comes before the order, and is the second effect outside the idempotency ledger next to the state branch's push: it is idempotent by its own atomic creation, and `batch.ordered` records it.
 - **The marks** follow the order, through the ledger as effects of the batch (`claimEffectsDue`): the issue is assigned to the Brewery's user, labelled `foedrum: brewing`, and gets a status comment naming the Brewery and batch.
-- **Release** when the batch is cancelled or every pull request it opened is merged or closed: the label goes, a comment says why, and the ref is deleted if it still names this Brewery. The assignee stays. A silent Brewery's claim is never taken over automatically; a human releases it (delete the ref, unassign the issue).
+- **Release** when the batch is cancelled or every pull request it opened is merged or closed: the label goes, a comment says why, and the ref is deleted if it still names this Brewery, only while it points at the commit that was read. The assignee stays. A silent Brewery's claim is never taken over automatically; a human releases it (delete the ref, unassign the issue).
 - Orders made in the Brewery and their sub-orders need no claim: nobody else can see them. Every branch pushed to a target repository carries the Brewery (§3.4), so two Breweries never push the same branch.
 
 **Triage.** Issues filed in target repositories configured as triage sources (bug reports, user requests) go to the Infection check recipe instead. It reads them — selected by repository and label/filter, by explicit references, or on a schedule — reproduces the problem in a clean worktree, confirms the root cause at file and line, and records the findings as one or more **orders in the Brewery** that link back to the source issue. It stops there: it never fixes, assigns, labels or closes anything in the target repository. Commenting a link back on the source issue is an opt-in setting.
@@ -504,5 +504,9 @@ Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.m
 **A target repository** receives only what its bottles bring, plus:
 
 ```
-.foedrum/house-yeast/   repository-layer rules (one Markdown file per rule), committed in bottles (§12b)
+.foedrum/house-yeast/                repository-layer rules (one Markdown file per rule), committed in bottles (§12b)
+refs/foedrum/claims/issues/<n>       the claim on an issue a Brewery took from it (§3.3, ADR 0043)
+foedrum/<owner>.<name>/<rest>        branches, prefixed with the Brewery that pushed them (§3.4)
 ```
+
+On a claimed issue it also gets the Brewery's assignee, the `foedrum: brewing` label while the batch brews, and status comments (§3.3).
