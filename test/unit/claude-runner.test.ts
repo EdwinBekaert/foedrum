@@ -289,9 +289,9 @@ describe('claudeBrewerRunner', () => {
     assert.deepEqual(read[0]?.root, '/work/tree');
   });
 
-  // ADR 0042: refused arguments exit 1. On Windows a crash before the first line exits with an
-  // NTSTATUS code, and is a crash to retry, not the environment (review of #133).
-  it('fails, retryably, when claude crashed before its first line with another code than 1', async () => {
+  // On Windows a crash before the first line exits with an NTSTATUS code, past any code claude
+  // exits with: a crash to retry, not the environment (review of #133).
+  it('fails, retryably, when claude crashed before its first line with a Windows crash status', async () => {
     const { runner } = setup({ lines: [], result: exited(3221225477) }, { outDoc: undefined });
     const end = await runner.start(attempt).ended;
     assert.deepEqual(end.ending, {
