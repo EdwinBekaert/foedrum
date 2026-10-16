@@ -384,7 +384,7 @@ describe('forbiddenReason', () => {
   ];
   for (const command of merges) {
     it(`forbids merging a pull request: ${command}`, () => {
-      assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
     });
   }
 
@@ -509,7 +509,7 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
   ];
   for (const command of merges) {
     it(`forbids merging a pull request: ${command}`, () => {
-      assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
     });
   }
 
@@ -628,7 +628,7 @@ describe('forbiddenReason and isGatedCommand on disguises caught before #42', ()
   }
 
   it('forbids merging a pull request: gh pr "merge" 30', () => {
-    assert.match(forbiddenReason('gh pr "merge" 30') ?? '', /gh pr merge/);
+    assert.match(forbiddenReason('gh pr "merge" 30') ?? '', /^`gh pr merge` is blocked/);
   });
 
   it('gates: X=$(date) git push', () => {
@@ -794,7 +794,7 @@ describe('forbiddenReason on the bypasses found in review', () => {
 
   for (const command of ['$null = gh pr merge 30', 'if true; then gh pr merge 30; fi']) {
     it(`forbids merging a pull request: ${command}`, () => {
-      assert.match(forbiddenReason(command) ?? '', /gh pr merge/);
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
     });
   }
 });
@@ -808,7 +808,7 @@ describe('precheck limits and pre-filter', () => {
 
   // A Bash call that never spells git, gh, push or pwsh still reaches the parser.
   const hidden: [command: string, reason: RegExp][] = [
-    ["a=$(printf '\\x67h'); $a pr merge 30", /gh pr merge/],
+    ["a=$(printf '\\x67h'); $a pr merge 30", /^`gh pr merge` is blocked/],
     [`powershell -enc ${Buffer.from('git push -f', 'utf16le').toString('base64')}`, /force push/i],
   ];
   for (const [command, reason] of hidden) {

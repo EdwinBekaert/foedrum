@@ -60,7 +60,8 @@ describe('startupWarnings', () => {
     ['a bare Glob rule', { allow: ['Glob'] }],
     ['a trailing wildcard', { allow: ['Bash(git log *)', 'PowerShell(npm run *)'] }],
     ['the :* suffix', { allow: ['Bash(ls:*)'] }],
-    ['a * glued to the end of a word', { ask: ['Bash(gh api * -X*)'] }],
+    ['a * glued to the end of a word', { allow: ['Bash(git log -X*)'] }],
+    ['a * before a later word in ask', { ask: ['Bash(gh api * -X*)'] }],
     [
       'a parameter rule on another field',
       { deny: ['Agent(isolation:worktree)', 'Bash(run_in_background:true)'] },
