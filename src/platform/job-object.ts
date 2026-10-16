@@ -23,6 +23,14 @@ export const windowsArgument = (argument: string): string => {
   return `"${argument.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
 };
 
+/**
+ * An environment as the block CreateProcessW takes with CREATE_UNICODE_ENVIRONMENT: name=value
+ * entries sorted by name without regard to case, each ended by NUL, and one more NUL.
+ */
+export const windowsEnvironmentBlock = (_env: NodeJS.ProcessEnv): string => {
+  throw new Error('not implemented');
+};
+
 /** What the helper passes to CreateProcess: the file it starts, and its whole command line. */
 export interface JobObjectLine {
   application: string;

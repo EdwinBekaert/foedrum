@@ -181,23 +181,31 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     );
   });
 
-  // Windows PowerShell gives itself a PSModulePath when it has none; the program must not get it.
-  // Only the names of the variables that differ are compared, so a failure never prints a value
-  // of the environment (a token, in CI).
-  it("gives the program the caller's environment, not PowerShell's", async () => {
+  // The program gets exactly the caller's environment, never the helper's: Windows PowerShell gives
+  // itself PSModulePath and PATHEXT when it has none, and a later version may add others. Only the
+  // names of the variables that differ are compared, so a failure never prints a value of the
+  // environment (a token, in CI).
+  it("gives the program exactly the caller's environment, not PowerShell's", async () => {
     const script = 'process.stdout.write(JSON.stringify(process.env))';
-    const caller = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'psmodulepath'),
+    const caller: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] =>
+          entry[1] !== undefined && !['psmodulepath', 'pathext'].includes(entry[0].toLowerCase()),
+      ),
     );
-    for (const env of [caller, { ...caller, PSModulePath: 'C:\\only\\mine' }]) {
-      const run = async (jobObject: boolean): Promise<Record<string, string>> =>
-        JSON.parse(
-          (await execProcess(process.execPath, ['-e', script], { cwd: dir.path, env, jobObject }))
-            .stdout,
-        );
-      const [direct, held] = [await run(false), await run(true)];
-      const names = new Set([...Object.keys(direct), ...Object.keys(held)]);
-      const differ = [...names].filter((name) => direct[name] !== held[name]);
+    for (const env of [
+      caller,
+      { ...caller, PSModulePath: 'C:\\only\\mine', FOEDRUM_PROBE: 'José ✓ "quoted" = sign' },
+    ]) {
+      const result = await execProcess(process.execPath, ['-e', script], {
+        cwd: dir.path,
+        env,
+        jobObject: true,
+      });
+      assert.equal(result.exitCode, 0, result.stderr);
+      const held: Record<string, string> = JSON.parse(result.stdout);
+      const names = new Set([...Object.keys(env), ...Object.keys(held)]);
+      const differ = [...names].filter((name) => env[name] !== held[name]);
       assert.deepEqual(differ, []);
     }
   });

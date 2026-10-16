@@ -5,7 +5,12 @@
 import assert from 'node:assert/strict';
 import { win32 } from 'node:path';
 import { describe, it } from 'node:test';
-import { jobObjectCommand, jobObjectLine, windowsArgument } from '../../src/platform/job-object.ts';
+import {
+  jobObjectCommand,
+  jobObjectLine,
+  windowsArgument,
+  windowsEnvironmentBlock,
+} from '../../src/platform/job-object.ts';
 import { spawnCommand } from '../../src/platform/processes.ts';
 
 describe('windowsArgument', () => {
@@ -94,11 +99,23 @@ describe('jobObjectCommand', () => {
     assert.match(script(args), /CreateProcessW/);
   });
 
-  // The program gets the environment it was given and nothing of the helper's.
-  it("passes the command's environment on unchanged", () => {
-    assert.equal(jobObjectCommand(git, 'D:\\work\\tree').env, git.env);
-    const npm = spawnCommand('C:\\nodejs\\npm.cmd', [], 'win32', env);
-    assert.equal(jobObjectCommand(npm, 'D:\\work\\tree').env, npm.env);
+  // The program gets the caller's environment as a block of its own (CREATE_UNICODE_ENVIRONMENT),
+  // which reaches the helper in a variable of the helper's environment: on the command line it
+  // would take about 3.6 characters of the 32,767 for each of its own (ADR 0039).
+  it("gives the helper the command's environment as a block, beside its own", () => {
+    const helper = jobObjectCommand(git, 'D:\\work\\tree');
+    const { FOEDRUM_JOB_ENVIRONMENT: block, ...rest } = helper.env;
+    assert.deepEqual(rest, git.env);
+    assert.equal(decoded(block ?? ''), windowsEnvironmentBlock(git.env));
+  });
+
+  it('keeps the command line as long, however large the environment', () => {
+    const length = (command: typeof git): number => {
+      const { file, args } = jobObjectCommand(command, 'D:\\work\\tree');
+      return [file, ...args].join(' ').length;
+    };
+    const large = { ...git, env: { ...git.env, LARGE: 'x'.repeat(10_000) } };
+    assert.equal(length(large), length(git));
   });
 
   // PowerShell runs in System32, so nothing in a repository's folder can take part in it; the
@@ -150,5 +167,33 @@ describe('jobObjectCommand', () => {
     const { file, args } = jobObjectCommand(git, 'D:\\work\\tree');
     const length = [file, ...args].join(' ').length;
     assert.ok(length < 12_000, `the helper's command line takes ${length} characters`);
+  });
+});
+
+describe('windowsEnvironmentBlock', () => {
+  // What CreateProcessW takes as lpEnvironment with CREATE_UNICODE_ENVIRONMENT: name=value
+  // entries, sorted by name without regard to case, each ended by NUL, and one more NUL.
+  it('lists every variable as name=value, sorted without regard to case, ended by two NULs', () => {
+    assert.equal(
+      windowsEnvironmentBlock({ b: '2', A: '1', Path: 'C:\\bin', c: 'x=y' }),
+      'A=1\0b=2\0c=x=y\0Path=C:\\bin\0\0',
+    );
+  });
+
+  it('leaves out a variable without a value', () => {
+    assert.equal(windowsEnvironmentBlock({ A: '1', B: undefined }), 'A=1\0\0');
+  });
+
+  // As node's spawn does on Windows, where names differ only in case: the first in sorted order.
+  it('keeps one of the names that differ only in case, the first in sorted order', () => {
+    assert.equal(windowsEnvironmentBlock({ Path: 'b', PATH: 'a' }), 'PATH=a\0\0');
+  });
+
+  it('is two NULs for an empty environment', () => {
+    assert.equal(windowsEnvironmentBlock({}), '\0\0');
+  });
+
+  it('keeps every character of a value', () => {
+    assert.equal(windowsEnvironmentBlock({ X: 'José ✓ "q"' }), 'X=José ✓ "q"\0\0');
   });
 });
