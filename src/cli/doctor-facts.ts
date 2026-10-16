@@ -15,8 +15,7 @@ const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
   docker: ['--version'],
 };
 
-// A version command answers at once; one that hangs (a container runtime waiting for its
-// daemon) must not hold doctor up.
+// A version command answers at once; one that hangs must not hold doctor up.
 const VERSION_TIMEOUT_MS = 10_000;
 // A container runtime that does not answer at once is usually waiting for its daemon, and then
 // not usable anyway (#99).

@@ -43,7 +43,7 @@ export interface Problem {
   fix: string;
 }
 
-export type ContainerName = 'podman' | 'docker';
+type ContainerName = 'podman' | 'docker';
 
 export interface Diagnosis {
   tools: readonly ToolLine[];
