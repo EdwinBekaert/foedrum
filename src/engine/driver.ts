@@ -10,7 +10,7 @@ import type {
   CleanReport,
 } from '../workspace/attempt-worktrees-git.ts';
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
-import { holdBatch, releaseBatch } from './batch-leases.ts';
+import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
@@ -30,6 +30,12 @@ export interface DriverEffects {
   /** The effects that the recorded events of `batchId` call for (ADR 0033). */
   due(state: State, batchId: string): EffectKey[];
   target: EffectTarget;
+  /**
+   * How long one effect may take before the driver gives it up and aborts it: whole milliseconds
+   * below `leaseMs`, half of it by default. The lease is renewed before each effect, not during
+   * one, so a slower effect could let a second driver start it too (ADR 0044, #130).
+   */
+  deadlineMs?: number;
 }
 
 /** What the driver reports instead of failing: it keeps driving. */
@@ -118,7 +124,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     limits,
     worktrees,
     effects,
-    leaseMs = 5 * 60_000,
+    leaseMs = defaultLeaseMs,
     reminderMs = defaultReminderMs,
     routingMs = defaultRoutingMs,
     report: reportTo = () => {},
@@ -129,6 +135,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       reportTo(notice);
     } catch {}
   };
+  const deadlineMs = effects?.deadlineMs ?? Math.floor(leaseMs / 2);
   const lock = options.lock();
   const { owner } = lock;
   const log = createCommandLog({ store, recipes, reminderMs, routingMs });
@@ -141,6 +148,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   // The batches it holds: at its start, those its owner held before, which it drives on.
   let held: Set<string>;
   try {
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs >= leaseMs) {
+      throw new RangeError(
+        `The deadline of an effect must be a whole number of milliseconds below the lease of ${leaseMs} ms, got ${deadlineMs}`,
+      );
+    }
     started = await startDriver({ store, lock, now: clock(), cleanup });
     held = new Set(
       store
@@ -347,6 +359,32 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     },
   };
 
+  /** Runs `work` until `deadlineMs`, then aborts its signal and rejects, whether it stops or not. */
+  const withinDeadline = async <T>(
+    key: EffectKey,
+    work: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> => {
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(
+          `The effect ${effectKey.encode(key)} took longer than its deadline of ${deadlineMs} ms`,
+        );
+        controller.abort(error);
+        reject(error);
+      }, deadlineMs);
+    });
+    const working = work(controller.signal);
+    // What it does after the deadline is no longer awaited: never an unhandled rejection.
+    working.catch(() => {});
+    try {
+      return await Promise.race([working, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
   // and passes of this driver run one after another (ADR 0033).
   const applyPass = async (): Promise<void> => {
@@ -357,7 +395,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         heartbeat();
         if (!claim(batch.id)) break;
         try {
-          await applyEffect(ledger, key, effects.target);
+          await withinDeadline(key, (signal) => applyEffect(ledger, key, effects.target, signal));
         } catch (error) {
           report({ kind: 'effect_failed', key, error });
           break;
