@@ -44,7 +44,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0038](0038-npm-test-processes-refuse-process-starts.md) | npm test's processes refuse to start processes (amends 0021 and 0036) | Accepted |
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted |
-| [0042](0042-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted |
+| [0043](0043-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted |
 
 ## Template
 
