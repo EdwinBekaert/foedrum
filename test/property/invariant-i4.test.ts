@@ -7,7 +7,7 @@ import { emptyState, fold } from '../../src/engine/fold.ts';
 import type { AttemptEffectKey } from '../../src/schemas/store.ts';
 import { holdsInScenarios } from '../helpers/property.ts';
 
-it('I4: every side effect is keyed (batch, step, attempt, effect) and applied at most once', () =>
+it('I4: every side effect of an attempt is keyed (batch, step, attempt, effect) and applied at most once', () =>
   holdsInScenarios({
     atEnd: (engine) => {
       const applied = new Set<string>();
