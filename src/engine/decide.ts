@@ -5,6 +5,7 @@
 import type {
   Answer,
   Event,
+  OrderRef,
   StuckOption,
   StuckReason,
   Surface,
@@ -54,6 +55,8 @@ export type RecordedEvent = Extract<
 /** The commands the engine issues itself: the drivers and the supervisor. */
 export type EngineCommand =
   | { kind: 'record'; event: RecordedEvent }
+  /** A new batch of an order or sub-order, Ordered until it is routed by its deadline (ADR 0032). */
+  | { kind: 'order'; batchId: string; order: OrderRef; parentBatchId?: string }
   | { kind: 'route'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | {
       kind: 'finish';
@@ -77,6 +80,8 @@ export type EngineCommand =
       turnsWithoutProgress: number;
     }
   | { kind: 'wait'; batchId: string; on: WaitCondition }
+  /** The supervisor found an Ordered batch past its routing deadline (ADR 0032). */
+  | { kind: 'unrouted'; batchId: string }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string };
 
@@ -87,6 +92,8 @@ export interface Context {
   recipes: Recipes;
   /** How long a Conditioning or Stuck batch waits before the next reminder, in milliseconds. */
   reminderMs: number;
+  /** How long an Ordered batch may wait to be routed, in milliseconds (ADR 0032). */
+  routingMs: number;
 }
 
 /** The options a Stuck batch offers for `reason`. */
@@ -159,6 +166,9 @@ function run(draft: Draft, command: Command): Event[] {
     case 'record':
       draft.push(command.event);
       break;
+    case 'order':
+    case 'unrouted':
+      throw new Error('not implemented');
     case 'route': {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
       const { batchId, recipe, reason, source } = command;

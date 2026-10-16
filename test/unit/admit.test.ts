@@ -415,6 +415,50 @@ function decomposed101(): Event {
   };
 }
 
+describe('admit routing deadlines (ADR 0032)', () => {
+  const routing: Event = {
+    type: 'batch.stuck',
+    batchId: 'b1',
+    reason: { kind: 'routing', deadlineAt: '2026-12-31T00:00:00.000Z' },
+    options: ['retry', 'recipe', 'cancel'],
+    remindAt,
+  };
+  const stuckOnRouting = [ordered, routing];
+  const reordered: Event = { ...resumed, routeBy: '2027-01-01T01:00:00.000Z' };
+
+  it('gets an Ordered batch, and only an Ordered one, Stuck on routing, never at a step', () => {
+    assert.equal(admit(fold(lanes.ordered), [routing]).kind, 'accepted');
+    refused(lanes.ordered, stuck, /batch b1 is ordered; batch.stuck needs it brewing or stuck/);
+    refused(lanes.brewing, routing, /batch b1 is brewing; batch.stuck needs it ordered or stuck/);
+    refused(lanes.conditioning, routing, /batch b1 is conditioning/);
+  });
+
+  it('reminds a batch Stuck on routing, and keeps a batch Stuck at a step there', () => {
+    assert.equal(admit(fold(stuckOnRouting), [routing]).kind, 'accepted');
+    refused(lanes.stuck, routing, /batch b1 is stuck at a step \(needs_input\), not on routing/);
+    refused(stuckOnRouting, stuck, /batch b1 is stuck on routing, not at a step/);
+  });
+
+  it('gives a retry of a batch Stuck on routing a routing deadline, and no other resume', () => {
+    assert.equal(admit(fold(stuckOnRouting), [reordered]).kind, 'accepted');
+    refused(
+      stuckOnRouting,
+      resumed,
+      /batch b1 goes back to ordered; its retry needs a routing deadline/,
+    );
+    refused(
+      stuckOnRouting,
+      { ...reordered, action: 'recipe' },
+      /batch b1 goes on brewing; its recipe takes no routing deadline/,
+    );
+    refused(
+      lanes.stuck,
+      reordered,
+      /batch b1 goes on brewing; its retry takes no routing deadline/,
+    );
+  });
+});
+
 describe('admit keeps a sub-order in its repository', () => {
   const breakdown = (repo: string): Event => ({
     type: 'order.decomposed',

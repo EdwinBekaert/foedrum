@@ -29,6 +29,8 @@ export interface BrewingOptions {
   leaseMs?: number;
   /** Default 2 days. */
   reminderMs?: number;
+  /** Default 1 hour. */
+  routingMs?: number;
 }
 
 export const defaultLimits: AttemptLimits = {
@@ -44,6 +46,7 @@ export const createBrewing = (options: BrewingOptions) => {
     limits = () => defaultLimits,
     leaseMs = 5 * 60_000,
     reminderMs = 2 * 24 * 3_600_000,
+    routingMs = 3_600_000,
   } = options;
   const refusals: string[] = [];
   const notices: Notice[] = [];
@@ -58,6 +61,7 @@ export const createBrewing = (options: BrewingOptions) => {
     clock,
     timer: { set: () => 0, clear: () => {} },
     reminderMs,
+    routingMs,
     report: (notice) => notices.push(notice),
   });
 
@@ -78,7 +82,7 @@ export const createBrewing = (options: BrewingOptions) => {
 
   /** Decides `command` and appends its events with `also`'s writes; false when it is refused. */
   const command = (cmd: Command, also: (tx: EventStoreTransaction) => void = () => {}) => {
-    const decision = decide(state(), cmd, { now: clock(), recipes, reminderMs });
+    const decision = decide(state(), cmd, { now: clock(), recipes, reminderMs, routingMs });
     if (decision.kind === 'refused') {
       refusals.push(decision.reason);
       return false;

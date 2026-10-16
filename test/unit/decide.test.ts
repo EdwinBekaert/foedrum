@@ -30,6 +30,7 @@ const withoutAnswer = ['retry', 'skip', 'recipe', 'rewind', 'cancel'] as const;
 const context: Context = {
   now,
   reminderMs: 2 * day,
+  routingMs: hour,
   recipes: fakeRecipes({
     pint: fakeRecipe({
       steps: ['plan', 'implement', 'green'],
@@ -215,6 +216,90 @@ describe('decide record', () => {
       dependencies: [],
     };
     refuses([], { kind: 'record', event: decomposed }, /batch b1 was never ordered/);
+  });
+});
+
+describe('decide order and unrouted: a routing deadline (ADR 0032)', () => {
+  const late: Event = { ...ordered, routeBy: '2026-10-15T11:00:00.000Z' };
+  const routing: StuckReason = { kind: 'routing', deadlineAt: '2026-10-15T11:00:00.000Z' };
+  const unroutable = ['retry', 'recipe', 'cancel'] as const;
+  const stuckOnRouting = [late, stuckOn(routing, unroutable)];
+
+  it('orders a batch, to be routed within the routing interval', () => {
+    accepts([], { kind: 'order', batchId: 'b1', order: { issue: 100 } }, [
+      { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 }, routeBy: inAnHour },
+    ]);
+  });
+
+  it('orders the batch of a sub-order with its parent batch', () => {
+    accepts(
+      [ordered],
+      { kind: 'order', batchId: 'b2', order: { issue: 101 }, parentBatchId: 'b1' },
+      [
+        {
+          type: 'batch.ordered',
+          batchId: 'b2',
+          order: { issue: 101 },
+          parentBatchId: 'b1',
+          routeBy: inAnHour,
+        },
+      ],
+    );
+  });
+
+  it('refuses a batch ordered twice', () => {
+    refuses([ordered], { kind: 'order', batchId: 'b1', order: { issue: 100 } }, /already ordered/);
+  });
+
+  it('offers retry, recipe and cancel for a batch Stuck on routing', () => {
+    assert.deepStrictEqual(stuckOptions(routing), [...unroutable]);
+  });
+
+  it('makes an Ordered batch past its routing deadline Stuck on routing', () => {
+    accepts([late], { kind: 'unrouted', batchId: 'b1' }, [stuckOn(routing, unroutable)]);
+  });
+
+  it('refuses an Ordered batch whose routing deadline is ahead', () => {
+    refuses(
+      [ordered],
+      { kind: 'unrouted', batchId: 'b1' },
+      /batch b1 is not due to be routed until 2026-12-31T00:00:00.000Z/,
+    );
+  });
+
+  for (const [lane, events] of otherLanes('ordered')) {
+    it(`refuses unrouted when the batch is ${lane}`, () => {
+      refuses(events, { kind: 'unrouted', batchId: 'b1' }, /unrouted needs it ordered/);
+    });
+  }
+
+  it('sends a batch Stuck on routing back to Ordered on retry, with a new routing deadline', () => {
+    const retry: Command = { kind: 'retry', batchId: 'b1', ...by };
+    accepts(stuckOnRouting, retry, [
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry', routeBy: inAnHour },
+    ]);
+  });
+
+  it('brews a batch Stuck on routing once a human chooses its recipe', () => {
+    const recipe: Command = { kind: 'recipe', batchId: 'b1', ...by, recipe: 'pint', reason: 'r' };
+    accepts(stuckOnRouting, recipe, [
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'pint',
+        reason: 'r',
+        source: 'human',
+        ...by,
+      },
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'recipe' },
+      next('plan'),
+    ]);
+  });
+
+  it('refuses to skip for a batch Stuck on routing: it has no step', () => {
+    const skip: Command = { kind: 'skip', batchId: 'b1', ...by };
+    refuses(stuckOnRouting, skip, /batch b1 does not offer skip/);
+    refuses([late, stuckOn(routing, ['skip', 'cancel'])], skip, /batch b1 has no step to skip/);
   });
 });
 

@@ -11,6 +11,14 @@ it('I5: a batch past its deadline becomes stuck within one supervisor tick', () 
       if (move.kind !== 'tick') return;
       const now = engine.now().getTime();
       for (const batch of before.batches.values()) {
+        const { lane: was } = batch;
+        // An ordered batch past its routing deadline (ADR 0032).
+        if (was.kind === 'ordered' && Date.parse(was.routeBy) <= now) {
+          const { lane } = engine.state().batches.get(batch.id) ?? batch;
+          assert.equal(lane.kind, 'stuck', `batch ${batch.id} after the tick`);
+          assert.equal(lane.reason.kind, 'routing', `why batch ${batch.id} is stuck`);
+          continue;
+        }
         // Only a brewing batch runs attempts: a cancelled one keeps its last attempt unfinished.
         if (batch.lane.kind !== 'brewing') continue;
         const late = running(batch).filter((attempt) => Date.parse(attempt.deadlineAt) <= now);

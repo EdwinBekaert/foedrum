@@ -28,11 +28,12 @@ const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'], stall: { turns: 60 } }),
 });
 
-const ordered = (batchId: string): Event => ({
+/** An Ordered batch, to be routed `routeBy` minutes from t0 (default a day). */
+const ordered = (batchId: string, routeBy = 24 * 60): Event => ({
   type: 'batch.ordered',
   batchId,
   order: { issue: Number(batchId.slice(1)) },
-  routeBy: '2026-12-31T00:00:00.000Z',
+  routeBy: iso(routeBy),
 });
 const brewing = (batchId: string, deadline: number, recipe = 'pint'): Event[] => [
   ordered(batchId),
@@ -122,11 +123,13 @@ const assertI1 = (store: EventStore, now: Date): void => {
         assert.equal(deadline, Date.parse(running[0]?.deadlineAt ?? ''), batch.id);
         break;
       }
+      case 'ordered':
+        assert.equal(deadline, Date.parse(lane.routeBy), batch.id);
+        break;
       case 'conditioning':
       case 'stuck':
         assert.equal(deadline, Date.parse(lane.remindAt), batch.id);
         break;
-      case 'ordered':
       case 'on_tap':
       case 'cancelled':
         break;
@@ -185,6 +188,25 @@ describe('createSupervisor', () => {
         options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
         remindAt: new Date(at(30).getTime() + 2 * day).toISOString(),
       });
+      assert.deepStrictEqual(notices, []);
+    });
+
+    it('makes an Ordered batch Stuck on routing within one tick of its routing deadline', async () => {
+      append(ordered('b1', 30));
+      const engine = supervisor();
+      now = at(29);
+      assert.equal((await engine.tick()).appended, 0);
+      assert.equal(batchOf(store, 'b1').lane.kind, 'ordered');
+
+      now = at(30);
+      assert.equal((await engine.tick()).appended, 1);
+      assert.deepStrictEqual(batchOf(store, 'b1').lane, {
+        kind: 'stuck',
+        reason: { kind: 'routing', deadlineAt: iso(30) },
+        options: ['retry', 'recipe', 'cancel'],
+        remindAt: new Date(at(30).getTime() + 2 * day).toISOString(),
+      });
+      assertI1(store, now);
       assert.deepStrictEqual(notices, []);
     });
 
