@@ -1,7 +1,8 @@
 // A node:test reporter that npm test runs next to spec: it reads how much CPU time each test file
 // used, prints the files that used the most, and fails the run when one file goes over the
 // budget. A costly file is a sign that real file system trees or too much work slipped into a unit
-// test (ADR 0021); the test-layer guard (scripts/check-test-layers.ts) covers process imports.
+// test (ADR 0021); the test-layer guard (scripts/check-test-layers.ts) and the preload's refusal
+// (scripts/refuse-process-starts.ts, ADR 0038) cover processes.
 //
 // The budget is CPU time, not wall time (ADR 0036): parallel steps of `npm run check` and other
 // sessions on the same machine stretch a file's wall time, so a wall-time budget failed pushes
