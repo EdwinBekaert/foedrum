@@ -43,7 +43,6 @@ export type RecordedEvent = Extract<
   Event,
   {
     type:
-      | 'batch.ordered'
       | 'step.started'
       | 'order.decomposed'
       | 'bottle.opened'
@@ -107,8 +106,9 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'waiting_for_session':
     case 'stalled':
       return [...withoutAnswer];
+    // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
-      throw new Error('not implemented');
+      return ['retry', 'recipe', 'cancel'];
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
@@ -166,9 +166,20 @@ function run(draft: Draft, command: Command): Event[] {
     case 'record':
       draft.push(command.event);
       break;
-    case 'order':
+    case 'order': {
+      const { batchId, order, parentBatchId } = command;
+      draft.push({
+        type: 'batch.ordered',
+        batchId,
+        order: { ...order },
+        ...(parentBatchId === undefined ? {} : { parentBatchId }),
+        routeBy: draft.after(draft.context.routingMs),
+      });
+      break;
+    }
     case 'unrouted':
-      throw new Error('not implemented');
+      unrouted(draft, command.batchId);
+      break;
     case 'route': {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
       const { batchId, recipe, reason, source } = command;
@@ -240,7 +251,12 @@ function run(draft: Draft, command: Command): Event[] {
     case 'retry': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'retry');
-      if (reason.kind === 'routing') throw new Error('not implemented');
+      if (reason.kind === 'routing') {
+        // Back to Ordered, for the intake to route again by a new deadline (ADR 0032).
+        const routeBy = draft.after(draft.context.routingMs);
+        draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry', routeBy });
+        break;
+      }
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
       schedule(draft, batchId, reason.stepId);
       break;
@@ -248,7 +264,7 @@ function run(draft: Draft, command: Command): Event[] {
     case 'skip': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'skip');
-      if (reason.kind === 'routing') throw new Error('not implemented');
+      if (reason.kind === 'routing') throw new Refusal(`batch ${batchId} has no step to skip`);
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
       continueAfter(draft, batchId, reason.stepId);
       break;
@@ -362,6 +378,17 @@ function retryOrStick(
   } else {
     schedule(draft, batchId, back);
   }
+}
+
+/** An Ordered batch past its routing deadline gets Stuck, so a human hears of it (ADR 0032). */
+function unrouted(draft: Draft, batchId: string): void {
+  const batch = draft.batch(batchId);
+  const { lane } = batch;
+  if (lane.kind !== 'ordered') throw new Refusal(notAllowed(batch, 'unrouted', ['ordered']));
+  if (draft.context.now.getTime() < Date.parse(lane.routeBy)) {
+    throw new Refusal(`batch ${batchId} is not due to be routed until ${lane.routeBy}`);
+  }
+  stick(draft, batchId, { kind: 'routing', deadlineAt: lane.routeBy });
 }
 
 /** A running attempt past its deadline makes the batch Stuck (invariant I5). */

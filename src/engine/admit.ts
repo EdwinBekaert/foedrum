@@ -89,9 +89,16 @@ function rule(state: State, event: Event): string | undefined {
         : `batch ${event.batchId} is not waiting for answers to step ${event.stepId}`;
     }
     case 'batch.stuck':
-      return lanes(state, event, ['brewing', 'stuck']);
+      // Stuck on routing only before a recipe, and on a step only after one (ADR 0032).
+      return event.reason.kind === 'routing'
+        ? (lanes(state, event, ['ordered', 'stuck']) ?? stuckOn(state, event.batchId, true))
+        : (lanes(state, event, ['brewing', 'stuck']) ?? stuckOn(state, event.batchId, false));
     case 'batch.resumed':
-      return lanes(state, event, ['stuck']) ?? offered(state, event.batchId, event.action);
+      return (
+        lanes(state, event, ['stuck']) ??
+        offered(state, event.batchId, event.action) ??
+        reordered(state, event)
+      );
     case 'batch.rewound':
       return (
         lanes(state, event, ['stuck']) ??
@@ -130,6 +137,32 @@ function offered(state: State, batchId: string, option: string): string | undefi
   return lane?.kind === 'stuck' && !lane.options.some((offer) => offer === option)
     ? `batch ${batchId} does not offer ${option}`
     : undefined;
+}
+
+/** Whether a Stuck batch is stuck on routing as `routing` says; other lanes pass. */
+function stuckOn(state: State, batchId: string, routing: boolean): string | undefined {
+  const lane = state.batches.get(batchId)?.lane;
+  if (lane?.kind !== 'stuck' || (lane.reason.kind === 'routing') === routing) return undefined;
+  return routing
+    ? `batch ${batchId} is stuck at a step (${lane.reason.kind}), not on routing`
+    : `batch ${batchId} is stuck on routing, not at a step`;
+}
+
+/**
+ * A retry of a batch Stuck on routing sends it back to Ordered, so it needs a new routing deadline;
+ * every other resume goes on brewing and has none (ADR 0032).
+ */
+function reordered(
+  state: State,
+  event: Extract<Event, { type: 'batch.resumed' }>,
+): string | undefined {
+  const lane = state.batches.get(event.batchId)?.lane;
+  const needs =
+    lane?.kind === 'stuck' && lane.reason.kind === 'routing' && event.action === 'retry';
+  if (needs === (event.routeBy !== undefined)) return undefined;
+  return needs
+    ? `batch ${event.batchId} goes back to ordered; its retry needs a routing deadline`
+    : `batch ${event.batchId} goes on brewing; its ${event.action} takes no routing deadline`;
 }
 
 /** Only an attempt that no later attempt replaced, and that Stuck did not abandon, may start or finish. */

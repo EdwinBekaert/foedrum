@@ -484,22 +484,11 @@ export const generateScenario = (seed: number, length = 40): MoveSource => {
     if (subOrder !== undefined && parentBatchId !== undefined) {
       const { issue } = subOrder;
       const batchId = nextBatchId(state, issue);
-      return record({
-        type: 'batch.ordered',
-        batchId,
-        order: { issue },
-        routeBy: '2026-12-31T00:00:00.000Z',
-        parentBatchId,
-      });
+      return command({ kind: 'order', batchId, order: { issue }, parentBatchId });
     }
     const orders = [...state.orders.keys()];
     const issue = orders.length > 0 && random.chance(0.2) ? random.pick(orders) : nextIssue++;
-    return record({
-      type: 'batch.ordered',
-      batchId: nextBatchId(state, issue),
-      order: { issue },
-      routeBy: '2026-12-31T00:00:00.000Z',
-    });
+    return command({ kind: 'order', batchId: nextBatchId(state, issue), order: { issue } });
   };
 
   /** A breakdown that keeps some sub-orders of the last one and adds new ones. */
