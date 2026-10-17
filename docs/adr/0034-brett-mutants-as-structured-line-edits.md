@@ -1,6 +1,6 @@
 # 0034. Brett's mutants are one-line structured edits, not patches
 
-Date: 2026-10-16 · Status: Accepted, amended by [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (scripts/ and what kills a mutant) · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md)
+Date: 2026-10-16 · Status: Accepted, amended by [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (scripts/ and what kills a mutant) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (mutants of touched files only) · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md)
 
 ## Context
 ADR 0017 has Brett propose each mutant "as a patch", which the engine applies in a disposable `scratch` tree. The review skill for Foedrum's own pull requests runs the same check by hand, and it showed that a model does not write reliable patches. In the review of PR #100, every patch Brett returned had malformed hunk headers (the line counts did not match the lines), so `git apply` rejected all of them. Each was a single-line substitution, and the review applied it as text by hand. Patches that do apply are not exact either: `git apply` slides a hunk to wherever its context matches, so a wrong line number goes unnoticed, and so would a hunk that lands on a different, similar line.

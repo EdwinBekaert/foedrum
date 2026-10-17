@@ -37,7 +37,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0031](0031-cmd-and-bat-files-through-cmd-exe.md) | `.cmd` and `.bat` files start through cmd.exe | Accepted |
 | [0032](0032-routing-deadline-for-ordered-batches.md) | A routing deadline for Ordered batches (amends 0025 and 0027) | Accepted |
 | [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) | Chaos tests: effects found by their key, and a driver's leases at its start (amends 0024) | Accepted, amended by 0037, 0043, 0044 and 0051 |
-| [0034](0034-brett-mutants-as-structured-line-edits.md) | Brett’s mutants are one-line structured edits, not patches (amends 0017) | Accepted, amended by 0040 |
+| [0034](0034-brett-mutants-as-structured-line-edits.md) | Brett’s mutants are one-line structured edits, not patches (amends 0017) | Accepted, amended by 0040 and 0054 |
 | [0035](0035-the-process-runner-kills-at-an-output-limit.md) | The process runner kills a process at an output limit | Accepted |
 | [0036](0036-test-budget-in-cpu-time.md) | The per-file test budget is CPU time (amends 0021) | Accepted, amended by 0038 and 0054 |
 | [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) | Attempt worktrees in the engine, the Brewery marker and driver locks (amends 0029 and 0033) | Accepted |
@@ -56,7 +56,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0050](0050-the-intake-of-target-repository-issues.md) | The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines (amends 0008, 0043 and 0044) | Accepted, amended by 0052 |
 | [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) | Chaos runs on the real driver, with two drivers and a terminal on one store (amends 0033 and 0044) | Accepted, amended by 0055 |
 | [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) | GitHub reads: conditional requests, rate-limit pauses and the polling interval (amends 0008 and 0050) | Accepted |
-| [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) | Test runs below normal priority, and review runs scoped to their question (amends 0036 and 0040) | Accepted |
+| [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) | Test runs below normal priority, and review runs scoped to their question (amends 0034, 0036 and 0040) | Accepted |
 | [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) | A step waits for the lease of its abandoned attempt (amends 0044 and 0051) | Accepted |
 | [0056](0056-the-gate-pre-filter-reads-the-command.md) | The local gate's pre-filter reads the command, not the whole hook input (amends 0045) | Accepted |
 
