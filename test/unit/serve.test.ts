@@ -249,6 +249,8 @@ describe('runServe', () => {
     };
     assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
     assert.ok(lines.includes('foedrum serve: a tick failed: the runner broke'), lines.join('\n'));
+    // It went on ticking after the failed tick, until it was stopped.
+    assert.ok(calls.filter((call) => call === 'wait 5000').length > 1, calls.join('\n'));
     assert.equal(lines.at(-1), 'foedrum serve: stopped');
   });
 
