@@ -122,6 +122,26 @@ describe('createAttemptPlans: plan', () => {
     assert.match(prompt, /source="file docs\/guide\.md" name="guide">\n# Guide\n/);
   });
 
+  it("gives a fresh attempt the answers to its step's questions as an in-doc, after the inputs (ADR 0006)", async () => {
+    const answered: Event = {
+      type: 'input.received',
+      batchId: '12-1',
+      stepId: 'brew',
+      by: 'octocat',
+      via: 'terminal',
+      answers: [
+        { q: 'Which flag?', answer: '--json' },
+        { q: 'Also for status?', answer: 'yes' },
+      ],
+    };
+    const { plans } = setup([...ordered, answered, started]);
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /source="file docs\/guide\.md" name="guide">[\s\S]*source="answers to the questions of step brew" name="answers">\nQ: Which flag\?\nA: --json\n\nQ: Also for status\?\nA: yes\n<\//,
+    );
+  });
+
   it('reads an input file of at most 1 MiB (review of #165)', async () => {
     const { plans, sizes } = setup();
     await plans.plan(start);
