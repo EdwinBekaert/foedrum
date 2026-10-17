@@ -87,7 +87,7 @@ describe('BreweryConfig', () => {
   );
   const invalid: [string, unknown][] = [
     ['no repositories', { permissionCeiling: [] }],
-    ['an unknown field', { repositories: {}, concurrency: 2 }],
+    ['an unknown field', { repositories: {}, parallelism: 2 }],
     ['a $schema that is not a string', { $schema: 1, repositories: {} }],
     ['a repository key that is not owner/name', { repositories: { web: { checks } } }],
     ['a repository key with a parent segment', { repositories: { 'acme/..': { checks } } }],
