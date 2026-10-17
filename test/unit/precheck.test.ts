@@ -1244,6 +1244,38 @@ describe('precheck on gh pr ready', () => {
     });
   }
 
+  for (const command of [
+    "gh api graphql -f query='query { viewer { login } }'",
+    "gh api graphql -F owner=o -f query='query($owner: String!) { repositoryOwner(login: $owner) { id } }'",
+    'gh api repos/o/r/pulls/160/commits',
+  ]) {
+    it(`lets a gh api read through without a lookup: ${command}`, async () => {
+      const { result, lookups } = await ready(command, facts([], [c1, c2, c3]));
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  it('runs the check, not the gh pr ready refusal, for a push in a command that sets GH_REPO', async () => {
+    const { result, checks } = await ready('GH_REPO=owner/other git push', facts([], [c1, c2, c3]));
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(checks, ['/work/tree']);
+  });
+
+  it('names the current branch when its pull request cannot be read', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const result = await precheck(
+      hookInput('gh pr ready', '/work/tree'),
+      runCheck,
+      async () => undefined,
+      async () => false,
+      async () => {
+        throw new Error('gh pr view exited 1: no pull requests found');
+      },
+    );
+    assert.match(result.stderr, /could not read pull request of the current branch/);
+  });
+
   it('names gh pr ready among the plain commands when a command nests too deeply', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(40)}gh pr ready 160`) ?? '', /gh pr ready/);
   });
@@ -1339,6 +1371,63 @@ describe('ghPullRequest', () => {
     assert.match(message, /^gh pr view exited 1: HTTP 502 /);
     assert.ok(message.length <= 300 && !message.includes('\n'), message.slice(0, 400));
   });
+
+  it('gives each gh call a deadline of at most 30 s', async () => {
+    const options: (RunOptions | undefined)[] = [];
+    const outcomes = [
+      { exitCode: 0, output: view },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ];
+    const runProcess: RunProcess = async (_file, _args, _cwd, given) => {
+      options.push(given);
+      return outcomes.shift() ?? { exitCode: null, output: '' };
+    };
+    await ghPullRequest(runProcess)('/work/tree', { pr: '160' });
+    assert.equal(options.length, 2);
+    for (const given of options) {
+      const timeoutMs = given?.timeoutMs ?? Number.POSITIVE_INFINITY;
+      assert.ok(timeoutMs > 0 && timeoutMs <= 30_000, String(timeoutMs));
+    }
+  });
+
+  it('reads the commits from the host and repository of the pull request URL', async () => {
+    const { calls, runProcess } = fakeGh([
+      {
+        exitCode: 0,
+        output: JSON.stringify({
+          number: 7,
+          url: 'https://ghe.example.com/acme/tool/pull/7',
+          headRefOid: 'c3',
+          comments: [],
+        }),
+      },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ]);
+    await ghPullRequest(runProcess)('/work/tree', {
+      pr: 'https://ghe.example.com/acme/tool/pull/7',
+    });
+    assert.deepEqual(calls[1]?.[1].slice(0, 5), [
+      'api',
+      '--hostname',
+      'ghe.example.com',
+      '--paginate',
+      'repos/acme/tool/pulls/7/commits?per_page=100',
+    ]);
+  });
+
+  for (const [name, output, reason] of [
+    ['is not JSON', 'Welcome to GitHub', /gh pr view did not answer with JSON: Welcome to GitHub/],
+    [
+      'lacks the head',
+      JSON.stringify({ number: 160, url: 'https://github.com/o/r/pull/160', comments: [] }),
+      /gh pr view answered without number, url, headRefOid and comments/,
+    ],
+  ] as const) {
+    it(`rejects, saying so, when gh pr view's answer ${name}`, async () => {
+      const { runProcess } = fakeGh([{ exitCode: 0, output }]);
+      await assert.rejects(ghPullRequest(runProcess)('/work/tree', { pr: '160' }), reason);
+    });
+  }
 
   it('rejects with what gh said when the commits cannot be read', async () => {
     const { runProcess } = fakeGh([
