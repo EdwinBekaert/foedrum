@@ -33,9 +33,21 @@ const pullRequestOf = (url: string): { repo: string; number: number } => {
 };
 
 export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
-  issues: async (repo, _filter, signal) => {
+  issues: async (repo, filter, signal) => {
     const what = `the open issues of ${repo}`;
-    const path = `/repos/${repoPath(repo)}/issues?state=open&sort=created&direction=asc&per_page=${pageSize}`;
+    const query = new URLSearchParams({
+      state: 'open',
+      sort: 'created',
+      direction: 'asc',
+      per_page: String(pageSize),
+    });
+    // GitHub's `labels` is a list split at commas, so a label with one cannot be named. The
+    // milestone stays local: GitHub takes its number, not the title the filter names (ADR 0068).
+    const labels = filter?.labels ?? [];
+    if (labels.length > 0 && labels.every((label) => !label.includes(','))) {
+      query.set('labels', labels.join(','));
+    }
+    const path = `/repos/${repoPath(repo)}/issues?${query}`;
     const items = await reads.pages(path, what, signal);
     return items.map((item) => targetIssue(item, what));
   },
