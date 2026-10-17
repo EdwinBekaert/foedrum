@@ -70,6 +70,14 @@ export interface Rewind {
   shas: Readonly<Record<string, string>>;
 }
 
+/**
+ * Where a batch's task tree is (ADR 0066): the branch of its latest attempt that succeeded with a
+ * worktree, or the commits of its latest rewind, whichever was recorded last.
+ */
+export type TaskTree =
+  | { kind: 'attempt'; stepId: string; attempt: number; repo: string }
+  | { kind: 'rewound'; shas: Readonly<Record<string, string>> };
+
 export interface Batch {
   id: string;
   /** The issue this batch brews: an order or a sub-order. */
@@ -85,6 +93,8 @@ export interface Batch {
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
   rewinds: readonly Rewind[];
+  /** Its task tree; absent while it is the repository's base (ADR 0066). */
+  taskTree?: TaskTree;
   /** How each of its pull requests ended that has ended, by URL; absent while none has. */
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
 }

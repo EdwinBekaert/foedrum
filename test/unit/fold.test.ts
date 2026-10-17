@@ -683,6 +683,87 @@ describe('fold', () => {
     });
   });
 
+  describe('the task tree (ADR 0066)', () => {
+    const worktree = (stepId: string, attempt: number) => ({
+      repo: 'acme/app',
+      path: `work/acme.app/attempts/b1/${stepId}/${attempt}`,
+      branch: `foedrum/b1/${stepId}/${attempt}`,
+      commit: 'c'.repeat(40),
+    });
+    const ran = (
+      stepId: string,
+      attempt: number,
+      outcome: Extract<Event, { type: 'step.finished' }>['outcome'],
+      withWorktree = true,
+    ): Event[] => [
+      { type: 'step.scheduled', batchId: 'b1', stepId, attempt, deadlineAt },
+      {
+        type: 'step.started',
+        batchId: 'b1',
+        stepId,
+        attempt,
+        ...(withWorktree ? { worktree: worktree(stepId, attempt) } : {}),
+      },
+      { type: 'step.finished', batchId: 'b1', stepId, attempt, outcome },
+    ];
+    const succeeded = { kind: 'succeeded', output: null } as const;
+    const failed = { kind: 'failed', retryable: true, reason: 'tests fail' } as const;
+    const stuck: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: {
+        kind: 'attempts_exhausted',
+        stepId: 'implement',
+        attempts: 2,
+        lastReason: 'tests fail',
+      },
+      options: ['rewind'],
+      remindAt: deadlineAt,
+    };
+    const rewound: Event = {
+      type: 'batch.rewound',
+      batchId: 'b1',
+      toStepId: 'plan',
+      by: 'octocat',
+      via: 'terminal',
+      shas: { 'acme/app': 'd'.repeat(40) },
+    };
+
+    it('is the latest attempt that succeeded with a worktree, in the order the finishes came', () => {
+      // A failure, and a success without a worktree, leave it at the base.
+      const before = [ordered, ...ran('plan', 1, failed), ...ran('plan', 2, succeeded, false)];
+      assert.equal(batch(fold(before)).taskTree, undefined);
+      const state = fold([
+        ...before,
+        ...ran('plan', 3, succeeded),
+        ...ran('implement', 1, succeeded),
+        // An onFail route back to plan: its new success is the latest.
+        ...ran('plan', 4, succeeded),
+        ...ran('implement', 2, failed),
+      ]);
+      assert.deepStrictEqual(batch(state).taskTree, {
+        kind: 'attempt',
+        stepId: 'plan',
+        attempt: 4,
+        repo: 'acme/app',
+      });
+    });
+
+    it('is the commits of a rewind, until an attempt succeeds after it', () => {
+      const rewind = [ordered, ...ran('plan', 1, succeeded), stuck, rewound];
+      assert.deepStrictEqual(batch(fold(rewind)).taskTree, {
+        kind: 'rewound',
+        shas: { 'acme/app': 'd'.repeat(40) },
+      });
+      assert.deepStrictEqual(batch(fold([...rewind, ...ran('plan', 2, succeeded)])).taskTree, {
+        kind: 'attempt',
+        stepId: 'plan',
+        attempt: 2,
+        repo: 'acme/app',
+      });
+    });
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
