@@ -1,6 +1,6 @@
 # 0063. `foedrum serve`: its configuration and wiring
 
-Date: 2026-10-17 · Status: Accepted · Amends [0012](0012-worktrees-from-local-clones.md) (where `source` and the base are set), [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) (a driver over several repositories) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (`close()` stops the runs)
+Date: 2026-10-17 · Status: Accepted · Amends [0012](0012-worktrees-from-local-clones.md) (where `source` and the base are set), [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) (a driver over several repositories) , [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (`close()` stops the runs) and [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (where the order's text comes from, when the settings files go, and what it left open for #162)
 
 ## Context
 Every piece of the Cellar exists: the driver lock and the work root's marker (ADR 0037), the state branch (ADR 0011, ADR 0024), the attempt worktrees (ADR 0029), the driver (ADR 0044), the recipe files (ADR 0053), the attempt plans and the real runner (ADR 0047, ADR 0059), and the GitHub reads (ADR 0052). Nothing sets them up from a Brewery's checkout and keeps them running. To do so, `foedrum serve` needs facts that no file holds yet: the Brewery's own `owner/name`, the work root, where each target repository's attempt worktrees come from and the base they start at, the models behind the brewers' aliases, and how to reach GitHub for the order's text.
@@ -32,20 +32,23 @@ In the Brewery's root, read against `ModelsConfig`. `serve` refuses to start wit
 ### GitHub and the order's text
 - The token is `GH_TOKEN`, else `GITHUB_TOKEN`, as `gh` reads them; `serve` refuses to start without one. It never reaches a brewer: a brewer's base environment is an allowlist (below).
 - The `order` input of a brewer is the body of the batch's issue, read through the GitHub reads of ADR 0052: `GET /repos/<repo>/issues/<n>` in the claimed issue's repository or the Brewery (`githubOrderText`, `src/github/order-text.ts`). A body GitHub answers as `null` is an empty text. A read that fails makes the plan fail, so the attempt fails without being retried (ADR 0059) and the batch goes Stuck with GitHub's reason; a human retries it.
-- A brewer's base environment is `serve`'s own, kept to what a process needs to start and what `claude` needs to find its login: `PATH`, `PATHEXT`, `SYSTEMROOT`, `WINDIR`, `COMSPEC`, `TEMP`, `TMP`, `TMPDIR`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `CLAUDE_CONFIG_DIR` and `ANTHROPIC_*` (`brewerBaseEnv`). The runner forces `npm_config_ignore_scripts=true` (brewers-and-recipes §1.1).
+- A brewer's base environment is `serve`'s own, kept to what a process needs to start and what `claude` needs to find its login: `PATH`, `PATHEXT`, `SYSTEMROOT`, `WINDIR`, `COMSPEC`, `TEMP`, `TMP`, `TMPDIR`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMDRIVE`, `PROGRAMFILES`, `PROGRAMDATA`, `HOMEDRIVE`, `HOMEPATH`, `USER`, `LOGNAME`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_GIT_BASH_PATH` and `ANTHROPIC_*`, compared as the platform compares names (`brewerBaseEnv`, `envNameKey`). None of them holds a secret but claude's own login. The runner forces `npm_config_ignore_scripts=true` (brewers-and-recipes §1.1).
 
 ### The wiring
-`foedrum serve`, run in the Brewery's checkout, does in this order (`src/cli/serve.ts`, over the pure `serveSetup` in `src/cli/serve-config.ts`):
+`foedrum serve`, run in the Brewery's checkout, does in this order (`src/cli/serve.ts`, over the pure `serveSetup` in `src/cli/serve-config.ts`, on the machine through `serveShell` in `src/cli/serve-shell.ts`, which takes git as a parameter):
 1. reads `foedrum.jsonc`, `.foedrum/local.jsonc`, `models.jsonc` and the recipe files, and stops with one line per problem, `doctor`'s line for recipes (ADR 0053), before it touches anything;
 2. takes the driver lock `cellar` on the work root (`lockDriver`), which checks its Brewery marker;
 3. opens the event store, `.foedrum/index.db`, making it when missing, and starts the state branch in `<workRoot>/state` (`openStateBranch().start()`), which rebuilds or catches up the store (ADR 0011, ADR 0024);
 4. opens each repository's attempt worktrees (making a managed clone first) and the driver (`openDriver`, which repairs the worktrees, ADR 0037) with `claudeBrewerRunner`, the attempt plans and their limits (ADR 0059);
 5. ticks the driver every 5 seconds, the supervisor's interval (ADR 0027), one tick after the other, and prints each notice as one line;
-6. on Ctrl+C (`SIGINT`, and `SIGTERM` where there is one) stops ticking, waits for the tick underway, closes the driver and the store, and exits 0. A `StateBranchStopError` from a tick stops it the same way and exits 1.
+6. on a stop signal (`SIGINT`, `SIGTERM`, `SIGHUP` and `SIGBREAK`, through `stopOnSignals`; a brewer leads a process group of its own, which a closed terminal does not reach) stops ticking, waits for the tick underway, closes the driver and the store, and exits 0. A `StateBranchStopError` from a tick stops it the same way and exits 1.
 
 **`close()` stops the runs.** A driver's `close()` stops every brewer run it still has, then lets its lock go (moved here from #130). The runs' ends are not recorded: the next start of the same owner expires their leases (ADR 0033) and the supervisor loses and retries those attempts.
 
 **Attempt settings files** go with the worktrees: the cleanup that removes an ended batch's worktrees also removes `<workRoot>/attempt-settings/<batch>/`, and the repair at a driver's start removes the folders of ended and unknown batches (`attemptSettingsCleaner`). A settings file is read once, when `claude` starts, so no live attempt needs it afterwards; a live batch keeps its folder anyway.
+
+### A program, not a command of the command layer
+`foedrum serve` runs until it is stopped; it is not an action a GitHub comment, the plugin or the dashboard could issue (ADR 0019). So it is not in the command registry, and a parity test between surfaces does not look for it: `runCli` hands it to the terminal's own `serve`, and `--help` lists it with the registry's commands.
 
 ### The open questions
 - **How an order reaches its first step before the intake runs in `serve`'s tick (#145).** `serve` brews the batches its store has, Ordered and routed: those on the state branch it rebuilds from, and those a terminal command or an interactive session records. It neither polls nor routes; ordering labelled issues and routing them by their `recipe:<name>` label is the intake's, in the same tick, with #145. So the end-to-end test puts an order and its route on the throwaway Brewery's state branch, as an earlier driver would have, and `serve` brews it from there.
@@ -54,7 +57,7 @@ In the Brewery's root, read against `ModelsConfig`. `serve` refuses to start wit
 
 ## Consequences
 - A Brewery runs `foedrum serve` in its checkout with a `brewery` in `foedrum.jsonc`, a `models.jsonc`, a token, and the path of each local clone in `.foedrum/local.jsonc`.
-- `foedrum.jsonc`'s JSON Schema gains `brewery`, `githubApi`, and `source` and `base` per repository; existing configs stay valid. `local.jsonc` has a schema of its own.
+- `foedrum.jsonc`'s JSON Schema gains `brewery`, `githubApi`, and `source` and `base` per repository; existing configs stay valid. `local.jsonc` has a zod schema of its own (`LocalConfig`) and no JSON Schema file: it holds a path and a map of paths, which editors need no help with.
 - `DriverOptions.worktrees` is a list of repositories instead of one.
 - `test/integration/serve.test.ts` runs `foedrum serve` as a process on a throwaway Brewery, against the fake Messages API and a fake GitHub, opt-in with `FOEDRUM_REAL_CLAUDE=1` (ADR 0057).
 - No intake and no effects run in `serve` yet (#145, and the code host's `EffectTarget`); routing by label is #145's.
