@@ -126,7 +126,8 @@ describe('createCheckRunner', () => {
       assert.equal(options.shell, true);
       // On Windows the whole tree goes with a kill, also what a test runner left (ADR 0039).
       assert.equal(options.jobObject, true);
-      assert.equal(options.timeoutMs, 30 * 60_000);
+      // Ten seconds short of the deadline: the kill and its grace end before a tick expires it.
+      assert.equal(options.timeoutMs, 30 * 60_000 - 10_000);
       assert.ok(options.signal instanceof AbortSignal);
     }
     assert.deepEqual(end, {
@@ -217,12 +218,20 @@ describe('createCheckRunner', () => {
     await runner.start({ ref, limits }).ended;
     assert.deepEqual(
       calls.map(({ options }) => options.timeoutMs),
-      [30 * 60_000, 20 * 60_000, 10 * 60_000],
+      [30 * 60_000 - 10_000, 20 * 60_000 - 10_000, 10 * 60_000 - 10_000],
     );
   });
 
   it('gives a check what is left until the deadline, at least a millisecond', async () => {
     const late = [...ordered.slice(0, 2), { ...ordered[2], deadlineAt: now.toISOString() }];
+    const { calls, runner } = setup({ events: [...late, started] as Event[] });
+    await runner.start({ ref, limits }).ended;
+    assert.equal(calls[0]?.options.timeoutMs, 1);
+  });
+
+  it('gives a check a millisecond when less than the margin before the deadline is left', async () => {
+    const soon = new Date(now.getTime() + 5_000).toISOString();
+    const late = [...ordered.slice(0, 2), { ...ordered[2], deadlineAt: soon }];
     const { calls, runner } = setup({ events: [...late, started] as Event[] });
     await runner.start({ ref, limits }).ended;
     assert.equal(calls[0]?.options.timeoutMs, 1);
