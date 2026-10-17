@@ -743,8 +743,15 @@ const covers = ({ head, commits }: PullRequestFacts, reviewed: string): boolean 
   return commits.every((commit) => before.has(commit.sha) || commit.parents.length > 1);
 };
 
+// Plain documentation, which needs no review summary (#183): Markdown under docs/, except the
+// ADRs, which record decisions. Only a full file list counts.
+const onlyPlainDocs = (files: string[] | undefined): boolean =>
+  files !== undefined &&
+  files.length > 0 &&
+  files.every((path) => /^docs\/(?!adr\/).*\.md$/i.test(path));
+
 // Why `gh pr ready` may not mark the pull request ready, or undefined when its review summary
-// covers the head.
+// covers the head or it changes only plain documentation.
 const readyRefusal = async (
   cwd: string,
   target: ReadyTarget,
@@ -758,7 +765,8 @@ const readyRefusal = async (
     const which = target.pr ?? 'of the current branch';
     return `gh pr ready is blocked: could not read pull request ${which} to find its review summary (${why}).`;
   }
-  const { number, head, comments } = pullRequest;
+  const { number, head, comments, files } = pullRequest;
+  if (onlyPlainDocs(files)) return undefined;
   const reviewed = comments.flatMap((body) =>
     [...body.matchAll(SUMMARY_HEADING)].map((match) => match[1] ?? ''),
   );
@@ -956,7 +964,7 @@ export const ghPullRequest =
         ...(pr === undefined ? [] : [pr]),
         ...(repo === undefined ? [] : ['--repo', repo]),
         '--json',
-        'number,url,headRefOid,comments',
+        'number,url,headRefOid,comments,files,changedFiles',
       ],
       cwd,
       'gh pr view',
@@ -993,9 +1001,16 @@ export const ghPullRequest =
       cwd,
       'gh api',
     );
+    // gh lists at most 100 files; a shorter list than the count, or one it cannot read, is left out.
+    const listing: unknown[] = Array.isArray(parsed.files) ? parsed.files : [];
+    const files = listing.flatMap((file) =>
+      isRecord(file) && typeof file.path === 'string' ? [file.path] : [],
+    );
+    const listed = files.length === listing.length && files.length === parsed.changedFiles;
     return {
       number,
       head: headRefOid,
+      ...(listed ? { files } : {}),
       comments: parsed.comments.map((comment: unknown) =>
         isRecord(comment) && typeof comment.body === 'string' ? comment.body : '',
       ),
