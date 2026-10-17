@@ -152,14 +152,18 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       'brewer',
       (text) => {
         const doc = readDoc(text, BrewerFrontmatter);
-        return doc.valid ? { valid: true, value: doc.frontmatter } : doc;
+        if (!doc.valid) return doc;
+        const { frontmatter: brewer, body: instructions } = doc;
+        return { valid: true, value: { name: brewer.name, brewer, instructions } };
       },
       problems,
-    ).map(({ value }) => [value.name, value]),
+    ).map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
   );
   // A brewer whose file is there but broken is reported once, as that file.
   const brewerFiles = new Set(files.brewers.map(({ path }) => nameOf(path)));
   const recipes = new Map<string, Recipe>();
+  // By recipe, then step id.
+  const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
   for (const { path, value } of readAll(
     files.recipes,
     'recipe',
@@ -172,13 +176,14 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
         problems.push(`${path}: ${brewing} (ADR 0053)`);
         return [];
       }
-      const brewer = brewers.get(brewing.brewer);
-      if (brewer === undefined) {
+      const found = brewers.get(brewing.brewer);
+      if (found === undefined) {
         if (!brewerFiles.has(brewing.brewer)) {
           problems.push(`${path}: it names no brewer "${brewing.brewer}" the Brewery has`);
         }
         return [];
       }
+      const { brewer } = found;
       const id = stepId(step);
       const deadline = brewing.deadline ?? brewer.deadline;
       // The Duration schema has no upper bound; a deadline past what a time can hold would throw
@@ -187,27 +192,27 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
         problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
         return [];
       }
-      return [{ id, step: brewing, brewer }];
+      return [{ id, step: brewing, ...found }];
     });
     // Every brewer is known once every step loaded, so resolveRecipe (ADR 0028) cannot throw.
     if (steps.length < value.steps.length) continue;
-    if (resolveRecipe(value, (name) => brewers.get(name)).testFirst) {
+    if (resolveRecipe(value, (name) => brewers.get(name)?.brewer).testFirst) {
       problems.push(
         `${path}: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`,
       );
       continue;
     }
     recipes.set(value.name, brewingRecipe(value.name, steps));
+    stepBrewers.set(
+      value.name,
+      new Map(steps.map(({ id, brewer, instructions }) => [id, { brewer, instructions }])),
+    );
   }
   if (problems.length > 0) return { valid: false, problems };
   return {
     valid: true,
     recipes: { find: (name) => recipes.get(name) },
-    brewers: {
-      find: () => {
-        throw new Error('not implemented');
-      },
-    },
+    brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
   };
 }
 
