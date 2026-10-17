@@ -13,7 +13,7 @@ import {
 } from '../engine/recipe-files.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
-import { BreweryConfig } from '../schemas/brewery-config.ts';
+import { BreweryConfig, type RepositorySource } from '../schemas/brewery-config.ts';
 import { LocalConfig } from '../schemas/local-config.ts';
 import { ModelsConfig } from '../schemas/models.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
@@ -44,7 +44,7 @@ export interface ServeInputs {
 /** A target repository the attempts write in. */
 export interface ServeRepository {
   repo: string;
-  source: 'local' | 'managed';
+  source: RepositorySource;
   /** The revision new attempt worktrees start at: `origin/<base>`. */
   base: string;
   /** The user's clone: the worktrees' for `local`, the objects to borrow for `managed`. */

@@ -39,6 +39,10 @@ const BranchName = z
     'Must be a branch name such as "main" or "release/2.x"',
   );
 
+/** Where a repository's attempt worktrees come from (ADR 0012). */
+export const RepositorySource = z.enum(['local', 'managed']);
+export type RepositorySource = z.infer<typeof RepositorySource>;
+
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /** Where the GitHub REST API is: the token goes with every request (ADR 0063). */
@@ -71,12 +75,9 @@ const RepositoryConfig = z
       'The short name that starts the batch ids of its claimed issues; required with an intake',
     ),
     intake: IntakeFilter.optional(),
-    source: z
-      .enum(['local', 'managed'])
-      .optional()
-      .describe(
-        "Where attempt worktrees come from: the user's clone (local, the default) or a managed clone (ADR 0012)",
-      ),
+    source: RepositorySource.optional().describe(
+      "Where attempt worktrees come from: the user's clone (local, the default) or a managed clone (ADR 0012)",
+    ),
     base: BranchName.optional().describe(
       'The branch attempts start from, at origin/<base> after a fetch; default main (ADR 0063)',
     ),
