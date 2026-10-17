@@ -504,6 +504,20 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ]);
   });
 
+  it('reports a nested brewer the Brewery does not have, instead of resolving the recipe', () => {
+    const steps = [
+      {
+        id: 'review',
+        loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'nobody' }] },
+      },
+      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'ghost' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
+    ]);
+  });
+
   it('refuses a test-first recipe for no more than its check steps, which the engine does not brew yet', () => {
     const steps = [
       { id: 'plan', brewer: 'maltster' },

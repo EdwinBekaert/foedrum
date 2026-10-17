@@ -933,6 +933,45 @@ describe('decide retry and answer: the step a human names, never skipped (ADR 00
     });
   }
 
+  it('makes the batch Stuck on a divergence when a failed check routes back to a skipped step', () => {
+    const skippedImplement: Event[] = [
+      ordered,
+      chosen(),
+      scheduled('plan'),
+      started('plan'),
+      {
+        type: 'step.finished',
+        batchId: 'b1',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: null },
+      },
+      { type: 'step.skipped', batchId: 'b1', stepId: 'implement', when: 'recipe.testFirst' },
+      scheduled('green'),
+      started('green'),
+    ];
+    const outcome = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
+    const finish: Command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'green',
+      attempt: 1,
+      ending: outcome,
+    };
+    assert.deepStrictEqual(decide(fold(skippedImplement), finish, context), {
+      kind: 'accepted',
+      events: [
+        { type: 'step.finished', batchId: 'b1', stepId: 'green', attempt: 1, outcome },
+        stuckOn({
+          kind: 'blocked',
+          stepId: 'green',
+          blockerKind: 'divergence',
+          summary: 'step green routes back to step implement, which was skipped',
+        }),
+      ],
+    });
+  });
+
   it('refuses a rewind to a step the batch skipped: it never ran', () => {
     const skipped: Event[] = [
       ordered,
