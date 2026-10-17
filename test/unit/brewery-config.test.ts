@@ -191,6 +191,37 @@ describe('BreweryConfig for foedrum serve (ADR 0063)', () => {
     assert.equal(parsed?.repositories['acme/web']?.base, 'release/2.x');
   });
 
+  it('leaves them out when the file does, so a config without them stays valid', () => {
+    const parsed = BreweryConfig.parse(config({})) as ServeFields;
+    assert.equal(parsed.brewery, undefined);
+    assert.equal(parsed.githubApi, undefined);
+    assert.equal(parsed.repositories['acme/web']?.source, undefined);
+    assert.equal(parsed.repositories['acme/web']?.base, undefined);
+  });
+
+  it('refuses a Brewery that is not owner/name', () => {
+    assert.equal(accepted(config({}, { brewery: 'brewery' })), false);
+  });
+
+  it('refuses a source other than local or managed', () => {
+    assert.equal(accepted(config({ source: 'remote' })), false);
+  });
+
+  it('refuses a base git would read as an option, a range or no branch', () => {
+    for (const base of [
+      '-main',
+      'main..dev',
+      'feat//x',
+      'main/',
+      'main.lock',
+      'a b',
+      '',
+      'x@{1}',
+    ]) {
+      assert.equal(accepted(config({ base })), false, base);
+    }
+  });
+
   it('takes the API over https, or over http only on a loopback address', () => {
     for (const githubApi of [
       'http://127.0.0.1:4000',

@@ -21,4 +21,14 @@ describe('LocalConfig', () => {
   it('has no clones and the default work root when it says nothing', () => {
     assert.deepEqual(LocalConfig.safeParse({}).data, { clones: {} });
   });
+
+  it('refuses a relative work root or clone, which would depend on the folder serve runs in', () => {
+    assert.equal(LocalConfig.safeParse({ workRoot: 'work' }).success, false);
+    assert.equal(LocalConfig.safeParse({ clones: { 'acme/web': '../web' } }).success, false);
+  });
+
+  it('refuses a clone of a repository that is not owner/name, and unknown fields', () => {
+    assert.equal(LocalConfig.safeParse({ clones: { web: clone } }).success, false);
+    assert.equal(LocalConfig.safeParse({ workroot: workRoot }).success, false);
+  });
 });
