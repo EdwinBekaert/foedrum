@@ -278,10 +278,6 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return false;
   };
 
-  /** The attempts that hold a live lease now. */
-  const leasedAttempts = (): AttemptRef[] =>
-    store.currentLeases(clock()).flatMap((lease) => attemptKey.decode(lease.attemptKey) ?? []);
-
   /**
    * Whether another attempt of `ref`'s step holds one of the live `leases`: one Stuck abandoned,
    * whose stopped run has not ended. `ref` starts once that lease is released or expired, which
@@ -304,7 +300,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     for (;;) {
       let moved = false;
       // Once per pass: a run that ended in the pass before let its lease go.
-      const leases = leasedAttempts();
+      const leases = store
+        .currentLeases(clock())
+        .flatMap((lease) => attemptKey.decode(lease.attemptKey) ?? []);
       for (const batch of log.state().batches.values()) {
         if (batch.lane.kind !== 'brewing') continue;
         for (const [stepId, step] of batch.steps) {

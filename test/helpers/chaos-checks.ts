@@ -96,8 +96,8 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
     engine
       .store()
       .currentLeases(engine.now())
-      .map(({ attemptKey: key }) => attemptKey.decode(key))
-      .map((ref) => (ref === undefined ? '' : `${ref.batchId} ${ref.stepId}`)),
+      .flatMap(({ attemptKey: key }) => attemptKey.decode(key) ?? [])
+      .map((ref) => `${ref.batchId} ${ref.stepId}`),
   );
   for (const batch of state.batches.values()) {
     if (waiting.has(batch.id) || batch.lane.kind !== 'brewing') continue;
