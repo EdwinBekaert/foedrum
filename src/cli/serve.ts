@@ -17,6 +17,7 @@ import {
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
+import type { IntakeNotice } from '../engine/intake.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { createGitHubClient } from '../github/client.ts';
@@ -50,6 +51,8 @@ export interface ServeShell {
   ) => BrewerRunner;
   /** Default the global `fetch`. */
   fetch?: typeof globalThis.fetch;
+  /** How long an intake pass may take; default half the batch lease (ADR 0050). */
+  intakeDeadlineMs?: number;
   /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
   intervalMs?: number;
 }
@@ -100,6 +103,11 @@ export const formatNotice = (notice: DriverNotice): string => {
       throw new Error(`Unknown notice ${JSON.stringify(unknown)}`);
     }
   }
+};
+
+/** An intake's notice as one line (ADR 0068). */
+export const formatIntakeNotice = (_notice: IntakeNotice): string => {
+  throw new Error('not implemented');
 };
 
 /** Runs the Cellar until `shell.signal` aborts; the exit code: 0 stopped, 1 failed. */

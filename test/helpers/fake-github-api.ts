@@ -1,0 +1,187 @@
+// A fake GitHub API behind a `fetch`, for `foedrum serve`'s tests (ADR 0068): the issues of each
+// repository, its claim refs with their commits, and the marks of its issues, answered by method
+// and path the way the GitHub layer asks (src/github/). No network (ADR 0021).
+
+export interface FakeApiIssue {
+  number: number;
+  labels: string[];
+  author: string;
+  assignees?: string[];
+  body?: string;
+  state?: 'open' | 'closed';
+}
+
+/** An answer to send instead of the fake's own; `hang` never answers until its signal aborts. */
+export type Instead = { status: number; body?: unknown; headers?: Record<string, string> } | 'hang';
+
+export interface FakeGitHubApiOptions {
+  /** The login of the token. */
+  login: string;
+  /** The open issues of each repository, by `owner/name` in lower case. */
+  issues: Record<string, FakeApiIssue[]>;
+  /** The answer to send instead for a request, or undefined for the fake's own. */
+  instead?: (method: string, url: URL) => Instead | undefined;
+}
+
+export interface FakeGitHubApi {
+  fetch: typeof globalThis.fetch;
+  /** Every request, as `<METHOD> <path and query>`. */
+  readonly requests: string[];
+  /** The claim refs there now, as `<repo> <ref>`, with the commit each points at. */
+  readonly refs: Map<string, string>;
+  /** Every claim ref ever created, as `<repo> <ref>`. */
+  readonly created: string[];
+  /** The comments on each issue, by `<repo>#<n>` in lower case. */
+  readonly comments: Map<string, { id: number; author: string; body: string }[]>;
+  issue(repo: string, number: number): FakeApiIssue | undefined;
+}
+
+const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
+  new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', ...headers },
+  });
+
+const notFound = (): Response => json(404, { message: 'Not Found' });
+
+export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
+  const { login } = options;
+  const requests: string[] = [];
+  const refs = new Map<string, string>();
+  const created: string[] = [];
+  // The message of each commit made.
+  const messages = new Map<string, string>();
+  const comments = new Map<string, { id: number; author: string; body: string }[]>();
+  let ids = 0;
+  let commits = 0;
+  const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
+  const issue = (repo: string, number: number) =>
+    repoIssues(repo).find((each) => each.number === number);
+  const asIssue = (found: FakeApiIssue) => ({
+    number: found.number,
+    state: found.state ?? 'open',
+    user: { login: found.author },
+    labels: found.labels.map((name) => ({ name })),
+    assignees: (found.assignees ?? []).map((assignee) => ({ login: assignee })),
+    body: found.body ?? null,
+  });
+  const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
+
+  // The two GraphQL requests of the claim host: a repository's id, and a conditional delete.
+  const graphql = (body: unknown): Response => {
+    const { query, variables } = body as { query: string; variables: Record<string, unknown> };
+    if (query.includes('repository(')) {
+      return json(200, { data: { repository: { id: `R_${variables.owner}/${variables.name}` } } });
+    }
+    const { input } = variables as {
+      input: { repositoryId: string; refUpdates: { name: string; beforeOid: string }[] };
+    };
+    const repo = input.repositoryId.slice('R_'.length);
+    for (const { name, beforeOid } of input.refUpdates) {
+      if (refs.get(`${repo} ${name}`) !== beforeOid) {
+        return json(200, { data: null, errors: [{ message: 'Something went wrong' }] });
+      }
+      refs.delete(`${repo} ${name}`);
+    }
+    return json(200, { data: { updateRefs: { clientMutationId: null } } });
+  };
+
+  const onIssue = (method: string, repo: string, rest: string, body: unknown): Response => {
+    const [, number, what = '', label] =
+      /^issues\/(\d+)(?:\/(assignees|labels|comments)(?:\/(.+))?)?$/.exec(rest) ?? [];
+    const found = issue(repo, Number(number));
+    if (found === undefined) return notFound();
+    const key = `${repo.toLowerCase()}#${found.number}`;
+    const fields = (body ?? {}) as { assignees?: string[]; labels?: string[]; body?: string };
+    if (method === 'GET' && what === '') return json(200, asIssue(found));
+    if (method === 'POST' && what === 'assignees') {
+      found.assignees = [...(found.assignees ?? []), ...(fields.assignees ?? [])];
+      return json(201, asIssue(found));
+    }
+    if (method === 'POST' && what === 'labels') {
+      found.labels = [...found.labels, ...(fields.labels ?? [])];
+      return json(200, labelsOf(found));
+    }
+    if (method === 'DELETE' && what === 'labels' && label !== undefined) {
+      const name = decodeURIComponent(label);
+      if (!found.labels.includes(name)) return json(404, { message: 'Label does not exist' });
+      found.labels = found.labels.filter((each) => each !== name);
+      return json(200, labelsOf(found));
+    }
+    if (method === 'GET' && what === 'comments') {
+      const listed = (comments.get(key) ?? []).map(({ id, author, body: text }) => ({
+        id,
+        user: { login: author },
+        body: text,
+      }));
+      return json(200, listed);
+    }
+    if (method === 'POST' && what === 'comments') {
+      const made = { id: ++ids, author: login, body: fields.body ?? '' };
+      comments.set(key, [...(comments.get(key) ?? []), made]);
+      return json(201, { id: made.id, user: { login }, body: made.body });
+    }
+    return notFound();
+  };
+
+  const onGit = (method: string, repo: string, rest: string, body: unknown): Response => {
+    if (method === 'POST' && rest === 'git/commits') {
+      const sha = String(++commits).padStart(40, '0');
+      messages.set(sha, (body as { message: string }).message);
+      return json(201, { sha });
+    }
+    if (method === 'POST' && rest === 'git/refs') {
+      const { ref, sha } = body as { ref: string; sha: string };
+      if (refs.has(`${repo} ${ref}`)) return json(422, { message: 'Reference already exists' });
+      refs.set(`${repo} ${ref}`, sha);
+      created.push(`${repo} ${ref}`);
+      return json(201, { ref, object: { type: 'commit', sha } });
+    }
+    if (method === 'GET' && rest.startsWith('git/ref/')) {
+      const ref = `refs/${rest.slice('git/ref/'.length)}`;
+      const sha = refs.get(`${repo} ${ref}`);
+      return sha === undefined ? notFound() : json(200, { ref, object: { type: 'commit', sha } });
+    }
+    if (method === 'GET' && rest.startsWith('git/commits/')) {
+      const sha = rest.slice('git/commits/'.length);
+      const message = messages.get(sha);
+      return message === undefined ? notFound() : json(200, { sha, message });
+    }
+    return notFound();
+  };
+
+  const answer = (method: string, url: URL, body: unknown): Response => {
+    const path = url.pathname;
+    if (method === 'GET' && path === '/user') return json(200, { login });
+    if (method === 'POST' && path === '/graphql') return graphql(body);
+    const [, repo = '', rest = ''] = /^\/repos\/([^/]+\/[^/]+)\/(.*)$/.exec(path) ?? [];
+    if (method === 'GET' && rest === 'issues') {
+      const wanted = url.searchParams.get('labels')?.split(',') ?? [];
+      const listed = repoIssues(repo).filter(
+        (each) =>
+          (each.state ?? 'open') === 'open' && wanted.every((label) => each.labels.includes(label)),
+      );
+      return json(200, listed.map(asIssue));
+    }
+    if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
+    if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
+    return notFound();
+  };
+
+  const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = new URL(String(input));
+    const method = init.method ?? 'GET';
+    requests.push(`${method} ${url.pathname}${url.search}`);
+    const instead = options.instead?.(method, url);
+    if (instead === 'hang') {
+      return new Promise<Response>((_, reject) => {
+        if (init.signal?.aborted === true) reject(init.signal.reason);
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      });
+    }
+    if (instead !== undefined) return json(instead.status, instead.body, instead.headers);
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+    return answer(method, url, body);
+  };
+  return { fetch: fetch as typeof globalThis.fetch, requests, refs, created, comments, issue };
+};
