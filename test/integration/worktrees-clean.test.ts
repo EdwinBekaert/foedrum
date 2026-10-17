@@ -16,11 +16,13 @@ import {
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { runGit } from '../../scripts/worktrees-clean.ts';
-import { isPidAlive } from '../../src/platform/processes.ts';
+import { gitThrough } from '../../scripts/worktrees-clean.ts';
+import { execProcessWith, isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { runGitWith } from '../../src/workspace/git.ts';
 import { parseWorktreeList } from '../../src/workspace/worktree-list.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { lateKill } from './late-kill.ts';
 import { killLeftovers } from './leftover-processes.ts';
 import { makeReadOnly } from './read-only.ts';
 
@@ -238,14 +240,17 @@ describe('worktrees-clean runGit with real git', () => {
     const node = process.execPath.replaceAll('\\', '/');
     const sleeper = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
     const started = Date.now();
+    // A loaded machine (#147): git's processes start later than the deadline expects, and the
+    // kill takes effect late.
+    const loaded = gitThrough(runGitWith(execProcessWith(lateKill(2500))));
 
-    const result = await runGit(dir.path, ['-c', `alias.hang=!"${node}" -e "${sleeper}"`, 'hang'], {
-      timeoutMs: 3000,
+    const result = await loaded(dir.path, ['-c', `alias.hang=!"${node}" -e "${sleeper}"`, 'hang'], {
+      timeoutMs: 10,
     });
 
     const elapsed = Date.now() - started;
     assert.equal(result.ok, false);
-    assert.match(result.stderr, /timed out after 3000 ms/);
+    assert.match(result.stderr, /timed out after 10 ms/);
     assert.ok(elapsed < 10_000, `runGit returned after ${elapsed} ms`);
     assert.ok(existsSync(pidFile), 'the child of git started');
     const pid = Number(readFileSync(pidFile, 'utf8'));

@@ -7,10 +7,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { isPidAlive } from '../../src/platform/processes.ts';
+import { execProcessWith, isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { runGit } from '../../src/workspace/git.ts';
+import { runGit, runGitWith } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { lateKill } from './late-kill.ts';
 import { killLeftovers } from './leftover-processes.ts';
 
 describe('runGit with real git', () => {
@@ -39,8 +40,11 @@ describe('runGit with real git', () => {
     const script = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
     const hang = `alias.hang=!"${node}" -e "${script}"`;
     const started = Date.now();
+    // A loaded machine (#147): git's processes start later than the deadline expects, and the
+    // kill takes effect late.
+    const loaded = runGitWith(execProcessWith(lateKill(2500)));
 
-    const result = await runGit(dir.path, ['-c', hang, 'hang'], { timeoutMs: 2000 });
+    const result = await loaded(dir.path, ['-c', hang, 'hang'], { timeoutMs: 10 });
 
     const elapsed = Date.now() - started;
     assert.equal(result.code, null);
