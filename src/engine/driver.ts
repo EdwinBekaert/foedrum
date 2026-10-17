@@ -227,7 +227,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * The heartbeat: renews the lease of every batch it holds, and of every attempt its runner still
    * runs. At every tick, and before each effect, so a long tick lets none of them expire. Not of an
    * attempt the log shows finished or abandoned: another driver lost it, or Stuck abandoned it, and
-   * a new attempt of its step may run beside its run until the next tick stops it (I2).
+   * so its lease lapses and the next attempt of its step can start (I2).
    */
   const heartbeat = (): void => {
     const now = clock();
@@ -278,6 +278,21 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return false;
   };
 
+  /**
+   * Whether another attempt of `ref`'s step holds a live lease: one Stuck abandoned, whose stopped
+   * run has not ended. `ref` starts once that lease is released or expired, which the heartbeat no
+   * longer renews, and never beside it (I2, #150).
+   */
+  const stepLeased = (ref: AttemptRef): boolean =>
+    store.currentLeases(clock()).some((lease) => {
+      const other = attemptKey.decode(lease.attemptKey);
+      return (
+        other?.batchId === ref.batchId &&
+        other.stepId === ref.stepId &&
+        other.attempt !== ref.attempt
+      );
+    });
+
   const driveNow = async (): Promise<void> => {
     // A start the guard refuses is tried once per drive: the attempt's deadline covers it.
     const refused = new Set<string>();
@@ -292,7 +307,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           if (!claim(batch.id)) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
           const key = attemptKey.encode(ref);
-          if (refused.has(key)) continue;
+          if (refused.has(key) || stepLeased(ref)) continue;
           moved = true;
           if (!(await startAttempt(ref, key))) {
             refused.add(key);
