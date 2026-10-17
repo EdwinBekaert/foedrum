@@ -207,6 +207,39 @@ describe('createCheckRunner', () => {
     });
   });
 
+  // A check has the network, outside the sandbox (ADR 0069): claude's login must not reach it.
+  it("leaves claude's credentials and settings out of a check's environment", async () => {
+    const { calls, runner } = setup({
+      layers: {
+        base: {
+          PATH: '/usr/bin',
+          ANTHROPIC_API_KEY: 'sk-ant-key',
+          ANTHROPIC_AUTH_TOKEN: 'token',
+          CLAUDE_CONFIG_DIR: '/home/ann/.claude',
+          CLAUDE_CODE_GIT_BASH_PATH: '/git/bin/bash',
+        },
+        forced: { npm_config_ignore_scripts: 'true' },
+      },
+    });
+    await runner.start({ ref, limits }).ended;
+    assert.deepEqual(calls[0]?.options.env, {
+      PATH: '/usr/bin',
+      npm_config_ignore_scripts: 'true',
+    });
+  });
+
+  it('leaves them out in any case on Windows', async () => {
+    const { calls, runner } = setup({
+      platform: 'win32',
+      layers: {
+        base: { Path: 'C:\\bin', Anthropic_Api_Key: 'sk-ant-key', claude_config_dir: 'C:\\c' },
+        forced: {},
+      },
+    });
+    await runner.start({ ref, limits }).ended;
+    assert.deepEqual(calls[0]?.options.env, { Path: 'C:\\bin' });
+  });
+
   it('gives each check only what the checks before it left of the deadline', async () => {
     // Each check takes ten minutes of the step's thirty: the clock moves on with every one run.
     const ran: { calls?: readonly unknown[] } = {};
