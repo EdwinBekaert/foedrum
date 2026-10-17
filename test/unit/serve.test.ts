@@ -435,6 +435,43 @@ describe('runServe', () => {
       assert.equal(github.requests.includes('GET /user'), false);
     });
 
+    it("polls at foedrum.jsonc's pollEvery", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2, pollEvery: '2m' });
+      const github = fakeGitHubApi({ login: 'ann', issues: {} });
+      const stop = () => now >= t0.getTime() + 245_000;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      // At 0 and 120 seconds, and 240.
+      assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
+    });
+
+    it("times GitHub's rate-limit pause on serve's clock, not the machine's", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 });
+      // Years ahead of the machine's clock: a pause timed by Date.now would last its hour at most.
+      const start = Date.parse('2031-01-01T00:00:00.000Z');
+      now = start;
+      let first = true;
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {},
+        instead: (_method, url) => {
+          if (!url.pathname.endsWith('/issues') || !first) return undefined;
+          first = false;
+          const reset = String(Math.floor((start + 180_000) / 1000));
+          return {
+            status: 403,
+            body: { message: 'API rate limit exceeded' },
+            headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset },
+          };
+        },
+      });
+      const stop = () => now >= start + 250_000;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      // Refused at 0; asked again at 180 and 240 seconds of serve's clock.
+      assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
+    });
+
     it("starts no pass while GitHub's rate limit pauses the token (ADR 0052)", async () => {
       store = empty();
       setup = intakeSetup({ concurrency: 2 });

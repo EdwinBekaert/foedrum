@@ -134,6 +134,21 @@ describe('createGitHubReads', () => {
       assert.equal(requests[1]?.headers['if-none-match'], undefined);
     });
 
+    it('keeps the answers it has when one is longer than all its bytes', async () => {
+      const { reads, requests } = readsWith(
+        [
+          { status: 200, body: 'b', headers: { etag: '"b"' } },
+          { status: 200, body: 'a'.repeat(40), headers: { etag: '"a"' } },
+          { status: 304 },
+        ],
+        { maxBytes: 30 },
+      );
+      await reads.get('/b');
+      await reads.get('/a');
+      await reads.get('/b');
+      assert.equal(requests[2]?.headers['if-none-match'], '"b"');
+    });
+
     it('hands the request the caller signal', async () => {
       const { reads, requests } = readsWith(['hang']);
       const controller = new AbortController();
