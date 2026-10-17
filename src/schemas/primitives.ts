@@ -67,27 +67,49 @@ export const BrewerAllowedTool = AllowedTool.refine(
   'Must not allow git with no fixed subcommand, such as "Bash(git *)": a push with options before it gets past every deny rule (ADR 0062)',
 );
 
+// git subcommands that update a remote, or run commands of their own (`submodule foreach`).
+const pushingSubcommands = ['push', 'send-pack', 'http-push', 'subtree', 'submodule'];
+// Programs that run the rest of their command line as a command (`.exe` dropped).
+const wrappers = new Set([
+  ...['env', 'command', 'exec', 'builtin', 'xargs', 'sudo', 'doas', 'nice', 'nohup', 'time'],
+  ...['timeout', 'stdbuf', 'npx', 'eval', 'source', '.', 'iex', 'invoke-expression'],
+  ...['start-process', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'pwsh', 'powershell'],
+]);
+// A program word without quotes, call operators, assignments or variables: a name or a path.
+const plainProgram = /^[a-z0-9._/\\:-]+$/;
+const gitWord = /(?:^|[\s/\\'"])git(?:\.exe)?(?=[\s'"]|$)/;
+
 /**
- * Whether a shell rule may match git with no fixed subcommand: a whole shell, a star before the
- * subcommand, an option or a quote where it would be, or a subcommand that is or could become
- * `push`. Lower case, since PowerShell matches without case; `:*` is the older spelling of ` *`.
+ * Whether a shell rule may match git with no fixed subcommand, failing closed on the program word:
+ * a whole shell; a star in or right after the program word (`*`, `/*`, `git*`); a program word
+ * with a quote, `&`, `$` or an assignment; a wrapper with a star, or with git after it; or git,
+ * by name or path, with an option, a quote or a star where the subcommand would be, or with a
+ * subcommand that pushes or that a star could make into one. Lower case, since PowerShell matches
+ * without case; `:*` is the older spelling of ` *`.
  */
 function reachesAnyGitCommand(rule: string): boolean {
   const { tool, specifier } = parseRule(rule);
   if (!commandTools.has(tool)) return false;
   if (specifier === undefined) return true;
-  const command = (
-    specifier.endsWith(':*') ? `${specifier.slice(0, -2)} *` : specifier
-  ).toLowerCase();
+  const command = (specifier.endsWith(':*') ? `${specifier.slice(0, -2)} *` : specifier)
+    .trimStart()
+    .toLowerCase();
   const star = command.indexOf('*');
   const fixed = star === -1 ? command : command.slice(0, star);
-  if (star !== -1 && ['git ', 'git.exe '].some((git) => git.startsWith(fixed))) return true;
-  if (!/^git(?:\.exe)?(?:\s|$)/.test(fixed)) return false;
-  const subcommand = /^git(?:\.exe)?\s+([a-z][a-z0-9-]*)(?=\s|$)/.exec(fixed);
+  const program = /^\S*/.exec(fixed)?.[0] ?? '';
+  const rest = fixed.slice(program.length);
+  if (star !== -1 && rest === '') return true;
+  if (!plainProgram.test(program)) return true;
+  const name = (program.split(/[/\\]/).at(-1) ?? '').replace(/\.exe$/, '');
+  if (wrappers.has(name)) return star !== -1 || gitWord.test(rest);
+  if (name !== 'git') return false;
+  const subcommand = /^\s+([a-z][a-z0-9-]*)(?=\s|$)/.exec(rest);
   if (subcommand === null) return true;
-  const [whole, name = ''] = subcommand;
-  const extendable = star !== -1 && whole.length === fixed.length;
-  return name === 'push' || (extendable && 'push'.startsWith(name));
+  const [whole, word = ''] = subcommand;
+  const extendable = star !== -1 && whole.length === rest.length;
+  return pushingSubcommands.some(
+    (pushing) => pushing === word || (extendable && pushing.startsWith(word)),
+  );
 }
 
 // Tools whose specifier is a command (Claude Code splits it on shell operators) or a path
