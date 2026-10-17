@@ -3,6 +3,7 @@
 // brewery-files.ts reads the files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
+import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
   Recipe as RecipeFile,
@@ -45,14 +46,8 @@ export type LoadedRecipes =
 /** What doctor and a refused command say when the files are not valid. */
 export const INVALID_RECIPES = "the Brewery's recipes are not valid";
 
-const UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
-
-/** A `Duration` ("30m") in milliseconds. */
-const durationMs = (duration: string): number =>
-  Number(duration.slice(0, -1)) * UNIT_MS[duration.slice(-1) as keyof typeof UNIT_MS];
-
 /** The longest deadline a step may have: a year. */
-const MAX_DEADLINE_MS = 365 * UNIT_MS.d;
+const MAX_DEADLINE_MS = 365 * durationMs('1d');
 
 /** A schema's reason in one line, as doctor prints it. */
 const oneLine = (reason: string): string =>
