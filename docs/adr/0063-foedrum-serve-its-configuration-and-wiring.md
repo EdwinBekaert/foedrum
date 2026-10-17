@@ -18,7 +18,7 @@ Some of these facts belong to the Brewery and are the same on every machine (its
 
 ### What the machine says, in `.foedrum/local.jsonc`
 `.foedrum/` in the Brewery checkout is git-ignored and already holds the event store, so the machine's own facts go next to it, in `local.jsonc` (`LocalConfig`, `src/schemas/local-config.ts`; strict, read as JSONC). It is optional; without it every default applies.
-- **`workRoot`**: an absolute path. Default `<home>/.foedrum/<owner>.<name>`, the Brewery's name in lower case as a path segment (`repoFolder`), short enough on Windows.
+- **`workRoot`**: an absolute path; on Windows with its drive or a UNC share, since `\work` lies on whichever drive serve runs on. Default `<home>/.foedrum/<owner>.<name>`, the Brewery's name in lower case as a path segment (`repoFolder`), short enough on Windows.
 - **`clones`**: the absolute path of the user's clone of each target repository, by `owner/name`. A `local` repository needs one, or `serve` refuses to start naming it; a `managed` one borrows its objects when it has one (`--reference`).
 
 ### Where each repository's attempt worktrees come from
@@ -36,12 +36,12 @@ In the Brewery's root, read against `ModelsConfig`. `serve` refuses to start wit
 
 ### The wiring
 `foedrum serve`, run in the Brewery's checkout, does in this order (`src/cli/serve.ts`, over the pure `serveSetup` in `src/cli/serve-config.ts`, on the machine through `serveShell` in `src/cli/serve-shell.ts`, which takes git as a parameter):
-1. reads `foedrum.jsonc`, `.foedrum/local.jsonc`, `models.jsonc` and the recipe files, and stops with one line per problem, `doctor`'s line for recipes (ADR 0053), before it touches anything;
+1. reads `foedrum.jsonc`, `.foedrum/local.jsonc`, `models.jsonc` and the recipe files, and stops with one line per problem, `doctor`'s line for recipes (ADR 0053), before it touches anything; a Brewery without a repository is one, since no attempt could get a worktree;
 2. takes the driver lock `cellar` on the work root (`lockDriver`), which checks its Brewery marker;
 3. opens the event store, `.foedrum/index.db`, making it when missing, and starts the state branch in `<workRoot>/state` (`openStateBranch().start()`), which rebuilds or catches up the store (ADR 0011, ADR 0024);
 4. opens each repository's attempt worktrees (making a managed clone first) and the driver (`openDriver`, which repairs the worktrees, ADR 0037) with `claudeBrewerRunner`, the attempt plans and their limits (ADR 0059);
-5. ticks the driver every 5 seconds, the supervisor's interval (ADR 0027), one tick after the other, and prints each notice as one line;
-6. on a stop signal (`SIGINT`, `SIGTERM`, `SIGHUP` and `SIGBREAK`, through `stopOnSignals`; a brewer leads a process group of its own, which a closed terminal does not reach) stops ticking, waits for the tick underway, closes the driver and the store, and exits 0. A `StateBranchStopError` from a tick stops it the same way and exits 1.
+5. ticks the driver every 5 seconds, the supervisor's interval (ADR 0027), one tick after the other, and prints each notice as one line, its control characters escaped, since a model may have written it;
+6. on a stop signal (`SIGINT`, `SIGTERM`, `SIGHUP` and `SIGBREAK`, through `stopOnSignals`; a brewer leads a process group of its own, which a closed terminal does not reach) stops ticking, waits for the tick underway, closes the driver and the store, and exits 0. It keeps listening for the signals until then (`listenWhileServing`), so a second Ctrl+C or a closed terminal during the wait cannot end the process before the driver stopped its runs. A `StateBranchStopError` from a tick stops it the same way and exits 1.
 
 **`close()` stops the runs.** A driver's `close()` stops every brewer run it still has, then lets its lock go (moved here from #130). The runs' ends are not recorded: the next start of the same owner expires their leases (ADR 0033) and the supervisor loses and retries those attempts.
 
