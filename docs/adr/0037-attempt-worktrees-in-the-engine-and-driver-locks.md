@@ -1,6 +1,6 @@
 # 0037. Attempt worktrees in the engine, the Brewery marker and driver locks
 
-Date: 2026-10-16 · Status: Accepted · Amends [0029](0029-attempt-worktrees-layout-claims-and-repair.md) (how two Breweries on one work root are refused) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (the lock a driver holds before it expires its own leases)
+Date: 2026-10-16 · Status: Accepted · Amends [0029](0029-attempt-worktrees-layout-claims-and-repair.md) (how two Breweries on one work root are refused) and [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (the lock a driver holds before it expires its own leases) · Amended by [0063](0063-foedrum-serve-its-configuration-and-wiring.md)
 
 ## Context
 [ADR 0029](0029-attempt-worktrees-layout-claims-and-repair.md) built the attempt worktree manager and left three follow-ups for #56: record each worktree in the attempt's events, run the cleanup at engine start and when a batch ends, and refuse two Breweries on one work root, since each would take the other's batches for unknown ones and remove their clean worktrees. [ADR 0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) added a condition for the real drivers (#37): a driver that starts expires the leases its own owner holds, so it must first make sure that no other process runs as that owner. Otherwise it would expire the live leases of that process.
