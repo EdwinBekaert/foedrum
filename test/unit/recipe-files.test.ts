@@ -588,6 +588,30 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
     ]);
   });
 
+  it('refuses a brewer with a tree other than the task tree (ADR 0066)', () => {
+    const trees = [
+      brewer('blender', { access: 'write', tree: 'integration' }),
+      brewer('taster', { access: 'read', tree: 'checkout' }),
+      brewer('scribbler', { access: 'write', tree: 'scratch' }),
+    ];
+    const steps = ['blender', 'taster', 'scribbler'].map((name) => ({ id: name, brewer: name }));
+    const files = brewery({
+      recipes: [recipe('stout', steps, { testFirst: false })],
+      brewers: [maltster, brewmaster, ...trees],
+    });
+    assert.deepEqual(
+      problemsOf(files),
+      [
+        ['blender', 'integration'],
+        ['taster', 'checkout'],
+        ['scribbler', 'scratch'],
+      ].map(
+        ([name, tree]) =>
+          `recipes/stout.jsonc: step "${name}" has the brewer "${name}", with "tree": "${tree}", which the engine does not follow yet (ADR 0059)`,
+      ),
+    );
+  });
+
   it('loads a brewer that asks only for what the plan follows, the out doc among its guards', () => {
     const files = brewery({
       brewers: [brewer('maltster', { guards: ['requiresOutDoc'], retryMode: 'fresh' }), brewmaster],

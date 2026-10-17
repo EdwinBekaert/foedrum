@@ -79,6 +79,14 @@ export interface Rewind {
   shas: Readonly<Record<string, string>>;
 }
 
+/**
+ * Where a batch's task tree is (ADR 0066): the branch of its latest attempt that succeeded with a
+ * worktree, or the commits of its latest rewind, whichever was recorded last.
+ */
+export type TaskTree =
+  | { kind: 'attempt'; stepId: string; attempt: number; repo: string }
+  | { kind: 'rewound'; shas: Readonly<Record<string, string>> };
+
 export interface Batch {
   id: string;
   /** The issue this batch brews: an order or a sub-order. */
@@ -96,6 +104,8 @@ export interface Batch {
   /** The steps whose latest record is a skip (ADR 0064); absent while none is. */
   skipped?: ReadonlySet<string>;
   rewinds: readonly Rewind[];
+  /** Its task tree; absent while it is the repository's base (ADR 0066). */
+  taskTree?: TaskTree;
   /** How each of its pull requests ended that has ended, by URL; absent while none has. */
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
 }
@@ -288,10 +298,12 @@ function apply(state: State, event: Event): State {
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
         };
       });
-    case 'step.finished':
-      return updateAttempt(state, event, (current) => {
+    case 'step.finished': {
+      let worktree: WorktreeRef | undefined;
+      const next = updateAttempt(state, event, (current) => {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
         if (current.phase === 'finished') throw attemptError(event, 'was already finished');
+        worktree = current.worktree;
         return {
           ...current,
           phase: 'finished',
@@ -299,6 +311,12 @@ function apply(state: State, event: Event): State {
           ...(event.usage === undefined ? {} : { usage: event.usage }),
         };
       });
+      if (event.outcome.kind !== 'succeeded' || worktree === undefined) return next;
+      // The next attempt continues from this one's branch (ADR 0066).
+      const { stepId, attempt } = event;
+      const taskTree = { kind: 'attempt', stepId, attempt, repo: worktree.repo } as const;
+      return updateBatch(next, event.batchId, (batch) => ({ ...batch, taskTree }));
+    }
     case 'input.received': {
       const { stepId, by, via, answers } = event;
       return updateBatch(state, event.batchId, (batch) => {
@@ -397,6 +415,7 @@ function apply(state: State, event: Event): State {
           ...batch,
           lane: { kind: 'brewing' },
           rewinds: [...batch.rewinds, { toStepId, by, via, shas }],
+          taskTree: { kind: 'rewound', shas },
         };
       });
     }

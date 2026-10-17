@@ -14,7 +14,7 @@ export const brewerText = (name: string, fields: Record<string, unknown> = {}): 
       effort: 'medium',
       tools: { allow: ['Read', 'Grep'] },
       access: 'read',
-      tree: 'checkout',
+      tree: 'task',
       deadline: '30m',
       maxAttempts: 2,
       ...fields,

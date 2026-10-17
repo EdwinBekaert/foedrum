@@ -155,6 +155,8 @@ const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc']);
 /** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
 function unplannable(brewer: BrewerFrontmatter): string[] {
   return [
+    // Every attempt works in a worktree at the task tree (ADR 0066).
+    ...(brewer.tree === 'task' ? [] : [`"tree": "${brewer.tree}"`]),
     ...(brewer.retryMode === 'resume' ? ['"retryMode": "resume"'] : []),
     ...(brewer.houseYeast ? ['"houseYeast": true'] : []),
     ...(brewer.skills.length > 0 ? ['"skills"'] : []),

@@ -805,7 +805,7 @@ export const openChaosEngine = async (
         acts.push({ driver, kind: 'start', key, batchId, held: holds(driver, batchId) });
         const run = runner.start(start);
         running.set(key, start.ref);
-        clone?.starting(start.ref);
+        clone?.starting(start.ref, life);
         const ended = (): void => {
           running.delete(key);
         };
