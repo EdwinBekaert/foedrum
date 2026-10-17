@@ -21,6 +21,7 @@ import {
   claimCandidates,
   type IntakeFilter,
   type PullRequestState,
+  passesFilter,
   same,
   type TargetIssue,
 } from './issue-claims.ts';
@@ -270,8 +271,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (batch.lane.kind !== 'ordered') continue;
       const repo = batch.repo ?? brewery;
       const found = repo === undefined ? undefined : listed.get(repo.toLowerCase());
-      const labels = found?.find(({ number }) => number === batch.issue)?.labels ?? [];
-      const names = recipeLabels(labels);
+      const read = found?.find(({ number }) => number === batch.issue);
+      // A claimed issue that no longer passes its repository's filter is as good as unread.
+      const filter = repositories.find(
+        (each) => batch.repo !== undefined && same(each.repo, batch.repo),
+      )?.filter;
+      const passes = read !== undefined && (filter === undefined || passesFilter(read, filter));
+      const names = recipeLabels(passes ? read.labels : []);
       // No recipe label: it waits for its deadline, then a person chooses (ADR 0032).
       if (names.length === 0) continue;
       const [recipe] = names;
