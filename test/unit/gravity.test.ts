@@ -173,6 +173,20 @@ describe('readingOf', () => {
     }
   });
 
+  // A brewer may write a test that prints this; the Cellar's event loop must not stall on it.
+  it('reads output that matches the secret patterns thousands of times on one line at once', () => {
+    const output = 'token=a '.repeat(40_000);
+    const started = performance.now();
+    const reading = readingOf(test, { exitCode: 1, output });
+    const took = performance.now() - started;
+    assert.ok(took < 1_000, `took ${Math.round(took)} ms`);
+    assert.ok(reading.result === 'exited');
+    assert.equal(
+      reading.tail,
+      '[left out: a line that looks like a secret (credential assignment)]',
+    );
+  });
+
   it('leaves a secret out before it bounds the tail, so no part of it is kept', () => {
     const token = `ghp_${'A1b2'.repeat(9)}`;
     const output = `${token}\n${'x'.repeat(MAX_TAIL_LENGTH - 20)}`;
