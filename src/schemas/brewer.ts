@@ -2,7 +2,7 @@
 
 import { PathSafeId } from './ids.ts';
 import { ModelAlias } from './models.ts';
-import { AllowedTool, Duration, RelativePath, ToolRule } from './primitives.ts';
+import { BrewerAllowedTool, Duration, RelativePath, ToolRule } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
 
@@ -71,7 +71,7 @@ const shared = {
   model: ModelAlias,
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
   // Role-level tools only; the repository adds its toolchain commands (ADR 0023).
-  tools: z.strictObject({ allow: z.array(AllowedTool), deny: z.array(ToolRule).default([]) }),
+  tools: z.strictObject({ allow: z.array(BrewerAllowedTool), deny: z.array(ToolRule).default([]) }),
   skills: z.array(NonEmpty).default([]),
   mcp: z.array(NonEmpty).default([]),
   context: z.enum(['lean', 'repo']).default('lean'),

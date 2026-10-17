@@ -57,6 +57,39 @@ export const AllowedTool = ToolRule.refine(
   'AskUserQuestion is always denied',
 );
 
+/**
+ * A rule a brewer's attempt may allow: never one that reaches git with no fixed subcommand. claude
+ * matches a deny rule against the command as written, so `git -C . push` gets past
+ * `Bash(git push *)`; a push is denied only when no allow rule matches it (ADR 0062).
+ */
+export const BrewerAllowedTool = AllowedTool.refine(
+  (rule) => !reachesAnyGitCommand(rule),
+  'Must not allow git with no fixed subcommand, such as "Bash(git *)": a push with options before it gets past every deny rule (ADR 0062)',
+);
+
+/**
+ * Whether a shell rule may match git with no fixed subcommand: a whole shell, a star before the
+ * subcommand, an option or a quote where it would be, or a subcommand that is or could become
+ * `push`. Lower case, since PowerShell matches without case; `:*` is the older spelling of ` *`.
+ */
+export function reachesAnyGitCommand(rule: string): boolean {
+  const { tool, specifier } = parseRule(rule);
+  if (!commandTools.has(tool)) return false;
+  if (specifier === undefined) return true;
+  const command = (
+    specifier.endsWith(':*') ? `${specifier.slice(0, -2)} *` : specifier
+  ).toLowerCase();
+  const star = command.indexOf('*');
+  const fixed = star === -1 ? command : command.slice(0, star);
+  if (star !== -1 && ['git ', 'git.exe '].some((git) => git.startsWith(fixed))) return true;
+  if (!/^git(?:\.exe)?(?:\s|$)/.test(fixed)) return false;
+  const subcommand = /^git(?:\.exe)?\s+([a-z][a-z0-9-]*)(?=\s|$)/.exec(fixed);
+  if (subcommand === null) return true;
+  const [whole, name = ''] = subcommand;
+  const extendable = star !== -1 && whole.length === fixed.length;
+  return name === 'push' || (extendable && 'push'.startsWith(name));
+}
+
 // Tools whose specifier is a command (Claude Code splits it on shell operators) or a path
 // (gitignore-style, where `*` stays within one folder and `**` crosses folders).
 const commandTools = new Set(['Bash', 'PowerShell']);
