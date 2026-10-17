@@ -1276,6 +1276,65 @@ describe('precheck on gh pr ready', () => {
     assert.match(result.stderr, /could not read pull request of the current branch/);
   });
 
+  it('blocks an older summary when GitHub lists too few commits to include the head', async () => {
+    const { result } = await ready('gh pr ready 160', {
+      ...facts([summary(c2.sha)], [c1, c2]),
+      head: c3.sha,
+    });
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /is for c2c2c2c, but the head is c3c3c3c/);
+  });
+
+  it('looks up the repository of -R joined to its value, as gh reads it', async () => {
+    const { lookups } = await ready(
+      'gh pr ready 160 -Rowner/other',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160', repo: 'owner/other' }]]);
+  });
+
+  const computedArgs: [tool: string, command: string][] = [
+    ['Bash', "opts='-R owner/other'; gh pr ready 160 $opts"],
+    ['PowerShell', "$a = @('-R', 'owner/other'); gh pr ready 160 @a"],
+  ];
+  for (const [tool, command] of computedArgs) {
+    it(`blocks gh pr ready with any argument computed at run time: ${command}`, async () => {
+      const { result, lookups } = await ready(
+        command,
+        facts([summary(c3.sha)], [c1, c2, c3]),
+        tool,
+      );
+      assert.match(result.stderr, /gh pr ready .*computed at run time/);
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  it('blocks gh pr ready when a command it decodes sets GH_REPO', async () => {
+    const encoded = Buffer.from("$env:GH_REPO='owner/other'; gh pr ready 160", 'utf16le').toString(
+      'base64',
+    );
+    const { result, lookups } = await ready(
+      `pwsh -EncodedCommand ${encoded}`,
+      facts([summary(c3.sha)], [c1, c2, c3]),
+      'PowerShell',
+    );
+    assert.match(result.stderr, /GH_REPO or GH_HOST/);
+    assert.deepEqual(lookups, []);
+  });
+
+  for (const command of [
+    'gh api -X POST graphql -F query=@ready.graphql -F id=PR_kw1',
+    "gh api -H 'Accept: application/json' graphql --input body.json",
+    'gh api graphql -Fquery=@ready.graphql',
+    'gh api graphql --field=query=@ready.graphql',
+    'gh api graphql --raw-field=query="$q"',
+  ]) {
+    it(`blocks gh api graphql with a query the gate cannot read, in any order: ${command}`, async () => {
+      const { result } = await ready(command, facts([], [c1, c2, c3]));
+      assert.match(result.stderr, /gh api graphql with a query the gate cannot read/);
+    });
+  }
+
   it('names gh pr ready among the plain commands when a command nests too deeply', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(40)}gh pr ready 160`) ?? '', /gh pr ready/);
   });
