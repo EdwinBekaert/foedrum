@@ -126,7 +126,8 @@ const CHECK_DEADLINE = '30m';
 
 /**
  * How often a check step is tried again after an attempt that read nothing: cancelled, lost, or
- * without a worktree. A check that read the tree is not tried again: it would read the same.
+ * one whose worktree the driver could not make. A check that read the tree is not tried again: it
+ * would read the same.
  */
 const CHECK_RETRIES = 3;
 
