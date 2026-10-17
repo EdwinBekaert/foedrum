@@ -28,6 +28,7 @@ export const local = (fields: Record<string, unknown> = {}) =>
 export const models = (alias = 'quick') =>
   JSON.stringify({ models: { [alias]: 'claude-haiku-5-5' } });
 
+// Its brewer commits with no red proof before it, so it says testFirst: false (ADR 0064).
 export const recipe = JSON.stringify({
   name: 'stout',
   description: 'Brews an order in one step.',

@@ -91,6 +91,10 @@ describe('logPathOf', () => {
       'batches/b2/events.jsonl',
     ],
     'step.scheduled': [scheduled('b1'), 'batches/b1/events.jsonl'],
+    'step.skipped': [
+      { type: 'step.skipped', batchId: 'b2', stepId: 'gauge', when: 'recipe.testFirst' },
+      'batches/b2/events.jsonl',
+    ],
     'step.started': [started('b1'), 'batches/b1/events.jsonl'],
     'step.finished': [finished('b1'), 'batches/b1/events.jsonl'],
     'input.received': [

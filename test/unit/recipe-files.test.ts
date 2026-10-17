@@ -239,22 +239,6 @@ describe('loadRecipes: fails closed', () => {
     );
   });
 
-  it('refuses a brewer step with a condition or a route, which the engine does not follow yet', () => {
-    const steps = [
-      { id: 'plan', brewer: 'brewmaster' },
-      { brewer: 'maltster', when: 'plan.status' },
-      {
-        id: 'again',
-        brewer: 'maltster',
-        onBlocked: { findings: { goto: 'plan', maxRounds: 1 } },
-      },
-    ];
-    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
-      'recipes/pale.jsonc: step "maltster" has a "when", which the engine does not follow yet (ADR 0053)',
-      'recipes/pale.jsonc: step "again" has an "onBlocked" route, which the engine does not follow yet (ADR 0053)',
-    ]);
-  });
-
   it('reports every problem of every file, brewers first, and a broken brewer file once', () => {
     const files = brewery({
       recipes: [
@@ -317,30 +301,231 @@ describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)',
   });
 });
 
-describe('loadRecipes: test-first recipes (ADR 0028, #25)', () => {
-  it('refuses a recipe that resolves to test-first, saying to set testFirst: false', () => {
-    const cellarman = brewer('cellarman', {
-      access: 'write',
-      tree: 'task',
-      git: { commit: true },
-      produces: 'commits',
-    });
-    const files = brewery({
-      recipes: [
-        recipe('pale', [{ brewer: 'maltster' }], { testFirst: true }),
-        recipe('amber', [{ brewer: 'cellarman' }]),
-        recipe('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
+describe("loadRecipes: a when that reads the recipe's settings (ADR 0064)", () => {
+  const withWhen = (when: string, fields = {}) =>
+    loaded(
+      loadRecipes(
+        brewery({
+          recipes: [
+            recipe(
+              'pale',
+              [
+                { id: 'gauge', brewer: 'maltster', when },
+                { id: 'plan', brewer: 'brewmaster' },
+              ],
+              fields,
+            ),
+          ],
+        }),
+      ),
+    ).find('pale');
+
+  it('skips a step whose when is false, naming it, and runs the others', () => {
+    const pale = withWhen('recipe.testFirst', { testFirst: false });
+    assert.equal(pale?.skip(batch({}), 'gauge'), 'recipe.testFirst');
+    assert.equal(pale?.skip(batch({}), 'plan'), undefined);
+  });
+
+  it('reads testFirst as resolved: off for a recipe whose brewers commit nothing', () => {
+    assert.equal(withWhen('recipe.testFirst')?.skip(batch({}), 'gauge'), 'recipe.testFirst');
+  });
+
+  it('compares the setting with a value in single quotes, as text', () => {
+    const skips = (when: string) =>
+      withWhen(when, { testFirst: false })?.skip(batch({ gauge: 1 }), 'gauge');
+    assert.equal(skips("recipe.testFirst == 'false'"), undefined);
+    assert.equal(skips("recipe.testFirst != 'true'"), undefined);
+    assert.equal(skips("recipe.testFirst == 'true'"), "recipe.testFirst == 'true'");
+    assert.equal(skips("recipe.testFirst != 'false'"), "recipe.testFirst != 'false'");
+    assert.equal(skips("recipe.testFirst=='false'"), undefined);
+  });
+
+  it("refuses a when that reads another step's result, or a setting the recipe has not", () => {
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'taste', brewer: 'maltster', when: "plan.verdict != 'approve'" },
+      { id: 'again', brewer: 'maltster', when: 'recipe.budget' },
+    ];
+    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
+      'recipes/pale.jsonc: step "taste" has a "when" that reads step "plan", which the engine does not follow yet (ADR 0064)',
+      'recipes/pale.jsonc: step "again" has a "when" that reads recipe.budget, which is not a recipe setting (ADR 0064)',
+    ]);
+  });
+});
+
+describe('loadRecipes: an onBlocked route and its rounds (ADR 0064)', () => {
+  type Route = { from: string; why: 'failed' | 'findings' };
+  /** A brewing batch whose gauge step has an attempt for each of `routes`, by the route given. */
+  const routedBatch = (routes: readonly (Route | undefined)[]): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        'gauge',
+        {
+          id: 'gauge',
+          inputs: [],
+          attempts: new Map(
+            routes.map((route, i): [number, Attempt] => [
+              i + 1,
+              {
+                phase: 'finished',
+                attempt: i + 1,
+                deadlineAt: D,
+                outcome: { kind: 'succeeded', output: null },
+                ...(route === undefined ? {} : { route }),
+              },
+            ]),
+          ),
+        },
       ],
-      brewers: [maltster, brewmaster, cellarman],
-    });
-    const refused = (name: string) =>
-      `recipes/${name}.jsonc: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`;
-    assert.deepEqual(problemsOf(files), [refused('pale'), refused('amber')]);
+    ]),
+  });
+  const withRoute = (maxRounds: number) => {
+    const steps = [
+      { id: 'gauge', brewer: 'maltster' },
+      {
+        id: 'implement',
+        brewer: 'brewmaster',
+        onBlocked: { findings: { goto: 'gauge', maxRounds } },
+      },
+    ];
+    const found = loaded(loadRecipes(brewery({ recipes: [recipe('pale', steps)] }))).find('pale');
+    assert.ok(found !== undefined);
+    return found;
+  };
+  const findings: Route = { from: 'implement', why: 'findings' };
+
+  it('goes back along a findings route while it has rounds left', () => {
+    assert.equal(withRoute(1).loopBack(routedBatch([undefined]), 'implement', 'findings'), 'gauge');
+    assert.equal(
+      withRoute(2).loopBack(routedBatch([undefined, findings]), 'implement', 'findings'),
+      'gauge',
+    );
+  });
+
+  it('counts a round for each attempt the route scheduled, then has none', () => {
+    assert.equal(
+      withRoute(1).loopBack(routedBatch([undefined, findings]), 'implement', 'findings'),
+      undefined,
+    );
+    assert.equal(
+      withRoute(2).loopBack(routedBatch([undefined, findings, findings]), 'implement', 'findings'),
+      undefined,
+    );
+  });
+
+  it('counts only the rounds of its own route', () => {
+    const others: Route[] = [
+      { from: 'review', why: 'findings' },
+      { from: 'implement', why: 'failed' },
+    ];
+    assert.equal(
+      withRoute(1).loopBack(routedBatch([undefined, ...others]), 'implement', 'findings'),
+      'gauge',
+    );
+  });
+
+  it('has no route for a failure, or for a step without onBlocked', () => {
+    const pale = withRoute(1);
+    assert.equal(pale.loopBack(routedBatch([undefined]), 'implement', 'failed'), undefined);
+    assert.equal(pale.loopBack(routedBatch([undefined]), 'gauge', 'findings'), undefined);
+  });
+});
+
+describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064)', () => {
+  const writer = (name: string) =>
+    brewer(name, { access: 'write', tree: 'task', git: { commit: true }, produces: 'commits' });
+  const writers = [writer('gauger'), writer('cellarman')];
+  const withWriters = (...recipes: BreweryFile[]) =>
+    brewery({ recipes, brewers: [maltster, brewmaster, ...writers] });
+  const red = { id: 'red', check: 'test', expect: 'fail', of: 'gauge' };
+  const noProof = (name: string) =>
+    `recipes/${name}.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)`;
+  const unbrewedCheck =
+    'recipes/pale.jsonc: step "red" is a check step, which the engine does not brew yet (ADR 0053)';
+
+  it('refuses a test-first recipe without a red proof, naming the fix', () => {
+    const files = withWriters(
+      recipe('pale', [{ brewer: 'maltster' }], { testFirst: true }),
+      recipe('amber', [{ brewer: 'cellarman' }]),
+      recipe('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
+    );
+    assert.deepEqual(problemsOf(files), [noProof('pale'), noProof('amber')]);
     const stout = files.recipes.filter(({ path }) => path === 'recipes/stout.jsonc');
     assert.equal(
       loaded(loadRecipes({ ...files, recipes: stout })).find('stout')?.firstStep,
       'cellarman',
     );
+  });
+
+  it('refuses a red proof of another step than the first that commits', () => {
+    const steps = [
+      { id: 'plan', brewer: 'maltster' },
+      { id: 'red', check: 'test', expect: 'fail', of: 'plan' },
+      { id: 'gauge', brewer: 'gauger' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      unbrewedCheck,
+      noProof('pale'),
+    ]);
+  });
+
+  it('refuses a step that commits before the red proof, other than the one it proves', () => {
+    const steps = [
+      { id: 'gauge', brewer: 'gauger' },
+      { id: 'implement', brewer: 'cellarman' },
+      red,
+      { id: 'tidy', brewer: 'cellarman' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      unbrewedCheck,
+      'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge" (ADR 0064)',
+    ]);
+  });
+
+  it("names a loop's step or a session step's fallback that commits before the red proof", () => {
+    const steps = [
+      { id: 'gauge', brewer: 'gauger' },
+      {
+        id: 'review',
+        loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'cellarman' }] },
+      },
+      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' },
+      red,
+    ];
+    const before = (id: string) =>
+      `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge" (ADR 0064)`;
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
+      unbrewedCheck,
+      before('fix'),
+      before('refine'),
+    ]);
+  });
+
+  it('reports a nested brewer the Brewery does not have, instead of resolving the recipe', () => {
+    const steps = [
+      {
+        id: 'review',
+        loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'nobody' }] },
+      },
+      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'ghost' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
+    ]);
+  });
+
+  it('refuses a test-first recipe for no more than its check steps, which the engine does not brew yet', () => {
+    const steps = [
+      { id: 'plan', brewer: 'maltster' },
+      { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+      { ...red, when: 'recipe.testFirst' },
+      { id: 'implement', brewer: 'cellarman' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [unbrewedCheck]);
   });
 });
 

@@ -4,7 +4,15 @@
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
-import { Recipe as RecipeFile, type Step, stepId, stepKind } from '../schemas/recipe.ts';
+import {
+  Recipe as RecipeFile,
+  readExpression,
+  type Step,
+  stepBrewerName,
+  stepId,
+  stepKind,
+  walk,
+} from '../schemas/recipe.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
@@ -89,24 +97,55 @@ function readAll<T extends { name: string }>(
 
 type BrewerStep = Extract<Step, { brewer: string }>;
 
-/** The step, when the engine brews it, else why it does not yet (ADR 0053). */
+/** The recipe's settings after routing, which a `when` may read (ADR 0064). */
+interface Settings {
+  testFirst: boolean;
+}
+
+const SETTINGS: ReadonlySet<string> = new Set<keyof Settings>(['testFirst']);
+
+/** The parts of a `when` its schema accepted. */
+function partsOf(when: string) {
+  const parts = readExpression(when);
+  if (parts === undefined) throw new Error(`The expression ${JSON.stringify(when)} is not valid`);
+  return parts;
+}
+
+/** Why the engine cannot follow `when` yet, or `undefined` when it reads a recipe setting. */
+function unfollowedWhen(id: string, when: string): string | undefined {
+  const { step, field } = partsOf(when);
+  // A step's result is not recorded for a when to read until tasting lands (#26).
+  if (step !== 'recipe') {
+    return `step "${id}" has a "when" that reads step "${step}", which the engine does not follow yet (ADR 0064)`;
+  }
+  if (!SETTINGS.has(field)) {
+    return `step "${id}" has a "when" that reads recipe.${field}, which is not a recipe setting (ADR 0064)`;
+  }
+  return undefined;
+}
+
+/** Whether `when`, which reads a recipe setting, holds for `settings`. */
+function holds(when: string, settings: Settings): boolean {
+  const { field, compare } = partsOf(when);
+  const value = settings[field as keyof Settings];
+  if (compare === undefined) return value === true;
+  return (String(value) === compare.value) === (compare.op === '==');
+}
+
+/** The step, when the engine brews it, else why it does not yet, naming the ADR that says so. */
 function brewerStep(step: Step): BrewerStep | string {
   const id = stepId(step);
   if (!('brewer' in step)) {
-    return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet`;
+    return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
-  if (step.when !== undefined) {
-    return `step "${id}" has a "when", which the engine does not follow yet`;
-  }
-  if (step.onBlocked !== undefined) {
-    return `step "${id}" has an "onBlocked" route, which the engine does not follow yet`;
-  }
+  const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
+  if (when !== undefined) return when;
   // A Taster's lens and Brett's blocking flag would load and change nothing.
   if (step.lens !== undefined) {
-    return `step "${id}" has a "lens", which the engine does not follow yet`;
+    return `step "${id}" has a "lens", which the engine does not follow yet (ADR 0053)`;
   }
   if (step.blocking !== undefined) {
-    return `step "${id}" has "blocking", which the engine does not follow yet`;
+    return `step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`;
   }
   return step;
 }
@@ -134,10 +173,35 @@ function unplannable(brewer: BrewerFrontmatter): string[] {
   ];
 }
 
-/** A recipe of brewer steps in a line, each with its brewer. */
+/**
+ * Why a test-first recipe does not prove its tests red before it writes code (ADR 0064): it needs
+ * a red proof of its first step that commits, and no other step that commits before that proof.
+ */
+function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[] {
+  const order = [...walk(recipe.steps, ['steps'])].map(({ step }) => step);
+  const first = order.find(commits);
+  const proven = first === undefined ? undefined : stepId(first);
+  const at = order.findIndex((step) => 'of' in step && step.of === proven);
+  const proof = order[at];
+  if (proven === undefined || proof === undefined) {
+    return [
+      'it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)',
+    ];
+  }
+  return order
+    .slice(0, at)
+    .filter((step) => commits(step) && stepId(step) !== proven)
+    .map(
+      (step) =>
+        `step "${stepId(step)}" commits before the red proof "${stepId(proof)}" of step "${proven}" (ADR 0064)`,
+    );
+}
+
+/** A recipe of brewer steps in a line, each with its brewer, and its settings. */
 function brewingRecipe(
   name: string,
   steps: readonly { id: string; step: BrewerStep; brewer: BrewerFrontmatter }[],
+  settings: Settings,
 ): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
   const at = (id: string) => {
@@ -154,6 +218,10 @@ function brewingRecipe(
       return durationMs(step.deadline ?? brewer.deadline);
     },
     stall: (id) => at(id).brewer.stall,
+    skip: (_batch, id) => {
+      const { when } = at(id).step;
+      return when === undefined || holds(when, settings) ? undefined : when;
+    },
     after: (_batch, id) => {
       const next = steps[at(id).index + 1];
       // The pull requests come with the openPullRequest action, which the engine does not run yet.
@@ -162,7 +230,16 @@ function brewingRecipe(
         : { kind: 'step', stepId: next.id };
     },
     mayRetry: (batch, id) => (batch.steps.get(id)?.attempts.size ?? 0) < at(id).brewer.maxAttempts,
-    loopBack: () => undefined,
+    // A brewer step has no onFail; its onBlocked route counts the attempts it scheduled.
+    loopBack: (batch, id, why) => {
+      const route = at(id).step.onBlocked?.findings;
+      if (why !== 'findings' || route === undefined) return undefined;
+      const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
+      const rounds = [...attempts].filter(
+        (attempt) => attempt.route?.from === id && attempt.route.why === why,
+      ).length;
+      return rounds < route.maxRounds ? route.goto : undefined;
+    },
   };
 }
 
@@ -196,7 +273,7 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     const steps = value.steps.flatMap((step) => {
       const brewing = brewerStep(step);
       if (typeof brewing === 'string') {
-        problems.push(`${path}: ${brewing} (ADR 0053)`);
+        problems.push(`${path}: ${brewing}`);
         return [];
       }
       const found = brewers.get(brewing.brewer);
@@ -226,15 +303,21 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       }
       return [{ id, step: brewing, ...found }];
     });
-    // Every brewer is known once every step loaded, so resolveRecipe (ADR 0028) cannot throw.
-    if (steps.length < value.steps.length) continue;
-    if (resolveRecipe(value, (name) => brewers.get(name)?.brewer).testFirst) {
-      problems.push(
-        `${path}: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`,
-      );
-      continue;
-    }
-    recipes.set(value.name, brewingRecipe(value.name, steps));
+    // resolveRecipe (ADR 0028) needs every brewer the recipe names; a missing one is reported
+    // above. The red proof is checked even when a step did not load: it is a check step, which
+    // the engine does not brew yet (ADR 0064).
+    const brewerOf = (name: string) => brewers.get(name)?.brewer;
+    const named = [...walk(value.steps, ['steps'])].map(({ step }) => stepBrewerName(step));
+    if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
+    const { testFirst } = resolveRecipe(value, brewerOf);
+    const commits = (step: Step): boolean => {
+      const name = stepBrewerName(step);
+      return name !== undefined && brewerOf(name)?.produces === 'commits';
+    };
+    const unprovenLines = testFirst ? unproven(value, commits) : [];
+    for (const line of unprovenLines) problems.push(`${path}: ${line}`);
+    if (steps.length < value.steps.length || unprovenLines.length > 0) continue;
+    recipes.set(value.name, brewingRecipe(value.name, steps, { testFirst }));
     stepBrewers.set(
       value.name,
       new Map(steps.map(({ id, brewer, instructions }) => [id, { brewer, instructions }])),

@@ -74,6 +74,7 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.recipe_chosen':
       return lanes(state, event, ['ordered', 'conditioning', 'stuck']);
     case 'step.scheduled':
+    case 'step.skipped':
       return lanes(state, event, ['ordered', 'brewing', 'conditioning']);
     case 'step.started':
     case 'step.finished':
