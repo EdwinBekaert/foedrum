@@ -7,7 +7,7 @@
 // effects went to. No process is started or killed: the driver is this test's own code, and a
 // kill is an exception it cannot catch.
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
@@ -27,29 +27,18 @@ import type {
 } from '../../src/engine/event-store.ts';
 import type { Batch, State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from './brewing.ts';
 import {
-  generateScenario,
   human,
   type Move,
   type MoveSource,
   type Play,
-  type Random,
-  recording,
   type Scenario,
   scenarioLimits,
   seededRandom,
 } from './event-sequences.ts';
 import { fakeBrewerRunner } from './fake-brewer-runner.ts';
-import {
-  describeCommand,
-  describeEvent,
-  describePlay,
-  forEachSeedAsync,
-  noted,
-} from './property.ts';
 import { behaviourOf, isLive, recipes, reminderMs, routingMs, t0 } from './simulation.ts';
 
 export const killPoints = [
