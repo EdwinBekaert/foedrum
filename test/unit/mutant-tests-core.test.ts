@@ -139,6 +139,17 @@ describe('coveringTestsFor', () => {
     ]);
   });
 
+  it('takes a longer path ending in the target as naming it, but not a relative import of it', () => {
+    const tree = sources({
+      'scripts/precheck.ts': '',
+      'test/integration/absolute.test.ts': "const script = 'D:/repo/scripts/precheck.ts';\n",
+      'test/integration/relative.test.ts': "const script = '../other/scripts/precheck.ts';\n",
+    });
+    assert.deepEqual(coveringTestsFor(tree, ['scripts/precheck.ts']), [
+      'test/integration/absolute.test.ts',
+    ]);
+  });
+
   it('does not take a path to another file with the same name as naming the target', () => {
     const tree = sources({
       'scripts/mutants/core.ts': '',

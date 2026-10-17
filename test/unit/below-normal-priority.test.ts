@@ -43,4 +43,28 @@ describe('lowerPriority', () => {
   it('carries on at the same priority when the system refuses the change', () => {
     assert.doesNotThrow(() => lowered({}, PRIORITY_NORMAL, true));
   });
+
+  it('asks the system once, and leaves the priority alone when it cannot be read', () => {
+    let attempts = 0;
+    lowerPriority({
+      env: {},
+      getPriority: () => PRIORITY_NORMAL,
+      setPriority: () => {
+        attempts += 1;
+        throw new Error('EACCES: permission denied');
+      },
+    });
+    assert.equal(attempts, 1);
+    const set: number[] = [];
+    assert.doesNotThrow(() =>
+      lowerPriority({
+        env: {},
+        getPriority: () => {
+          throw new Error('ESRCH: no such process');
+        },
+        setPriority: (value) => set.push(value),
+      }),
+    );
+    assert.deepEqual(set, []);
+  });
 });
