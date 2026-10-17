@@ -138,3 +138,5 @@ Before anything leaves the machine, scan `summary.md` for secrets, because a rev
 - Local run, or `--no-comment`: print the summary and its path; nothing leaves the machine.
 
 Finally clean up, even when an earlier step failed: from the checkout, run `node scripts/remove-scratch.ts "<scratch>"`. It accepts only `.foedrum/tmp/<issue>/scratch` in the checkout and refuses anything else. It removes `<scratch>` through the platform removal, which clears read-only bits and retries busy files. It also removes a record under `.git/worktrees/` that still points at `<scratch>/tree`, left by a run from before the scratch tree was a clone, and leaves every other record alone. Never follow it with `git worktree prune`. It prints one line per removal and exits 1 when something could not be removed; show those lines to the user.
+
+When the diff changes anything under `.claude/`, end with one line: sessions load `.claude/` only when they start, so after it merges they need a restart, as CLAUDE.md "Restarting a session" describes.
