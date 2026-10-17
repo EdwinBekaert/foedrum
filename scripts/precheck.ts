@@ -65,7 +65,13 @@ const READY_COMPUTED_BLOCKED =
 const READY_API_BLOCKED =
   'Marking a pull request ready through gh api is blocked: run gh pr ready <n>, so the gate can check its /brew-review summary.';
 const TOO_DEEP_BLOCKED =
-  'This command nests shells or commands too deeply for the gate to check: run git push and gh pr create as plain commands.';
+  'This command nests shells or commands too deeply for the gate to check: run git push, gh pr create and gh pr ready as plain commands.';
+const UNREADABLE_QUERY_BLOCKED =
+  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not mark a pull request ready.';
+const READY_COMBINED_BLOCKED =
+  'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
+const READY_GH_REPO_BLOCKED =
+  'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
 
 // A shell's reading of a command line. Git Bash runs the Bash tool's commands, so a tool's command
 // is read in its own shell; what it runs in turn may be either, so that is read both ways.
@@ -427,15 +433,26 @@ const positionals = (args: Word[], optionsWithValue: Set<string>): Word[] => {
   return result;
 };
 
-// The value of gh's -R or --repo, given as the next word or after `=`.
+// The value of gh's last -R or --repo, given as the next word or after `=`: the last one wins.
 const repoOption = (args: Word[]): Word | undefined => {
+  let repo: Word | undefined;
   for (const [i, arg] of args.entries()) {
-    if (arg.text === '-R' || arg.text === '--repo') return args[i + 1];
     const joined = /^(?:-R|--repo)=(.*)$/s.exec(arg.text);
-    if (joined !== null) return { ...arg, text: joined[1] ?? '' };
+    if (arg.text === '-R' || arg.text === '--repo') repo = args[i + 1];
+    else if (joined !== null) repo = { ...arg, text: joined[1] ?? '' };
   }
-  return undefined;
+  return repo;
 };
+
+// Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
+// (query=@…), its input (--input) or a value computed at run time.
+const unreadableQuery = (args: Word[]): boolean =>
+  args.some(
+    (arg) =>
+      arg.text === '--input' ||
+      arg.text.startsWith('--input=') ||
+      (/^query=/.test(arg.text) && (arg.dynamic || arg.text.startsWith('query=@'))),
+  );
 
 // The pull request and repository of `gh pr ready`, unless it is --undo, which always passes.
 const readReady = (args: Word[], pr: Word | undefined, found: Findings): void => {
@@ -463,6 +480,12 @@ const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): vo
     args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))
   ) {
     found.reasons.push(READY_API_BLOCKED);
+  } else if (
+    (group?.text === 'api' || group?.dynamic) &&
+    action?.text === 'graphql' &&
+    unreadableQuery(args)
+  ) {
+    found.reasons.push(UNREADABLE_QUERY_BLOCKED);
   } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
     const shell = args.some((arg) => arg.text === '--shell' || arg.text === '-s');
     const value = expansion.text;
@@ -762,6 +785,12 @@ export const precheck = async (
   // Each reading of a command that runs another finds the same pull request again.
   const readies = new Map(found.readies.map((target) => [JSON.stringify(target), target]));
   if (!found.gated && readies.size === 0) return { exitCode: 0, stderr: '' };
+  if (readies.size > 0 && found.gated)
+    return { exitCode: 2, stderr: `${READY_COMBINED_BLOCKED}\n` };
+  // gh reads the repository from them, and the gate's lookup would not.
+  if (readies.size > 0 && /GH_REPO|GH_HOST/i.test(normalised(command))) {
+    return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
+  }
 
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
   for (const target of readies.values()) {
@@ -892,7 +921,8 @@ const runGh = async (
   }
   if (exitCode !== 0) {
     const how = exitCode === null ? 'could not start' : `exited ${exitCode}`;
-    throw new Error(`${what} ${how}: ${output.trim()}`);
+    // One short line: gh's output may be pages of commits or a proxy's error page.
+    throw new Error(`${what} ${how}: ${output.trim().replace(/\s+/g, ' ').slice(0, 200)}`);
   }
   return output;
 };
