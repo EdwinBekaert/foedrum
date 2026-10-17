@@ -172,9 +172,13 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     const reads = createGitHubReads(client);
     const claims = githubClaimHost(client);
     // The claims and their marks need the token's login; a Brewery that claims nothing does not.
+    // A claimed batch the store has keeps its marks and release due, intake or not (ADR 0050).
     let claimant: Claimant = { brewery: setup.brewery, login: '' };
     let effects: ReturnType<typeof claimEffects> | undefined;
-    if (setup.intake.repositories.length > 0) {
+    const claimed = [
+      ...createCommandLog({ store, recipes: setup.recipes }).state().batches.values(),
+    ].some((batch) => batch.repo !== undefined);
+    if (setup.intake.repositories.length > 0 || claimed) {
       const login = await githubLogin(client, signal);
       claimant = { brewery: setup.brewery, login };
       effects = claimEffects({
