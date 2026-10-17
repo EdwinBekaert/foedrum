@@ -17,8 +17,20 @@ export interface BreweryFiles {
   brewers: readonly BreweryFile[];
 }
 
+/** The brewer of a recipe's step, with its instructions: the brewer file's body. */
+export interface StepBrewer {
+  brewer: BrewerFrontmatter;
+  instructions: string;
+}
+
+/** The brewers of the loaded recipes' steps. */
+export interface StepBrewers {
+  /** The brewer of step `stepId` of recipe `recipe`, or `undefined` when there is no such step. */
+  find(recipe: string, stepId: string): StepBrewer | undefined;
+}
+
 export type LoadedRecipes =
-  | { valid: true; recipes: Recipes }
+  | { valid: true; recipes: Recipes; brewers: StepBrewers }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
 
@@ -188,7 +200,15 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     recipes.set(value.name, brewingRecipe(value.name, steps));
   }
   if (problems.length > 0) return { valid: false, problems };
-  return { valid: true, recipes: { find: (name) => recipes.get(name) } };
+  return {
+    valid: true,
+    recipes: { find: (name) => recipes.get(name) },
+    brewers: {
+      find: () => {
+        throw new Error('not implemented');
+      },
+    },
+  };
 }
 
 /** The one line doctor and a refused command give for `problems`. */
