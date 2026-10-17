@@ -139,6 +139,12 @@ describe('githubTargetTracker', () => {
       );
     });
 
+    it('lists every open issue for a filter with a label GitHub cannot be asked for: one with a comma', async () => {
+      const { tracker, requests } = trackerWith([{ status: 200, body: [] }]);
+      await tracker.issues('acme/web', { labels: ['foedrum', 'size: s, m'] });
+      assert.equal(requests[0]?.url, listing);
+    });
+
     it('reads a repository with 6,000 open issues and 3 candidates in one page', async () => {
       const [issue] = fixture('issues') as Record<string, unknown>[];
       const candidates = [1, 2, 3].map((number) => ({ ...issue, number, labels: ['foedrum'] }));
