@@ -29,6 +29,7 @@ import type { StreamOptions, StreamResult } from '../../src/platform/processes.t
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { descheduled } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const fixtures = join(import.meta.dirname, '..', 'fixtures', 'claude-stream');
@@ -754,6 +755,8 @@ describe('waitFor', () => {
     const started = performance.now();
     const waited = waitFor(60_000, stop.signal);
     stop.abort();
+    // A loaded machine takes the CPU away for a while (#147).
+    descheduled(1100);
     await waited;
     assert.ok(performance.now() - started < 1000);
   });
