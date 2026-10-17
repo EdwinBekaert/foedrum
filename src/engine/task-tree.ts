@@ -5,7 +5,7 @@ import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Batch } from './fold.ts';
 
 // GitHub names are case-insensitive.
-const sameRepo = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+export const sameRepo = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 /**
  * The revision a new attempt of `batch` in `repository` starts at: the base, the branch of the

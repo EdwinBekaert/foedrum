@@ -23,7 +23,7 @@ import type { State } from './fold.ts';
 import type { Recipes } from './recipes.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
-import { taskTreeStart } from './task-tree.ts';
+import { sameRepo, taskTreeStart } from './task-tree.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
 /** The effects the driver applies, and where they land. */
@@ -130,8 +130,7 @@ export const repositoryOf = (
       `batch ${batchId} names no repository, and the Brewery has ${repositories.length}`,
     );
   }
-  // GitHub names are case-insensitive.
-  const found = repositories.find((each) => each.repo.toLowerCase() === repo.toLowerCase());
+  const found = repositories.find((each) => sameRepo(each.repo, repo));
   if (found === undefined) {
     throw new Error(`batch ${batchId} writes in ${repo}, which the Brewery does not list`);
   }
