@@ -635,6 +635,30 @@ describe('openDriver', () => {
       );
     });
 
+    it("starts each attempt's worktree at the task tree: the base, then the latest success's branch (ADR 0066)", async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      const implement = (attempt: number) => ({ batchId: 'b1', stepId: 'implement', attempt });
+      end(implement(1), { kind: 'failed', retryable: true, reason: 'tests fail' });
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.calls.flatMap((call) =>
+          call.kind === 'create' ? [`${call.ref.stepId}#${call.ref.attempt} ${call.base}`] : [],
+        ),
+        [
+          'plan#1 origin/main',
+          'implement#1 refs/heads/foedrum/b1/plan/1',
+          // A retry starts where the failed attempt started.
+          'implement#2 refs/heads/foedrum/b1/plan/1',
+        ],
+      );
+    });
+
     it('fails an attempt that cannot get its worktree retryably, and lets its lease go', async () => {
       const { runner, started } = handRunner();
       order('b1');
