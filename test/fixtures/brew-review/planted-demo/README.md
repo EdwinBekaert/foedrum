@@ -1,6 +1,6 @@
 # Planted-defect sample for /brew-review
 
-Eight commits with known defects, used to check the review skill and the default lenses after a prompt changes (CLAUDE.md, Tests). The patches are data, not tests: nothing here runs in `npm test`. Once applied, the sample's own tests pass at its head (`test/unit/planted-demo.test.ts` checks that the patches add no test that starts a process to a layer `npm test` runs), so the mutation check compares the review, not a broken fixture.
+Eight commits with known defects, used to check the review skill and the default lenses after a prompt changes (CLAUDE.md, Tests). The patches are data, not tests: `npm test` never applies them, but `test/unit/planted-demo.test.ts` reads them. Once applied, the sample's own tests pass at its head, so the mutation check compares the review, not a broken fixture. That test keeps one part of this true: it runs the layer guard of `npm run check` on the lines the patches add, so no patch gives a test in a layer `npm test` runs an import of `child_process` or the process runner. A test that starts a process through a module it imports passes that guard and fails only when the sample's tests run (ADR 0038), so check the baseline after changing a patch.
 
 ## Apply
 

@@ -45,8 +45,9 @@ describe('the planted-defect sample', () => {
 
   after(() => tree.remove());
 
-  // Its tests pass without any mutant, so a mutation check on the sample compares the review,
-  // not a fixture that fails at its head (#43). The planted process start is in the code (0006).
+  // A process start in a unit test would fail the sample at its head without any mutant, so a
+  // mutation check on it would compare a broken fixture, not the review (#43). This sees direct
+  // imports only, like the layer guard; the planted process start is in the code (0006).
   it('adds no test that starts a process to a layer npm test runs (ADR 0021)', () => {
     assert.ok(
       testFiles.some((file) =>
