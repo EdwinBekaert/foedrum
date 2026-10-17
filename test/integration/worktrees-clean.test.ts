@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runGit } from '../../scripts/worktrees-clean.ts';
 import { isPidAlive } from '../../src/platform/processes.ts';
@@ -36,22 +36,30 @@ const git = (cwd: string, args: string[]): string =>
 const lines = (text: string): string[] => text.split('\n').filter((line) => line !== '');
 
 describe('worktrees-clean with real git', () => {
+  let seeds: TempDir;
+  let seed: string;
   let dir: TempDir;
   let main: string;
   let hub: string;
+  // The first commit, made once for the file. Each test's origin is a bare copy of it, and the
+  // main checkout and the hub are clones of that origin, tracking its main.
+  before(() => {
+    seeds = makeTempDir('clean-seed');
+    seed = join(seeds.path, 'seed');
+    git(seeds.path, ['init', '-q', '-b', 'main', seed]);
+    writeFileSync(join(seed, '.gitignore'), '.claude/worktrees/\n');
+    git(seed, ['add', '.gitignore']);
+    git(seed, ['commit', '-q', '-m', 'Initial commit']);
+  });
+  after(() => removeTree(seeds.path));
+
   beforeEach(() => {
     dir = makeTempDir('clean');
     const origin = join(dir.path, 'origin.git');
     main = join(dir.path, 'main');
     hub = join(dir.path, 'hub');
-    git(dir.path, ['init', '-q', '--bare', '-b', 'main', origin]);
-    git(dir.path, ['init', '-q', '-b', 'main', main]);
-    writeFileSync(join(main, '.gitignore'), '.claude/worktrees/\n');
-    git(main, ['add', '.gitignore']);
-    git(main, ['commit', '-q', '-m', 'Initial commit']);
-    git(main, ['remote', 'add', 'origin', origin]);
-    git(main, ['push', '-q', '-u', 'origin', 'main']);
-    git(main, ['remote', 'set-head', 'origin', 'main']);
+    git(dir.path, ['clone', '-q', '--bare', '--no-hardlinks', seed, origin]);
+    git(dir.path, ['clone', '-q', origin, main]);
     git(dir.path, ['clone', '-q', origin, hub]);
   });
   afterEach(() => removeTree(dir.path));
