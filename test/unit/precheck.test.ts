@@ -1420,7 +1420,10 @@ describe('ghPullRequest', () => {
     url: 'https://github.com/owner/repo/pull/160',
     headRefOid: 'c3',
     comments: [{ body: 'first' }, { body: '## Review: `x` @ `c3`' }],
-    files: [{ path: 'docs/milestones/README.md' }, { path: 'CLAUDE.md' }],
+    files: [
+      { path: 'docs/milestones/README.md', changeType: 'MODIFIED' },
+      { path: 'CLAUDE.md', changeType: 'MODIFIED' },
+    ],
     changedFiles: 2,
   });
 
@@ -1490,12 +1493,18 @@ describe('ghPullRequest', () => {
 
   // A list it cannot read, or one cut off, leaves the files out, so the pull request is not exempt.
   for (const [name, fields] of [
-    ['lists fewer files than it changes', { files: [{ path: 'docs/a.md' }], changedFiles: 101 }],
+    [
+      'lists fewer files than it changes',
+      { files: [{ path: 'docs/a.md', changeType: 'ADDED' }], changedFiles: 101 },
+    ],
     ['has no file list', { files: undefined, changedFiles: 1 }],
     ['has no file count', { changedFiles: undefined }],
     [
       'lists a file without a path among ones with a path',
-      { files: [{ path: 'docs/a.md' }, { name: 'CLAUDE.md' }], changedFiles: 1 },
+      {
+        files: [{ path: 'docs/a.md', changeType: 'ADDED' }, { name: 'CLAUDE.md' }],
+        changedFiles: 1,
+      },
     ],
     ['lists a file without a path', { files: [{ name: 'docs/a.md' }], changedFiles: 1 }],
   ] as const) {
@@ -1509,6 +1518,19 @@ describe('ghPullRequest', () => {
       assert.equal(pullRequest.head, 'c3');
     });
   }
+
+  it('reads the paths of added, modified and deleted files', async () => {
+    const files = ['ADDED', 'MODIFIED', 'DELETED'].map((changeType, i) => ({
+      path: `docs/${i}.md`,
+      changeType,
+    }));
+    const { runProcess } = fakeGh([
+      { exitCode: 0, output: JSON.stringify({ ...JSON.parse(view), files, changedFiles: 3 }) },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ]);
+    const pullRequest = await ghPullRequest(runProcess)('/work/tree', { pr: '160' });
+    assert.deepEqual(pullRequest.files, ['docs/0.md', 'docs/1.md', 'docs/2.md']);
+  });
 
   it('rejects with what gh said when gh fails', async () => {
     const { runProcess } = fakeGh([{ exitCode: 1, output: 'HTTP 401: Bad credentials' }]);
