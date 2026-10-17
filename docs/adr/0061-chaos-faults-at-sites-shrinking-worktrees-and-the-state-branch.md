@@ -36,7 +36,7 @@ The checks define "ended" themselves (on tap or cancelled), not through `laneSta
 
 - after every move, the remote holds the store's first events, each once, as the store has them;
 - the marker names a commit on the remote and no event beyond the remote's last;
-- no start stops the engine or restores, and each start leaves what was committed before it on the remote (ADR 0024: a start brings the store and the branch in line);
+- no start stops the engine or restores, and each start leaves what was committed before it on the remote. `decideStart` flushes whenever events are unpushed, also before the remote branch exists, where that flush is the first one, which creates the branch (ADR 0024's start table: "run; the first flush creates the branch");
 - after a tick the drivers lived through, the remote holds what was committed before that tick;
 - at rest, one more flush pushes every event.
 
