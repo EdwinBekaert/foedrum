@@ -128,6 +128,21 @@ describe('attemptSettings and git with options before the subcommand', () => {
       });
     }
 
+    // Every wrapper ADR 0062 lists, with a star: each runs `git -C . push` as its argument.
+    for (const wrapper of [
+      ...['env', 'command', 'exec', 'builtin', 'xargs', 'sudo', 'doas', 'nice', 'nohup', 'time'],
+      ...['timeout', 'stdbuf', 'npx', 'eval', 'source', '.', 'iex', 'invoke-expression'],
+      ...['start-process', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'pwsh', 'powershell'],
+    ]) {
+      const rule = `${shell}(${wrapper} *)`;
+      it(`refuses to allow ${rule}, a wrapper that runs any command`, () => {
+        assert.throws(
+          () => attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false }),
+          /git with no fixed subcommand/,
+        );
+      });
+    }
+
     for (const rule of [
       `${shell}(git status)`,
       `${shell}(git status *)`,
