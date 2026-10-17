@@ -66,6 +66,20 @@ export const spawnCommand = (
       }
     : { file, args: [...args], shell: false, env };
 
+/**
+ * How to start a command line through the platform shell (architecture §13): a check's command,
+ * from foedrum.jsonc or a Brewery's recipe (ADR 0069). `/bin/sh -c` outside Windows; on Windows
+ * cmd.exe by its full path with `/d /s /c`, and NoDefaultCurrentDirectoryInExePath set, so a bare
+ * name is never a file in the working directory. Throws on a line break.
+ */
+export const shellCommand = (
+  _line: string,
+  _platform: NodeJS.Platform = process.platform,
+  _env: NodeJS.ProcessEnv = process.env,
+): SpawnCommand => {
+  throw new Error('not implemented');
+};
+
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
 const GRACE_MS = 2500;
@@ -150,6 +164,11 @@ export interface ExecOptions {
    * process group.
    */
   jobObject?: boolean | undefined;
+  /**
+   * Runs `file` as a command line through the platform shell (`shellCommand`), without looking it
+   * up; `args` must be empty.
+   */
+  shell?: boolean | undefined;
 }
 
 export interface ExecResult {
@@ -199,7 +218,14 @@ export interface Spawner {
   spawn: (
     file: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean; stdin?: boolean },
+    options: {
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      jobObject?: boolean;
+      stdin?: boolean;
+      /** `file` is a command line for the platform shell. */
+      shell?: boolean;
+    },
   ) => ChildHandle;
   killTree: (pid: number) => void;
   /** Whether `spawn` holds a process in a Job Object when asked to (the real one on Windows). */
