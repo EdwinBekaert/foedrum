@@ -173,12 +173,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { maxTurns } = brewer;
   return {
     cwd: worktree,
-    env: buildBrewerEnv({
-      base: env.base,
-      brewer: brewer.env,
-      forced: env.forced,
-      platform: env.platform,
-    }),
+    env: buildBrewerEnv({ ...env, brewer: brewer.env }),
     prompt: assembled.prompt,
     call: {
       model: modelOf(models, brewer),
