@@ -455,7 +455,8 @@ describe('brewing with the fake brewer runner', () => {
       );
       assert.deepStrictEqual(
         worktrees.calls.flatMap((call) => (call.kind === 'create' ? [call.base] : [])),
-        ['origin/main', 'origin/main'],
+        // implement starts at the commits of plan (ADR 0066).
+        ['origin/main', 'refs/heads/foedrum/b1/plan/1'],
       );
       assert.deepStrictEqual(leasedAtCreate, [
         [attemptKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1 })],
