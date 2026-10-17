@@ -884,6 +884,25 @@ describe('precheck limits and pre-filter', () => {
       assert.deepEqual(calls, []);
     });
   }
+
+  // The pre-filter reads only the command, so a path or description that spells git or gh does not
+  // send the call to the parser (#152).
+  it('lets through a command that mentions neither git nor gh without reading it, wherever the checkout is', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    // Too wide to read, so the parser would block it.
+    const command = `bash -c ${Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ')}`;
+    assert.match(forbiddenReason(command) ?? '', /too deeply/);
+    const input = JSON.stringify({
+      session_id: 'abc123',
+      transcript_path: '/home/dev/.claude/projects/-home-dev-github-foedrum/abc123.jsonl',
+      cwd: '/home/dev/github/foedrum/.claude/worktrees/152-gh-git',
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command, description: 'Echo strings before git push' },
+    });
+    assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
 });
 
 describe('precheck when the HEAD check cannot answer', () => {
