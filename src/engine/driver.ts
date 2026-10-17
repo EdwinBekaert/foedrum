@@ -23,6 +23,7 @@ import type { State } from './fold.ts';
 import type { Recipes } from './recipes.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
+import { taskTreeStart } from './task-tree.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
 /** The effects the driver applies, and where they land. */
@@ -311,8 +312,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     let repository: RepositoryWorktrees;
     let made: AttemptWorktree;
     try {
-      repository = repositoryOf(log.state(), ref.batchId, worktrees);
-      made = await repository.manager.create(ref, repository.base);
+      const state = log.state();
+      repository = repositoryOf(state, ref.batchId, worktrees);
+      const batch = state.batches.get(ref.batchId);
+      if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
+      // At the commits of the steps before it (ADR 0066).
+      made = await repository.manager.create(ref, taskTreeStart(batch, repository));
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;
