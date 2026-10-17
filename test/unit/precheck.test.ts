@@ -1129,6 +1129,36 @@ describe('precheck on gh pr ready', () => {
     });
   });
 
+  // ADRs, CLAUDE.md, prompts, root files and anything that is not Markdown under docs/ are reviewed.
+  for (const files of [
+    ['docs/milestones/README.md', 'docs/adr/0001-record-architecture-decisions.md'],
+    ['docs/milestones/README.md', 'CLAUDE.md'],
+    ['docs/milestones/README.md', '.claude/skills/brew-review/SKILL.md'],
+    ['README.md'],
+    ['docs/milestones/notes.txt'],
+    ['src/docs/readme.md'],
+    [],
+  ]) {
+    it(`blocks a pull request without a summary that changes: ${files.join(', ') || 'nothing'}`, async () => {
+      const { result } = await ready('gh pr ready 160', {
+        ...facts(['Looks good to me.'], [c1, c2, c3]),
+        files,
+      });
+      assert.match(
+        result.stderr,
+        /^gh pr ready is blocked: pull request #160 has no \/brew-review summary/,
+      );
+    });
+  }
+
+  it('blocks a pull request without a summary whose file list could not be read', async () => {
+    const { result } = await ready('gh pr ready 160', facts(['Looks good to me.'], [c1, c2, c3]));
+    assert.match(
+      result.stderr,
+      /^gh pr ready is blocked: pull request #160 has no \/brew-review summary/,
+    );
+  });
+
   it('asks for the current branch’s pull request, and the repository given, as gh would', async () => {
     const pullRequest = facts([summary(c3.sha)], [c1, c2, c3]);
     assert.deepEqual((await ready('gh pr ready', pullRequest)).lookups, [['/work/tree', {}]]);
@@ -1367,6 +1397,8 @@ describe('ghPullRequest', () => {
     url: 'https://github.com/owner/repo/pull/160',
     headRefOid: 'c3',
     comments: [{ body: 'first' }, { body: '## Review: `x` @ `c3`' }],
+    files: [{ path: 'docs/milestones/README.md' }, { path: 'CLAUDE.md' }],
+    changedFiles: 2,
   });
 
   it('reads the pull request with gh pr view and its commits with their parents with gh api', async () => {
@@ -1418,6 +1450,24 @@ describe('ghPullRequest', () => {
     await ghPullRequest(runProcess)('/work/tree', {});
     assert.deepEqual(calls[0]?.[1], ['pr', 'view', '--json', 'number,url,headRefOid,comments']);
   });
+
+  // A list it cannot read, or one cut off, leaves the files out, so the pull request is not exempt.
+  for (const [name, fields] of [
+    ['lists fewer files than it changes', { files: [{ path: 'docs/a.md' }], changedFiles: 101 }],
+    ['has no file list', { files: undefined, changedFiles: 1 }],
+    ['has no file count', { changedFiles: undefined }],
+    ['lists a file without a path', { files: [{ name: 'docs/a.md' }], changedFiles: 1 }],
+  ] as const) {
+    it(`leaves the files out when gh pr view's answer ${name}`, async () => {
+      const { runProcess } = fakeGh([
+        { exitCode: 0, output: JSON.stringify({ ...JSON.parse(view), ...fields }) },
+        { exitCode: 0, output: 'c3 c2\n' },
+      ]);
+      const pullRequest = await ghPullRequest(runProcess)('/work/tree', { pr: '160' });
+      assert.equal(pullRequest.files, undefined);
+      assert.equal(pullRequest.head, 'c3');
+    });
+  }
 
   it('rejects with what gh said when gh fails', async () => {
     const { runProcess } = fakeGh([{ exitCode: 1, output: 'HTTP 401: Bad credentials' }]);

@@ -706,12 +706,14 @@ export interface ReadyTarget {
 }
 
 // What the gate needs to know of a pull request: its head, its comments, oldest first, and its
-// commits (those on its branch that are not on the base) with their parents.
+// commits (those on its branch that are not on the base) with their parents, and the paths of the
+// files it changes, left out when gh could not list them all.
 export interface PullRequestFacts {
   number: number;
   head: string;
   comments: string[];
   commits: { sha: string; parents: string[] }[];
+  files?: string[];
 }
 
 // Reads the pull request from GitHub, run in the checkout around `cwd`; rejects when it cannot.
