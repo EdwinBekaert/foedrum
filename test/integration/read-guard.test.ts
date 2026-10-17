@@ -1,17 +1,23 @@
 // The read guard with real processes and a real file system (ADR 0049): the hook command from the
 // read-only agents' frontmatter run through bash the way Claude Code runs it, a real junction or
-// link, and Windows short names. The guard's decisions are unit tests in
-// test/unit/read-guard.test.ts.
+// link, Windows short names, and the installed `claude` with the guard as a hook in the runner's
+// settings file (opt-in, FOEDRUM_REAL_CLAUDE=1). That one test runs our script inside claude; the
+// tests of how claude itself treats hooks, scoped rules and links were dropped (ADR 0057). The
+// guard's decisions are unit tests in test/unit/read-guard.test.ts.
 
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { after, describe, it } from 'node:test';
+import { after, afterEach, beforeEach, describe, it } from 'node:test';
+import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import { streamProcess } from '../../src/platform/processes.ts';
 import { realPath } from '../../src/platform/real-path.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const windows = process.platform === 'win32';
@@ -166,5 +172,93 @@ describe('the read guard hook command', () => {
       hookInput('Read', { file_path: join(root, 'package.json').toUpperCase() }),
     );
     assert.deepEqual(result, { code: 0, stdout: '', stderr: '' });
+  });
+});
+
+const real = realClaude();
+const script = join(root, 'scripts', 'read-guard.ts');
+
+interface StreamEvent {
+  type: string;
+  message?: { content?: { type: string; content?: unknown; is_error?: boolean }[] };
+}
+
+// Our read guard as a hook in the settings file of the runner's command line (ADR 0046), inside
+// the installed `claude` (ADR 0057: opt-in). `--safe-mode` turns hooks off, so it is left out:
+// brewers get the rule from scoped allow rules instead (ADR 0049). The fake model reads a file
+// next to the worktree.
+describe('claude with the read guard as a hook', {
+  skip: real.kind === 'skip' && real.reason,
+}, () => {
+  let dir: TempDir;
+  let api: FakeMessagesApi | undefined;
+  beforeEach(() => {
+    dir = makeTempDir('claude-read-guard');
+    mkdirSync(join(dir.path, 'worktree'));
+    mkdirSync(join(dir.path, 'user'));
+  });
+  afterEach(async () => {
+    await api?.close();
+    api = undefined;
+    removeTree(dir.path);
+  });
+
+  it('blocks a read outside the worktree when the settings file has the read guard, without --safe-mode', async () => {
+    const secret = join(dir.path, 'secret.txt');
+    writeFileSync(secret, 'the-secret-text');
+    api = await startFakeMessagesApi({ name: 'Read', input: { file_path: secret } });
+    const settingsFile = join(dir.path, 'attempt-settings.json');
+    const hook = {
+      type: 'command',
+      command: `node ${JSON.stringify(script.replace(/\\/g, '/'))}`,
+      timeout: 30,
+    };
+    writeFileSync(
+      settingsFile,
+      JSON.stringify({
+        permissions: { allow: ['Read'], deny: [] },
+        hooks: { PreToolUse: [{ matcher: 'Read|Grep|Glob', hooks: [hook] }] },
+      }),
+    );
+    const args = claudeArgs({
+      model: 'claude-haiku-5-5',
+      effort: 'low',
+      maxTurns: 3,
+      settingsFile,
+      tools: ['Read', 'Grep', 'Glob'],
+      session: { kind: 'new', id: randomUUID() },
+    }).filter((arg) => arg !== '--safe-mode');
+    // Nothing of the developer's own Claude Code reaches the test, and nothing leaves the machine.
+    const inherited = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !/^(?:ANTHROPIC_|CLAUDE)/i.test(name)),
+    );
+    const lines: string[] = [];
+    const result = await streamProcess(real.kind === 'run' ? real.claude : 'claude', args, {
+      cwd: join(dir.path, 'worktree'),
+      env: {
+        ...inherited,
+        CLAUDE_CONFIG_DIR: join(dir.path, 'user'),
+        ANTHROPIC_BASE_URL: api.url,
+        ANTHROPIC_API_KEY: 'sk-ant-test-not-a-key',
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+        DISABLE_TELEMETRY: '1',
+      },
+      stdin: 'Read the file.',
+      maxLineBytes: 1024 * 1024,
+      timeoutMs: 120_000,
+      jobObject: true,
+      onLine: (line) => lines.push(line),
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const results = lines
+      .map((line) => JSON.parse(line) as StreamEvent)
+      .filter((e) => e.type === 'user')
+      .flatMap((e) => e.message?.content ?? [])
+      .filter((block) => block.type === 'tool_result');
+    assert.equal(results.length, 1);
+    const content = JSON.stringify(results[0]?.content);
+    assert.equal(results[0]?.is_error, true, content);
+    assert.match(content, /outside the checkout/);
+    assert.doesNotMatch(content, /the-secret-text/);
   });
 });
