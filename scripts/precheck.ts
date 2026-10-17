@@ -77,8 +77,11 @@ const downloadBlocked = (run: string): string =>
   `\`${run}\` would download a package that isn't in package-lock.json. Use the project's tools: \`npm run lint -- --write\` formats with Biome.`;
 const movedRunBlocked = (run: string): string =>
   `\`${run}\` is blocked in a command that changes directory: the gate looks for it in node_modules/.bin where the command starts, and npx would look where it runs. Run it as a command of its own, from the folder whose node_modules it uses.`;
-// A name node_modules/.bin can hold, and nothing that reaches out of it.
-const BINARY_NAME = /^[A-Za-z0-9][\w.-]*$/;
+// A name node_modules/.bin can hold, and nothing that reaches out of it; no trailing dot, which
+// Windows drops.
+const BINARY_NAME = /^[A-Za-z0-9](?:[\w.-]*[\w-])?$/;
+// The names Windows reads as a device in any folder, with or without an extension.
+const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$/i;
 
 // A shell's reading of a command line. Git Bash runs the Bash tool's commands, so a tool's command
 // is read in its own shell; what it runs in turn may be either, so that is read both ways.
@@ -324,38 +327,62 @@ const WRAPPERS = new Map<string, Wrapper>([
   ],
 ]);
 
-// npx and the commands that run a package the way it does, by the words that start them. Each is
-// a wrapper that downloads, when the lockfile did not install them, the program it runs and the
-// value of each option that is not a command, such as --package (#175).
-const NPX: Wrapper = { withValue: ['-p', '--package', '-c', '--call'], runs: ['-c', '--call'] };
-const PACKAGE_RUNNERS = new Map<string, Wrapper>([
+// npx and the commands that run a package the way it does, by the words that start them: a
+// wrapper that downloads the program it runs when the lockfile did not install it (#175). The
+// options in `packages` name packages to download, those in `moves` the folder to look in, and a
+// runner that `alwaysDownloads` fetches the package even when node_modules/.bin has it.
+interface PackageRunner extends Wrapper {
+  packages: readonly string[];
+  moves?: readonly string[];
+  alwaysDownloads?: boolean;
+}
+const NPX: PackageRunner = {
+  withValue: ['-p', '--package', '-c', '--call', '--prefix'],
+  runs: ['-c', '--call'],
+  packages: ['-p', '--package'],
+  moves: ['--prefix'],
+};
+const DLX: PackageRunner = {
+  withValue: ['-p', '--package'],
+  packages: ['-p', '--package'],
+  alwaysDownloads: true,
+};
+const BUNX: PackageRunner = { withValue: ['-p', '--package'], packages: ['-p', '--package'] };
+const PACKAGE_RUNNERS = new Map<string, PackageRunner>([
   ['npx', NPX],
   ['npm exec', NPX],
   ['npm x', NPX],
-  ['pnpm dlx', { withValue: ['--package'] }],
-  ['pnpx', { withValue: ['--package'] }],
-  ['yarn dlx', { withValue: ['-p', '--package'] }],
-  ['bunx', { withValue: ['-p', '--package'] }],
-  ['bun x', { withValue: ['-p', '--package'] }],
+  ['pnpm dlx', DLX],
+  ['pnpx', DLX],
+  ['yarn dlx', DLX],
+  ['bunx', BUNX],
+  ['bun x', BUNX],
 ]);
 
-// A package that npx or a relative would run, and the words that started it.
+// A package that npx or a relative would run, the words that started it, and whether a binary of
+// that name in node_modules/.bin is what would run: not for a package option, whose value is a
+// package name, nor for a runner that always downloads.
 interface PackageRun {
   runner: string;
   name: Word;
+  lookup: boolean;
 }
 
 // The package runner a program and its arguments start, and the arguments after its words.
 const packageRunner = (
   program: string,
   args: Word[],
-): { runner: string; wrapper: Wrapper; args: Word[] } | undefined => {
+): { runner: string; wrapper: PackageRunner; args: Word[] } | undefined => {
   const wrapper = PACKAGE_RUNNERS.get(program);
   if (wrapper !== undefined) return { runner: program, wrapper, args };
   const runner = `${program} ${args[0]?.text}`;
   const subcommand = PACKAGE_RUNNERS.get(runner);
   return subcommand && { runner, wrapper: subcommand, args: args.slice(1) };
 };
+
+// The words that change directory: bash's and PowerShell's commands and aliases, PowerShell's cd..
+// and cd\ functions, and a drive letter, which PowerShell and cmd switch to.
+const CHANGE_DIRECTORY = /^(?:cd|chdir|pushd|set-location|sl|push-location|cd\.\.|cd\\|[a-z]:)$/i;
 
 // bash's reserved words that can come before a command, and PowerShell's dot operator.
 const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '.']);
@@ -372,45 +399,52 @@ const leadingWords = ([first, second]: Word[]): number => {
 
 // The program and arguments of a simple command, after environment assignments, reserved words,
 // PowerShell assignments and wrapper words. A wrapper option whose value is a command adds it to
-// `nested`; the packages a package runner would run go to `packages`.
-const invocation = (
-  words: Word[],
-  nested: string[],
-  packages: PackageRun[],
-): Invocation | undefined => {
+// `nested`; a package a package runner would run goes to `found.packages`, and a change of
+// directory sets `found.movesDir`.
+const invocation = (words: Word[], nested: string[], found: Findings): Invocation | undefined => {
   let rest = words;
   for (;;) {
     for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
       rest = rest.slice(skip);
     const [first, ...operands] = rest;
     if (first === undefined) return undefined;
+    // `cd\` has no last path part, so it is tested before programName drops it.
+    if (!first.dynamic && CHANGE_DIRECTORY.test(first.text)) found.movesDir = true;
     const program = first.dynamic ? COMPUTED : programName(first.text);
+    if (CHANGE_DIRECTORY.test(program)) found.movesDir = true;
     const runner = packageRunner(program, operands);
     const wrapper = runner?.wrapper ?? WRAPPERS.get(program);
     if (wrapper === undefined) return { program, args: operands };
     const args = runner?.args ?? operands;
-    const run = (name: Word | undefined) => {
-      if (runner !== undefined && name !== undefined)
-        packages.push({ runner: runner.runner, name });
+    const run = (name: Word | undefined, lookup: boolean) => {
+      if (runner === undefined || name === undefined) return;
+      const always = runner.wrapper.alwaysDownloads === true;
+      found.packages.push({ runner: runner.runner, name, lookup: lookup && !always });
     };
     let i = 0;
     while (args[i]?.text.startsWith('-')) {
-      const option = args[i]?.text ?? '';
+      const word = args[i] as Word;
+      const [option = '', value] = word.text.split(/=(.*)/s);
       if (option === '--') {
         i++;
         break;
       }
-      const joined = /^--package=(.*)$/s.exec(option);
-      if (joined !== null) run({ ...(args[i] as Word), text: joined[1] ?? '' });
+      const packageOption = runner?.wrapper.packages.includes(option) === true;
+      if (runner?.wrapper.moves?.includes(option)) found.movesDir = true;
+      if (value !== undefined) {
+        if (packageOption) run({ ...word, text: value }, false);
+        i++;
+        continue;
+      }
       if (!wrapper.withValue.includes(option)) {
         i++;
         continue;
       }
       if (wrapper.runs?.includes(option)) nested.push(args[i + 1]?.text ?? '');
-      else run(args[i + 1]);
+      else if (packageOption) run(args[i + 1], false);
       i += 2;
     }
-    run(args[i]);
+    run(args[i], true);
     rest = args.slice(i + (wrapper.operands ?? 0));
   }
 };
@@ -656,14 +690,11 @@ const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish']
 const POWERSHELLS = new Set(['pwsh', 'powershell']);
 const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', '[scriptblock]::create']);
 const START_PROCESS = new Set(['start-process', 'start', 'saps']);
-const CHANGE_DIRECTORY = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
-
 // Reads one simple command; returns whether it runs code given as text, so that every string
 // and every argument list of the command line may be code.
 const readInvocation = ({ program, args }: Invocation, reading: Reading): boolean => {
   if (program === 'git' || program === COMPUTED) readGit(args, program === 'git', reading);
   if (program === 'gh' || program === COMPUTED) readGh(args, program === 'gh', reading);
-  if (CHANGE_DIRECTORY.has(program)) reading.found.movesDir = true;
   const { nested } = reading;
   const codeOptions = INTERPRETERS.get(program);
   if (codeOptions !== undefined) {
@@ -700,7 +731,7 @@ const read = (
     const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [] };
     let runsText = false;
     for (const words of lexed.segments) {
-      const called = invocation(words, reading.nested, found.packages);
+      const called = invocation(words, reading.nested, found);
       if (called !== undefined && readInvocation(called, reading)) runsText = true;
     }
     if (runsText) {
@@ -862,10 +893,16 @@ export const precheck = async (
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
-  for (const { runner, name } of found.packages) {
-    // Only a plain name is looked up: a version, a scope, a path or a computed name is not what
-    // node_modules/.bin holds.
-    if (name.dynamic || !BINARY_NAME.test(name.text) || !(await binaryInstalled(cwd, name.text))) {
+  for (const { runner, name, lookup } of found.packages) {
+    // Only a plain name is looked up: a version, a scope, a path, a computed name or one Windows
+    // maps to a device is not what node_modules/.bin holds.
+    if (
+      !lookup ||
+      name.dynamic ||
+      !BINARY_NAME.test(name.text) ||
+      WINDOWS_DEVICE.test(name.text) ||
+      !(await binaryInstalled(cwd, name.text))
+    ) {
       return { exitCode: 2, stderr: `${downloadBlocked(`${runner} ${name.text}`)}\n` };
     }
   }
