@@ -32,4 +32,18 @@ describe('realClaude', () => {
       /FOEDRUM_REAL_CLAUDE=1.*claude/,
     );
   });
+
+  // The integration tests call it without arguments, so the default must be this process's own.
+  it("reads the variable from the process's environment by default", () => {
+    const before = process.env[REAL_CLAUDE];
+    try {
+      process.env[REAL_CLAUDE] = '1';
+      assert.equal(realClaude(undefined, found).kind, 'run');
+      delete process.env[REAL_CLAUDE];
+      assert.equal(realClaude(undefined, found).kind, 'skip');
+    } finally {
+      if (before === undefined) delete process.env[REAL_CLAUDE];
+      else process.env[REAL_CLAUDE] = before;
+    }
+  });
 });
