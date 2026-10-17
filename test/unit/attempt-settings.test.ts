@@ -156,7 +156,7 @@ describe('writeAttemptSettings', () => {
   });
 
   // claude would drop the whole file silently, deny rules included (ADR 0042).
-  for (const [what, settings] of [
+  for (const [what, settings, reason] of [
     ['an unknown key', { permissions: { allow: [], deny: ['AskUserQuestion'] }, model: 'x' }],
     ['a value of the wrong type', { permissions: { allow: 'Read', deny: ['AskUserQuestion'] } }],
     ['a deny list without AskUserQuestion', { permissions: { allow: ['Read'], deny: [] } }],
@@ -167,6 +167,7 @@ describe('writeAttemptSettings', () => {
     [
       'git with no fixed subcommand',
       { permissions: { allow: ['Bash(git *)'], deny: ['AskUserQuestion', 'Bash(git push *)'] } },
+      /git with no fixed subcommand/,
     ],
     [
       'a sandbox that may fall back to running unsandboxed',
@@ -181,6 +182,13 @@ describe('writeAttemptSettings', () => {
         () => writeAttemptSettings(file, settings as unknown as AttemptSettings),
         /settings/,
       );
+      // A row with its own pattern is refused for that reason, not another one.
+      if (reason !== undefined) {
+        assert.throws(
+          () => writeAttemptSettings(file, settings as unknown as AttemptSettings),
+          reason,
+        );
+      }
       assert.equal(existsSync(file), false);
     });
   }
