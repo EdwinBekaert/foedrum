@@ -1,5 +1,11 @@
-// Chaos runs over seeds (#15, #144): each seed's generated scenario played with its kill plan, or a
-// schedule replayed, and a failure reported with the kills, the moves and the events.
+// Chaos runs over seeds (#15, #144): each seed's generated scenario played with its kill plan. A
+// run that fails is shrunk to the smallest schedule that still fails the same way, and reported
+// with its seed, the faults and moves that are left, and the events they appended.
+//
+// A schedule is the run's moves and plays and its faults, each fault at its site: the move by its
+// number in the run as first played, the driver, and its count among decisions of its kind in that
+// move (`Fault`). Removing a move takes only its own faults along, and every other fault stays
+// where it was, which a count over the whole run would not do (#150).
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +42,9 @@ import {
 /** Seeds per chaos property in npm run check, where the chaos layer has a time ceiling. */
 const chaosRuns = 5;
 
+/** How many runs shrinking may replay before it reports what it has. */
+const shrinkBudget = 250;
+
 /** What a chaos run plays: its moves, each at its site (`MoveSites`), its plays and its faults. */
 export interface ChaosSchedule {
   moves: { site: number; move: Move }[];
@@ -50,6 +59,12 @@ export interface ChaosFailure {
   error: unknown;
   report: string;
   schedule: ChaosSchedule;
+}
+
+/** The first failing run of a seed, before shrinking. */
+export interface FoundFailure {
+  seed: number;
+  failure: ChaosFailure;
 }
 
 let trials = 0;
@@ -112,8 +127,39 @@ export const trialChaos = async (
 };
 
 /**
+ * What a failure is, for shrinking to keep: the error's name and the first line of its message,
+ * with every number in it left out, since a smaller run names other batches and attempts.
+ */
+export const failureKind = (_error: unknown): string => {
+  throw new Error('not implemented');
+};
+
+/** A shrunk failure, with how many runs shrinking replayed and whether it ran out of them. */
+export interface Shrunk {
+  failure: ChaosFailure;
+  runs: number;
+  exhausted: boolean;
+}
+
+/**
+ * Shrinks `found` to a smallest schedule that still fails the same way (`failureKind`): it
+ * removes chunks of moves, then of faults, halving the chunk down to one, over and over until
+ * neither goes; then it makes each play that is left a success where that still fails. Each
+ * removal keeps every other fault at its site.
+ */
+export const shrinkChaos = async (
+  _dir: string,
+  _found: FoundFailure,
+  _checks: ChaosChecks,
+  _options: ChaosOptions = {},
+  _budget = shrinkBudget,
+): Promise<Shrunk> => {
+  throw new Error('not implemented');
+};
+
+/**
  * Runs `seed`'s generated scenario with its kill plan on a database in `dir`, and checks
- * `checks`. A failure is thrown with the kills, the moves and the events.
+ * `checks`. A failure is shrunk, and thrown with the seed, the schedule left and its events.
  */
 export const checkSeed = async (
   dir: string,
@@ -123,7 +169,8 @@ export const checkSeed = async (
 ): Promise<void> => {
   const failure = await trialChaos(dir, { seed }, checks, options);
   if (failure === undefined) return;
-  throw noted(failure.error, failure.report);
+  const shrunk = await shrinkChaos(dir, { seed, failure }, checks, options);
+  throw noted(shrunk.failure.error, counterexample(seed, failure, shrunk));
 };
 
 /**
@@ -136,6 +183,33 @@ export const holdsAcrossKills = (
   options: ChaosOptions = {},
 ): Promise<void> => forEachSeedAsync(chaosRuns, (seed) => checkSeed(dir, seed, checks, options));
 
+const count = (n: number, what: string): string => `${n} ${what}${n === 1 ? '' : 's'}`;
+
+const ordinal = (n: number): string =>
+  `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
+
+/** One fault on one line: where it was, and what it did. */
+export const describeFault = ({ move, driver, kind, n, value }: Fault): string => {
+  const where = `move ${move}${driver === '' ? '' : `, ${driver}`}`;
+  const what = (): string => {
+    if (kind.startsWith('kill ')) return `killed ${kind.slice('kill '.length)}`;
+    if (typeof value === 'object') return `the terminal: ${value.kind} ${value.batchId}`;
+    switch (kind) {
+      case 'pause':
+        return `lets the others run ${count(value, 'turn')} at the code host`;
+      case 'first':
+        return `driver ${value} plays first`;
+      case 'down':
+        return `stays down ${count(value, 'move')}`;
+      case 'stall':
+        return `stalls ${count(value, 'move')}`;
+      default:
+        return `${kind} ${value}`;
+    }
+  };
+  return `${where}: ${what()} (the ${ordinal(n + 1)} such decision in the move)`;
+};
+
 const numbered = (lines: readonly string[]): string =>
   lines.length === 0
     ? '    (none)'
@@ -143,6 +217,27 @@ const numbered = (lines: readonly string[]): string =>
 
 const describeMove = (move: Move): string =>
   move.kind === 'command' ? describeCommand(move.command) : `tick +${move.advanceMs / 60_000} min`;
+
+/** The seed, what shrinking left of the first failure, and the shrunk run's report. */
+const counterexample = (seed: number, first: ChaosFailure, shrunk: Shrunk): string => {
+  const from = first.schedule;
+  const to = shrunk.failure.schedule;
+  const size = (schedule: ChaosSchedule): string =>
+    `${count(schedule.moves.length, 'move')} and ${count(schedule.faults.length, 'fault')}`;
+  const firstFound = failureKind(first.error);
+  return [
+    `Seed ${seed}, shrunk in ${count(shrunk.runs, 'run')} from ${size(from)} to ${size(to)}` +
+      `${shrunk.exhausted ? ', when shrinking ran out of runs' : ''}. First found as: ${firstFound}`,
+    'Faults left, at their sites (a move by its number in the run as first played):',
+    numbered(to.faults.map(describeFault)),
+    'Moves left, by their number in the run as first played:',
+    numbered(to.moves.map(({ site, move }) => `(${site}) ${describeMove(move)}`)),
+    'Plays left, by attempt (any other attempt succeeds):',
+    numbered(to.plays.map(describePlay)),
+    'The shrunk run:',
+    shrunk.failure.report,
+  ].join('\n');
+};
 
 /** The kills, moves, plays and events of `run`, numbered. */
 const report = ({ engine, scenario, moves }: ChaosRun): string => {

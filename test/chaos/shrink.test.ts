@@ -1,0 +1,150 @@
+// Shrinking a failing chaos run (#144): a run that fails ends at a smallest schedule that still
+// fails the same way, every fault of it at the site it had, and its report names the seed. The
+// failures here come from checks that fail on purpose, at faults of each kind a schedule holds.
+
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+import type { ChaosChecks, ChaosOptions } from '../helpers/chaos.ts';
+import {
+  type ChaosSchedule,
+  checkSeed,
+  type FoundFailure,
+  failureKind,
+  type Shrunk,
+  shrinkChaos,
+  trialChaos,
+} from '../helpers/chaos-shrink.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+
+let dir: TempDir;
+before(() => {
+  dir = makeTempDir('chaos-shrink');
+});
+after(() => dir.remove());
+
+/** How many seeds a test may try for a run that fails its check. */
+const maxSeeds = 30;
+
+/** The first of the seeds from 1 whose run fails `checks`. */
+const firstFailure = async (
+  checks: ChaosChecks,
+  options: ChaosOptions = {},
+): Promise<FoundFailure> => {
+  for (let seed = 1; seed <= maxSeeds; seed++) {
+    const failure = await trialChaos(dir.path, { seed }, checks, options);
+    if (failure !== undefined) return { seed, failure };
+  }
+  throw new Error(`No seed up to ${maxSeeds} fails the check`);
+};
+
+/** Whether `schedule` fails as `kind` does. */
+const failsAs = async (
+  kind: string,
+  schedule: ChaosSchedule,
+  checks: ChaosChecks,
+  options: ChaosOptions,
+): Promise<boolean> => {
+  const failure = await trialChaos(dir.path, { schedule }, checks, options);
+  return failure !== undefined && failureKind(failure.error) === kind;
+};
+
+/** The shrunk schedule fails as the first run did, and no single move or fault can go. */
+const isSmallest = async (
+  found: FoundFailure,
+  { failure, exhausted }: Shrunk,
+  checks: ChaosChecks,
+  options: ChaosOptions = {},
+): Promise<void> => {
+  assert.equal(exhausted, false, 'shrinking finished within its runs');
+  const kind = failureKind(found.failure.error);
+  const { schedule } = failure;
+  assert.ok(await failsAs(kind, schedule, checks, options), 'the shrunk schedule fails again');
+  for (const [at, { site }] of schedule.moves.entries()) {
+    const moves = schedule.moves.filter((_, i) => i !== at);
+    assert.equal(
+      await failsAs(kind, { ...schedule, moves }, checks, options),
+      false,
+      `the run fails without move ${site}`,
+    );
+  }
+  for (const [at, fault] of schedule.faults.entries()) {
+    const faults = schedule.faults.filter((_, i) => i !== at);
+    assert.equal(
+      await failsAs(kind, { ...schedule, faults }, checks, options),
+      false,
+      `the run fails without the fault ${JSON.stringify(fault)}`,
+    );
+  }
+};
+
+/** Fails once a kill landed after an effect reached the code host. */
+const killedAfterAnEffect: ChaosChecks = {
+  afterMove: ({ engine }) => {
+    const kill = engine.kills.find(({ point }) => point === 'after an effect reached its target');
+    assert.equal(kill, undefined, 'a driver was killed after an effect reached its target');
+  },
+};
+
+/** Fails once a driver took a batch over from one that was killed and stayed down. */
+const tookOverFromTheKilled: ChaosChecks = {
+  afterMove: ({ engine }) => {
+    const takeover = engine.takeovers.find(({ why }) => why === 'killed');
+    assert.equal(takeover, undefined, 'a batch was taken over from a driver that was killed');
+  },
+};
+
+const drivers = ['cellar', 'session'] as const;
+
+describe('a failing chaos run', () => {
+  it('shrinks to the moves it fails by and the one kill, at the site it had', async () => {
+    const found = await firstFailure(killedAfterAnEffect);
+    const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect);
+    const { moves, faults } = shrunk.failure.schedule;
+    assert.deepStrictEqual(
+      faults.map(({ kind }) => kind),
+      ['kill after an effect reached its target'],
+    );
+    const [kill] = faults;
+    assert.ok(
+      found.failure.schedule.faults.some((fault) => JSON.stringify(fault) === JSON.stringify(kill)),
+      'the kill is the one the first run had, at its site',
+    );
+    assert.ok(moves.length < found.failure.schedule.moves.length, 'moves were removed');
+    await isSmallest(found, shrunk, killedAfterAnEffect);
+  });
+
+  it('with two drivers, keeps the kill and the downtime a takeover needs, and nothing else', async () => {
+    const options = { drivers };
+    const found = await firstFailure(tookOverFromTheKilled, options);
+    const shrunk = await shrinkChaos(dir.path, found, tookOverFromTheKilled, options);
+    const kinds = shrunk.failure.schedule.faults.map(({ kind }) => kind);
+    assert.ok(
+      kinds.some((kind) => kind.startsWith('kill ')),
+      `a kill is left: ${kinds.join(', ')}`,
+    );
+    assert.ok(kinds.includes('down'), `the downtime is left: ${kinds.join(', ')}`);
+    assert.ok(
+      shrunk.failure.schedule.faults.length < found.failure.schedule.faults.length,
+      'faults were removed',
+    );
+    await isSmallest(found, shrunk, tookOverFromTheKilled, options);
+  });
+
+  it('is reported with its seed and the schedule it shrank to', async () => {
+    const { seed } = await firstFailure(killedAfterAnEffect);
+    await assert.rejects(checkSeed(dir.path, seed, killedAfterAnEffect), (error: Error) => {
+      assert.match(error.message, /^a driver was killed after an effect reached its target/);
+      assert.match(
+        error.message,
+        new RegExp(
+          `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults to \\d+ moves? and 1 fault\\.`,
+        ),
+      );
+      assert.match(
+        error.message,
+        /\n +1\. move \d+, cellar: killed after an effect reached its target/,
+      );
+      return true;
+    });
+  });
+});
