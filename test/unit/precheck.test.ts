@@ -904,7 +904,7 @@ describe('precheck limits and pre-filter', () => {
     assert.deepEqual(calls, []);
   });
 
-  // The tool's name no longer sends every PowerShell call to the parser (ADR 0054).
+  // The tool's name no longer sends every PowerShell call to the parser (ADR 0056).
   it('lets through a PowerShell command that mentions neither git nor gh without reading it', async () => {
     const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
     const command = `bash -c ${Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ')}`;

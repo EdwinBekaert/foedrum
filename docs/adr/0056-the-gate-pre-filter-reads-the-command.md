@@ -1,4 +1,4 @@
-# 0054. The local gate's pre-filter reads the command, not the whole hook input
+# 0056. The local gate's pre-filter reads the command, not the whole hook input
 
 Date: 2026-10-17 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the pre-filter matches)
 
