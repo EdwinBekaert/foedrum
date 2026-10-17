@@ -2,6 +2,7 @@
 // version through the process runner. doctor.ts decides what the answers mean.
 
 import { join } from 'node:path';
+import type { BreweryFiles } from '../engine/recipe-files.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import type { DoctorFacts, ToolName, ToolRun } from './doctor.ts';
 
@@ -37,6 +38,8 @@ export interface DoctorShell {
   cwd: string;
   /** The text of the file at `path`, or undefined when there is none. */
   readFile?: (path: string) => string | undefined;
+  /** The Brewery's recipe and brewer files in `cwd` (`readBreweryFiles`, ADR 0053). */
+  readBrewery?: () => BreweryFiles;
 }
 
 /** Every tool's path and version answer, asked all at once. */
@@ -82,5 +85,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
+    ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),
   };
 };

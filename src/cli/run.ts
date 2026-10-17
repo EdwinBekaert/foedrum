@@ -23,8 +23,11 @@ export interface CliContext {
    * is none: a command never creates one.
    */
   openWritableStore: (path: string) => EventStore | undefined;
-  /** The Brewery's recipes, which decide where a batch goes next. */
-  recipes: Recipes;
+  /**
+   * Loads the Brewery's recipes, which decide where a batch goes next. Only a command that
+   * changes state calls it.
+   */
+  recipes: () => Recipes;
   /** Who issues the command: the name its events record (ADR 0019). */
   user: () => string;
   /** Where the command comes from: the surface its events record. */

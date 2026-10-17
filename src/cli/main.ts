@@ -4,6 +4,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { release, userInfo } from 'node:os';
+import { breweryRecipes, readBreweryFiles } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { userName } from '../platform/env.ts';
 import { resolveExecutable } from '../platform/executables.ts';
@@ -25,6 +26,7 @@ try {
         execPath: process.execPath,
         cwd,
         readFile: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined),
+        readBrewery: () => readBreweryFiles(cwd),
       }),
     // Never creates or changes a store (ADR 0030): a read in the wrong folder says so instead of
     // making an empty one, and an older Cellar's store is not migrated under it.
@@ -32,9 +34,8 @@ try {
       existsSync(path) ? openSqliteEventStore(path, { readOnly: true }) : undefined,
     // A command that changes state never creates a store either; it opens the Brewery's.
     openWritableStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
-    // Recipe files reach the engine's Recipe interface in a follow-up of #37: until then a
-    // command that schedules a step is refused with "the Brewery has no recipe <name>".
-    recipes: { find: () => undefined },
+    // Files that do not load refuse the command with doctor's line (ADR 0053).
+    recipes: () => breweryRecipes(cwd),
     user: () => userName(() => userInfo().username, process.env),
     surface: 'terminal',
     now: () => new Date(),

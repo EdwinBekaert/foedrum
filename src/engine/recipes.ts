@@ -15,8 +15,8 @@ export type Continuation =
  * `minutes` minutes, whichever comes first (brewers-and-recipes §1).
  */
 export interface Stall {
-  turns?: number;
-  minutes?: number;
+  turns?: number | undefined;
+  minutes?: number | undefined;
 }
 
 export interface Recipe {

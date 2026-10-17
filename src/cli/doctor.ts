@@ -2,6 +2,7 @@
 // the tools Foedrum needs, the effective isolation level (ADR 0010, architecture §13) and what
 // is missing. doctor-facts.ts gathers the facts.
 
+import { type BreweryFiles, INVALID_RECIPES, loadRecipes } from '../engine/recipe-files.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
@@ -34,6 +35,8 @@ export interface DoctorFacts {
   config?: string | undefined;
   /** Why foedrum.jsonc could not be read, when it is there and could not be. */
   configUnreadable?: string | undefined;
+  /** The Brewery's recipe and brewer files in the working directory (ADR 0053). */
+  brewery?: BreweryFiles | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
@@ -158,6 +161,15 @@ const configProblems = ({ config, configUnreadable }: DoctorFacts): Problem[] =>
   return [{ required: true, what: 'foedrum.jsonc is not valid', fix }];
 };
 
+// The recipe and brewer files, when doctor read them: files that do not load stop every command
+// that needs recipes, with this same line (ADR 0053).
+const recipeProblems = ({ brewery }: DoctorFacts): Problem[] => {
+  if (brewery === undefined) return [];
+  const loaded = loadRecipes(brewery);
+  if (loaded.valid) return [];
+  return [{ required: true, what: INVALID_RECIPES, fix: loaded.problems.join('; ') }];
+};
+
 /** The effective isolation level (ADR 0010, architecture §13) and what to do about it. */
 const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
   const level = (
@@ -245,6 +257,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ),
     ...jobObjectProblems(facts),
     ...configProblems(facts),
+    ...recipeProblems(facts),
     ...sandboxProblems,
   ];
   // Podman first: it runs without a daemon or root. One that does not answer its version (a

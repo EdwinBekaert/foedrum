@@ -9,6 +9,7 @@ import { commands } from '../../src/cli/commands.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { invalidRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
@@ -87,7 +88,7 @@ describe('foedrum: commands that change state', () => {
       opened.writable.push(path);
       return kept();
     },
-    recipes,
+    recipes: () => recipes,
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
@@ -114,6 +115,25 @@ describe('foedrum: commands that change state', () => {
       assert.equal((await run(argv)).exitCode, 0, argv.join(' '));
     }
     assert.deepStrictEqual(opened.writable, []);
+    assert.equal(lastId(), before);
+  });
+
+  it("never loads the Brewery's recipes for a read-only command (ADR 0053)", async () => {
+    const recipes = () => {
+      throw new Error('the recipes were loaded');
+    };
+    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor']]) {
+      assert.equal((await run(argv, { recipes })).exitCode, 0, argv.join(' '));
+    }
+  });
+
+  it("refuses a command that needs recipes with doctor's line when they do not load, and appends nothing", async () => {
+    const line = invalidRecipes(['recipes/pint.jsonc: EACCES']);
+    const before = lastId();
+    const recipes = () => {
+      throw new Error(line);
+    };
+    assert.deepStrictEqual(await run(['retry', '22-1'], { recipes }), refused('retry', line));
     assert.equal(lastId(), before);
   });
 
@@ -404,7 +424,7 @@ describe('foedrum stuck', () => {
       gatherDoctorFacts: async () => linux(),
       openStore: () => ({ ...store, close: () => {} }),
       openWritableStore: () => undefined,
-      recipes,
+      recipes: () => recipes,
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
