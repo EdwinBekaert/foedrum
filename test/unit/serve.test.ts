@@ -527,6 +527,23 @@ describe('runServe', () => {
       assert.deepStrictEqual([lock.held, closed], [false, 1]);
     });
 
+    it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
+      store = empty();
+      setup = intakeSetup();
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      log.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      log.issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' }, t0);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: { 'acme/web': [{ number: 7, labels: ['foedrum:claimed'], author: 'ann' }] },
+      });
+      const released = () => github.comments.get('acme/web#7')?.length === 1;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(released) })), 0);
+      assert.ok(released(), lines.join('\n'));
+      assert.ok(github.requests.includes('GET /user'));
+      assert.deepStrictEqual(github.issue('acme/web', 7)?.labels, []);
+    });
+
     it("stops when it cannot read the token's login for a target intake", async () => {
       setup = intakeSetup({}, target);
       const github = fakeGitHubApi({
