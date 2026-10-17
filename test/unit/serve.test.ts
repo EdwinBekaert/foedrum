@@ -271,6 +271,26 @@ describe('runServe', () => {
     assert.equal(lines.at(-1), 'foedrum serve: stopped');
   });
 
+  it('prints a notice with control characters escaped, since a model may have written it', async () => {
+    let flushes = 0;
+    await runServe(
+      setup,
+      shell({
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () =>
+            flushes++ === 0
+              ? { kind: 'failed', reason: 'hook said \u001b[2Jhi' }
+              : { kind: 'unchanged' },
+        }),
+      }),
+    );
+    assert.ok(
+      lines.includes('foedrum serve: the state branch was not pushed: hook said \\u001b[2Jhi'),
+      lines.join('\n'),
+    );
+  });
+
   it('does not tick once it was stopped before it started', async () => {
     controller.abort();
     assert.equal(await runServe(setup, shell()), 0);

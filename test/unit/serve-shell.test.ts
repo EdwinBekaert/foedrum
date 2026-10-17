@@ -7,7 +7,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
-import { serveShell } from '../../src/cli/serve-shell.ts';
+import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import { fakeGit, suiteFolders } from '../helpers/attempt-worktrees.ts';
 import { clone, local, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -90,6 +90,19 @@ describe('serveShell', () => {
       'https://github.com/acme/web.git',
     ]);
     assert.equal(existsSync(join(workRoot, 'acme.web', 'clone.git')), true);
+  });
+
+  it('keeps listening for stop signals while serve shuts down, and stops listening after', () => {
+    const calls: string[] = [];
+    const listening = listenWhileServing({
+      on: (name) => calls.push(`on ${name}`),
+      off: (name) => calls.push(`off ${name}`),
+    });
+    const handler = () => {};
+    listening.listen('SIGINT', handler);
+    listening.listen('SIGHUP', handler);
+    listening.stop();
+    assert.deepStrictEqual(calls, ['on SIGINT', 'on SIGHUP', 'off SIGINT', 'off SIGHUP']);
   });
 
   it('borrows nothing for a managed repository without a clone of the user', async () => {

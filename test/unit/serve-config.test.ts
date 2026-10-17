@@ -145,6 +145,13 @@ describe('serveSetup', () => {
     );
   });
 
+  it('refuses a Brewery without a repository: no attempt could get a worktree', () => {
+    const empty = JSON.stringify({ brewery: 'acme/brewery', repositories: {} });
+    assert.deepStrictEqual(refused(inputs({ files: { ...inputs().files, config: empty } })), [
+      'foedrum.jsonc: list at least one repository under "repositories" for foedrum serve',
+    ]);
+  });
+
   it('refuses a brewer whose model alias models.jsonc does not have', () => {
     assert.deepStrictEqual(
       refused(inputs({ files: { ...inputs().files, models: models('deep') } })),

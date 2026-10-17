@@ -24,6 +24,19 @@ export interface ServeShellOptions {
   listen?: ListenForSignal;
 }
 
+/** Where a process listens for signals: `process` itself. */
+export interface SignalSource {
+  on(name: NodeJS.Signals, handler: () => void): unknown;
+  off(name: NodeJS.Signals, handler: () => void): unknown;
+}
+
+/** Listens for the stop signals while serve runs, until `stop`. */
+export const listenWhileServing = (
+  _source: SignalSource,
+): { listen: ListenForSignal; stop: () => void } => {
+  throw new Error('not implemented');
+};
+
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
   const { root, git, out, listen } = options;
   const { workRoot } = setup;

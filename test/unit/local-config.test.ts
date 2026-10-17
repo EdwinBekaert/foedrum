@@ -27,6 +27,18 @@ describe('LocalConfig', () => {
     assert.equal(LocalConfig.safeParse({ clones: { 'acme/web': '../web' } }).success, false);
   });
 
+  it('refuses a path rooted on no drive on Windows, which depends on the drive serve runs on', {
+    skip: process.platform !== 'win32' && 'a path without a drive is relative only on Windows',
+  }, () => {
+    for (const path of ['\\work', '/srv/foedrum']) {
+      assert.equal(LocalConfig.safeParse({ workRoot: path }).success, false, path);
+      assert.equal(LocalConfig.safeParse({ clones: { 'acme/web': path } }).success, false, path);
+    }
+    for (const path of ['C:\\work', 'd:/work', '\\\\server\\share\\work']) {
+      assert.equal(LocalConfig.safeParse({ workRoot: path }).success, true, path);
+    }
+  });
+
   it('refuses a clone of a repository that is not owner/name, and unknown fields', () => {
     assert.equal(LocalConfig.safeParse({ clones: { web: clone } }).success, false);
     assert.equal(LocalConfig.safeParse({ workroot: workRoot }).success, false);
