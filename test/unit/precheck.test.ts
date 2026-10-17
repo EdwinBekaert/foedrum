@@ -1123,6 +1123,12 @@ describe('precheck on gh pr ready', () => {
     });
   }
 
+  it('lets gh pr ready --undo through without looking the pull request up', async () => {
+    const { result, lookups } = await ready('gh pr ready 160 --undo', facts([], [c1, c2, c3]));
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(lookups, []);
+  });
+
   it('blocks a pull request given by a value computed at run time, without looking it up', async () => {
     const { result, lookups } = await ready(
       'gh pr ready $n',
