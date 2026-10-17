@@ -19,11 +19,11 @@ The same evening a mutation run froze the desktop: `node --test` starts one proc
 
 ## Consequences
 - The desktop stays responsive during a test run, and a run on an idle machine takes as long as before: priority only decides who waits when cores are busy.
-- The per-file CPU time budget (ADR 0036) measures the same work. Measured as in #41 (median of 30 runs, interleaved), RESULT.
+- The per-file CPU time budget (ADR 0036) measures the same work. For `test/property/scenarios.test.ts`, 15 interleaved pairs gave a median of 0.73 s of CPU time at normal priority and 0.70 s below normal: the difference is noise.
 - Under load from other normal-priority work, a below-normal test run takes longer in wall time. That is the trade: the interactive work goes first.
 - On Linux, `setpriority` changes the calling thread, so threads node started before the preload ran keep their priority; the test code runs on the main thread, and processes started from it inherit the new priority.
-- A mutant that only a test two or more modules away can fail now survives, where it was killed before. Survivors are advisory (ADR 0017), and the summary shows each with its patch. On the planted-defect sample and on #136, every verdict is unchanged (see Verification).
-- One review round of #136 (568 changed lines) spent RESULT on tests instead of 1,224 s.
+- A mutant that only a test two or more modules away can fail now survives, where it was killed before. Survivors are advisory (ADR 0017), and the summary shows each with its patch. On the planted-defect sample every verdict is unchanged (see Verification).
+- Stage 5 for #136 (568 changed lines) takes 8 s instead of 277 s on the same machine, with the same coverage table (see Verification).
 
 ## Alternatives considered
 - **Start test runs through `nice` or `start /belownormal`:** a wrapper per shell and platform in the skill and in package.json, and a test run started any other way still runs at normal priority.
@@ -32,4 +32,9 @@ The same evening a mutation run froze the desktop: `node --test` starts one proc
 - **Compare only the tests of files a mutant's run reported, with one baseline over the union:** the same savings, but a change to the verdict of ADR 0040; one shared list keeps the verdict as it is.
 
 ## Verification
-RESULTS
+Measured on 2026-10-17 on the twelve-core Windows machine of #140, with other sessions running.
+
+- **Stage 5 on #136** (`src/brewers/claude-runner.ts` and `claude-stream.ts`): the old way, the whole suite with coverage over every file, took 127 s at the base and 150 s at the head, one after the other (277 s). The new way runs 3 test files per tree, both trees at once: 8.4 s. Both report the same line, branch and function percentages and the same uncovered lines for both files.
+- **Stage 4 on the planted-defect sample**, with this branch's skill: Brett proposed 4 mutants; `mutants.ts --touched` found 3 valid and one that changes nothing (with `brewery-name.ts` left out of `files.txt`, it also marks that file's mutant as not touched). `mutant-tests.ts` chose 3 test files. Baseline and mutants took 5 s in all, against 96 s with the whole suite, with the same verdicts and the same killing tests: the backoff and wait-for-merge mutants killed, and the dropped end anchor in `isBreweryName` survived, which is the planted gap of rejection-only tests.
+- **Stage 5 on the planted-defect sample**: 4 test files, 1 s; the four new files are at 100 %.
+- **The three real-git integration suites**, run on their own, old and new fixture interleaved, median of 3: state-branch 39.4 s → 32.9 s, attempt-worktrees 34.3 s → 22.1 s, worktrees-clean 27.8 s → 27.3 s. Making the seed repository once per file saves 4 to 6 git processes per test; most of each test's time is the git work it tests.
