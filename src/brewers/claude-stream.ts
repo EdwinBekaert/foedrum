@@ -55,11 +55,38 @@ const SHELLS = new Set(['Bash', 'PowerShell']);
  * Whether a shell command runs `git … commit`: `commit` after `git` within one command between
  * separators. The command is model output, so each test is linear (review of #133).
  */
-const commits = (command: string): boolean =>
-  command.split(/[\n;&|]/).some((part) => {
-    const git = part.search(/\bgit\b/);
-    return git !== -1 && /\bcommit\b/.test(part.slice(git));
-  });
+const commits = (command: string): boolean => simpleCommands(command).some(runsCommit);
+
+/**
+ * The words of each simple command, split at `;`, `&`, `|` and line ends outside quotes, a quoted
+ * word as one word without its quotes (review of #136). One linear pass.
+ */
+const simpleCommands = (command: string): string[][] => {
+  const found: string[][] = [[]];
+  for (const token of command.match(/"[^"]*"|'[^']*'|[\n;&|]|[^\s;&|"']+|["']/g) ?? []) {
+    if (/^[\n;&|]$/.test(token)) found.push([]);
+    else found.at(-1)?.push(/^(["']).*\1$/s.test(token) ? token.slice(1, -1) : token);
+  }
+  return found;
+};
+
+/** git's global options that take the next word as their value (unless given with `=`). */
+const VALUED = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env']);
+
+/**
+ * Whether one simple command is `git … commit`: after variables, git itself (by any path, with or
+ * without `.exe`), then its global options, the first word is `commit` (#134).
+ */
+const runsCommit = (words: readonly string[]): boolean => {
+  let at = 0;
+  while (at < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at] ?? '')) at += 1;
+  if (!/(?:^|[\\/])git(?:\.exe)?$/i.test(words[at] ?? '')) return false;
+  at += 1;
+  while (at < words.length && (words[at] ?? '').startsWith('-')) {
+    at += VALUED.has(words[at] ?? '') ? 2 : 1;
+  }
+  return words[at] === 'commit';
+};
 
 const writes = (name: string, input: Record<string, unknown>): boolean =>
   WRITERS.has(name) ||

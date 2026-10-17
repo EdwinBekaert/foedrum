@@ -1,6 +1,6 @@
 # 0008. Polling intake
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) and [0050](0050-the-intake-of-target-repository-issues.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [0050](0050-the-intake-of-target-repository-issues.md) and [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)
 
 ## Context
 Foedrum runs on a developer's machine, usually behind NAT, without a public endpoint. Webhooks require a reachable server or a relay service.

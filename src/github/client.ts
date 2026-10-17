@@ -1,6 +1,9 @@
 // A small GitHub client over the built-in fetch (ADR 0008): REST and GraphQL calls with the
 // Brewery's token, each given up after its timeout or when the caller's signal aborts. It returns
 // what GitHub answered, parsed but unchecked: every caller checks it, since it comes from outside.
+// On GitHub's rate limit it pauses, and fails every request until the pause ends (ADR 0052).
+
+import { GitHubError } from '../schemas/github.ts';
 
 export interface GitHubClientOptions {
   /** A fine-grained personal access token (ADR 0008); it never appears in an error. */
@@ -13,16 +16,44 @@ export interface GitHubClientOptions {
   timeoutMs?: number;
   /** How long an answer may be; default 4 MiB, the process runner's output limit (ADR 0035). */
   maxResponseBytes?: number;
+  /** The time in milliseconds, for the rate limit's pause; default `Date.now`. */
+  now?: () => number;
+}
+
+/** What GitHub answered: its status, its body parsed but unchecked, and its headers. */
+export interface GitHubAnswer {
+  status: number;
+  body: unknown;
+  headers: Headers;
+}
+
+/**
+ * GitHub's rate limit holds requests until `until` (ADR 0052): the request that met it, and every
+ * request of this client before then, fails with it without reaching GitHub.
+ */
+export class GitHubRateLimited extends Error {
+  readonly until: Date;
+  constructor(until: Date) {
+    super(`GitHub's rate limit holds requests until ${until.toISOString()}`);
+    this.name = 'GitHubRateLimited';
+    this.until = until;
+  }
 }
 
 export interface GitHubClient {
-  /** `path` from the API's root, `/repos/...`; `body` as JSON, or `null` when there is none. */
+  /** Where the API's paths start, without a trailing `/`. */
+  readonly baseUrl: string;
+  /**
+   * `path` from the API's root, `/repos/...`; `body` as JSON, or `null` when there is none;
+   * `headers` added to the request, such as `if-none-match`.
+   */
   rest(
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     signal?: AbortSignal,
-  ): Promise<{ status: number; body: unknown }>;
+    headers?: Readonly<Record<string, string>>,
+  ): Promise<GitHubAnswer>;
   /** A GraphQL request; an answer that is not 200 fails. */
   graphql(
     query: string,
@@ -41,6 +72,17 @@ const parse = (text: string): unknown => {
   }
 };
 
+const minuteMs = 60_000;
+/** The longest pause a secondary limit without headers doubles up to. */
+const mostDoublingMs = 15 * minuteMs;
+/** The longest pause of all, whatever a header says: GitHub's primary limit resets every hour. */
+const mostPauseMs = 60 * minuteMs;
+
+// A header that holds a whole number, such as a reset in epoch seconds; undefined for anything
+// else.
+const wholeNumber = (text: string | null): number | undefined =>
+  text !== null && /^\d+$/.test(text.trim()) ? Number(text.trim()) : undefined;
+
 const messagesOf = (errors: unknown): { message: string }[] =>
   Array.isArray(errors)
     ? errors.map((error: unknown) => ({
@@ -55,10 +97,52 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
   const {
     token,
     fetch = globalThis.fetch,
-    baseUrl = 'https://api.github.com',
     timeoutMs = 30_000,
     maxResponseBytes = 4 * 1024 * 1024,
+    now = Date.now,
   } = options;
+  const baseUrl = options.baseUrl?.replace(/\/+$/, '') ?? 'https://api.github.com';
+
+  // Requests wait for GitHub's rate limit until `pausedUntil`; `secondaries` counts the secondary
+  // limits without headers in a row, whose pause doubles.
+  let pausedUntil = 0;
+  let secondaries = 0;
+  const pause = (until: number): void => {
+    pausedUntil = Math.max(pausedUntil, Math.min(until, now() + mostPauseMs));
+  };
+
+  /**
+   * Pauses for GitHub's rate limit when `answer` calls for it, as GitHub's documentation says: a
+   * retry-after first, then the reset of a used-up limit, else a minute that doubles while the
+   * limit repeats. True when the answer is a refusal for the limit.
+   */
+  const limitedBy = (answer: GitHubAnswer): boolean => {
+    const { status, body, headers } = answer;
+    const at = now();
+    const reset = wholeNumber(headers.get('x-ratelimit-reset'));
+    const usedUp = headers.get('x-ratelimit-remaining')?.trim() === '0' && reset !== undefined;
+    const retryAfter = wholeNumber(headers.get('retry-after'));
+    const error = GitHubError.safeParse(body);
+    const limited =
+      status === 429 ||
+      (status === 403 &&
+        (usedUp ||
+          retryAfter !== undefined ||
+          (error.success && /rate limit/i.test(error.data.message))));
+    if (!limited) {
+      secondaries = 0;
+      // The last request the limit allowed: the next one would be refused.
+      if (usedUp) pause(reset * 1000);
+      return false;
+    }
+    if (retryAfter !== undefined) pause(at + retryAfter * 1000);
+    else if (usedUp) pause(reset * 1000);
+    else {
+      pause(at + Math.min(minuteMs * 2 ** secondaries, mostDoublingMs));
+      secondaries++;
+    }
+    return true;
+  };
 
   // The answer's text, given up once it passes `maxResponseBytes`: GitHub returns what anyone with
   // push access wrote, such as a claim commit's message, and nothing keeps that small.
@@ -91,7 +175,9 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
     path: string,
     body: unknown,
     signal: AbortSignal | undefined,
-  ): Promise<{ status: number; body: unknown }> => {
+    headers: Readonly<Record<string, string>> = {},
+  ): Promise<GitHubAnswer> => {
+    if (now() < pausedUntil) throw new GitHubRateLimited(new Date(pausedUntil));
     const timeout = new AbortController();
     const timer = setTimeout(
       () =>
@@ -103,6 +189,7 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
       const response = await fetch(`${baseUrl}${path}`, {
         method,
         headers: {
+          ...headers,
           accept: 'application/vnd.github+json',
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
@@ -112,16 +199,20 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.any(signals),
       });
-      return {
+      const answer = {
         status: response.status,
         body: parse(await readLimited(response, `${method} ${path}`)),
+        headers: response.headers,
       };
+      if (limitedBy(answer)) throw new GitHubRateLimited(new Date(pausedUntil));
+      return answer;
     } finally {
       clearTimeout(timer);
     }
   };
 
   return {
+    baseUrl,
     rest: request,
     graphql: async (query, variables, signal) => {
       const answer = await request('POST', '/graphql', { query, variables }, signal);

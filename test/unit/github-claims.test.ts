@@ -6,48 +6,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EMPTY_TREE, githubClaimHost } from '../../src/github/claims.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
+import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 
 const repo = 'acme/web';
 const sha = 'a'.repeat(40);
 const other = 'b'.repeat(40);
 const message = '{"brewery":"alice/brewery","issue":7,"claimedAt":"2026-10-16T09:00:00.000Z"}';
-
-interface Request {
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  body: unknown;
-  signal: AbortSignal | undefined;
-}
-type Answer = { status: number; body?: unknown; headers?: Record<string, string> } | 'hang';
-
-/** A `fetch` that answers each request with the next answer, recording what it was asked. */
-const fakeFetch = (answers: Answer[]) => {
-  const requests: Request[] = [];
-  const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
-    const headers = Object.fromEntries(new Headers(init.headers).entries());
-    const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
-    requests.push({
-      method: init.method ?? 'GET',
-      url: String(input),
-      headers,
-      body,
-      signal: init.signal ?? undefined,
-    });
-    const answer = answers.shift();
-    if (answer === undefined) throw new Error(`no answer for ${init.method} ${String(input)}`);
-    if (answer === 'hang') {
-      return new Promise<Response>((_, reject) => {
-        init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
-      });
-    }
-    return new Response(answer.body === undefined ? null : JSON.stringify(answer.body), {
-      status: answer.status,
-      headers: { 'content-type': 'application/json', ...answer.headers },
-    });
-  };
-  return { fetch: fetch as typeof globalThis.fetch, requests };
-};
 
 const hostWith = (answers: Answer[], timeoutMs?: number) => {
   const fake = fakeFetch(answers);

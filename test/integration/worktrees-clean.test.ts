@@ -21,6 +21,7 @@ import { isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { parseWorktreeList } from '../../src/workspace/worktree-list.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { killLeftovers } from './leftover-processes.ts';
 import { makeReadOnly } from './read-only.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'worktrees-clean.ts');
@@ -212,15 +213,20 @@ describe('worktrees-clean with real git', () => {
 // processes git started, running past the deadline (#12).
 describe('worktrees-clean runGit with real git', () => {
   let dir: TempDir;
+  let pidFile: string;
   beforeEach(() => {
     dir = makeTempDir('clean-git');
+    pidFile = join(dir.path, 'pid').replaceAll('\\', '/');
   });
-  // On Windows, git's killed tree can hold the folder a moment longer; removeTree retries.
-  afterEach(() => removeTree(dir.path));
+  // A failed assertion must not leave the sleeping child running. On Windows, git's killed tree
+  // can hold the folder a moment longer; removeTree retries.
+  afterEach(async () => {
+    await killLeftovers(pidFile);
+    removeTree(dir.path);
+  });
 
   it('ends git and the processes it started at the deadline, and fails saying so', async () => {
     // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
-    const pidFile = join(dir.path, 'pid').replaceAll('\\', '/');
     const node = process.execPath.replaceAll('\\', '/');
     const sleeper = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
     const started = Date.now();

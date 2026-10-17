@@ -58,6 +58,14 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
 - Never bypass the gate. Fix the failure, or ask the user.
 - There are no git hooks: they would need an install script, and lifecycle scripts are disabled. Outside Claude Code, run `npm run check` yourself before pushing.
 
+## Read guard
+
+The read-only agents (`taster`, `brett`) read only inside the checkout ([ADR 0049](docs/adr/0049-reviewers-read-only-inside-the-checkout.md)). A `PreToolUse` hook in their frontmatter runs `scripts/read-guard.ts` before every `Read`, `Grep` and `Glob`, failing closed like the local gate.
+
+- A path gets through only when it resolves inside `CLAUDE_PROJECT_DIR`. `~` and the working directory are applied first, and then the real path of its deepest existing part (`src/platform/real-path.ts`), which resolves links, junctions, short names and case. On Windows, network, device and drive-less paths, and paths on another drive than the checkout's, are blocked without touching them. Anything else is blocked with one line.
+- Every agent whose only tools are `Read`, `Grep` and `Glob` must carry the same hook block; a unit test checks it. Main sessions do not run the guard: they have a shell, and they read Claude Code's own files outside the checkout.
+- Brewers cannot use the hook, because `--safe-mode` turns it off. They get the rule from file-tool allow rules scoped to the worktree in their attempt settings.
+
 ## Node modules at session start
 
 A `git pull` that changes `package-lock.json` leaves `node_modules` stale, and the gate then fails for every session. So the first `SessionStart` hook in `.claude/settings.json` runs `npm run deps:sync` in `${CLAUDE_PROJECT_DIR}` when a session starts or resumes, synchronously: the session waits for it, so no gate runs against a half-installed tree.
@@ -120,6 +128,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Paths only through `node:path`, `os.homedir()` and `os.tmpdir()`; never string-built paths or `~`. (`os.tmpdir()` is for product code at run time; development and tests use `.foedrum/tmp/`, see Temporary files.)
 - In `src/` and `scripts/`, spawn git and other tools with argument arrays and no shell, through the process runner in `src/platform/processes.ts` (`execProcess`, or `spawnProcess` in scripts; `streamProcess` for a long stream such as `claude`'s, line by line with a limit per line and input on stdin, ADR 0046, and on Windows only with `jobObject: true`, ADR 0047). Integration tests may also start a node fixture with `spawnSync` and a `timeout` when the test is about something other than the runner. The runner kills the whole tree at a deadline, when stopped, or when the output passes its limit (`maxOutputBytes`, 4 MiB by default; ADR 0035), which `execFile` cannot, since it waits for every output pipe to close. The only shell spawns are `.cmd` and `.bat` files on Windows (npm's `claude.cmd`, `npm.cmd`), which the runner starts through cmd.exe by its full path, with `NoDefaultCurrentDirectoryInExePath` set and every argument validated and quoted (`windowsCommandLine`; ADR 0031); prompts go via stdin. A caller whose tree must not outlive a kill on Windows (the brewer runner) passes `jobObject: true`: the runner then starts the program inside a kill-on-close Job Object through a PowerShell helper, about 0.4 s per call, and the program does not start when no job can be made (ADR 0039).
 - OS-specific behaviour (killing process trees, executable lookup, file-lock retries) lives in the platform module only.
+- A session or a test kills only processes it started, by their PID (`taskkill /PID <pid> /T /F`, `process.kill(pid)`), never by name, filter or window title (`taskkill /IM`, `taskkill /FI`, `pkill`, `killall`, `Stop-Process -Name`): several sessions share one machine, and a filter also ends theirs (#128).
 - Text files use LF; parsers tolerate CRLF and a BOM.
 
 ## Tests
