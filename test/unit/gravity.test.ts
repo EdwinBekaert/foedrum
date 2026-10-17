@@ -196,7 +196,7 @@ describe('settleReadings', () => {
     assert.deepEqual(settleReadings([{ result: 'killed', ...ran, killed: 'too-much-output' }]), {
       kind: 'blocked',
       blockerKind: 'environment',
-      summary: "the check \"test\" (npm test) wrote more output than the process runner's limit",
+      summary: 'the check "test" (npm test) wrote more output than the process runner\'s limit',
     });
     const unstarted = { result: 'unstarted', ...ran, tail: 'cmd.exe\nspawn ENOENT\n\n' } as const;
     assert.deepEqual(settleReadings([unstarted]), {

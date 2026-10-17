@@ -263,7 +263,11 @@ describe('fold', () => {
 
   it('keeps the gravity readings a check attempt finished with (ADR 0069)', () => {
     const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
-    const outcome = { kind: 'failed', retryable: false, reason: 'the check "test" failed' } as const;
+    const outcome = {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the check "test" failed',
+    } as const;
     const readings = [
       { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: 'not ok 1' },
     ] as const;
