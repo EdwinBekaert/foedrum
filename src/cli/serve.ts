@@ -37,11 +37,10 @@ export interface ServeShell {
   lock: (workRoot: string, options: { brewery: string; owner: string }) => DriverLock;
   /** Opens the event store at `path`, making it when missing. */
   openStore: (path: string) => EventStore;
-  stateBranch: (store: EventStore, setup: ServeSetup) => Pick<StateBranch, 'start' | 'flush'>;
+  stateBranch: (store: EventStore) => Pick<StateBranch, 'start' | 'flush'>;
   /** The attempt worktrees of a repository, making its managed clone first. */
   worktrees: (
     repository: ServeRepository,
-    setup: ServeSetup,
   ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>>;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
@@ -119,19 +118,18 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   try {
     store = shell.openStore(setup.store);
     // Rebuilds or catches up the store from the branch (ADR 0011, ADR 0024).
-    const stateBranch = shell.stateBranch(store, setup);
+    const stateBranch = shell.stateBranch(store);
     await stateBranch.start();
     const worktrees: RepositoryWorktrees[] = [];
     for (const repository of setup.repositories) {
       const { repo, base } = repository;
-      worktrees.push({ repo, base, manager: await shell.worktrees(repository, setup) });
+      worktrees.push({ repo, base, manager: await shell.worktrees(repository) });
     }
     const client = createGitHubClient({
       token: setup.github.token,
       baseUrl: setup.github.api,
       ...(shell.fetch === undefined ? {} : { fetch: shell.fetch }),
     });
-    const orderText = githubOrderText(createGitHubReads(client), setup.brewery);
     const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
     let opened: Driver | undefined;
     const plans = createAttemptPlans({
@@ -145,7 +143,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       sandbox: setup.sandbox,
       workRoot: setup.workRoot,
       env: setup.brewerEnv,
-      orderText: (order) => orderText(order),
+      orderText: githubOrderText(createGitHubReads(client), setup.brewery),
     });
     driver = await openDriver({
       store,
