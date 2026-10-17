@@ -111,8 +111,12 @@ function brewerStep(step: Step): BrewerStep | string {
   return step;
 }
 
-/** The guards every attempt has anyway: the runner requires the out doc and denies git push. */
-const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc', 'noPush']);
+/**
+ * The guard every attempt has anyway: the runner requires the out doc. Not `noPush`: the runner's
+ * deny rule matches only a command that starts with the push, and nothing checks the remote after
+ * the attempt yet.
+ */
+const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc']);
 
 /** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
 function unplannable(brewer: BrewerFrontmatter): string[] {
