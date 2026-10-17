@@ -29,7 +29,9 @@ after(() => dir.remove());
 /**
  * `seed`'s generated scenario, in which the terminal now and then cancels a batch while an attempt
  * of it runs, as ADR 0037 has a case for. Left alone, a run seldom does: an attempt that runs on
- * between moves hangs, and it is mostly Stuck before a cancel comes.
+ * between moves hangs, and it is mostly Stuck before a cancel comes. A rewind of a batch that is no
+ * sub-order names the clone's repository at a commit the clone has, so the next attempt starts
+ * there (ADR 0066); the scenario's own rewinds name other repositories.
  */
 const cancelling = (seed: number): MoveSource => {
   const scenario = generateScenario(seed);
@@ -43,7 +45,11 @@ const cancelling = (seed: number): MoveSource => {
         const { id } = random.pick(busy);
         return { kind: 'command', command: { kind: 'cancel', batchId: id, ...human } };
       }
-      return scenario.move(state);
+      const next = scenario.move(state);
+      if (next?.kind !== 'command' || next.command.kind !== 'rewind') return next;
+      const issue = state.batches.get(next.command.batchId)?.issue;
+      if (issue === undefined || state.subOrders.has(issue)) return next;
+      return { ...next, command: { ...next.command, shas: { [chaosRepo]: chaosBase } } };
     },
     play: scenario.play,
   };
@@ -147,6 +153,18 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   'killed while cleaning worktrees': (engine) => killedAt(engine, 'while cleaning worktrees'),
   // A kill between two steps: the next step starts at the commits a brewer of the killed driver
   // made (ADR 0066).
+  // A rewind of the clone's repository: the next attempt starts at its commit.
+  'an attempt started at the commit of a rewind': (engine) => {
+    const rewound = new Set<string>();
+    return engine.events().some((event) => {
+      if (event.type === 'batch.rewound' && event.shas[chaosRepo] !== undefined) {
+        rewound.add(event.batchId);
+      }
+      return (
+        event.type === 'step.started' && event.worktree !== undefined && rewound.has(event.batchId)
+      );
+    });
+  },
   'a step started at the commits of a step the killed driver ran': (engine) =>
     cloneOf(engine).made.some(({ how, acrossKill }) => how !== 'refused' && acrossKill === true),
   // A kill between a batch's end and its cleanup, or part-way through one: the start repairs it.
