@@ -72,6 +72,7 @@ const started: Event = {
 const setup = (events: Event[] = [...ordered, started], files: Record<string, OutDocRead> = {}) => {
   const folders: string[] = [];
   const reads: { file: string; root: string }[] = [];
+  const sizes: number[] = [];
   const orders: unknown[] = [];
   const plans = createAttemptPlans({
     state: () => fold(events),
@@ -87,8 +88,9 @@ const setup = (events: Event[] = [...ordered, started], files: Record<string, Ou
       return 'Add a --json flag.';
     },
     files: {
-      read: (file, _maxBytes, root) => {
+      read: (file, maxBytes, root) => {
         reads.push({ file, root });
+        sizes.push(maxBytes);
         return files[file] ?? { kind: 'text', text: '# Guide' };
       },
       makeFolder: (path) => folders.push(path),
@@ -96,7 +98,7 @@ const setup = (events: Event[] = [...ordered, started], files: Record<string, Ou
     sessionId: () => sessionId,
     random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
   });
-  return { plans, folders, reads, orders };
+  return { plans, folders, reads, sizes, orders };
 };
 const start = { ref, limits: { outDoc: { file: 'brew.md', schema: OutDocFrontmatter } } };
 
@@ -118,6 +120,12 @@ describe('createAttemptPlans: plan', () => {
     assert.deepEqual(reads, [{ file: join(worktree, 'docs', 'guide.md'), root: worktree }]);
     assert.match(prompt, /source="issue #12 body" name="order">\nAdd a --json flag\.\n/);
     assert.match(prompt, /source="file docs\/guide\.md" name="guide">\n# Guide\n/);
+  });
+
+  it('reads an input file of at most 1 MiB (review of #165)', async () => {
+    const { plans, sizes } = setup();
+    await plans.plan(start);
+    assert.deepEqual(sizes, [1024 * 1024]);
   });
 
   it('makes the folder of the settings file under the work root', async () => {
@@ -167,6 +175,46 @@ describe('createAttemptPlans: limits', () => {
       outDoc: { file: 'brew.md', schema: OutDocFrontmatter },
       maxTurns: 30,
     });
+  });
+
+  it("takes the limits from the batch's own recipe when two recipes share a step id (review of #165)", () => {
+    const two = loadRecipes({
+      recipes: [
+        { path: 'recipes/pale.jsonc', text: recipeText('pale', [{ id: 'brew', brewer: 'quick' }]) },
+        {
+          path: 'recipes/stout.jsonc',
+          text: recipeText('stout', [{ id: 'brew', brewer: 'slow' }]),
+        },
+      ],
+      brewers: [
+        { path: 'brewers/quick.md', text: brewerText('quick', { maxTurns: 5 }) },
+        { path: 'brewers/slow.md', text: brewerText('slow', { maxTurns: 50 }) },
+      ],
+    });
+    assert.ok(two.valid);
+    const routed = (batchId: string, recipe: string): Event[] => [
+      { type: 'batch.ordered', batchId, order: { issue: 12 }, routeBy: '2026-10-17T13:00:00.000Z' },
+      { type: 'batch.recipe_chosen', batchId, recipe, reason: 'label', source: 'label' },
+    ];
+    const events = [...routed('12-1', 'pale'), ...routed('13-1', 'stout')];
+    const plans = createAttemptPlans({
+      state: () => fold(events),
+      brewers: two.brewers,
+      models: { models: {}, brewers: {} },
+      repoTools: () => [],
+      sandbox: false,
+      workRoot,
+      env: { base: {}, forced: {} },
+      orderText: async () => '',
+    });
+    const turns = (batchId: string) =>
+      plans.limits({ batchId, stepId: 'brew', attempt: 1 }).maxTurns;
+    assert.deepEqual([turns('12-1'), turns('13-1')], [5, 50]);
+  });
+
+  it('gives an attempt of a batch without a recipe the out doc of the contract alone', () => {
+    const { plans } = setup([ordered[0] as Event]);
+    assert.deepEqual(plans.limits(ref), { outDoc: { file: 'out.md', schema: OutDocFrontmatter } });
   });
 
   it('gives an attempt whose step has no brewer the out doc of the contract alone: its plan fails', () => {

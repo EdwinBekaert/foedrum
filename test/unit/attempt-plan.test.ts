@@ -226,6 +226,60 @@ describe('inputsOf', () => {
   });
 });
 
+describe('inputsOf: the out doc of an earlier step (review of #165)', () => {
+  const malt = [{ name: 'malt', from: 'step:malt', trusted: false as const }];
+  const batchOf = (log: Event[]) => {
+    const found = fold(log).batches.get('12-1');
+    assert.ok(found !== undefined);
+    return found;
+  };
+
+  it('throws when the step has a brewer but no attempt of it succeeded yet', () => {
+    // Only malt#1, which failed.
+    const failedOnly = batchOf(events.slice(0, 5));
+    assert.throws(
+      () => inputsOf(malt, failedOnly, stepBrewer, join('/work', 'brew-1')),
+      /the input "malt" needs the out doc of step malt, which has none yet/,
+    );
+  });
+
+  it('reads the latest attempt that succeeded, after a later one succeeded too', () => {
+    const again: Event[] = [
+      ...events,
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 3,
+        deadlineAt: '2026-10-17T13:00:00.000Z',
+      },
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 3,
+        worktree: worktreeOf('malt-3'),
+      },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 3,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'Malted again', assumptions: [] },
+        },
+      },
+    ];
+    const [input] = inputsOf(malt, batchOf(again), stepBrewer, join('/work', 'brew-1'));
+    assert.deepEqual(input?.read, {
+      kind: 'file',
+      path: join('/work', 'malt-3', 'malt.md'),
+      root: join('/work', 'malt-3'),
+    });
+  });
+});
+
 describe('outDocContract (brewers-and-recipes §2)', () => {
   it('names the out doc and asks for the frontmatter of the contract', () => {
     const contract = outDocContract('brew.md');
