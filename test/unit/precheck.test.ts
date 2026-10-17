@@ -1140,6 +1140,9 @@ describe('precheck on gh pr ready', () => {
     ['docs/architecture.md', 'docs/milestones/README.md'],
     ['Docs/Guide.MD'],
     ['docs/adr-overview.md'],
+    ['docs/milestones/m0.md'],
+    ['Docs/Milestones/M0.MD'],
+    ['docs/adr-notes/plan.md'],
   ]) {
     it(`allows a pull request of only plain docs without a summary: ${files.join(', ')}`, async () => {
       const { result, lookups, checks } = await ready('gh pr ready 160', {
@@ -1161,6 +1164,7 @@ describe('precheck on gh pr ready', () => {
     ['README.md'],
     ['docs/milestones/notes.txt'],
     ['docs/notes.md.txt'],
+    ['docs/milestones/notes.md.txt'],
     ['src/docs/readme.md'],
     [],
   ]) {
