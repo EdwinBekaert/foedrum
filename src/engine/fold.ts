@@ -235,7 +235,8 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.recipe_chosen': {
       const { recipe: name, reason } = event;
-      return updateBatch(state, event.batchId, (batch) => ({
+      // The skips belonged to the run of the recipe before (ADR 0064).
+      return updateBatch(state, event.batchId, ({ skipped: _, ...batch }) => ({
         ...batch,
         recipe:
           event.source === 'human'
@@ -249,7 +250,7 @@ function apply(state: State, event: Event): State {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
         return {
-          ...batch,
+          ...skipping(batch, stepId, false),
           lane: { kind: 'brewing' },
           steps: put(batch.steps, stepId, {
             ...step,
@@ -259,7 +260,10 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'step.skipped':
-      throw new Error('not implemented');
+      return updateBatch(state, event.batchId, (batch) => ({
+        ...skipping(batch, event.stepId, true),
+        lane: { kind: 'brewing' },
+      }));
     case 'step.started':
       return updateAttempt(state, event, (current) => {
         if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');
@@ -441,6 +445,15 @@ function stepOf(batch: Batch, stepId: string): Step {
     throw reject(`step ${stepId} of batch ${batch.id} was never scheduled`);
   }
   return step;
+}
+
+/** `batch` with `stepId` added to or taken out of its skipped steps; none is kept as absent. */
+function skipping(batch: Batch, stepId: string, skipped: boolean): Batch {
+  const steps = new Set(batch.skipped);
+  if (skipped) steps.add(stepId);
+  else steps.delete(stepId);
+  const { skipped: _, ...rest } = batch;
+  return steps.size === 0 ? rest : { ...rest, skipped: steps };
 }
 
 function updateBatch(state: State, batchId: string, update: (batch: Batch) => Batch): State {

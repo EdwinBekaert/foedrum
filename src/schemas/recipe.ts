@@ -13,7 +13,23 @@ const StepId = PathSafeId.refine(
 
 // `<step>.<field>`, optionally compared with a quoted value: `tasting.verdict != 'approve'`.
 const expression =
-  /^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\.[A-Za-z][A-Za-z0-9]*(?:\s*(?:==|!=)\s*'[^'\r\n]*')?$/;
+  /^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\.([A-Za-z][A-Za-z0-9]*)(?:\s*(==|!=)\s*'([^'\r\n]*)')?$/;
+
+/** An expression's parts: what it reads, and the value it compares that with, if any. */
+export interface ExpressionParts {
+  /** The step it reads, or `recipe` for the recipe's settings. */
+  step: string;
+  field: string;
+  compare?: { op: '==' | '!='; value: string };
+}
+
+/** The parts of an expression the schema accepted, or `undefined` for any other text. */
+export function readExpression(text: string): ExpressionParts | undefined {
+  const [, step, field, op, value] = expression.exec(text) ?? [];
+  if (step === undefined || field === undefined) return undefined;
+  if (op !== '==' && op !== '!=') return { step, field };
+  return { step, field, compare: { op, value: value ?? '' } };
+}
 
 const Expression = z
   .string()

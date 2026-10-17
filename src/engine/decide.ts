@@ -185,7 +185,7 @@ function run(draft: Draft, command: Command): Event[] {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
       const { batchId, recipe, reason, source } = command;
       draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, source });
-      schedule(draft, batchId, find(draft, recipe).firstStep);
+      enter(draft, batchId, find(draft, recipe).firstStep);
       break;
     }
     case 'recipe': {
@@ -206,7 +206,7 @@ function run(draft: Draft, command: Command): Event[] {
       if (batch.lane.kind === 'stuck') {
         draft.push({ type: 'batch.resumed', batchId, by, via, action: 'recipe' });
       }
-      schedule(draft, batchId, firstStep);
+      enter(draft, batchId, firstStep);
       break;
     }
     case 'finish':
@@ -556,14 +556,31 @@ function schedule(draft: Draft, batchId: string, stepId: string): void {
   });
 }
 
-/** Schedules what follows `stepId` in the batch's recipe, or puts the batch on tap. */
+/**
+ * Schedules `stepId` as the batch reaches it, or, when the step's `when` is false, records it as
+ * skipped and goes on to what follows (ADR 0064). A human's retry, answer or rewind names its step
+ * and schedules it without asking.
+ */
+function enter(draft: Draft, batchId: string, stepId: string): void {
+  const batch = draft.batch(batchId);
+  requireStep(draft, batch, stepId);
+  const when = recipeOf(draft, batch).skip(batch, stepId);
+  if (when === undefined) {
+    schedule(draft, batchId, stepId);
+    return;
+  }
+  draft.push({ type: 'step.skipped', batchId, stepId, when });
+  continueAfter(draft, batchId, stepId);
+}
+
+/** Enters the step that follows `stepId` in the batch's recipe, or puts the batch on tap. */
 function continueAfter(draft: Draft, batchId: string, stepId: string): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
   const next = recipeOf(draft, batch).after(batch, stepId);
   switch (next.kind) {
     case 'step':
-      schedule(draft, batchId, next.stepId);
+      enter(draft, batchId, next.stepId);
       return;
     case 'done':
       draft.push({ type: 'batch.on_tap', batchId, pullRequests: [...next.pullRequests] });

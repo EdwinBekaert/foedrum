@@ -81,7 +81,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "lens": {
               "description": "Taster only: the lens file that sets the review focus",
@@ -149,7 +149,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "deadline": {
               "type": "string",
@@ -326,7 +326,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "onFail": {
               "type": "object",
@@ -382,7 +382,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "onFail": {
               "type": "object",
@@ -442,7 +442,7 @@
                   "when": {
                     "description": "Run the step only when this expression is true",
                     "type": "string",
-                    "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+                    "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
                   },
                   "lens": {
                     "description": "Taster only: the lens file that sets the review focus",
@@ -497,7 +497,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             }
           },
           "required": [
@@ -523,7 +523,7 @@
                 },
                 "until": {
                   "type": "string",
-                  "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+                  "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
                 },
                 "steps": {
                   "minItems": 1,
@@ -548,7 +548,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             }
           },
           "required": [
@@ -571,7 +571,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "deadline": {
               "type": "string",
@@ -606,7 +606,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             }
           },
           "required": [
@@ -649,7 +649,7 @@
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.[A-Za-z][A-Za-z0-9]*(?:\\s*(?:==|!=)\\s*'[^'\\r\\n]*')?$"
+              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             }
           },
           "required": [

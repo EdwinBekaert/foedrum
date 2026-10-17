@@ -287,6 +287,7 @@ export const openSqliteEventStore = (
       case 'effect.applied': // indexed by the events_index_effects trigger
       case 'batch.recipe_chosen':
       case 'step.started':
+      case 'step.skipped':
       case 'input.received':
       case 'order.decomposed':
       case 'bottle.opened':
@@ -294,8 +295,6 @@ export const openSqliteEventStore = (
       case 'batch.rewound':
       case 'pull_request.ended':
         return;
-      case 'step.skipped':
-        throw new Error('not implemented');
       default: {
         const unhandled: never = event;
         throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

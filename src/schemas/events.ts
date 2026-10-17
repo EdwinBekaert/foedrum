@@ -200,16 +200,13 @@ export const Event = z.discriminatedUnion('type', [
   }),
   recipeChosen,
   z.strictObject({ type: z.literal('step.scheduled'), ...step, deadlineAt: Timestamp }),
-  z
-    .strictObject({
-      type: z.literal('step.skipped'),
-      batchId: BatchId,
-      stepId: StepId,
-      when: z.string().optional(),
-    })
-    .refine(() => {
-      throw new Error('not implemented');
-    }),
+  // The step's `when` was false when the batch reached it, so it did not run (ADR 0064).
+  z.strictObject({
+    type: z.literal('step.skipped'),
+    batchId: BatchId,
+    stepId: StepId,
+    when: NonEmpty,
+  }),
   // `session` is required for brewer and session steps; the schema cannot tell the step kind.
   // `worktree` is the one this attempt was given; a resumed session's attempt runs in the
   // worktree of the attempt it continues, named by `session.worktree`, and has none (ADR 0029).
