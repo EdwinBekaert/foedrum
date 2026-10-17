@@ -55,11 +55,20 @@ export type IntakeNotice =
   /** `by`: the Brewery the claim's record names, or undefined when it cannot be read. */
   | { kind: 'taken'; repo: string; issue: number; by: string | undefined }
   | { kind: 'refused'; command: EngineCommand; reason: string }
+  /** An Ordered batch routed by its issue's `recipe:<name>` label (ADR 0068). */
+  | { kind: 'routed'; batchId: string; recipe: string }
+  /** An Ordered batch whose label names no one recipe it can brew; reported once per reason. */
+  | { kind: 'unrouted'; batchId: string; reason: string }
   /** A repository it could not list or claim in, or a pull request it could not read. */
   | { kind: 'failed'; what: string; error: unknown };
 
 export interface IntakeOptions {
   log: CommandLog;
+  /**
+   * The Brewery's owner/name: when given, a pass orders its labelled issues and routes the
+   * Ordered batches by their labels (ADR 0068).
+   */
+  brewery?: string;
   tracker: TargetTracker;
   claims: ClaimHost;
   claimant: Claimant;

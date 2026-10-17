@@ -388,6 +388,160 @@ describe('createIntake', () => {
       );
     });
   });
+
+  describe('Brewery issues and routing (ADR 0068)', () => {
+    const brewery = 'alice/brewery';
+    const labelled = (number: number, fields: Partial<TargetIssue> = {}) =>
+      issue(number, { labels: ['recipe:half'], ...fields });
+    const lanes = () => batches().map(({ id, lane }) => `${id} ${lane}`);
+    const recipeOf = (batchId: string) => log.state().batches.get(batchId)?.recipe;
+    const breweryIntake = (tracker: TargetTracker, options: Partial<IntakeOptions> = {}) =>
+      intake(tracker, { brewery, ...options });
+
+    it('orders a labelled Brewery issue as <issue>-1 and routes it by its label in the same pass', async () => {
+      const { tracker } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.deepStrictEqual(recipeOf('12-1'), {
+        name: 'half',
+        reason: 'the label recipe:half',
+        source: 'label',
+      });
+      assert.deepStrictEqual(notices, [
+        { kind: 'ordered', repo: brewery, issue: 12, batchId: '12-1' },
+        { kind: 'routed', batchId: '12-1', recipe: 'half' },
+      ]);
+    });
+
+    it('orders only open issues an allow-listed user opened with a recipe label, never twice', async () => {
+      accept({ kind: 'order', batchId: '5-1', order: { issue: 5 } });
+      accept({ kind: 'cancel', batchId: '5-1', by: 'alice', via: 'terminal' });
+      const { tracker } = fakeTracker({
+        [brewery]: [
+          labelled(1, { state: 'closed' }),
+          labelled(2, { pullRequest: true }),
+          issue(3, { labels: ['bug'] }),
+          labelled(4, { author: 'mallory' }),
+          labelled(5),
+          labelled(6, { labels: ['Recipe:half'], author: 'Bob' }),
+        ],
+        [web]: [],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['5-1 cancelled', '6-1 brewing']);
+    });
+
+    it('orders Brewery issues before target issues, both within the free capacity', async () => {
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(12), labelled(13)],
+        [web]: [issue(7), issue(8)],
+        [api]: [],
+      });
+      await breweryIntake(tracker, { capacity: 3 }).poll();
+      assert.deepStrictEqual(
+        batches().map(({ id }) => id),
+        ['12-1', '13-1', 'web-7'],
+      );
+    });
+
+    it('routes an Ordered batch it did not order in this pass: a killed pass left it, or a retry', async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'order', batchId: '13-1', order: { issue: 13 } });
+      const later = new Date(now.getTime() + 2 * 3_600_000);
+      assert.equal(log.issue({ kind: 'unrouted', batchId: '13-1' }, later).kind, 'accepted');
+      assert.equal(
+        log.issue({ kind: 'retry', batchId: '13-1', by: 'alice', via: 'terminal' }, later).kind,
+        'accepted',
+      );
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(12), labelled(13)],
+        [web]: [],
+        [api]: [],
+      });
+      await breweryIntake(tracker, { clock: () => later }).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing']);
+    });
+
+    it('routes a claimed target issue by its recipe label too', async () => {
+      const { tracker } = fakeTracker({
+        [brewery]: [],
+        [web]: [issue(7, { labels: ['foedrum', 'recipe:half'] })],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 brewing']);
+    });
+
+    it('routes without free capacity: an Ordered batch already holds its place', async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(12), labelled(14)],
+        [web]: [issue(7, { labels: ['foedrum', 'recipe:half'] }), issue(8)],
+        [api]: [issue(2)],
+      });
+      await breweryIntake(tracker, { capacity: 2 }).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 brewing']);
+    });
+
+    it('reports once a batch it cannot route: two recipe labels, or a recipe the Brewery lacks', async () => {
+      const { tracker } = fakeTracker({
+        [brewery]: [
+          labelled(12, { labels: ['recipe:half', 'recipe:pint'] }),
+          labelled(13, { labels: ['recipe:pint'] }),
+        ],
+        [web]: [],
+        [api]: [],
+      });
+      const polling = breweryIntake(tracker);
+      await polling.poll();
+      await polling.poll();
+      assert.deepStrictEqual(lanes(), ['12-1 ordered', '13-1 ordered']);
+      const unrouted = notices.flatMap((notice) => (notice.kind === 'unrouted' ? [notice] : []));
+      assert.deepStrictEqual(
+        unrouted.map(({ batchId }) => batchId),
+        ['12-1', '13-1'],
+      );
+      assert.match(unrouted[0]?.reason ?? '', /recipe:half and recipe:pint/);
+      assert.match(unrouted[1]?.reason ?? '', /pint/);
+    });
+
+    it('never follows a label changed after routing', async () => {
+      const first = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
+      await breweryIntake(first.tracker).poll();
+      const relabelled = fakeTracker({
+        [brewery]: [labelled(12, { labels: ['recipe:other'] })],
+        [web]: [],
+        [api]: [],
+      });
+      const before = store.lastEventId();
+      await breweryIntake(relabelled.tracker).poll();
+      assert.equal(store.lastEventId(), before);
+      assert.equal(recipeOf('12-1')?.name, 'half');
+    });
+
+    it('reports a Brewery it cannot list, and goes on with the target repositories', async () => {
+      const { tracker } = fakeTracker({ [web]: [issue(7)], [api]: [] });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      const failed = notices.find((notice) => notice.kind === 'failed');
+      assert.equal(failed?.kind === 'failed' ? failed.what : '', `listing ${brewery}`);
+    });
+
+    it('lists the Brewery with no filter, and with the pass signal', async () => {
+      const calls: [string, unknown, boolean][] = [];
+      const tracker: TargetTracker = {
+        issues: async (repo, filter, signal) => {
+          calls.push([repo, filter, signal instanceof AbortSignal]);
+          return [];
+        },
+        pullRequest: async () => 'open',
+      };
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(calls[0], [brewery, undefined, true]);
+    });
+  });
 });
 
 describe('freeCapacity', () => {
