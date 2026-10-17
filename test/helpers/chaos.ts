@@ -7,7 +7,7 @@
 // effects went to. No process is started or killed: the driver is this test's own code, and a
 // kill is an exception it cannot catch.
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
@@ -27,29 +27,24 @@ import type {
 } from '../../src/engine/event-store.ts';
 import type { Batch, State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from './brewing.ts';
 import {
-  generateScenario,
+  type FakeStateBranch,
+  fakeStateBranch,
+  type StateBranchKillPoint,
+} from './chaos-state-branch.ts';
+import { chaosRepo, type FakeClone, fakeClone, type WorktreeKillPoint } from './chaos-worktrees.ts';
+import {
   human,
   type Move,
   type MoveSource,
   type Play,
-  type Random,
-  recording,
   type Scenario,
   scenarioLimits,
   seededRandom,
 } from './event-sequences.ts';
 import { fakeBrewerRunner } from './fake-brewer-runner.ts';
-import {
-  describeCommand,
-  describeEvent,
-  describePlay,
-  forEachSeedAsync,
-  noted,
-} from './property.ts';
 import { behaviourOf, isLive, recipes, reminderMs, routingMs, t0 } from './simulation.ts';
 
 export const killPoints = [
@@ -58,7 +53,8 @@ export const killPoints = [
   'before an effect reached its target',
   'after an effect reached its target',
 ] as const;
-export type KillPoint = (typeof killPoints)[number];
+/** Every kill point: the ones above, and those of the worktree and state branch models. */
+export type KillPoint = (typeof killPoints)[number] | WorktreeKillPoint | StateBranchKillPoint;
 
 /** Thrown at a kill point, and by everything a dead driver touches afterwards. */
 export class EngineKilled extends Error {
@@ -73,10 +69,170 @@ export interface Kill {
   /** The number of the kill point, counted from the start of the run across restarts. */
   at: number;
   point: KillPoint;
+  /** The move's number in the run as first played (`Fault.move`). */
   move: number;
   /** The owner of the driver that died. */
   driver: string;
 }
+
+/** What a terminal command issued between a driver's read and its append does. */
+export interface Interjected {
+  kind: 'retry' | 'skip' | 'cancel';
+  batchId: string;
+}
+
+/** A kind of decision the faults of a run make. */
+export type FaultKind = `kill ${KillPoint}` | 'pause' | 'first' | 'down' | 'stall' | 'interject';
+
+/**
+ * A fault a run had: a decision other than the quiet one (no kill, no pause, no stall, …), at a
+ * site that removing another move leaves where it is. A site is the move, by its number in the
+ * run as first played, the driver, and how many decisions of that kind for that driver came
+ * before it in that move. A count over the whole run would move every later fault when a move
+ * goes, and a run shrunk that way keeps none of the faults it failed by (#150).
+ */
+export interface Fault {
+  /** 0 before the first move. */
+  move: number;
+  /** The driver it happened to; empty for the order the drivers start a move in. */
+  driver: string;
+  kind: FaultKind;
+  n: number;
+  /** 1 for a kill; turns of the event loop, the first driver, or moves; or the command. */
+  value: number | Interjected;
+}
+
+/** The decisions of a run's faults, each at its site (`Fault`). */
+export interface Faults {
+  /** The move that is played now, by its number in the run as first played. */
+  at(move: number): void;
+  /** Whether `driver` dies at this kill point, with `kills` kills in the run so far. */
+  kill(driver: string, point: KillPoint, kills: number): boolean;
+  /** How many turns of the event loop a call to the code host lets the other drivers run. */
+  pause(driver: string): number;
+  /** Which of `drivers` drivers plays the move first. */
+  first(drivers: number): number;
+  /** For how many moves a killed driver stays down: 0 starts it again at once. */
+  down(driver: string): number;
+  /** For how many moves a live driver stalls now: 0 for none. `busy`: its brewers run. */
+  stall(driver: string, busy: boolean): number;
+  /** The command the terminal issues as `driver` begins a transaction, on one of `live`. */
+  interject(driver: string, live: () => string[]): Interjected | undefined;
+  /** The faults decided so far, in order. */
+  readonly made: readonly Fault[];
+}
+
+const siteKey = ({ move, driver, kind, n }: Omit<Fault, 'value'>): string =>
+  `${move} ${driver} ${kind} ${n}`;
+
+/** Numbers the decisions of each kind for each driver within the move played now. */
+const sites = () => {
+  let move = 0;
+  const counts = new Map<string, number>();
+  return {
+    at: (next: number): void => {
+      move = next;
+      counts.clear();
+    },
+    next: (driver: string, kind: FaultKind): Omit<Fault, 'value'> => {
+      const key = `${driver} ${kind}`;
+      const n = counts.get(key) ?? 0;
+      counts.set(key, n + 1);
+      return { move, driver, kind, n };
+    },
+  };
+};
+
+/**
+ * The faults `plan` draws from random streams of its seed: kills at each kill point and, with
+ * several drivers, the order they play a move in, pauses at the code host, drivers that stay down
+ * after a kill or stall, and terminal commands mid-tick (ADR 0051).
+ */
+export const drawnFaults = (plan: KillPlan, several: boolean): Faults => {
+  const killing = seededRandom(plan.seed ^ 0x5eed_c4a0);
+  // With several drivers, each call to the code host lets the others run for a few turns of the
+  // event loop, so their passes interleave.
+  const interleaving = several ? seededRandom(plan.seed ^ 0x1e_a5ed) : undefined;
+  // A killed driver stays down for a few moves now and then, so the other takes its batches over
+  // once their leases expired, while its brewers may still run (ADR 0044).
+  const downtime = several ? seededRandom(plan.seed ^ 0xd0_3e) : undefined;
+  // A live driver stalls for a few moves now and then, more often while its brewers run: its
+  // leases expire, the other takes its batch, and it finds that out when it goes on (ADR 0044).
+  const stalling = several ? seededRandom(plan.seed ^ 0x57_a11) : undefined;
+  // The terminal now and then issues a human command on a live batch as a driver begins a
+  // transaction: after it read the events and before it appends (ADR 0044).
+  const interjecting = several ? seededRandom(plan.seed ^ 0x7e_a1) : undefined;
+  const site = sites();
+  const made: Fault[] = [];
+  const note = <T extends number | Interjected | undefined>(
+    driver: string,
+    kind: FaultKind,
+    value: T,
+  ): T => {
+    const at = site.next(driver, kind);
+    if (value !== undefined && value !== 0) made.push({ ...at, value });
+    return value;
+  };
+  return {
+    at: site.at,
+    kill: (driver, point, kills) =>
+      note(
+        driver,
+        `kill ${point}`,
+        kills < plan.maxKills && killing.chance(plan.chance[point]) ? 1 : 0,
+      ) === 1,
+    pause: (driver) => note(driver, 'pause', interleaving?.int(3) ?? 0),
+    first: (drivers) => note('', 'first', interleaving?.int(drivers) ?? 0),
+    down: (driver) => note(driver, 'down', downtime?.chance(0.5) ? 1 + downtime.int(3) : 0),
+    stall: (driver, busy) =>
+      note(driver, 'stall', stalling?.chance(busy ? 0.2 : 0.02) ? 1 + stalling.int(3) : 0),
+    interject: (driver, live) => {
+      let command: Interjected | undefined;
+      if (interjecting?.chance(0.02)) {
+        const ids = live();
+        if (ids.length > 0) {
+          const batchId = interjecting.pick(ids);
+          const kind = interjecting.chance(0.2)
+            ? 'cancel'
+            : interjecting.pick(['retry', 'skip'] as const);
+          command = { kind, batchId };
+        }
+      }
+      return note(driver, 'interject', command);
+    },
+    made,
+  };
+};
+
+/**
+ * Exactly `faults`, each at its site, and the quiet decision everywhere else. `made` holds the
+ * ones the run reached: a site a shorter run never gets to has no fault.
+ */
+export const replayedFaults = (faults: readonly Fault[]): Faults => {
+  const bySite = new Map(faults.map((fault) => [siteKey(fault), fault]));
+  const site = sites();
+  const made: Fault[] = [];
+  const get = (driver: string, kind: FaultKind): Fault['value'] | undefined => {
+    const fault = bySite.get(siteKey(site.next(driver, kind)));
+    if (fault !== undefined) made.push(fault);
+    return fault?.value;
+  };
+  const count = (value: Fault['value'] | undefined): number =>
+    typeof value === 'number' ? value : 0;
+  return {
+    at: site.at,
+    kill: (driver, point) => get(driver, `kill ${point}`) === 1,
+    pause: (driver) => count(get(driver, 'pause')),
+    first: () => count(get('', 'first')),
+    down: (driver) => count(get(driver, 'down')),
+    stall: (driver) => count(get(driver, 'stall')),
+    interject: (driver) => {
+      const value = get(driver, 'interject');
+      return typeof value === 'object' ? value : undefined;
+    },
+    made,
+  };
+};
 
 /**
  * When to kill a driver: at each kill point it dies with the chance of that kind of point, drawn
@@ -96,6 +252,14 @@ export const killPlan = (seed: number): KillPlan => ({
     'after a commit': 0.015,
     'before an effect reached its target': 0.05,
     'after an effect reached its target': 0.05,
+    // A few points per attempt, and per cleanup of an ended batch.
+    'while making a worktree': 0.05,
+    'after a worktree was made': 0.05,
+    'while cleaning worktrees': 0.05,
+    // A flush at every tick with events to push, a file per batch they belong to.
+    'while writing the log': 0.02,
+    'before the push reached the remote': 0.03,
+    'after the push reached the remote': 0.03,
   },
   maxKills: 6,
 });
@@ -114,9 +278,8 @@ export interface Life {
   alive(): void;
 }
 
-/** Counts kill points across every driver of a run and kills a driver at the planned ones. */
-const killer = (plan: KillPlan) => {
-  const random = seededRandom(plan.seed ^ 0x5eed_c4a0);
+/** Counts kill points across every driver of a run and kills a driver where `faults` say. */
+const killer = (faults: Faults) => {
   let passed = 0;
   const kills: Kill[] = [];
   let move = 0;
@@ -134,7 +297,7 @@ const killer = (plan: KillPlan) => {
       point: (point) => {
         alive();
         passed++;
-        if (kills.length === plan.maxKills || !random.chance(plan.chance[point])) return;
+        if (!faults.kill(driver, point, kills.length)) return;
         dead = true;
         kills.push({ at: passed, point, move, driver });
         throw new EngineKilled(point);
@@ -144,8 +307,9 @@ const killer = (plan: KillPlan) => {
   return {
     kills,
     life,
-    moved: (): void => {
-      move++;
+    moved: (site: number): void => {
+      move = site;
+      faults.at(site);
     },
   };
 };
@@ -440,6 +604,17 @@ export interface Resume {
 export interface ChaosOptions {
   /** The owners of the drivers on the store; default one, `cellar`. Each takes every batch. */
   drivers?: readonly string[];
+  /** Exactly these faults, instead of the ones the kill plan draws: a run replayed, or shrunk. */
+  faults?: readonly Fault[];
+  /** Gives the drivers attempt worktrees in an in-memory clone (`fakeClone`), with its kill points. */
+  worktrees?: boolean;
+  /**
+   * Gives the drivers an in-memory state branch (`fakeStateBranch`), with its kill points: each
+   * process starts on it before it opens its driver, and its supervisor flushes it.
+   */
+  stateBranch?: boolean;
+  /** The moves a seed's run plays (`trialChaos`); default its generated scenario. */
+  moves?: (seed: number) => MoveSource;
 }
 
 /**
@@ -491,10 +666,13 @@ export interface ChaosEngine {
   store(): EventStore;
   events(): Event[];
   /**
-   * Plays one move; a driver killed during it starts again, at once or, with several drivers,
-   * some moves later. False when a driver that ran in it died.
+   * Plays one move, the one numbered `site` in the run as first played (by default the next
+   * number); a driver killed during it starts again, at once or, with several drivers, some
+   * moves later. False when a driver that ran in it died.
    */
-  play(move: Move): Promise<boolean>;
+  play(move: Move, site?: number): Promise<boolean>;
+  /** The faults the run had so far, at their sites, in order. */
+  readonly faults: readonly Fault[];
   /** The drivers that did not run in the last move: down after a kill, or stalled. */
   idle(): readonly string[];
   /** Applies the effects that are due and not in the ledger. */
@@ -522,6 +700,10 @@ export interface ChaosEngine {
   readonly moot: readonly { driver: string; command: EngineCommand; reason: string }[];
   /** Every start of a driver after its first, under the same owner. */
   readonly resumes: readonly Resume[];
+  /** The clone the attempt worktrees are in, when the run has one. */
+  readonly clone: FakeClone | undefined;
+  /** The state branch, when the run has one. */
+  readonly branch: FakeStateBranch | undefined;
   close(): void;
 }
 
@@ -542,8 +724,24 @@ export const openChaosEngine = async (
   const { drivers = ['cellar'] } = options;
   // A run on another run's database would not start from scratch.
   if (existsSync(path)) throw new Error(`A chaos run needs a database of its own: ${path} exists`);
-  const kill = killer(plan);
+  const faults =
+    options.faults === undefined
+      ? drawnFaults(plan, drivers.length > 1)
+      : replayedFaults(options.faults);
+  const kill = killer(faults);
   const locks = fakeLocks();
+  // Every runner a driver process had, with its life: a dead one's attempts died with it, and so
+  // did a lost one's, which its runner reports no progress of.
+  const runners: { life: Life; runs: (key: string) => boolean }[] = [];
+  const clone =
+    options.worktrees === true
+      ? fakeClone({
+          running: (key) => runners.some(({ life, runs }) => !life.dead && runs(key)),
+          state: () => terminal.state(),
+        })
+      : undefined;
+  const branch =
+    options.stateBranch === true ? fakeStateBranch(() => kill.kills.at(-1)?.point) : undefined;
   let now = t0;
   const restarts: Date[] = [];
   const losses: Loss[] = [];
@@ -567,37 +765,18 @@ export const openChaosEngine = async (
   const terminal: CommandLog = createCommandLog({ store: outside, recipes, reminderMs, routingMs });
   const holds = (owner: string, batchId: string): boolean =>
     outside.batchLeases(now).some((lease) => lease.batchId === batchId && lease.owner === owner);
-  // With several drivers, each call to the code host lets the others run for a few turns of the
-  // event loop, from a random stream of the run's seed, so their passes interleave.
-  const interleaving: Random | undefined =
-    drivers.length > 1 ? seededRandom(plan.seed ^ 0x1e_a5ed) : undefined;
-  // With several drivers, a killed one stays down for a few moves now and then, so the other
-  // takes its batches over once their leases expired, while its brewers may still run (ADR 0044).
-  const downtime: Random | undefined =
-    drivers.length > 1 ? seededRandom(plan.seed ^ 0xd0_3e) : undefined;
-  // With several drivers, a live one stalls for a few moves now and then, more often while its
-  // brewers run: its leases expire, the other takes its batch, and it finds that out when it goes
-  // on (ADR 0044).
-  const stalling: Random | undefined =
-    drivers.length > 1 ? seededRandom(plan.seed ^ 0x57_a11) : undefined;
-  // With several drivers, the terminal now and then issues a human command on a live batch as a
-  // driver begins a transaction: after it read the events and before it appends (ADR 0044).
-  const interjecting: Random | undefined =
-    drivers.length > 1 ? seededRandom(plan.seed ^ 0x7e_a1) : undefined;
   const interject = (driver: string): void => {
-    if (interjecting === undefined || !interjecting.chance(0.02)) return;
-    const live = [...terminal.state().batches.values()].filter(isLive);
-    if (live.length === 0) return;
-    const batchId = interjecting.pick(live).id;
-    const kind = interjecting.chance(0.2)
-      ? 'cancel'
-      : interjecting.pick(['retry', 'skip'] as const);
-    const command: Command = { kind, batchId, ...human };
+    const live = () =>
+      [...terminal.state().batches.values()].filter(isLive).map((batch) => batch.id);
+    const interjected = faults.interject(driver, live);
+    if (interjected === undefined) return;
+    const { batchId } = interjected;
+    const command: Command = { ...interjected, ...human };
     const accepted = terminal.issue(command, now).kind === 'accepted';
     interjections.push({ move, driver, batchId, command, accepted });
   };
-  const pause = async (): Promise<void> => {
-    for (let turns = interleaving?.int(3) ?? 0; turns > 0; turns--) {
+  const pause = async (driver: string): Promise<void> => {
+    for (let turns = faults.pause(driver); turns > 0; turns--) {
       await new Promise((resolve) => setImmediate(resolve));
     }
   };
@@ -609,6 +788,13 @@ export const openChaosEngine = async (
   const runnerOf = (life: Life): BrewerRunner & { running: Map<string, AttemptRef> } => {
     const runner = fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now));
     const running = new Map<string, AttemptRef>();
+    runners.push({
+      life,
+      runs: (key) => {
+        const ref = running.get(key);
+        return ref !== undefined && runner.progress(ref) !== undefined;
+      },
+    });
     return {
       running,
       start: (start) => {
@@ -619,6 +805,7 @@ export const openChaosEngine = async (
         acts.push({ driver, kind: 'start', key, batchId, held: holds(driver, batchId) });
         const run = runner.start(start);
         running.set(key, start.ref);
+        clone?.starting(start.ref);
         const ended = (): void => {
           running.delete(key);
         };
@@ -682,22 +869,30 @@ export const openChaosEngine = async (
         .batchLeases(now)
         .filter((lease) => lease.owner === owner)
         .map((lease) => lease.batchId);
+      const store = killableStore(outside, life, { read, beginning: () => interject(owner) });
       try {
+        const stateBranch = branch?.handle(life, store);
+        await stateBranch?.start();
         const driver = await openDriver({
-          store: killableStore(outside, life, { read, beginning: () => interject(owner) }),
+          store,
           runner,
           recipes,
           clock: () => now,
           lock: () => locks.take(life),
           takes: () => true,
-          stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+          stateBranch: stateBranch ?? { flush: async () => ({ kind: 'unchanged' }) },
+          ...(clone === undefined
+            ? {}
+            : {
+                worktrees: [{ repo: chaosRepo, base: 'origin/main', manager: clone.manager(life) }],
+              }),
           limits: () => ({ ...defaultLimits, ...scenarioLimits }),
           effects: {
             due: (state, batchId) => {
               const batch = state.batches.get(batchId);
               return batch === undefined ? [] : batchEffectsDue(batch);
             },
-            target: host.target(life, { pause, applying }),
+            target: host.target(life, { pause: () => pause(owner), applying }),
           },
           reminderMs,
           routingMs,
@@ -737,9 +932,9 @@ export const openChaosEngine = async (
     processes.set(owner, await boot(owner));
   };
 
-  /** Keeps `owner`'s driver down from this move on, for one to three moves. */
-  const keepDown = (owner: string, why: Down['why'], random: Random): void => {
-    const down = { driver: owner, why, from: move, until: move + 1 + random.int(3) };
+  /** Keeps `owner`'s driver down from this move on, for `moves` moves. */
+  const keepDown = (owner: string, why: Down['why'], moves: number): void => {
+    const down = { driver: owner, why, from: move, until: move + moves };
     downs.push(down);
     downUntil.set(owner, down.until);
   };
@@ -760,9 +955,12 @@ export const openChaosEngine = async (
       downUntil.delete(owner);
       // A stalled driver goes on where it was; a killed one starts again.
       if (processOf(owner).life.dead) await restart(owner);
-    } else if (!settle && stalling?.chance(processOf(owner).running.size > 0 ? 0.2 : 0.02)) {
-      keepDown(owner, 'stalled', stalling);
-      return 'idle';
+    } else if (!settle) {
+      const stalls = faults.stall(owner, processOf(owner).running.size > 0);
+      if (stalls > 0) {
+        keepDown(owner, 'stalled', stalls);
+        return 'idle';
+      }
     }
     const { life, driver } = processOf(owner);
     try {
@@ -772,11 +970,9 @@ export const openChaosEngine = async (
     }
     // A kill the driver caught and reported (a failed effect, a failed tick) still killed it.
     if (!life.dead) return 'lived';
-    if (!settle && downtime?.chance(0.5)) {
-      keepDown(owner, 'killed', downtime);
-    } else {
-      await restart(owner);
-    }
+    const downFor = settle ? 0 : faults.down(owner);
+    if (downFor > 0) keepDown(owner, 'killed', downFor);
+    else await restart(owner);
     return 'died';
   };
 
@@ -788,16 +984,16 @@ export const openChaosEngine = async (
     fn: (driver: Driver) => Promise<void>,
     settle = false,
   ): Promise<boolean> => {
-    const first = interleaving?.int(drivers.length) ?? 0;
+    const first = faults.first(drivers.length);
     const order = [...drivers.slice(first), ...drivers.slice(0, first)];
     const ran = await Promise.all(order.map((owner) => surviving(owner, fn, settle)));
     idle = order.filter((_, i) => ran[i] === 'idle');
     return idle.length < ran.length && ran.every((what) => what !== 'died');
   };
 
-  const play = async (next: Move): Promise<boolean> => {
-    kill.moved();
+  const play = async (next: Move, site = move + 1): Promise<boolean> => {
     move++;
+    kill.moved(site);
     switch (next.kind) {
       case 'command':
         // A command from the terminal, beside the drivers; they drive on what it decided.
@@ -822,6 +1018,7 @@ export const openChaosEngine = async (
     store: () => outside,
     events: () => outside.eventsAfter(0).map(({ event }) => event),
     play,
+    faults: faults.made,
     idle: () => idle,
     applyEffects: async () => {
       await everyDriver((driver) => driver.applyEffects(), true);
@@ -837,6 +1034,8 @@ export const openChaosEngine = async (
     interjections,
     moot,
     resumes,
+    clone,
+    branch,
     get found() {
       return host.found;
     },
@@ -861,8 +1060,20 @@ export interface ChaosChecks {
   /** After every move, with whether the driver lived through it. */
   afterMove?(run: ChaosRun, move: Move, survived: boolean): void;
   /** Once every batch is at rest and the effects due are applied. */
-  atEnd?(run: ChaosRun): void;
+  atEnd?(run: ChaosRun): void | Promise<void>;
 }
+
+/**
+ * The number each move of a run had in the run as first played, where its faults are (`Fault`):
+ * one per move the source gives, and the number the ticks that let the batches come to rest
+ * count on from. A run as first played numbers its moves 1, 2, … and its ticks after them.
+ */
+export interface MoveSites {
+  moves: readonly number[];
+  settleFrom?: number;
+}
+
+const playedSites: MoveSites = { moves: [] };
 
 /** How far the clock moves on per tick once the scenario is over, and for at most how many ticks. */
 const settleMs = 30 * 60_000;
@@ -880,18 +1091,22 @@ export const runChaos = async (
   run: ChaosRun,
   source: MoveSource,
   checks: ChaosChecks = {},
+  sites: MoveSites = playedSites,
 ): Promise<void> => {
   const { engine } = run;
-  const step = async (move: Move): Promise<boolean> => {
+  const step = async (move: Move, site: number): Promise<boolean> => {
     run.moves.push(move);
-    const survived = await engine.play(move);
+    const survived = await engine.play(move, site);
     checks.afterMove?.(run, move, survived);
     return survived;
   };
+  let played = 0;
   for (let move = source.move(engine.state()); move !== undefined; ) {
-    await step(move);
+    await step(move, sites.moves[played] ?? played + 1);
+    played++;
     move = source.move(engine.state());
   }
+  let site = sites.settleFrom ?? played;
   // Until no batch is brewing, and at least once: the last tick must be one every driver ran in
   // and lived through, or a deadline that came due before a kill would never be seen.
   let ticked = false;
@@ -902,92 +1117,10 @@ export const runChaos = async (
           brewing(engine.state()).join(', '),
       );
     }
-    ticked = (await step({ kind: 'tick', advanceMs: settleMs })) && engine.idle().length === 0;
+    const survived = await step({ kind: 'tick', advanceMs: settleMs }, ++site);
+    ticked = survived && engine.idle().length === 0;
   }
   // A kill may have ended the last pass before an effect was recorded.
   await engine.applyEffects();
-  checks.atEnd?.(run);
-};
-
-/** Seeds per chaos property in npm run check, where the chaos layer has a time ceiling. */
-const chaosRuns = 5;
-
-/**
- * Runs the generated scenario of each seed with that seed's kill plan, on a database in `dir`, and
- * checks `checks`. A failure names the seed and shows the kills, the moves and the events.
- */
-export const holdsAcrossKills = (
-  dir: string,
-  checks: ChaosChecks,
-  options: ChaosOptions = {},
-): Promise<void> =>
-  forEachSeedAsync(chaosRuns, async (seed) => {
-    // A folder per seed: the database, its -wal and -shm files go together.
-    const folder = join(dir, `seed-${seed}`);
-    mkdirSync(folder);
-    const path = join(folder, 'events.sqlite');
-    const scenario: Scenario = { moves: [], plays: [] };
-    const source = recording(generateScenario(seed), scenario);
-    const host = fakeCodeHost();
-    let engine: ChaosEngine | undefined;
-    const moves: Move[] = [];
-    try {
-      const plays = (attempt: AttemptRef) => source.play(attempt);
-      engine = await openChaosEngine(path, plays, killPlan(seed), host, options);
-      await runChaos({ engine, host, scenario, moves }, source, checks);
-    } catch (error) {
-      throw noted(error, engine === undefined ? '' : report({ engine, host, scenario, moves }));
-    } finally {
-      engine?.close();
-      // With retries for files Windows still holds; what is left goes with `dir`, and a failed
-      // removal never hides the run's own error.
-      await removeTree(folder).catch(() => {});
-    }
-  });
-
-/** The kills, moves, plays and events of `run`, numbered. */
-const report = ({ engine, scenario, moves }: ChaosRun): string => {
-  const numbered = (lines: readonly string[]): string =>
-    lines.length === 0
-      ? '    (none)'
-      : lines.map((line, i) => `  ${String(i + 1).padStart(3)}. ${line}`).join('\n');
-  let events: string[];
-  try {
-    events = engine.events().map(describeEvent);
-  } catch (error) {
-    events = [`(cannot read the events: ${String(error)})`];
-  }
-  return [
-    'Kills (counted in kill points from the start of the run):',
-    numbered(
-      engine.kills.map(
-        ({ at, point, move, driver }) => `#${at} ${driver} ${point}, in move ${move}`,
-      ),
-    ),
-    'Drivers down after a kill, or stalled:',
-    numbered(
-      engine.downs.map(
-        ({ driver, why, from, until }) => `${driver} ${why}, from move ${from} until move ${until}`,
-      ),
-    ),
-    "Terminal commands between a driver's read and its append:",
-    numbered(
-      engine.interjections.map(
-        ({ move, driver, command, accepted }) =>
-          `in move ${move}, before ${driver}: ${describeCommand(command)}, ${accepted ? 'accepted' : 'refused'}`,
-      ),
-    ),
-    'Moves:',
-    numbered(
-      moves.map((move) =>
-        move.kind === 'command'
-          ? describeCommand(move.command)
-          : `tick +${move.advanceMs / 60_000} min`,
-      ),
-    ),
-    'Plays, by attempt, in the order they started:',
-    numbered(scenario.plays.map(describePlay)),
-    'Events:',
-    numbered(events),
-  ].join('\n');
+  await checks.atEnd?.(run);
 };
