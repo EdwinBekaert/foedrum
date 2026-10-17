@@ -1116,8 +1116,14 @@ export const ghPullRequest =
     );
     // gh lists at most 100 files; a shorter list than the count, or one it cannot read, is left out.
     const listing: unknown[] = Array.isArray(parsed.files) ? parsed.files : [];
+    // A renamed or copied file is listed by its new path only, so a reviewed file moved into docs/
+    // would look like plain docs: only an added, modified or deleted file counts as read.
     const files = listing.flatMap((file) =>
-      isRecord(file) && typeof file.path === 'string' ? [file.path] : [],
+      isRecord(file) &&
+      typeof file.path === 'string' &&
+      ['ADDED', 'MODIFIED', 'DELETED'].includes(String(file.changeType))
+        ? [file.path]
+        : [],
     );
     const listed = files.length === listing.length && files.length === parsed.changedFiles;
     return {
