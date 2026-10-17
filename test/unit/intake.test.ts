@@ -473,6 +473,26 @@ describe('createIntake', () => {
       assert.deepStrictEqual(lanes(), ['web-7 brewing']);
     });
 
+    it("routes no target batch whose issue no longer passes its repository's filter", async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: 'web-8', order: { issue: 8, repo: web } });
+      // The tracker may list what the filter leaves out: the labels went, or the milestone moved.
+      const { tracker } = fakeTracker({
+        [brewery]: [],
+        [web]: [
+          issue(7, { labels: ['recipe:half'] }),
+          issue(8, { labels: ['foedrum', 'recipe:half'], milestone: 'M2' }),
+        ],
+        [api]: [],
+      });
+      const filtered = [
+        { repo: web, alias: 'web', filter: { labels: ['foedrum'], milestone: 'M1' } },
+        { repo: api, alias: 'api', filter: { labels: ['foedrum'] } },
+      ];
+      await breweryIntake(tracker, { repositories: filtered }).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered', 'web-8 ordered']);
+    });
+
     it('routes without free capacity: an Ordered batch already holds its place', async () => {
       accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
       accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
