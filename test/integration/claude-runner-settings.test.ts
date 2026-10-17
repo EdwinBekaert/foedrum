@@ -1,27 +1,32 @@
-// The user's own Claude Code settings must not widen a brewer (#11, ADR 0046): the runner passes
-// `--setting-sources ""`, so the only settings file is its own `--settings`. Proven against the
-// installed `claude` with a throwaway user settings folder (CLAUDE_CONFIG_DIR) and a fake
-// Messages API, so it needs no login and spends no tokens; skipped where `claude` is not on PATH.
+// The runner's attempt settings and init check against the installed `claude` (ADR 0042, ADR
+// 0046): the settings file `writeAttemptSettings` writes, with its deny rules, and the session
+// `checkInit` expects. A fake Messages API stands in for the model, whose one tool call runs a
+// `node -e` command through Bash, so the test needs no login and spends no tokens. Opt-in: it
+// runs only with FOEDRUM_REAL_CLAUDE=1 (ADR 0057).
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
+import {
+  type AttemptPermissions,
+  attemptSettings,
+  writeAttemptSettings,
+} from '../../src/brewers/attempt-settings.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import { checkInit } from '../../src/brewers/claude-init.ts';
-import { resolveExecutable } from '../../src/platform/executables.ts';
 import { streamProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
-const claude = resolveExecutable('claude');
+const real = realClaude();
 
 // The command the fake model runs: it needs an allow rule (unlike `echo`, which Claude Code
-// allows as read-only), and it prints a variable that only the user's settings set.
-const probe = `node -e "process.stdout.write('probe:' + (process.env.FOEDRUM_USER_ENV ?? 'unset'))"`;
+// allows as read-only).
+const probe = `node -e "process.stdout.write('probe:ran')"`;
 
 interface StreamEvent {
   type: string;
@@ -38,27 +43,14 @@ interface Outcome {
   sessionId: string;
 }
 
-/** Writes an attempt settings file with these allow rules and no deny rules. */
-const rules =
-  (allow: string[]) =>
-  (file: string): void =>
-    writeFileSync(file, JSON.stringify({ permissions: { allow, deny: [] } }));
-
-describe('claude and the user settings', { skip: claude === undefined }, () => {
+describe('claude with the runner settings', { skip: real.kind === 'skip' && real.reason }, () => {
   let dir: TempDir;
   let api: FakeMessagesApi;
   beforeEach(async () => {
-    dir = makeTempDir('claude-settings');
+    dir = makeTempDir('claude-runner-settings');
     api = await startFakeMessagesApi({ name: 'Bash', input: { command: probe } });
-    // The throwaway user settings: an allow rule for any command, and a variable of their own.
+    // An empty user settings folder, so nothing of the developer's own Claude Code is read.
     mkdirSync(join(dir.path, 'user'));
-    writeFileSync(
-      join(dir.path, 'user', 'settings.json'),
-      JSON.stringify({
-        permissions: { allow: ['Bash(*)'] },
-        env: { FOEDRUM_USER_ENV: 'widened' },
-      }),
-    );
     mkdirSync(join(dir.path, 'worktree'));
   });
   afterEach(async () => {
@@ -66,15 +58,12 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
     removeTree(dir.path);
   });
 
-  /** Runs the brewer's command line with the attempt settings that `write` writes. */
-  const run = async (
-    write: (file: string) => void,
-    args: (all: string[]) => string[] = (all) => all,
-  ): Promise<Outcome> => {
+  /** Runs the brewer's command line with the attempt settings the runner writes for these permissions. */
+  const run = async (permissions: AttemptPermissions): Promise<Outcome> => {
     const settingsFile = join(dir.path, 'attempt-settings.json');
-    write(settingsFile);
+    writeAttemptSettings(settingsFile, attemptSettings(permissions));
     const sessionId = randomUUID();
-    const all = claudeArgs({
+    const args = claudeArgs({
       model: 'claude-haiku-5-5',
       effort: 'low',
       maxTurns: 3,
@@ -87,7 +76,7 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
       Object.entries(process.env).filter(([name]) => !/^(?:ANTHROPIC_|CLAUDE)/i.test(name)),
     );
     const lines: string[] = [];
-    const result = await streamProcess(claude ?? 'claude', args(all), {
+    const result = await streamProcess(real.kind === 'run' ? real.claude : 'claude', args, {
       cwd: join(dir.path, 'worktree'),
       env: {
         ...inherited,
@@ -122,36 +111,9 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
     };
   };
 
-  const withoutSettingSources = (args: string[]): string[] => {
-    const at = args.indexOf('--setting-sources');
-    return [...args.slice(0, at), ...args.slice(at + 2)];
-  };
-
-  // Without this the test would prove nothing: the throwaway file is read, and it widens.
-  it('reads the throwaway user settings when the sources are left to claude', async () => {
-    const outcome = await run(rules(['Read']), withoutSettingSources);
-    assert.deepEqual(outcome.denied, []);
-    assert.equal(outcome.printed.length, 1);
-    assert.match(outcome.printed[0] ?? '', /probe:widened/);
-  });
-
-  it("does not let the user's allow rules allow a command the brewer may not run", async () => {
-    const outcome = await run(rules(['Read']));
-    assert.deepEqual(outcome.denied, ['Bash']);
-    assert.deepEqual(outcome.printed, []);
-  });
-
-  it("does not give the brewer the user's variables", async () => {
-    const outcome = await run(rules(['Read', 'Bash(node *)']));
-    assert.deepEqual(outcome.denied, []);
-    assert.equal(outcome.printed.length, 1);
-    assert.match(outcome.printed[0] ?? '', /probe:unset/);
-  });
-
-  // The init check of ADR 0046 against the real CLI: what it reports is what the runner asked.
+  // The init check of ADR 0046: what claude reports is what the runner asked.
   it('sets up the session the runner asked for, as its init event shows', async () => {
-    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
-    const outcome = await run((file) => writeAttemptSettings(file, settings));
+    const outcome = await run({ allow: ['Read'], deny: [], sandbox: false });
     const check = checkInit(outcome.init, {
       sessionId: outcome.sessionId,
       tools: ['Read', 'Bash'],
@@ -161,12 +123,11 @@ describe('claude and the user settings', { skip: claude === undefined }, () => {
 
   // ADR 0042's contract test: claude reads the file the runner writes, deny rules included.
   it('applies a deny rule of the settings file the runner wrote', async () => {
-    const settings = attemptSettings({
+    const outcome = await run({
       allow: ['Read', 'Bash(node *)'],
       deny: ['Bash(node -e *)'],
       sandbox: false,
     });
-    const outcome = await run((file) => writeAttemptSettings(file, settings));
     assert.deepEqual(outcome.denied, ['Bash']);
     assert.deepEqual(outcome.printed, []);
   });

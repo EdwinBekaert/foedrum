@@ -151,7 +151,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - On a developer's machine (`CI` not set), `npm test`, `npm run check`, `npm run test:integration` and the review skill's test runs lower their own priority to below normal, and every process they start inherits it, so a test run on every core leaves the terminal and other sessions responsive (`scripts/below-normal-priority.ts`, [ADR 0054](docs/adr/0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md)). CPU time, which the per-file budget measures, does not change with priority (ADR 0036).
 - Test behaviour through public interfaces, not implementation details; a test should fail when the behaviour breaks and survive a refactor.
 - Every change comes with tests. Engine changes must keep the property tests (invariants I1–I6) and the chaos tests green.
-- Use the fake brewer runner for engine tests. Tests that make the real `claude` CLI spend tokens are opt-in; tests against the installed `claude` with the fake Messages API (`test/integration/fake-messages-api.ts`, no login, no tokens) run wherever `claude` is on PATH, and are skipped elsewhere, CI included (ADR 0046).
+- Use the fake brewer runner for engine tests. Tests against the real `claude` CLI are opt-in: they run only with `FOEDRUM_REAL_CLAUDE=1` (`test/helpers/real-claude.ts`), skip otherwise with that name in the message, and fail when it is set and `claude` is not on PATH. They test Foedrum's code (the runner, with the fake Messages API in `test/integration/fake-messages-api.ts`: no login, no tokens), never whether `claude` itself works ([ADR 0057](docs/adr/0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md)).
 
 ## Git and pull requests
 

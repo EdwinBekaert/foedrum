@@ -1,6 +1,6 @@
 # 0049. Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers
 
-Date: 2026-10-16 · Status: Accepted · Amends [0010](0010-cross-platform-and-isolation-levels.md) and [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0010](0010-cross-platform-and-isolation-levels.md) and [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) · Amended by [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md)
 
 ## Context
 The review of #31 (security lens) found that the read-only reviewer agents, `taster` and `brett`, have `Read`, `Grep` and `Glob` tools that are not limited to the checkout. Their input is a pull request's diff and text, which is untrusted. Text injected into a pull request could make a reviewer read a file such as `~/.config/gh/hosts.yml` and quote it in a finding. #31 mitigates this by scanning the summary before it is posted; #40 asks for the structural fix:
