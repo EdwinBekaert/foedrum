@@ -75,6 +75,17 @@ const isSmallest = async (
       `the run fails without the fault ${JSON.stringify(fault)}`,
     );
   }
+  for (const [at, { attempt, play }] of schedule.plays.entries()) {
+    if (play.kind === 'succeed') continue;
+    const plays = schedule.plays.map((entry, i) =>
+      i === at ? { ...entry, play: { kind: 'succeed' as const } } : entry,
+    );
+    assert.equal(
+      await failsAs(kind, { ...schedule, plays }, checks, options),
+      false,
+      `the run fails with ${JSON.stringify(attempt)} succeeding`,
+    );
+  }
 };
 
 /** Fails once a kill landed after an effect reached the code host. */
@@ -128,6 +139,23 @@ describe('a failing chaos run', () => {
       'faults were removed',
     );
     await isSmallest(found, shrunk, tookOverFromTheKilled, options);
+  });
+
+  it('stops at its budget of runs and says so', async () => {
+    const found = await firstFailure(killedAfterAnEffect);
+    const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect, {}, 3);
+    assert.equal(shrunk.runs, 3);
+    assert.equal(shrunk.exhausted, true);
+  });
+
+  it('keeps a failure whose message names other batches and attempts as the same one', () => {
+    const leases = (batch: string, attempts: [number, number]) =>
+      new Error(`step ${batch} implement has live leases ${attempts.join(', ')}\nSeed 7`);
+    assert.equal(failureKind(leases('2-1', [3, 4])), failureKind(leases('5-12', [1, 2])));
+    assert.notEqual(
+      failureKind(leases('2-1', [3, 4])),
+      failureKind(new Error('step 2-1 plan has live leases 3, 4')),
+    );
   });
 
   it('is reported with its seed and the schedule it shrank to', async () => {
