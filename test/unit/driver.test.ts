@@ -661,6 +661,69 @@ describe('openDriver', () => {
       assert.deepStrictEqual(started, []);
       assert.deepStrictEqual(store.currentLeases(now), []);
     });
+
+    it('cleans a cancelled batch again once the lease of a run that never ended expired (#144)', async () => {
+      // The run's process died with the runner: its stop ends nothing, and it reports no progress,
+      // so its lease is not renewed.
+      const runner: BrewerRunner = {
+        start: () => ({ ended: new Promise<AttemptEnd>(() => {}), stop: () => {} }),
+        progress: () => undefined,
+      };
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+      // Cleaned while plan#1's lease is alive: the manager keeps its worktree.
+      await driver.tick();
+      const scopes = () => manager.cleans().map(({ scope }) => scope);
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }]);
+      // Not again while the lease is alive.
+      now = at(2);
+      await driver.tick();
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }], 'while the lease is alive');
+      now = at(6);
+      await driver.tick();
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }]);
+      // The first cleanup kept plan#1's worktree under its lease; the second one claims it no more.
+      const leased = () => manager.cleans().map(({ claims }) => claims.leased);
+      assert.deepStrictEqual(leased().slice(1), [[plan('b1')], []]);
+      now = at(7);
+      await driver.tick();
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }], 'once');
+    });
+
+    it('cleans it again also when the lease expired while the first cleanup ran (#144)', async () => {
+      const runner: BrewerRunner = {
+        start: () => ({ ended: new Promise<AttemptEnd>(() => {}), stop: () => {} }),
+        progress: () => undefined,
+      };
+      const manager = fakeWorktrees();
+      const clean = manager.clean.bind(manager);
+      // The batch's cleanup reads the claims while plan#1's lease is alive, and its git steps
+      // take until that lease has expired.
+      manager.clean = async (claims, scope) => {
+        const report = await clean(claims, scope);
+        if (scope?.batchId !== undefined) now = at(6);
+        return report;
+      };
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+      await driver.tick();
+      now = at(7);
+      await driver.tick();
+      assert.deepStrictEqual(
+        manager.cleans().map(({ scope }) => scope),
+        [{}, { batchId: 'b1' }, { batchId: 'b1' }],
+      );
+      assert.deepStrictEqual(
+        manager.cleans().map(({ claims }) => claims.leased),
+        [[], [plan('b1')], []],
+        'the second cleanup claims the worktree no more',
+      );
+    });
   });
 
   describe('the supervisor', () => {

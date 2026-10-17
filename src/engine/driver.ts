@@ -184,6 +184,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const errors: unknown[] = [];
   // Ended batches whose worktrees drive() cleans next.
   const toClean = new Set<string>();
+  // Ended batches cleaned while an attempt of theirs held a live lease, which kept its worktree:
+  // cleaned again once no lease of theirs is alive. A run that ends lets its lease go, but one
+  // whose process died with the runner never ends, and its lease only expires (ADR 0037, ADR 0061).
+  const cleanedLeased = new Set<string>();
+  const leasedBatches = (): Set<string> =>
+    new Set(
+      store
+        .currentLeases(clock())
+        .flatMap((lease) => attemptKey.decode(lease.attemptKey)?.batchId ?? []),
+    );
 
   const lose = (batchId: string, holder: BatchLease): void => {
     if (held.delete(batchId)) report({ kind: 'batch_lost', batchId, holder });
@@ -345,8 +355,19 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         moved = true;
       }
       noteEnded();
+      if (cleanedLeased.size > 0) {
+        const leased = leasedBatches();
+        for (const batchId of [...cleanedLeased]) {
+          if (leased.has(batchId)) continue;
+          cleanedLeased.delete(batchId);
+          toClean.add(batchId);
+        }
+      }
       for (const batchId of [...toClean]) {
         toClean.delete(batchId);
+        // Asked before the cleanup reads its claims: a lease it keeps a worktree for may expire
+        // while its git steps run. An ended batch gets no new lease, so asking early misses none.
+        if (leasedBatches().has(batchId)) cleanedLeased.add(batchId);
         report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
       }
       if (!moved) return;
