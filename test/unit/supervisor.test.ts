@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type { DueBatch, Lease } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
+import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Stall } from '../../src/engine/recipes.ts';
 import {
   type AttemptProgress,
@@ -11,6 +12,7 @@ import {
   watchFlush,
 } from '../../src/engine/supervisor.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const minute = 60_000;
@@ -335,6 +337,21 @@ describe('planTick: stalls (ADR 0027)', () => {
       assert.deepStrictEqual(under.commands, []);
     });
   }
+
+  it('leaves an attempt whose step its recipe file no longer has, and still expires another batch', () => {
+    // The step was renamed in the file under the running batch: the real Recipe has no "plan".
+    const loaded = loadRecipes({
+      recipes: [{ path: 'recipes/pint.jsonc', text: recipeText('pint', [{ brewer: 'malt' }]) }],
+      brewers: [{ path: 'brewers/malt.md', text: brewerText('malt', { stall: { turns: 1 } }) }],
+    });
+    assert.ok(loaded.valid);
+    const events = [...brewing('b1'), ...brewing('b2', past)];
+    const tick = planTick({
+      ...input(events, { ...progressOf(idle(600, 600)), due: [dueAt('b2')] }),
+      recipes: loaded.recipes,
+    });
+    assert.deepStrictEqual(tick.commands, [expire('b2')]);
+  });
 
   it('leaves an attempt the runner reports nothing about', () => {
     assert.deepStrictEqual(planTick(input(brewing('b1'))).commands, []);
