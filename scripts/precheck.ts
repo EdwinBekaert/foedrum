@@ -1,7 +1,8 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
 // `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push` and
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
-// summary for its head (#154).
+// summary for its head (#154). It also blocks npx and its relatives when they would run a package
+// the lockfile did not install (#175).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
@@ -31,8 +32,8 @@ export interface HookResult {
 const MAX_OUTPUT_CHARS = 4000;
 // Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter;
 // push, merge and ready for a git or gh whose name is computed at run time; pwsh and powershell
-// for an encoded command.
-const MAY_PUSH_OR_MERGE = /git|gh|push|merge|ready|pwsh|powershell|\\u/i;
+// for an encoded command; npx, npm, dlx and bun for a package runner (#175).
+const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
 
 // PowerShell reads typographic quotes as quotes; bash does not.
 const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
@@ -72,6 +73,15 @@ const READY_COMBINED_BLOCKED =
   'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
   'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
+const downloadBlocked = (run: string): string =>
+  `\`${run}\` would download a package that isn't in package-lock.json. Use the project's tools: \`npm run lint -- --write\` formats with Biome.`;
+const movedRunBlocked = (run: string): string =>
+  `\`${run}\` is blocked in a command that changes directory: the gate looks for it in node_modules/.bin where the command starts, and npx would look where it runs. Run it as a command of its own, from the folder whose node_modules it uses.`;
+// A name node_modules/.bin can hold, and nothing that reaches out of it; no trailing dot, which
+// Windows drops.
+const BINARY_NAME = /^[A-Za-z0-9](?:[\w.-]*[\w-])?$/;
+// The names Windows reads as a device in any folder, with or without an extension.
+const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$/i;
 
 // A shell's reading of a command line. Git Bash runs the Bash tool's commands, so a tool's command
 // is read in its own shell; what it runs in turn may be either, so that is read both ways.
@@ -255,10 +265,10 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   return lexed;
 };
 
-// The program a word names: the last part of a path, lowercased, without .exe, .cmd, .bat or
-// .com, so `C:\Program Files\Git\cmd\git.exe` is git.
+// The program a word names: the last part of a path, lowercased, without .exe, .cmd, .bat, .com
+// or .ps1, so `C:\Program Files\Git\cmd\git.exe` is git and npm's `npx.ps1` shim is npx.
 const programName = (text: string): string =>
-  (text.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '');
+  (text.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.(exe|cmd|bat|com|ps1)$/, '');
 
 // The program of a word computed at run time: it may be git or gh.
 const COMPUTED = '$';
@@ -291,7 +301,6 @@ const WRAPPERS = new Map<string, Wrapper>([
   ['wsl', { withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'] }],
   ['nice', { withValue: ['-n', '--adjustment'] }],
   ['nohup', { withValue: [] }],
-  ['npx', { withValue: ['-p', '--package', '-c', '--call'], runs: ['-c', '--call'] }],
   ['sudo', { withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '-h', '-p', '-r', '-t'] }],
   ['time', { withValue: ['-f', '--format', '-o', '--output'] }],
   ['timeout', { withValue: ['-s', '--signal', '-k', '--kill-after'], operands: 1 }],
@@ -318,6 +327,63 @@ const WRAPPERS = new Map<string, Wrapper>([
   ],
 ]);
 
+// npx and the commands that run a package the way it does, by the words that start them: a
+// wrapper that downloads the program it runs when the lockfile did not install it (#175). The
+// options in `packages` name packages to download, those in `moves` the folder to look in, and a
+// runner that `alwaysDownloads` fetches the package even when node_modules/.bin has it.
+interface PackageRunner extends Wrapper {
+  packages: readonly string[];
+  moves?: readonly string[];
+  alwaysDownloads?: boolean;
+}
+const NPX: PackageRunner = {
+  withValue: ['-p', '--package', '-c', '--call', '--prefix'],
+  runs: ['-c', '--call'],
+  packages: ['-p', '--package'],
+  moves: ['--prefix'],
+};
+const DLX: PackageRunner = {
+  withValue: ['-p', '--package'],
+  packages: ['-p', '--package'],
+  alwaysDownloads: true,
+};
+const BUNX: PackageRunner = { withValue: ['-p', '--package'], packages: ['-p', '--package'] };
+const PACKAGE_RUNNERS = new Map<string, PackageRunner>([
+  ['npx', NPX],
+  ['npm exec', NPX],
+  ['npm x', NPX],
+  ['pnpm dlx', DLX],
+  ['pnpx', DLX],
+  ['yarn dlx', DLX],
+  ['bunx', BUNX],
+  ['bun x', BUNX],
+]);
+
+// A package that npx or a relative would run, the words that started it, and whether a binary of
+// that name in node_modules/.bin is what would run: not for a package option, whose value is a
+// package name, nor for a runner that always downloads.
+interface PackageRun {
+  runner: string;
+  name: Word;
+  lookup: boolean;
+}
+
+// The package runner a program and its arguments start, and the arguments after its words.
+const packageRunner = (
+  program: string,
+  args: Word[],
+): { runner: string; wrapper: PackageRunner; args: Word[] } | undefined => {
+  const wrapper = PACKAGE_RUNNERS.get(program);
+  if (wrapper !== undefined) return { runner: program, wrapper, args };
+  const runner = `${program} ${args[0]?.text}`;
+  const subcommand = PACKAGE_RUNNERS.get(runner);
+  return subcommand && { runner, wrapper: subcommand, args: args.slice(1) };
+};
+
+// The words that change directory: bash's and PowerShell's commands and aliases, PowerShell's cd..
+// and cd\ functions, and a drive letter, which PowerShell and cmd switch to.
+const CHANGE_DIRECTORY = /^(?:cd|chdir|pushd|set-location|sl|push-location|cd\.\.|cd\\|[a-z]:)$/i;
+
 // bash's reserved words that can come before a command, and PowerShell's dot operator.
 const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '.']);
 // A PowerShell assignment operator, as in `$out = git push`.
@@ -333,31 +399,52 @@ const leadingWords = ([first, second]: Word[]): number => {
 
 // The program and arguments of a simple command, after environment assignments, reserved words,
 // PowerShell assignments and wrapper words. A wrapper option whose value is a command adds it to
-// `nested`.
-const invocation = (words: Word[], nested: string[]): Invocation | undefined => {
+// `nested`; a package a package runner would run goes to `found.packages`, and a change of
+// directory sets `found.movesDir`.
+const invocation = (words: Word[], nested: string[], found: Findings): Invocation | undefined => {
   let rest = words;
   for (;;) {
     for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
       rest = rest.slice(skip);
-    const [first, ...args] = rest;
+    const [first, ...operands] = rest;
     if (first === undefined) return undefined;
+    // `cd\` has no last path part, so it is tested before programName drops it.
+    if (!first.dynamic && CHANGE_DIRECTORY.test(first.text)) found.movesDir = true;
     const program = first.dynamic ? COMPUTED : programName(first.text);
-    const wrapper = WRAPPERS.get(program);
-    if (wrapper === undefined) return { program, args };
+    if (CHANGE_DIRECTORY.test(program)) found.movesDir = true;
+    const runner = packageRunner(program, operands);
+    const wrapper = runner?.wrapper ?? WRAPPERS.get(program);
+    if (wrapper === undefined) return { program, args: operands };
+    const args = runner?.args ?? operands;
+    const run = (name: Word | undefined, lookup: boolean) => {
+      if (runner === undefined || name === undefined) return;
+      const always = runner.wrapper.alwaysDownloads === true;
+      found.packages.push({ runner: runner.runner, name, lookup: lookup && !always });
+    };
     let i = 0;
     while (args[i]?.text.startsWith('-')) {
-      const option = args[i]?.text ?? '';
+      const word = args[i] as Word;
+      const [option = '', value] = word.text.split(/=(.*)/s);
       if (option === '--') {
         i++;
         break;
+      }
+      const packageOption = runner?.wrapper.packages.includes(option) === true;
+      if (runner?.wrapper.moves?.includes(option)) found.movesDir = true;
+      if (value !== undefined) {
+        if (packageOption) run({ ...word, text: value }, false);
+        i++;
+        continue;
       }
       if (!wrapper.withValue.includes(option)) {
         i++;
         continue;
       }
       if (wrapper.runs?.includes(option)) nested.push(args[i + 1]?.text ?? '');
+      else if (packageOption) run(args[i + 1], false);
       i += 2;
     }
+    run(args[i], true);
     rest = args.slice(i + (wrapper.operands ?? 0));
   }
 };
@@ -384,6 +471,10 @@ interface Findings {
   readies: ReadyTarget[];
   // Whether any command read, decoded and nested ones too, mentions GH_REPO or GH_HOST.
   ghEnv: boolean;
+  // The packages npx and its relatives run, each needing to be a binary the lockfile installed.
+  packages: PackageRun[];
+  // Whether any command read changes directory, so npx may run in another package.
+  movesDir: boolean;
   reads: number;
 }
 
@@ -599,7 +690,6 @@ const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish']
 const POWERSHELLS = new Set(['pwsh', 'powershell']);
 const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', '[scriptblock]::create']);
 const START_PROCESS = new Set(['start-process', 'start', 'saps']);
-
 // Reads one simple command; returns whether it runs code given as text, so that every string
 // and every argument list of the command line may be code.
 const readInvocation = ({ program, args }: Invocation, reading: Reading): boolean => {
@@ -641,7 +731,7 @@ const read = (
     const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [] };
     let runsText = false;
     for (const words of lexed.segments) {
-      const called = invocation(words, reading.nested);
+      const called = invocation(words, reading.nested, found);
       if (called !== undefined && readInvocation(called, reading)) runsText = true;
     }
     if (runsText) {
@@ -672,6 +762,8 @@ const noFindings = (reads: number): Findings => ({
   pushes: false,
   readies: [],
   ghEnv: false,
+  packages: [],
+  movesDir: false,
   reads,
 });
 
@@ -697,6 +789,9 @@ export type StaleReason = (cwd: string) => Promise<string | undefined>;
 
 // Whether HEAD in the checkout around `cwd` is detached; rejects when it cannot tell.
 export type HeadIsDetached = (cwd: string) => Promise<boolean>;
+
+// Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
+export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
 
 // The pull request `gh pr ready` names: its number, URL or branch (none for the current branch's),
 // and the repository given with -R.
@@ -776,8 +871,9 @@ export const precheck = async (
   lookupPullRequest: LookupPullRequest = async () => {
     throw new Error('no pull request lookup');
   },
+  binaryInstalled: BinaryInstalled = async () => false,
 ): Promise<HookResult> => {
-  if (!MAY_PUSH_OR_MERGE.test(normalised(input))) return { exitCode: 0, stderr: '' };
+  if (!MAY_NEED_THE_GATE.test(normalised(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
@@ -792,10 +888,28 @@ export const precheck = async (
   if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
   // The input test above only skips parsing; the command decides, so a cwd, transcript path or
   // description that spells git does not send the call to the parser (#152).
-  if (!MAY_PUSH_OR_MERGE.test(normalised(command))) return { exitCode: 0, stderr: '' };
+  if (!MAY_NEED_THE_GATE.test(normalised(command))) return { exitCode: 0, stderr: '' };
   const found = findings(command, TOOL_DIALECTS.get(parsed.tool_name));
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
+  const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
+  for (const { runner, name, lookup } of found.packages) {
+    // Only a plain name is looked up: a version, a scope, a path, a computed name or one Windows
+    // maps to a device is not what node_modules/.bin holds.
+    if (
+      !lookup ||
+      name.dynamic ||
+      !BINARY_NAME.test(name.text) ||
+      WINDOWS_DEVICE.test(name.text) ||
+      !(await binaryInstalled(cwd, name.text))
+    ) {
+      return { exitCode: 2, stderr: `${downloadBlocked(`${runner} ${name.text}`)}\n` };
+    }
+  }
+  const [run] = found.packages;
+  if (run !== undefined && found.movesDir) {
+    return { exitCode: 2, stderr: `${movedRunBlocked(`${run.runner} ${run.name.text}`)}\n` };
+  }
   // Each reading of a command that runs another finds the same pull request again.
   const readies = new Map(found.readies.map((target) => [JSON.stringify(target), target]));
   if (!found.gated && readies.size === 0) return { exitCode: 0, stderr: '' };
@@ -806,7 +920,6 @@ export const precheck = async (
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
   }
 
-  const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
   for (const target of readies.values()) {
     const refusal = await readyRefusal(cwd, target, lookupPullRequest);
     if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
@@ -1007,6 +1120,21 @@ export const ghPullRequest =
     };
   };
 
+// Whether `node_modules/.bin/<name>` exists in the package around `cwd`: the nearest folder up
+// with a package.json, where npx looks before it downloads.
+export const lockfileBinary =
+  (
+    read: (path: string) => Promise<string | undefined>,
+    exists: (path: string) => Promise<boolean>,
+  ): BinaryInstalled =>
+  async (cwd, name) => {
+    const { packageRoot } = await import('./deps-sync.ts');
+    const root = await packageRoot(cwd, read);
+    if (root === undefined) return false;
+    const { join } = await import('node:path');
+    return exists(join(root, 'node_modules', '.bin', name));
+  };
+
 const readStdin = async (): Promise<string> => {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
@@ -1034,6 +1162,16 @@ if (import.meta.main) {
     staleReason,
     gitHeadIsDetached(spawnProcess),
     ghPullRequest(spawnProcess),
+    async (cwd, name) => {
+      const { access, readFile } = await import('node:fs/promises');
+      const read = (path: string) => readFile(path, 'utf8').catch(() => undefined);
+      const exists = (path: string) =>
+        access(path).then(
+          () => true,
+          () => false,
+        );
+      return lockfileBinary(read, exists)(cwd, name);
+    },
   );
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;
