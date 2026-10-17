@@ -75,6 +75,8 @@ const READY_GH_REPO_BLOCKED =
   'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
 const downloadBlocked = (run: string): string =>
   `\`${run}\` would download a package that isn't in package-lock.json. Use the project's tools: \`npm run lint -- --write\` formats with Biome.`;
+const movedRunBlocked = (run: string): string =>
+  `\`${run}\` is blocked in a command that changes directory: the gate looks for it in node_modules/.bin where the command starts, and npx would look where it runs. Run it as a command of its own, from the folder whose node_modules it uses.`;
 // A name node_modules/.bin can hold, and nothing that reaches out of it.
 const BINARY_NAME = /^[A-Za-z0-9][\w.-]*$/;
 
@@ -260,10 +262,10 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   return lexed;
 };
 
-// The program a word names: the last part of a path, lowercased, without .exe, .cmd, .bat or
-// .com, so `C:\Program Files\Git\cmd\git.exe` is git.
+// The program a word names: the last part of a path, lowercased, without .exe, .cmd, .bat, .com
+// or .ps1, so `C:\Program Files\Git\cmd\git.exe` is git and npm's `npx.ps1` shim is npx.
 const programName = (text: string): string =>
-  (text.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '');
+  (text.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.(exe|cmd|bat|com|ps1)$/, '');
 
 // The program of a word computed at run time: it may be git or gh.
 const COMPUTED = '$';
@@ -331,6 +333,7 @@ const PACKAGE_RUNNERS = new Map<string, Wrapper>([
   ['npm exec', NPX],
   ['npm x', NPX],
   ['pnpm dlx', { withValue: ['--package'] }],
+  ['pnpx', { withValue: ['--package'] }],
   ['yarn dlx', { withValue: ['-p', '--package'] }],
   ['bunx', { withValue: ['-p', '--package'] }],
   ['bun x', { withValue: ['-p', '--package'] }],
@@ -436,6 +439,8 @@ interface Findings {
   ghEnv: boolean;
   // The packages npx and its relatives run, each needing to be a binary the lockfile installed.
   packages: PackageRun[];
+  // Whether any command read changes directory, so npx may run in another package.
+  movesDir: boolean;
   reads: number;
 }
 
@@ -651,12 +656,14 @@ const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'fish']
 const POWERSHELLS = new Set(['pwsh', 'powershell']);
 const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', '[scriptblock]::create']);
 const START_PROCESS = new Set(['start-process', 'start', 'saps']);
+const CHANGE_DIRECTORY = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 
 // Reads one simple command; returns whether it runs code given as text, so that every string
 // and every argument list of the command line may be code.
 const readInvocation = ({ program, args }: Invocation, reading: Reading): boolean => {
   if (program === 'git' || program === COMPUTED) readGit(args, program === 'git', reading);
   if (program === 'gh' || program === COMPUTED) readGh(args, program === 'gh', reading);
+  if (CHANGE_DIRECTORY.has(program)) reading.found.movesDir = true;
   const { nested } = reading;
   const codeOptions = INTERPRETERS.get(program);
   if (codeOptions !== undefined) {
@@ -725,6 +732,7 @@ const noFindings = (reads: number): Findings => ({
   readies: [],
   ghEnv: false,
   packages: [],
+  movesDir: false,
   reads,
 });
 
@@ -860,6 +868,10 @@ export const precheck = async (
     if (name.dynamic || !BINARY_NAME.test(name.text) || !(await binaryInstalled(cwd, name.text))) {
       return { exitCode: 2, stderr: `${downloadBlocked(`${runner} ${name.text}`)}\n` };
     }
+  }
+  const [run] = found.packages;
+  if (run !== undefined && found.movesDir) {
+    return { exitCode: 2, stderr: `${movedRunBlocked(`${run.runner} ${run.name.text}`)}\n` };
   }
   // Each reading of a command that runs another finds the same pull request again.
   const readies = new Map(found.readies.map((target) => [JSON.stringify(target), target]));
