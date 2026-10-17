@@ -16,7 +16,8 @@ const worktree = join('/work', 'acme.api', 'attempts', '12-1', 'green', '1');
 const ref = { batchId: '12-1', stepId: 'green', attempt: 1 };
 const now = new Date('2026-10-17T12:00:00.000Z');
 const deadlineAt = '2026-10-17T12:30:00.000Z';
-const env = { PATH: '/usr/bin' };
+// The brewers' environment (ADR 0063): a minimal base and the runner's forced variables.
+const env = { base: { PATH: '/usr/bin' }, forced: { npm_config_ignore_scripts: 'true' } };
 
 const ordered: Event[] = [
   { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: deadlineAt },
@@ -68,12 +69,16 @@ const setup = ({
   scripts = {},
   events = [...ordered, started],
   repo = repository,
+  platform = 'linux',
+  layers = env,
 }: {
   checks?: readonly CheckRef[];
   scripts?: Record<string, Script>;
   events?: Event[];
   /** `null`: foedrum.jsonc lists none for the repository. */
   repo?: RepositoryChecks | null;
+  platform?: NodeJS.Platform;
+  layers?: { base: Record<string, string>; forced: Record<string, string> };
 } = {}) => {
   const { calls, exec } = fakeExec(scripts);
   const stepChecks: StepChecks = {
@@ -88,9 +93,9 @@ const setup = ({
       return repo ?? undefined;
     },
     exec,
-    env,
+    env: layers,
     clock: () => now,
-    platform: 'linux',
+    platform,
   });
   return { calls, repos, runner };
 };
@@ -114,7 +119,7 @@ describe('createCheckRunner', () => {
     );
     for (const { options } of calls) {
       assert.equal(options.cwd, worktree);
-      assert.equal(options.env, env);
+      assert.deepEqual(options.env, { PATH: '/usr/bin', npm_config_ignore_scripts: 'true' });
       assert.equal(options.shell, true);
       // On Windows the whole tree goes with a kill, also what a test runner left (ADR 0039).
       assert.equal(options.jobObject, true);
@@ -179,6 +184,23 @@ describe('createCheckRunner', () => {
       ['make -j e2e'],
     );
     assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it("runs a check in the brewers' environment, a forced variable winning in any case on Windows", async () => {
+    // Windows spells PATH as Path in the base.
+    const { calls, runner } = setup({
+      platform: 'win32',
+      layers: {
+        base: { Path: 'C:\\bin', SystemRoot: 'C:\\Windows' },
+        forced: { PATH: 'C:\\forced', npm_config_ignore_scripts: 'true' },
+      },
+    });
+    await runner.start({ ref, limits }).ended;
+    assert.deepEqual(calls[0]?.options.env, {
+      PATH: 'C:\\forced',
+      SystemRoot: 'C:\\Windows',
+      npm_config_ignore_scripts: 'true',
+    });
   });
 
   it('gives a check what is left until the deadline, at least a millisecond', async () => {

@@ -4,6 +4,7 @@
 // when the engine stops the attempt; the first check that does not pass ends the step. No model.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
+import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
@@ -20,8 +21,8 @@ export interface CheckRunnerOptions {
   /** The commands of a repository's checks (`foedrum.jsonc`), or undefined when it lists none. */
   repositoryChecks: (repo: string) => RepositoryChecks | undefined;
   exec: ExecProcess;
-  /** The environment the commands run in. */
-  env: NodeJS.ProcessEnv;
+  /** The brewers' environment: its minimal base and the runner's forced variables (ADR 0063). */
+  env: { base: Env; forced: Env };
   clock: () => Date;
   /** Default this process's. */
   platform?: NodeJS.Platform;

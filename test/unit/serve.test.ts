@@ -20,7 +20,7 @@ import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { fakeFetch } from '../helpers/fake-fetch.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { local, serveInputs } from '../helpers/serve-brewery.ts';
+import { home, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const issue = JSON.parse(
@@ -356,11 +356,15 @@ describe('runServe', () => {
         checks.map(({ file, args, options }) => [file, args, options.cwd, options.shell]),
         [['npm test', [], worktreeOf(1), true]],
       );
-      // The brewers' environment: no GitHub token, and no npm lifecycle scripts.
+      // The brewers' minimal environment and nothing else: no GitHub token under any name, and
+      // no npm lifecycle scripts (ADR 0063).
       const env = checks[0]?.options.env ?? {};
-      assert.equal(env.GH_TOKEN, undefined);
-      assert.equal(env.npm_config_ignore_scripts, 'true');
-      assert.equal(env.PATH, '/usr/bin');
+      assert.deepStrictEqual(env, {
+        PATH: '/usr/bin',
+        HOME: home,
+        npm_config_ignore_scripts: 'true',
+      });
+      assert.ok(!Object.values(env).includes(setup.github.token));
       const finished = events.filter(
         (event) => event.type === 'step.finished' && event.stepId === 'green',
       );
