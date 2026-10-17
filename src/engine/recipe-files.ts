@@ -5,6 +5,7 @@
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
+  type CheckRef,
   Recipe as RecipeFile,
   readExpression,
   type Step,
@@ -35,6 +36,12 @@ export interface StepBrewer {
 export interface StepBrewers {
   /** The brewer of step `stepId` of recipe `recipe`, or `undefined` when there is no such step. */
   find(recipe: string, stepId: string): StepBrewer | undefined;
+}
+
+/** The checks of the loaded recipes' check steps (ADR 0069). */
+export interface StepChecks {
+  /** The checks of step `stepId` of recipe `recipe`, or `undefined` when it is no check step. */
+  find(recipe: string, stepId: string): readonly CheckRef[] | undefined;
 }
 
 export type LoadedRecipes =
