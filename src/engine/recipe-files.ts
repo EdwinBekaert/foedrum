@@ -45,7 +45,7 @@ export interface StepChecks {
 }
 
 export type LoadedRecipes =
-  | { valid: true; recipes: Recipes; brewers: StepBrewers }
+  | { valid: true; recipes: Recipes; brewers: StepBrewers; checks: StepChecks }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
 
@@ -337,6 +337,11 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     valid: true,
     recipes: { find: (name) => recipes.get(name) },
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
+    checks: {
+      find: () => {
+        throw new Error('not implemented');
+      },
+    },
   };
 }
 
