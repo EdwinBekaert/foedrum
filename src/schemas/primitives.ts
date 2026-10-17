@@ -72,7 +72,7 @@ export const BrewerAllowedTool = AllowedTool.refine(
  * subcommand, an option or a quote where it would be, or a subcommand that is or could become
  * `push`. Lower case, since PowerShell matches without case; `:*` is the older spelling of ` *`.
  */
-export function reachesAnyGitCommand(rule: string): boolean {
+function reachesAnyGitCommand(rule: string): boolean {
   const { tool, specifier } = parseRule(rule);
   if (!commandTools.has(tool)) return false;
   if (specifier === undefined) return true;
