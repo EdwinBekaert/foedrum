@@ -473,6 +473,31 @@ describe('createIntake', () => {
       assert.deepStrictEqual(lanes(), ['web-7 brewing']);
     });
 
+    it('orders the oldest Brewery issue first, whatever order the listing gives', async () => {
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(13), labelled(12)],
+        [web]: [],
+        [api]: [],
+      });
+      await breweryIntake(tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+    });
+
+    it('lists no repository it can neither order from nor route in', async () => {
+      // Its one place is taken by a Brewing batch, and nothing waits to be routed.
+      const first = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
+      await breweryIntake(first.tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      const { tracker, asked } = fakeTracker({ [brewery]: [labelled(13)], [web]: [], [api]: [] });
+      await breweryIntake(tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(asked, []);
+      // An Ordered batch of acme/web is listed for, and acme/api is not.
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      const routing = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
+      await breweryIntake(routing.tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(routing.asked, [`issues ${web}`]);
+    });
+
     it("routes no target batch whose issue no longer passes its repository's filter", async () => {
       accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
       accept({ kind: 'order', batchId: 'web-8', order: { issue: 8, repo: web } });

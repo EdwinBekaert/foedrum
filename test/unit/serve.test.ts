@@ -527,6 +527,25 @@ describe('runServe', () => {
       assert.deepStrictEqual([lock.held, closed], [false, 1]);
     });
 
+    it("orders up to foedrum.jsonc's concurrency in one pass", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 });
+      // A recipe the Brewery lacks: both batches stay Ordered, holding their places.
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [12, 13, 14].map((number) => ({
+            number,
+            labels: ['recipe:pint'],
+            author: 'ann',
+          })),
+        },
+      });
+      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      assert.deepStrictEqual([...state().batches.keys()], ['12-1', '13-1']);
+    });
+
     it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
       store = empty();
       setup = intakeSetup();
