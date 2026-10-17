@@ -31,7 +31,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
-| **On tap** | Pull request opened or merged |
+| **On tap** | Pull request opened or merged, or the recipe done without one (for now every recipe of brewer steps, ADR 0059) |
 | **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
 | **Driver** | What moves a batch forward: an engineer's Claude Code session (interactive) or the Cellar (autonomous); one at a time per batch, held as a batch lease it renews |
 | **Session step** | A recipe step that runs in an engineer's own Claude Code session: refine, triage, review |
