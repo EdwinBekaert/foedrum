@@ -88,7 +88,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
   afterEach(async () => {
     await api?.close();
     await github?.close();
-    removeTree(dir.path);
+    await removeTree(dir.path);
   });
 
   it('from an order on the state branch through started and finished to on tap, pushed back', async () => {
