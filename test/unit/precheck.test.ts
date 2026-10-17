@@ -1700,6 +1700,30 @@ describe('precheck on npx and the commands that run a package like it', () => {
     });
   }
 
+  // The refusal comes before the check and the pull request lookup, which the fake would fail.
+  for (const command of [
+    'npx prettier --write x.ts && git push',
+    'npx prettier && gh pr ready 1',
+  ]) {
+    it(`refuses a download before the check or the lookup: ${command}`, async () => {
+      const { result, checks } = await gate(command);
+      assert.deepEqual(result, { exitCode: 2, stderr: refusal('npx prettier') });
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  const movedAgain: [command: string, tool: string][] = [
+    ['chdir ../other && npx biome check', 'Bash'],
+    ['Push-Location ..\\other; npx biome check', 'PowerShell'],
+  ];
+  for (const [command, tool] of movedAgain) {
+    it(`refuses a package runner after ${command.split(' ')[0]}`, async () => {
+      const { result } = await gate(command, tool);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /^`npx biome` is blocked in a command that changes directory/);
+    });
+  }
+
   it('blocks a force push through a package runner for its own reason', async () => {
     const { result, checks } = await gate('npm exec -- git push -f');
     assert.deepEqual(result, {
@@ -1743,6 +1767,17 @@ describe('lockfileBinary', () => {
     assert.equal(await installed(join(tree, 'src', 'cli'), 'biome'), true);
     assert.equal(await installed(join(tree, 'src', 'cli'), 'prettier'), false);
     assert.deepEqual(files.asked, [binary, join(tree, 'node_modules', '.bin', 'prettier')]);
+  });
+
+  it('stops at the nearest package.json, not the outermost', async () => {
+    const files = fakeFiles([
+      join(tree, 'package.json'),
+      join(tree, 'node_modules', '.bin', 'biome'),
+      join(tree, 'src', 'package.json'),
+    ]);
+    const installed = lockfileBinary(files.read, files.exists);
+    assert.equal(await installed(join(tree, 'src', 'cli'), 'biome'), false);
+    assert.deepEqual(files.asked, [join(tree, 'src', 'node_modules', '.bin', 'biome')]);
   });
 
   it('answers false outside a package, without looking for the binary', async () => {

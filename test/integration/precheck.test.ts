@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -158,6 +158,27 @@ describe('scripts/precheck.ts started by node', () => {
     } finally {
       // A real repository: removeTree clears git's read-only objects and retries busy files.
       await removeTree(project.path);
+    }
+  });
+
+  it('lets npx run a binary in node_modules/.bin of the package around cwd, and no other', async () => {
+    const project = makeTempDir('npx-binaries');
+    try {
+      writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
+      mkdirSync(join(project.path, 'node_modules', '.bin'), { recursive: true });
+      writeFileSync(join(project.path, 'node_modules', '.bin', 'biome'), '');
+      mkdirSync(join(project.path, 'src'));
+      const gate = (command: string) =>
+        run(process.execPath, [script], hookInput(command, join(project.path, 'src')), {
+          cwd: root,
+          env: envWithoutNpm(),
+        });
+      assert.deepEqual(await gate('npx biome check'), { code: 0, stdout: '', stderr: '' });
+      const refused = await gate('npx prettier --write x.ts');
+      assert.equal(refused.code, 2);
+      assert.match(refused.stderr, /^`npx prettier` would download a package/);
+    } finally {
+      project.remove();
     }
   });
 });
