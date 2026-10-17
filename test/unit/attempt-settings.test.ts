@@ -23,7 +23,7 @@ describe('attemptSettings', () => {
 
   it('denies git push only in the shells the brewer has, and each rule once', () => {
     const settings = attemptSettings({
-      allow: ['Read', 'Bash'],
+      allow: ['Read', 'Bash(npm test)'],
       deny: ['AskUserQuestion'],
       sandbox: false,
     });
