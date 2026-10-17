@@ -276,10 +276,12 @@ function apply(state: State, event: Event): State {
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
         };
       });
-    case 'step.finished':
-      return updateAttempt(state, event, (current) => {
+    case 'step.finished': {
+      let worktree: WorktreeRef | undefined;
+      const next = updateAttempt(state, event, (current) => {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
         if (current.phase === 'finished') throw attemptError(event, 'was already finished');
+        worktree = current.worktree;
         return {
           ...current,
           phase: 'finished',
@@ -287,6 +289,12 @@ function apply(state: State, event: Event): State {
           ...(event.usage === undefined ? {} : { usage: event.usage }),
         };
       });
+      if (event.outcome.kind !== 'succeeded' || worktree === undefined) return next;
+      // The next attempt continues from this one's branch (ADR 0066).
+      const { stepId, attempt } = event;
+      const taskTree = { kind: 'attempt', stepId, attempt, repo: worktree.repo } as const;
+      return updateBatch(next, event.batchId, (batch) => ({ ...batch, taskTree }));
+    }
     case 'input.received': {
       const { stepId, by, via, answers } = event;
       return updateBatch(state, event.batchId, (batch) => {
@@ -385,6 +393,7 @@ function apply(state: State, event: Event): State {
           ...batch,
           lane: { kind: 'brewing' },
           rewinds: [...batch.rewinds, { toStepId, by, via, shas }],
+          taskTree: { kind: 'rewound', shas },
         };
       });
     }
