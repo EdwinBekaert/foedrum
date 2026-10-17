@@ -1234,6 +1234,14 @@ describe('decide: a step its recipe file no longer has (review of #151)', () => 
     });
   }
 
+  for (const kind of ['retry', 'skip'] as const) {
+    it(`refuses a ${kind} of the step that left the recipe, naming it`, () => {
+      const stuckState = fold([...brewing(), diverged]);
+      const decision = decide(stuckState, { kind, batchId: 'b1', ...by }, renamed);
+      assert.deepStrictEqual(decision, { kind: 'refused', reason: 'recipe pint has no step plan' });
+    });
+  }
+
   it('records a lost attempt and makes the batch Stuck on the divergence', () => {
     const reason = 'the lease of runner-1 expired at 2026-10-15T11:59:00.000Z';
     assert.deepStrictEqual(
