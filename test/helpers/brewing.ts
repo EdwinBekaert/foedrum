@@ -18,6 +18,7 @@ import type { EventStore, EventStoreTransaction } from '../../src/engine/event-s
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
+import { taskTreeStart } from '../../src/engine/task-tree.ts';
 import {
   batchIsOver,
   createWorktreeCleanup,
@@ -156,7 +157,10 @@ export const createBrewing = (options: BrewingOptions) => {
     store.withTransaction((tx) => lease(tx, key));
     let made: AttemptWorktree;
     try {
-      made = await worktrees.manager.create(ref, worktrees.base);
+      const batch = state().batches.get(ref.batchId);
+      if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
+      // At the commits of the steps before it (ADR 0066).
+      made = await worktrees.manager.create(ref, taskTreeStart(batch, worktrees));
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;
