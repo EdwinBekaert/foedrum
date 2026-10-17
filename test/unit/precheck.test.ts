@@ -1139,6 +1139,7 @@ describe('precheck on gh pr ready', () => {
     ['docs/milestones/README.md'],
     ['docs/architecture.md', 'docs/milestones/README.md'],
     ['Docs/Guide.MD'],
+    ['docs/adr-overview.md'],
   ]) {
     it(`allows a pull request of only plain docs without a summary: ${files.join(', ')}`, async () => {
       const { result, lookups, checks } = await ready('gh pr ready 160', {
@@ -1154,6 +1155,7 @@ describe('precheck on gh pr ready', () => {
   // ADRs, CLAUDE.md, prompts, root files and anything that is not Markdown under docs/ are reviewed.
   for (const files of [
     ['docs/milestones/README.md', 'docs/adr/0001-record-architecture-decisions.md'],
+    ['Docs/ADR/0001-record-architecture-decisions.md'],
     ['docs/milestones/README.md', 'CLAUDE.md'],
     ['docs/milestones/README.md', '.claude/skills/brew-review/SKILL.md'],
     ['README.md'],
