@@ -1248,3 +1248,32 @@ describe('decide: a step its recipe file no longer has (review of #151)', () => 
     );
   });
 });
+
+describe('decide: the recipe files are done with no pull request (ADR 0053, #148)', () => {
+  const loaded = loadRecipes({
+    recipes: [
+      { path: 'recipes/pint.jsonc', text: recipeText('pint', [{ id: 'plan', brewer: 'malt' }]) },
+    ],
+    brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+  });
+  assert.ok(loaded.valid);
+
+  it('puts the batch on tap with no pull request after the last step', () => {
+    const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 1 } as const;
+    const succeeded = { kind: 'succeeded', output: null } as const;
+    assert.deepStrictEqual(
+      decide(
+        fold(brewing()),
+        { ...finish, ending: succeeded },
+        { ...context, recipes: loaded.recipes },
+      ),
+      {
+        kind: 'accepted',
+        events: [
+          { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 1, outcome: succeeded },
+          { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+        ],
+      },
+    );
+  });
+});
