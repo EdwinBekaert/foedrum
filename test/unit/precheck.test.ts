@@ -903,6 +903,23 @@ describe('precheck limits and pre-filter', () => {
     assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
     assert.deepEqual(calls, []);
   });
+
+  // The tool's name no longer sends every PowerShell call to the parser (ADR 0054).
+  it('lets through a PowerShell command that mentions neither git nor gh without reading it', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    const command = `bash -c ${Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ')}`;
+    assert.match(forbiddenReason(command) ?? '', /too deeply/);
+    const input = hookInput(command, '/work/tree', 'PowerShell');
+    assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
+
+  it('lets through a tool call without a command when its path spells git', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    const input = JSON.stringify({ tool_name: 'Bash', tool_input: {}, cwd: '/home/dev/github' });
+    assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
 });
 
 describe('precheck when the HEAD check cannot answer', () => {
