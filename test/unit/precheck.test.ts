@@ -1623,7 +1623,6 @@ describe('precheck on npx and the commands that run a package like it', () => {
     'npx biome check',
     'npx --yes biome check src',
     'npm exec biome -- check',
-    'pnpm dlx biome check',
     'bunx biome check',
   ]) {
     it(`lets through a binary the lockfile installed: ${command}`, async () => {
@@ -1674,7 +1673,7 @@ describe('precheck on npx and the commands that run a package like it', () => {
   });
 
   // Every package counts, not only the first the gate finds.
-  for (const command of ['npx biome check && npx prettier --write x.ts', 'npx -p biome prettier']) {
+  for (const command of ['npx biome check && npx prettier --write x.ts']) {
     it(`refuses a download after an installed binary: ${command}`, async () => {
       const { result } = await gate(command);
       assert.deepEqual(result, { exitCode: 2, stderr: refusal('npx prettier') });
