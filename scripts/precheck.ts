@@ -1,8 +1,8 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
 // `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push` and
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
-// summary for its head (#154). It also blocks npx and its relatives when they would run a package
-// the lockfile did not install (#175).
+// summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
+// its relatives when they would run a package the lockfile did not install (#175).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
@@ -801,12 +801,14 @@ export interface ReadyTarget {
 }
 
 // What the gate needs to know of a pull request: its head, its comments, oldest first, and its
-// commits (those on its branch that are not on the base) with their parents.
+// commits (those on its branch that are not on the base) with their parents, and the paths of the
+// files it changes, left out when gh could not list them all.
 export interface PullRequestFacts {
   number: number;
   head: string;
   comments: string[];
   commits: { sha: string; parents: string[] }[];
+  files?: string[];
 }
 
 // Reads the pull request from GitHub, run in the checkout around `cwd`; rejects when it cannot.
@@ -836,8 +838,15 @@ const covers = ({ head, commits }: PullRequestFacts, reviewed: string): boolean 
   return commits.every((commit) => before.has(commit.sha) || commit.parents.length > 1);
 };
 
+// Plain documentation, which needs no review summary (#183): Markdown under docs/, except the
+// ADRs, which record decisions. Only a full file list counts.
+const onlyPlainDocs = (files: string[] | undefined): boolean =>
+  files !== undefined &&
+  files.length > 0 &&
+  files.every((path) => /^docs\/(?!adr\/).*\.md$/i.test(path));
+
 // Why `gh pr ready` may not mark the pull request ready, or undefined when its review summary
-// covers the head.
+// covers the head or it changes only plain documentation.
 const readyRefusal = async (
   cwd: string,
   target: ReadyTarget,
@@ -851,7 +860,8 @@ const readyRefusal = async (
     const which = target.pr ?? 'of the current branch';
     return `gh pr ready is blocked: could not read pull request ${which} to find its review summary (${why}).`;
   }
-  const { number, head, comments } = pullRequest;
+  const { number, head, comments, files } = pullRequest;
+  if (onlyPlainDocs(files)) return undefined;
   const reviewed = comments.flatMap((body) =>
     [...body.matchAll(SUMMARY_HEADING)].map((match) => match[1] ?? ''),
   );
@@ -1067,7 +1077,7 @@ export const ghPullRequest =
         ...(pr === undefined ? [] : [pr]),
         ...(repo === undefined ? [] : ['--repo', repo]),
         '--json',
-        'number,url,headRefOid,comments',
+        'number,url,headRefOid,comments,files,changedFiles',
       ],
       cwd,
       'gh pr view',
@@ -1104,9 +1114,22 @@ export const ghPullRequest =
       cwd,
       'gh api',
     );
+    // gh lists at most 100 files; a shorter list than the count, or one it cannot read, is left out.
+    const listing: unknown[] = Array.isArray(parsed.files) ? parsed.files : [];
+    // A renamed or copied file is listed by its new path only, so a reviewed file moved into docs/
+    // would look like plain docs: only an added, modified or deleted file counts as read.
+    const files = listing.flatMap((file) =>
+      isRecord(file) &&
+      typeof file.path === 'string' &&
+      ['ADDED', 'MODIFIED', 'DELETED'].includes(String(file.changeType))
+        ? [file.path]
+        : [],
+    );
+    const listed = files.length === listing.length && files.length === parsed.changedFiles;
     return {
       number,
       head: headRefOid,
+      ...(listed ? { files } : {}),
       comments: parsed.comments.map((comment: unknown) =>
         isRecord(comment) && typeof comment.body === 'string' ? comment.body : '',
       ),
