@@ -173,6 +173,15 @@ describe('readingOf', () => {
     }
   });
 
+  it('leaves out a 40-character hash too: the engine cannot tell a commit from a key', () => {
+    const output = `ok 1\nHEAD is ${'0123456789abcdef'.repeat(2)}01234567\nok 2\n`;
+    const reading = readingOf(test, { exitCode: 0, output });
+    assert.equal(
+      reading.result === 'exited' && reading.tail,
+      'ok 1\n[left out: a line that looks like a secret (long hexadecimal string)]\nok 2\n',
+    );
+  });
+
   // A brewer may write a test that prints this; the Cellar's event loop must not stall on it.
   it('reads output that matches the secret patterns thousands of times on one line at once', () => {
     const output = 'token=a '.repeat(40_000);
