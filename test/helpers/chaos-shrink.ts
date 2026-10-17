@@ -87,7 +87,7 @@ export const trialChaos = async (
   let sites: MoveSites;
   let faults: ChaosOptions['faults'];
   if ('seed' in play) {
-    source = recording(generateScenario(play.seed), scenario);
+    source = recording((options.moves ?? generateScenario)(play.seed), scenario);
     sites = { moves: [] };
   } else {
     const { moves, settleFrom, plays } = play.schedule;

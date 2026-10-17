@@ -29,6 +29,7 @@ import type { Batch, State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from './brewing.ts';
+import { chaosRepo, type FakeClone, fakeClone, type WorktreeKillPoint } from './chaos-worktrees.ts';
 import {
   human,
   type Move,
@@ -47,7 +48,8 @@ export const killPoints = [
   'before an effect reached its target',
   'after an effect reached its target',
 ] as const;
-export type KillPoint = (typeof killPoints)[number];
+/** Every kill point: the ones above, and those of the worktree model when a run has one. */
+export type KillPoint = (typeof killPoints)[number] | WorktreeKillPoint;
 
 /** Thrown at a kill point, and by everything a dead driver touches afterwards. */
 export class EngineKilled extends Error {
@@ -245,6 +247,10 @@ export const killPlan = (seed: number): KillPlan => ({
     'after a commit': 0.015,
     'before an effect reached its target': 0.05,
     'after an effect reached its target': 0.05,
+    // A few points per attempt, and per cleanup of an ended batch.
+    'while making a worktree': 0.05,
+    'after a worktree was made': 0.05,
+    'while cleaning worktrees': 0.05,
   },
   maxKills: 6,
 });
@@ -591,6 +597,10 @@ export interface ChaosOptions {
   drivers?: readonly string[];
   /** Exactly these faults, instead of the ones the kill plan draws: a run replayed, or shrunk. */
   faults?: readonly Fault[];
+  /** Gives the drivers attempt worktrees in an in-memory clone (`fakeClone`), with its kill points. */
+  worktrees?: boolean;
+  /** The moves a seed's run plays (`trialChaos`); default its generated scenario. */
+  moves?: (seed: number) => MoveSource;
 }
 
 /**
@@ -676,6 +686,8 @@ export interface ChaosEngine {
   readonly moot: readonly { driver: string; command: EngineCommand; reason: string }[];
   /** Every start of a driver after its first, under the same owner. */
   readonly resumes: readonly Resume[];
+  /** The clone the attempt worktrees are in, when the run has one. */
+  readonly clone: FakeClone | undefined;
   close(): void;
 }
 
@@ -702,6 +714,16 @@ export const openChaosEngine = async (
       : replayedFaults(options.faults);
   const kill = killer(faults);
   const locks = fakeLocks();
+  // Every runner a driver process had, with its life: a dead one's attempts died with it, and so
+  // did a lost one's, which its runner reports no progress of.
+  const runners: { life: Life; runs: (key: string) => boolean }[] = [];
+  const clone =
+    options.worktrees === true
+      ? fakeClone({
+          running: (key) => runners.some(({ life, runs }) => !life.dead && runs(key)),
+          state: () => terminal.state(),
+        })
+      : undefined;
   let now = t0;
   const restarts: Date[] = [];
   const losses: Loss[] = [];
@@ -748,6 +770,13 @@ export const openChaosEngine = async (
   const runnerOf = (life: Life): BrewerRunner & { running: Map<string, AttemptRef> } => {
     const runner = fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now));
     const running = new Map<string, AttemptRef>();
+    runners.push({
+      life,
+      runs: (key) => {
+        const ref = running.get(key);
+        return ref !== undefined && runner.progress(ref) !== undefined;
+      },
+    });
     return {
       running,
       start: (start) => {
@@ -758,6 +787,7 @@ export const openChaosEngine = async (
         acts.push({ driver, kind: 'start', key, batchId, held: holds(driver, batchId) });
         const run = runner.start(start);
         running.set(key, start.ref);
+        clone?.starting(start.ref);
         const ended = (): void => {
           running.delete(key);
         };
@@ -830,6 +860,11 @@ export const openChaosEngine = async (
           lock: () => locks.take(life),
           takes: () => true,
           stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+          ...(clone === undefined
+            ? {}
+            : {
+                worktrees: { repo: chaosRepo, base: 'origin/main', manager: clone.manager(life) },
+              }),
           limits: () => ({ ...defaultLimits, ...scenarioLimits }),
           effects: {
             due: (state, batchId) => {
@@ -978,6 +1013,7 @@ export const openChaosEngine = async (
     interjections,
     moot,
     resumes,
+    clone,
     get found() {
       return host.found;
     },

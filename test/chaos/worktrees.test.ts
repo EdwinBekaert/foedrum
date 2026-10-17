@@ -1,0 +1,144 @@
+// The attempt worktrees across kills (#144, ADR 0037): the driver makes each attempt's worktree in
+// an in-memory clone, records it, and cleans an ended batch's, killed while it makes, records and
+// cleans them. No attempt runs without its worktree, nothing a live batch or a running attempt
+// claims is removed, and nothing of an ended batch is left once the run is at rest. The run count
+// is FOEDRUM_RUNS, as for restarts.test.ts.
+
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+import type { ChaosChecks, ChaosEngine, ChaosRun } from '../helpers/chaos.ts';
+import { restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
+import { holdsAcrossKills, trialChaos } from '../helpers/chaos-shrink.ts';
+import { type FakeClone, hasEnded } from '../helpers/chaos-worktrees.ts';
+import {
+  generateScenario,
+  human,
+  type MoveSource,
+  seededRandom,
+} from '../helpers/event-sequences.ts';
+import { running } from '../helpers/simulation.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+
+let dir: TempDir;
+before(() => {
+  dir = makeTempDir('chaos-worktrees');
+});
+after(() => dir.remove());
+
+/**
+ * `seed`'s generated scenario, in which the terminal now and then cancels a batch while an attempt
+ * of it runs, as ADR 0037 has a case for. Left alone, a run seldom does: an attempt that runs on
+ * between moves hangs, and it is mostly Stuck before a cancel comes.
+ */
+const cancelling = (seed: number): MoveSource => {
+  const scenario = generateScenario(seed);
+  const random = seededRandom(seed ^ 0xca_9ce1);
+  return {
+    move: (state) => {
+      const busy = [...state.batches.values()].filter((batch) =>
+        running(batch).some((attempt) => attempt.phase === 'started' && attempt.abandoned !== true),
+      );
+      if (busy.length > 0 && random.chance(0.3)) {
+        const { id } = random.pick(busy);
+        return { kind: 'command', command: { kind: 'cancel', batchId: id, ...human } };
+      }
+      return scenario.move(state);
+    },
+    play: scenario.play,
+  };
+};
+
+const options = { worktrees: true, moves: cancelling };
+
+const cloneOf = (engine: ChaosEngine): FakeClone => {
+  assert.ok(engine.clone, 'the run has a clone');
+  return engine.clone;
+};
+
+/** No attempt started without its worktree, and nothing claimed was removed. */
+const keptItsClaims = ({ engine }: ChaosRun): void => {
+  assert.deepStrictEqual(cloneOf(engine).violations, [], 'the worktrees kept their claims');
+};
+
+/** Nothing is left in the clone of a batch that has ended, or that the state does not know. */
+const nothingLeftOfEnded = ({ engine }: ChaosRun): void => {
+  const clone = cloneOf(engine);
+  const { batches } = engine.state();
+  for (const batchId of clone.batches()) {
+    const batch = batches.get(batchId);
+    assert.ok(batch, `the clone has worktrees of ${batchId}, which the state does not know`);
+    if (!hasEnded(batch)) continue;
+    assert.deepStrictEqual(
+      clone.leftovers(batchId),
+      { records: [], folders: [], branches: [] },
+      `nothing is left of the ended batch ${batchId}`,
+    );
+  }
+};
+
+const checks: ChaosChecks = {
+  afterMove: (run, move, survived) => {
+    keptItsClaims(run);
+    restsWithEffectsOnce.afterMove(run, move, survived);
+  },
+  atEnd: (run) => {
+    keptItsClaims(run);
+    nothingLeftOfEnded(run);
+    restsWithEffectsOnce.atEnd(run);
+  },
+};
+
+const killedAt = (engine: ChaosEngine, point: string): boolean =>
+  engine.kills.some((kill) => kill.point === point);
+
+/** What the runs with worktrees must reach between them, each asked of one finished run. */
+const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
+  'killed while making a worktree': (engine) => killedAt(engine, 'while making a worktree'),
+  // The attempt stays scheduled, and its next start reuses the untouched worktree (ADR 0037).
+  'killed between making a worktree and recording it, which the next start reused': (engine) =>
+    killedAt(engine, 'after a worktree was made') &&
+    cloneOf(engine).made.some(({ how }) => how === 'reused'),
+  'killed while cleaning worktrees': (engine) => killedAt(engine, 'while cleaning worktrees'),
+  // A kill between a batch's end and its cleanup, or part-way through one: the start repairs it.
+  'what a kill left of an ended batch removed by the repair at the next start': (engine) =>
+    cloneOf(engine).cleaned.some(({ batchId, done }) => batchId === undefined && done.length > 0),
+  // Its worktree stays under the attempt's lease at first, and goes once the lease does.
+  'a batch that ended while an attempt ran kept its worktree, which went later': (engine) =>
+    cloneOf(engine).cleaned.some(
+      ({ batchId, kept }) =>
+        batchId !== undefined && kept.some((line) => line.endsWith('holds a live lease')),
+    ),
+};
+
+describe('attempt worktrees across kills', () => {
+  it('every attempt runs in its worktree, nothing claimed is removed, nothing of an ended batch is left', () =>
+    holdsAcrossKills(dir.path, checks, options));
+
+  /** How many seeds the coverage test may try before it fails. */
+  const maxSeeds = 30;
+
+  it('reach every worktree case of ADR 0037', async () => {
+    const wanted = Object.keys(goals);
+    const seen = new Set<string>();
+    // Fixed seeds, the first ones until every goal is reached: what the harness reaches does not
+    // depend on FOEDRUM_SEED.
+    for (let seed = 1; seed <= maxSeeds && wanted.some((what) => !seen.has(what)); seed++) {
+      // Checked as well: a run that reaches a case must also keep the rules there.
+      const reaching: ChaosChecks = {
+        ...checks,
+        atEnd: (run) => {
+          checks.atEnd?.(run);
+          for (const [what, reached] of Object.entries(goals)) {
+            if (reached(run.engine)) seen.add(what);
+          }
+        },
+      };
+      const failure = await trialChaos(dir.path, { seed }, reaching, options);
+      if (failure !== undefined) throw failure.error;
+    }
+    assert.deepStrictEqual(
+      wanted.filter((what) => !seen.has(what)),
+      [],
+    );
+  });
+});
