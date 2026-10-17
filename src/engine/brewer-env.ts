@@ -30,7 +30,16 @@ const BASE_NAMES = [
   'USERPROFILE',
   'APPDATA',
   'LOCALAPPDATA',
+  'SYSTEMDRIVE',
+  'PROGRAMFILES',
+  'PROGRAMDATA',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'USER',
+  'LOGNAME',
   'CLAUDE_CONFIG_DIR',
+  // Where claude finds Git Bash on Windows when it is not where claude looks by default.
+  'CLAUDE_CODE_GIT_BASH_PATH',
 ];
 
 /**

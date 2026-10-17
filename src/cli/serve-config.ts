@@ -135,7 +135,10 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   const repositories = Object.entries(config?.repositories ?? {}).map(
     ([repo, repository]): ServeRepository => {
       const source = repository.source ?? 'local';
-      const clone = local?.clones[repo];
+      // GitHub names are case-insensitive: the two files may spell one differently.
+      const clone = Object.entries(local?.clones ?? {}).find(
+        ([name]) => name.toLowerCase() === repo.toLowerCase(),
+      )?.[1];
       if (source === 'local' && clone === undefined && local !== undefined) {
         problems.push(
           `.foedrum/local.jsonc: ${repo} has the source local, so name its clone in "clones" (ADR 0063)`,

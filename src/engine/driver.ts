@@ -116,9 +116,9 @@ export const repositoryOf = (
   repositories: readonly RepositoryWorktrees[],
 ): RepositoryWorktrees => {
   const batch = state.batches.get(batchId);
+  // A Brewery issue that is a sub-order writes in its repository, with a parent batch or not.
   const repo =
-    batch?.repo ??
-    (batch?.parentBatchId === undefined ? undefined : state.subOrders.get(batch.issue)?.repo);
+    batch?.repo ?? (batch === undefined ? undefined : state.subOrders.get(batch.issue)?.repo);
   if (repo === undefined) {
     const [only] = repositories;
     if (only !== undefined && repositories.length === 1) return only;
