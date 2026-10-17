@@ -51,7 +51,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 
 | Field | Purpose |
 |---|---|
-| `tools.allow` | Allowlist, including scoped shell commands (`Bash(git diff*)`). Role-level only: the repository adds its toolchain commands ([ADR 0023](adr/0023-language-independent-recipes.md)). Never a shell rule that reaches git with no fixed subcommand (`Bash`, `Bash(git *)`, `Bash(git -C *)`): a push with options before it gets past every deny rule, so a push is denied only when no allow rule matches it ([ADR 0062](adr/0062-brewers-never-allow-git-with-no-fixed-subcommand.md)) |
+| `tools.allow` | Allowlist, including scoped shell commands (`Bash(git diff*)`). Role-level only: the repository adds its toolchain commands ([ADR 0023](adr/0023-language-independent-recipes.md)). Never a shell rule that reaches git with no fixed subcommand (`Bash`, `Bash(git *)`, `Bash(git -C *)`, `Bash(/usr/bin/git *)`, `Bash(env git *)`) or with one that pushes (`push`, `send-pack`, `http-push`, `subtree`, `submodule`): a push with options before it gets past every deny rule, so a push is denied only when no allow rule matches it ([ADR 0062](adr/0062-brewers-never-allow-git-with-no-fixed-subcommand.md)) |
 | `tools.deny` | Denylist; `AskUserQuestion` and `git push` are always denied |
 | `skills`, `mcp` | Claude Code skills, plugins or MCP servers this brewer may use (default: none) |
 | `context` | `lean` (default: no project instructions, hooks, plugins or MCP) or `repo` (load the target repository's instructions) |
