@@ -14,6 +14,7 @@ export const clone = resolve('src', 'web');
 export const config = (fields: Record<string, unknown> = {}, web: Record<string, unknown> = {}) =>
   JSON.stringify({
     brewery: 'Acme/Brewery',
+    users: ['ann'],
     permissionCeiling: ['Bash(npm *)'],
     repositories: {
       'acme/web': {

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, type Env } from '../engine/brewer-env.ts';
+import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
 import {
   type BreweryFiles,
   invalidRecipes,
@@ -18,6 +19,7 @@ import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { BreweryConfig, type RepositorySource } from '../schemas/brewery-config.ts';
 import { LocalConfig } from '../schemas/local-config.ts';
 import { ModelsConfig } from '../schemas/models.ts';
+import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
@@ -57,9 +59,21 @@ export interface ServeRepository {
   checks: RepositoryChecks;
 }
 
+/** What the intake in serve's loop orders, and how often it polls (ADR 0068). */
+export interface ServeIntake {
+  /** The allow-listed GitHub logins: only an issue one of them opened is ordered. */
+  users: readonly string[];
+  /** How many batches may be Ordered or Brewing at once: `concurrency`. */
+  capacity: number;
+  pollEveryMs: number;
+  /** The target repositories with an intake filter, in the order foedrum.jsonc names them. */
+  repositories: readonly IntakeRepository[];
+}
+
 export interface ServeSetup {
   /** The Brewery's owner/name, as foedrum.jsonc spells it. */
   brewery: string;
+  intake: ServeIntake;
   workRoot: string;
   /** The event store: `.foedrum/index.db` in the checkout. */
   store: string;
@@ -86,6 +100,10 @@ export type ServeSetupResult =
 
 const DEFAULT_API = 'https://api.github.com';
 const DEFAULT_BASE = 'main';
+/** One batch at a time (ADR 0068). */
+const DEFAULT_CONCURRENCY = 1;
+/** ADR 0052's interval. */
+const DEFAULT_POLL = '60s';
 
 /** A reason in one line, as doctor prints it. */
 const oneLine = (reason: string): string =>
@@ -142,6 +160,11 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   }
   if (config !== undefined && config.brewery === undefined) {
     problems.push('foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)');
+  }
+  if (config !== undefined && (config.users ?? []).length === 0) {
+    problems.push(
+      'foedrum.jsonc: list the GitHub users who may order work under "users" (ADR 0068)',
+    );
   }
   const repositories = Object.entries(config?.repositories ?? {}).map(
     ([repo, repository]): ServeRepository => {
@@ -211,6 +234,12 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       recipes: loaded.recipes,
       brewers: loaded.brewers,
       checks: loaded.checks,
+      intake: {
+        users: config.users ?? [],
+        capacity: config.concurrency ?? DEFAULT_CONCURRENCY,
+        pollEveryMs: durationMs(config.pollEvery ?? DEFAULT_POLL),
+        repositories: intakeRepositories(config),
+      },
       github: { api: config.githubApi ?? DEFAULT_API, token },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',

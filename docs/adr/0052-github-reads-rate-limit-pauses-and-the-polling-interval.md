@@ -1,6 +1,6 @@
 # 0052. GitHub reads: conditional requests, rate-limit pauses and the polling interval
 
-Date: 2026-10-16 · Status: Accepted · Amends [0008](0008-polling-intake.md) (how polling stays within the rate limit, and how often it polls) and [0050](0050-the-intake-of-target-repository-issues.md) (the GitHub `TargetTracker` and `IssueMarks` it left as follow-ups)
+Date: 2026-10-16 · Status: Accepted · Amends [0008](0008-polling-intake.md) (how polling stays within the rate limit, and how often it polls) and [0050](0050-the-intake-of-target-repository-issues.md) (the GitHub `TargetTracker` and `IssueMarks` it left as follow-ups) · Amended by [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)
 
 ## Context
 [ADR 0050](0050-the-intake-of-target-repository-issues.md) gave the intake two interfaces with no GitHub implementation: `TargetTracker` (the open issues of a target repository, how a pull request stands) and `IssueMarks` (the assignee, label and comments of a claimed issue). [ADR 0008](0008-polling-intake.md) says the intake polls with conditional requests "to stay well within rate limits", but not how, and #103 left two questions open that this layer has to answer:

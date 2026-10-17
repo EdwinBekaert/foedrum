@@ -16,6 +16,25 @@
       "type": "string",
       "format": "uri"
     },
+    "users": {
+      "description": "The GitHub users who may order work: only their issues become orders",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+      }
+    },
+    "concurrency": {
+      "description": "How many batches may be Ordered or Brewing at once; default 1 (ADR 0068)",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "pollEvery": {
+      "description": "How often the intake polls GitHub, from \"30s\" to \"1h\"; default \"60s\" (ADR 0052)",
+      "type": "string",
+      "pattern": "^[1-9][0-9]*[smhd]$"
+    },
     "permissionCeiling": {
       "default": [],
       "description": "The most any repository may add to its brewers; a rule covers narrower ones",

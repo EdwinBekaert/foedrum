@@ -55,14 +55,18 @@ export interface CandidateOptions {
 export const same = (one: string, other: string): boolean =>
   one.toLowerCase() === other.toLowerCase();
 
+/** Whether `issue` has all of the filter's labels, and its milestone when it names one. */
+export const passesFilter = (issue: TargetIssue, filter: IntakeFilter): boolean =>
+  filter.labels.every((wanted) => issue.labels.some((label) => same(label, wanted))) &&
+  (filter.milestone === undefined || issue.milestone === filter.milestone);
+
 /** Whether the intake may claim `issue`: open, filtered in, unassigned or ours, never brewed. */
 export const isCandidate = (issue: TargetIssue, options: CandidateOptions): boolean => {
   const { filter, claimant, brewed } = options;
   return (
     issue.state === 'open' &&
     !issue.pullRequest &&
-    filter.labels.every((wanted) => issue.labels.some((label) => same(label, wanted))) &&
-    (filter.milestone === undefined || issue.milestone === filter.milestone) &&
+    passesFilter(issue, filter) &&
     // An issue assigned to a person is that person's; this Brewery's own user is its person.
     issue.assignees.every((assignee) => same(assignee, claimant.login)) &&
     // A target repository may be open to anyone; only allow-listed users order work.
