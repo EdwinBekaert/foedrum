@@ -1507,6 +1507,17 @@ describe('ghPullRequest', () => {
       },
     ],
     ['lists a file without a path', { files: [{ name: 'docs/a.md' }], changedFiles: 1 }],
+    // GitHub lists a moved file by its new path only, so a reviewed file moved into docs/ would look
+    // like plain docs (#187 review).
+    [
+      'lists a renamed file',
+      { files: [{ path: 'docs/claude.md', changeType: 'RENAMED' }], changedFiles: 1 },
+    ],
+    [
+      'lists a copied file',
+      { files: [{ path: 'docs/claude.md', changeType: 'COPIED' }], changedFiles: 1 },
+    ],
+    ['lists a file without a change type', { files: [{ path: 'docs/a.md' }], changedFiles: 1 }],
   ] as const) {
     it(`leaves the files out when gh pr view's answer ${name}`, async () => {
       const { runProcess } = fakeGh([
