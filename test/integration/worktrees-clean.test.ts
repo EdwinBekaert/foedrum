@@ -8,22 +8,21 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { gitThrough } from '../../scripts/worktrees-clean.ts';
 import { execProcessWith, isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { runGitWith } from '../../src/workspace/git.ts';
 import { parseWorktreeList } from '../../src/workspace/worktree-list.ts';
+import { cuedTimers, waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { lateKill } from './late-kill.ts';
-import { killLeftovers } from './leftover-processes.ts';
+import { killLeftovers, pidIn } from './leftover-processes.ts';
 import { makeReadOnly } from './read-only.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'worktrees-clean.ts');
@@ -239,24 +238,24 @@ describe('worktrees-clean runGit with real git', () => {
     // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
     const node = process.execPath.replaceAll('\\', '/');
     const sleeper = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
-    const started = Date.now();
     // A loaded machine (#147): git's processes start later than the deadline expects, and the
-    // kill takes effect late.
-    const loaded = gitThrough(runGitWith(execProcessWith(lateKill(2500))));
+    // kill takes effect late. So the test reaches the deadline once git's child is up, and waits
+    // for the child to end instead of giving it a fixed time (ADR 0070).
+    const deadline = cuedTimers();
+    const loaded = gitThrough(runGitWith(execProcessWith(lateKill(2500), deadline)));
 
-    const result = await loaded(dir.path, ['-c', `alias.hang=!"${node}" -e "${sleeper}"`, 'hang'], {
+    const running = loaded(dir.path, ['-c', `alias.hang=!"${node}" -e "${sleeper}"`, 'hang'], {
       timeoutMs: 10,
     });
+    await waitUntil('the child of git to start', () => pidIn(pidFile) !== undefined);
+    deadline.fire();
+    const result = await running;
 
-    const elapsed = Date.now() - started;
     assert.equal(result.ok, false);
     assert.match(result.stderr, /timed out after 10 ms/);
-    assert.ok(elapsed < 10_000, `runGit returned after ${elapsed} ms`);
-    assert.ok(existsSync(pidFile), 'the child of git started');
-    const pid = Number(readFileSync(pidFile, 'utf8'));
-    for (let i = 0; i < 50 && isPidAlive(pid); i++) await delay(100);
-    const alive = isPidAlive(pid);
-    if (alive) process.kill(pid);
-    assert.equal(alive, false, 'the child of git was killed');
+    const pid = pidIn(pidFile) ?? 0;
+    // The kill is late, so the child still runs: runGit answered without waiting for it.
+    assert.ok(isPidAlive(pid), 'runGit waited for the child of git');
+    await waitUntil('the child of git to end', () => !isPidAlive(pid));
   });
 });
