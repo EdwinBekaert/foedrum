@@ -312,6 +312,7 @@ function apply(state: State, event: Event): State {
           phase: 'finished',
           outcome: event.outcome,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
+          ...(event.readings === undefined ? {} : { readings: event.readings }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || worktree === undefined) return next;

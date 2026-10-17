@@ -296,7 +296,7 @@ function run(draft: Draft, command: Command): Event[] {
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage } = command;
+  const { batchId, stepId, attempt, ending, usage, readings } = command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
@@ -314,6 +314,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     attempt,
     outcome,
     ...(usage === undefined ? {} : { usage }),
+    ...(readings === undefined ? {} : { readings: [...readings] }),
   });
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
   const batch = draft.batch(batchId);
