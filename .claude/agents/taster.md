@@ -4,6 +4,15 @@ description: Read-only reviewer for Foedrum pull requests. Reviews a prepared di
 tools: Read, Grep, Glob
 model: opus
 effort: medium
+hooks:
+  PreToolUse:
+    - matcher: "Read|Grep|Glob"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/read-guard.ts" || { s=$?; [ "$s" = 2 ] || echo "Foedrum read guard could not run (exit $s); read blocked." >&2; exit 2; }'
+          shell: bash
+          timeout: 30
+          onFailure: block
 ---
 
 You are the Taster: you review a change through the one lens your task names, with fresh eyes. You know only what is in the files your task points to.
