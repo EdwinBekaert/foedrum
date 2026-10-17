@@ -222,3 +222,17 @@ describe('gatherDoctorFacts: the Brewery config', () => {
     assert.equal(facts !== undefined && 'config' in facts, false);
   });
 });
+
+describe('gatherDoctorFacts: the recipe files (ADR 0053)', () => {
+  it("keeps the Brewery's recipe and brewer files, when it can read them", async () => {
+    const { shell } = fakeShell();
+    const brewery = {
+      recipes: [{ path: 'recipes/pale.jsonc', text: '{}' }],
+      brewers: [{ path: 'brewers/maltster.md', unreadable: 'EACCES' }],
+    };
+    const facts = await gatherDoctorFacts({ ...shell, readBrewery: () => brewery });
+    assert.deepEqual(facts.brewery, brewery);
+    // Without a way to read them, it has none.
+    assert.equal('brewery' in (await gatherDoctorFacts(shell)), false);
+  });
+});

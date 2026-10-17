@@ -120,7 +120,7 @@ const changeBrewery = (
   const store = openWritableStore(path);
   if (store === undefined) return failed(command, `no event store at ${path}`);
   try {
-    const log = createCommandLog({ store, recipes });
+    const log = createCommandLog({ store, recipes: recipes() });
     const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
     const human = build(log.state(), issued);
     if ('refused' in human) return failed(command, human.refused);
