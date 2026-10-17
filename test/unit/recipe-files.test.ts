@@ -368,6 +368,40 @@ describe('loadRecipes: the brewer of each step (#148)', () => {
 });
 
 describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#148)', () => {
+  it("refuses a step whose brewer asks for what the engine's attempt plan does not follow yet", () => {
+    const cellarman = brewer('cellarman', {
+      access: 'write',
+      tree: 'task',
+      git: { commit: true },
+      produces: 'commits',
+      retryMode: 'resume',
+      houseYeast: true,
+      skills: ['tdd'],
+      mcp: ['github'],
+      context: 'repo',
+      toolbox: 'You may use jq.',
+      doneWhen: 'The tests pass.',
+      guards: ['requiresOutDoc', 'noPush', 'requiresCommits', 'scope'],
+    });
+    const files = brewery({
+      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      brewers: [maltster, brewmaster, cellarman],
+    });
+    const refused = (what: string) =>
+      `recipes/stout.jsonc: step "brew" has the brewer "cellarman", with ${what}, which the engine does not follow yet (ADR 0059)`;
+    assert.deepEqual(problemsOf(files), [
+      refused('"retryMode": "resume"'),
+      refused('"houseYeast": true'),
+      refused('"skills"'),
+      refused('"mcp"'),
+      refused('"context": "repo"'),
+      refused('"toolbox"'),
+      refused('"doneWhen"'),
+      refused('the guard "requiresCommits"'),
+      refused('the guard "scope"'),
+    ]);
+  });
+
   it('loads a brewer that asks only for what the plan follows, the out doc and no push among its guards', () => {
     const files = brewery({
       brewers: [
