@@ -3,11 +3,15 @@
 // the platform shell and the process runner, which kills the whole tree at the step's deadline or
 // when the engine stops the attempt; the first check that does not pass ends the step. No model.
 
-import type { BrewerRunner } from '../engine/brewer-runner.ts';
+import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
+import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
+import type { Ending } from '../engine/decide.ts';
 import type { State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
+import type { AttemptProgress } from '../engine/supervisor.ts';
 import type { ExecProcess } from '../platform/processes.ts';
-import type { RepositoryChecks } from './gravity.ts';
+import type { GravityReading } from '../schemas/events.ts';
+import { passed, planChecks, type RepositoryChecks, readingOf, settleReadings } from './gravity.ts';
 
 export interface CheckRunnerOptions {
   /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
@@ -24,6 +28,83 @@ export interface CheckRunnerOptions {
   platform?: NodeJS.Platform;
 }
 
-export function createCheckRunner(_options: CheckRunnerOptions): BrewerRunner {
-  throw new Error('not implemented');
+// None of a repository's checks: what a step of literal commands plans against.
+const NO_CHECKS: RepositoryChecks = {
+  build: null,
+  typecheck: null,
+  lint: null,
+  format: null,
+  test: null,
+};
+
+export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
+  const { state, checks, exec, env, clock, platform = process.platform } = options;
+  // The attempts it runs, by key, with when they started: their progress for the heartbeat.
+  const running = new Map<string, AttemptProgress>();
+
+  const blocked = (blockerKind: 'environment' | 'divergence', summary: string): AttemptEnd => ({
+    ending: { kind: 'blocked', blockerKind, summary },
+  });
+
+  const run = async (ref: AttemptRef, signal: AbortSignal): Promise<AttemptEnd> => {
+    const { batchId, stepId, attempt } = ref;
+    const batch = state().batches.get(batchId);
+    const current = batch?.steps.get(stepId)?.attempts.get(attempt);
+    const worktree = current?.phase === 'started' ? current.worktree : undefined;
+    if (batch === undefined || current === undefined || worktree === undefined) {
+      return blocked(
+        'environment',
+        `attempt ${stepId}#${attempt} of batch ${batchId} has no worktree to read`,
+      );
+    }
+    const recipe = batch.recipe?.name ?? '';
+    const refs = checks.find(recipe, stepId);
+    if (refs === undefined)
+      return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
+    let repository = NO_CHECKS;
+    const named = refs.find((check) => typeof check === 'string');
+    if (named !== undefined) {
+      const found = options.repositoryChecks(worktree.repo);
+      if (found === undefined) {
+        return blocked(
+          'environment',
+          `foedrum.jsonc lists no checks of ${worktree.repo} for the check "${named}"`,
+        );
+      }
+      repository = found;
+    }
+    const readings: GravityReading[] = [];
+    for (const check of planChecks(refs, repository, platform)) {
+      if (check.kind === 'skip') {
+        readings.push({ result: 'skipped', check: check.check });
+        continue;
+      }
+      // The process runner kills the tree at the step's deadline, also when no tick comes.
+      const timeoutMs = Math.max(1, Date.parse(current.deadlineAt) - clock().getTime());
+      const result = await exec(check.command, [], {
+        cwd: worktree.path,
+        env,
+        timeoutMs,
+        signal,
+        shell: true,
+        jobObject: true,
+      });
+      const reading = readingOf(check, result);
+      readings.push(reading);
+      if (!passed(reading)) break;
+    }
+    const ending: Ending = settleReadings(readings);
+    return { ending, readings };
+  };
+
+  return {
+    start: ({ ref }) => {
+      const key = attemptKey.encode(ref);
+      const stop = new AbortController();
+      running.set(key, { lastProgressAt: clock(), turnsWithoutProgress: 0 });
+      const ended = run(ref, stop.signal).finally(() => running.delete(key));
+      return { ended, stop: () => stop.abort() };
+    },
+    progress: (ref) => running.get(attemptKey.encode(ref)),
+  };
 }
