@@ -29,6 +29,11 @@ import type { Batch, State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from './brewing.ts';
+import {
+  type FakeStateBranch,
+  fakeStateBranch,
+  type StateBranchKillPoint,
+} from './chaos-state-branch.ts';
 import { chaosRepo, type FakeClone, fakeClone, type WorktreeKillPoint } from './chaos-worktrees.ts';
 import {
   human,
@@ -48,8 +53,8 @@ export const killPoints = [
   'before an effect reached its target',
   'after an effect reached its target',
 ] as const;
-/** Every kill point: the ones above, and those of the worktree model when a run has one. */
-export type KillPoint = (typeof killPoints)[number] | WorktreeKillPoint;
+/** Every kill point: the ones above, and those of the worktree and state branch models. */
+export type KillPoint = (typeof killPoints)[number] | WorktreeKillPoint | StateBranchKillPoint;
 
 /** Thrown at a kill point, and by everything a dead driver touches afterwards. */
 export class EngineKilled extends Error {
@@ -251,6 +256,10 @@ export const killPlan = (seed: number): KillPlan => ({
     'while making a worktree': 0.05,
     'after a worktree was made': 0.05,
     'while cleaning worktrees': 0.05,
+    // A flush at every tick with events to push, a file per batch they belong to.
+    'while writing the log': 0.02,
+    'before the push reached the remote': 0.03,
+    'after the push reached the remote': 0.03,
   },
   maxKills: 6,
 });
@@ -599,6 +608,11 @@ export interface ChaosOptions {
   faults?: readonly Fault[];
   /** Gives the drivers attempt worktrees in an in-memory clone (`fakeClone`), with its kill points. */
   worktrees?: boolean;
+  /**
+   * Gives the drivers an in-memory state branch (`fakeStateBranch`), with its kill points: each
+   * process starts on it before it opens its driver, and its supervisor flushes it.
+   */
+  stateBranch?: boolean;
   /** The moves a seed's run plays (`trialChaos`); default its generated scenario. */
   moves?: (seed: number) => MoveSource;
 }
@@ -688,6 +702,8 @@ export interface ChaosEngine {
   readonly resumes: readonly Resume[];
   /** The clone the attempt worktrees are in, when the run has one. */
   readonly clone: FakeClone | undefined;
+  /** The state branch, when the run has one. */
+  readonly branch: FakeStateBranch | undefined;
   close(): void;
 }
 
@@ -724,6 +740,7 @@ export const openChaosEngine = async (
           state: () => terminal.state(),
         })
       : undefined;
+  const branch = options.stateBranch === true ? fakeStateBranch() : undefined;
   let now = t0;
   const restarts: Date[] = [];
   const losses: Loss[] = [];
@@ -851,15 +868,18 @@ export const openChaosEngine = async (
         .batchLeases(now)
         .filter((lease) => lease.owner === owner)
         .map((lease) => lease.batchId);
+      const store = killableStore(outside, life, { read, beginning: () => interject(owner) });
       try {
+        const stateBranch = branch?.handle(life, store);
+        await stateBranch?.start();
         const driver = await openDriver({
-          store: killableStore(outside, life, { read, beginning: () => interject(owner) }),
+          store,
           runner,
           recipes,
           clock: () => now,
           lock: () => locks.take(life),
           takes: () => true,
-          stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+          stateBranch: stateBranch ?? { flush: async () => ({ kind: 'unchanged' }) },
           ...(clone === undefined
             ? {}
             : {
@@ -1014,6 +1034,7 @@ export const openChaosEngine = async (
     moot,
     resumes,
     clone,
+    branch,
     get found() {
       return host.found;
     },
@@ -1038,7 +1059,7 @@ export interface ChaosChecks {
   /** After every move, with whether the driver lived through it. */
   afterMove?(run: ChaosRun, move: Move, survived: boolean): void;
   /** Once every batch is at rest and the effects due are applied. */
-  atEnd?(run: ChaosRun): void;
+  atEnd?(run: ChaosRun): void | Promise<void>;
 }
 
 /**
@@ -1100,5 +1121,5 @@ export const runChaos = async (
   }
   // A kill may have ended the last pass before an effect was recorded.
   await engine.applyEffects();
-  checks.atEnd?.(run);
+  await checks.atEnd?.(run);
 };
