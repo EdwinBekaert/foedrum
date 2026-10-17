@@ -730,6 +730,13 @@ describe('openDriver', () => {
       assert.equal(given('b101'), 'acme/web');
     });
 
+    it("gives a Brewery order's attempt the Brewery's only repository", async () => {
+      order('b1');
+      const driver = await open({ worktrees: both().slice(1) });
+      await driver.drive();
+      assert.equal(given('b1'), 'acme/web');
+    });
+
     it('fails the attempt of an order that names no repository among several, retryably', async () => {
       const { runner, started } = handRunner();
       order('b1');
