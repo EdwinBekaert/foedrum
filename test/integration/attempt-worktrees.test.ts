@@ -7,10 +7,14 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
+import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { stepRunner } from '../../src/engine/step-runner.ts';
+import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { AttemptRef, Claims } from '../../src/workspace/attempt-worktrees.ts';
 import {
@@ -18,6 +22,7 @@ import {
   openAttemptWorktrees,
 } from '../../src/workspace/attempt-worktrees-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
+import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -414,6 +419,125 @@ describe('the driver and attempt worktrees with real git', () => {
     assert.notEqual(planTip, base);
     // The retry starts where the failed attempt started, at plan's commit.
     assert.deepEqual(starts, [base, planTip, planTip]);
+    assert.deepEqual(leftovers(), { branches: [], records: [] });
+  });
+
+  it("runs a check step's command in a worktree of its own at the brewer's commits, and its failure sends the batch back (ADR 0069)", async () => {
+    const clock = () => new Date('2026-10-16T12:00:00.000Z');
+    let driver: Driver | undefined;
+    const state = () => {
+      assert.ok(driver !== undefined);
+      return driver.state();
+    };
+    // The brewer commits the repository's test: one that fails, then, sent back, one that passes.
+    const brewer = fakeBrewerRunner(({ ref }) => {
+      const found = state().batches.get(ref.batchId)?.steps.get(ref.stepId);
+      const started = found?.attempts.get(ref.attempt);
+      assert.ok(started?.phase === 'started' && started.worktree !== undefined);
+      const { path } = started.worktree;
+      const code = ref.attempt === 1 ? 1 : 0;
+      const test = `console.log('read in', process.cwd());\nprocess.exit(${code});\n`;
+      writeFileSync(join(path, 'check.mjs'), test);
+      git(path, ['add', 'check.mjs']);
+      git(path, ['commit', '-q', '-m', `Test ${ref.attempt}`]);
+      return behave.succeed();
+    });
+    const loaded = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/porter.jsonc',
+          text: recipeText(
+            'porter',
+            [
+              { id: 'brew', brewer: 'cellarman' },
+              { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [{ path: 'brewers/cellarman.md', text: brewerText('cellarman') }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const checks = createCheckRunner({
+      state,
+      checks: loaded.checks,
+      repositoryChecks: () => ({
+        build: null,
+        typecheck: null,
+        lint: null,
+        format: null,
+        test: 'node check.mjs',
+      }),
+      exec: execProcess,
+      env: process.env,
+      clock,
+    });
+    driver = await openDriver({
+      store,
+      runner: stepRunner({
+        brewer,
+        check: checks,
+        isCheck: ({ stepId }) => loaded.checks.find('porter', stepId) !== undefined,
+      }),
+      recipes: loaded.recipes,
+      clock,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: manager() }],
+    });
+    try {
+      const intake = createCommandLog({ store, recipes: loaded.recipes });
+      intake.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, clock());
+      const route = { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label' } as const;
+      intake.issue({ ...route, source: 'label' }, clock());
+      // A check is a real process: drive() returns while it runs, and finishes it once it ended.
+      const until = Date.now() + 60_000;
+      while (state().batches.get('12-1')?.lane.kind === 'brewing' && Date.now() < until) {
+        await driver.drive();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      assert.equal(state().batches.get('12-1')?.lane.kind, 'on_tap');
+    } finally {
+      driver.close();
+    }
+
+    // The worktree of each check attempt.
+    const checkWorktrees: string[] = [];
+    const events = store.eventsAfter(0).map(({ event }) => event);
+    for (const event of events) {
+      if (event.type === 'step.started' && event.stepId === 'green' && event.worktree) {
+        checkWorktrees.push(event.worktree.path);
+      }
+    }
+    const readings = events.flatMap((event) =>
+      event.type === 'step.finished' && event.stepId === 'green' ? [event.readings] : [],
+    );
+    assert.equal(readings.length, 2);
+    assert.deepEqual(
+      readings.map((each) =>
+        each?.map(({ result, ...rest }) => [result, 'exitCode' in rest && rest.exitCode]),
+      ),
+      [[['exited', 1]], [['exited', 0]]],
+    );
+    // Each reading ran in the check attempt's own worktree, never in the brewer's.
+    readings.forEach((each, i) => {
+      const reading = each?.[0];
+      assert.ok(reading?.result === 'exited');
+      assert.equal(reading.command, 'node check.mjs');
+      assert.equal(reading.tail.trim(), `read in ${checkWorktrees[i]}`);
+    });
+    const routed = events.flatMap((event) =>
+      event.type === 'step.scheduled' ? [[event.stepId, event.attempt, event.route?.why]] : [],
+    );
+    assert.deepEqual(routed, [
+      ['brew', 1, undefined],
+      ['green', 1, undefined],
+      ['brew', 2, 'failed'],
+      ['green', 2, undefined],
+    ]);
     assert.deepEqual(leftovers(), { branches: [], records: [] });
   });
 
