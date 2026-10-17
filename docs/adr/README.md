@@ -45,7 +45,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted, amended by 0054 |
 | [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) | Untrusted input in per-prompt nonce tags (amends 0018 and 0019) | Accepted |
-| [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046 and 0047 |
+| [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047 and 0062 |
 | [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) | Target-repository issues as a work queue, claimed by a ref (amends 0008, 0013, 0024, 0029 and 0033) | Accepted, amended by 0050 |
 | [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051 and 0055 |
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted, amended by 0056 and 0060 |
@@ -63,6 +63,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) | Real-claude tests are opt-in, and proofs of claude leave the suite (amends 0046, 0047 and 0049) | Accepted |
 | [0058](0058-the-planted-git-defect-moves-from-the-unit-test-to-the-code.md) | The planted git defect moves from the unit test to the code (amends 0022) | Accepted |
 | [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) | The local gate refuses `gh pr ready` until the review summary for the head is on the pull request (amends 0045 and 0056) | Accepted |
+| [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042 and 0059) | Accepted |
 
 ## Template
 
