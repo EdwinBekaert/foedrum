@@ -21,8 +21,8 @@ A test-first recipe that passes the rule still has a check step, which ADR 0053'
 
 ### when: the recipe's settings, read when the batch reaches the step
 - A brewer step may have a `when` that reads the recipe's settings: `recipe.testFirst`, bare (true when the setting is) or compared with a value in single quotes (`recipe.testFirst == 'false'`, compared as text). A `when` that reads another step's result (`tasting.verdict`) is refused by name until the engine records the results it would read (#26): `step "<id>" has a "when" that reads step "<step>", which the engine does not follow yet (ADR 0064)`. A setting the recipe does not have is refused too: `step "<id>" has a "when" that reads recipe.<field>, which is not a recipe setting (ADR 0064)`.
-- The batch's `testFirst` is the recipe's resolved value, or `false` when the router switched it off for this batch (below).
-- `Recipe.skip(batch, stepId)` answers with the `when` that is false, or nothing when the step runs. `decide` asks when the batch reaches a step: its first step (routing, or a human's `recipe`), and the step after one that succeeded, was skipped, or was skipped by a human. A skipped step is recorded as **`step.skipped`** `{ batchId, stepId, when }`, and the batch goes on to what follows it, on tap when nothing does. A human's `retry`, `answer` or `rewind` names its step, and schedules it without asking.
+- The batch's `testFirst` is the recipe's resolved value. The router's switch-off for one order (ADR 0017) joins with #176: until a test-first recipe loads, no batch brews one, so a switch-off could change nothing a test could show.
+- `Recipe.skip(batch, stepId)` answers with the `when` that is false, or nothing when the step runs. `decide` asks when the batch reaches a step: its first step (routing, or a human's `recipe`), and the step after one that succeeded, was skipped, or was skipped by a human. A skipped step is recorded as **`step.skipped`** `{ batchId, stepId, when }`, and the batch goes on to what follows it, on tap when nothing does. A human's `retry` or `answer` names its step and schedules it without asking, and a `rewind` goes only to a step that ran (ADR 0025), so never to one the batch skipped.
 - The fold keeps the steps whose latest record is a skip (`Batch.skipped`); scheduling a step takes it out, and a new recipe empties the set. An input from a skipped step (`"from": "step:<id>"`) is left out of the next attempt's plan, so Cellarman without a Gauger gets no `tests` input (brewers-and-recipes §3).
 - `step.skipped` moves the batch to Brewing, as `step.scheduled` does, and is admitted in the same lanes.
 
@@ -31,9 +31,6 @@ A test-first recipe that passes the rule still has a check step, which ADR 0053'
 - The attempt a route schedules records it: `step.scheduled` gets an optional `route: { from, why }` (`why`: `failed` for an `onFail` route, `findings` for an `onBlocked` one). The rounds a route used are the attempts of its `goto` step scheduled by it, over the batch's whole life, as attempts are counted (ADR 0053): a human's `retry` after the rounds ran out gives the step one more attempt, not another round.
 - A route back to a step the batch skipped makes it Stuck (`blocked`, `divergence`) instead of jumping: `step "<from>" routes back to step "<goto>", which was skipped`. With `testFirst` off, "this test is wrong" therefore goes to a human.
 - `onFail` follows the same rule and record once check steps run (#176).
-
-### The router's switch-off
-The `route` command may carry `testFirstOff`: why the router switched `testFirst` off for this order (documentation only, a pure refactoring). `batch.recipe_chosen` records it, only with `source: 'router'`, and the fold keeps it on `Batch.recipe`. A later choice of recipe replaces it: a human's `recipe` brews the recipe as its file says. The status comment shows the reason when it lands; the router itself is #145's.
 
 ## Consequences
 - Every place that reads the event log learns `step.skipped` and the `route` of a schedule; both are additive, so existing logs and state branches still fold.
@@ -45,5 +42,5 @@ The `route` command may carry `testFirstOff`: why the router switched `testFirst
 - **Lift the refusal and nothing else.** A writing recipe without a Gauger and a red proof would brew as test-first while being nothing of the kind, which is what ADR 0053 refused.
 - **Count rounds from the blocked attempts' reasons.** No new field, but it parses the text `decide` writes, and a reason is for people.
 - **Keep skipped steps as steps with no attempts.** Every reader that takes a step's latest attempt would have to handle a step with none; a set of its own on the batch keeps them apart.
-- **Evaluate `when` when a step is scheduled by a human too.** A human who retries or rewinds to a step means that step; skipping it would ignore the command.
-- **Let a human's `recipe` keep the router's switch-off.** The human chose a recipe whose file says what it brews; a reason given for another choice does not carry over.
+- **Evaluate `when` when a step is scheduled by a human too.** A human who retries a step means that step; skipping it would ignore the command.
+- **The router's switch-off now.** It is a field on `batch.recipe_chosen` that `when` reads, but with no test-first recipe loadable, no test could show it switching anything off; it lands with #176.
