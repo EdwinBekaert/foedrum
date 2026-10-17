@@ -50,8 +50,6 @@ export const fakeStateBranch = () => {
   let made = 0;
   /** What each start decided, in order. */
   const starts: StartDecision['kind'][] = [];
-  /** How each flush went, in order. */
-  const flushes: FlushResult['kind'][] = [];
   /** The starts that ended with events committed before them still not on the remote. */
   const behind: string[] = [];
 
@@ -121,53 +119,41 @@ export const fakeStateBranch = () => {
       store.withTransaction((tx) => tx.markPushed({ eventId: last.id, commit }));
       return { kind: 'pushed', through: last.id, commit };
     };
-    const flush = async (): Promise<FlushResult> => {
-      const result = await flushNow(false);
-      flushes.push(result.kind);
-      return result;
-    };
     const startNow = async (): Promise<StartResult> => {
-      {
-        life.alive();
-        const pushed = store.pushedThrough();
-        const pushedReachesRemote =
-          pushed !== undefined &&
-          remoteHead !== undefined &&
-          (pushed.commit === remoteHead || isAncestor(pushed.commit, remoteHead));
-        const decision = decideStart({
-          branch: remoteBranch,
-          lastEventId: store.lastEventId(),
-          pushed,
-          localHead,
-          remoteHead,
-          pushedReachesRemote,
-        });
-        starts.push(decision.kind);
-        switch (decision.kind) {
-          case 'ready':
-            return { decision: 'ready' };
-          case 'flush':
-            return { decision: 'flush', flush: await flushNow(localHead !== pushed?.commit) };
-          case 'restore': {
-            const remote = remoteHead === undefined ? undefined : commits.get(remoteHead);
-            if (remote === undefined || remoteHead === undefined) {
-              throw new Error('A restore needs the remote branch');
-            }
-            localHead = remoteHead;
-            files.clear();
-            for (const [path, text] of remote.files) files.set(path, text);
-            store.restore(
-              planCatchUp(mergeLogs(logFiles(files)), store.eventsAfter(0)),
-              remoteHead,
-            );
-            return { decision: 'restore' };
+      life.alive();
+      const pushed = store.pushedThrough();
+      const pushedReachesRemote =
+        pushed !== undefined && remoteHead !== undefined && isAncestor(pushed.commit, remoteHead);
+      const decision = decideStart({
+        branch: remoteBranch,
+        lastEventId: store.lastEventId(),
+        pushed,
+        localHead,
+        remoteHead,
+        pushedReachesRemote,
+      });
+      starts.push(decision.kind);
+      switch (decision.kind) {
+        case 'ready':
+          return { decision: 'ready' };
+        case 'flush':
+          return { decision: 'flush', flush: await flushNow(localHead !== pushed?.commit) };
+        case 'restore': {
+          const remote = remoteHead === undefined ? undefined : commits.get(remoteHead);
+          if (remote === undefined || remoteHead === undefined) {
+            throw new Error('A restore needs the remote branch');
           }
-          case 'stop':
-            throw new StateBranchStopError(decision.reason);
-          default: {
-            const unknown: never = decision;
-            throw new Error(`Unknown start decision ${JSON.stringify(unknown)}`);
-          }
+          localHead = remoteHead;
+          files.clear();
+          for (const [path, text] of remote.files) files.set(path, text);
+          store.restore(planCatchUp(mergeLogs(logFiles(files)), store.eventsAfter(0)), remoteHead);
+          return { decision: 'restore' };
+        }
+        case 'stop':
+          throw new StateBranchStopError(decision.reason);
+        default: {
+          const unknown: never = decision;
+          throw new Error(`Unknown start decision ${JSON.stringify(unknown)}`);
         }
       }
     };
@@ -183,16 +169,13 @@ export const fakeStateBranch = () => {
         }
         return result;
       },
-      flush,
+      flush: () => flushNow(false),
     };
   };
 
   return {
     handle,
     starts,
-    flushes,
-    /** The remote branch's commit, if it exists. */
-    remoteHead: (): string | undefined => remoteHead,
     /** Whether `commit` is the remote branch's commit or one of its ancestors. */
     onRemote: (commit: string): boolean =>
       remoteHead !== undefined && isAncestor(commit, remoteHead),
