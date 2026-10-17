@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
+import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('attemptSettings', () => {
@@ -52,6 +53,60 @@ describe('attemptSettings', () => {
   });
 });
 
+// #167: claude matches a deny rule against the command as written, so `git -C . push` gets past
+// `Bash(git push *)`, and `git p''ush` past any pattern. A push is denied only when no allow rule
+// matches it, so the settings never allow git with no fixed subcommand (ADR 0062).
+describe('attemptSettings and git with options before the subcommand', () => {
+  const pushes = [
+    'git -C . push',
+    'git -c x=y push origin',
+    'git --git-dir=.git push',
+    "git p''ush origin",
+  ];
+
+  for (const shell of ['Bash', 'PowerShell']) {
+    for (const rule of [
+      shell,
+      `${shell}(*)`,
+      `${shell}(g*)`,
+      `${shell}(git*)`,
+      `${shell}(git *)`,
+      `${shell}(git:*)`,
+      `${shell}(GIT *)`,
+      `${shell}(git.exe *)`,
+      `${shell}(git -C *)`,
+      `${shell}(git -c *)`,
+      `${shell}(git --git-dir=*)`,
+      `${shell}(git p*)`,
+      `${shell}(git push*)`,
+      `${shell}(git -C . push)`,
+    ]) {
+      it(`refuses to allow ${rule}, which reaches a push`, () => {
+        assert.throws(
+          () => attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false }),
+          /git with no fixed subcommand/,
+        );
+      });
+    }
+
+    for (const rule of [
+      `${shell}(git status)`,
+      `${shell}(git status *)`,
+      `${shell}(git commit*)`,
+      `${shell}(git diff:*)`,
+      `${shell}(npm test)`,
+      `${shell}(npm run *)`,
+    ]) {
+      it(`allows ${rule}, which reaches none of the pushes`, () => {
+        const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
+        for (const push of pushes) {
+          assert.equal(withinCeiling(`${shell}(${push})`, settings.permissions.allow), false, push);
+        }
+      });
+    }
+  }
+});
+
 describe('writeAttemptSettings', () => {
   let dir: TempDir;
   let file: string;
@@ -77,6 +132,10 @@ describe('writeAttemptSettings', () => {
     [
       'a shell without its git push deny',
       { permissions: { allow: ['Bash(npm test)'], deny: ['AskUserQuestion'] } },
+    ],
+    [
+      'git with no fixed subcommand',
+      { permissions: { allow: ['Bash(git *)'], deny: ['AskUserQuestion', 'Bash(git push *)'] } },
     ],
     [
       'a sandbox that may fall back to running unsandboxed',
