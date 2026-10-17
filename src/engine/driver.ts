@@ -186,7 +186,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const toClean = new Set<string>();
   // Ended batches cleaned while an attempt of theirs held a live lease, which kept its worktree:
   // cleaned again once no lease of theirs is alive. A run that ends lets its lease go, but one
-  // whose process died with the runner never ends, and its lease only expires (ADR 0037, #144).
+  // whose process died with the runner never ends, and its lease only expires (ADR 0037, ADR 0061).
   const cleanedLeased = new Set<string>();
   const leasedBatches = (): Set<string> =>
     new Set(
