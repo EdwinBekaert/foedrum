@@ -730,6 +730,23 @@ describe('openDriver', () => {
       assert.equal(given('b101'), 'acme/web');
     });
 
+    it("gives a sub-order's attempt its repository, also when its batch names no parent", async () => {
+      order('b1');
+      const decomposed = {
+        type: 'order.decomposed' as const,
+        batchId: 'b1',
+        subOrders: [{ issue: 101, repo: 'acme/web' }],
+        dependencies: [],
+      };
+      assert.equal(intake.issue({ kind: 'record', event: decomposed }, now).kind, 'accepted');
+      const sub = { kind: 'order' as const, batchId: 'b101', order: { issue: 101 } };
+      assert.equal(intake.issue(sub, now).kind, 'accepted');
+      route('b101');
+      const driver = await open({ takes: (batchId) => batchId === 'b101', worktrees: both() });
+      await driver.drive();
+      assert.equal(given('b101'), 'acme/web');
+    });
+
     it("gives a Brewery order's attempt the Brewery's only repository", async () => {
       order('b1');
       const driver = await open({ worktrees: both().slice(1) });

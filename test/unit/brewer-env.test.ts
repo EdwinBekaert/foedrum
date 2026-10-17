@@ -121,6 +121,20 @@ describe('brewerBaseEnv (ADR 0063)', () => {
     });
   });
 
+  it('keeps what claude needs to find its login and start on macOS and Windows', () => {
+    const posix = { USER: 'ann', LOGNAME: 'ann' };
+    assert.deepEqual(brewerBaseEnv(posix, 'darwin'), posix);
+    const windows = {
+      CLAUDE_CODE_GIT_BASH_PATH: 'D:\\Git\\bin\\bash.exe',
+      SystemDrive: 'C:',
+      ProgramFiles: 'C:\\Program Files',
+      ProgramData: 'C:\\ProgramData',
+      HOMEDRIVE: 'C:',
+      HOMEPATH: '\\Users\\ann',
+    };
+    assert.deepEqual(brewerBaseEnv(windows, 'win32'), windows);
+  });
+
   it('matches names in any case on Windows, keeping their spelling, and exactly elsewhere', () => {
     const env = { Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', userprofile: 'C:\\Users\\ann' };
     assert.deepEqual(brewerBaseEnv(env, 'win32'), env);

@@ -74,6 +74,19 @@ describe('serveSetup', () => {
     assert.equal(setup.sandbox, false);
   });
 
+  it('finds the clone of a repository whose name the two files spell in another case', () => {
+    const setup = ready(
+      inputs({
+        files: {
+          ...inputs().files,
+          config: config().replace('"acme/web"', '"Acme/Web"'),
+          local: JSON.stringify({ clones: { 'acme/WEB': clone } }),
+        },
+      }),
+    );
+    assert.equal(setup.repositories[0]?.clone, clone);
+  });
+
   it('runs without .foedrum/local.jsonc when every repository is managed', () => {
     const setup = ready(
       inputs({
