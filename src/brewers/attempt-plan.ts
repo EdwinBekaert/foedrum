@@ -68,8 +68,11 @@ export function attemptLimits(brewer: BrewerFrontmatter): AttemptLimits {
 /** The model id behind the brewer's alias; throws when models.jsonc has none. */
 export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string {
   // Blind tasting swaps the alias of a brewer in models.jsonc (brewers-and-recipes §5).
-  const alias = models.brewers[brewer.name] ?? brewer.model;
-  const model = Object.hasOwn(models.models, alias) ? models.models[alias] : undefined;
+  // Own entries only: a name such as "constructor" is a property of every object.
+  const own = (record: Readonly<Record<string, string>>, key: string): string | undefined =>
+    Object.hasOwn(record, key) ? record[key] : undefined;
+  const alias = own(models.brewers, brewer.name) ?? brewer.model;
+  const model = own(models.models, alias);
   if (model === undefined) {
     throw new Error(
       `models.jsonc has no model for the alias "${alias}" of the brewer "${brewer.name}"`,
