@@ -9,12 +9,16 @@ import {
   type CheckResult,
   type FindNpmCli,
   forbiddenReason,
+  ghPullRequest,
   gitHeadIsDetached,
   isDetached,
   isGatedCommand,
+  type LookupPullRequest,
   npmCheck,
   type ProcessOutcome,
+  type PullRequestFacts,
   precheck,
+  type ReadyTarget,
   type RunProcess,
 } from '../../scripts/precheck.ts';
 import type { RunOptions } from '../../scripts/process-runner.ts';
@@ -968,6 +972,548 @@ describe('gitHeadIsDetached deadline', () => {
       await assert.rejects(gitHeadIsDetached(runProcess)('/work/tree'), reason);
     });
   }
+});
+
+describe('precheck on gh pr ready', () => {
+  // A pull request whose branch has three commits of its own, c1 to c3; c3 is the head.
+  const sha = (name: string): string => name.padEnd(40, '0');
+  const summary = (head: string): string =>
+    `## Review: \`154-gate-pr-ready\` @ \`${head.slice(0, 7)}\`\n\nBase \`4a672b5\` · 3 commits`;
+  const facts = (comments: string[], commits: PullRequestFacts['commits']): PullRequestFacts => ({
+    number: 160,
+    head: commits.at(-1)?.sha ?? '',
+    comments,
+    commits,
+  });
+  const c1 = { sha: sha('c1c1c1c1'), parents: [sha('b0b0b0b0')] };
+  const c2 = { sha: sha('c2c2c2c2'), parents: [c1.sha] };
+  const c3 = { sha: sha('c3c3c3c3'), parents: [c2.sha] };
+  // c2 merged with two later commits of main.
+  const m3 = { sha: sha('d3d3d3d3'), parents: [c2.sha, sha('b1b1b1b1')] };
+  const m4 = { sha: sha('d4d4d4d4'), parents: [m3.sha, sha('b2b2b2b2')] };
+
+  // A lookup that records what it was asked and answers with the given pull request.
+  const fakeLookup = (pullRequest: PullRequestFacts) => {
+    const calls: [cwd: string, target: ReadyTarget][] = [];
+    const lookupPullRequest: LookupPullRequest = async (cwd, target) => {
+      calls.push([cwd, target]);
+      return pullRequest;
+    };
+    return { calls, lookupPullRequest };
+  };
+  const ready = async (command: string, pullRequest: PullRequestFacts, tool = 'Bash') => {
+    const { calls: checks, runCheck } = fakeCheck({ ok: true, output: '' });
+    const lookup = fakeLookup(pullRequest);
+    const result = await precheck(
+      hookInput(command, '/work/tree', tool),
+      runCheck,
+      async () => undefined,
+      async () => false,
+      lookup.lookupPullRequest,
+    );
+    return { result, lookups: lookup.calls, checks };
+  };
+
+  it('blocks a pull request without a review summary, naming /brew-review as the remedy', async () => {
+    const { result, lookups, checks } = await ready(
+      'gh pr ready 160',
+      facts(['Looks good to me.'], [c1, c2, c3]),
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(
+      result.stderr,
+      /^gh pr ready is blocked: pull request #160 has no \/brew-review summary/,
+    );
+    assert.match(result.stderr, /run \/brew-review 160/i);
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160' }]]);
+    assert.deepEqual(checks, []);
+  });
+
+  it('blocks a pull request whose summary is for an older head with new work after it', async () => {
+    const { result } = await ready('gh pr ready 160', facts([summary(c2.sha)], [c1, c2, c3]));
+    assert.equal(result.exitCode, 2);
+    assert.match(
+      result.stderr,
+      /summary on pull request #160 is for c2c2c2c, but the head is c3c3c3c/,
+    );
+    assert.match(result.stderr, /run \/brew-review 160/i);
+  });
+
+  it('allows a pull request whose summary is for the head', async () => {
+    const { result, lookups } = await ready(
+      'gh pr ready 160',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160' }]]);
+  });
+
+  it('allows a pull request whose summary is for an older head followed only by merges', async () => {
+    const { result, lookups } = await ready(
+      'gh pr ready 160',
+      facts([summary(c2.sha)], [c1, c2, m3, m4]),
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.equal(lookups.length, 1);
+  });
+
+  it('allows a pull request when a later summary covers the head, though an earlier one does not', async () => {
+    const { result, lookups } = await ready(
+      'gh pr ready 160',
+      facts([summary(c1.sha), summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.equal(lookups.length, 1);
+  });
+
+  // Marking ready needs the summary, not the check: a passing check must not be what lets it by.
+  for (const [name, pullRequest] of [
+    ['for the head', facts([summary(c3.sha)], [c1, c2, c3])],
+    ['followed only by merges', facts([summary(c2.sha)], [c1, c2, m3, m4])],
+  ] as const) {
+    it(`allows a pull request whose summary is ${name} without running the check`, async () => {
+      const { result, checks } = await ready('gh pr ready 160', pullRequest);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  it('allows a summary whose heading starts a later line of its comment', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([`Replaces the summary above.\n\n${summary(c3.sha)}`], [c1, c2, c3]),
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+
+  it('does not count a heading quoted in the middle of a line', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([`The template starts with ${summary(c3.sha)}`], [c1, c2, c3]),
+    );
+    assert.match(result.stderr, /^gh pr ready is blocked: pull request #160 has no/);
+  });
+
+  it('allows a summary for the head when GitHub lists too few commits to include it', async () => {
+    const { result } = await ready('gh pr ready 160', {
+      ...facts([summary(c3.sha)], [c1, c2]),
+      head: c3.sha,
+    });
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+
+  it('blocks when the summary names a commit that is not on the pull request', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([summary(sha('e9e9e9e9'))], [c1, c2, c3]),
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /is for e9e9e9e, but the head is c3c3c3c/);
+  });
+
+  it('blocks with one line when the pull request cannot be read', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const result = await precheck(
+      hookInput('gh pr ready 160', '/work/tree'),
+      runCheck,
+      async () => undefined,
+      async () => false,
+      async () => {
+        throw new Error('gh pr view exited 1: HTTP 401');
+      },
+    ).catch((error: unknown) => ({ rejected: String(error) }));
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr:
+        'gh pr ready is blocked: could not read pull request 160 to find its review summary (gh pr view exited 1: HTTP 401).\n',
+    });
+  });
+
+  it('asks for the current branch’s pull request, and the repository given, as gh would', async () => {
+    const pullRequest = facts([summary(c3.sha)], [c1, c2, c3]);
+    assert.deepEqual((await ready('gh pr ready', pullRequest)).lookups, [['/work/tree', {}]]);
+    assert.deepEqual((await ready('gh -R owner/repo pr ready 160', pullRequest)).lookups, [
+      ['/work/tree', { pr: '160', repo: 'owner/repo' }],
+    ]);
+    assert.deepEqual(
+      (await ready('gh pr ready https://github.com/o/r/pull/160 --repo o/r', pullRequest)).lookups,
+      [['/work/tree', { pr: 'https://github.com/o/r/pull/160', repo: 'o/r' }]],
+    );
+  });
+
+  const hidden: [tool: string, command: string][] = [
+    ['Bash', 'bash -c "gh pr ready 160"'],
+    ['Bash', 'g=gh; $g pr ready 160'],
+    ['Bash', 'env GH_PROMPT_DISABLED=1 gh pr ready 160'],
+    ['Bash', '$(printf g)h pr ready 160'],
+    ['PowerShell', "pwsh -Command 'gh pr ready 160'"],
+    ['PowerShell', '& gh.exe pr ready 160'],
+    ['PowerShell', "$g = 'gh'; & $g pr ready 160"],
+  ];
+  for (const [tool, command] of hidden) {
+    it(`checks the summary for: ${command} (${tool})`, async () => {
+      const { result, lookups } = await ready(command, facts([], [c1, c2, c3]), tool);
+      assert.match(result.stderr, /^gh pr ready is blocked: pull request #160 has no/);
+      assert.deepEqual(lookups, [['/work/tree', { pr: '160' }]]);
+    });
+  }
+
+  it('lets gh pr ready --undo through without looking the pull request up', async () => {
+    const { result, lookups } = await ready('gh pr ready 160 --undo', facts([], [c1, c2, c3]));
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(lookups, []);
+  });
+
+  it('blocks a pull request given by a value computed at run time, without looking it up', async () => {
+    const { result, lookups } = await ready(
+      'gh pr ready $n',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /gh pr ready .*computed at run time/);
+    assert.deepEqual(lookups, []);
+  });
+
+  const api = [
+    `gh api graphql -f query='mutation { markPullRequestReadyForReview(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    'gh api graphql -F id=PR_kw1 -f query="mutation(\\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \\$id}) { clientMutationId } }"',
+  ];
+  for (const command of api) {
+    it(`blocks marking a pull request ready through gh api: ${command}`, async () => {
+      const { result, lookups } = await ready(command, facts([summary(c3.sha)], [c1, c2, c3]));
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /through gh api is blocked: run gh pr ready <n>/);
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  // The lookup runs before the command does, so it would see the head from before the push.
+  for (const command of [
+    'git push && gh pr ready 160',
+    'gh pr create --draft --fill && gh pr ready',
+    'bash -c "git push origin 154-x; gh pr ready 160"',
+  ]) {
+    it(`blocks gh pr ready in the same command as a push or a new pull request: ${command}`, async () => {
+      const { result, lookups, checks } = await ready(
+        command,
+        facts([summary(c3.sha)], [c1, c2, c3]),
+      );
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /^gh pr ready is blocked .*: run it as a command of its own/);
+      assert.deepEqual(lookups, []);
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  it('looks up the repository of the last -R, as gh does', async () => {
+    const { lookups } = await ready(
+      'gh pr ready 160 -R owner/first --repo=owner/last',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160', repo: 'owner/last' }]]);
+  });
+
+  const ghRepo: [tool: string, command: string][] = [
+    ['Bash', 'GH_REPO=owner/other gh pr ready 160'],
+    ['Bash', 'export GH_REPO=owner/other; gh pr ready 160'],
+    ['Bash', 'env GH_HOST=example.com gh pr ready 160'],
+    ['PowerShell', "$env:GH_REPO = 'owner/other'; gh pr ready 160"],
+  ];
+  for (const [tool, command] of ghRepo) {
+    it(`blocks gh pr ready in a command that sets the repository gh uses: ${command}`, async () => {
+      const { result, lookups } = await ready(
+        command,
+        facts([summary(c3.sha)], [c1, c2, c3]),
+        tool,
+      );
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /GH_REPO or GH_HOST/);
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  for (const command of [
+    'gh api graphql -F query=@ready.graphql -F id=PR_kw1',
+    'gh api graphql --input body.json',
+    'gh api graphql -f query="$q"',
+  ]) {
+    it(`blocks gh api graphql with a query the gate cannot read: ${command}`, async () => {
+      const { result } = await ready(command, facts([], [c1, c2, c3]));
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /gh api graphql with a query the gate cannot read/);
+    });
+  }
+
+  for (const command of [
+    "gh api graphql -f query='query { viewer { login } }'",
+    "gh api graphql -F owner=o -f query='query($owner: String!) { repositoryOwner(login: $owner) { id } }'",
+    'gh api repos/o/r/pulls/160/commits',
+  ]) {
+    it(`lets a gh api read through without a lookup: ${command}`, async () => {
+      const { result, lookups } = await ready(command, facts([], [c1, c2, c3]));
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  it('runs the check, not the gh pr ready refusal, for a push in a command that sets GH_REPO', async () => {
+    const { result, checks } = await ready('GH_REPO=owner/other git push', facts([], [c1, c2, c3]));
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(checks, ['/work/tree']);
+  });
+
+  it('names the current branch when its pull request cannot be read', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const result = await precheck(
+      hookInput('gh pr ready', '/work/tree'),
+      runCheck,
+      async () => undefined,
+      async () => false,
+      async () => {
+        throw new Error('gh pr view exited 1: no pull requests found');
+      },
+    );
+    assert.match(result.stderr, /could not read pull request of the current branch/);
+  });
+
+  it('names the newest of several summaries for older heads', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([summary(c1.sha), summary(c2.sha)], [c1, c2, c3]),
+    );
+    assert.match(result.stderr, /newest \/brew-review summary on pull request #160 is for c2c2c2c/);
+  });
+
+  it('blocks an older summary when GitHub lists too few commits to include the head', async () => {
+    const { result } = await ready('gh pr ready 160', {
+      ...facts([summary(c2.sha)], [c1, c2]),
+      head: c3.sha,
+    });
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /is for c2c2c2c, but the head is c3c3c3c/);
+  });
+
+  it('looks up the repository of -R joined to its value, as gh reads it', async () => {
+    const { lookups } = await ready(
+      'gh pr ready 160 -Rowner/other',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160', repo: 'owner/other' }]]);
+  });
+
+  const computedArgs: [tool: string, command: string][] = [
+    ['Bash', "opts='-R owner/other'; gh pr ready 160 $opts"],
+    ['PowerShell', "$a = @('-R', 'owner/other'); gh pr ready 160 @a"],
+  ];
+  for (const [tool, command] of computedArgs) {
+    it(`blocks gh pr ready with any argument computed at run time: ${command}`, async () => {
+      const { result, lookups } = await ready(
+        command,
+        facts([summary(c3.sha)], [c1, c2, c3]),
+        tool,
+      );
+      assert.match(result.stderr, /gh pr ready .*computed at run time/);
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  it('blocks gh pr ready when a command it decodes sets GH_REPO', async () => {
+    const encoded = Buffer.from("$env:GH_REPO='owner/other'; gh pr ready 160", 'utf16le').toString(
+      'base64',
+    );
+    const { result, lookups } = await ready(
+      `pwsh -EncodedCommand ${encoded}`,
+      facts([summary(c3.sha)], [c1, c2, c3]),
+      'PowerShell',
+    );
+    assert.match(result.stderr, /GH_REPO or GH_HOST/);
+    assert.deepEqual(lookups, []);
+  });
+
+  for (const command of [
+    'gh api -X POST graphql -F query=@ready.graphql -F id=PR_kw1',
+    "gh api -H 'Accept: application/json' graphql --input body.json",
+    'gh api graphql -Fquery=@ready.graphql',
+    'gh api graphql --field=query=@ready.graphql',
+    'gh api graphql --raw-field=query="$q"',
+  ]) {
+    it(`blocks gh api graphql with a query the gate cannot read, in any order: ${command}`, async () => {
+      const { result } = await ready(command, facts([], [c1, c2, c3]));
+      assert.match(result.stderr, /gh api graphql with a query the gate cannot read/);
+    });
+  }
+
+  it('names gh pr ready among the plain commands when a command nests too deeply', () => {
+    assert.match(forbiddenReason(`${'eval '.repeat(40)}gh pr ready 160`) ?? '', /gh pr ready/);
+  });
+
+  it("forbids defining an alias that marks a pull request ready: gh alias set r 'pr ready'", () => {
+    assert.match(forbiddenReason("gh alias set r 'pr ready'") ?? '', /alias/);
+  });
+});
+
+describe('ghPullRequest', () => {
+  // A gh that answers each call with the next outcome and records what it was asked.
+  const fakeGh = (outcomes: ProcessOutcome[]) => {
+    const calls: [file: string, args: string[], cwd: string][] = [];
+    const runProcess: RunProcess = async (file, args, cwd) => {
+      calls.push([file, args, cwd]);
+      return outcomes.shift() ?? { exitCode: null, output: 'no more outcomes' };
+    };
+    return { calls, runProcess };
+  };
+  const view = JSON.stringify({
+    number: 160,
+    url: 'https://github.com/owner/repo/pull/160',
+    headRefOid: 'c3',
+    comments: [{ body: 'first' }, { body: '## Review: `x` @ `c3`' }],
+  });
+
+  it('reads the pull request with gh pr view and its commits with their parents with gh api', async () => {
+    const { calls, runProcess } = fakeGh([
+      { exitCode: 0, output: `${view}\n` },
+      { exitCode: 0, output: 'c1 b0\nc2 c1\nc3 c2 b1\n' },
+    ]);
+    const pullRequest = await ghPullRequest(runProcess)('/work/tree', {
+      pr: '160',
+      repo: 'owner/repo',
+    });
+    assert.deepEqual(pullRequest, {
+      number: 160,
+      head: 'c3',
+      comments: ['first', '## Review: `x` @ `c3`'],
+      commits: [
+        { sha: 'c1', parents: ['b0'] },
+        { sha: 'c2', parents: ['c1'] },
+        { sha: 'c3', parents: ['c2', 'b1'] },
+      ],
+    });
+    assert.deepEqual(calls, [
+      [
+        'gh',
+        ['pr', 'view', '160', '--repo', 'owner/repo', '--json', 'number,url,headRefOid,comments'],
+        '/work/tree',
+      ],
+      [
+        'gh',
+        [
+          'api',
+          '--hostname',
+          'github.com',
+          '--paginate',
+          'repos/owner/repo/pulls/160/commits?per_page=100',
+          '--jq',
+          '.[] | [.sha, .parents[].sha] | join(" ")',
+        ],
+        '/work/tree',
+      ],
+    ]);
+  });
+
+  it('asks for the current branch’s pull request when none is given', async () => {
+    const { calls, runProcess } = fakeGh([
+      { exitCode: 0, output: view },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ]);
+    await ghPullRequest(runProcess)('/work/tree', {});
+    assert.deepEqual(calls[0]?.[1], ['pr', 'view', '--json', 'number,url,headRefOid,comments']);
+  });
+
+  it('rejects with what gh said when gh fails', async () => {
+    const { runProcess } = fakeGh([{ exitCode: 1, output: 'HTTP 401: Bad credentials' }]);
+    await assert.rejects(
+      ghPullRequest(runProcess)('/work/tree', { pr: '160' }),
+      /gh pr view exited 1: HTTP 401: Bad credentials/,
+    );
+  });
+
+  it("cuts gh's output to one short line in the rejection", async () => {
+    const { runProcess } = fakeGh([
+      { exitCode: 1, output: `HTTP 502\n${'<html>'.repeat(2000)}\n` },
+    ]);
+    const error = await ghPullRequest(runProcess)('/work/tree', { pr: '160' }).catch(
+      (rejected: unknown) => rejected,
+    );
+    const message = error instanceof Error ? error.message : '';
+    assert.match(message, /^gh pr view exited 1: HTTP 502 /);
+    assert.ok(message.length <= 300 && !message.includes('\n'), message.slice(0, 400));
+  });
+
+  it('gives each gh call a deadline of at most 30 s', async () => {
+    const options: (RunOptions | undefined)[] = [];
+    const outcomes = [
+      { exitCode: 0, output: view },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ];
+    const runProcess: RunProcess = async (_file, _args, _cwd, given) => {
+      options.push(given);
+      return outcomes.shift() ?? { exitCode: null, output: '' };
+    };
+    await ghPullRequest(runProcess)('/work/tree', { pr: '160' });
+    assert.equal(options.length, 2);
+    for (const given of options) {
+      const timeoutMs = given?.timeoutMs ?? Number.POSITIVE_INFINITY;
+      assert.ok(timeoutMs > 0 && timeoutMs <= 30_000, String(timeoutMs));
+    }
+  });
+
+  it('reads the commits from the host and repository of the pull request URL', async () => {
+    const { calls, runProcess } = fakeGh([
+      {
+        exitCode: 0,
+        output: JSON.stringify({
+          number: 7,
+          url: 'https://ghe.example.com/acme/tool/pull/7',
+          headRefOid: 'c3',
+          comments: [],
+        }),
+      },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ]);
+    await ghPullRequest(runProcess)('/work/tree', {
+      pr: 'https://ghe.example.com/acme/tool/pull/7',
+    });
+    assert.deepEqual(calls[1]?.[1].slice(0, 5), [
+      'api',
+      '--hostname',
+      'ghe.example.com',
+      '--paginate',
+      'repos/acme/tool/pulls/7/commits?per_page=100',
+    ]);
+  });
+
+  for (const [name, output, reason] of [
+    ['is not JSON', 'Welcome to GitHub', /gh pr view did not answer with JSON: Welcome to GitHub/],
+    [
+      'lacks the head',
+      JSON.stringify({ number: 160, url: 'https://github.com/o/r/pull/160', comments: [] }),
+      /gh pr view answered without number, url, headRefOid and comments/,
+    ],
+  ] as const) {
+    it(`rejects, saying so, when gh pr view's answer ${name}`, async () => {
+      const { runProcess } = fakeGh([{ exitCode: 0, output }]);
+      await assert.rejects(ghPullRequest(runProcess)('/work/tree', { pr: '160' }), reason);
+    });
+  }
+
+  it('rejects with what gh said when the commits cannot be read', async () => {
+    const { runProcess } = fakeGh([
+      { exitCode: 0, output: view },
+      { exitCode: 1, output: 'HTTP 502: Bad Gateway' },
+    ]);
+    await assert.rejects(
+      ghPullRequest(runProcess)('/work/tree', { pr: '160' }),
+      /gh api exited 1: HTTP 502: Bad Gateway/,
+    );
+  });
+
+  it('rejects, saying why, when gh was killed', async () => {
+    const { runProcess } = fakeGh([{ exitCode: null, output: '', killed: 'timed-out' }]);
+    await assert.rejects(
+      ghPullRequest(runProcess)('/work/tree', { pr: '160' }),
+      /gh pr view timed out/,
+    );
+  });
 });
 
 describe('precheck on forbidden commands', () => {

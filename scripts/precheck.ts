@@ -1,6 +1,7 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
-// `gh pr merge` and pushes from a detached HEAD, and runs `npm run check` before `git push` and
-// `gh pr create`.
+// `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push` and
+// `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
+// summary for its head (#154).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
@@ -29,9 +30,9 @@ export interface HookResult {
 
 const MAX_OUTPUT_CHARS = 4000;
 // Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter;
-// push and merge for a git or gh whose name is computed at run time; pwsh and powershell for an
-// encoded command.
-const MAY_PUSH_OR_MERGE = /git|gh|push|merge|pwsh|powershell|\\u/i;
+// push, merge and ready for a git or gh whose name is computed at run time; pwsh and powershell
+// for an encoded command.
+const MAY_PUSH_OR_MERGE = /git|gh|push|merge|ready|pwsh|powershell|\\u/i;
 
 // PowerShell reads typographic quotes as quotes; bash does not.
 const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
@@ -58,9 +59,19 @@ const PR_MERGE_BLOCKED =
 const COMPUTED_PR_ACTION_BLOCKED =
   '`gh pr` with an action computed at run time is blocked: the gate cannot tell it from `gh pr merge`.';
 const ALIAS_BLOCKED =
-  'Defining a git or gh alias that pushes, merges or opens a pull request is blocked: run git push or gh pr create as it is, so the gate sees it.';
+  'Defining a git or gh alias that pushes, merges, opens a pull request or marks one ready is blocked: run git push, gh pr create or gh pr ready as it is, so the gate sees it.';
+const READY_COMPUTED_BLOCKED =
+  'gh pr ready with a pull request or repository computed at run time is blocked: give them as they are, so the gate can find the review summary.';
+const READY_API_BLOCKED =
+  'Marking a pull request ready through gh api is blocked: run gh pr ready <n>, so the gate can check its /brew-review summary.';
 const TOO_DEEP_BLOCKED =
-  'This command nests shells or commands too deeply for the gate to check: run git push and gh pr create as plain commands.';
+  'This command nests shells or commands too deeply for the gate to check: run git push, gh pr create and gh pr ready as plain commands.';
+const UNREADABLE_QUERY_BLOCKED =
+  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not mark a pull request ready.';
+const READY_COMBINED_BLOCKED =
+  'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
+const READY_GH_REPO_BLOCKED =
+  'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
 
 // A shell's reading of a command line. Git Bash runs the Bash tool's commands, so a tool's command
 // is read in its own shell; what it runs in turn may be either, so that is read both ways.
@@ -369,6 +380,10 @@ interface Findings {
   reasons: string[];
   gated: boolean;
   pushes: boolean;
+  // The pull requests `gh pr ready` marks ready, each needing its review summary.
+  readies: ReadyTarget[];
+  // Whether any command read, decoded and nested ones too, mentions GH_REPO or GH_HOST.
+  ghEnv: boolean;
   reads: number;
 }
 
@@ -420,6 +435,47 @@ const positionals = (args: Word[], optionsWithValue: Set<string>): Word[] => {
   return result;
 };
 
+// The value of gh's last -R or --repo, given as the next word, after `=`, or joined to -R as gh
+// reads it: the last one wins.
+const repoOption = (args: Word[]): Word | undefined => {
+  let repo: Word | undefined;
+  for (const [i, arg] of args.entries()) {
+    const joined = /^(?:-R=?|--repo=)(.+)$/s.exec(arg.text);
+    if (arg.text === '-R' || arg.text === '--repo') repo = args[i + 1];
+    else if (joined !== null) repo = { ...arg, text: joined[1] ?? '' };
+  }
+  return repo;
+};
+
+// Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
+// (query=@…), its input (--input) or a value computed at run time, also with the field flag
+// joined to it (-Fquery=…, --field=query=…).
+const unreadableQuery = (args: Word[]): boolean =>
+  args.some((arg) => {
+    const field = arg.text.replace(/^(?:-[fF]|--(?:raw-)?field=)/, '');
+    return (
+      arg.text === '--input' ||
+      arg.text.startsWith('--input=') ||
+      (/^query=/.test(field) && (arg.dynamic || field.startsWith('query=@')))
+    );
+  });
+
+// The pull request and repository of `gh pr ready`, unless it is --undo, which always passes.
+// Any argument computed at run time, or splatted in PowerShell (@args), may name another
+// repository.
+const readReady = (args: Word[], pr: Word | undefined, found: Findings): void => {
+  if (args.some((arg) => arg.text === '--undo')) return;
+  const repo = repoOption(args);
+  if (args.some((arg) => arg.dynamic || /^@\w/.test(arg.text))) {
+    found.reasons.push(READY_COMPUTED_BLOCKED);
+  } else {
+    found.readies.push({
+      ...(pr === undefined ? {} : { pr: pr.text }),
+      ...(repo === undefined ? {} : { repo: repo.text }),
+    });
+  }
+};
+
 const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): void => {
   const [group, action, name, expansion] = positionals(args, GH_OPTIONS_WITH_VALUE);
   if (group?.text === 'pr' || (literal && group?.dynamic)) {
@@ -427,6 +483,19 @@ const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): vo
       found.reasons.push(COMPUTED_PR_ACTION_BLOCKED);
     } else if (action?.text === 'merge') found.reasons.push(PR_MERGE_BLOCKED);
     else if (action?.text === 'create' || action?.text === 'new') found.gated = true;
+    else if (action?.text === 'ready') readReady(args, name, found);
+  } else if (
+    (group?.text === 'api' || group?.dynamic) &&
+    args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))
+  ) {
+    found.reasons.push(READY_API_BLOCKED);
+  } else if (
+    (group?.text === 'api' || group?.dynamic) &&
+    // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
+    args.some((arg) => arg.text === 'graphql') &&
+    unreadableQuery(args)
+  ) {
+    found.reasons.push(UNREADABLE_QUERY_BLOCKED);
   } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
     const shell = args.some((arg) => arg.text === '--shell' || arg.text === '-s');
     const value = expansion.text;
@@ -560,6 +629,7 @@ const read = (
   dialects: readonly Dialect[] = DIALECTS,
 ): void => {
   found.reads++;
+  if (/GH_REPO|GH_HOST/i.test(normalised(command))) found.ghEnv = true;
   if (depth > MAX_DEPTH || found.reads > MAX_READS) {
     found.reasons.push(TOO_DEEP_BLOCKED);
     return;
@@ -587,15 +657,26 @@ const read = (
   }
   for (const each of nested) if (each.trim() !== '') read(each, depth + 1, found);
   for (const alias of aliases) {
-    const defined: Findings = { reasons: [], gated: false, pushes: false, reads: found.reads };
+    const defined = noFindings(found.reads);
     read(alias, depth + 1, defined);
     found.reads = defined.reads;
-    if (defined.gated || defined.reasons.length > 0) found.reasons.push(ALIAS_BLOCKED);
+    if (defined.gated || defined.readies.length > 0 || defined.reasons.length > 0) {
+      found.reasons.push(ALIAS_BLOCKED);
+    }
   }
 };
 
+const noFindings = (reads: number): Findings => ({
+  reasons: [],
+  gated: false,
+  pushes: false,
+  readies: [],
+  ghEnv: false,
+  reads,
+});
+
 const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Findings => {
-  const found: Findings = { reasons: [], gated: false, pushes: false, reads: 0 };
+  const found = noFindings(0);
   read(command, 0, found, dialects);
   return found;
 };
@@ -617,11 +698,84 @@ export type StaleReason = (cwd: string) => Promise<string | undefined>;
 // Whether HEAD in the checkout around `cwd` is detached; rejects when it cannot tell.
 export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 
+// The pull request `gh pr ready` names: its number, URL or branch (none for the current branch's),
+// and the repository given with -R.
+export interface ReadyTarget {
+  pr?: string;
+  repo?: string;
+}
+
+// What the gate needs to know of a pull request: its head, its comments, oldest first, and its
+// commits (those on its branch that are not on the base) with their parents.
+export interface PullRequestFacts {
+  number: number;
+  head: string;
+  comments: string[];
+  commits: { sha: string; parents: string[] }[];
+}
+
+// Reads the pull request from GitHub, run in the checkout around `cwd`; rejects when it cannot.
+export type LookupPullRequest = (cwd: string, target: ReadyTarget) => Promise<PullRequestFacts>;
+
+// The heading of a /brew-review summary comment (summary-template.md) and the head it reviewed.
+const SUMMARY_HEADING = /^## Review: `[^`\n]*` @ `([0-9a-f]{7,40})`/gm;
+
+// Whether a review of `reviewed` still covers the pull request: it is the head, or every commit
+// of the branch that is not part of it is a merge. A merge of the base brings in only commits
+// that are on the base, so they are not among the branch's (#146); a commit of the branch's own
+// after the review is not a merge, and fails.
+const covers = ({ head, commits }: PullRequestFacts, reviewed: string): boolean => {
+  if (head.startsWith(reviewed)) return true;
+  // A list that leaves out the head (GitHub lists at most 250) cannot show what came after.
+  if (!commits.some((commit) => commit.sha === head)) return false;
+  const start = commits.find((commit) => commit.sha.startsWith(reviewed));
+  if (start === undefined) return false;
+  const parents = new Map(commits.map((commit) => [commit.sha, commit.parents]));
+  const before = new Set<string>();
+  const queue = [start.sha];
+  for (const sha of queue) {
+    if (before.has(sha)) continue;
+    before.add(sha);
+    queue.push(...(parents.get(sha) ?? []).filter((parent) => parents.has(parent)));
+  }
+  return commits.every((commit) => before.has(commit.sha) || commit.parents.length > 1);
+};
+
+// Why `gh pr ready` may not mark the pull request ready, or undefined when its review summary
+// covers the head.
+const readyRefusal = async (
+  cwd: string,
+  target: ReadyTarget,
+  lookupPullRequest: LookupPullRequest,
+): Promise<string | undefined> => {
+  let pullRequest: PullRequestFacts;
+  try {
+    pullRequest = await lookupPullRequest(cwd, target);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    const which = target.pr ?? 'of the current branch';
+    return `gh pr ready is blocked: could not read pull request ${which} to find its review summary (${why}).`;
+  }
+  const { number, head, comments } = pullRequest;
+  const reviewed = comments.flatMap((body) =>
+    [...body.matchAll(SUMMARY_HEADING)].map((match) => match[1] ?? ''),
+  );
+  if (reviewed.some((sha) => covers(pullRequest, sha))) return undefined;
+  const newest = reviewed.at(-1);
+  if (newest === undefined) {
+    return `gh pr ready is blocked: pull request #${number} has no /brew-review summary (a comment headed "## Review: \`<branch>\` @ \`<head>\`"). Run /brew-review ${number} and post its summary first; the review is part of the procedure, not a step to get past (CLAUDE.md).`;
+  }
+  return `gh pr ready is blocked: the newest /brew-review summary on pull request #${number} is for ${newest.slice(0, 7)}, but the head is ${head.slice(0, 7)}, and commits other than merges came after it. Run /brew-review ${number} for the head and post its summary first.`;
+};
+
 export const precheck = async (
   input: string,
   runCheck: RunCheck,
   staleReason: StaleReason = async () => undefined,
   headIsDetached: HeadIsDetached = async () => false,
+  lookupPullRequest: LookupPullRequest = async () => {
+    throw new Error('no pull request lookup');
+  },
 ): Promise<HookResult> => {
   if (!MAY_PUSH_OR_MERGE.test(normalised(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -642,9 +796,22 @@ export const precheck = async (
   const found = findings(command, TOOL_DIALECTS.get(parsed.tool_name));
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
-  if (!found.gated) return { exitCode: 0, stderr: '' };
+  // Each reading of a command that runs another finds the same pull request again.
+  const readies = new Map(found.readies.map((target) => [JSON.stringify(target), target]));
+  if (!found.gated && readies.size === 0) return { exitCode: 0, stderr: '' };
+  if (readies.size > 0 && found.gated)
+    return { exitCode: 2, stderr: `${READY_COMBINED_BLOCKED}\n` };
+  // gh reads the repository from them, and the gate's lookup would not.
+  if (readies.size > 0 && found.ghEnv) {
+    return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
+  }
 
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
+  for (const target of readies.values()) {
+    const refusal = await readyRefusal(cwd, target, lookupPullRequest);
+    if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
+  }
+  if (!found.gated) return { exitCode: 0, stderr: '' };
   // A session pushes a branch; commits made on a detached HEAD are on none (#80).
   if (found.pushes) {
     let detached: boolean;
@@ -746,6 +913,100 @@ export const gitHeadIsDetached =
     return isDetached(outcome);
   };
 
+// The deadline of each gh call: GitHub answers in about a second, and a hung call must not hold
+// the gate until the hook's own limit.
+const GH_TIMEOUT_MS = 30_000;
+
+// gh's output; rejects, saying why, when gh failed or was killed.
+const runGh = async (
+  runProcess: RunProcess,
+  args: string[],
+  cwd: string,
+  what: string,
+): Promise<string> => {
+  const { exitCode, output, killed } = await runProcess('gh', args, cwd, {
+    timeoutMs: GH_TIMEOUT_MS,
+  });
+  if (killed !== undefined) {
+    const { whyKilled } = await import('../src/platform/processes.ts');
+    throw new Error(
+      `${what} ${killed === 'stopped' ? 'was stopped' : whyKilled(killed, GH_TIMEOUT_MS)}`,
+    );
+  }
+  if (exitCode !== 0) {
+    const how = exitCode === null ? 'could not start' : `exited ${exitCode}`;
+    // One short line: gh's output may be pages of commits or a proxy's error page.
+    throw new Error(`${what} ${how}: ${output.trim().replace(/\s+/g, ' ').slice(0, 200)}`);
+  }
+  return output;
+};
+
+// The pull request through gh, as gh pr ready would find it: `gh pr view` for its head and
+// comments, then its commits with their parents from the REST API, which `gh pr view` leaves out.
+export const ghPullRequest =
+  (runProcess: RunProcess): LookupPullRequest =>
+  async (cwd, { pr, repo }) => {
+    const view = await runGh(
+      runProcess,
+      [
+        'pr',
+        'view',
+        ...(pr === undefined ? [] : [pr]),
+        ...(repo === undefined ? [] : ['--repo', repo]),
+        '--json',
+        'number,url,headRefOid,comments',
+      ],
+      cwd,
+      'gh pr view',
+    );
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(view);
+    } catch {
+      throw new Error(`gh pr view did not answer with JSON: ${view.trim().slice(0, 200)}`);
+    }
+    if (
+      !isRecord(parsed) ||
+      typeof parsed.number !== 'number' ||
+      typeof parsed.url !== 'string' ||
+      typeof parsed.headRefOid !== 'string' ||
+      !Array.isArray(parsed.comments)
+    ) {
+      throw new Error('gh pr view answered without number, url, headRefOid and comments');
+    }
+    const { number, url, headRefOid } = parsed;
+    const { host, pathname } = new URL(url);
+    const [owner, name] = pathname.split('/').filter((part) => part !== '');
+    const commits = await runGh(
+      runProcess,
+      [
+        'api',
+        '--hostname',
+        host,
+        '--paginate',
+        `repos/${owner}/${name}/pulls/${number}/commits?per_page=100`,
+        '--jq',
+        '.[] | [.sha, .parents[].sha] | join(" ")',
+      ],
+      cwd,
+      'gh api',
+    );
+    return {
+      number,
+      head: headRefOid,
+      comments: parsed.comments.map((comment: unknown) =>
+        isRecord(comment) && typeof comment.body === 'string' ? comment.body : '',
+      ),
+      commits: commits
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== '')
+        .map((line) => {
+          const [sha = '', ...parents] = line.trim().split(/\s+/);
+          return { sha, parents };
+        }),
+    };
+  };
+
 const readStdin = async (): Promise<string> => {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
@@ -772,6 +1033,7 @@ if (import.meta.main) {
     runCheck,
     staleReason,
     gitHeadIsDetached(spawnProcess),
+    ghPullRequest(spawnProcess),
   );
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;
