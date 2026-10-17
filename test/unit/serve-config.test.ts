@@ -196,4 +196,44 @@ describe('serveSetup', () => {
     );
     assert.deepStrictEqual(setup.brewerEnv.base, { PATH: '/usr/bin' });
   });
+
+  it('runs the intake for the allow-listed users, one batch at a time, polling every minute (ADR 0068)', () => {
+    assert.deepStrictEqual(ready(inputs()).intake, {
+      users: ['ann'],
+      capacity: 1,
+      pollEveryMs: 60_000,
+      repositories: [],
+    });
+  });
+
+  it("takes the concurrency, the polling interval and each repository's intake from foedrum.jsonc", () => {
+    const setup = ready(
+      inputs({
+        files: {
+          ...inputs().files,
+          config: config(
+            { users: ['ann', 'bob'], concurrency: 3, pollEvery: '5m' },
+            { alias: 'web', intake: { labels: ['foedrum'], milestone: 'M1' } },
+          ),
+        },
+      }),
+    );
+    assert.deepStrictEqual(setup.intake, {
+      users: ['ann', 'bob'],
+      capacity: 3,
+      pollEveryMs: 300_000,
+      repositories: [
+        { repo: 'acme/web', alias: 'web', filter: { labels: ['foedrum'], milestone: 'M1' } },
+      ],
+    });
+  });
+
+  it('refuses a Brewery without an allow-listed user: nothing could be ordered', () => {
+    for (const users of [undefined, []]) {
+      const problems = refused(inputs({ files: { ...inputs().files, config: config({ users }) } }));
+      assert.deepStrictEqual(problems, [
+        'foedrum.jsonc: list the GitHub users who may order work under "users" (ADR 0068)',
+      ]);
+    }
+  });
 });

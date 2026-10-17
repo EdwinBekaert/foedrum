@@ -5,6 +5,7 @@
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
 import { brewerBaseEnv, type Env } from '../engine/brewer-env.ts';
+import type { IntakeRepository } from '../engine/intake.ts';
 import {
   type BreweryFiles,
   invalidRecipes,
@@ -53,9 +54,21 @@ export interface ServeRepository {
   tools: readonly string[];
 }
 
+/** What the intake in serve's loop orders, and how often it polls (ADR 0068). */
+export interface ServeIntake {
+  /** The allow-listed GitHub logins: only an issue one of them opened is ordered. */
+  users: readonly string[];
+  /** How many batches may be Ordered or Brewing at once: `concurrency`. */
+  capacity: number;
+  pollEveryMs: number;
+  /** The target repositories with an intake filter, in the order foedrum.jsonc names them. */
+  repositories: readonly IntakeRepository[];
+}
+
 export interface ServeSetup {
   /** The Brewery's owner/name, as foedrum.jsonc spells it. */
   brewery: string;
+  intake?: ServeIntake;
   workRoot: string;
   /** The event store: `.foedrum/index.db` in the checkout. */
   store: string;
