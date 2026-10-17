@@ -1623,6 +1623,18 @@ describe('precheck on npx and the commands that run a package like it', () => {
     });
   }
 
+  it('lets through npx without a package', async () => {
+    const { result, asked } = await gate('npx --version');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, []);
+  });
+
+  it('still runs the check for a push after an installed binary', async () => {
+    const { result, checks } = await gate('npx biome check && git push');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(checks, ['/work/tree']);
+  });
+
   it('refuses npx by default, when no check for binaries is given', async () => {
     const { runCheck } = fakeCheck({ ok: true, output: '' });
     const result = await precheck(hookInput('npx biome check'), runCheck);
