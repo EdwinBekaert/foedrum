@@ -5,7 +5,6 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
-import type { Ending } from '../engine/decide.ts';
 import type { State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
@@ -93,8 +92,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       readings.push(reading);
       if (!passed(reading)) break;
     }
-    const ending: Ending = settleReadings(readings);
-    return { ending, readings };
+    return { ending: settleReadings(readings), readings };
   };
 
   return {
