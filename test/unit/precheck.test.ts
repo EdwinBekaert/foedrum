@@ -451,6 +451,8 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
     'npx git push -f',
     'npm exec -- git push -f',
     'pnpm dlx git push --force',
+    'npx -c "git push -f"',
+    'npm exec --call "git push --force"',
     'command env time git push -f',
     'env -S "git push -f"',
     "Start-Process git -ArgumentList 'push','-f'",
@@ -1664,6 +1666,36 @@ describe('precheck on npx and the commands that run a package like it', () => {
     const { result, checks } = await gate('npx biome check && git push');
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
     assert.deepEqual(checks, ['/work/tree']);
+  });
+
+  it('lets through a change of directory without a package runner', async () => {
+    const { result } = await gate('cd src && git status');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+
+  // Every package counts, not only the first the gate finds.
+  for (const command of ['npx biome check && npx prettier --write x.ts', 'npx -p biome prettier']) {
+    it(`refuses a download after an installed binary: ${command}`, async () => {
+      const { result } = await gate(command);
+      assert.deepEqual(result, { exitCode: 2, stderr: refusal('npx prettier') });
+    });
+  }
+
+  it('blocks a force push through a package runner for its own reason', async () => {
+    const { result, checks } = await gate('npm exec -- git push -f');
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr: `${forbiddenReason('git push -f')}\n`,
+    });
+    assert.match(result.stderr, /^Force push is blocked/);
+    assert.deepEqual(checks, []);
+  });
+
+  // npx -c runs a command with the installed binaries on PATH; it downloads nothing itself.
+  it('lets through npx -c with a command that runs no package', async () => {
+    const { result, asked } = await gate('npx -c "npm run lint"');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, []);
   });
 
   it('refuses npx by default, when no check for binaries is given', async () => {
