@@ -678,6 +678,10 @@ describe('openDriver', () => {
       await driver.tick();
       const scopes = () => manager.cleans().map(({ scope }) => scope);
       assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }]);
+      // Not again while the lease is alive.
+      now = at(2);
+      await driver.tick();
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }], 'while the lease is alive');
       now = at(6);
       await driver.tick();
       assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }]);
