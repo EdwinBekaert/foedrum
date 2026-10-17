@@ -36,9 +36,9 @@ const MAY_PUSH_OR_MERGE = /git|gh|push|merge|pwsh|powershell|\\u/i;
 // PowerShell reads typographic quotes as quotes; bash does not.
 const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
 
-// The raw hook input without the quotes and escape characters that bash, PowerShell and cmd drop,
-// so a name they split (gi''t, g\it, g`it, g^h) still matches the pre-filter. A backslash before
-// u stays, for a JSON escape.
+// The raw hook input, or its command, without the quotes and escape characters that bash,
+// PowerShell and cmd drop, so a name they split (gi''t, g\it, g`it, g^h) still matches the
+// pre-filter. A backslash before u stays, for a JSON escape.
 const normalised = (input: string): string => foldQuotes(input).replace(/["'`^]|\\(?!u)/g, '');
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
@@ -636,6 +636,9 @@ export const precheck = async (
 
   const command = isRecord(parsed.tool_input) ? parsed.tool_input.command : undefined;
   if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
+  // The input test above only skips parsing; the command decides, so a cwd, transcript path or
+  // description that spells git does not send the call to the parser (#152).
+  if (!MAY_PUSH_OR_MERGE.test(normalised(command))) return { exitCode: 0, stderr: '' };
   const found = findings(command, TOOL_DIALECTS.get(parsed.tool_name));
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
