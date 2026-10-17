@@ -689,6 +689,46 @@ describe('fold', () => {
   });
 });
 
+describe('fold: skipped steps (ADR 0064)', () => {
+  const chosen = (recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe,
+    reason: 'feature label',
+    source: 'label',
+  });
+  const skipped = (stepId: string): Event => ({
+    type: 'step.skipped',
+    batchId: 'b1',
+    stepId,
+    when: 'recipe.testFirst',
+  });
+  const isSkipped = (events: Event[], stepId: string): boolean =>
+    batch(fold(events)).skipped?.has(stepId) ?? false;
+
+  it('keeps the skipped steps, and brews the batch on', () => {
+    const state = fold([ordered, chosen('nip'), skipped('gauge'), skipped('red')]);
+    assert.deepStrictEqual(batch(state).skipped, new Set(['gauge', 'red']));
+    assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
+    assert.equal(batch(state).steps.size, 0);
+  });
+
+  it('takes a step out once it is scheduled', () => {
+    const gauge: Event = { ...scheduled, stepId: 'gauge' };
+    assert.equal(isSkipped([ordered, chosen('nip'), skipped('gauge'), gauge], 'gauge'), false);
+    assert.equal(isSkipped([ordered, chosen('nip'), skipped('gauge'), scheduled], 'gauge'), true);
+  });
+
+  it('forgets the skips when a new recipe is chosen', () => {
+    const events = [ordered, chosen('nip'), skipped('gauge'), chosen('pint')];
+    assert.equal(isSkipped(events, 'gauge'), false);
+  });
+
+  it('refuses a skip of a batch that was never ordered', () => {
+    assert.throws(() => fold([skipped('gauge')]), /batch b1 was never ordered/);
+  });
+});
+
 describe('fold of an inconsistent log', () => {
   const started: Event = { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1 };
   const finished: Event = {

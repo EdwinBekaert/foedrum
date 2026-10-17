@@ -294,6 +294,8 @@ export const openSqliteEventStore = (
       case 'batch.rewound':
       case 'pull_request.ended':
         return;
+      case 'step.skipped':
+        throw new Error('not implemented');
       default: {
         const unhandled: never = event;
         throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

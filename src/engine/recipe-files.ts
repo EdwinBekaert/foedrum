@@ -154,6 +154,9 @@ function brewingRecipe(
       return durationMs(step.deadline ?? brewer.deadline);
     },
     stall: (id) => at(id).brewer.stall,
+    skip: () => {
+      throw new Error('not implemented');
+    },
     after: (_batch, id) => {
       const next = steps[at(id).index + 1];
       // The pull requests come with the openPullRequest action, which the engine does not run yet.

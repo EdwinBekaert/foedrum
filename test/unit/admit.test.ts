@@ -283,6 +283,10 @@ describe('admit lane rules (ADR 0025)', () => {
   const rules: [Event, Lane['kind'][]][] = [
     [chosen, ['ordered', 'conditioning', 'stuck']],
     [{ ...scheduled, stepId: 'review' }, ['ordered', 'brewing', 'conditioning']],
+    [
+      { type: 'step.skipped', batchId: 'b1', stepId: 'review', when: 'recipe.testFirst' },
+      ['ordered', 'brewing', 'conditioning'],
+    ],
     [stuck, ['brewing', 'stuck']],
     [resumed, ['stuck']],
     [waiting, ['ordered', 'conditioning']],

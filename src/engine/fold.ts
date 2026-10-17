@@ -84,6 +84,8 @@ export interface Batch {
   );
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
+  /** The steps whose latest record is a skip (ADR 0064); absent while none is. */
+  skipped?: ReadonlySet<string>;
   rewinds: readonly Rewind[];
   /** How each of its pull requests ended that has ended, by URL; absent while none has. */
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
@@ -256,6 +258,8 @@ function apply(state: State, event: Event): State {
         };
       });
     }
+    case 'step.skipped':
+      throw new Error('not implemented');
     case 'step.started':
       return updateAttempt(state, event, (current) => {
         if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');

@@ -75,6 +75,8 @@ function rule(state: State, event: Event): string | undefined {
       return lanes(state, event, ['ordered', 'conditioning', 'stuck']);
     case 'step.scheduled':
       return lanes(state, event, ['ordered', 'brewing', 'conditioning']);
+    case 'step.skipped':
+      throw new Error('not implemented');
     case 'step.started':
     case 'step.finished':
       return lanes(state, event, ['brewing']) ?? latestAttempt(state, event);

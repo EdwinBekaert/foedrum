@@ -619,6 +619,10 @@ describe('SqliteEventStore in memory', () => {
       ],
       ['step.started', started('b1')],
       [
+        'step.skipped',
+        { type: 'step.skipped', batchId: 'b1', stepId: 'gauge', when: 'recipe.testFirst' },
+      ],
+      [
         'input.received',
         {
           type: 'input.received',

@@ -1285,3 +1285,122 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
     );
   });
 });
+
+describe('decide: a when that is false skips its step (ADR 0064)', () => {
+  // The pale recipe commits nothing, so testFirst resolves off: gauge and tidy are skipped.
+  // Loaded in each test, so a recipe that does not load fails the test, not the suite.
+  const pale = (): Context => {
+    const loaded = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [
+            { id: 'gauge', brewer: 'malt', when: 'recipe.testFirst' },
+            { id: 'plan', brewer: 'malt' },
+            { id: 'tidy', brewer: 'malt', when: 'recipe.testFirst' },
+          ]),
+        },
+        {
+          path: 'recipes/mild.jsonc',
+          text: recipeText('mild', [{ id: 'gauge', brewer: 'malt', when: 'recipe.testFirst' }]),
+        },
+      ],
+      brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    return { ...context, recipes: loaded.recipes };
+  };
+  const decided = (events: Event[], command: Command) => decide(fold(events), command, pale());
+  const skipped = (stepId: string): Event => ({
+    type: 'step.skipped',
+    batchId: 'b1',
+    stepId,
+    when: 'recipe.testFirst',
+  });
+  const inHalfAnHour = '2026-10-15T12:30:00.000Z';
+  const planNext = scheduled('plan', 1, inHalfAnHour);
+  const routed = (recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe,
+    reason: 'small',
+    source: 'router',
+  });
+  const route = (recipe: string): Command => ({
+    kind: 'route',
+    batchId: 'b1',
+    recipe,
+    reason: 'small',
+    source: 'router',
+  });
+  const atPlan = [ordered, routed('pale'), skipped('gauge'), scheduled('plan'), started('plan')];
+  const succeeded = { kind: 'succeeded', output: null } as const;
+
+  it('records the skipped first step and schedules the next one', () => {
+    assert.deepStrictEqual(decided([ordered], route('pale')), {
+      kind: 'accepted',
+      events: [routed('pale'), skipped('gauge'), planNext],
+    });
+  });
+
+  it('skips the step after one that succeeded, and is done after the last', () => {
+    const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 1 } as const;
+    assert.deepStrictEqual(decided(atPlan, { ...finish, ending: succeeded }), {
+      kind: 'accepted',
+      events: [
+        { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 1, outcome: succeeded },
+        skipped('tidy'),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+  });
+
+  it('puts a batch whose every step is skipped on tap', () => {
+    assert.deepStrictEqual(decided([ordered], route('mild')), {
+      kind: 'accepted',
+      events: [
+        routed('mild'),
+        skipped('gauge'),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+  });
+
+  it("skips the step after one a human skipped, and the first step of a human's recipe", () => {
+    const stuckPlan = [
+      ...atPlan,
+      stuckEvent({ kind: 'waiting_for_session', stepId: 'plan' }, withoutAnswer),
+    ];
+    assert.deepStrictEqual(decided(stuckPlan, { kind: 'skip', batchId: 'b1', ...by }), {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'skip' },
+        skipped('tidy'),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+    const recipe: Command = {
+      kind: 'recipe',
+      batchId: 'b1',
+      recipe: 'pale',
+      reason: 'again',
+      ...by,
+    };
+    assert.deepStrictEqual(decided(stuckPlan, recipe), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'batch.recipe_chosen',
+          batchId: 'b1',
+          recipe: 'pale',
+          reason: 'again',
+          source: 'human',
+          ...by,
+        },
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'recipe' },
+        skipped('gauge'),
+        scheduled('plan', 2, inHalfAnHour),
+      ],
+    });
+  });
+});

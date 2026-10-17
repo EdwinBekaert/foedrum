@@ -250,7 +250,7 @@ describe('loadRecipes: fails closed', () => {
       },
     ];
     assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
-      'recipes/pale.jsonc: step "maltster" has a "when", which the engine does not follow yet (ADR 0053)',
+      'recipes/pale.jsonc: step "maltster" has a "when" that reads step "plan", which the engine does not follow yet (ADR 0064)',
       'recipes/pale.jsonc: step "again" has an "onBlocked" route, which the engine does not follow yet (ADR 0053)',
     ]);
   });
@@ -314,6 +314,58 @@ describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)',
         ?.deadlineMs('maltster'),
       365 * 86_400_000,
     );
+  });
+});
+
+describe("loadRecipes: a when that reads the recipe's settings (ADR 0064)", () => {
+  const withWhen = (when: string, fields = {}) =>
+    loaded(
+      loadRecipes(
+        brewery({
+          recipes: [
+            recipe(
+              'pale',
+              [
+                { id: 'gauge', brewer: 'maltster', when },
+                { id: 'plan', brewer: 'brewmaster' },
+              ],
+              fields,
+            ),
+          ],
+        }),
+      ),
+    ).find('pale');
+
+  it('skips a step whose when is false, naming it, and runs the others', () => {
+    const pale = withWhen('recipe.testFirst', { testFirst: false });
+    assert.equal(pale?.skip(batch({}), 'gauge'), 'recipe.testFirst');
+    assert.equal(pale?.skip(batch({}), 'plan'), undefined);
+  });
+
+  it('reads testFirst as resolved: off for a recipe whose brewers commit nothing', () => {
+    assert.equal(withWhen('recipe.testFirst')?.skip(batch({}), 'gauge'), 'recipe.testFirst');
+  });
+
+  it('compares the setting with a value in single quotes, as text', () => {
+    const skips = (when: string) =>
+      withWhen(when, { testFirst: false })?.skip(batch({ gauge: 1 }), 'gauge');
+    assert.equal(skips("recipe.testFirst == 'false'"), undefined);
+    assert.equal(skips("recipe.testFirst != 'true'"), undefined);
+    assert.equal(skips("recipe.testFirst == 'true'"), "recipe.testFirst == 'true'");
+    assert.equal(skips("recipe.testFirst != 'false'"), "recipe.testFirst != 'false'");
+    assert.equal(skips("recipe.testFirst=='false'"), undefined);
+  });
+
+  it("refuses a when that reads another step's result, or a setting the recipe has not", () => {
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'taste', brewer: 'maltster', when: "plan.verdict != 'approve'" },
+      { id: 'again', brewer: 'maltster', when: 'recipe.budget' },
+    ];
+    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
+      'recipes/pale.jsonc: step "taste" has a "when" that reads step "plan", which the engine does not follow yet (ADR 0064)',
+      'recipes/pale.jsonc: step "again" has a "when" that reads recipe.budget, which is not a recipe setting (ADR 0064)',
+    ]);
   });
 });
 
