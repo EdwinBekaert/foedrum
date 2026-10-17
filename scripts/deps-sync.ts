@@ -25,7 +25,7 @@ const MAX_OUTPUT_CHARS = 2000;
 // Under the SessionStart hook's 600 s, which would end this process without killing npm ci.
 const NPM_CI_TIMEOUT_MS = 540_000;
 
-const packageRoot = async (cwd: string, read: ReadText): Promise<string | undefined> => {
+export const packageRoot = async (cwd: string, read: ReadText): Promise<string | undefined> => {
   for (let dir = cwd; ; dir = dirname(dir)) {
     if ((await read(join(dir, 'package.json'))) !== undefined) return dir;
     if (dirname(dir) === dir) return undefined;

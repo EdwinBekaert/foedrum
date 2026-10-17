@@ -5,6 +5,7 @@ import type {
   Answer,
   Dependency,
   Event,
+  ScheduleRoute,
   SessionRef,
   StuckOption,
   StuckReason,
@@ -31,11 +32,18 @@ export type Lane =
  * the batch does next, it schedules new attempts, and the abandoned one never starts or finishes.
  */
 export type Attempt =
-  | { phase: 'scheduled'; attempt: number; deadlineAt: string; abandoned?: true }
+  | {
+      phase: 'scheduled';
+      attempt: number;
+      deadlineAt: string;
+      route?: ScheduleRoute;
+      abandoned?: true;
+    }
   | {
       phase: 'started';
       attempt: number;
       deadlineAt: string;
+      route?: ScheduleRoute;
       session?: SessionRef;
       worktree?: WorktreeRef;
       abandoned?: true;
@@ -44,6 +52,7 @@ export type Attempt =
       phase: 'finished';
       attempt: number;
       deadlineAt: string;
+      route?: ScheduleRoute;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;
@@ -92,6 +101,8 @@ export interface Batch {
   );
   lane: Lane;
   steps: ReadonlyMap<string, Step>;
+  /** The steps whose latest record is a skip (ADR 0064); absent while none is. */
+  skipped?: ReadonlySet<string>;
   rewinds: readonly Rewind[];
   /** Its task tree; absent while it is the repository's base (ADR 0066). */
   taskTree?: TaskTree;
@@ -243,7 +254,8 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.recipe_chosen': {
       const { recipe: name, reason } = event;
-      return updateBatch(state, event.batchId, (batch) => ({
+      // The skips belonged to the run of the recipe before (ADR 0064).
+      return updateBatch(state, event.batchId, ({ skipped: _, ...batch }) => ({
         ...batch,
         recipe:
           event.source === 'human'
@@ -252,20 +264,30 @@ function apply(state: State, event: Event): State {
       }));
     }
     case 'step.scheduled': {
-      const { batchId, stepId, attempt, deadlineAt } = event;
+      const { batchId, stepId, attempt, deadlineAt, route } = event;
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
         return {
-          ...batch,
+          ...skipping(batch, stepId, false),
           lane: { kind: 'brewing' },
           steps: put(batch.steps, stepId, {
             ...step,
-            attempts: put(step.attempts, attempt, { phase: 'scheduled', attempt, deadlineAt }),
+            attempts: put(step.attempts, attempt, {
+              phase: 'scheduled',
+              attempt,
+              deadlineAt,
+              ...(route === undefined ? {} : { route }),
+            }),
           }),
         };
       });
     }
+    case 'step.skipped':
+      return updateBatch(state, event.batchId, (batch) => ({
+        ...skipping(batch, event.stepId, true),
+        lane: { kind: 'brewing' },
+      }));
     case 'step.started':
       return updateAttempt(state, event, (current) => {
         if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');
@@ -456,6 +478,15 @@ function stepOf(batch: Batch, stepId: string): Step {
     throw reject(`step ${stepId} of batch ${batch.id} was never scheduled`);
   }
   return step;
+}
+
+/** `batch` with `stepId` added to or taken out of its skipped steps; none is kept as absent. */
+function skipping(batch: Batch, stepId: string, skipped: boolean): Batch {
+  const steps = new Set(batch.skipped);
+  if (skipped) steps.add(stepId);
+  else steps.delete(stepId);
+  const { skipped: _, ...rest } = batch;
+  return steps.size === 0 ? rest : { ...rest, skipped: steps };
 }
 
 function updateBatch(state: State, batchId: string, update: (batch: Batch) => Batch): State {

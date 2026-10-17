@@ -61,7 +61,7 @@ const scheduled = (
   stepId: string,
   attempt = 1,
   deadlineAt = '2026-10-15T11:00:00.000Z',
-): Event => ({
+): Extract<Event, { type: 'step.scheduled' }> => ({
   type: 'step.scheduled',
   batchId: 'b1',
   stepId,
@@ -159,7 +159,7 @@ const stuckOn = (
   options: [...options],
   remindAt: inTwoDays,
 });
-const next = (stepId: string, attempt = 1): Event => scheduled(stepId, attempt, inAnHour);
+const next = (stepId: string, attempt = 1) => scheduled(stepId, attempt, inAnHour);
 
 describe('stuckOptions', () => {
   it('offers answer only when the batch waits for answers', () => {
@@ -406,10 +406,10 @@ describe('decide finish', () => {
     ]);
   });
 
-  it('sends a failed check back along its route', () => {
+  it('sends a failed check back along its route, recording the route on the schedule', () => {
     accepts(brewing('green'), finish(final, 'green'), [
       finished(final, 'green'),
-      next('implement'),
+      { ...next('implement'), route: { from: 'green', why: 'failed' } },
     ]);
   });
 
@@ -423,7 +423,7 @@ describe('decide finish', () => {
   it('sends a retryable failure back along its route once the attempts are used up', () => {
     accepts(brewing('green', 2), finish(retryable, 'green', 2), [
       finished(retryable, 'green', 2),
-      next('implement'),
+      { ...next('implement'), route: { from: 'green', why: 'failed' } },
     ]);
   });
 
@@ -488,7 +488,7 @@ describe('decide finish', () => {
     it('is recorded as a final failure, and findings go back along the route', () => {
       accepts(brewing('implement'), finish(blocked('findings'), 'implement'), [
         finished(recorded('findings'), 'implement'),
-        next('plan'),
+        { ...next('plan'), route: { from: 'implement', why: 'findings' } },
       ]);
     });
 
@@ -909,6 +909,96 @@ describe('decide skip: Stuck → brewing or on tap', () => {
   }
 });
 
+describe('decide retry and answer: the step a human names, never skipped (ADR 0064)', () => {
+  // The same recipe, but one whose plan step would be skipped if the batch reached it.
+  const skipping: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      pint: fakeRecipe({
+        steps: ['plan', 'implement', 'green'],
+        skips: { plan: 'recipe.testFirst' },
+      }),
+    }),
+  };
+  const answers = [{ q: question.q, answer: 'keep' }];
+  for (const command of [
+    { kind: 'retry', batchId: 'b1', ...by },
+    { kind: 'answer', batchId: 'b1', answers, ...by },
+  ] as const satisfies readonly Command[]) {
+    it(`schedules the step on ${command.kind}, without asking its when`, () => {
+      const decision = decide(fold(stuck()), command, skipping);
+      assert.deepStrictEqual(decision, decide(fold(stuck()), command, context));
+      assert.ok(decision.kind === 'accepted');
+      assert.deepStrictEqual(decision.events.at(-1), next('plan', 2));
+    });
+  }
+
+  it('makes the batch Stuck on a divergence when a failed check routes back to a skipped step', () => {
+    const skippedImplement: Event[] = [
+      ordered,
+      chosen(),
+      scheduled('plan'),
+      started('plan'),
+      {
+        type: 'step.finished',
+        batchId: 'b1',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: null },
+      },
+      { type: 'step.skipped', batchId: 'b1', stepId: 'implement', when: 'recipe.testFirst' },
+      scheduled('green'),
+      started('green'),
+    ];
+    const outcome = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
+    const finish: Command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'green',
+      attempt: 1,
+      ending: outcome,
+    };
+    assert.deepStrictEqual(decide(fold(skippedImplement), finish, context), {
+      kind: 'accepted',
+      events: [
+        { type: 'step.finished', batchId: 'b1', stepId: 'green', attempt: 1, outcome },
+        stuckOn({
+          kind: 'blocked',
+          stepId: 'green',
+          blockerKind: 'divergence',
+          summary: 'step green routes back to step implement, which was skipped',
+        }),
+      ],
+    });
+  });
+
+  it('refuses a rewind to a step the batch skipped: it never ran', () => {
+    const skipped: Event[] = [
+      ordered,
+      chosen(),
+      { type: 'step.skipped', batchId: 'b1', stepId: 'gauge', when: 'recipe.testFirst' },
+      scheduled('plan'),
+      started('plan'),
+      stuckEvent(needsInput),
+    ];
+    const rewind: Command = {
+      kind: 'rewind',
+      batchId: 'b1',
+      toStepId: 'gauge',
+      shas: { 'acme/api': sha },
+      ...by,
+    };
+    const withGauge: Context = {
+      ...context,
+      recipes: fakeRecipes({ pint: fakeRecipe({ steps: ['gauge', 'plan'] }) }),
+    };
+    assert.deepStrictEqual(decide(fold(skipped), rewind, withGauge), {
+      kind: 'refused',
+      reason: 'step gauge of batch b1 was never scheduled',
+    });
+  });
+});
+
 describe('decide answer: Stuck → brewing', () => {
   const answer = (answers: { q: string; answer: string }[]): Command => ({
     kind: 'answer',
@@ -1283,5 +1373,248 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
         ],
       },
     );
+  });
+});
+
+describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
+  // Loaded in each test, so a recipe that does not load fails the test, not the suite.
+  const withRoute = (when?: string): Context => {
+    const loaded = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText(
+            'pale',
+            [
+              { id: 'gauge', brewer: 'malt', ...(when === undefined ? {} : { when }) },
+              {
+                id: 'implement',
+                brewer: 'malt',
+                onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } },
+              },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('; '));
+    return { ...context, recipes: loaded.recipes };
+  };
+  const routed: Event = {
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe: 'pale',
+    reason: 'small',
+    source: 'router',
+  };
+  const succeeded = { kind: 'succeeded', output: null } as const;
+  const done = (stepId: string, attempt = 1): Event[] => [
+    scheduled(stepId, attempt),
+    started(stepId, attempt),
+    { type: 'step.finished', batchId: 'b1', stepId, attempt, outcome: succeeded },
+  ];
+  const blocked = {
+    kind: 'blocked',
+    blockerKind: 'findings',
+    summary: 'the test is wrong',
+  } as const;
+  const finish = (attempt: number): Command => ({
+    kind: 'finish',
+    batchId: 'b1',
+    stepId: 'implement',
+    attempt,
+    ending: blocked,
+  });
+  const recorded = (attempt: number): Event => ({
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: 'implement',
+    attempt,
+    outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): the test is wrong' },
+  });
+  const findings = { from: 'implement', why: 'findings' } as const;
+  const inHalfAnHour = '2026-10-15T12:30:00.000Z';
+
+  it('goes back along the route, recording it on the schedule, then is Stuck on the findings', () => {
+    const firstRound = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+    ];
+    assert.deepStrictEqual(decide(fold(firstRound), finish(1), withRoute()), {
+      kind: 'accepted',
+      events: [recorded(1), { ...scheduled('gauge', 2, inHalfAnHour), route: findings }],
+    });
+    const secondRound: Event[] = [
+      ...firstRound,
+      recorded(1),
+      { ...scheduled('gauge', 2), route: findings },
+      started('gauge', 2),
+      { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt: 2, outcome: succeeded },
+      scheduled('implement', 2),
+      started('implement', 2),
+    ];
+    assert.deepStrictEqual(decide(fold(secondRound), finish(2), withRoute()), {
+      kind: 'accepted',
+      events: [
+        recorded(2),
+        stuckOn({
+          kind: 'blocked',
+          stepId: 'implement',
+          blockerKind: 'findings',
+          summary: 'the test is wrong',
+        }),
+      ],
+    });
+  });
+
+  it('makes the batch Stuck on a divergence when the route goes back to a skipped step', () => {
+    const skippedGauge: Event[] = [
+      ordered,
+      routed,
+      {
+        type: 'step.skipped',
+        batchId: 'b1',
+        stepId: 'gauge',
+        when: 'recipe.testFirst',
+      },
+      scheduled('implement'),
+      started('implement'),
+    ];
+    assert.deepStrictEqual(decide(fold(skippedGauge), finish(1), withRoute('recipe.testFirst')), {
+      kind: 'accepted',
+      events: [
+        recorded(1),
+        stuckOn({
+          kind: 'blocked',
+          stepId: 'implement',
+          blockerKind: 'divergence',
+          summary: 'step implement routes back to step gauge, which was skipped',
+        }),
+      ],
+    });
+  });
+});
+
+describe('decide: a when that is false skips its step (ADR 0064)', () => {
+  // The pale recipe commits nothing, so testFirst resolves off: gauge and tidy are skipped.
+  // Loaded in each test, so a recipe that does not load fails the test, not the suite.
+  const pale = (): Context => {
+    const loaded = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [
+            { id: 'gauge', brewer: 'malt', when: 'recipe.testFirst' },
+            { id: 'plan', brewer: 'malt' },
+            { id: 'tidy', brewer: 'malt', when: 'recipe.testFirst' },
+          ]),
+        },
+        {
+          path: 'recipes/mild.jsonc',
+          text: recipeText('mild', [{ id: 'gauge', brewer: 'malt', when: 'recipe.testFirst' }]),
+        },
+      ],
+      brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    return { ...context, recipes: loaded.recipes };
+  };
+  const decided = (events: Event[], command: Command) => decide(fold(events), command, pale());
+  const skipped = (stepId: string): Event => ({
+    type: 'step.skipped',
+    batchId: 'b1',
+    stepId,
+    when: 'recipe.testFirst',
+  });
+  const inHalfAnHour = '2026-10-15T12:30:00.000Z';
+  const planNext = scheduled('plan', 1, inHalfAnHour);
+  const routed = (recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe,
+    reason: 'small',
+    source: 'router',
+  });
+  const route = (recipe: string): Command => ({
+    kind: 'route',
+    batchId: 'b1',
+    recipe,
+    reason: 'small',
+    source: 'router',
+  });
+  const atPlan = [ordered, routed('pale'), skipped('gauge'), scheduled('plan'), started('plan')];
+  const succeeded = { kind: 'succeeded', output: null } as const;
+
+  it('records the skipped first step and schedules the next one', () => {
+    assert.deepStrictEqual(decided([ordered], route('pale')), {
+      kind: 'accepted',
+      events: [routed('pale'), skipped('gauge'), planNext],
+    });
+  });
+
+  it('skips the step after one that succeeded, and is done after the last', () => {
+    const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 1 } as const;
+    assert.deepStrictEqual(decided(atPlan, { ...finish, ending: succeeded }), {
+      kind: 'accepted',
+      events: [
+        { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 1, outcome: succeeded },
+        skipped('tidy'),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+  });
+
+  it('puts a batch whose every step is skipped on tap', () => {
+    assert.deepStrictEqual(decided([ordered], route('mild')), {
+      kind: 'accepted',
+      events: [
+        routed('mild'),
+        skipped('gauge'),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+  });
+
+  it("skips the step after one a human skipped, and the first step of a human's recipe", () => {
+    const stuckPlan = [
+      ...atPlan,
+      stuckEvent({ kind: 'waiting_for_session', stepId: 'plan' }, withoutAnswer),
+    ];
+    assert.deepStrictEqual(decided(stuckPlan, { kind: 'skip', batchId: 'b1', ...by }), {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'skip' },
+        skipped('tidy'),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+    const recipe: Command = {
+      kind: 'recipe',
+      batchId: 'b1',
+      recipe: 'pale',
+      reason: 'again',
+      ...by,
+    };
+    assert.deepStrictEqual(decided(stuckPlan, recipe), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'batch.recipe_chosen',
+          batchId: 'b1',
+          recipe: 'pale',
+          reason: 'again',
+          source: 'human',
+          ...by,
+        },
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'recipe' },
+        skipped('gauge'),
+        scheduled('plan', 2, inHalfAnHour),
+      ],
+    });
   });
 });

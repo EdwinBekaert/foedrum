@@ -6,6 +6,7 @@ import type {
   Answer,
   Event,
   OrderRef,
+  ScheduleRoute,
   StuckOption,
   StuckReason,
   Surface,
@@ -185,7 +186,7 @@ function run(draft: Draft, command: Command): Event[] {
       requireLane(draft.batch(command.batchId), 'route', ['ordered', 'conditioning']);
       const { batchId, recipe, reason, source } = command;
       draft.push({ type: 'batch.recipe_chosen', batchId, recipe, reason, source });
-      schedule(draft, batchId, find(draft, recipe).firstStep);
+      enter(draft, batchId, find(draft, recipe).firstStep);
       break;
     }
     case 'recipe': {
@@ -206,7 +207,7 @@ function run(draft: Draft, command: Command): Event[] {
       if (batch.lane.kind === 'stuck') {
         draft.push({ type: 'batch.resumed', batchId, by, via, action: 'recipe' });
       }
-      schedule(draft, batchId, firstStep);
+      enter(draft, batchId, firstStep);
       break;
     }
     case 'finish':
@@ -334,7 +335,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
           // The next round, until the route's rounds are used up (brewers-and-recipes §2).
           const back = recipe.loopBack(batch, stepId, 'findings');
           if (back === undefined) stick(draft, batchId, blocked);
-          else schedule(draft, batchId, back);
+          else goBack(draft, batchId, back, { from: stepId, why: 'findings' });
           return;
         }
         // Another round would hit the same wall, or the plan does not match reality.
@@ -391,8 +392,26 @@ function retryOrStick(
     const attempts = batch.steps.get(stepId)?.attempts.size ?? 0;
     stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
   } else {
-    schedule(draft, batchId, back);
+    goBack(draft, batchId, back, { from: stepId, why: 'failed' });
   }
+}
+
+/**
+ * Schedules `back` along `route`, recorded on the schedule to count its rounds, or makes the
+ * batch Stuck on a divergence when the batch skipped `back` (ADR 0064).
+ */
+function goBack(draft: Draft, batchId: string, back: string, route: ScheduleRoute): void {
+  if (draft.batch(batchId).skipped?.has(back)) {
+    const summary = `step ${route.from} routes back to step ${back}, which was skipped`;
+    stick(draft, batchId, {
+      kind: 'blocked',
+      stepId: route.from,
+      blockerKind: 'divergence',
+      summary,
+    });
+    return;
+  }
+  schedule(draft, batchId, back, route);
 }
 
 /** An Ordered batch past its routing deadline gets Stuck, so a human hears of it (ADR 0032). */
@@ -542,8 +561,11 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
   schedule(draft, batchId, toStepId);
 }
 
-/** Schedules the next attempt of `stepId`, with the deadline its recipe gives it. */
-function schedule(draft: Draft, batchId: string, stepId: string): void {
+/**
+ * Schedules the next attempt of `stepId`, with the deadline its recipe gives it and the route
+ * that sent the batch there, if one did.
+ */
+function schedule(draft: Draft, batchId: string, stepId: string, route?: ScheduleRoute): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
   const attempts = [...(batch.steps.get(stepId)?.attempts.keys() ?? [])];
@@ -553,17 +575,35 @@ function schedule(draft: Draft, batchId: string, stepId: string): void {
     stepId,
     attempt: Math.max(0, ...attempts) + 1,
     deadlineAt: draft.after(recipeOf(draft, batch).deadlineMs(stepId)),
+    ...(route === undefined ? {} : { route }),
   });
 }
 
-/** Schedules what follows `stepId` in the batch's recipe, or puts the batch on tap. */
+/**
+ * Schedules `stepId` as the batch reaches it, or, when the step's `when` is false, records it as
+ * skipped and goes on to what follows (ADR 0064). A human's retry, answer or rewind names its step
+ * and schedules it without asking.
+ */
+function enter(draft: Draft, batchId: string, stepId: string): void {
+  const batch = draft.batch(batchId);
+  requireStep(draft, batch, stepId);
+  const when = recipeOf(draft, batch).skip(batch, stepId);
+  if (when === undefined) {
+    schedule(draft, batchId, stepId);
+    return;
+  }
+  draft.push({ type: 'step.skipped', batchId, stepId, when });
+  continueAfter(draft, batchId, stepId);
+}
+
+/** Enters the step that follows `stepId` in the batch's recipe, or puts the batch on tap. */
 function continueAfter(draft: Draft, batchId: string, stepId: string): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
   const next = recipeOf(draft, batch).after(batch, stepId);
   switch (next.kind) {
     case 'step':
-      schedule(draft, batchId, next.stepId);
+      enter(draft, batchId, next.stepId);
       return;
     case 'done':
       draft.push({ type: 'batch.on_tap', batchId, pullRequests: [...next.pullRequests] });

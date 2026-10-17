@@ -95,43 +95,50 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   return done?.phase === 'finished' ? done.worktree?.path : undefined;
 };
 
-/** Where each of `inputs` is read from; throws when a step it names has no out doc yet. */
+/**
+ * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
+ * throws when a step it names has no out doc yet.
+ */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
   batch: Batch,
   stepBrewer: (stepId: string) => StepBrewer | undefined,
   worktree: string,
 ): PlannedInput[] {
-  return inputs.map(({ name, from }): PlannedInput => {
-    if (from === 'order') {
-      const { issue, repo } = batch;
-      const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
-      return { name, source: { kind: 'issue-body', issue }, read };
-    }
-    if (from.startsWith('step:')) {
-      const step = from.slice('step:'.length);
-      const root = succeededIn(batch, step);
-      const doc = stepBrewer(step)?.brewer.output.doc;
-      if (root === undefined || doc === undefined) {
-        throw new Error(
-          `the input "${name}" needs the out doc of step ${step}, which has none yet`,
-        );
+  const skipped = (from: string): boolean =>
+    from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);
+  return inputs
+    .filter(({ from }) => !skipped(from))
+    .map(({ name, from }): PlannedInput => {
+      if (from === 'order') {
+        const { issue, repo } = batch;
+        const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
+        return { name, source: { kind: 'issue-body', issue }, read };
       }
-      return {
-        name,
-        source: { kind: 'out-doc', step },
-        read: { kind: 'file', path: join(root, doc), root },
+      if (from.startsWith('step:')) {
+        const step = from.slice('step:'.length);
+        const root = succeededIn(batch, step);
+        const doc = stepBrewer(step)?.brewer.output.doc;
+        if (root === undefined || doc === undefined) {
+          throw new Error(
+            `the input "${name}" needs the out doc of step ${step}, which has none yet`,
+          );
+        }
+        return {
+          name,
+          source: { kind: 'out-doc', step },
+          read: { kind: 'file', path: join(root, doc), root },
+        };
+      }
+      // `file:<path>`: a relative path with `/`, checked by the brewer's schema.
+      const path = from.slice('file:'.length);
+      const read: InputRead = {
+        kind: 'file',
+        path: join(worktree, ...path.split('/')),
+        root: worktree,
       };
-    }
-    // `file:<path>`: a relative path with `/`, checked by the brewer's schema.
-    const path = from.slice('file:'.length);
-    const read: InputRead = {
-      kind: 'file',
-      path: join(worktree, ...path.split('/')),
-      root: worktree,
-    };
-    return { name, source: { kind: 'file', path }, read };
-  });
+      return { name, source: { kind: 'file', path }, read };
+    });
 }
 
 /**
