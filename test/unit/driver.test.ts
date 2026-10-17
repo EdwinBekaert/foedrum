@@ -212,6 +212,15 @@ describe('openDriver', () => {
       driver.close();
       assert.equal(lock.held, false);
     });
+
+    it('stops the runs it still has when it closes (ADR 0063)', async () => {
+      const { runner, stopped } = handRunner();
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      driver.close();
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+    });
   });
 
   describe('limits (#148)', () => {
@@ -660,6 +669,117 @@ describe('openDriver', () => {
       await driver.drive();
       assert.deepStrictEqual(started, []);
       assert.deepStrictEqual(store.currentLeases(now), []);
+    });
+  });
+
+  describe('the repository a batch writes in (ADR 0063)', () => {
+    const app = fakeWorktrees({ root: 'app-attempts' });
+    const web = fakeWorktrees({ root: 'web-attempts' });
+    const both = () => [
+      { repo: 'acme/app', base: 'origin/main', manager: app },
+      { repo: 'acme/web', base: 'origin/develop', manager: web },
+    ];
+    beforeEach(() => {
+      app.calls.length = 0;
+      web.calls.length = 0;
+    });
+    const route = (batchId: string) =>
+      intake.issue(
+        { kind: 'route', batchId, recipe: 'half', reason: 'label', source: 'label' },
+        now,
+      );
+    /** The repository and base the attempt plan#1 of `batchId` was given. */
+    const given = (batchId: string) => {
+      const event = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .find((event) => event.type === 'step.started' && event.batchId === batchId);
+      return event?.type === 'step.started' ? event.worktree?.repo : undefined;
+    };
+    const creates = (manager: FakeWorktrees) =>
+      manager.calls.flatMap((call) => (call.kind === 'create' ? [call.base] : []));
+
+    it("gives a claimed issue's attempt a worktree of its own repository, from its base", async () => {
+      intake.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, now);
+      route('web-7');
+      const driver = await open({ worktrees: both() });
+      await driver.drive();
+      assert.equal(given('web-7'), 'acme/web');
+      assert.deepStrictEqual([creates(app), creates(web)], [[], ['origin/develop']]);
+    });
+
+    it("gives a sub-order's attempt a worktree of the sub-order's repository", async () => {
+      order('b1');
+      const decomposed = {
+        type: 'order.decomposed' as const,
+        batchId: 'b1',
+        subOrders: [{ issue: 101, repo: 'acme/web' }],
+        dependencies: [],
+      };
+      assert.equal(intake.issue({ kind: 'record', event: decomposed }, now).kind, 'accepted');
+      const sub = {
+        kind: 'order' as const,
+        batchId: 'b101',
+        order: { issue: 101 },
+        parentBatchId: 'b1',
+      };
+      assert.equal(intake.issue(sub, now).kind, 'accepted');
+      route('b101');
+      const driver = await open({ takes: (batchId) => batchId === 'b101', worktrees: both() });
+      await driver.drive();
+      assert.equal(given('b101'), 'acme/web');
+    });
+
+    it('fails the attempt of an order that names no repository among several, retryably', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const driver = await open({ runner, worktrees: both() });
+      await driver.drive();
+      const finished = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .find((event) => event.type === 'step.finished');
+      assert.deepStrictEqual(finished?.type === 'step.finished' && finished.outcome, {
+        kind: 'failed',
+        retryable: true,
+        reason:
+          'the attempt could not get its worktree: batch b1 names no repository, and the Brewery has 2',
+      });
+      assert.deepStrictEqual([creates(app), creates(web), started], [[], [], []]);
+    });
+
+    it('fails the attempt of a claimed issue whose repository the Brewery does not list', async () => {
+      intake.issue({ kind: 'order', batchId: 'api-3', order: { issue: 3, repo: 'acme/api' } }, now);
+      route('api-3');
+      const driver = await open({ worktrees: both() });
+      await driver.drive();
+      const reasons = store
+        .eventsAfter(0)
+        .flatMap(({ event }) =>
+          event.type === 'step.finished' && event.outcome.kind === 'failed'
+            ? [event.outcome.reason]
+            : [],
+        );
+      assert.equal(
+        reasons[0],
+        'the attempt could not get its worktree: batch api-3 writes in acme/api, which the Brewery does not list',
+      );
+    });
+
+    it('cleans what goes with the worktrees too, at its start and when a batch ended', async () => {
+      const { runner, end } = handRunner();
+      const settings = fakeWorktrees({ root: 'attempt-settings' });
+      order('b1');
+      const driver = await open({ runner, worktrees: both().slice(0, 1), alsoCleans: [settings] });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      end({ batchId: 'b1', stepId: 'implement', attempt: 1 });
+      await driver.drive();
+      assert.deepStrictEqual(
+        settings.cleans().map(({ scope }) => scope),
+        [{}, { batchId: 'b1' }],
+      );
     });
   });
 

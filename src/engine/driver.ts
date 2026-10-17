@@ -72,6 +72,8 @@ export interface DriverOptions {
   limits: (attempt: AttemptRef) => AttemptLimits;
   /** The attempt worktrees of each repository the attempts write in, and their base. */
   worktrees?: readonly RepositoryWorktrees[];
+  /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
+  alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
   leaseMs?: number;
