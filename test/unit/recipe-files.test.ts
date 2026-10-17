@@ -482,6 +482,16 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge" (ADR 0064)',
     ]);
   });
+
+  it('refuses a test-first recipe for no more than its check steps, which the engine does not brew yet', () => {
+    const steps = [
+      { id: 'plan', brewer: 'maltster' },
+      { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+      { ...red, when: 'recipe.testFirst' },
+      { id: 'implement', brewer: 'cellarman' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [unbrewedCheck]);
+  });
 });
 
 describe('loadRecipes: the brewer of each step (#148)', () => {
