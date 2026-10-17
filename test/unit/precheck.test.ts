@@ -1129,6 +1129,22 @@ describe('precheck on gh pr ready', () => {
     });
   });
 
+  // Plain documentation needs no review summary (#183): *.md under docs/, except docs/adr/.
+  for (const files of [
+    ['docs/milestones/README.md'],
+    ['docs/architecture.md', 'docs/milestones/README.md'],
+  ]) {
+    it(`allows a pull request of only plain docs without a summary: ${files.join(', ')}`, async () => {
+      const { result, lookups, checks } = await ready('gh pr ready 160', {
+        ...facts(['Looks good to me.'], [c1, c2, c3]),
+        files,
+      });
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lookups, [['/work/tree', { pr: '160' }]]);
+      assert.deepEqual(checks, []);
+    });
+  }
+
   // ADRs, CLAUDE.md, prompts, root files and anything that is not Markdown under docs/ are reviewed.
   for (const files of [
     ['docs/milestones/README.md', 'docs/adr/0001-record-architecture-decisions.md'],
@@ -1414,6 +1430,7 @@ describe('ghPullRequest', () => {
       number: 160,
       head: 'c3',
       comments: ['first', '## Review: `x` @ `c3`'],
+      files: ['docs/milestones/README.md', 'CLAUDE.md'],
       commits: [
         { sha: 'c1', parents: ['b0'] },
         { sha: 'c2', parents: ['c1'] },
@@ -1423,7 +1440,15 @@ describe('ghPullRequest', () => {
     assert.deepEqual(calls, [
       [
         'gh',
-        ['pr', 'view', '160', '--repo', 'owner/repo', '--json', 'number,url,headRefOid,comments'],
+        [
+          'pr',
+          'view',
+          '160',
+          '--repo',
+          'owner/repo',
+          '--json',
+          'number,url,headRefOid,comments,files,changedFiles',
+        ],
         '/work/tree',
       ],
       [
@@ -1448,7 +1473,12 @@ describe('ghPullRequest', () => {
       { exitCode: 0, output: 'c3 c2\n' },
     ]);
     await ghPullRequest(runProcess)('/work/tree', {});
-    assert.deepEqual(calls[0]?.[1], ['pr', 'view', '--json', 'number,url,headRefOid,comments']);
+    assert.deepEqual(calls[0]?.[1], [
+      'pr',
+      'view',
+      '--json',
+      'number,url,headRefOid,comments,files,changedFiles',
+    ]);
   });
 
   // A list it cannot read, or one cut off, leaves the files out, so the pull request is not exempt.
