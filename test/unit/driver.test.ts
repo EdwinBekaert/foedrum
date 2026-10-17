@@ -450,7 +450,7 @@ describe('openDriver', () => {
         store.currentLeases(when).map((lease) => lease.attemptKey);
 
       /** Drives b1 until Stuck abandoned plan#1 at minute 11, then retries it: plan#2 is scheduled. */
-      const abandonAndRetry = async () => {
+      const abandonAndRetry = async (options: Partial<DriverOptions> = {}) => {
         const ends = new Map<string, (end: AttemptEnd) => void>();
         const started: string[] = [];
         const runner: BrewerRunner = {
@@ -470,7 +470,7 @@ describe('openDriver', () => {
           { kind: 'route', batchId: 'b1', recipe: 'slow', reason: 'r', source: 'label' },
           now,
         );
-        const driver = await open({ runner, recipes: slow });
+        const driver = await open({ runner, recipes: slow, ...options });
         await driver.drive();
         for (const minute of [4, 8, 11]) {
           now = at(minute);
@@ -503,6 +503,41 @@ describe('openDriver', () => {
         await driver.drive();
         assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)].map(attemptKey.encode));
         assert.deepStrictEqual(leased(now), [attemptKey.encode(plan('b1', 2))]);
+      });
+
+      it('waits for no lease of another batch or another step', async () => {
+        const { driver, started, ends } = await abandonAndRetry();
+        now = at(12);
+        ends.get(attemptKey.encode(plan('b1')))?.({ ending: { kind: 'cancelled' } });
+        const others = [plan('b2'), { batchId: 'b1', stepId: 'implement', attempt: 1 }];
+        store.withTransaction((tx) => {
+          for (const ref of others) {
+            tx.putLease({
+              attemptKey: attemptKey.encode(ref),
+              owner: 'session-7',
+              expiresAt: at(30),
+            });
+          }
+        });
+        await driver.drive();
+        assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)].map(attemptKey.encode));
+      });
+
+      it('lets the deadline of the waiting attempt pass when it is shorter than the lease', async () => {
+        // A two-hour lease: the tick at minute 11 renewed plan#1's lease until minute 131, past
+        // plan#2's deadline at minute 71.
+        const { driver, started } = await abandonAndRetry({ leaseMs: 120 * minute });
+        await driver.drive();
+        now = at(72);
+        await driver.tick();
+        const lane = driver.state().batches.get('b1')?.lane;
+        assert.equal(lane?.kind, 'stuck');
+        assert.deepStrictEqual(lane.reason, {
+          kind: 'deadline_passed',
+          stepId: 'plan',
+          deadlineAt: at(71).toISOString(),
+        });
+        assert.deepStrictEqual(started, [attemptKey.encode(plan('b1'))], 'plan#2 never started');
       });
     });
 
