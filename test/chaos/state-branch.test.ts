@@ -67,7 +67,9 @@ const markerOnTheRemote = ({ engine }: ChaosRun, remote: readonly number[]): voi
  */
 const startsGoOn = ({ engine }: ChaosRun): void => {
   const branch = branchOf(engine);
-  const starts = branch.starts.filter((kind) => kind !== 'ready' && kind !== 'flush');
+  const starts = branch.starts.filter(
+    ({ decision }) => decision !== 'ready' && decision !== 'flush',
+  );
   assert.deepStrictEqual(starts, [], 'every start was ready or flushed');
   assert.deepStrictEqual(branch.behind, [], 'every start brought the branch in line');
 };
@@ -114,20 +116,22 @@ const checks: ChaosChecks = {
 const killedAt = (engine: ChaosEngine, point: string): boolean =>
   engine.kills.some((kill) => kill.point === point);
 
+/** Whether a start right after a kill at `point` decided `decision`. */
+const startedAfter = (engine: ChaosEngine, point: string, decision: string): boolean =>
+  branchOf(engine).starts.some((start) => start.after === point && start.decision === decision);
+
 /** What the runs with a state branch must reach between them, each asked of one finished run. */
 const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   'killed while writing the log': (engine) => killedAt(engine, 'while writing the log'),
   // The commit is local; the next start pushes it (the remote is at the marker's commit).
   'killed before the push reached the remote, and the next start flushed': (engine) =>
-    killedAt(engine, 'before the push reached the remote') &&
-    branchOf(engine).starts.includes('flush'),
+    startedAfter(engine, 'before the push reached the remote', 'flush'),
   // The remote has events the marker does not name; the next start checks the files and pushes.
   'killed after the push reached the remote, before its marker, and the next start flushed': (
     engine,
-  ) =>
-    killedAt(engine, 'after the push reached the remote') &&
-    branchOf(engine).starts.includes('flush'),
-  'a start with everything pushed': (engine) => branchOf(engine).starts.includes('ready'),
+  ) => startedAfter(engine, 'after the push reached the remote', 'flush'),
+  'a start with everything pushed': (engine) =>
+    branchOf(engine).starts.some(({ decision }) => decision === 'ready'),
 };
 
 describe('the state branch across kills', () => {

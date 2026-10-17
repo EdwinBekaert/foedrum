@@ -740,7 +740,8 @@ export const openChaosEngine = async (
           state: () => terminal.state(),
         })
       : undefined;
-  const branch = options.stateBranch === true ? fakeStateBranch() : undefined;
+  const branch =
+    options.stateBranch === true ? fakeStateBranch(() => kill.kills.at(-1)?.point) : undefined;
   let now = t0;
   const restarts: Date[] = [];
   const losses: Loss[] = [];

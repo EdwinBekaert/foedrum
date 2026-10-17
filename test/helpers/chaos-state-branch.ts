@@ -41,15 +41,16 @@ export interface BranchLine {
   event: unknown;
 }
 
-export const fakeStateBranch = () => {
+/** `lastKill`: the kill point of the run's last kill so far, if any. */
+export const fakeStateBranch = (lastKill: () => string | undefined) => {
   // The state worktree's files, as on disk.
   const files = new Map<string, string>();
   const commits = new Map<string, Commit>();
   let localHead: string | undefined;
   let remoteHead: string | undefined;
   let made = 0;
-  /** What each start decided, in order. */
-  const starts: StartDecision['kind'][] = [];
+  /** What each start decided, in order, and the kill point of the run's last kill before it. */
+  const starts: { decision: StartDecision['kind']; after: string | undefined }[] = [];
   /** The starts that ended with events committed before them still not on the remote. */
   const behind: string[] = [];
 
@@ -132,7 +133,7 @@ export const fakeStateBranch = () => {
         remoteHead,
         pushedReachesRemote,
       });
-      starts.push(decision.kind);
+      starts.push({ decision: decision.kind, after: lastKill() });
       switch (decision.kind) {
         case 'ready':
           return { decision: 'ready' };

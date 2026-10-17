@@ -197,8 +197,11 @@ export const fakeClone = (watch: CloneWatch) => {
           throw new Error(`Attempt ${inside} cannot get its worktree: ${plan.reason}`);
         case 'add': {
           if (plan.prune !== undefined) {
+            // The attempt's own stale record goes before its worktree is made again (ADR 0037);
+            // any other record is checked like every removal.
             const record = recordedAt(plan.prune);
-            if (record !== undefined) records.delete(record);
+            if (record === inside) records.delete(record);
+            else if (record !== undefined) removeRecord(record);
           }
           // git worktree add: the branch, the record, then the folder with its checkout.
           if (plan.newBranch) branches.set(branch, chaosBase);
