@@ -24,6 +24,8 @@ export interface GitHubReadsOptions {
  */
 export const pageSize = 10;
 
+const MiB = 1024 * 1024;
+
 export interface GitHubReads {
   /** A GET of `path`, conditional on the answer before; a 304 answers that one as 200. */
   get(path: string, signal?: AbortSignal): Promise<GitHubAnswer>;
@@ -52,39 +54,54 @@ export const createGitHubReads = (
 ): GitHubReads => {
   const maxEntries = positive(options.maxEntries ?? 256, 'maxEntries');
   const maxPages = positive(options.maxPages ?? 500, 'maxPages');
-  // The last answer with an ETag of each path, least recently used first.
+  const maxBytes = positive(options.maxBytes ?? 64 * MiB, 'maxBytes');
+  const maxListBytes = positive(options.maxListBytes ?? 32 * MiB, 'maxListBytes');
+  // The last answer with an ETag of each path, least recently used first, and their bytes.
   const cache = new Map<string, { etag: string; answer: GitHubAnswer }>();
+  let cached = 0;
+  const forget = (path: string): void => {
+    cached -= cache.get(path)?.answer.bytes ?? 0;
+    cache.delete(path);
+  };
 
   const get: GitHubReads['get'] = async (path, signal) => {
-    const cached = cache.get(path);
-    const headers = cached === undefined ? {} : { 'if-none-match': cached.etag };
+    const before = cache.get(path);
+    const headers = before === undefined ? {} : { 'if-none-match': before.etag };
     const answer = await client.rest('GET', path, undefined, signal, headers);
-    cache.delete(path);
-    if (answer.status === 304) {
-      if (cached === undefined)
-        throw new Error(`GitHub answered 304 to ${path}, which named no ETag`);
-      cache.set(path, cached);
-      return cached.answer;
-    }
+    forget(path);
     const etag = answer.headers.get('etag');
-    if (answer.status === 200 && etag !== null) {
-      cache.set(path, { etag, answer });
+    const kept =
+      answer.status === 304
+        ? before
+        : answer.status === 200 && etag !== null
+          ? { etag, answer }
+          : undefined;
+    if (answer.status === 304 && before === undefined) {
+      throw new Error(`GitHub answered 304 to ${path}, which named no ETag`);
+    }
+    // An answer longer than the whole cache is never kept.
+    if (kept !== undefined && kept.answer.bytes <= maxBytes) {
+      cache.set(path, kept);
+      cached += kept.answer.bytes;
       for (const oldest of cache.keys()) {
-        if (cache.size <= maxEntries) break;
-        cache.delete(oldest);
+        if (cache.size <= maxEntries && cached <= maxBytes) break;
+        forget(oldest);
       }
     }
-    return answer;
+    return kept?.answer ?? answer;
   };
 
   return {
     get,
     pages: async (path, what, signal) => {
       const items: unknown[] = [];
+      let bytes = 0;
       for (let next: string | undefined = path, page = 1; next !== undefined; page++) {
         if (page > maxPages) throw new Error(`${what} has more than ${maxPages} pages`);
         const answer = await get(next, signal);
         if (answer.status !== 200) throw refused(answer.status, answer.body, what);
+        bytes += answer.bytes;
+        if (bytes > maxListBytes) throw new Error(`${what} is longer than ${maxListBytes} bytes`);
         items.push(...checked(GitHubPage, answer.body, what));
         const url = nextPage(answer.headers.get('link'));
         // The token goes with every request: never to a page off the API.
