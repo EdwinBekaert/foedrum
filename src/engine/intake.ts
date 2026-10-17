@@ -87,8 +87,8 @@ export interface IntakeOptions {
   /**
    * How long one pass may take: whole milliseconds, at most half the default batch lease (2.5
    * min), and that by default. A pass makes many requests, each with its own timeout, so it needs a
-   * bound of its own: run in a driver's tick, it must never hold off the heartbeat until the batch
-   * leases expire (ADR 0044, #130).
+   * bound of its own. `serve` runs it beside the driver's ticks, never inside one, and the deadline
+   * bounds how long a stop waits for it (ADR 0044, ADR 0068, #130).
    */
   deadlineMs?: number;
 }
