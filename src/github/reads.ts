@@ -11,6 +11,10 @@ export interface GitHubReadsOptions {
   maxEntries?: number;
   /** How many pages one list may have; more fails the read. Default 500 (5,000 items). */
   maxPages?: number;
+  /** How many bytes of answers the cache keeps; the least recently used goes first. Default 64 MiB. */
+  maxBytes?: number;
+  /** How many bytes the pages of one list may have; more fails the read. Default 32 MiB. */
+  maxListBytes?: number;
 }
 
 /**
