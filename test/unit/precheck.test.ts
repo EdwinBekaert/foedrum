@@ -1138,6 +1138,7 @@ describe('precheck on gh pr ready', () => {
   for (const files of [
     ['docs/milestones/README.md'],
     ['docs/architecture.md', 'docs/milestones/README.md'],
+    ['Docs/Guide.MD'],
   ]) {
     it(`allows a pull request of only plain docs without a summary: ${files.join(', ')}`, async () => {
       const { result, lookups, checks } = await ready('gh pr ready 160', {
@@ -1157,6 +1158,7 @@ describe('precheck on gh pr ready', () => {
     ['docs/milestones/README.md', '.claude/skills/brew-review/SKILL.md'],
     ['README.md'],
     ['docs/milestones/notes.txt'],
+    ['docs/notes.md.txt'],
     ['src/docs/readme.md'],
     [],
   ]) {
@@ -1491,6 +1493,10 @@ describe('ghPullRequest', () => {
     ['lists fewer files than it changes', { files: [{ path: 'docs/a.md' }], changedFiles: 101 }],
     ['has no file list', { files: undefined, changedFiles: 1 }],
     ['has no file count', { changedFiles: undefined }],
+    [
+      'lists a file without a path among ones with a path',
+      { files: [{ path: 'docs/a.md' }, { name: 'CLAUDE.md' }], changedFiles: 1 },
+    ],
     ['lists a file without a path', { files: [{ name: 'docs/a.md' }], changedFiles: 1 }],
   ] as const) {
     it(`leaves the files out when gh pr view's answer ${name}`, async () => {
