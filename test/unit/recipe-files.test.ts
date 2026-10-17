@@ -366,3 +366,15 @@ describe('loadRecipes: the brewer of each step (#148)', () => {
     assert.equal(brewers.find('pale', 'brewmaster'), undefined);
   });
 });
+
+describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#148)', () => {
+  it('loads a brewer that asks only for what the plan follows, the out doc and no push among its guards', () => {
+    const files = brewery({
+      brewers: [
+        brewer('maltster', { guards: ['requiresOutDoc', 'noPush'], retryMode: 'fresh' }),
+        brewmaster,
+      ],
+    });
+    assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
+  });
+});
