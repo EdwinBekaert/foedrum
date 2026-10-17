@@ -596,7 +596,7 @@ describe('openDriver', () => {
 
   describe('attempt worktrees (ADR 0037)', () => {
     const worktreesOf = (manager: FakeWorktrees) => ({
-      worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+      worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
     });
 
     it('records the worktree of each attempt, and cleans them once the batch ended', async () => {
@@ -990,7 +990,7 @@ describe('openDriver', () => {
       order('b1');
       const driver = await open({
         runner,
-        worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
       });
       await driver.drive();
       const question = {
@@ -1027,7 +1027,7 @@ describe('openDriver', () => {
       };
       const driver = await open({
         runner,
-        worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
       });
       // A tick's drive and a direct one, both while plan#1's worktree is being made.
       const both = Promise.all([driver.drive(), driver.drive()]);
@@ -1057,7 +1057,7 @@ describe('openDriver', () => {
       };
       const driver = await open({
         runner,
-        worktrees: { repo: 'acme/app', base: 'origin/main', manager },
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
       });
       await driver.drive();
       assert.equal(creates, 1);

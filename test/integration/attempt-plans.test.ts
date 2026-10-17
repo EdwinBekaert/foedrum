@@ -178,11 +178,13 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       takes: () => true,
       stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       limits: plans.limits,
-      worktrees: {
-        repo: 'acme/api',
-        base: 'origin/main',
-        manager: openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/api', clone }),
-      },
+      worktrees: [
+        {
+          repo: 'acme/api',
+          base: 'origin/main',
+          manager: openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/api', clone }),
+        },
+      ],
     });
     const lane = () => driver?.state().batches.get(batchId)?.lane.kind;
     const deadline = Date.now() + 120_000;

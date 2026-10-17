@@ -38,6 +38,13 @@ export interface DriverEffects {
   deadlineMs?: number;
 }
 
+/** The attempt worktrees of a repository the attempts write in, and the base new ones start at. */
+export interface RepositoryWorktrees {
+  repo: string;
+  base: string;
+  manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
+}
+
 /** What the driver reports instead of failing: it keeps driving. */
 export type DriverNotice =
   | Notice
@@ -63,12 +70,8 @@ export interface DriverOptions {
   stateBranch: Pick<StateBranch, 'flush'>;
   /** The limits of an attempt: its brewer's, from the recipe its batch brews. */
   limits: (attempt: AttemptRef) => AttemptLimits;
-  /** The attempt worktrees of the one repository the attempts write in, and their base. */
-  worktrees?: {
-    repo: string;
-    base: string;
-    manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
-  };
+  /** The attempt worktrees of each repository the attempts write in, and their base. */
+  worktrees?: readonly RepositoryWorktrees[];
   effects?: DriverEffects;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
   leaseMs?: number;
@@ -140,7 +143,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const { owner } = lock;
   const log = createCommandLog({ store, recipes, reminderMs, routingMs });
   const cleanup = createWorktreeCleanup({
-    worktrees: worktrees === undefined ? [] : [worktrees.manager],
+    worktrees: (worktrees ?? []).map(({ manager }) => manager),
     state: log.state,
     leases: () => store.currentLeases(clock()),
   });
@@ -257,14 +260,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    */
   const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
     const started = { type: 'step.started', ...ref } as const;
-    if (worktrees === undefined) {
+    const [repository] = worktrees ?? [];
+    if (repository === undefined) {
       return issue({ kind: 'record', event: started }, (tx) => leaseAttempt(tx, key));
     }
     // The lease first: only the holder of an attempt's lease may make its worktree.
     store.withTransaction((tx) => leaseAttempt(tx, key));
     let made: AttemptWorktree;
     try {
-      made = await worktrees.manager.create(ref, worktrees.base);
+      made = await repository.manager.create(ref, repository.base);
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;
@@ -272,7 +276,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       releaseAttempt(key);
       return false;
     }
-    const worktree = { repo: worktrees.repo, ...made };
+    const worktree = { repo: repository.repo, ...made };
     if (issue({ kind: 'record', event: { ...started, worktree } })) return true;
     releaseAttempt(key);
     return false;
