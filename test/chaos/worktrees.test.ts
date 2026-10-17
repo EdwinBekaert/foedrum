@@ -6,10 +6,11 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { ChaosChecks, ChaosEngine, ChaosRun } from '../helpers/chaos.ts';
 import { restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
 import { holdsAcrossKills, trialChaos } from '../helpers/chaos-shrink.ts';
-import { type FakeClone, hasEnded } from '../helpers/chaos-worktrees.ts';
+import { chaosBase, chaosRepo, type FakeClone, hasEnded } from '../helpers/chaos-worktrees.ts';
 import {
   generateScenario,
   human,
@@ -76,13 +77,58 @@ const nothingLeftOfEnded = ({ engine }: ChaosRun): void => {
   }
 };
 
+/**
+ * Every attempt starts at the commits of the attempts that succeeded before it in its batch, or of
+ * the rewind after them, across kills: none of them is lost, none added twice (ADR 0066). The
+ * checks' own rule, read from the events in order, not the fold's.
+ */
+const startsAtTheTaskTree = ({ engine }: ChaosRun): void => {
+  const clone = cloneOf(engine);
+  // By batch: the commit its next attempt starts at, or null after a rewind of another repository.
+  const tips = new Map<string, string | null>();
+  const withWorktree = new Set<string>();
+  for (const event of engine.events()) {
+    switch (event.type) {
+      case 'step.started': {
+        if (event.worktree === undefined) break;
+        const { batchId, stepId, attempt } = event;
+        withWorktree.add(attemptKey.encode({ batchId, stepId, attempt }));
+        const tip = tips.get(batchId);
+        if (tip === null) break;
+        assert.equal(
+          event.worktree.commit,
+          tip ?? chaosBase,
+          `${stepId}#${attempt} of ${batchId} starts at the commits of the steps before it`,
+        );
+        break;
+      }
+      case 'step.finished': {
+        const { batchId, stepId, attempt } = event;
+        const key = attemptKey.encode({ batchId, stepId, attempt });
+        const sha = clone.committed(key);
+        if (event.outcome.kind === 'succeeded' && withWorktree.has(key) && sha !== undefined) {
+          tips.set(batchId, sha);
+        }
+        break;
+      }
+      case 'batch.rewound':
+        tips.set(event.batchId, event.shas[chaosRepo] ?? null);
+        break;
+      default:
+        break;
+    }
+  }
+};
+
 const checks: ChaosChecks = {
   afterMove: (run, move, survived) => {
     keptItsClaims(run);
+    startsAtTheTaskTree(run);
     restsWithEffectsOnce.afterMove(run, move, survived);
   },
   atEnd: (run) => {
     keptItsClaims(run);
+    startsAtTheTaskTree(run);
     nothingLeftOfEnded(run);
     restsWithEffectsOnce.atEnd(run);
   },
@@ -99,6 +145,10 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
     killedAt(engine, 'after a worktree was made') &&
     cloneOf(engine).made.some(({ how }) => how === 'reused'),
   'killed while cleaning worktrees': (engine) => killedAt(engine, 'while cleaning worktrees'),
+  // A kill between two steps: the next step starts at the commits a brewer of the killed driver
+  // made (ADR 0066).
+  'a step started at the commits of a step the killed driver ran': (engine) =>
+    cloneOf(engine).made.some(({ how, acrossKill }) => how !== 'refused' && acrossKill === true),
   // A kill between a batch's end and its cleanup, or part-way through one: the start repairs it.
   'what a kill left of an ended batch removed by the repair at the next start': (engine) =>
     cloneOf(engine).cleaned.some(({ batchId, done }) => batchId === undefined && done.length > 0),
