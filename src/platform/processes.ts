@@ -188,6 +188,8 @@ export interface ExecResult {
   output: string;
   /** Set when the runner killed the process and every process it started. */
   killed?: Killed;
+  /** The signal that ended the process when the runner did not send it: a crash, the OOM killer. */
+  signal?: string;
 }
 
 export type ExecProcess = (
@@ -348,12 +350,12 @@ export const execProcessWith =
         output += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
-      child.on('close', (code) => {
+      child.on('close', (code, endedBy) => {
         // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
         const refused =
           jobObject && jobObjects ? jobObjectRefusal(code, stdout, stderr) : undefined;
         if (refused === undefined) {
-          finish(ended(code));
+          finish(endedBy === null ? ended(code) : { ...ended(code), signal: endedBy });
           return;
         }
         const reason = `${program}: cannot run in a Job Object: ${refused}`;

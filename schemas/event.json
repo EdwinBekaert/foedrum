@@ -577,6 +577,44 @@
                 "properties": {
                   "result": {
                     "type": "string",
+                    "const": "signaled"
+                  },
+                  "check": {
+                    "type": "string",
+                    "enum": [
+                      "build",
+                      "typecheck",
+                      "lint",
+                      "format",
+                      "test"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "signal": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "tail": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "result",
+                  "command",
+                  "signal",
+                  "tail"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "string",
                     "const": "unstarted"
                   },
                   "check": {

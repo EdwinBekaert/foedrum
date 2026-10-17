@@ -22,6 +22,8 @@ export interface CheckRun {
   exitCode: number | null;
   output: string;
   killed?: 'timed-out' | 'stopped' | 'too-much-output';
+  /** The signal that ended it when the runner did not send it. */
+  signal?: string;
 }
 
 /** The line `command` runs on `platform`: its override there, else `run`. */
@@ -93,6 +95,7 @@ export function readingOf(
   // Secrets out first, so the bound never keeps half of one.
   const tail = tailOf(withoutSecrets(run.output));
   if (run.killed !== undefined) return { result: 'killed', ...ran, killed: run.killed, tail };
+  if (run.signal !== undefined) return { result: 'signaled', ...ran, signal: run.signal, tail };
   if (run.exitCode === null) return { result: 'unstarted', ...ran, tail };
   return { result: 'exited', ...ran, exitCode: run.exitCode, tail };
 }
@@ -129,6 +132,11 @@ export function settleReadings(readings: readonly GravityReading[]): Ending {
     // The same tree would read the same again: no retry, the onFail route or Stuck.
     case 'exited': {
       const reason = `${nameOf(decisive)} failed with exit code ${decisive.exitCode}`;
+      return { kind: 'failed', retryable: false, reason };
+    }
+    // A crash of the code under check is a failure of the tree, as an exit code is.
+    case 'signaled': {
+      const reason = `${nameOf(decisive)} was ended by ${decisive.signal}`;
       return { kind: 'failed', retryable: false, reason };
     }
     case 'killed':

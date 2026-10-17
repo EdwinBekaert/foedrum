@@ -106,6 +106,8 @@ export const GravityReading = z.discriminatedUnion('result', [
     killed: z.enum(['timed-out', 'stopped', 'too-much-output']),
     tail: Tail,
   }),
+  // A signal the runner did not send ended it: a crash, an abort, the OOM killer.
+  z.strictObject({ result: z.literal('signaled'), ...ran, signal: NonEmpty, tail: Tail }),
   // It could not start; the tail says why.
   z.strictObject({ result: z.literal('unstarted'), ...ran, tail: Tail }),
 ]);
