@@ -108,6 +108,17 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(git subtree *)`,
       `${shell}(git submodule *)`,
       `${shell}(git s*)`,
+      // git's own programs and Windows shims (second round of the review).
+      `${shell}(git-push *)`,
+      `${shell}(/usr/lib/git-core/git-push origin)`,
+      `${shell}(git-send-pack *)`,
+      `${shell}(git-status *)`,
+      `${shell}(git.cmd *)`,
+      `${shell}(git.bat *)`,
+      `${shell}(C:\\tools\\git.cmd -C . push)`,
+      `${shell}(env git.cmd -C . push)`,
+      // A backslash quotes in Bash: g\it runs git.
+      ...(shell === 'Bash' ? ['Bash(g\\it *)', 'Bash(C:/Program\\ Files/Git/cmd/git.exe *)'] : []),
     ]) {
       it(`refuses to allow ${rule}, which reaches a push`, () => {
         assert.throws(
@@ -130,6 +141,9 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(./gradlew *)`,
       `${shell}(bash ./build.sh)`,
       `${shell}(npx tsc)`,
+      `${shell}(git-lfs install)`,
+      // In PowerShell a backslash is a path separator, not a quote.
+      ...(shell === 'PowerShell' ? ['PowerShell(C:\\tools\\gradlew.bat *)'] : []),
     ]) {
       it(`allows ${rule}, which reaches none of the pushes`, () => {
         const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
