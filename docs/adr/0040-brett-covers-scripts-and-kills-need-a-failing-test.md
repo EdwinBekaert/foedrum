@@ -1,6 +1,6 @@
 # 0040. Brett covers scripts/, and only a test the mutant makes fail kills it
 
-Date: 2026-10-16 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) and [0034](0034-brett-mutants-as-structured-line-edits.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) and [0034](0034-brett-mutants-as-structured-line-edits.md) · Amended by [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md)
 
 ## Context
 Two gaps in the mutation check of Foedrum's own review skill (issue #43, raised in the review of #104):
