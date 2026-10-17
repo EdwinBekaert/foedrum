@@ -661,6 +661,30 @@ describe('openDriver', () => {
       assert.deepStrictEqual(started, []);
       assert.deepStrictEqual(store.currentLeases(now), []);
     });
+
+    it('cleans a cancelled batch again once the lease of a run that never ended expired (#144)', async () => {
+      // The run's process died with the runner: its stop ends nothing, and it reports no progress,
+      // so its lease is not renewed.
+      const runner: BrewerRunner = {
+        start: () => ({ ended: new Promise<AttemptEnd>(() => {}), stop: () => {} }),
+        progress: () => undefined,
+      };
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+      // Cleaned while plan#1's lease is alive: the manager keeps its worktree.
+      await driver.tick();
+      const scopes = () => manager.cleans().map(({ scope }) => scope);
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }]);
+      now = at(6);
+      await driver.tick();
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }]);
+      now = at(7);
+      await driver.tick();
+      assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }], 'once');
+    });
   });
 
   describe('the supervisor', () => {
