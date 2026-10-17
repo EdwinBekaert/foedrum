@@ -163,6 +163,11 @@ describe('createAttemptPlans: plan', () => {
     assert.deepEqual(sizes, [1024 * 1024]);
   });
 
+  it('asks for no sandbox when the isolation level does not rely on it (review of #165)', async () => {
+    const { plans } = setup();
+    assert.equal((await plans.plan(start)).permissions.sandbox, false);
+  });
+
   it('makes the folder of the settings file under the work root', async () => {
     const { plans, folders } = setup();
     const plan = await plans.plan(start);

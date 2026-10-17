@@ -149,6 +149,13 @@ describe('modelOf (models.jsonc)', () => {
     assert.equal(modelOf(models, brewer({ name: 'constructor' })), 'claude-sonnet-5-5');
   });
 
+  it('throws for an alias that is only a property every object has (review of #165)', () => {
+    assert.throws(
+      () => modelOf(models, brewer({ model: 'constructor' })),
+      /models.jsonc has no model for the alias "constructor" of the brewer "brewmaster"/,
+    );
+  });
+
   it('throws, naming the alias and the brewer, when models.jsonc has no model for the alias', () => {
     assert.throws(
       () => modelOf(models, brewer({ model: 'large' })),
