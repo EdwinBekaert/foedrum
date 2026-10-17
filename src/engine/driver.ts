@@ -365,8 +365,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
       for (const batchId of [...toClean]) {
         toClean.delete(batchId);
-        report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
+        // Asked before the cleanup reads its claims: a lease it keeps a worktree for may expire
+        // while its git steps run. An ended batch gets no new lease, so asking early misses none.
         if (leasedBatches().has(batchId)) cleanedLeased.add(batchId);
+        report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
       }
       if (!moved) return;
     }
