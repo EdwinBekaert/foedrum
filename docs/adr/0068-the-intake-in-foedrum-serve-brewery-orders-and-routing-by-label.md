@@ -27,7 +27,7 @@ A pass orders **Brewery issues first, then target-repository issues**, both olde
 ### Routing by label, in the same pass
 After it orders, the pass routes **every Ordered batch** whose issue it read in this pass, whoever ordered it: its own orders of this pass, orders of a pass that was killed before it routed, sub-orders, and batches a `retry` sent back to Ordered (ADR 0032).
 - The batch is routed with `route` (`source: 'label'`, reason `the label recipe:<name>`) when its issue carries **exactly one** `recipe:<name>` label and the Brewery has a recipe of that name.
-- No such label, two of them, or a name the Brewery has no recipe of: the batch is not routed, and the pass reports it once per batch and reason, not every minute. It stays Ordered until its routing deadline, then the supervisor makes it Stuck on routing (ADR 0032), where a person chooses a recipe (`recipe`) or fixes the label and retries.
+- Two such labels, or a name the Brewery has no recipe of: the batch is not routed, and the pass reports it once per batch and reason, not every minute (`unrouted`). No such label: the batch is not routed either, and nothing is reported, since that is how a claimed issue waits for a person or, later, the router. Either way it stays Ordered until its routing deadline, then the supervisor makes it Stuck on routing (ADR 0032), with its reminder, where a person chooses a recipe (`recipe`) or fixes the label and retries.
 - An issue the pass did not read (its repository could not be listed, the issue was closed, or it no longer passes the repository's filter) leaves its batch waiting the same way.
 - Routing takes no capacity: an Ordered batch already holds its place.
 
@@ -42,7 +42,7 @@ The reason is ADR 0050's for pull request ends: what a batch does follows from r
 ### The intake in `serve`
 - `foedrum.jsonc` gains **`users`** (the allow-listed GitHub logins), **`concurrency`** (the batches that may be Ordered or Brewing at once, the intake's capacity; 1 to 20, default 1) and **`pollEvery`** (a duration from `30s` to `1h`, default `60s`, ADR 0052's interval). `serve` refuses to start without a user, since nothing could be ordered.
 - **The intake runs beside the driver's ticks, never inside one.** `serve`'s loop starts a pass when `pollEvery` has passed since the last one started and none is underway, and goes on ticking every 5 s while it runs. A slow pass, held to its deadline of at most half the batch lease (ADR 0050), never holds off the heartbeat or the end of an attempt. On a stop, `serve` waits for the pass underway, which its deadline bounds, before it closes the store.
-- **During a rate-limit pause** (`GitHubRateLimited` in a pass's report), `serve` starts no pass until its `until` (ADR 0052).
+- **During a rate-limit pause** (`GitHubRateLimited` in a pass's report), `serve` starts no pass until its `until` (ADR 0052). The GitHub client's pause runs on `serve`'s clock, the one that decides when to poll.
 - With a repository that has an intake, `serve` reads the token's login once at its start (`GET /user`), for the claims and the marks, and gives the driver the claim marks and releases as its effects (`claimEffects` over `githubIssueMarks` and `githubClaimHost`, ADR 0050).
 - Every notice of the intake is one line of `serve`'s output: ordered, routed, not routed and why, taken by another Brewery, refused, failed.
 
@@ -62,7 +62,7 @@ The reason is ADR 0050's for pull request ends: what a batch does follows from r
 ## Alternatives considered
 - **Order every open Brewery issue of an allow-listed user, labelled or not:** what the glossary's "an issue in the Brewery" says, but without a router every unlabelled issue would go Stuck on routing an hour later, and a Brewery's notes and questions would become batches.
 - **A configured label (`foedrum:order`) for Brewery orders, as target repositories have a filter:** one more setting for what the `recipe:` label already says in M1. The router's setting can add it.
-- **Route only the batches the pass ordered itself:** simpler, but an order whose pass was killed before its route, a sub-order and a retried batch would all wait for their deadline. That is the chaos case's planted defect.
+- **Route only the batches the pass ordered itself:** simpler, but an order whose pass was killed before its route, a sub-order and a retried batch would all wait for their deadline. It is one of the defects the chaos case was shown red on.
 - **Follow relabels:** see above; the lane would depend on GitHub's answer of the moment.
 - **Run the pass inside the driver's tick, awaited:** one sequence of writes, but a pass up to its deadline would hold off the next tick, the attempts' ends and the supervisor for minutes. Writers already share the store through the command log (ADR 0044).
 - **A routing interval of `serve` only:** see above; a retry would get two deadlines.
