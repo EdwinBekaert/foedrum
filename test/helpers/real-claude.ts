@@ -15,7 +15,7 @@ export type RealClaude = { kind: 'run'; claude: string } | { kind: 'skip'; reaso
  */
 export const realClaude = (
   env: NodeJS.ProcessEnv = process.env,
-  resolve: (name: string) => string | undefined = (name) => resolveExecutable(name),
+  resolve: (name: string) => string | undefined = resolveExecutable,
 ): RealClaude => {
   if (env[REAL_CLAUDE] !== '1') {
     return {
