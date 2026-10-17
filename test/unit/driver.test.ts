@@ -635,6 +635,76 @@ describe('openDriver', () => {
       );
     });
 
+    it("starts each attempt's worktree at the task tree: the base, then the latest success's branch (ADR 0066)", async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      const implement = (attempt: number) => ({ batchId: 'b1', stepId: 'implement', attempt });
+      end(implement(1), { kind: 'failed', retryable: true, reason: 'tests fail' });
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.calls.flatMap((call) =>
+          call.kind === 'create' ? [`${call.ref.stepId}#${call.ref.attempt} ${call.base}`] : [],
+        ),
+        [
+          'plan#1 origin/main',
+          'implement#1 refs/heads/foedrum/b1/plan/1',
+          // A retry starts where the failed attempt started.
+          'implement#2 refs/heads/foedrum/b1/plan/1',
+        ],
+      );
+    });
+
+    describe('after a rewind (ADR 0066)', () => {
+      const implement = (attempt: number) => ({ batchId: 'b1', stepId: 'implement', attempt });
+      const sha = 'd'.repeat(40);
+      /** Brews plan, gets implement#1 Stuck, and rewinds to implement with `shas`. */
+      const rewindTo = async (shas: Record<string, string>) => {
+        const { runner, end } = handRunner();
+        const manager = fakeWorktrees();
+        order('b1');
+        const driver = await open({ runner, ...worktreesOf(manager) });
+        await driver.drive();
+        end(plan('b1'));
+        await driver.drive();
+        end(implement(1), { kind: 'failed', retryable: false, reason: 'tests fail' });
+        await driver.drive();
+        assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+        const rewind = { kind: 'rewind', batchId: 'b1', toStepId: 'implement', shas } as const;
+        const by = { by: 'octocat', via: 'terminal' } as const;
+        assert.equal(intake.issue({ ...rewind, ...by }, now).kind, 'accepted');
+        await driver.drive();
+        const creates = manager.calls.flatMap((call) =>
+          call.kind === 'create' ? [`${call.ref.stepId}#${call.ref.attempt} ${call.base}`] : [],
+        );
+        return { creates, events: store.eventsAfter(0).map(({ event }) => event) };
+      };
+
+      it("starts the next attempt at the rewind's commit of the batch's repository", async () => {
+        const { creates } = await rewindTo({ 'acme/app': sha });
+        assert.deepStrictEqual(creates.at(-1), `implement#2 ${sha}`);
+      });
+
+      it('fails the attempt retryably, making no worktree, when the rewind names no commit of it', async () => {
+        const { creates, events } = await rewindTo({ 'acme/lib': sha });
+        assert.equal(creates.length, 2, 'no worktree for implement#2');
+        const finished = events.find(
+          (event) =>
+            event.type === 'step.finished' && event.stepId === 'implement' && event.attempt === 2,
+        );
+        assert.deepStrictEqual(finished?.type === 'step.finished' && finished.outcome, {
+          kind: 'failed',
+          retryable: true,
+          reason:
+            'the attempt could not get its worktree: the rewind of batch b1 names no commit of acme/app',
+        });
+      });
+    });
+
     it('fails an attempt that cannot get its worktree retryably, and lets its lease go', async () => {
       const { runner, started } = handRunner();
       order('b1');

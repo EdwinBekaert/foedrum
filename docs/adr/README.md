@@ -32,7 +32,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0026](0026-how-a-permission-ceiling-covers-a-rule.md) | How a permission ceiling covers a rule | Accepted |
 | [0027](0027-supervisor-lost-and-stalled-attempts.md) | The supervisor: lost and stalled attempts, reminders and the flush retry (amends 0024 and 0025) | Accepted, amended by 0032, 0044 and 0047 |
 | [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) | The brewer runner: how an attempt ends, its environment, and testFirst when unset | Accepted, amended by 0042, 0044, 0046 and 0047 |
-| [0029](0029-attempt-worktrees-layout-claims-and-repair.md) | Attempt worktrees: layout, claims, repair and resumed sessions (amends 0012) | Accepted, amended by 0037 and 0043 |
+| [0029](0029-attempt-worktrees-layout-claims-and-repair.md) | Attempt worktrees: layout, claims, repair and resumed sessions (amends 0012) | Accepted, amended by 0037, 0043 and 0066 |
 | [0030](0030-only-commands-that-change-state-are-recorded.md) | Only commands that change state are recorded (amends 0019) | Accepted |
 | [0031](0031-cmd-and-bat-files-through-cmd-exe.md) | `.cmd` and `.bat` files start through cmd.exe | Accepted |
 | [0032](0032-routing-deadline-for-ordered-batches.md) | A routing deadline for Ordered batches (amends 0025 and 0027) | Accepted, amended by 0064 |
@@ -40,7 +40,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0034](0034-brett-mutants-as-structured-line-edits.md) | Brett’s mutants are one-line structured edits, not patches (amends 0017) | Accepted, amended by 0040 and 0054 |
 | [0035](0035-the-process-runner-kills-at-an-output-limit.md) | The process runner kills a process at an output limit | Accepted |
 | [0036](0036-test-budget-in-cpu-time.md) | The per-file test budget is CPU time (amends 0021) | Accepted, amended by 0038 and 0054 |
-| [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) | Attempt worktrees in the engine, the Brewery marker and driver locks (amends 0029 and 0033) | Accepted, amended by 0061 and 0063 |
+| [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) | Attempt worktrees in the engine, the Brewery marker and driver locks (amends 0029 and 0033) | Accepted, amended by 0061, 0063 and 0066 |
 | [0038](0038-npm-test-processes-refuse-process-starts.md) | npm test's processes refuse to start processes (amends 0021 and 0036) | Accepted |
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted, amended by 0054 |
@@ -62,13 +62,14 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0056](0056-the-gate-pre-filter-reads-the-command.md) | The local gate's pre-filter reads the command, not the whole hook input (amends 0045) | Accepted, amended by 0060 and 0065 |
 | [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) | Real-claude tests are opt-in, and proofs of claude leave the suite (amends 0046, 0047 and 0049) | Accepted, amended by 0062 |
 | [0058](0058-the-planted-git-defect-moves-from-the-unit-test-to-the-code.md) | The planted git defect moves from the unit test to the code (amends 0022) | Accepted |
-| [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) | Attempt plans from the brewer of the step, and on tap without a pull request (amends 0043, 0047 and 0053) | Accepted, amended by 0062 and 0063 |
+| [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) | Attempt plans from the brewer of the step, and on tap without a pull request (amends 0043, 0047 and 0053) | Accepted, amended by 0062, 0063 and 0066 |
 | [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) | The local gate refuses `gh pr ready` until the review summary for the head is on the pull request (amends 0045 and 0056) | Accepted |
 | [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) | Chaos faults at their sites, shrinking, and the worktree and state branch cases (amends 0037 and 0051) | Accepted |
 | [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted |
-| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted |
+| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066 |
 | [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) | Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required (amends 0025, 0032 and 0053) | Accepted |
 | [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) | The local gate refuses npx of packages that are not in the lockfile (amends 0045 and 0056) | Accepted |
+| [0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md) | The task tree continues from the latest succeeded attempt (amends 0029, 0037, 0059 and 0063) | Accepted |
 | [0067](0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md) | A pull request of only plain documentation needs no review summary (amends 0060) | Accepted |
 
 ## Template

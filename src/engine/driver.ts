@@ -23,6 +23,7 @@ import type { State } from './fold.ts';
 import type { Recipes } from './recipes.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
+import { sameRepo, taskTreeStart } from './task-tree.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
 /** The effects the driver applies, and where they land. */
@@ -38,7 +39,10 @@ export interface DriverEffects {
   deadlineMs?: number;
 }
 
-/** The attempt worktrees of a repository the attempts write in, and the base new ones start at. */
+/**
+ * The attempt worktrees of a repository the attempts write in, and the base a batch starts at
+ * until its task tree moves (ADR 0066).
+ */
 export interface RepositoryWorktrees {
   repo: string;
   base: string;
@@ -126,8 +130,7 @@ export const repositoryOf = (
       `batch ${batchId} names no repository, and the Brewery has ${repositories.length}`,
     );
   }
-  // GitHub names are case-insensitive.
-  const found = repositories.find((each) => each.repo.toLowerCase() === repo.toLowerCase());
+  const found = repositories.find((each) => sameRepo(each.repo, repo));
   if (found === undefined) {
     throw new Error(`batch ${batchId} writes in ${repo}, which the Brewery does not list`);
   }
@@ -311,8 +314,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     let repository: RepositoryWorktrees;
     let made: AttemptWorktree;
     try {
-      repository = repositoryOf(log.state(), ref.batchId, worktrees);
-      made = await repository.manager.create(ref, repository.base);
+      const state = log.state();
+      repository = repositoryOf(state, ref.batchId, worktrees);
+      const batch = state.batches.get(ref.batchId);
+      if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
+      // At the commits of the steps before it (ADR 0066).
+      made = await repository.manager.create(ref, taskTreeStart(batch, repository));
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;

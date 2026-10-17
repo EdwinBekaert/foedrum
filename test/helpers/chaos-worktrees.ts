@@ -4,6 +4,7 @@
 // carries the plans out one git step at a time, with a kill point between the steps. No git runs
 // and no folder is made (ADR 0021).
 
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type { Batch, State } from '../../src/engine/fold.ts';
@@ -67,6 +68,9 @@ export interface CloneWatch {
 /** How the manager's `create` went, for the goals of the worktree cases. */
 export type Made = 'added' | 'reused' | 'refused';
 
+/** The commit the fake brewer of attempt `key` makes on its branch when its run starts. */
+const commitOf = (key: string): string => createHash('sha1').update(key).digest('hex');
+
 export const fakeClone = (watch: CloneWatch) => {
   // inside → the branch it has checked out: git's records under .git/worktrees/.
   const records = new Map<string, string>();
@@ -75,7 +79,13 @@ export const fakeClone = (watch: CloneWatch) => {
   const branches = new Map<string, string>();
   /** What was broken: an attempt without its worktree, a removal of something still claimed. */
   const violations: string[] = [];
-  const made: { key: string; how: Made }[] = [];
+  /**
+   * How each `create` went, and whether it started at a commit that a brewer of an earlier, killed
+   * process of the driver made: the task tree handed on across a kill (ADR 0066).
+   */
+  const made: { key: string; how: Made; acrossKill?: true }[] = [];
+  /** The commit each attempt's fake brewer made on its branch, by attempt key, and in which life. */
+  const committed = new Map<string, { sha: string; life: Life }>();
   /** What each clean removed, by batch. */
   const cleaned: { batchId: string | undefined; done: string[]; kept: string[] }[] = [];
 
@@ -171,7 +181,19 @@ export const fakeClone = (watch: CloneWatch) => {
     root,
     async create(ref, base): Promise<AttemptWorktree> {
       life.alive();
-      if (base !== 'origin/main') throw new Error(`The base ${base} is no commit in the clone`);
+      // The start, resolved as git would: the base, an attempt branch, or a commit (ADR 0066).
+      const known = new Set([chaosBase, ...[...committed.values()].map(({ sha }) => sha)]);
+      const at =
+        base === 'origin/main'
+          ? chaosBase
+          : base.startsWith('refs/heads/')
+            ? branches.get(base.slice('refs/heads/'.length))
+            : known.has(base)
+              ? base
+              : undefined;
+      if (at === undefined) throw new Error(`The base ${base} is no commit in the clone`);
+      const by = [...committed.values()].find(({ sha }) => sha === at)?.life;
+      const across = by !== undefined && by !== life ? { acrossKill: true as const } : {};
       const inside = attemptFolder(ref);
       const branch = attemptBranch(ref);
       const path = pathOf(inside);
@@ -186,12 +208,12 @@ export const fakeClone = (watch: CloneWatch) => {
         checkedOutAt,
       };
       const key = attemptKey.encode(ref);
-      const plan = planWorktree(ref, facts, { kind: 'new', base: chaosBase });
+      const plan = planWorktree(ref, facts, { kind: 'new', base: at });
       switch (plan.kind) {
         case 'reuse':
-          made.push({ key, how: 'reused' });
+          made.push({ key, how: 'reused', ...across });
           life.point('after a worktree was made');
-          return { path, branch, commit: chaosBase };
+          return { path, branch, commit: at };
         case 'refuse':
           made.push({ key, how: 'refused' });
           throw new Error(`Attempt ${inside} cannot get its worktree: ${plan.reason}`);
@@ -204,14 +226,14 @@ export const fakeClone = (watch: CloneWatch) => {
             else if (record !== undefined) removeRecord(record);
           }
           // git worktree add: the branch, the record, then the folder with its checkout.
-          if (plan.newBranch) branches.set(branch, chaosBase);
+          if (plan.newBranch) branches.set(branch, at);
           life.point('while making a worktree');
           records.set(inside, branch);
           life.point('while making a worktree');
           folders.add(inside);
-          made.push({ key, how: 'added' });
+          made.push({ key, how: 'added', ...across });
           life.point('after a worktree was made');
-          return { path, branch, commit: chaosBase };
+          return { path, branch, commit: at };
         }
         default: {
           const unknown: never = plan;
@@ -268,6 +290,8 @@ export const fakeClone = (watch: CloneWatch) => {
     violations,
     made,
     cleaned,
+    /** The commit each attempt's fake brewer made, by attempt key. */
+    committed: (key: string): string | undefined => committed.get(key)?.sha,
     leftovers,
     /** The batches anything in the clone belongs to. */
     batches: (): string[] => [
@@ -276,13 +300,21 @@ export const fakeClone = (watch: CloneWatch) => {
         ...[...branches.keys()].map((name) => name.split('/')[1] ?? ''),
       ]),
     ],
-    /** Notes an attempt whose runner starts without its worktree on its branch. */
-    starting: (ref: AttemptRef): void => {
+    /**
+     * Notes an attempt whose runner starts without its worktree on its branch; one that has it
+     * commits on its branch at once, as a brewer of `life`.
+     */
+    starting: (ref: AttemptRef, life: Life): void => {
       const inside = attemptFolder(ref);
       const branch = attemptBranch(ref);
+      const key = attemptKey.encode(ref);
       if (!folders.has(inside) || records.get(inside) !== branch || !branches.has(branch)) {
-        violations.push(`${attemptKey.encode(ref)} started without its worktree`);
+        violations.push(`${key} started without its worktree`);
+        return;
       }
+      const sha = commitOf(key);
+      committed.set(key, { sha, life });
+      branches.set(branch, sha);
     },
   };
 };

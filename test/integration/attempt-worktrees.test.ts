@@ -7,6 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
+import { createCommandLog } from '../../src/engine/command-log.ts';
+import { type Driver, openDriver } from '../../src/engine/driver.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -16,8 +18,9 @@ import {
   openAttemptWorktrees,
 } from '../../src/workspace/attempt-worktrees-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
-import { createBrewing } from '../helpers/brewing.ts';
+import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
+import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { makeReadOnly } from './read-only.ts';
@@ -340,6 +343,78 @@ describe('the driver and attempt worktrees with real git', () => {
     }
     assert.deepEqual(leftovers(), { branches: [], records: [] });
     assert.deepEqual(readdirSync(manager().root), []);
+  });
+
+  it('brews two steps through openDriver: the second has the commits of the first, not of a failed attempt (ADR 0066)', async () => {
+    const clock = () => new Date('2026-10-16T12:00:00.000Z');
+    let driver: Driver | undefined;
+    const worktreeOf = (ref: AttemptRef) => {
+      const found = driver?.state().batches.get(ref.batchId)?.steps.get(ref.stepId);
+      const started = found?.attempts.get(ref.attempt);
+      assert.ok(started?.phase === 'started' && started.worktree !== undefined);
+      return started.worktree.path;
+    };
+    const commit = (path: string, file: string): void => {
+      writeFileSync(
+        join(path, file),
+        `${file}
+`,
+      );
+      git(path, ['add', file]);
+      git(path, ['commit', '-q', '-m', file]);
+    };
+    // What each attempt finds in its worktree; plan commits plan.txt, implement#1 junk.txt.
+    const seen: string[] = [];
+    const runner = fakeBrewerRunner(({ ref }) => {
+      const path = worktreeOf(ref);
+      const files = ['plan.txt', 'junk.txt'].filter((file) => existsSync(join(path, file)));
+      seen.push(`${ref.stepId}#${ref.attempt}: ${files.join(' ')}`);
+      if (ref.stepId === 'plan') {
+        commit(path, 'plan.txt');
+        return behave.succeed();
+      }
+      if (ref.attempt === 1) {
+        commit(path, 'junk.txt');
+        return behave.fail(true);
+      }
+      return behave.succeed();
+    });
+    driver = await openDriver({
+      store,
+      runner,
+      recipes,
+      clock,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: manager() }],
+    });
+    try {
+      const intake = createCommandLog({ store, recipes });
+      intake.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, clock());
+      const route = { kind: 'route', batchId: '12-1', recipe: 'pint', reason: 'label' } as const;
+      intake.issue({ ...route, source: 'label' }, clock());
+      await driver.drive();
+      assert.equal(driver.state().batches.get('12-1')?.lane.kind, 'on_tap');
+    } finally {
+      driver.close();
+    }
+
+    assert.deepEqual(seen, ['plan#1: ', 'implement#1: plan.txt', 'implement#2: plan.txt']);
+    const starts = store
+      .eventsAfter(0)
+      .flatMap(({ event }) =>
+        event.type === 'step.started' && event.worktree !== undefined
+          ? [event.worktree.commit]
+          : [],
+      );
+    const [base, planTip] = starts;
+    assert.equal(base, git(user, ['rev-parse', 'origin/main']).trim());
+    assert.notEqual(planTip, base);
+    // The retry starts where the failed attempt started, at plan's commit.
+    assert.deepEqual(starts, [base, planTip, planTip]);
+    assert.deepEqual(leftovers(), { branches: [], records: [] });
   });
 
   it('removes at its start what a driver that died before cleaning up left of an ended batch', async () => {
