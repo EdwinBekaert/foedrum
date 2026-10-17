@@ -1621,6 +1621,9 @@ describe('precheck on npx and the commands that run a package like it', () => {
     ['npx nul', 'npx nul'],
     ['npx CON check', 'npx CON'],
     ['npx lpt1.txt', 'npx lpt1.txt'],
+    ['npx prn', 'npx prn'],
+    ['npx Aux.js', 'npx Aux.js'],
+    ['npx com9', 'npx com9'],
     ['npx biome. check', 'npx biome.'],
   ];
   for (const [command, run] of unnamed) {
@@ -1672,6 +1675,14 @@ describe('precheck on npx and the commands that run a package like it', () => {
           '`npx biome` is blocked in a command that changes directory: the gate looks for it in node_modules/.bin where the command starts, and npx would look where it runs. Run it as a command of its own, from the folder whose node_modules it uses.\n',
       });
       assert.deepEqual(checks, []);
+    });
+  }
+
+  // One- and two-character names are binary names too, such as nx.
+  for (const name of ['x', 'nx']) {
+    it(`looks up a short name: npx ${name}`, async () => {
+      const { asked } = await gate(`npx ${name}`);
+      assert.deepEqual(asked, [['/work/tree', name]]);
     });
   }
 
