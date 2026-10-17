@@ -3,8 +3,8 @@
 // count is FOEDRUM_RUNS (a few in npm run check, 1,000 in the nightly run).
 
 import { after, before, it } from 'node:test';
-import { holdsAcrossKills } from '../helpers/chaos.ts';
 import { restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
+import { holdsAcrossKills } from '../helpers/chaos-shrink.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 let dir: TempDir;
