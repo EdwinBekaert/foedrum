@@ -15,14 +15,18 @@ import {
   execProcessWith,
   isPidAlive,
   processSpawner,
+  runProcessThrough,
   type Spawner,
   spawnCommand,
   spawnProcess,
   streamProcess,
+  streamProcessWith,
 } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { windowsCommandLine } from '../../src/platform/shell.ts';
+import { cuedTimers, hangGuardMs, waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { lateKill } from './late-kill.ts';
 
 const tree = join(import.meta.dirname, '..', 'fixtures', 'processes', 'tree.ts');
 
@@ -34,22 +38,16 @@ const pidsIn = (file: string): number[] =>
         .map(Number)
     : [];
 
-const waitFor = async (what: string, done: () => boolean, ms = 20_000): Promise<void> => {
-  const until = Date.now() + ms;
-  while (!done()) {
-    if (Date.now() > until) assert.fail(`timed out waiting for ${what}`);
-    await delay(50);
-  }
-};
+const alive = (pids: number[]): number[] => pids.filter((pid) => isPidAlive(pid));
 
-// taskkill and SIGKILL take effect at once, but give the OS a moment to reap. Kills what is
-// left, so a failing test leaves nothing running.
+// Waits for every process to end, however long a loaded machine takes to kill and reap them
+// (ADR 0070). Kills what is left, so a failing test leaves nothing running.
 const assertAllEnd = async (pids: number[]): Promise<void> => {
-  const until = Date.now() + 10_000;
-  while (pids.some((pid) => isPidAlive(pid)) && Date.now() < until) await delay(100);
-  const alive = pids.filter((pid) => isPidAlive(pid));
-  for (const pid of alive) process.kill(pid);
-  assert.deepEqual(alive, [], 'processes of the tree still running');
+  try {
+    await waitUntil('every process of the tree to end', () => alive(pids).length === 0);
+  } finally {
+    for (const pid of alive(pids)) process.kill(pid);
+  }
 };
 
 describe('execProcess with a real tree of processes', () => {
@@ -72,61 +70,58 @@ describe('execProcess with a real tree of processes', () => {
     assert.equal(result.killed, undefined);
   });
 
-  it('kills the process, its child and its grandchild when stopped, and answers at once', async (t) => {
+  // The kill takes effect late, as on a loaded machine (#147): the tree still runs when the
+  // runner answers, which shows it answered at once, with no wall clock to read (ADR 0070).
+  it('kills the process, its child and its grandchild when stopped, and answers at once', async () => {
     const stop = new AbortController();
-    const done = execProcess(process.execPath, [tree, pidFile, '2'], {
+    const done = execProcessWith(lateKill(2500))(process.execPath, [tree, pidFile, '2'], {
       cwd: dir.path,
       signal: stop.signal,
     });
-    await waitFor('three levels to start', () => pidsIn(pidFile).length === 3);
-    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const stopped = Date.now();
+    await waitUntil('three levels to start', () => pidsIn(pidFile).length === 3);
     stop.abort();
-    // A loaded machine (#147): the test process loses 5.1 s here.
-    t.mock.timers.tick(5100);
     const result = await done;
-    assert.ok(Date.now() - stopped < 5000, `answered ${Date.now() - stopped} ms after the stop`);
+    const pids = pidsIn(pidFile);
+    assert.deepEqual(alive(pids), pids, 'the runner waited for the tree to end');
     assert.equal(result.killed, 'stopped');
     assert.equal(result.exitCode, null);
     assert.match(result.stdout, /level 2 started/);
-    await assertAllEnd(pidsIn(pidFile));
+    await assertAllEnd(pids);
   });
 
+  // A loaded machine (#147) starts the levels later than the deadline expects and kills them
+  // late: the test reaches the deadline once all three run, and the tree still runs when the
+  // runner answers (ADR 0070).
   it('kills the whole tree at the deadline, though the grandchild holds the output open', async () => {
-    const started = Date.now();
-    // A loaded machine (#147): the three levels start later than the deadline expects.
-    const result = await spawnProcess(process.execPath, [tree, pidFile, '2'], dir.path, {
-      timeoutMs: 10,
-    });
-    const elapsed = Date.now() - started;
+    const deadline = cuedTimers();
+    const run = runProcessThrough(execProcessWith(lateKill(2500), deadline));
+    const running = run(process.execPath, [tree, pidFile, '2'], dir.path, { timeoutMs: 10 });
+    await waitUntil('three levels to start', () => pidsIn(pidFile).length === 3);
+    deadline.fire();
+    const result = await running;
     assert.equal(result.killed, 'timed-out');
     assert.equal(result.exitCode, null);
-    assert.ok(elapsed < 15_000, `answered after ${elapsed} ms`);
     const pids = pidsIn(pidFile);
-    assert.equal(pids.length, 3, 'all three levels started before the deadline');
+    assert.deepEqual(alive(pids), pids, 'the runner waited for the tree to end');
     await assertAllEnd(pids);
   });
 
   // A hook or a credential helper that writes without end (#91). Each write waits for the pipe,
   // so the writer runs on every platform until it is killed.
-  it('kills a process that writes without end once its output passes the limit', async (t) => {
+  // Its deadline never comes, so the limit ended it, however long that took (ADR 0070).
+  it('kills a process that writes without end once its output passes the limit', {
+    timeout: hangGuardMs,
+  }, async () => {
     const script =
       "process.stdout.write(process.pid + '\\n'); const chunk = 'x'.repeat(65536);" +
       ' const more = () => process.stdout.write(chunk, more); more();';
-    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const started = Date.now();
-    const running = execProcess(process.execPath, ['-e', script], {
-      cwd: dir.path,
-      timeoutMs: 20_000,
-      maxOutputBytes: 1024 * 1024,
-    });
-    // A loaded machine (#147): the test process loses 10.1 s here.
-    t.mock.timers.tick(10100);
-    const result = await running;
-    const elapsed = Date.now() - started;
+    const result = await execProcessWith(processSpawner, cuedTimers())(
+      process.execPath,
+      ['-e', script],
+      { cwd: dir.path, timeoutMs: 20_000, maxOutputBytes: 1024 * 1024 },
+    );
     assert.equal(result.killed, 'too-much-output');
     assert.equal(result.exitCode, null);
-    assert.ok(elapsed < 10_000, `answered after ${elapsed} ms`);
     assert.ok(result.output.length <= 1024 * 1024, String(result.output.length));
     await assertAllEnd([Number(result.stdout.split('\n')[0])]);
   });
@@ -145,7 +140,7 @@ describe('execProcess with a real tree of processes', () => {
       timeoutMs: 6000,
       jobObject: true,
     });
-    await waitFor('the grandchild to start and its parent to exit', () => {
+    await waitUntil('the grandchild to start and its parent to exit', () => {
       const [parent, grandchild] = pidsIn(pidFile);
       return grandchild !== undefined && parent !== undefined && !isPidAlive(parent);
     });
@@ -198,27 +193,27 @@ describe('streamProcess with real processes', () => {
     assert.ok(lines.slice(1).every((line) => line === String(32 * 1024 - 1)));
   });
 
-  it('kills a process that writes a line without end once the line passes the limit', async (t) => {
+  // Its deadline never comes, so the limit ended it, however long that took (ADR 0070).
+  it('kills a process that writes a line without end once the line passes the limit', {
+    timeout: hangGuardMs,
+  }, async () => {
     const script =
       "process.stdout.write(process.pid + '\\n'); const chunk = 'x'.repeat(65536);" +
       ' const more = () => process.stdout.write(chunk, more); more();';
     const lines: string[] = [];
-    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const started = Date.now();
-    const running = streamProcess(process.execPath, ['-e', script], {
-      cwd: dir.path,
-      maxLineBytes: 1024 * 1024,
-      timeoutMs: 20_000,
-      jobObject: true,
-      onLine: (line) => lines.push(line),
-    });
-    // A loaded machine (#147): the test process loses 10.1 s here.
-    t.mock.timers.tick(10100);
-    const result = await running;
-    const elapsed = Date.now() - started;
+    const result = await streamProcessWith(processSpawner, cuedTimers())(
+      process.execPath,
+      ['-e', script],
+      {
+        cwd: dir.path,
+        maxLineBytes: 1024 * 1024,
+        timeoutMs: 20_000,
+        jobObject: true,
+        onLine: (line) => lines.push(line),
+      },
+    );
     assert.equal(result.killed, 'line-too-long');
     assert.equal(result.exitCode, null);
-    assert.ok(elapsed < 10_000, `answered after ${elapsed} ms`);
     assert.equal(lines.length, 1);
     await assertAllEnd([Number(lines[0])]);
   });
@@ -306,7 +301,7 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
       signal: stop.signal,
       jobObject: true,
     });
-    await waitFor('three levels to start', () => pidsIn(pidFile).length === 3);
+    await waitUntil('three levels to start', () => pidsIn(pidFile).length === 3);
     stop.abort();
     assert.equal((await done).killed, 'stopped');
     await assertAllEnd(pidsIn(pidFile));
@@ -369,52 +364,44 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
   // output open, so the helper ends it and the call answers at once, not at its deadline. Runs
   // outside dir.path, whose removal such a program would block.
   // The same through the helper's own failure path: a job the program cannot be assigned to.
-  it('ends the program it could not put in the job, and answers at once', async (t) => {
+  it('ends the program it could not put in the job, and answers at once', {
+    timeout: hangGuardMs,
+  }, async () => {
     const failing = editedHelper((script) =>
       script.replace(
         '$k::AssignProcessToJobObject($job, $process)',
         '$k::AssignProcessToJobObject([IntPtr]::Zero, $process)',
       ),
     );
-    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const started = Date.now();
-    const running = execProcessWith(failing)(process.execPath, ['-e', ''], {
+    // Its deadline never comes, so it answered without one, however long it ran (ADR 0070).
+    const result = await execProcessWith(failing, cuedTimers())(process.execPath, ['-e', ''], {
       cwd: import.meta.dirname,
       timeoutMs: 30_000,
       jobObject: true,
     });
-    // A loaded machine (#147): the test process loses 15.1 s here.
-    t.mock.timers.tick(15100);
-    const result = await running;
-    const elapsed = Date.now() - started;
-    assert.equal(result.killed, undefined, `answered after ${elapsed} ms`);
+    assert.equal(result.killed, undefined);
     assert.equal(result.exitCode, null);
     assert.match(result.stderr, /cannot run in a Job Object: AssignProcessToJobObject: .+ \(6\)$/);
-    assert.ok(elapsed < 15_000, `answered after ${elapsed} ms`);
   });
 
-  it('ends the program it could not let run, and answers at once', async (t) => {
+  it('ends the program it could not let run, and answers at once', {
+    timeout: hangGuardMs,
+  }, async () => {
     const failing = editedHelper((script) =>
       script.replace(
         '$thread = & $read $started $size',
         "$thread = & $read $started $size\nthrow 'injected'",
       ),
     );
-    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const started = Date.now();
-    const running = execProcessWith(failing)(process.execPath, ['-e', ''], {
+    // Its deadline never comes, so it answered without one, however long it ran (ADR 0070).
+    const result = await execProcessWith(failing, cuedTimers())(process.execPath, ['-e', ''], {
       cwd: import.meta.dirname,
       timeoutMs: 30_000,
       jobObject: true,
     });
-    // A loaded machine (#147): the test process loses 15.1 s here.
-    t.mock.timers.tick(15100);
-    const result = await running;
-    const elapsed = Date.now() - started;
-    assert.equal(result.killed, undefined, `answered after ${elapsed} ms`);
+    assert.equal(result.killed, undefined);
     assert.equal(result.exitCode, null);
     assert.match(result.stderr, /cannot run in a Job Object: injected/);
-    assert.ok(elapsed < 15_000, `answered after ${elapsed} ms`);
   });
 });
 

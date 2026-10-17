@@ -13,10 +13,17 @@ export const descheduled = (ms: number): void => {
 };
 
 /**
- * Polls `done` until it holds. The deadline only guards against a hang, so it is long: a loaded
- * machine may take many times longer than an idle one (ADR 0070).
+ * How long a test waits before it calls a wait a hang. Only a guard, never a measure, so it is
+ * long: a loaded machine may take many times longer than an idle one (ADR 0070).
  */
-export const waitUntil = async (what: string, done: () => boolean, ms = 120_000): Promise<void> => {
+export const hangGuardMs = 120_000;
+
+/** Polls `done` until it holds, and fails after `ms`, a guard against a hang. */
+export const waitUntil = async (
+  what: string,
+  done: () => boolean,
+  ms = hangGuardMs,
+): Promise<void> => {
   const until = performance.now() + ms;
   while (!done()) {
     if (performance.now() > until) throw new Error(`timed out waiting for ${what}`);
