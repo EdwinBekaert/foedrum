@@ -1584,6 +1584,14 @@ describe('precheck on npx and the commands that run a package like it', () => {
     ['env CI=1 npx prettier --write x.ts', 'npx prettier'],
     ['bash -c "npx prettier --write x.ts"', 'npx prettier'],
     ['git status && npx prettier --write x.ts', 'npx prettier'],
+    // pnpm's shorthand for pnpm dlx, and the PowerShell shims npm and pnpm install on Windows.
+    ['pnpx prettier --write x.ts', 'pnpx prettier'],
+    ['npx.ps1 prettier --write x.ts', 'npx prettier', 'PowerShell'],
+    [
+      '& "C:\\Users\\dev\\AppData\\Roaming\\npm\\pnpm.ps1" dlx prettier',
+      'pnpm dlx prettier',
+      'PowerShell',
+    ],
   ];
   for (const [command, run, tool = 'Bash'] of refused) {
     it(`refuses in ${tool}: ${command}`, async () => {
@@ -1622,6 +1630,27 @@ describe('precheck on npx and the commands that run a package like it', () => {
       assert.deepEqual(checks, []);
       assert.ok(asked.length > 0);
       assert.ok(asked.every(([cwd, name]) => cwd === '/work/tree' && name === 'biome'));
+    });
+  }
+
+  // The gate looks in node_modules/.bin around the hook's working directory; after a change of
+  // directory npx looks elsewhere and may download a package of the same name.
+  const moved: [command: string, tool?: string][] = [
+    ['cd ../other && npx biome check'],
+    ['pushd ../other && npx biome check'],
+    ['bash -c "cd ../other && npx biome check"'],
+    ['Set-Location ..\\other; npx biome check', 'PowerShell'],
+    ['sl ..\\other; npx biome check', 'PowerShell'],
+  ];
+  for (const [command, tool = 'Bash'] of moved) {
+    it(`refuses a package runner after a change of directory in ${tool}: ${command}`, async () => {
+      const { result, checks } = await gate(command, tool);
+      assert.deepEqual(result, {
+        exitCode: 2,
+        stderr:
+          '`npx biome` is blocked in a command that changes directory: the gate looks for it in node_modules/.bin where the command starts, and npx would look where it runs. Run it as a command of its own, from the folder whose node_modules it uses.\n',
+      });
+      assert.deepEqual(checks, []);
     });
   }
 
