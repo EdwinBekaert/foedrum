@@ -5,8 +5,18 @@ import { isAbsolute } from 'node:path';
 import { Repo } from './events.ts';
 import { z } from './zod.ts';
 
-/** A path on this machine, absolute, so it does not depend on the folder serve runs in. */
-const AbsolutePath = z.string().refine(isAbsolute, 'Must be an absolute path');
+/**
+ * A path on this machine, absolute, so it does not depend on the folder serve runs in: on Windows
+ * with a drive or a UNC share, since `\\work` lies on the drive serve runs on.
+ */
+const AbsolutePath = z
+  .string()
+  .refine(
+    (path) =>
+      isAbsolute(path) &&
+      (process.platform !== 'win32' || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(path)),
+    'Must be an absolute path, on Windows with its drive',
+  );
 
 export const LocalConfig = z.strictObject({
   workRoot: AbsolutePath.optional().describe(

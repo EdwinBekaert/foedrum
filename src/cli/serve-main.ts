@@ -12,10 +12,10 @@ import { execProcess } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { diagnose } from './doctor.ts';
 import { gatherDoctorFacts } from './doctor-facts.ts';
-import { type CliResult, printable } from './run.ts';
+import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
 import { serveSetup } from './serve-config.ts';
-import { serveShell } from './serve-shell.ts';
+import { listenWhileServing, serveShell } from './serve-shell.ts';
 
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
@@ -52,22 +52,16 @@ export const serveFromCheckout = async (cwd: string): Promise<CliResult> => {
   const { setup } = ready;
 
   // The stop signals are listened for while serve runs, and no longer once it returns.
-  const listening: [NodeJS.Signals, () => void][] = [];
+  const listening = listenWhileServing(process);
   try {
     const shell = serveShell(setup, {
       root: cwd,
       git: runGit,
-      // Notices may carry text a model wrote: never a control character on the terminal.
-      out: (line) =>
-        process.stdout.write(`${printable(line)}
-`),
-      listen: (name, handler) => {
-        listening.push([name, handler]);
-        process.once(name, handler);
-      },
+      out: (line) => process.stdout.write(`${line}\n`),
+      listen: listening.listen,
     });
     return { exitCode: await runServe(setup, shell), stdout: '', stderr: '' };
   } finally {
-    for (const [name, handler] of listening) process.off(name, handler);
+    listening.stop();
   }
 };

@@ -23,6 +23,7 @@ import { createGitHubClient } from '../github/client.ts';
 import { githubOrderText } from '../github/order-text.ts';
 import { createGitHubReads } from '../github/reads.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
+import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
 /** What serve needs from the machine. */
@@ -104,7 +105,8 @@ export const formatNotice = (notice: DriverNotice): string => {
 /** Runs the Cellar until `shell.signal` aborts; the exit code: 0 stopped, 1 failed. */
 export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
-  const say = (line: string): void => out(`foedrum serve: ${line}`);
+  // Notices may carry text a model wrote: never a control character on the terminal.
+  const say = (line: string): void => out(printable(`foedrum serve: ${line}`));
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
   try {

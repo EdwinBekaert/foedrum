@@ -32,9 +32,20 @@ export interface SignalSource {
 
 /** Listens for the stop signals while serve runs, until `stop`. */
 export const listenWhileServing = (
-  _source: SignalSource,
+  source: SignalSource,
 ): { listen: ListenForSignal; stop: () => void } => {
-  throw new Error('not implemented');
+  // `on`, not `once`: a second Ctrl+C or a closed terminal while serve shuts down would
+  // otherwise end the process before the driver stopped its runs.
+  const listening: [NodeJS.Signals, () => void][] = [];
+  return {
+    listen: (name, handler) => {
+      listening.push([name, handler]);
+      source.on(name, handler);
+    },
+    stop: () => {
+      for (const [name, handler] of listening.splice(0)) source.off(name, handler);
+    },
+  };
 };
 
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {

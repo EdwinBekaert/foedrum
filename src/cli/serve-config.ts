@@ -129,6 +129,11 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     );
   }
 
+  if (config !== undefined && Object.keys(config.repositories).length === 0) {
+    problems.push(
+      'foedrum.jsonc: list at least one repository under "repositories" for foedrum serve',
+    );
+  }
   if (config !== undefined && config.brewery === undefined) {
     problems.push('foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)');
   }
