@@ -31,8 +31,8 @@ export interface HookResult {
 const MAX_OUTPUT_CHARS = 4000;
 // Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter;
 // push, merge and ready for a git or gh whose name is computed at run time; pwsh and powershell
-// for an encoded command.
-const MAY_PUSH_OR_MERGE = /git|gh|push|merge|ready|pwsh|powershell|\\u/i;
+// for an encoded command; npx, npm, dlx and bun for a package runner (#175).
+const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
 
 // PowerShell reads typographic quotes as quotes; bash does not.
 const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
@@ -72,6 +72,10 @@ const READY_COMBINED_BLOCKED =
   'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
   'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
+const downloadBlocked = (run: string): string =>
+  `\`${run}\` would download a package that isn't in package-lock.json. Use the project's tools: \`npm run lint -- --write\` formats with Biome.`;
+// A name node_modules/.bin can hold, and nothing that reaches out of it.
+const BINARY_NAME = /^[A-Za-z0-9][\w.-]*$/;
 
 // A shell's reading of a command line. Git Bash runs the Bash tool's commands, so a tool's command
 // is read in its own shell; what it runs in turn may be either, so that is read both ways.
@@ -291,7 +295,6 @@ const WRAPPERS = new Map<string, Wrapper>([
   ['wsl', { withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'] }],
   ['nice', { withValue: ['-n', '--adjustment'] }],
   ['nohup', { withValue: [] }],
-  ['npx', { withValue: ['-p', '--package', '-c', '--call'], runs: ['-c', '--call'] }],
   ['sudo', { withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '-h', '-p', '-r', '-t'] }],
   ['time', { withValue: ['-f', '--format', '-o', '--output'] }],
   ['timeout', { withValue: ['-s', '--signal', '-k', '--kill-after'], operands: 1 }],
@@ -318,6 +321,38 @@ const WRAPPERS = new Map<string, Wrapper>([
   ],
 ]);
 
+// npx and the commands that run a package the way it does, by the words that start them. Each is
+// a wrapper that downloads, when the lockfile did not install them, the program it runs and the
+// value of each option that is not a command, such as --package (#175).
+const NPX: Wrapper = { withValue: ['-p', '--package', '-c', '--call'], runs: ['-c', '--call'] };
+const PACKAGE_RUNNERS = new Map<string, Wrapper>([
+  ['npx', NPX],
+  ['npm exec', NPX],
+  ['npm x', NPX],
+  ['pnpm dlx', { withValue: ['--package'] }],
+  ['yarn dlx', { withValue: ['-p', '--package'] }],
+  ['bunx', { withValue: ['-p', '--package'] }],
+  ['bun x', { withValue: ['-p', '--package'] }],
+]);
+
+// A package that npx or a relative would run, and the words that started it.
+interface PackageRun {
+  runner: string;
+  name: Word;
+}
+
+// The package runner a program and its arguments start, and the arguments after its words.
+const packageRunner = (
+  program: string,
+  args: Word[],
+): { runner: string; wrapper: Wrapper; args: Word[] } | undefined => {
+  const wrapper = PACKAGE_RUNNERS.get(program);
+  if (wrapper !== undefined) return { runner: program, wrapper, args };
+  const runner = `${program} ${args[0]?.text}`;
+  const subcommand = PACKAGE_RUNNERS.get(runner);
+  return subcommand && { runner, wrapper: subcommand, args: args.slice(1) };
+};
+
 // bash's reserved words that can come before a command, and PowerShell's dot operator.
 const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '.']);
 // A PowerShell assignment operator, as in `$out = git push`.
@@ -333,17 +368,27 @@ const leadingWords = ([first, second]: Word[]): number => {
 
 // The program and arguments of a simple command, after environment assignments, reserved words,
 // PowerShell assignments and wrapper words. A wrapper option whose value is a command adds it to
-// `nested`.
-const invocation = (words: Word[], nested: string[]): Invocation | undefined => {
+// `nested`; the packages a package runner would run go to `packages`.
+const invocation = (
+  words: Word[],
+  nested: string[],
+  packages: PackageRun[],
+): Invocation | undefined => {
   let rest = words;
   for (;;) {
     for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
       rest = rest.slice(skip);
-    const [first, ...args] = rest;
+    const [first, ...operands] = rest;
     if (first === undefined) return undefined;
     const program = first.dynamic ? COMPUTED : programName(first.text);
-    const wrapper = WRAPPERS.get(program);
-    if (wrapper === undefined) return { program, args };
+    const runner = packageRunner(program, operands);
+    const wrapper = runner?.wrapper ?? WRAPPERS.get(program);
+    if (wrapper === undefined) return { program, args: operands };
+    const args = runner?.args ?? operands;
+    const run = (name: Word | undefined) => {
+      if (runner !== undefined && name !== undefined)
+        packages.push({ runner: runner.runner, name });
+    };
     let i = 0;
     while (args[i]?.text.startsWith('-')) {
       const option = args[i]?.text ?? '';
@@ -351,13 +396,17 @@ const invocation = (words: Word[], nested: string[]): Invocation | undefined => 
         i++;
         break;
       }
+      const joined = /^--package=(.*)$/s.exec(option);
+      if (joined !== null) run({ ...(args[i] as Word), text: joined[1] ?? '' });
       if (!wrapper.withValue.includes(option)) {
         i++;
         continue;
       }
       if (wrapper.runs?.includes(option)) nested.push(args[i + 1]?.text ?? '');
+      else run(args[i + 1]);
       i += 2;
     }
+    run(args[i]);
     rest = args.slice(i + (wrapper.operands ?? 0));
   }
 };
@@ -384,6 +433,8 @@ interface Findings {
   readies: ReadyTarget[];
   // Whether any command read, decoded and nested ones too, mentions GH_REPO or GH_HOST.
   ghEnv: boolean;
+  // The packages npx and its relatives run, each needing to be a binary the lockfile installed.
+  packages: PackageRun[];
   reads: number;
 }
 
@@ -641,7 +692,7 @@ const read = (
     const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [] };
     let runsText = false;
     for (const words of lexed.segments) {
-      const called = invocation(words, reading.nested);
+      const called = invocation(words, reading.nested, found.packages);
       if (called !== undefined && readInvocation(called, reading)) runsText = true;
     }
     if (runsText) {
@@ -672,6 +723,7 @@ const noFindings = (reads: number): Findings => ({
   pushes: false,
   readies: [],
   ghEnv: false,
+  packages: [],
   reads,
 });
 
@@ -779,9 +831,9 @@ export const precheck = async (
   lookupPullRequest: LookupPullRequest = async () => {
     throw new Error('no pull request lookup');
   },
-  _binaryInstalled: BinaryInstalled = async () => false,
+  binaryInstalled: BinaryInstalled = async () => false,
 ): Promise<HookResult> => {
-  if (!MAY_PUSH_OR_MERGE.test(normalised(input))) return { exitCode: 0, stderr: '' };
+  if (!MAY_NEED_THE_GATE.test(normalised(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
@@ -796,10 +848,18 @@ export const precheck = async (
   if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
   // The input test above only skips parsing; the command decides, so a cwd, transcript path or
   // description that spells git does not send the call to the parser (#152).
-  if (!MAY_PUSH_OR_MERGE.test(normalised(command))) return { exitCode: 0, stderr: '' };
+  if (!MAY_NEED_THE_GATE.test(normalised(command))) return { exitCode: 0, stderr: '' };
   const found = findings(command, TOOL_DIALECTS.get(parsed.tool_name));
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
+  const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
+  for (const { runner, name } of found.packages) {
+    // Only a plain name is looked up: a version, a scope, a path or a computed name is not what
+    // node_modules/.bin holds.
+    if (name.dynamic || !BINARY_NAME.test(name.text) || !(await binaryInstalled(cwd, name.text))) {
+      return { exitCode: 2, stderr: `${downloadBlocked(`${runner} ${name.text}`)}\n` };
+    }
+  }
   // Each reading of a command that runs another finds the same pull request again.
   const readies = new Map(found.readies.map((target) => [JSON.stringify(target), target]));
   if (!found.gated && readies.size === 0) return { exitCode: 0, stderr: '' };
@@ -810,7 +870,6 @@ export const precheck = async (
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
   }
 
-  const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
   for (const target of readies.values()) {
     const refusal = await readyRefusal(cwd, target, lookupPullRequest);
     if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
@@ -1015,11 +1074,15 @@ export const ghPullRequest =
 // with a package.json, where npx looks before it downloads.
 export const lockfileBinary =
   (
-    _read: (path: string) => Promise<string | undefined>,
-    _exists: (path: string) => Promise<boolean>,
+    read: (path: string) => Promise<string | undefined>,
+    exists: (path: string) => Promise<boolean>,
   ): BinaryInstalled =>
-  async () => {
-    throw new Error('not implemented');
+  async (cwd, name) => {
+    const { packageRoot } = await import('./deps-sync.ts');
+    const root = await packageRoot(cwd, read);
+    if (root === undefined) return false;
+    const { join } = await import('node:path');
+    return exists(join(root, 'node_modules', '.bin', name));
   };
 
 const readStdin = async (): Promise<string> => {
@@ -1049,6 +1112,16 @@ if (import.meta.main) {
     staleReason,
     gitHeadIsDetached(spawnProcess),
     ghPullRequest(spawnProcess),
+    async (cwd, name) => {
+      const { access, readFile } = await import('node:fs/promises');
+      const read = (path: string) => readFile(path, 'utf8').catch(() => undefined);
+      const exists = (path: string) =>
+        access(path).then(
+          () => true,
+          () => false,
+        );
+      return lockfileBinary(read, exists)(cwd, name);
+    },
   );
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;
