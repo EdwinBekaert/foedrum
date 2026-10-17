@@ -181,6 +181,13 @@ export function stepId(step: Step): string {
   throw new Error(`Step without an id: ${JSON.stringify(step)}`);
 }
 
+/** The brewer a step runs: its own, or a session step's fallback; none for other steps. */
+export function stepBrewerName(step: Step): string | undefined {
+  if ('brewer' in step) return step.brewer;
+  if ('fallback' in step) return step.fallback;
+  return undefined;
+}
+
 type Path = (string | number)[];
 
 /** Every step with its path in the recipe, nested loop and parallel steps included. */

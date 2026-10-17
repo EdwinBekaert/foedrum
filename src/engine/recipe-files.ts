@@ -8,8 +8,10 @@ import {
   Recipe as RecipeFile,
   readExpression,
   type Step,
+  stepBrewerName,
   stepId,
   stepKind,
+  walk,
 } from '../schemas/recipe.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
@@ -171,6 +173,30 @@ function unplannable(brewer: BrewerFrontmatter): string[] {
   ];
 }
 
+/**
+ * Why a test-first recipe does not prove its tests red before it writes code (ADR 0064): it needs
+ * a red proof of its first step that commits, and no other step that commits before that proof.
+ */
+function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[] {
+  const order = [...walk(recipe.steps, ['steps'])].map(({ step }) => step);
+  const first = order.find(commits);
+  const proven = first === undefined ? undefined : stepId(first);
+  const at = order.findIndex((step) => 'of' in step && step.of === proven);
+  const proof = order[at];
+  if (proven === undefined || proof === undefined) {
+    return [
+      'it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)',
+    ];
+  }
+  return order
+    .slice(0, at)
+    .filter((step) => commits(step) && stepId(step) !== proven)
+    .map(
+      (step) =>
+        `step "${stepId(step)}" commits before the red proof "${stepId(proof)}" of step "${proven}" (ADR 0064)`,
+    );
+}
+
 /** A recipe of brewer steps in a line, each with its brewer, and its settings. */
 function brewingRecipe(
   name: string,
@@ -277,15 +303,20 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       }
       return [{ id, step: brewing, ...found }];
     });
-    // Every brewer is known once every step loaded, so resolveRecipe (ADR 0028) cannot throw.
-    if (steps.length < value.steps.length) continue;
-    const { testFirst } = resolveRecipe(value, (name) => brewers.get(name)?.brewer);
-    if (testFirst) {
-      problems.push(
-        `${path}: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`,
-      );
-      continue;
-    }
+    // resolveRecipe (ADR 0028) needs every brewer the recipe names; a missing one is reported
+    // above. The red proof is checked even when a step did not load: it is a check step, which
+    // the engine does not brew yet (ADR 0064).
+    const brewerOf = (name: string) => brewers.get(name)?.brewer;
+    const named = [...walk(value.steps, ['steps'])].map(({ step }) => stepBrewerName(step));
+    if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
+    const { testFirst } = resolveRecipe(value, brewerOf);
+    const commits = (step: Step): boolean => {
+      const name = stepBrewerName(step);
+      return name !== undefined && brewerOf(name)?.produces === 'commits';
+    };
+    const unprovenLines = testFirst ? unproven(value, commits) : [];
+    for (const line of unprovenLines) problems.push(`${path}: ${line}`);
+    if (steps.length < value.steps.length || unprovenLines.length > 0) continue;
     recipes.set(value.name, brewingRecipe(value.name, steps, { testFirst }));
     stepBrewers.set(
       value.name,
