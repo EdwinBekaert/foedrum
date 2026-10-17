@@ -1066,6 +1066,42 @@ describe('precheck on gh pr ready', () => {
     assert.equal(lookups.length, 1);
   });
 
+  // Marking ready needs the summary, not the check: a passing check must not be what lets it by.
+  for (const [name, pullRequest] of [
+    ['for the head', facts([summary(c3.sha)], [c1, c2, c3])],
+    ['followed only by merges', facts([summary(c2.sha)], [c1, c2, m3, m4])],
+  ] as const) {
+    it(`allows a pull request whose summary is ${name} without running the check`, async () => {
+      const { result, checks } = await ready('gh pr ready 160', pullRequest);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  it('allows a summary whose heading starts a later line of its comment', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([`Replaces the summary above.\n\n${summary(c3.sha)}`], [c1, c2, c3]),
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+
+  it('does not count a heading quoted in the middle of a line', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([`The template starts with ${summary(c3.sha)}`], [c1, c2, c3]),
+    );
+    assert.match(result.stderr, /^gh pr ready is blocked: pull request #160 has no/);
+  });
+
+  it('allows a summary for the head when GitHub lists too few commits to include it', async () => {
+    const { result } = await ready('gh pr ready 160', {
+      ...facts([summary(c3.sha)], [c1, c2]),
+      head: c3.sha,
+    });
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+
   it('blocks when the summary names a commit that is not on the pull request', async () => {
     const { result } = await ready(
       'gh pr ready 160',
@@ -1229,6 +1265,17 @@ describe('ghPullRequest', () => {
     await assert.rejects(
       ghPullRequest(runProcess)('/work/tree', { pr: '160' }),
       /gh pr view exited 1: HTTP 401: Bad credentials/,
+    );
+  });
+
+  it('rejects with what gh said when the commits cannot be read', async () => {
+    const { runProcess } = fakeGh([
+      { exitCode: 0, output: view },
+      { exitCode: 1, output: 'HTTP 502: Bad Gateway' },
+    ]);
+    await assert.rejects(
+      ghPullRequest(runProcess)('/work/tree', { pr: '160' }),
+      /gh api exited 1: HTTP 502: Bad Gateway/,
     );
   });
 
