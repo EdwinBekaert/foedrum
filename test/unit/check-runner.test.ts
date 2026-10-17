@@ -83,6 +83,7 @@ const setup = ({
   const { calls, exec } = fakeExec(scripts);
   const stepChecks: StepChecks = {
     find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? checks : undefined),
+    any: () => true,
   };
   const repos: string[] = [];
   const runner = createCheckRunner({

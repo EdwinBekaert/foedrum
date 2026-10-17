@@ -594,6 +594,13 @@ describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {
     assert.equal(brewers.find('ale', 'green'), undefined);
   });
 
+  it('says whether any recipe has a check step', () => {
+    assert.equal(aleLoaded().checks.any(), true);
+    const result = loadRecipes(brewery());
+    assert.ok(result.valid);
+    assert.equal(result.checks.any(), false);
+  });
+
   it('gives a check step its own deadline, else 30 minutes, and no stall limit', () => {
     const ale = aleRecipe();
     assert.equal(ale.deadlineMs('green'), 30 * 60_000);

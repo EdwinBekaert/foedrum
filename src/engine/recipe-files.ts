@@ -43,6 +43,8 @@ export interface StepBrewers {
 export interface StepChecks {
   /** The checks of step `stepId` of recipe `recipe`, or `undefined` when it is no check step. */
   find(recipe: string, stepId: string): readonly CheckRef[] | undefined;
+  /** Whether any recipe has a check step. */
+  any(): boolean;
 }
 
 export type LoadedRecipes =
@@ -415,7 +417,12 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     valid: true,
     recipes: { find: (name) => recipes.get(name) },
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
-    checks: { find: (recipe, id) => stepChecks.get(recipe)?.get(id) },
+    checks: {
+      find: (recipe, id) => stepChecks.get(recipe)?.get(id),
+      any: () => {
+        throw new Error('not implemented');
+      },
+    },
   };
 }
 

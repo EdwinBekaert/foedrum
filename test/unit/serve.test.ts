@@ -308,6 +308,13 @@ describe('runServe', () => {
     const outsideSandbox =
       'foedrum serve: check steps run outside the OS sandbox: their commands can run code a brewer wrote, with network and home-folder access (ADR 0069)';
 
+    it('says at its start, once, that check steps run outside the OS sandbox', async () => {
+      assert.equal(setup.sandbox, true);
+      assert.equal(await runServe(setup, shell()), 0);
+      assert.equal(lines[1], outsideSandbox);
+      assert.equal(lines.filter((line) => line === outsideSandbox).length, 1);
+    });
+
     it('says nothing of it when nothing runs sandboxed', async () => {
       assert.equal(await runServe({ ...setup, sandbox: false }, shell()), 0);
       assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
