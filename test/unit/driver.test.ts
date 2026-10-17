@@ -730,6 +730,15 @@ describe('openDriver', () => {
       assert.equal(given('b101'), 'acme/web');
     });
 
+    it('finds the repository of a claimed issue whatever case its name is in', async () => {
+      const order = { issue: 7, repo: 'Acme/Web' };
+      intake.issue({ kind: 'order', batchId: 'web-7', order }, now);
+      route('web-7');
+      const driver = await open({ worktrees: both() });
+      await driver.drive();
+      assert.equal(given('web-7'), 'acme/web');
+    });
+
     it("gives a sub-order's attempt its repository, also when its batch names no parent", async () => {
       order('b1');
       const decomposed = {

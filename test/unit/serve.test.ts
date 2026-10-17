@@ -237,6 +237,21 @@ describe('runServe', () => {
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
   });
 
+  it("gives each brewer its repository's toolchain rules", async () => {
+    assert.equal(await runServe(setup, shell()), 0);
+    assert.ok(plans[0]?.permissions.allow.includes('Bash(npm test*)'));
+  });
+
+  it('keeps ticking after a tick failed for another reason than the state branch', async () => {
+    const broken: BrewerRunner = {
+      start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
+      progress: () => undefined,
+    };
+    assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
+    assert.ok(lines.includes('foedrum serve: a tick failed: the runner broke'), lines.join('\n'));
+    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+  });
+
   it("prints the driver's notices, one line each, and goes on", async () => {
     let flushes = 0;
     await runServe(

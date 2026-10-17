@@ -176,6 +176,13 @@ describe('serveSetup', () => {
     assert.match(problems[0] ?? '', /^claude/);
   });
 
+  it('takes GH_TOKEN before GITHUB_TOKEN, and GITHUB_TOKEN when GH_TOKEN is empty', () => {
+    const both = ready(inputs({ env: { GH_TOKEN: 'ghp_x', GITHUB_TOKEN: 'ghp_y' } }));
+    assert.equal(both.github.token, 'ghp_x');
+    const empty = ready(inputs({ env: { GH_TOKEN: '', GITHUB_TOKEN: 'ghp_y' } }));
+    assert.equal(empty.github.token, 'ghp_y');
+  });
+
   it("keeps no GitHub token in the brewers' environment", () => {
     const setup = ready(
       inputs({ env: { PATH: '/usr/bin', GH_TOKEN: 'ghp_x', GITHUB_TOKEN: 'ghp_y' } }),
