@@ -80,6 +80,10 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(git p*)`,
       `${shell}(git push*)`,
       `${shell}(git -C . push)`,
+      `${shell}(git push)`,
+      `${shell}(git push *)`,
+      `${shell}(git push origin)`,
+      `${shell}(git.e*)`,
     ]) {
       it(`refuses to allow ${rule}, which reaches a push`, () => {
         assert.throws(
@@ -96,6 +100,11 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(git diff:*)`,
       `${shell}(npm test)`,
       `${shell}(npm run *)`,
+      // A complete subcommand that only starts like push.
+      `${shell}(git pu)`,
+      `${shell}(./gradlew *)`,
+      `${shell}(bash ./build.sh)`,
+      `${shell}(npx tsc)`,
     ]) {
       it(`allows ${rule}, which reaches none of the pushes`, () => {
         const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
