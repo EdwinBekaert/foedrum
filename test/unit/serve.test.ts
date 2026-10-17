@@ -305,6 +305,30 @@ describe('runServe', () => {
   });
 
   describe('a recipe with a check step (ADR 0069)', () => {
+    const outsideSandbox =
+      'foedrum serve: check steps run outside the OS sandbox: their commands can run code a brewer wrote, with network and home-folder access (ADR 0069)';
+
+    it('says nothing of it when nothing runs sandboxed', async () => {
+      assert.equal(await runServe({ ...setup, sandbox: false }, shell()), 0);
+      assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
+    });
+
+    it('says nothing of it when no recipe has a check step', async () => {
+      const files = serveInputs().files;
+      const stoutOnly = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            local: local({ workRoot: dir.path }),
+            brewery: { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) },
+          },
+        }),
+      );
+      assert.ok(stoutOnly.kind === 'ready');
+      assert.equal(await runServe(stoutOnly.setup, shell()), 0);
+      assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
+    });
+
     type Call = { file: string; args: readonly string[]; options: ExecOptions };
     /** Serve with a brewer that succeeds and a process runner that answers each check with `code`. */
     const brewWithChecks = async (code: number) => {
