@@ -14,8 +14,18 @@ export type RealClaude = { kind: 'run'; claude: string } | { kind: 'skip'; reaso
  * the variable. Opted in without `claude` on PATH throws, so the run fails instead of skipping.
  */
 export const realClaude = (
-  _env: NodeJS.ProcessEnv = process.env,
-  _resolve: (name: string) => string | undefined = (name) => resolveExecutable(name),
+  env: NodeJS.ProcessEnv = process.env,
+  resolve: (name: string) => string | undefined = (name) => resolveExecutable(name),
 ): RealClaude => {
-  throw new Error('not implemented');
+  if (env[REAL_CLAUDE] !== '1') {
+    return {
+      kind: 'skip',
+      reason: `set ${REAL_CLAUDE}=1 to run the tests against the installed claude`,
+    };
+  }
+  const claude = resolve('claude');
+  if (claude === undefined) {
+    throw new Error(`${REAL_CLAUDE}=1 is set, but claude is not on PATH`);
+  }
+  return { kind: 'run', claude };
 };

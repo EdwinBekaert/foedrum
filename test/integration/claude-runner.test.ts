@@ -1,6 +1,6 @@
 // The real brewer runner against the installed `claude` (#11, ADR 0047): a fake Messages API
 // stands in for the model, so the test needs no login and spends no tokens. Its "model" makes
-// one tool call, then answers. Skipped where `claude` is not on PATH, as in claude-cli.test.ts.
+// one tool call, then answers. Opt-in: it runs only with FOEDRUM_REAL_CLAUDE=1 (ADR 0057).
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -10,16 +10,16 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type ClaudeAttemptPlan, claudeBrewerRunner } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptStart } from '../../src/engine/brewer-runner.ts';
-import { resolveExecutable } from '../../src/platform/executables.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
-const claude = resolveExecutable('claude');
+const real = realClaude();
 
-describe('the claude brewer runner', { skip: claude === undefined }, () => {
+describe('the claude brewer runner', { skip: real.kind === 'skip' && real.reason }, () => {
   let dir: TempDir;
   let api: FakeMessagesApi | undefined;
   let worktree: string;
@@ -80,7 +80,7 @@ describe('the claude brewer runner', { skip: claude === undefined }, () => {
       settingsFile: join(dir.path, 'attempt', 'settings.json'),
     };
     const runner = claudeBrewerRunner({
-      claude: claude ?? 'claude',
+      claude: real.kind === 'run' ? real.claude : 'claude',
       plan: async () => plan,
     });
     const running = runner.start(attempt(maxDenials));
