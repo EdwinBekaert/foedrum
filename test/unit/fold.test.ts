@@ -261,6 +261,27 @@ describe('fold', () => {
     });
   });
 
+  it('keeps the gravity readings a check attempt finished with (ADR 0069)', () => {
+    const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
+    const outcome = { kind: 'failed', retryable: false, reason: 'the check "test" failed' } as const;
+    const readings = [
+      { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: 'not ok 1' },
+    ] as const;
+    const state = fold([
+      ordered,
+      scheduled,
+      { type: 'step.started', ...base },
+      { type: 'step.finished', ...base, outcome, readings: [...readings] },
+    ]);
+    assert.deepStrictEqual(batch(state).steps.get('plan')?.attempts.get(1), {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt,
+      outcome,
+      readings,
+    });
+  });
+
   it('keeps earlier attempts of a step', () => {
     const state = fold([ordered, scheduled, { ...scheduled, attempt: 2, deadlineAt: 'later' }]);
     assert.deepStrictEqual([...(batch(state).steps.get('plan')?.attempts.keys() ?? [])], [1, 2]);

@@ -5,6 +5,7 @@ import type {
   Answer,
   Dependency,
   Event,
+  GravityReading,
   ScheduleRoute,
   SessionRef,
   StuckOption,
@@ -57,6 +58,8 @@ export type Attempt =
       worktree?: WorktreeRef;
       outcome: StepOutcome;
       usage?: Usage;
+      /** A check step's gravity readings (ADR 0069). */
+      readings?: readonly GravityReading[];
     };
 
 export interface Input {

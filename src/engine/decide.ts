@@ -5,6 +5,7 @@
 import type {
   Answer,
   Event,
+  GravityReading,
   OrderRef,
   ScheduleRoute,
   StuckOption,
@@ -66,6 +67,8 @@ export type EngineCommand =
       attempt: number;
       ending: Ending;
       usage?: Usage;
+      /** A check step's gravity readings (ADR 0069). */
+      readings?: readonly GravityReading[];
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
