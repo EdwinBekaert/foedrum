@@ -263,6 +263,23 @@ describe('execProcessWith', () => {
     assert.equal((await done).stdout, 'café');
   });
 
+  // A crash or the OOM killer: the process ran, and something other than the runner ended it.
+  it('answers with the signal that ended the process when the runner did not send it', async () => {
+    const child = new FakeChild();
+    const { exec } = fakeSpawner(child);
+    const done = exec('/bin/sh', ['-c', 'node --test'], { cwd: '/work/tree' });
+    child.stdout.write('ok 1\n');
+    await settle();
+    child.close(null, 'SIGSEGV');
+    assert.deepEqual(await done, {
+      exitCode: null,
+      stdout: 'ok 1\n',
+      stderr: '',
+      output: 'ok 1\n',
+      signal: 'SIGSEGV',
+    });
+  });
+
   it('answers without an exit code, with the reason, when the program cannot start', async () => {
     const child = new FakeChild('none');
     const { exec } = fakeSpawner(child);

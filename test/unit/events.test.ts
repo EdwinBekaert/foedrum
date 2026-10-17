@@ -224,6 +224,13 @@ describe('Event', () => {
     });
   });
 
+  it('accepts the reading of a check that a signal ended, and only with the signal', () => {
+    const signaled = { result: 'signaled', check: 'test', command: 'node --test', tail: 'ok 1\n' };
+    accepts(Event, { ...valid['step.finished'], readings: [{ ...signaled, signal: 'SIGSEGV' }] });
+    rejects(Event, { ...valid['step.finished'], readings: [signaled] });
+    rejects(Event, { ...valid['step.finished'], readings: [{ ...signaled, signal: '' }] });
+  });
+
   it('rejects gravity readings that are empty, unbounded or not of a check', () => {
     const finished = (readings: unknown) => ({ ...valid['step.finished'], readings });
     const exited = { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' };

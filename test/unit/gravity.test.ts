@@ -125,6 +125,17 @@ describe('readingOf', () => {
     }
   });
 
+  it('reads a check that a signal ended as such, not as one that could not start', () => {
+    const run = { exitCode: null, output: 'ok 1\nSegmentation fault\n', signal: 'SIGSEGV' };
+    assert.deepEqual(readingOf(test, run), {
+      result: 'signaled',
+      check: 'test',
+      command: 'npm test',
+      signal: 'SIGSEGV',
+      tail: 'ok 1\nSegmentation fault\n',
+    });
+  });
+
   it('reads a command that could not start, with the reason in the tail', () => {
     assert.deepEqual(readingOf(test, { exitCode: null, output: 'spawn /bin/sh ENOENT' }), {
       result: 'unstarted',
@@ -220,6 +231,16 @@ describe('settleReadings', () => {
       kind: 'failed',
       retryable: false,
       reason: 'the check "test" (npm test) did not finish by the step\'s deadline',
+    });
+  });
+
+  it('fails without a retry when a signal ended a check that ran: it goes along onFail', () => {
+    const signaled = { result: 'signaled', ...ran, signal: 'SIGABRT' } as const;
+    assert.equal(passed(signaled), false);
+    assert.deepEqual(settleReadings([signaled]), {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the check "test" (npm test) was ended by SIGABRT',
     });
   });
 
