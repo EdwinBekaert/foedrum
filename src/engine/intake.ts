@@ -1,13 +1,16 @@
-// The intake of target-repository issues (ADR 0043, #103). One pass, in this order:
+// The intake (ADR 0008, ADR 0043, ADR 0068). One pass, in this order:
 // - records the end of each pull request of a claimed batch on tap that merged or closed
 //   (`pull_request.ended`), the fact the release waits for;
-// - claims the candidates of each repository with an intake filter, oldest first and only up to
-//   the Brewery's free capacity, and orders what it won as `<alias>-<issue>`, Ordered until it is
-//   routed by its deadline (ADR 0032).
+// - orders the Brewery's own issues that carry a `recipe:<name>` label as `<issue>-1`, then claims
+//   the candidates of each repository with an intake filter and orders what it won as
+//   `<alias>-<issue>`, oldest first and only up to the Brewery's free capacity, each Ordered until
+//   it is routed by its deadline (ADR 0032);
+// - routes every Ordered batch whose issue it read by its one `recipe:<name>` label, whoever
+//   ordered it: this pass, a pass killed before it routed, or a retry.
 // Everything it reads from the tracker is untrusted input; it decides nothing by asking a model.
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import { targetBatchId } from './batch-id.ts';
+import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
 import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
@@ -106,6 +109,30 @@ export const freeCapacity = (state: State, capacity: number): number => {
   return Math.max(0, capacity - busy);
 };
 
+/** The recipe names of an issue's `recipe:<name>` labels, the prefix in any case. */
+export const recipeLabels = (labels: readonly string[]): string[] =>
+  labels.flatMap((label) => {
+    const name = /^recipe:(.+)$/i.exec(label)?.[1];
+    return name === undefined ? [] : [name];
+  });
+
+/**
+ * Whether the intake orders the Brewery's issue `issue` (ADR 0068): open, not a pull request, opened
+ * by one of `authors`, with a `recipe:<name>` label, and with no batch here in any lane. A
+ * sub-order is ordered by its decomposition, never by the intake.
+ */
+export const isBreweryOrder = (
+  issue: TargetIssue,
+  state: State,
+  authors: readonly string[],
+): boolean =>
+  issue.state === 'open' &&
+  !issue.pullRequest &&
+  recipeLabels(issue.labels).length > 0 &&
+  authors.some((author) => same(author, issue.author)) &&
+  (state.orders.get(issue.number)?.batchIds.length ?? 0) === 0 &&
+  !state.subOrders.has(issue.number);
+
 /** The repositories of the config that name an intake filter, in the order it lists them. */
 export const intakeRepositories = (config: BreweryConfig): IntakeRepository[] =>
   Object.entries(config.repositories).flatMap(([repo, { alias, intake }]) =>
@@ -113,7 +140,8 @@ export const intakeRepositories = (config: BreweryConfig): IntakeRepository[] =>
   );
 
 export const createIntake = (options: IntakeOptions): Intake => {
-  const { log, tracker, claims, claimant, authors, repositories, capacity, clock } = options;
+  const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
+    options;
   const most = defaultLeaseMs / 2;
   const { deadlineMs = most } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
@@ -161,9 +189,10 @@ export const createIntake = (options: IntakeOptions): Intake => {
     }
   };
 
-  /** Claims and orders up to `free` candidates of `repository`; how many it ordered. */
+  /** Claims and orders up to `free` of the candidates `listed` in `repository`; how many it ordered. */
   const claimIn = async (
     repository: IntakeRepository,
+    listed: readonly TargetIssue[],
     free: number,
     signal: AbortSignal,
   ): Promise<number> => {
@@ -174,7 +203,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
         .map((batch) => batch.issue),
     );
     const now = clock().toISOString();
-    const pass = await claimCandidates(claims, await tracker.issues(repo, filter, signal), {
+    const pass = await claimCandidates(claims, listed, {
       repo,
       filter,
       claimant,
@@ -203,17 +232,107 @@ export const createIntake = (options: IntakeOptions): Intake => {
     return ordered;
   };
 
+  /** Orders up to `free` of the Brewery's issues `listed`, oldest first; how many it ordered. */
+  const orderBrewery = (
+    repo: string,
+    listed: readonly TargetIssue[],
+    free: number,
+    signal: AbortSignal,
+  ): number => {
+    let ordered = 0;
+    for (const found of [...listed].sort((one, other) => one.number - other.number)) {
+      if (ordered === free || signal.aborted) break;
+      if (!isBreweryOrder(found, log.state(), authors)) continue;
+      const batchId = nextBatchId(log.state(), found.number);
+      if (issue({ kind: 'order', batchId, order: { issue: found.number } })) {
+        ordered++;
+        report({ kind: 'ordered', repo, issue: found.number, batchId });
+      }
+    }
+    return ordered;
+  };
+
+  // The batches reported as not routable, with the reason: each once, not at every poll.
+  const unroutable = new Set<string>();
+  const notRouted = (batchId: string, reason: string): void => {
+    const key = `${batchId}\n${reason}`;
+    if (unroutable.has(key)) return;
+    unroutable.add(key);
+    report({ kind: 'unrouted', batchId, reason });
+  };
+
+  /**
+   * Routes every Ordered batch whose issue `listed` has, by its one `recipe:<name>` label, whoever
+   * ordered it (ADR 0068). `listed`: the issues read in this pass, by repository in lower case.
+   */
+  const route = (listed: ReadonlyMap<string, readonly TargetIssue[]>): void => {
+    for (const batch of log.state().batches.values()) {
+      if (batch.lane.kind !== 'ordered') continue;
+      const repo = batch.repo ?? brewery;
+      const found = repo === undefined ? undefined : listed.get(repo.toLowerCase());
+      const labels = found?.find(({ number }) => number === batch.issue)?.labels ?? [];
+      const names = recipeLabels(labels);
+      // No recipe label: it waits for its deadline, then a person chooses (ADR 0032).
+      if (names.length === 0) continue;
+      const [recipe] = names;
+      if (names.length > 1 || recipe === undefined) {
+        const all = names.map((name) => `recipe:${name}`).join(' and ');
+        notRouted(batch.id, `its issue carries ${all}; give it one recipe label`);
+        continue;
+      }
+      const command = {
+        kind: 'route',
+        batchId: batch.id,
+        recipe,
+        reason: `the label recipe:${recipe}`,
+        source: 'label',
+      } as const;
+      const decision = log.issue(command, clock());
+      if (decision.kind === 'accepted') report({ kind: 'routed', batchId: batch.id, recipe });
+      else notRouted(batch.id, decision.reason);
+    }
+  };
+
+  /** Whether `repo`'s issues have an Ordered batch: undefined for the Brewery's own. */
+  const awaitsRouting = (repo: string | undefined): boolean =>
+    [...log.state().batches.values()].some(
+      (batch) =>
+        batch.lane.kind === 'ordered' &&
+        (repo === undefined
+          ? batch.repo === undefined
+          : batch.repo !== undefined && same(batch.repo, repo)),
+    );
+
   const work = async (signal: AbortSignal): Promise<void> => {
     await recordEnds(signal);
     let free = freeCapacity(log.state(), capacity);
-    for (const repository of repositories) {
-      if (free === 0 || signal.aborted) break;
+    // What each repository listed in this pass, for routing.
+    const listed = new Map<string, readonly TargetIssue[]>();
+    // The Brewery's own issues first: its owners' requests, before a shared queue (ADR 0068).
+    if (brewery !== undefined && (free > 0 || awaitsRouting(undefined))) {
       try {
-        free -= await claimIn(repository, free, signal);
+        const issues = await tracker.issues(brewery, undefined, signal);
+        listed.set(brewery.toLowerCase(), issues);
+        free -= orderBrewery(brewery, issues, free, signal);
       } catch (error) {
-        report({ kind: 'failed', what: `claiming in ${repository.repo}`, error });
+        report({ kind: 'failed', what: `listing ${brewery}`, error });
       }
     }
+    for (const repository of repositories) {
+      if (signal.aborted) break;
+      const { repo, filter } = repository;
+      // Listed for its Ordered batches too, which take no capacity to route.
+      if (free === 0 && !awaitsRouting(repo)) continue;
+      try {
+        const issues = await tracker.issues(repo, filter, signal);
+        listed.set(repo.toLowerCase(), issues);
+        if (free > 0) free -= await claimIn(repository, issues, free, signal);
+      } catch (error) {
+        report({ kind: 'failed', what: `claiming in ${repo}`, error });
+      }
+    }
+    // A pass given up at its deadline routes nothing.
+    if (!signal.aborted) route(listed);
   };
 
   /** Runs one pass until `deadlineMs`, then aborts its signal, reports it and settles. */
