@@ -1,6 +1,6 @@
 # 0051. Chaos runs on the real driver, with two drivers and a terminal on one store
 
-Date: 2026-10-16 · Status: Accepted · Amends [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (how the harness kills and restarts, and what it checks) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (which attempt leases the heartbeat renews)
+Date: 2026-10-16 · Status: Accepted · Amends [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (how the harness kills and restarts, and what it checks) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (which attempt leases the heartbeat renews) · Amended by [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md)
 
 ## Context
 The chaos harness ([ADR 0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md)) killed and restarted the test driver (`test/helpers/brewing.ts`), one at a time, on one SQLite file. [ADR 0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) built the real driver (`openDriver`) and listed the chaos cases its rules need, for #107: two drivers competing for one batch, a driver killed while it holds a batch, a driver that loses its batch while an attempt runs, a terminal command between a driver's read and its append, and a driver restarted under its owner. None of them can happen with one test driver: they need several drivers on one store, and faults other than a kill.

@@ -141,11 +141,11 @@ describe('precheck', () => {
 
   it('gates a push hidden behind a JSON unicode escape', async () => {
     const { calls, runCheck } = fakeCheck({ ok: false, output: 'red' });
-    const input = hookInput('git push').replace('git', '\\u0067it');
+    const input = hookInput('git push', '/work/tree').replace('git', '\\u0067it');
     assert.doesNotMatch(input, /git/i);
     const result = await precheck(input, runCheck);
     assert.equal(result.exitCode, 2);
-    assert.deepEqual(calls, [root]);
+    assert.deepEqual(calls, ['/work/tree']);
   });
 });
 
@@ -884,6 +884,42 @@ describe('precheck limits and pre-filter', () => {
       assert.deepEqual(calls, []);
     });
   }
+
+  // The pre-filter reads only the command, so a path or description that spells git or gh does not
+  // send the call to the parser (#152).
+  it('lets through a command that mentions neither git nor gh without reading it, wherever the checkout is', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    // Too wide to read, so the parser would block it.
+    const command = `bash -c ${Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ')}`;
+    assert.match(forbiddenReason(command) ?? '', /too deeply/);
+    const input = JSON.stringify({
+      session_id: 'abc123',
+      transcript_path: '/home/dev/.claude/projects/-home-dev-github-foedrum/abc123.jsonl',
+      cwd: '/home/dev/github/foedrum/.claude/worktrees/152-gh-git',
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command, description: 'Echo strings before git push' },
+    });
+    assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
+
+  // The tool's name no longer sends every PowerShell call to the parser (ADR 0056).
+  it('lets through a PowerShell command that mentions neither git nor gh without reading it', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    const command = `bash -c ${Array.from({ length: 3000 }, (_, i) => `"x${i}"`).join(' ')}`;
+    assert.match(forbiddenReason(command) ?? '', /too deeply/);
+    const input = hookInput(command, '/work/tree', 'PowerShell');
+    assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
+
+  it('lets through a tool call without a command when its path spells git', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+    const input = JSON.stringify({ tool_name: 'Bash', tool_input: {}, cwd: '/home/dev/github' });
+    assert.deepEqual(await precheck(input, runCheck), { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+  });
 });
 
 describe('precheck when the HEAD check cannot answer', () => {
