@@ -311,6 +311,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     outcome,
     ...(usage === undefined ? {} : { usage }),
   });
+  if (leftRecipe(draft, recipe, batchId, stepId)) return;
   const batch = draft.batch(batchId);
   switch (ending.kind) {
     case 'succeeded':
@@ -355,6 +356,18 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
 }
 
 /**
+ * Makes the batch Stuck when `stepId` is no longer in its recipe: the file was changed under the
+ * batch (a step renamed or removed), so the recipe cannot say where it goes next.
+ */
+function leftRecipe(draft: Draft, recipe: Recipe, batchId: string, stepId: string): boolean {
+  if (recipe.has(stepId)) return false;
+  const name = draft.batch(batchId).recipe?.name;
+  const summary = `recipe ${name} has no step ${stepId} any more: its file changed under the batch`;
+  stick(draft, batchId, { kind: 'blocked', stepId, blockerKind: 'divergence', summary });
+  return true;
+}
+
+/**
  * Another attempt at `stepId` while it has some left, then (when `routed`) the `onFail` route back,
  * then Stuck.
  */
@@ -368,6 +381,7 @@ function retryOrStick(
 ): void {
   const batch = draft.batch(batchId);
   const recipe = recipeOf(draft, batch);
+  if (leftRecipe(draft, recipe, batchId, stepId)) return;
   if (retryable && recipe.mayRetry(batch, stepId)) {
     schedule(draft, batchId, stepId);
     return;
