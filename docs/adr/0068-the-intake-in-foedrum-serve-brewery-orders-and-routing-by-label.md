@@ -18,7 +18,7 @@ An issue of the Brewery is ordered by the intake when all of these hold (`isBrew
 - it is open and not a pull request;
 - one of the Brewery's allow-listed users opened it (`users` in `foedrum.jsonc`, architecture §10);
 - it carries a `recipe:<name>` label. In M1 the label is how a person asks for a batch: without a router there is nothing else to choose its recipe, and an unlabelled issue may be a note, a question or a sub-order to be. When the router comes (M2), a Brewery setting can widen this to issues without the label;
-- it has no batch in this Brewery, in any lane, and it is not a sub-order (sub-orders are ordered by their decomposition, ADR 0013). As for a target issue (ADR 0043), a batch that was cancelled or whose pull request was closed is never brewed again by itself; a person orders it again with `foedrum order` (#186).
+- it has no batch in this Brewery, in any lane, and it is not a sub-order (sub-orders are ordered by their decomposition, ADR 0013). A sub-order is known by its recorded `order.decomposed`, so the decomposition (M2) must record it before its issues carry a `recipe:` label; until then the intake would take such an issue for an order of its own, and the fold would refuse the decomposition. As for a target issue (ADR 0043), a batch that was cancelled or whose pull request was closed is never brewed again by itself; a person orders it again with `foedrum order` (#186).
 
 Its batch is `<issue>-1` (`nextBatchId`). Brewery issues are read with the conditional listing of ADR 0052, oldest first and unfiltered on GitHub, since a label prefix cannot be asked for there.
 
