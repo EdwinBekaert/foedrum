@@ -1,7 +1,7 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
 // `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push` and
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
-// summary for its head (#154).
+// summary for its head (#154) or changes only plain documentation (#183).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.

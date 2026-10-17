@@ -68,6 +68,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted |
 | [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted |
 | [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) | Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required (amends 0025, 0032 and 0053) | Accepted |
+| [0067](0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md) | A pull request of only plain documentation needs no review summary (amends 0060) | Accepted |
 
 ## Template
 
