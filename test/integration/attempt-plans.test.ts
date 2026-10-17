@@ -121,10 +121,14 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
     });
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
-    // Nothing of the developer's own Claude Code reaches the test, and nothing leaves the machine.
+    // A minimal base: only what a process needs to start on each platform, so no token of the
+    // developer's (GH_TOKEN, their Claude Code's settings) reaches claude, and nothing leaves the
+    // machine.
+    const needed =
+      /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i;
     const inherited = Object.fromEntries(
       Object.entries(process.env).flatMap(([name, value]) =>
-        value === undefined || /^(?:ANTHROPIC_|CLAUDE)/i.test(name) ? [] : [[name, value]],
+        value === undefined || !needed.test(name) ? [] : [[name, value]],
       ),
     );
     const plans = createAttemptPlans({
