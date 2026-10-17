@@ -6,6 +6,7 @@ import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import { Recipe as RecipeFile, type Step, stepId, stepKind } from '../schemas/recipe.ts';
 import type { Recipe, Recipes } from './recipes.ts';
+import { resolveRecipe } from './resolve-recipe.ts';
 
 /** A file of the Brewery, by its path from the Brewery's root with `/`: its text, or why not. */
 export type BreweryFile = { path: string } & ({ text: string } | { unreadable: string });
@@ -176,6 +177,14 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       }
       return [{ id, step: brewing, brewer }];
     });
+    // Every brewer is known once every step loaded, so resolveRecipe (ADR 0028) cannot throw.
+    if (steps.length < value.steps.length) continue;
+    if (resolveRecipe(value, (name) => brewers.get(name)).testFirst) {
+      problems.push(
+        `${path}: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`,
+      );
+      continue;
+    }
     recipes.set(value.name, brewingRecipe(value.name, steps));
   }
   if (problems.length > 0) return { valid: false, problems };
