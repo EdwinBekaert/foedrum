@@ -130,8 +130,10 @@ export const trialChaos = async (
  * What a failure is, for shrinking to keep: the error's name and the first line of its message,
  * with every number in it left out, since a smaller run names other batches and attempts.
  */
-export const failureKind = (_error: unknown): string => {
-  throw new Error('not implemented');
+export const failureKind = (error: unknown): string => {
+  const name = error instanceof Error ? error.name : typeof error;
+  const message = error instanceof Error ? error.message : String(error);
+  return `${name}: ${(message.split('\n')[0] ?? '').replace(/\d+/g, '#')}`;
 };
 
 /** A shrunk failure, with how many runs shrinking replayed and whether it ran out of them. */
@@ -148,13 +150,64 @@ export interface Shrunk {
  * removal keeps every other fault at its site.
  */
 export const shrinkChaos = async (
-  _dir: string,
-  _found: FoundFailure,
-  _checks: ChaosChecks,
-  _options: ChaosOptions = {},
-  _budget = shrinkBudget,
+  dir: string,
+  found: FoundFailure,
+  checks: ChaosChecks,
+  options: ChaosOptions = {},
+  budget = shrinkBudget,
 ): Promise<Shrunk> => {
-  throw new Error('not implemented');
+  const kind = failureKind(found.failure.error);
+  let best = found.failure;
+  let runs = 0;
+  const fails = async (schedule: ChaosSchedule): Promise<boolean> => {
+    if (runs >= budget) return false;
+    runs++;
+    const failure = await trialChaos(dir, { schedule }, checks, options);
+    if (failure === undefined || failureKind(failure.error) !== kind) return false;
+    best = failure;
+    return true;
+  };
+  /** Removes chunks of what `part` picks out of the best schedule; true when one went. */
+  const removeChunks = async <T>(
+    part: (schedule: ChaosSchedule) => T[],
+    without: (schedule: ChaosSchedule, items: T[]) => ChaosSchedule,
+  ): Promise<boolean> => {
+    let changed = false;
+    for (let chunk = Math.ceil(part(best.schedule).length / 2); chunk >= 1; ) {
+      let removed = false;
+      for (let at = 0; at < part(best.schedule).length; ) {
+        const items = part(best.schedule);
+        const candidate = without(best.schedule, [
+          ...items.slice(0, at),
+          ...items.slice(at + chunk),
+        ]);
+        if (await fails(candidate)) removed = changed = true;
+        else at += chunk;
+      }
+      if (!removed || chunk > 1) chunk = Math.floor(chunk / 2);
+    }
+    return changed;
+  };
+  for (let changed = true; changed && runs < budget; ) {
+    const moves = await removeChunks(
+      (schedule) => schedule.moves,
+      (schedule, items) => ({ ...schedule, moves: items }),
+    );
+    const faults = await removeChunks(
+      (schedule) => schedule.faults,
+      (schedule, items) => ({ ...schedule, faults: items }),
+    );
+    changed = moves || faults;
+  }
+  for (let at = 0; at < best.schedule.plays.length; at++) {
+    const { plays } = best.schedule;
+    if (plays[at]?.play.kind === 'succeed') continue;
+    await fails({
+      ...best.schedule,
+      plays: plays.map((entry, i) => (i === at ? { ...entry, play: { kind: 'succeed' } } : entry)),
+    });
+  }
+  return { failure: best, runs, exhausted: runs >= budget };
 };
 
 /**
