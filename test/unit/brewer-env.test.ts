@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildBrewerEnv } from '../../src/engine/brewer-env.ts';
+import { brewerBaseEnv, buildBrewerEnv } from '../../src/engine/brewer-env.ts';
 
 const forced = {
   PATH: '/usr/bin:/bin',
@@ -91,5 +91,39 @@ describe('buildBrewerEnv (#81)', () => {
       [base, brewer, forcedPath],
       [{ Path: 'C:\\base' }, { TZ: 'UTC' }, { PATH: 'C:\\Windows' }],
     );
+  });
+});
+
+describe('brewerBaseEnv (ADR 0063)', () => {
+  const engine = {
+    PATH: '/usr/bin',
+    HOME: '/home/ann',
+    TMPDIR: '/tmp/ann',
+    CLAUDE_CONFIG_DIR: '/home/ann/.claude-work',
+    ANTHROPIC_API_KEY: 'sk-ant-x',
+    ANTHROPIC_BASE_URL: 'https://proxy.example',
+    GH_TOKEN: 'ghp_secret',
+    GITHUB_TOKEN: 'ghp_secret',
+    AWS_SECRET_ACCESS_KEY: 'aws',
+    NODE_OPTIONS: '--inspect',
+    CLAUDE_CODE_USE_BEDROCK: '1',
+    UNSET: undefined,
+  };
+
+  it("keeps what a process needs to start and claude's own login, nothing else", () => {
+    assert.deepEqual(brewerBaseEnv(engine, 'linux'), {
+      PATH: '/usr/bin',
+      HOME: '/home/ann',
+      TMPDIR: '/tmp/ann',
+      CLAUDE_CONFIG_DIR: '/home/ann/.claude-work',
+      ANTHROPIC_API_KEY: 'sk-ant-x',
+      ANTHROPIC_BASE_URL: 'https://proxy.example',
+    });
+  });
+
+  it('matches names in any case on Windows, keeping their spelling, and exactly elsewhere', () => {
+    const env = { Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', userprofile: 'C:\\Users\\ann' };
+    assert.deepEqual(brewerBaseEnv(env, 'win32'), env);
+    assert.deepEqual(brewerBaseEnv(env, 'linux'), {});
   });
 });

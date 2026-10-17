@@ -16,6 +16,17 @@ export interface BrewerEnvLayers {
   platform: NodeJS.Platform;
 }
 
+/**
+ * The minimal base of `serve`'s brewers, from its own environment: what a process needs to start
+ * and what claude needs to find its login, never a GitHub token (ADR 0063).
+ */
+export function brewerBaseEnv(
+  _env: Readonly<Record<string, string | undefined>>,
+  _platform: NodeJS.Platform,
+): Record<string, string> {
+  throw new Error('not implemented');
+}
+
 /** The layers merged in order; a later layer replaces a name of an earlier one. */
 export function buildBrewerEnv(layers: BrewerEnvLayers): Record<string, string> {
   const { base, brewer, forced, platform } = layers;

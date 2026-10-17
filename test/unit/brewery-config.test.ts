@@ -169,3 +169,44 @@ describe('BreweryConfig', () => {
     });
   }
 });
+
+/** The fields `serve` reads (ADR 0063). */
+interface ServeFields {
+  brewery?: string;
+  githubApi?: string;
+  repositories: Record<string, { source?: string; base?: string }>;
+}
+
+describe('BreweryConfig for foedrum serve (ADR 0063)', () => {
+  it('names the Brewery and the GitHub API, and each repository its source and base', () => {
+    const parsed = BreweryConfig.safeParse(
+      config(
+        { source: 'managed', base: 'release/2.x' },
+        { brewery: 'acme/brewery', githubApi: 'https://github.example.com/api/v3' },
+      ),
+    ).data as ServeFields | undefined;
+    assert.equal(parsed?.brewery, 'acme/brewery');
+    assert.equal(parsed?.githubApi, 'https://github.example.com/api/v3');
+    assert.equal(parsed?.repositories['acme/web']?.source, 'managed');
+    assert.equal(parsed?.repositories['acme/web']?.base, 'release/2.x');
+  });
+
+  it('takes the API over https, or over http only on a loopback address', () => {
+    for (const githubApi of [
+      'http://127.0.0.1:4000',
+      'http://localhost:4000/api',
+      'http://[::1]:80',
+    ]) {
+      assert.equal(accepted(config({}, { githubApi })), true, githubApi);
+    }
+    for (const githubApi of [
+      'http://api.github.com',
+      'ftp://api.github.com',
+      'https://user:secret@api.github.com',
+      'https://api.github.com/?x=1',
+      'not a url',
+    ]) {
+      assert.equal(accepted(config({}, { githubApi })), false, githubApi);
+    }
+  });
+});
