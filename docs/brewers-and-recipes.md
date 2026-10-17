@@ -61,7 +61,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 | Field | Purpose |
 |---|---|
 | `access` | `read` or `write` |
-| `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt |
+| `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt. With `task`, each attempt gets a worktree of its own at the batch's task tree: the commits of the latest attempt that succeeded (uncommitted files do not carry over), or of the latest rewind, else the base. Only `task` loads for now ([ADR 0066](adr/0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md)) |
 | `git` | `commit: true/false`; pushing is always the engine's job |
 | `env` | Extra environment variables on top of a minimal base. The runner builds the environment from a minimal base, then this `env`, then its own variables last, comparing names without case on Windows (`buildBrewerEnv`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); names it owns are rejected when the brewer is loaded, in any case: `NODE_*`, `npm_config_*`, `PATH`, `PATHEXT`, `COMSPEC`, `SYSTEMROOT`, `HOME`, `USERPROFILE`, `APPDATA`, `ANTHROPIC_*`, `CLAUDE_*`, `GIT_*`, `SSH_*`, `LD_*`, `DYLD_*`, `BASH_ENV`, `ENV` and `*_PROXY`, as are two names that differ only in case |
 
