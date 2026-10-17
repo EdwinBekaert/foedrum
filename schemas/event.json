@@ -461,6 +461,152 @@
             "cacheWriteTokens"
           ],
           "additionalProperties": false
+        },
+        "readings": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "string",
+                    "const": "skipped"
+                  },
+                  "check": {
+                    "type": "string",
+                    "enum": [
+                      "build",
+                      "typecheck",
+                      "lint",
+                      "format",
+                      "test"
+                    ]
+                  }
+                },
+                "required": [
+                  "result",
+                  "check"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "string",
+                    "const": "exited"
+                  },
+                  "check": {
+                    "type": "string",
+                    "enum": [
+                      "build",
+                      "typecheck",
+                      "lint",
+                      "format",
+                      "test"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "exitCode": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "tail": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "result",
+                  "command",
+                  "exitCode",
+                  "tail"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "string",
+                    "const": "killed"
+                  },
+                  "check": {
+                    "type": "string",
+                    "enum": [
+                      "build",
+                      "typecheck",
+                      "lint",
+                      "format",
+                      "test"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "killed": {
+                    "type": "string",
+                    "enum": [
+                      "timed-out",
+                      "stopped",
+                      "too-much-output"
+                    ]
+                  },
+                  "tail": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "result",
+                  "command",
+                  "killed",
+                  "tail"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "string",
+                    "const": "unstarted"
+                  },
+                  "check": {
+                    "type": "string",
+                    "enum": [
+                      "build",
+                      "typecheck",
+                      "lint",
+                      "format",
+                      "test"
+                    ]
+                  },
+                  "command": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "tail": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "result",
+                  "command",
+                  "tail"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
         }
       },
       "required": [

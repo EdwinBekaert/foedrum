@@ -2,6 +2,7 @@
 
 import { PathSafeId } from './ids.ts';
 import { BlockerKind } from './out-doc.ts';
+import { CheckName } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText } from './store.ts';
 import { z } from './zod.ts';
@@ -86,6 +87,29 @@ export const Usage = z.strictObject({
   cacheWriteTokens: Count,
 });
 export type Usage = z.infer<typeof Usage>;
+
+/** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
+export const MAX_TAIL_LENGTH = 4000;
+const Tail = z.string().max(MAX_TAIL_LENGTH);
+// A named check, or none for a Brewery's literal command; the command line as it ran.
+const ran = { check: CheckName.optional(), command: NonEmpty };
+
+/** What one check of a check step did (ADR 0069). */
+export const GravityReading = z.discriminatedUnion('result', [
+  // The repository has no such check (null in foedrum.jsonc): skipped, never guessed (ADR 0023).
+  z.strictObject({ result: z.literal('skipped'), check: CheckName }),
+  z.strictObject({ result: z.literal('exited'), ...ran, exitCode: z.int(), tail: Tail }),
+  // The process runner killed its tree: the step's deadline, a stop, or too much output.
+  z.strictObject({
+    result: z.literal('killed'),
+    ...ran,
+    killed: z.enum(['timed-out', 'stopped', 'too-much-output']),
+    tail: Tail,
+  }),
+  // It could not start; the tail says why.
+  z.strictObject({ result: z.literal('unstarted'), ...ran, tail: Tail }),
+]);
+export type GravityReading = z.infer<typeof GravityReading>;
 
 export const Answer = z.strictObject({ q: NonEmpty, answer: NonEmpty });
 export type Answer = z.infer<typeof Answer>;
@@ -229,11 +253,13 @@ export const Event = z.discriminatedUnion('type', [
     session: SessionRef.optional(),
     worktree: WorktreeRef.optional(),
   }),
+  // `readings`: a check step's, one per check it read, in order (ADR 0069).
   z.strictObject({
     type: z.literal('step.finished'),
     ...step,
     outcome: StepOutcome,
     usage: Usage.optional(),
+    readings: z.array(GravityReading).min(1).optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),
