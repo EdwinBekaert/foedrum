@@ -16,15 +16,39 @@ export interface BrewerEnvLayers {
   platform: NodeJS.Platform;
 }
 
+/** What a process needs to start on each platform, and where claude keeps its login. */
+const BASE_NAMES = [
+  'PATH',
+  'PATHEXT',
+  'SYSTEMROOT',
+  'WINDIR',
+  'COMSPEC',
+  'TEMP',
+  'TMP',
+  'TMPDIR',
+  'HOME',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'CLAUDE_CONFIG_DIR',
+];
+
 /**
  * The minimal base of `serve`'s brewers, from its own environment: what a process needs to start
  * and what claude needs to find its login, never a GitHub token (ADR 0063).
  */
 export function brewerBaseEnv(
-  _env: Readonly<Record<string, string | undefined>>,
-  _platform: NodeJS.Platform,
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
 ): Record<string, string> {
-  throw new Error('not implemented');
+  // Windows does not tell names apart by case: `Path` is `PATH` there.
+  const flags = platform === 'win32' ? 'i' : '';
+  const kept = new RegExp(`^(?:${BASE_NAMES.join('|')}|ANTHROPIC_[A-Z0-9_]+)$`, flags);
+  return Object.fromEntries(
+    Object.entries(env).flatMap(([name, value]) =>
+      value === undefined || !kept.test(name) ? [] : [[name, value]],
+    ),
+  );
 }
 
 /** The layers merged in order; a later layer replaces a name of an earlier one. */
