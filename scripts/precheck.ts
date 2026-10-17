@@ -698,6 +698,9 @@ export type StaleReason = (cwd: string) => Promise<string | undefined>;
 // Whether HEAD in the checkout around `cwd` is detached; rejects when it cannot tell.
 export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 
+// Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
+export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
+
 // The pull request `gh pr ready` names: its number, URL or branch (none for the current branch's),
 // and the repository given with -R.
 export interface ReadyTarget {
@@ -776,6 +779,7 @@ export const precheck = async (
   lookupPullRequest: LookupPullRequest = async () => {
     throw new Error('no pull request lookup');
   },
+  _binaryInstalled: BinaryInstalled = async () => false,
 ): Promise<HookResult> => {
   if (!MAY_PUSH_OR_MERGE.test(normalised(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1005,6 +1009,17 @@ export const ghPullRequest =
           return { sha, parents };
         }),
     };
+  };
+
+// Whether `node_modules/.bin/<name>` exists in the package around `cwd`: the nearest folder up
+// with a package.json, where npx looks before it downloads.
+export const lockfileBinary =
+  (
+    _read: (path: string) => Promise<string | undefined>,
+    _exists: (path: string) => Promise<boolean>,
+  ): BinaryInstalled =>
+  async () => {
+    throw new Error('not implemented');
   };
 
 const readStdin = async (): Promise<string> => {
