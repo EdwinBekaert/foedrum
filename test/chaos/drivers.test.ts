@@ -11,12 +11,12 @@ import {
   type ChaosEngine,
   type ChaosRun,
   fakeCodeHost,
-  holdsAcrossKills,
   killPlan,
   openChaosEngine,
   runChaos,
 } from '../helpers/chaos.ts';
 import { nothingLeftWaiting, restsWithEffectsOnce, theLogHolds } from '../helpers/chaos-checks.ts';
+import { holdsAcrossKills } from '../helpers/chaos-shrink.ts';
 import { generateScenario, recording, type Scenario } from '../helpers/event-sequences.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
