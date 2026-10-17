@@ -19,6 +19,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Brewer** | A reusable agent role: prompt, in-docs, out doc, model, effort, tools, permissions, budget, guards |
 | **Recipe** | A pipeline: brewers, checks and actions in order, with loops |
 | **Batch** | One execution of a recipe for one order |
+| **Task tree** | Where a batch's work is: the branch of its latest attempt that succeeded with a worktree, or its latest rewind's commit, else the repository's base; each new attempt's worktree starts there (ADR 0066) |
 | **Step** | One position in a recipe |
 | **Attempt** | One try at a step; has a lease, a deadline and an outcome |
 | **In-doc / out doc** | Documents a brewer receives / must produce; the out doc's frontmatter is the step outcome |
