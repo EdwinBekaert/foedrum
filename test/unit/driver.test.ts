@@ -685,6 +685,9 @@ describe('openDriver', () => {
       now = at(6);
       await driver.tick();
       assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }]);
+      // The first cleanup kept plan#1's worktree under its lease; the second one claims it no more.
+      const leased = () => manager.cleans().map(({ claims }) => claims.leased);
+      assert.deepStrictEqual(leased().slice(1), [[plan('b1')], []]);
       now = at(7);
       await driver.tick();
       assert.deepStrictEqual(scopes(), [{}, { batchId: 'b1' }, { batchId: 'b1' }], 'once');
@@ -714,6 +717,11 @@ describe('openDriver', () => {
       assert.deepStrictEqual(
         manager.cleans().map(({ scope }) => scope),
         [{}, { batchId: 'b1' }, { batchId: 'b1' }],
+      );
+      assert.deepStrictEqual(
+        manager.cleans().map(({ claims }) => claims.leased),
+        [[], [plan('b1')], []],
+        'the second cleanup claims the worktree no more',
       );
     });
   });

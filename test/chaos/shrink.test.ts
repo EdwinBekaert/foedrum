@@ -14,6 +14,7 @@ import {
   shrinkChaos,
   trialChaos,
 } from '../helpers/chaos-shrink.ts';
+import { describeEvent } from '../helpers/property.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 let dir: TempDir;
@@ -25,16 +26,21 @@ after(() => dir.remove());
 /** How many seeds a test may try for a run that fails its check. */
 const maxSeeds = 30;
 
+// The first failure found for each check, so the tests that share a check search once.
+const found = new Map<ChaosChecks, Promise<FoundFailure>>();
+
 /** The first of the seeds from 1 whose run fails `checks`. */
-const firstFailure = async (
-  checks: ChaosChecks,
-  options: ChaosOptions = {},
-): Promise<FoundFailure> => {
-  for (let seed = 1; seed <= maxSeeds; seed++) {
-    const failure = await trialChaos(dir.path, { seed }, checks, options);
-    if (failure !== undefined) return { seed, failure };
-  }
-  throw new Error(`No seed up to ${maxSeeds} fails the check`);
+const firstFailure = (checks: ChaosChecks, options: ChaosOptions = {}): Promise<FoundFailure> => {
+  const search = async (): Promise<FoundFailure> => {
+    for (let seed = 1; seed <= maxSeeds; seed++) {
+      const failure = await trialChaos(dir.path, { seed }, checks, options);
+      if (failure !== undefined) return { seed, failure };
+    }
+    throw new Error(`No seed up to ${maxSeeds} fails the check`);
+  };
+  const first = found.get(checks) ?? search();
+  found.set(checks, first);
+  return first;
 };
 
 /** Whether `schedule` fails as `kind` does. */
@@ -106,6 +112,48 @@ const tookOverFromTheKilled: ChaosChecks = {
 
 const drivers = ['cellar', 'session'] as const;
 
+/**
+ * What a run that held left behind: its schedule, its events, the faults it reached, and what
+ * the drivers did, which the events do not show (who started each attempt, who was down).
+ */
+interface Played {
+  schedule: ChaosSchedule;
+  events: string[];
+  faults: string;
+  did: string;
+}
+
+/** Plays `play` with two drivers, checking nothing, and returns what it did. */
+const played = async (play: Parameters<typeof trialChaos>[1]): Promise<Played> => {
+  let result: Played | undefined;
+  const noting: ChaosChecks = {
+    atEnd: ({ engine, scenario }) => {
+      result = {
+        schedule: {
+          moves: scenario.moves.map((move, i) => ({ site: i + 1, move })),
+          settleFrom: scenario.moves.length,
+          plays: scenario.plays,
+          faults: [...engine.faults],
+        },
+        events: engine.events().map(describeEvent),
+        faults: JSON.stringify(engine.faults),
+        did: JSON.stringify({
+          acts: engine.acts,
+          kills: engine.kills,
+          downs: engine.downs,
+          interjections: engine.interjections,
+          stops: engine.stops,
+          contests: engine.contests,
+        }),
+      };
+    },
+  };
+  const failure = await trialChaos(dir.path, play, noting, { drivers });
+  if (failure !== undefined) throw failure.error;
+  assert.ok(result, 'the run came to rest');
+  return result;
+};
+
 describe('a failing chaos run', () => {
   it('shrinks to the moves it fails by and the one kill, at the site it had', async () => {
     const found = await firstFailure(killedAfterAnEffect);
@@ -139,6 +187,29 @@ describe('a failing chaos run', () => {
       'faults were removed',
     );
     await isSmallest(found, shrunk, tookOverFromTheKilled, options);
+  });
+
+  it('replays a run from its own faults event for event, with faults of every kind', async () => {
+    const kinds = new Set<string>();
+    const wanted = ['kill', 'pause', 'first', 'down', 'stall', 'interject'];
+    // A dozen seeds at least: on most, the pauses change nothing the drivers do (seed 10 is the
+    // first where they do), so a replay that dropped them would pass on fewer.
+    for (
+      let seed = 1;
+      seed <= 12 || (seed <= maxSeeds && wanted.some((k) => !kinds.has(k)));
+      seed++
+    ) {
+      const first = await played({ seed });
+      const again = await played({ schedule: first.schedule });
+      assert.deepStrictEqual(again.events, first.events, `seed ${seed} appends the same events`);
+      assert.equal(again.faults, first.faults, `seed ${seed} reaches the same faults`);
+      assert.equal(again.did, first.did, `seed ${seed}'s drivers do the same`);
+      for (const { kind } of first.schedule.faults) kinds.add(kind.split(' ')[0] ?? kind);
+    }
+    assert.deepStrictEqual(
+      wanted.filter((kind) => !kinds.has(kind)),
+      [],
+    );
   });
 
   it('stops at its budget of runs and says so', async () => {
