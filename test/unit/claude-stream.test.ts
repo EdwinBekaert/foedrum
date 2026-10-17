@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readClaudeStream, type StreamAsk } from '../../src/brewers/claude-stream.ts';
+import { descheduled } from '../helpers/load.ts';
 
 const dir = join(import.meta.dirname, '..', 'fixtures', 'claude-stream');
 const lines = (file: string): string[] =>
@@ -444,6 +445,8 @@ describe('readClaudeStream progress', () => {
   it('reads a long shell command in linear time', () => {
     const command = 'git '.repeat(16_000);
     const t0 = performance.now();
+    // A loaded machine takes the CPU away for a while (#147).
+    descheduled(250);
     const progress = run([
       init(),
       assistant('msg_1', [toolUse('t1', 'Bash', { command })]),
