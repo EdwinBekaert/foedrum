@@ -5,8 +5,9 @@
 // of every layer that reach one of them at any depth or name it in a string.
 // mutant-tests/core.ts decides. Prints nothing when no test file does.
 
+import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, sep } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { coveringTestsFor, testsFor } from './mutant-tests/core.ts';
 
@@ -15,21 +16,22 @@ export type Result = { ok: boolean; lines: string[] };
 // The folders whose TypeScript files can import a mutated file, or be a test that does.
 const FOLDERS = ['src', 'scripts', 'test'];
 
-// Every .ts file under the folders, by its path relative to the tree with /. A folder the tree
-// does not have is left out.
+// Every .ts regular file under the folders, by its path relative to the tree with /. A folder the
+// tree does not have is left out, and so is a link: the pull request's tree may hold one to a
+// device or a file outside it, which would be read without end.
 const readSources = async (tree: string): Promise<Map<string, string>> => {
   const sources = new Map<string, string>();
   for (const folder of FOLDERS) {
-    let entries: string[];
+    let entries: Dirent[];
     try {
-      entries = await readdir(join(tree, folder), { recursive: true });
+      entries = await readdir(join(tree, folder), { recursive: true, withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
       throw error;
     }
-    for (const entry of entries.filter((name) => name.endsWith('.ts'))) {
-      const path = join(folder, entry);
-      sources.set(path.split(sep).join('/'), await readFile(join(tree, path), 'utf8'));
+    for (const entry of entries.filter((e) => e.isFile() && e.name.endsWith('.ts'))) {
+      const path = join(entry.parentPath, entry.name);
+      sources.set(relative(tree, path).split(sep).join('/'), await readFile(path, 'utf8'));
     }
   }
   return sources;

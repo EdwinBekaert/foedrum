@@ -69,7 +69,9 @@ export const coveringTestsFor = (
 // A test file of any layer; fixtures are data, not tests.
 const ANY_TEST_FILE = /^test\/(?!fixtures\/).+\.test\.ts$/;
 
-const STRING = /(['"`])([^'"`\n]*)\1/g;
+// One alternative per kind of quote, so a string's own other quotes are taken with it and the
+// next string starts at its real opening quote.
+const STRING = /'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`/g;
 
 // Whether `source` has a string that is `file`'s name, `file` itself or a path ending in it, as a
 // test that starts the file as a process has: join(root, 'scripts', 'precheck.ts'). A path to
@@ -77,8 +79,10 @@ const STRING = /(['"`])([^'"`\n]*)\1/g;
 // the walk over the imports already follows.
 const namesFile = (source: string, file: string): boolean => {
   const name = posix.basename(file);
-  return [...source.matchAll(STRING)].some(
-    ([, , text = '']) =>
-      text === name || text === file || (!/^\.{1,2}\//.test(text) && text.endsWith(`/${file}`)),
-  );
+  return [...source.matchAll(STRING)].some(([, single, double, backtick]) => {
+    const text = single ?? double ?? backtick ?? '';
+    return (
+      text === name || text === file || (!/^\.{1,2}\//.test(text) && text.endsWith(`/${file}`))
+    );
+  });
 };

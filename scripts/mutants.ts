@@ -126,27 +126,28 @@ export interface MainResult {
 }
 
 // The command line: its arguments, and what it prints and exits with.
-export const main = async (_argv: readonly string[]): Promise<MainResult> => {
-  throw new Error('not implemented');
-};
-
-if (import.meta.main) {
+export const main = async (argv: readonly string[]): Promise<MainResult> => {
   const { values, positionals } = parseArgs({
+    args: [...argv],
     options: { touched: { type: 'string' } },
     allowPositionals: true,
   });
   const [tree, answer, n] = positionals;
   if (tree === undefined || answer === undefined) {
-    console.error(
-      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number>] [--touched <files.txt>]',
-    );
-    process.exitCode = 2;
-  } else {
-    const { ok, lines } =
-      n === undefined
-        ? await checkMutants(tree, answer, values.touched)
-        : await applyMutant(tree, answer, Number(n), values.touched);
-    for (const line of lines) console.log(`mutants: ${line}`);
-    if (!ok) process.exitCode = 1;
+    const usage =
+      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number>] [--touched <files.txt>]';
+    return { exitCode: 2, stdout: [], stderr: [usage] };
   }
+  const { ok, lines } =
+    n === undefined
+      ? await checkMutants(tree, answer, values.touched)
+      : await applyMutant(tree, answer, Number(n), values.touched);
+  return { exitCode: ok ? 0 : 1, stdout: lines.map((line) => `mutants: ${line}`), stderr: [] };
+};
+
+if (import.meta.main) {
+  const { exitCode, stdout, stderr } = await main(process.argv.slice(2));
+  for (const line of stdout) console.log(line);
+  for (const line of stderr) console.error(line);
+  process.exitCode = exitCode;
 }
