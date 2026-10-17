@@ -123,6 +123,7 @@ exports[`foedrum: the command line > lists the commands for --help and -h 1`] = 
 Usage: foedrum <command> [arguments]
 
 Commands:
+  serve                               Run the Cellar: brew the Brewery's batches until Ctrl+C
   doctor                              Check the tools Foedrum needs and the isolation level
   status                              List the batches and their lanes
   stuck                               List the Stuck batches with their options and questions

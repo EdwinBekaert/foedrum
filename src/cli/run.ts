@@ -33,6 +33,8 @@ export interface CliContext {
   /** Where the command comes from: the surface its events record. */
   surface: Surface;
   now: () => Date;
+  /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
+  serve: () => Promise<CliResult>;
 }
 
 export interface CliResult {

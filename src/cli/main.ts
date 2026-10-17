@@ -39,6 +39,10 @@ try {
     user: () => userName(() => userInfo().username, process.env),
     surface: 'terminal',
     now: () => new Date(),
+    // Not implemented yet (#162).
+    serve: async () => {
+      throw new Error('not implemented');
+    },
   });
   process.stdout.write(stdout);
   process.stderr.write(stderr);

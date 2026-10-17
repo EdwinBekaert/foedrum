@@ -58,6 +58,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   user: () => 'ada',
   surface: 'terminal',
   now: () => new Date(D1),
+  serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   ...overrides,
 });
 
@@ -224,6 +225,22 @@ describe('foedrum: the command line', () => {
     assert.equal(help.stderr, '');
     snapshot(t, help.stdout);
     assert.deepEqual(await run(['-h']), help);
+  });
+
+  it('runs foedrum serve through its context, with its exit code (ADR 0063)', async () => {
+    const result = { exitCode: 1, stdout: '', stderr: 'foedrum serve: no brewery\n' };
+    let served = 0;
+    const serve = async () => {
+      served++;
+      return result;
+    };
+    assert.deepEqual(await run(['serve'], { serve }), result);
+    assert.equal(served, 1);
+  });
+
+  it('refuses an argument to foedrum serve, which takes none', async () => {
+    assertUsageError(await run(['serve', 'now']), 'foedrum serve: unexpected argument "now"');
+    assertUsageError(await run(['serve', '--now']), 'foedrum serve: unknown option "--now"');
   });
 
   it('lists the commands for --help after a command', async () => {

@@ -92,6 +92,7 @@ describe('foedrum: commands that change state', () => {
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
+    serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
@@ -428,6 +429,7 @@ describe('foedrum stuck', () => {
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
+      serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     });
   const append = (...events: Event[]) =>
     store.withTransaction((tx) => {
