@@ -33,7 +33,7 @@ const pullRequestOf = (url: string): { repo: string; number: number } => {
 };
 
 export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({
-  issues: async (repo, signal) => {
+  issues: async (repo, _filter, signal) => {
     const what = `the open issues of ${repo}`;
     const path = `/repos/${repoPath(repo)}/issues?state=open&sort=created&direction=asc&per_page=${pageSize}`;
     const items = await reads.pages(path, what, signal);

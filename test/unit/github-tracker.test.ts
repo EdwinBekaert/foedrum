@@ -140,7 +140,7 @@ describe('githubTargetTracker', () => {
     it('stops when its signal aborts', async () => {
       const { tracker, requests } = trackerWith(['hang']);
       const controller = new AbortController();
-      const reading = tracker.issues('acme/web', controller.signal);
+      const reading = tracker.issues('acme/web', undefined, controller.signal);
       controller.abort(new Error('the pass is past its deadline'));
       await assert.rejects(reading, /past its deadline/);
       assert.equal(requests[0]?.signal?.aborted, true);

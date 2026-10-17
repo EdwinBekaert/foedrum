@@ -28,8 +28,16 @@ import {
  * (ADR 0050).
  */
 export interface TargetTracker {
-  /** The open issues of `repo`; pull requests may be among them. Stops when `signal` aborts. */
-  issues(repo: string, signal?: AbortSignal): Promise<readonly TargetIssue[]>;
+  /**
+   * The open issues of `repo`; pull requests may be among them. With `filter`, the code host may
+   * leave out issues that do not pass it, but need not: the caller checks every issue again
+   * (ADR 0068). Stops when `signal` aborts.
+   */
+  issues(
+    repo: string,
+    filter?: IntakeFilter,
+    signal?: AbortSignal,
+  ): Promise<readonly TargetIssue[]>;
   /** How the pull request at `url` stands now. */
   pullRequest(url: string, signal?: AbortSignal): Promise<PullRequestState>;
 }
@@ -157,7 +165,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
         .map((batch) => batch.issue),
     );
     const now = clock().toISOString();
-    const pass = await claimCandidates(claims, await tracker.issues(repo, signal), {
+    const pass = await claimCandidates(claims, await tracker.issues(repo, filter, signal), {
       repo,
       filter,
       claimant,

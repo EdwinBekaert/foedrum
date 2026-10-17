@@ -210,7 +210,7 @@ describe('createIntake', () => {
       const signals: (AbortSignal | undefined)[] = [];
       let first = true;
       const tracker: TargetTracker = {
-        issues: async (repo, signal) => {
+        issues: async (repo, _filter, signal) => {
           signals.push(signal);
           if (repo === web && first) {
             first = false;
