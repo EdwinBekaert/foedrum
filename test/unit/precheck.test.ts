@@ -141,11 +141,11 @@ describe('precheck', () => {
 
   it('gates a push hidden behind a JSON unicode escape', async () => {
     const { calls, runCheck } = fakeCheck({ ok: false, output: 'red' });
-    const input = hookInput('git push').replace('git', '\\u0067it');
+    const input = hookInput('git push', '/work/tree').replace('git', '\\u0067it');
     assert.doesNotMatch(input, /git/i);
     const result = await precheck(input, runCheck);
     assert.equal(result.exitCode, 2);
-    assert.deepEqual(calls, [root]);
+    assert.deepEqual(calls, ['/work/tree']);
   });
 });
 
