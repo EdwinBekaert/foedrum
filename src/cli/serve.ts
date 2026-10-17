@@ -188,6 +188,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     });
     opened = driver;
     say(`brewing for ${setup.brewery} in ${setup.workRoot}; Ctrl+C stops it`);
+    // The brewers run in the OS sandbox; a check runs what they may have written outside it.
+    if (setup.sandbox && setup.checks.any()) {
+      say(
+        'check steps run outside the OS sandbox: their commands can run code a brewer wrote, with network and home-folder access (ADR 0069)',
+      );
+    }
     while (!signal.aborted) {
       try {
         await driver.tick();

@@ -419,9 +419,7 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
     checks: {
       find: (recipe, id) => stepChecks.get(recipe)?.get(id),
-      any: () => {
-        throw new Error('not implemented');
-      },
+      any: () => [...stepChecks.values()].some((steps) => steps.size > 0),
     },
   };
 }
