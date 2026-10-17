@@ -483,6 +483,27 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ]);
   });
 
+  it("names a loop's step or a session step's fallback that commits before the red proof", () => {
+    const steps = [
+      { id: 'gauge', brewer: 'gauger' },
+      {
+        id: 'review',
+        loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'cellarman' }] },
+      },
+      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' },
+      red,
+    ];
+    const before = (id: string) =>
+      `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge" (ADR 0064)`;
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
+      unbrewedCheck,
+      before('fix'),
+      before('refine'),
+    ]);
+  });
+
   it('refuses a test-first recipe for no more than its check steps, which the engine does not brew yet', () => {
     const steps = [
       { id: 'plan', brewer: 'maltster' },

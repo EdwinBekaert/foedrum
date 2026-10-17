@@ -909,6 +909,57 @@ describe('decide skip: Stuck → brewing or on tap', () => {
   }
 });
 
+describe('decide retry and answer: the step a human names, never skipped (ADR 0064)', () => {
+  // The same recipe, but one whose plan step would be skipped if the batch reached it.
+  const skipping: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      pint: fakeRecipe({
+        steps: ['plan', 'implement', 'green'],
+        skips: { plan: 'recipe.testFirst' },
+      }),
+    }),
+  };
+  const answers = [{ q: question.q, answer: 'keep' }];
+  for (const command of [
+    { kind: 'retry', batchId: 'b1', ...by },
+    { kind: 'answer', batchId: 'b1', answers, ...by },
+  ] as const satisfies readonly Command[]) {
+    it(`schedules the step on ${command.kind}, without asking its when`, () => {
+      const decision = decide(fold(stuck()), command, skipping);
+      assert.deepStrictEqual(decision, decide(fold(stuck()), command, context));
+      assert.ok(decision.kind === 'accepted');
+      assert.deepStrictEqual(decision.events.at(-1), next('plan', 2));
+    });
+  }
+
+  it('refuses a rewind to a step the batch skipped: it never ran', () => {
+    const skipped: Event[] = [
+      ordered,
+      chosen(),
+      { type: 'step.skipped', batchId: 'b1', stepId: 'gauge', when: 'recipe.testFirst' },
+      scheduled('plan'),
+      started('plan'),
+      stuckEvent(needsInput),
+    ];
+    const rewind: Command = {
+      kind: 'rewind',
+      batchId: 'b1',
+      toStepId: 'gauge',
+      shas: { 'acme/api': sha },
+      ...by,
+    };
+    const withGauge: Context = {
+      ...context,
+      recipes: fakeRecipes({ pint: fakeRecipe({ steps: ['gauge', 'plan'] }) }),
+    };
+    assert.deepStrictEqual(decide(fold(skipped), rewind, withGauge), {
+      kind: 'refused',
+      reason: 'step gauge of batch b1 was never scheduled',
+    });
+  });
+});
+
 describe('decide answer: Stuck → brewing', () => {
   const answer = (answers: { q: string; answer: string }[]): Command => ({
     kind: 'answer',
