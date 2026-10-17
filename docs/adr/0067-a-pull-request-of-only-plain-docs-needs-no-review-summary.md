@@ -8,13 +8,14 @@ Since ADR 0060 the gate refuses `gh pr ready` until the pull request has a `/bre
 ## Decision
 - **Plain documentation needs no summary.** `gh pr ready` passes, without a summary, a pull request whose files are all `*.md` under `docs/`, except `docs/adr/`. The match is on the path as GitHub lists it, ignoring case.
 - **Everything else is still reviewed:** ADRs, which record decisions; `CLAUDE.md`; anything under `.claude/` (skills, agents and prompts change behaviour); `README.md` and the other root files; and all code, tests and fixtures. One such file among plain docs makes the whole pull request need its summary.
-- **The file list comes from the lookup the gate already makes.** `gh pr view` is asked for `files` and `changedFiles` too, so the exemption costs no extra call. A list that cannot be read, has an entry without a path, or is shorter than `changedFiles` (gh lists at most 100 files) counts as not exempt, and so does an empty one. The gate then needs the summary as before.
+- **The file list comes from the lookup the gate already makes.** `gh pr view` is asked for `files` and `changedFiles` too, so the exemption costs no extra call. A list that cannot be read, has an entry without a path, or is shorter than `changedFiles` (gh lists at most 100 files) counts as not exempt, and so does an empty one.
+- **Renamed and copied files are not read.** GitHub lists them by their new path only, so `git mv CLAUDE.md docs/claude.md` would look like plain documentation. Only an entry whose `changeType` is `ADDED`, `MODIFIED` or `DELETED` counts; any other, or none, makes the list not exempt. The gate then needs the summary as before.
 - The rest of ADR 0060 stands: the lookup, its failures, `--undo`, the blocked forms and the commands of their own all apply to a docs pull request as to any other.
 
 ## Consequences
 - A pull request of only plain docs is marked ready without a review session; one that also touches a reviewed file is not.
 - The exemption follows the paths, not what changed in them: a large rewrite of `docs/architecture.md` passes too. `docs/architecture.md` must stay in sync with the ADRs, and a design change comes with an ADR, which is reviewed.
-- A pull request with more than 100 files needs its summary even when they are all plain docs.
+- A pull request with more than 100 files needs its summary even when they are all plain docs, and so does one that renames or copies a file, even from one plain document to another.
 - CLAUDE.md's rule to run the review skill before marking a pull request ready names the exception.
 
 ## Alternatives considered
