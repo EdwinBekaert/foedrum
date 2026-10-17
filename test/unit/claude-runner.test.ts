@@ -61,7 +61,12 @@ const plan = (id = 1, tools = ['Read']): ClaudeAttemptPlan => ({
     tools,
     session: { kind: 'new', id: session(id) },
   },
-  permissions: { allow: tools, deny: [], sandbox: false },
+  // A shell is allowed one command, as a brewer's tools.allow scopes it (ADR 0062).
+  permissions: {
+    allow: tools.map((tool) => (tool === 'Bash' ? 'Bash(npm test)' : tool)),
+    deny: [],
+    sandbox: false,
+  },
   settingsFile: '/work/attempt/settings.json',
 });
 

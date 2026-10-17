@@ -1,6 +1,6 @@
 # 0059. Attempt plans from the brewer of the step, and on tap without a pull request
 
-Date: 2026-10-17 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (what a brewer step may ask for, a step that left its file) , [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (who builds the plan) and [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (`batch.on_tap` without a pull request) · Amended by [0063](0063-foedrum-serve-its-configuration-and-wiring.md)
+Date: 2026-10-17 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (what a brewer step may ask for, a step that left its file) , [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (who builds the plan) and [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (`batch.on_tap` without a pull request) · Amended by [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) and [0063](0063-foedrum-serve-its-configuration-and-wiring.md)
 
 ## Context
 The real brewer runner, `claudeBrewerRunner` (ADR 0047), runs an attempt from a plan: the worktree, the environment, the prompt, the `claude` call, the permissions, the settings file and the session. Nothing built that plan, so no attempt could run on it. Since #151 the Brewery's recipe files reach the engine (ADR 0053), and the brewer of each step is read and checked there. The plan needs that brewer and its instructions.

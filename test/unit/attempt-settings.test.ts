@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
+import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('attemptSettings', () => {
@@ -23,7 +24,7 @@ describe('attemptSettings', () => {
 
   it('denies git push only in the shells the brewer has, and each rule once', () => {
     const settings = attemptSettings({
-      allow: ['Read', 'Bash'],
+      allow: ['Read', 'Bash(npm test)'],
       deny: ['AskUserQuestion'],
       sandbox: false,
     });
@@ -52,6 +53,123 @@ describe('attemptSettings', () => {
   });
 });
 
+// #167: claude matches a deny rule against the command as written, so `git -C . push` gets past
+// `Bash(git push *)`, and `git p''ush` past any pattern. A push is denied only when no allow rule
+// matches it, so the settings never allow git with no fixed subcommand (ADR 0062).
+describe('attemptSettings and git with options before the subcommand', () => {
+  const pushes = [
+    'git -C . push',
+    'git -c x=y push origin',
+    'git --git-dir=.git push',
+    "git p''ush origin",
+  ];
+
+  for (const shell of ['Bash', 'PowerShell']) {
+    for (const rule of [
+      shell,
+      `${shell}(*)`,
+      `${shell}(g*)`,
+      `${shell}(git*)`,
+      `${shell}(git *)`,
+      `${shell}(git:*)`,
+      `${shell}(GIT *)`,
+      `${shell}(git.exe *)`,
+      `${shell}(git -C *)`,
+      `${shell}(git -c *)`,
+      `${shell}(git --git-dir=*)`,
+      `${shell}(git p*)`,
+      `${shell}(git push*)`,
+      `${shell}(git -C . push)`,
+      `${shell}(git push)`,
+      `${shell}(git push *)`,
+      `${shell}(git push origin)`,
+      `${shell}(git.e*)`,
+      // The program word spelt another way, or a wrapper that runs git (review of #170).
+      `${shell}(/*)`,
+      `${shell}(./*)`,
+      `${shell}( git *)`,
+      `${shell}(/usr/bin/git *)`,
+      `${shell}(/mingw64/bin/git -C . push)`,
+      `${shell}(C:\\Git\\cmd\\git.exe *)`,
+      `${shell}(\\git *)`,
+      `${shell}('git' *)`,
+      `${shell}("git" *)`,
+      `${shell}(& git *)`,
+      `${shell}(GIT_DIR=.git git *)`,
+      `${shell}(env git *)`,
+      `${shell}(command git *)`,
+      `${shell}(xargs *)`,
+      `${shell}(env git -C . push)`,
+      `${shell}(env /usr/bin/git -C . push)`,
+      `${shell}(env git.exe -C . push)`,
+      // Subcommands that push, or run commands of their own.
+      `${shell}(git send-pack *)`,
+      `${shell}(git http-push *)`,
+      `${shell}(git subtree *)`,
+      `${shell}(git submodule *)`,
+      `${shell}(git s*)`,
+      // git's own programs and Windows shims (second round of the review).
+      `${shell}(git-push *)`,
+      `${shell}(/usr/lib/git-core/git-push origin)`,
+      `${shell}(git-send-pack *)`,
+      `${shell}(git-status *)`,
+      `${shell}(git.cmd *)`,
+      `${shell}(git.bat *)`,
+      `${shell}(C:\\tools\\git.cmd -C . push)`,
+      `${shell}(env git.cmd -C . push)`,
+      // A backslash quotes in Bash: g\it runs git.
+      ...(shell === 'Bash' ? ['Bash(g\\it *)', 'Bash(C:/Program\\ Files/Git/cmd/git.exe *)'] : []),
+    ]) {
+      it(`refuses to allow ${rule}, which reaches a push`, () => {
+        assert.throws(
+          () => attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false }),
+          /git with no fixed subcommand/,
+        );
+      });
+    }
+
+    // Every wrapper ADR 0062 lists, with a star: each runs `git -C . push` as its argument.
+    for (const wrapper of [
+      ...['env', 'command', 'exec', 'builtin', 'xargs', 'sudo', 'doas', 'nice', 'nohup', 'time'],
+      ...['timeout', 'stdbuf', 'npx', 'eval', 'source', '.', 'iex', 'invoke-expression'],
+      ...['start-process', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'pwsh', 'powershell'],
+    ]) {
+      const rule = `${shell}(${wrapper} *)`;
+      it(`refuses to allow ${rule}, a wrapper that runs any command`, () => {
+        assert.throws(
+          () => attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false }),
+          /git with no fixed subcommand/,
+        );
+      });
+    }
+
+    for (const rule of [
+      `${shell}(git status)`,
+      `${shell}(git status *)`,
+      `${shell}(git commit*)`,
+      `${shell}(git diff:*)`,
+      `${shell}(npm test)`,
+      `${shell}(npm run *)`,
+      // A complete subcommand that only starts like push.
+      `${shell}(git pu)`,
+      `${shell}(git pu *)`,
+      `${shell}(./gradlew *)`,
+      `${shell}(bash ./build.sh)`,
+      `${shell}(npx tsc)`,
+      `${shell}(git-lfs install)`,
+      // In PowerShell a backslash is a path separator, not a quote.
+      ...(shell === 'PowerShell' ? ['PowerShell(C:\\tools\\gradlew.bat *)'] : []),
+    ]) {
+      it(`allows ${rule}, which reaches none of the pushes`, () => {
+        const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
+        for (const push of pushes) {
+          assert.equal(withinCeiling(`${shell}(${push})`, settings.permissions.allow), false, push);
+        }
+      });
+    }
+  }
+});
+
 describe('writeAttemptSettings', () => {
   let dir: TempDir;
   let file: string;
@@ -70,13 +188,18 @@ describe('writeAttemptSettings', () => {
   });
 
   // claude would drop the whole file silently, deny rules included (ADR 0042).
-  for (const [what, settings] of [
+  for (const [what, settings, reason] of [
     ['an unknown key', { permissions: { allow: [], deny: ['AskUserQuestion'] }, model: 'x' }],
     ['a value of the wrong type', { permissions: { allow: 'Read', deny: ['AskUserQuestion'] } }],
     ['a deny list without AskUserQuestion', { permissions: { allow: ['Read'], deny: [] } }],
     [
       'a shell without its git push deny',
       { permissions: { allow: ['Bash(npm test)'], deny: ['AskUserQuestion'] } },
+    ],
+    [
+      'git with no fixed subcommand',
+      { permissions: { allow: ['Bash(git *)'], deny: ['AskUserQuestion', 'Bash(git push *)'] } },
+      /git with no fixed subcommand/,
     ],
     [
       'a sandbox that may fall back to running unsandboxed',
@@ -91,6 +214,13 @@ describe('writeAttemptSettings', () => {
         () => writeAttemptSettings(file, settings as unknown as AttemptSettings),
         /settings/,
       );
+      // A row with its own pattern is refused for that reason, not another one.
+      if (reason !== undefined) {
+        assert.throws(
+          () => writeAttemptSettings(file, settings as unknown as AttemptSettings),
+          reason,
+        );
+      }
       assert.equal(existsSync(file), false);
     });
   }

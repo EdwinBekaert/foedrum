@@ -175,6 +175,12 @@ describe('BrewerFrontmatter', () => {
       'an input name that is not a variable name',
       { ...taster, inputs: [{ name: 'the plan', from: 'order' }] },
     ],
+    // #167: a push with git's options before it gets past every deny rule (ADR 0062).
+    [
+      'a shell rule that reaches git with no fixed subcommand',
+      { ...taster, tools: { allow: ['Read', 'Bash(git *)'] } },
+    ],
+    ['a whole shell', { ...taster, tools: { allow: ['Read', 'PowerShell'] } }],
     [
       'two inputs with the same name',
       {
