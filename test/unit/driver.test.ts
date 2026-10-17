@@ -442,6 +442,70 @@ describe('openDriver', () => {
       );
     });
 
+    describe('a retry while the run that Stuck abandoned still holds its lease (#150)', () => {
+      // plan stalls after 10 minutes without progress; a stopped run ends only when the test
+      // ends it, or never.
+      const slow = fakeRecipes({ slow: fakeRecipe({ steps: ['plan'], stall: { minutes: 10 } }) });
+      const leased = (when: Date): string[] =>
+        store.currentLeases(when).map((lease) => lease.attemptKey);
+
+      /** Drives b1 until Stuck abandoned plan#1 at minute 11, then retries it: plan#2 is scheduled. */
+      const abandonAndRetry = async () => {
+        const ends = new Map<string, (end: AttemptEnd) => void>();
+        const started: string[] = [];
+        const runner: BrewerRunner = {
+          start: ({ ref }) => {
+            const key = attemptKey.encode(ref);
+            started.push(key);
+            return {
+              ended: new Promise<AttemptEnd>((resolve) => ends.set(key, resolve)),
+              stop: () => {},
+            };
+          },
+          progress: () => ({ lastProgressAt: t0, turnsWithoutProgress: 0 }),
+        };
+        const log = createCommandLog({ store, recipes: slow });
+        log.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now);
+        log.issue(
+          { kind: 'route', batchId: 'b1', recipe: 'slow', reason: 'r', source: 'label' },
+          now,
+        );
+        const driver = await open({ runner, recipes: slow });
+        await driver.drive();
+        for (const minute of [4, 8, 11]) {
+          now = at(minute);
+          await driver.tick();
+        }
+        assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+        const retry = { kind: 'retry', batchId: 'b1', by: 'octocat', via: 'terminal' } as const;
+        assert.equal(log.issue(retry, now).kind, 'accepted');
+        return { driver, started, ends };
+      };
+
+      it('starts the new attempt only once the lease of the abandoned one expired', async () => {
+        const { driver, started } = await abandonAndRetry();
+        await driver.drive();
+        assert.deepStrictEqual(started, [attemptKey.encode(plan('b1'))], 'plan#2 waits');
+        assert.deepStrictEqual(leased(now), [attemptKey.encode(plan('b1'))]);
+        // The tick at minute 11 renewed plan#1's lease until minute 16, and nothing renews it now.
+        now = at(16);
+        await driver.tick();
+        assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)].map(attemptKey.encode));
+        assert.deepStrictEqual(leased(now), [attemptKey.encode(plan('b1', 2))]);
+      });
+
+      it('starts the new attempt as soon as the abandoned run ended', async () => {
+        const { driver, started, ends } = await abandonAndRetry();
+        await driver.drive();
+        assert.deepStrictEqual(started, [attemptKey.encode(plan('b1'))], 'plan#2 waits');
+        now = at(12);
+        ends.get(attemptKey.encode(plan('b1')))?.({ ending: { kind: 'cancelled' } });
+        await driver.drive();
+        assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)].map(attemptKey.encode));
+        assert.deepStrictEqual(leased(now), [attemptKey.encode(plan('b1', 2))]);
+      });
+    });
+
     it('reports a batch it lost to another driver', async () => {
       order('b1');
       const notices: unknown[] = [];
