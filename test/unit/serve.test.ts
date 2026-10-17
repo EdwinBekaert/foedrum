@@ -4,7 +4,7 @@
 // and ends each attempt itself; no process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -76,6 +76,8 @@ describe('runServe', () => {
         ended: plan(start).then(
           (made) => {
             plans.push(made);
+            // As the claude runner does, before claude starts.
+            writeFileSync(made.settingsFile, '{}');
             const output = { status: 'done', summary: 'Brewed', assumptions: [] };
             return { ending: { kind: 'succeeded', output } } as const;
           },
@@ -235,6 +237,12 @@ describe('runServe', () => {
     assert.equal(code, 1);
     assert.equal(lines.at(-1), 'foedrum serve: the push was rejected: another engine wrote');
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
+  });
+
+  it("removes an ended batch's attempt settings with its worktrees", async () => {
+    assert.equal(await runServe(setup, shell()), 0);
+    assert.equal(plans.length, 1);
+    assert.equal(existsSync(join(dir.path, 'attempt-settings', '12-1')), false);
   });
 
   it("gives each brewer its repository's toolchain rules", async () => {

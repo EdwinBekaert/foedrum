@@ -135,6 +135,37 @@ describe('brewerBaseEnv (ADR 0063)', () => {
     assert.deepEqual(brewerBaseEnv(windows, 'win32'), windows);
   });
 
+  it('keeps every name of the allowlist ADR 0063 lists', () => {
+    const names = [
+      'PATH',
+      'PATHEXT',
+      'SYSTEMROOT',
+      'WINDIR',
+      'COMSPEC',
+      'TEMP',
+      'TMP',
+      'TMPDIR',
+      'HOME',
+      'USERPROFILE',
+      'APPDATA',
+      'LOCALAPPDATA',
+      'SYSTEMDRIVE',
+      'PROGRAMFILES',
+      'PROGRAMDATA',
+      'HOMEDRIVE',
+      'HOMEPATH',
+      'USER',
+      'LOGNAME',
+      'CLAUDE_CONFIG_DIR',
+      'CLAUDE_CODE_GIT_BASH_PATH',
+      'ANTHROPIC_AUTH_TOKEN',
+    ];
+    const env = Object.fromEntries(names.map((name) => [name, `${name} value`]));
+    for (const platform of ['linux', 'win32'] as const) {
+      assert.deepEqual(brewerBaseEnv(env, platform), env, platform);
+    }
+  });
+
   it('matches names in any case on Windows, keeping their spelling, and exactly elsewhere', () => {
     const env = { Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', userprofile: 'C:\\Users\\ann' };
     assert.deepEqual(brewerBaseEnv(env, 'win32'), env);
