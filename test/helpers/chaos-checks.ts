@@ -80,7 +80,7 @@ export const nothingOverdue = (run: ChaosRun): void => {
  * is in the ledger, except in a batch a driver that is down holds. Once that lease expired, the
  * other driver takes the batch over (ADR 0044). And except in a batch a terminal command changed
  * in this move: one that came after the drivers' last drive waits for their next (ADR 0044). And
- * except an attempt whose step another attempt still holds a live lease of.
+ * except an attempt whose step still has a live lease of an attempt the log shows over.
  */
 export const nothingLeftWaiting = (run: ChaosRun): void => {
   const { engine } = run;
@@ -89,14 +89,22 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
     if (move === run.moves.length) waiting.add(batchId);
   }
   const state = engine.state();
-  // Steps with a live attempt lease: one Stuck abandoned may hold it until its run ends or the
-  // lease expires, and the next attempt of the step waits for that (I2, #150); its deadline still
-  // runs (nothingOverdue).
+  // Steps with a live lease of an attempt the log shows over: one Stuck abandoned may hold it until
+  // its run ends or the lease expires, and the next attempt of the step waits for that (I2, #150);
+  // its deadline still runs (nothingOverdue). A lease of an attempt not over does not count: no
+  // later attempt of its step is scheduled while it runs.
   const leased = new Set(
     engine
       .store()
       .currentLeases(engine.now())
       .flatMap(({ attemptKey: key }) => attemptKey.decode(key) ?? [])
+      .filter((ref) => {
+        const attempt = state.batches
+          .get(ref.batchId)
+          ?.steps.get(ref.stepId)
+          ?.attempts.get(ref.attempt);
+        return attempt?.phase === 'finished' || attempt?.abandoned === true;
+      })
       .map((ref) => `${ref.batchId} ${ref.stepId}`),
   );
   for (const batch of state.batches.values()) {
