@@ -59,8 +59,13 @@ const names = (code: string): Set<string> => {
   return new Set([...quoted, ...bare]);
 };
 
+// The files a change leaves at its head, from `git diff --name-status` (files.txt of the review).
+export const touchedFiles = (_nameStatus: string): string[] => {
+  throw new Error('not implemented');
+};
+
 // Checks one entry of Brett's answer on its own: its shape, its path and the allowlist.
-export const parseMutant = (value: unknown): MutantCheck => {
+export const parseMutant = (value: unknown, _touched?: readonly string[]): MutantCheck => {
   if (typeof value !== 'object' || value === null) {
     return { ok: false, reason: 'the entry is not an object' };
   }

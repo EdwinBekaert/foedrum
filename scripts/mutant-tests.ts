@@ -43,6 +43,10 @@ export const mutantTests = async (tree: string, files: readonly string[]): Promi
   return { ok: true, lines: testsFor(sources, files) };
 };
 
+export const coveringTests = async (_tree: string, _files: readonly string[]): Promise<Result> => {
+  throw new Error('not implemented');
+};
+
 if (import.meta.main) {
   const [tree, ...files] = process.argv.slice(2);
   if (tree === undefined || files.length === 0) {

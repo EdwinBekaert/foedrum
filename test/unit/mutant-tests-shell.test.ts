@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { mutantTests } from '../../scripts/mutant-tests.ts';
+import { coveringTests, mutantTests } from '../../scripts/mutant-tests.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('the test files for mutants of a tree', () => {
@@ -40,5 +40,17 @@ describe('the test files for mutants of a tree', () => {
     const result = await mutantTests(join(dir.path, 'missing'), ['src/engine/fold.ts']);
     assert.equal(result.ok, false);
     assert.match(result.lines.join('\n'), /cannot read/);
+  });
+
+  it('prints the test files of every layer that reach the given files, for the coverage delta', async () => {
+    write('test/integration/check.test.ts', "const script = join(root, 'scripts', 'check.ts');\n");
+    assert.deepEqual(await coveringTests(dir.path, ['src/engine/fold.ts']), {
+      ok: true,
+      lines: ['test/integration/fold.test.ts', 'test/unit/check.test.ts', 'test/unit/fold.test.ts'],
+    });
+    assert.deepEqual(await coveringTests(dir.path, ['scripts/check.ts']), {
+      ok: true,
+      lines: ['test/integration/check.test.ts', 'test/unit/check.test.ts'],
+    });
   });
 });

@@ -38,3 +38,12 @@ export const testsFor = (
     )
     .sort();
 };
+
+// The test files among `sources`, in every layer, that reach one of `targets` through imports
+// at any depth, or name one in a string: the tests the coverage delta runs.
+export const coveringTestsFor = (
+  _sources: ReadonlyMap<string, string>,
+  _targets: readonly string[],
+): string[] => {
+  throw new Error('not implemented');
+};

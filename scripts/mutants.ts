@@ -60,7 +60,11 @@ const check = async (tree: string, entry: unknown) => {
   return { ...edited, path: `${file}:${edited.line}${given}` };
 };
 
-export const checkMutants = async (tree: string, answer: string): Promise<Result> => {
+export const checkMutants = async (
+  tree: string,
+  answer: string,
+  _touched?: string,
+): Promise<Result> => {
   const mutants = await readAnswer(answer);
   if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
   const lines: string[] = [];
@@ -73,7 +77,12 @@ export const checkMutants = async (tree: string, answer: string): Promise<Result
   return { ok: true, lines };
 };
 
-export const applyMutant = async (tree: string, answer: string, n: number): Promise<Result> => {
+export const applyMutant = async (
+  tree: string,
+  answer: string,
+  n: number,
+  _touched?: string,
+): Promise<Result> => {
   const mutants = await readAnswer(answer);
   if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
   const entry = mutants[n - 1];
