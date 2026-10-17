@@ -42,6 +42,26 @@ describe('the test files for mutants of a tree', () => {
     assert.match(result.lines.join('\n'), /cannot read/);
   });
 
+  it('reads a tree that has no scripts/ folder', async () => {
+    const tree = join(dir.path, 'small');
+    mkdirSync(join(tree, 'src'), { recursive: true });
+    mkdirSync(join(tree, 'test', 'unit'), { recursive: true });
+    writeFileSync(join(tree, 'src', 'a.ts'), '');
+    writeFileSync(join(tree, 'test', 'unit', 'a.test.ts'), "import '../../src/a.ts';\n");
+    assert.deepEqual(await mutantTests(tree, ['src/a.ts']), {
+      ok: true,
+      lines: ['test/unit/a.test.ts'],
+    });
+  });
+
+  it('fails when the tree is a file', async () => {
+    const file = join(dir.path, 'src', 'engine', 'fold.ts');
+    assert.deepEqual(await mutantTests(file, ['src/engine/fold.ts']), {
+      ok: false,
+      lines: [`${file} is not a folder`],
+    });
+  });
+
   it('runs the mutant selection by default and the coverage selection with --coverage', async () => {
     assert.deepEqual(await main([dir.path, 'src/engine/fold.ts']), {
       exitCode: 0,
