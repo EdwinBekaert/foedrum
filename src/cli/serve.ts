@@ -6,6 +6,7 @@
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import type { ClaudeAttemptPlan } from '../brewers/claude-runner.ts';
+import { createCheckRunner } from '../checks/check-runner.ts';
 import type { AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { EngineCommand } from '../engine/decide.ts';
 import {
@@ -19,9 +20,12 @@ import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
+import { stepRunner } from '../engine/step-runner.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { createGitHubClient } from '../github/client.ts';
 import { githubOrderText } from '../github/order-text.ts';
 import { createGitHubReads } from '../github/reads.ts';
+import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
@@ -48,6 +52,8 @@ export interface ServeShell {
     claude: string,
     plan: (start: AttemptStart) => Promise<ClaudeAttemptPlan>,
   ) => BrewerRunner;
+  /** The process runner the check steps' commands run through (ADR 0069). */
+  exec: ExecProcess;
   /** Default the global `fetch`. */
   fetch?: typeof globalThis.fetch;
   /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
@@ -134,11 +140,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     });
     const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
     let opened: Driver | undefined;
+    const state = () => {
+      if (opened === undefined) throw new Error('the driver is not open yet');
+      return opened.state();
+    };
     const plans = createAttemptPlans({
-      state: () => {
-        if (opened === undefined) throw new Error('the driver is not open yet');
-        return opened.state();
-      },
+      state,
       brewers: setup.brewers,
       models: setup.models,
       repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
@@ -147,9 +154,27 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       env: setup.brewerEnv,
       orderText: githubOrderText(createGitHubReads(client), setup.brewery),
     });
+    // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069).
+    const checks = createCheckRunner({
+      state,
+      checks: setup.checks,
+      repositoryChecks: (repo) =>
+        setup.repositories.find((repository) => sameRepo(repository.repo, repo))?.checks,
+      exec: shell.exec,
+      env: { ...setup.brewerEnv.base, ...setup.brewerEnv.forced },
+      clock,
+    });
+    const runner = stepRunner({
+      brewer: shell.runner(setup.claude, plans.plan),
+      check: checks,
+      isCheck: ({ batchId, stepId }) => {
+        const recipe = state().batches.get(batchId)?.recipe?.name;
+        return recipe !== undefined && setup.checks.find(recipe, stepId) !== undefined;
+      },
+    });
     driver = await openDriver({
       store,
-      runner: shell.runner(setup.claude, plans.plan),
+      runner,
       recipes: setup.recipes,
       clock,
       lock: () => lock,

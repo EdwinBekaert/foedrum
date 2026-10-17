@@ -4,12 +4,14 @@
 
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
+import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, type Env } from '../engine/brewer-env.ts';
 import {
   type BreweryFiles,
   invalidRecipes,
   loadRecipes,
   type StepBrewers,
+  type StepChecks,
 } from '../engine/recipe-files.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
@@ -51,6 +53,8 @@ export interface ServeRepository {
   clone?: string;
   /** Its toolchain rules (ADR 0023). */
   tools: readonly string[];
+  /** The command behind each of its checks, or null where it has none (ADR 0023, ADR 0069). */
+  checks: RepositoryChecks;
 }
 
 export interface ServeSetup {
@@ -65,6 +69,8 @@ export interface ServeSetup {
   models: ModelsConfig;
   recipes: Recipes;
   brewers: StepBrewers;
+  /** The checks of the recipes' check steps (ADR 0069). */
+  checks: StepChecks;
   github: { api: string; token: string };
   /** Where claude is, as doctor found it. */
   claude: string;
@@ -155,6 +161,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         base: `origin/${repository.base ?? DEFAULT_BASE}`,
         ...(clone === undefined ? {} : { clone }),
         tools: repository.tools,
+        checks: repository.checks,
       };
     },
   );
@@ -203,6 +210,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       models,
       recipes: loaded.recipes,
       brewers: loaded.brewers,
+      checks: loaded.checks,
       github: { api: config.githubApi ?? DEFAULT_API, token },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',

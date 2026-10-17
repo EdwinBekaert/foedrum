@@ -127,6 +127,8 @@ describe('runServe', () => {
       calls.push(`runner ${claude}`);
       return planningRunner(plan);
     },
+    // The stout recipe has no check step.
+    exec: () => Promise.reject(new Error('no check step runs here')),
     fetch: fakeFetch([{ status: 200, body: { ...issue, number: 12, body: 'Add a --json flag.' } }])
       .fetch,
     ...overrides,
