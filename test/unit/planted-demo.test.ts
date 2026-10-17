@@ -9,9 +9,8 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 // here: this reads the lines they add.
 const sample = join(import.meta.dirname, '..', 'fixtures', 'brew-review', 'planted-demo');
 
-// The lines each patch adds, by the path of the file it adds them to.
-const addedLines = (patch: string): Map<string, string[]> => {
-  const added = new Map<string, string[]>();
+// Adds the lines a patch adds to `added`, by the path of the file it adds them to.
+const addLines = (patch: string, added: Map<string, string[]>): void => {
   let file: string | undefined;
   for (const line of patch.split(/\r?\n/)) {
     if (line.startsWith('diff --git ')) file = undefined;
@@ -20,7 +19,6 @@ const addedLines = (patch: string): Map<string, string[]> => {
       added.set(file, [...(added.get(file) ?? []), line.slice(1)]);
     }
   }
-  return added;
 };
 
 describe('the planted-defect sample', () => {
@@ -35,9 +33,7 @@ describe('the planted-defect sample', () => {
     for (const name of readdirSync(sample)
       .filter((entry) => entry.endsWith('.patch'))
       .sort()) {
-      for (const [file, lines] of addedLines(readFileSync(join(sample, name), 'utf8'))) {
-        files.set(file, [...(files.get(file) ?? []), ...lines]);
-      }
+      addLines(readFileSync(join(sample, name), 'utf8'), files);
     }
     testFiles = [...files.keys()].filter((file) => file.startsWith('test/'));
     for (const file of testFiles) {
