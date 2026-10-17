@@ -239,22 +239,6 @@ describe('loadRecipes: fails closed', () => {
     );
   });
 
-  it('refuses a brewer step with a condition or a route, which the engine does not follow yet', () => {
-    const steps = [
-      { id: 'plan', brewer: 'brewmaster' },
-      { brewer: 'maltster', when: 'plan.status' },
-      {
-        id: 'again',
-        brewer: 'maltster',
-        onBlocked: { findings: { goto: 'plan', maxRounds: 1 } },
-      },
-    ];
-    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
-      'recipes/pale.jsonc: step "maltster" has a "when" that reads step "plan", which the engine does not follow yet (ADR 0064)',
-      'recipes/pale.jsonc: step "again" has an "onBlocked" route, which the engine does not follow yet (ADR 0053)',
-    ]);
-  });
-
   it('reports every problem of every file, brewers first, and a broken brewer file once', () => {
     const files = brewery({
       recipes: [
@@ -366,6 +350,85 @@ describe("loadRecipes: a when that reads the recipe's settings (ADR 0064)", () =
       'recipes/pale.jsonc: step "taste" has a "when" that reads step "plan", which the engine does not follow yet (ADR 0064)',
       'recipes/pale.jsonc: step "again" has a "when" that reads recipe.budget, which is not a recipe setting (ADR 0064)',
     ]);
+  });
+});
+
+describe('loadRecipes: an onBlocked route and its rounds (ADR 0064)', () => {
+  type Route = { from: string; why: 'failed' | 'findings' };
+  /** A brewing batch whose gauge step has an attempt for each of `routes`, by the route given. */
+  const routedBatch = (routes: readonly (Route | undefined)[]): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        'gauge',
+        {
+          id: 'gauge',
+          inputs: [],
+          attempts: new Map(
+            routes.map((route, i): [number, Attempt] => [
+              i + 1,
+              {
+                phase: 'finished',
+                attempt: i + 1,
+                deadlineAt: D,
+                outcome: { kind: 'succeeded', output: null },
+                ...(route === undefined ? {} : { route }),
+              },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  });
+  const withRoute = (maxRounds: number) => {
+    const steps = [
+      { id: 'gauge', brewer: 'maltster' },
+      {
+        id: 'implement',
+        brewer: 'brewmaster',
+        onBlocked: { findings: { goto: 'gauge', maxRounds } },
+      },
+    ];
+    const found = loaded(loadRecipes(brewery({ recipes: [recipe('pale', steps)] }))).find('pale');
+    assert.ok(found !== undefined);
+    return found;
+  };
+  const findings: Route = { from: 'implement', why: 'findings' };
+
+  it('goes back along a findings route while it has rounds left', () => {
+    assert.equal(withRoute(1).loopBack(routedBatch([undefined]), 'implement', 'findings'), 'gauge');
+    assert.equal(
+      withRoute(2).loopBack(routedBatch([undefined, findings]), 'implement', 'findings'),
+      'gauge',
+    );
+  });
+
+  it('counts a round for each attempt the route scheduled, then has none', () => {
+    assert.equal(
+      withRoute(1).loopBack(routedBatch([undefined, findings]), 'implement', 'findings'),
+      undefined,
+    );
+    assert.equal(
+      withRoute(2).loopBack(routedBatch([undefined, findings, findings]), 'implement', 'findings'),
+      undefined,
+    );
+  });
+
+  it('counts only the rounds of its own route', () => {
+    const others: Route[] = [
+      { from: 'review', why: 'findings' },
+      { from: 'implement', why: 'failed' },
+    ];
+    assert.equal(
+      withRoute(1).loopBack(routedBatch([undefined, ...others]), 'implement', 'findings'),
+      'gauge',
+    );
+  });
+
+  it('has no route for a failure, or for a step without onBlocked', () => {
+    const pale = withRoute(1);
+    assert.equal(pale.loopBack(routedBatch([undefined]), 'implement', 'failed'), undefined);
+    assert.equal(pale.loopBack(routedBatch([undefined]), 'gauge', 'findings'), undefined);
   });
 });
 

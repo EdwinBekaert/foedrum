@@ -61,7 +61,7 @@ const scheduled = (
   stepId: string,
   attempt = 1,
   deadlineAt = '2026-10-15T11:00:00.000Z',
-): Event => ({
+): Extract<Event, { type: 'step.scheduled' }> => ({
   type: 'step.scheduled',
   batchId: 'b1',
   stepId,
@@ -159,7 +159,7 @@ const stuckOn = (
   options: [...options],
   remindAt: inTwoDays,
 });
-const next = (stepId: string, attempt = 1): Event => scheduled(stepId, attempt, inAnHour);
+const next = (stepId: string, attempt = 1) => scheduled(stepId, attempt, inAnHour);
 
 describe('stuckOptions', () => {
   it('offers answer only when the batch waits for answers', () => {
@@ -406,10 +406,10 @@ describe('decide finish', () => {
     ]);
   });
 
-  it('sends a failed check back along its route', () => {
+  it('sends a failed check back along its route, recording the route on the schedule', () => {
     accepts(brewing('green'), finish(final, 'green'), [
       finished(final, 'green'),
-      next('implement'),
+      { ...next('implement'), route: { from: 'green', why: 'failed' } },
     ]);
   });
 
@@ -423,7 +423,7 @@ describe('decide finish', () => {
   it('sends a retryable failure back along its route once the attempts are used up', () => {
     accepts(brewing('green', 2), finish(retryable, 'green', 2), [
       finished(retryable, 'green', 2),
-      next('implement'),
+      { ...next('implement'), route: { from: 'green', why: 'failed' } },
     ]);
   });
 
@@ -488,7 +488,7 @@ describe('decide finish', () => {
     it('is recorded as a final failure, and findings go back along the route', () => {
       accepts(brewing('implement'), finish(blocked('findings'), 'implement'), [
         finished(recorded('findings'), 'implement'),
-        next('plan'),
+        { ...next('plan'), route: { from: 'implement', why: 'findings' } },
       ]);
     });
 
@@ -1283,6 +1283,130 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
         ],
       },
     );
+  });
+});
+
+describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
+  // Loaded in each test, so a recipe that does not load fails the test, not the suite.
+  const withRoute = (when?: string): Context => {
+    const loaded = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText(
+            'pale',
+            [
+              { id: 'gauge', brewer: 'malt', ...(when === undefined ? {} : { when }) },
+              {
+                id: 'implement',
+                brewer: 'malt',
+                onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } },
+              },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('; '));
+    return { ...context, recipes: loaded.recipes };
+  };
+  const routed: Event = {
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe: 'pale',
+    reason: 'small',
+    source: 'router',
+  };
+  const succeeded = { kind: 'succeeded', output: null } as const;
+  const done = (stepId: string, attempt = 1): Event[] => [
+    scheduled(stepId, attempt),
+    started(stepId, attempt),
+    { type: 'step.finished', batchId: 'b1', stepId, attempt, outcome: succeeded },
+  ];
+  const blocked = {
+    kind: 'blocked',
+    blockerKind: 'findings',
+    summary: 'the test is wrong',
+  } as const;
+  const finish = (attempt: number): Command => ({
+    kind: 'finish',
+    batchId: 'b1',
+    stepId: 'implement',
+    attempt,
+    ending: blocked,
+  });
+  const recorded = (attempt: number): Event => ({
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: 'implement',
+    attempt,
+    outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): the test is wrong' },
+  });
+  const findings = { from: 'implement', why: 'findings' } as const;
+  const inHalfAnHour = '2026-10-15T12:30:00.000Z';
+
+  it('goes back along the route, recording it on the schedule, then is Stuck on the findings', () => {
+    const firstRound = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+    ];
+    assert.deepStrictEqual(decide(fold(firstRound), finish(1), withRoute()), {
+      kind: 'accepted',
+      events: [recorded(1), { ...scheduled('gauge', 2, inHalfAnHour), route: findings }],
+    });
+    const secondRound: Event[] = [
+      ...firstRound,
+      recorded(1),
+      { ...scheduled('gauge', 2), route: findings },
+      started('gauge', 2),
+      { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt: 2, outcome: succeeded },
+      scheduled('implement', 2),
+      started('implement', 2),
+    ];
+    assert.deepStrictEqual(decide(fold(secondRound), finish(2), withRoute()), {
+      kind: 'accepted',
+      events: [
+        recorded(2),
+        stuckOn({
+          kind: 'blocked',
+          stepId: 'implement',
+          blockerKind: 'findings',
+          summary: 'the test is wrong',
+        }),
+      ],
+    });
+  });
+
+  it('makes the batch Stuck on a divergence when the route goes back to a skipped step', () => {
+    const skippedGauge: Event[] = [
+      ordered,
+      routed,
+      {
+        type: 'step.skipped',
+        batchId: 'b1',
+        stepId: 'gauge',
+        when: 'recipe.testFirst',
+      },
+      scheduled('implement'),
+      started('implement'),
+    ];
+    assert.deepStrictEqual(decide(fold(skippedGauge), finish(1), withRoute('recipe.testFirst')), {
+      kind: 'accepted',
+      events: [
+        recorded(1),
+        stuckOn({
+          kind: 'blocked',
+          stepId: 'implement',
+          blockerKind: 'divergence',
+          summary: 'step implement routes back to step gauge, which was skipped',
+        }),
+      ],
+    });
   });
 });
 

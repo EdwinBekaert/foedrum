@@ -219,6 +219,31 @@ describe('fold', () => {
     });
   });
 
+  it('keeps the route that scheduled an attempt, from its schedule through its finish', () => {
+    const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
+    const route = { from: 'implement', why: 'findings' } as const;
+    const outcome = { kind: 'cancelled' } as const;
+    const routed: Event = { ...scheduled, route };
+    const states = [
+      fold([ordered, routed]),
+      fold([ordered, routed, { type: 'step.started', ...base }]),
+      fold([
+        ordered,
+        routed,
+        { type: 'step.started', ...base },
+        { type: 'step.finished', ...base, outcome },
+      ]),
+    ];
+    assert.deepStrictEqual(
+      states.map((state) => batch(state).steps.get('plan')?.attempts.get(1)),
+      [
+        { phase: 'scheduled', attempt: 1, deadlineAt, route },
+        { phase: 'started', attempt: 1, deadlineAt, route },
+        { phase: 'finished', attempt: 1, deadlineAt, route, outcome },
+      ],
+    );
+  });
+
   it('leaves out a session and usage the events do not carry', () => {
     const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
     const outcome = { kind: 'cancelled' } as const;

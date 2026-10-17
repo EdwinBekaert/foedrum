@@ -199,7 +199,17 @@ export const Event = z.discriminatedUnion('type', [
     routeBy: Timestamp,
   }),
   recipeChosen,
-  z.strictObject({ type: z.literal('step.scheduled'), ...step, deadlineAt: Timestamp }),
+  z
+    .strictObject({
+      type: z.literal('step.scheduled'),
+      ...step,
+      deadlineAt: Timestamp,
+      route: z.unknown().optional(),
+    })
+    .refine((event) => {
+      if (event.route !== undefined) throw new Error('not implemented');
+      return true;
+    }),
   // The step's `when` was false when the batch reached it, so it did not run (ADR 0064).
   z.strictObject({
     type: z.literal('step.skipped'),
