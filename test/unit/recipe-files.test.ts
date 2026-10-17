@@ -397,17 +397,15 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       refused('"context": "repo"'),
       refused('"toolbox"'),
       refused('"doneWhen"'),
+      refused('the guard "noPush"'),
       refused('the guard "requiresCommits"'),
       refused('the guard "scope"'),
     ]);
   });
 
-  it('loads a brewer that asks only for what the plan follows, the out doc and no push among its guards', () => {
+  it('loads a brewer that asks only for what the plan follows, the out doc among its guards', () => {
     const files = brewery({
-      brewers: [
-        brewer('maltster', { guards: ['requiresOutDoc', 'noPush'], retryMode: 'fresh' }),
-        brewmaster,
-      ],
+      brewers: [brewer('maltster', { guards: ['requiresOutDoc'], retryMode: 'fresh' }), brewmaster],
     });
     assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
   });
