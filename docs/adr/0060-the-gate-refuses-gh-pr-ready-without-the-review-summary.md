@@ -1,6 +1,6 @@
 # 0060. The local gate refuses `gh pr ready` until the review summary for the head is on the pull request
 
-Date: 2026-10-17 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words)
+Date: 2026-10-17 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words) · Amended by [0067](0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md) (a pull request of only plain docs)
 
 ## Context
 CLAUDE.md says to open pull requests as drafts and run `/brew-review` before marking them ready, but nothing enforced it. #153 was marked ready after only `/brew-review --red-proof`, because the session's prompt listed the closing steps without the review and the session took that list as the whole procedure (#154). A rule that depends on how a prompt is worded will be skipped again.
