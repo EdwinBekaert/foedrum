@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { constants, getPriority } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -32,16 +32,25 @@ const priorities = (preload = './scripts/test-cpu-time.ts'): string => {
   return result.stdout.trim();
 };
 
+const below = constants.priority.PRIORITY_BELOW_NORMAL;
+
+// A test process that already runs below normal (npm run test:integration on a developer's
+// machine lowers itself) would pass its priority on to the probe whatever the preload does, so
+// the check could not fail. It runs where this process is at normal priority, as in CI.
+const skipWhenAlreadyLow = (t: TestContext): boolean => {
+  if (getPriority() < below) return false;
+  t.skip('this process already runs below normal, so the probe would inherit it');
+  return true;
+};
+
 describe("npm test's preload and the process priority", () => {
-  it('runs below normal without CI, and so does a process it starts', () => {
-    const below = constants.priority.PRIORITY_BELOW_NORMAL;
-    // A machine that already runs this test below normal or lower keeps that priority.
-    const expected = Math.max(getPriority(), below);
-    assert.equal(priorities(), `${expected} ${expected}`);
+  it('runs below normal without CI, and so does a process it starts', (t) => {
+    if (skipWhenAlreadyLow(t)) return;
+    assert.equal(priorities(), `${below} ${below}`);
   });
 
-  it('runs below normal under the priority preload of the integration and coverage runs', () => {
-    const expected = Math.max(getPriority(), constants.priority.PRIORITY_BELOW_NORMAL);
-    assert.equal(priorities('./scripts/lower-priority.ts'), `${expected} ${expected}`);
+  it('runs below normal under the priority preload of the integration and coverage runs', (t) => {
+    if (skipWhenAlreadyLow(t)) return;
+    assert.equal(priorities('./scripts/lower-priority.ts'), `${below} ${below}`);
   });
 });
