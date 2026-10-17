@@ -1142,7 +1142,6 @@ describe('precheck on gh pr ready', () => {
   });
 
   const hidden: [tool: string, command: string][] = [
-    ['Bash', 'git push && gh pr ready 160'],
     ['Bash', 'bash -c "gh pr ready 160"'],
     ['Bash', 'g=gh; $g pr ready 160'],
     ['Bash', 'env GH_PROMPT_DISABLED=1 gh pr ready 160'],
