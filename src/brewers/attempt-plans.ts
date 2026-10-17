@@ -13,6 +13,7 @@ import type { StepBrewers } from '../engine/recipe-files.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import {
+  answersOf,
   attemptLimits,
   type InputRead,
   inputsOf,
@@ -121,6 +122,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       for (const input of planned) {
         inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
       }
+      const answers = answersOf(batch, stepId);
+      if (answers !== undefined) inputs.push(answers);
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
       return planAttempt({

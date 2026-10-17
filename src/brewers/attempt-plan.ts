@@ -134,6 +134,17 @@ export function inputsOf(
   });
 }
 
+/**
+ * The answers a human gave to the questions of `stepId`, every round in order, as the in-doc of
+ * its next attempt, which starts a new session (ADR 0006); none when nobody answered.
+ */
+export function answersOf(batch: Batch, stepId: string): PromptInput | undefined {
+  const answers = (batch.steps.get(stepId)?.inputs ?? []).flatMap((input) => input.answers);
+  if (answers.length === 0) return undefined;
+  const text = answers.map(({ q, answer }) => `Q: ${q}\nA: ${answer}`).join('\n\n');
+  return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
+}
+
 /** The out doc contract every prompt ends its instructions with (brewers-and-recipes §2). */
 export function outDocContract(file: string): string {
   return [
