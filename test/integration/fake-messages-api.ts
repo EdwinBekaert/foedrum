@@ -8,6 +8,8 @@ import type { AddressInfo } from 'node:net';
 export interface FakeMessagesApi {
   /** The base URL to pass as ANTHROPIC_BASE_URL. */
   url: string;
+  /** The body of each model call it answered, in order. */
+  bodies: readonly string[];
   close: () => Promise<void>;
 }
 
@@ -54,6 +56,7 @@ const streamed = (message: Record<string, unknown>, content: Block[]): string =>
 
 export const startFakeMessagesApi = async (tool: ToolCall): Promise<FakeMessagesApi> => {
   let calls = 0;
+  const bodies: string[] = [];
   const server = createServer((request, response) => {
     let body = '';
     request.setEncoding('utf8').on('data', (chunk: string) => {
@@ -69,6 +72,7 @@ export const startFakeMessagesApi = async (tool: ToolCall): Promise<FakeMessages
       }
       const parsed = JSON.parse(body) as { model: string; stream?: boolean; messages: unknown };
       calls += 1;
+      bodies.push(body);
       const answered = JSON.stringify(parsed.messages).includes('"tool_result"');
       const content: Block[] = answered
         ? [{ type: 'text', text: 'done' }]
@@ -96,6 +100,7 @@ export const startFakeMessagesApi = async (tool: ToolCall): Promise<FakeMessages
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,
+    bodies,
     close: () =>
       new Promise((closed) => {
         server.closeAllConnections();

@@ -61,8 +61,8 @@ export interface DriverOptions {
    */
   takes: (batchId: string) => boolean;
   stateBranch: Pick<StateBranch, 'flush'>;
-  /** The limits of each step's attempts. */
-  limits: (stepId: string) => AttemptLimits;
+  /** The limits of an attempt: its brewer's, from the recipe its batch brews. */
+  limits: (attempt: AttemptRef) => AttemptLimits;
   /** The attempt worktrees of the one repository the attempts write in, and their base. */
   worktrees?: {
     repo: string;
@@ -318,7 +318,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
             refused.add(key);
             continue;
           }
-          const run = runner.start({ ref, limits: limits(stepId) });
+          const run = runner.start({ ref, limits: limits(ref) });
           runs.set(key, { ref, run });
           run.ended.then(
             (end) => ended.push({ ref, end }),

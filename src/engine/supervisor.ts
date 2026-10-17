@@ -75,7 +75,9 @@ export const planTick = (input: TickInput): TickPlan => {
     if (commands.has(batch.id)) continue;
     const recipe = batch.recipe && recipes.find(batch.recipe.name);
     for (const { phase, batchId, stepId, attempt } of running(batch)) {
-      const limit = recipe?.stall(stepId);
+      // A step the recipe file no longer has (renamed under the batch) has no stall limit: its
+      // deadline still holds, and asking the recipe about it would throw on every tick.
+      const limit = recipe?.has(stepId) === true ? recipe.stall(stepId) : undefined;
       const signal =
         phase === 'started' ? progress.progress({ batchId, stepId, attempt }) : undefined;
       if (limit !== undefined && signal !== undefined && isStalled(limit, signal, now)) {

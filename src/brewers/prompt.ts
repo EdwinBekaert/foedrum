@@ -10,7 +10,9 @@ export type InputSource =
   | { kind: 'comment'; issue: number; comment: number }
   | { kind: 'out-doc'; step: string }
   | { kind: 'file'; path: string }
-  | { kind: 'house-yeast'; rule: string };
+  | { kind: 'house-yeast'; rule: string }
+  /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
+  | { kind: 'answers'; step: string };
 
 export interface PromptInput {
   /** The brewer's input name (`inputs[].name`, the `{variable}` in its body), when it has one. */
@@ -45,6 +47,8 @@ function describeSource(source: InputSource): string {
       return `file ${source.path}`;
     case 'house-yeast':
       return `house-yeast rule ${source.rule}`;
+    case 'answers':
+      return `answers to the questions of step ${source.step}`;
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);

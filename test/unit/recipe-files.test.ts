@@ -343,3 +343,70 @@ describe('loadRecipes: test-first recipes (ADR 0028, #25)', () => {
     );
   });
 });
+
+describe('loadRecipes: the brewer of each step (#148)', () => {
+  const brewersOf = (files: BreweryFiles) => {
+    const result = loadRecipes(files);
+    assert.equal(result.valid, true);
+    return (result as Extract<LoadedRecipes, { valid: true }>).brewers;
+  };
+
+  it("finds each step's brewer with its instructions, the brewer file's body", () => {
+    const brewers = brewersOf(brewery());
+    const plan = brewers.find('pale', 'plan');
+    assert.equal(plan?.brewer.name, 'brewmaster');
+    assert.equal(plan?.brewer.maxAttempts, 3);
+    assert.equal(plan?.instructions.trim(), 'Do the work of the brewmaster.');
+    assert.equal(brewers.find('pale', 'maltster')?.brewer.name, 'maltster');
+  });
+
+  it('finds nothing for a recipe or a step the Brewery does not have', () => {
+    const brewers = brewersOf(brewery());
+    assert.equal(brewers.find('stout', 'plan'), undefined);
+    assert.equal(brewers.find('pale', 'brewmaster'), undefined);
+  });
+});
+
+describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#148)', () => {
+  it("refuses a step whose brewer asks for what the engine's attempt plan does not follow yet", () => {
+    const cellarman = brewer('cellarman', {
+      access: 'write',
+      tree: 'task',
+      git: { commit: true },
+      produces: 'commits',
+      retryMode: 'resume',
+      houseYeast: true,
+      skills: ['tdd'],
+      mcp: ['github'],
+      context: 'repo',
+      toolbox: 'You may use jq.',
+      doneWhen: 'The tests pass.',
+      guards: ['requiresOutDoc', 'noPush', 'requiresCommits', 'scope'],
+    });
+    const files = brewery({
+      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      brewers: [maltster, brewmaster, cellarman],
+    });
+    const refused = (what: string) =>
+      `recipes/stout.jsonc: step "brew" has the brewer "cellarman", with ${what}, which the engine does not follow yet (ADR 0059)`;
+    assert.deepEqual(problemsOf(files), [
+      refused('"retryMode": "resume"'),
+      refused('"houseYeast": true'),
+      refused('"skills"'),
+      refused('"mcp"'),
+      refused('"context": "repo"'),
+      refused('"toolbox"'),
+      refused('"doneWhen"'),
+      refused('the guard "noPush"'),
+      refused('the guard "requiresCommits"'),
+      refused('the guard "scope"'),
+    ]);
+  });
+
+  it('loads a brewer that asks only for what the plan follows, the out doc among its guards', () => {
+    const files = brewery({
+      brewers: [brewer('maltster', { guards: ['requiresOutDoc'], retryMode: 'fresh' }), brewmaster],
+    });
+    assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
+  });
+});

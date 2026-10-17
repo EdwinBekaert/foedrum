@@ -17,8 +17,20 @@ export interface BreweryFiles {
   brewers: readonly BreweryFile[];
 }
 
+/** The brewer of a recipe's step, with its instructions: the brewer file's body. */
+export interface StepBrewer {
+  brewer: BrewerFrontmatter;
+  instructions: string;
+}
+
+/** The brewers of the loaded recipes' steps. */
+export interface StepBrewers {
+  /** The brewer of step `stepId` of recipe `recipe`, or `undefined` when there is no such step. */
+  find(recipe: string, stepId: string): StepBrewer | undefined;
+}
+
 export type LoadedRecipes =
-  | { valid: true; recipes: Recipes }
+  | { valid: true; recipes: Recipes; brewers: StepBrewers }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
 
@@ -99,6 +111,29 @@ function brewerStep(step: Step): BrewerStep | string {
   return step;
 }
 
+/**
+ * The guard every attempt has anyway: the runner requires the out doc. Not `noPush`: the runner's
+ * deny rule matches only a command that starts with the push, and nothing checks the remote after
+ * the attempt yet.
+ */
+const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc']);
+
+/** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
+function unplannable(brewer: BrewerFrontmatter): string[] {
+  return [
+    ...(brewer.retryMode === 'resume' ? ['"retryMode": "resume"'] : []),
+    ...(brewer.houseYeast ? ['"houseYeast": true'] : []),
+    ...(brewer.skills.length > 0 ? ['"skills"'] : []),
+    ...(brewer.mcp.length > 0 ? ['"mcp"'] : []),
+    ...(brewer.context === 'repo' ? ['"context": "repo"'] : []),
+    ...(brewer.toolbox === undefined ? [] : ['"toolbox"']),
+    ...(brewer.doneWhen === undefined ? [] : ['"doneWhen"']),
+    ...brewer.guards
+      .filter((guard) => !ENFORCED_GUARDS.has(guard))
+      .map((guard) => `the guard "${guard}"`),
+  ];
+}
+
 /** A recipe of brewer steps in a line, each with its brewer. */
 function brewingRecipe(
   name: string,
@@ -140,14 +175,18 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       'brewer',
       (text) => {
         const doc = readDoc(text, BrewerFrontmatter);
-        return doc.valid ? { valid: true, value: doc.frontmatter } : doc;
+        if (!doc.valid) return doc;
+        const { frontmatter: brewer, body: instructions } = doc;
+        return { valid: true, value: { name: brewer.name, brewer, instructions } };
       },
       problems,
-    ).map(({ value }) => [value.name, value]),
+    ).map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
   );
   // A brewer whose file is there but broken is reported once, as that file.
   const brewerFiles = new Set(files.brewers.map(({ path }) => nameOf(path)));
   const recipes = new Map<string, Recipe>();
+  // By recipe, then step id.
+  const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
   for (const { path, value } of readAll(
     files.recipes,
     'recipe',
@@ -160,14 +199,24 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
         problems.push(`${path}: ${brewing} (ADR 0053)`);
         return [];
       }
-      const brewer = brewers.get(brewing.brewer);
-      if (brewer === undefined) {
+      const found = brewers.get(brewing.brewer);
+      if (found === undefined) {
         if (!brewerFiles.has(brewing.brewer)) {
           problems.push(`${path}: it names no brewer "${brewing.brewer}" the Brewery has`);
         }
         return [];
       }
+      const { brewer } = found;
       const id = stepId(step);
+      const refused = unplannable(brewer);
+      if (refused.length > 0) {
+        for (const what of refused) {
+          problems.push(
+            `${path}: step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
+          );
+        }
+        return [];
+      }
       const deadline = brewing.deadline ?? brewer.deadline;
       // The Duration schema has no upper bound; a deadline past what a time can hold would throw
       // when the step is scheduled, naming no file.
@@ -175,20 +224,28 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
         problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
         return [];
       }
-      return [{ id, step: brewing, brewer }];
+      return [{ id, step: brewing, ...found }];
     });
     // Every brewer is known once every step loaded, so resolveRecipe (ADR 0028) cannot throw.
     if (steps.length < value.steps.length) continue;
-    if (resolveRecipe(value, (name) => brewers.get(name)).testFirst) {
+    if (resolveRecipe(value, (name) => brewers.get(name)?.brewer).testFirst) {
       problems.push(
         `${path}: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`,
       );
       continue;
     }
     recipes.set(value.name, brewingRecipe(value.name, steps));
+    stepBrewers.set(
+      value.name,
+      new Map(steps.map(({ id, brewer, instructions }) => [id, { brewer, instructions }])),
+    );
   }
   if (problems.length > 0) return { valid: false, problems };
-  return { valid: true, recipes: { find: (name) => recipes.get(name) } };
+  return {
+    valid: true,
+    recipes: { find: (name) => recipes.get(name) },
+    brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
+  };
 }
 
 /** The one line doctor and a refused command give for `problems`. */

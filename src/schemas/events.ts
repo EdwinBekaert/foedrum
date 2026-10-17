@@ -274,7 +274,8 @@ export const Event = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('batch.on_tap'),
     batchId: BatchId,
-    pullRequests: z.array(PullRequestUrl).min(1),
+    // None while recipes end without an openPullRequest action (ADR 0059).
+    pullRequests: z.array(PullRequestUrl),
   }),
   z.strictObject({
     type: z.literal('batch.cancelled'),

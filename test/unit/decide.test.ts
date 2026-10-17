@@ -8,8 +8,10 @@ import {
   stuckOptions,
 } from '../../src/engine/decide.ts';
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
+import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
+import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 
 const day = 24 * hour;
@@ -1193,4 +1195,93 @@ describe('decide cancel', () => {
       );
     });
   }
+});
+
+describe('decide: a step its recipe file no longer has (review of #151)', () => {
+  // The step was renamed in the file under the running batch: the real Recipe has no "plan".
+  const loaded = loadRecipes({
+    recipes: [{ path: 'recipes/pint.jsonc', text: recipeText('pint', [{ brewer: 'malt' }]) }],
+    brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+  });
+  assert.ok(loaded.valid);
+  const renamed: Context = { ...context, recipes: loaded.recipes };
+  const diverged = stuckOn({
+    kind: 'blocked',
+    stepId: 'plan',
+    blockerKind: 'divergence',
+    summary: 'recipe pint has no step plan any more: its file changed under the batch',
+  });
+  const finished = (outcome: StepOutcome): Event => ({
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt: 1,
+    outcome,
+  });
+  const decided = (command: Command) => decide(fold(brewing()), command, renamed);
+
+  for (const outcome of [
+    { kind: 'succeeded', output: null },
+    { kind: 'failed', retryable: true, reason: 'tests fail' },
+    { kind: 'cancelled' },
+  ] as const satisfies readonly StepOutcome[]) {
+    it(`records a ${outcome.kind} attempt and makes the batch Stuck on the divergence`, () => {
+      const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 1 } as const;
+      assert.deepStrictEqual(decided({ ...finish, ending: outcome }), {
+        kind: 'accepted',
+        events: [finished(outcome), diverged],
+      });
+    });
+  }
+
+  for (const kind of ['retry', 'skip'] as const) {
+    it(`refuses a ${kind} of the step that left the recipe, naming it`, () => {
+      const stuckState = fold([...brewing(), diverged]);
+      const decision = decide(stuckState, { kind, batchId: 'b1', ...by }, renamed);
+      assert.deepStrictEqual(decision, { kind: 'refused', reason: 'recipe pint has no step plan' });
+    });
+  }
+
+  it('records a lost attempt and makes the batch Stuck on the divergence', () => {
+    const reason = 'the lease of runner-1 expired at 2026-10-15T11:59:00.000Z';
+    assert.deepStrictEqual(
+      decided({ kind: 'lose', batchId: 'b1', stepId: 'plan', attempt: 1, reason }),
+      {
+        kind: 'accepted',
+        events: [
+          finished({ kind: 'failed', retryable: true, reason: `the attempt was lost: ${reason}` }),
+          diverged,
+        ],
+      },
+    );
+  });
+});
+
+describe('decide: the recipe files are done with no pull request (ADR 0053, #148)', () => {
+  const loaded = loadRecipes({
+    recipes: [
+      { path: 'recipes/pint.jsonc', text: recipeText('pint', [{ id: 'plan', brewer: 'malt' }]) },
+    ],
+    brewers: [{ path: 'brewers/malt.md', text: brewerText('malt') }],
+  });
+  assert.ok(loaded.valid);
+
+  it('puts the batch on tap with no pull request after the last step', () => {
+    const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 1 } as const;
+    const succeeded = { kind: 'succeeded', output: null } as const;
+    assert.deepStrictEqual(
+      decide(
+        fold(brewing()),
+        { ...finish, ending: succeeded },
+        { ...context, recipes: loaded.recipes },
+      ),
+      {
+        kind: 'accepted',
+        events: [
+          { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 1, outcome: succeeded },
+          { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+        ],
+      },
+    );
+  });
 });

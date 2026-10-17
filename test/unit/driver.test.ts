@@ -7,7 +7,12 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
-import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import type {
+  AttemptEnd,
+  AttemptLimits,
+  AttemptStart,
+  BrewerRunner,
+} from '../../src/engine/brewer-runner.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import {
@@ -206,6 +211,27 @@ describe('openDriver', () => {
       const driver = await open({ lock: () => lock });
       driver.close();
       assert.equal(lock.held, false);
+    });
+  });
+
+  describe('limits (#148)', () => {
+    it("starts each attempt with the limits of that attempt, so they come from its batch's recipe", async () => {
+      const asked: unknown[] = [];
+      const given: AttemptLimits[] = [];
+      const { runner } = handRunner();
+      const limits = { ...defaultLimits, maxTurns: 7 };
+      const driver = await open({
+        runner: {
+          ...runner,
+          start: (attempt) => (given.push(attempt.limits), runner.start(attempt)),
+        },
+        limits: (attempt) => (asked.push(attempt), limits),
+      });
+      order('b1');
+      order('b2');
+      await driver.drive();
+      assert.deepStrictEqual(asked, [plan('b1'), plan('b2')]);
+      assert.deepStrictEqual(given, [limits, limits]);
     });
   });
 
