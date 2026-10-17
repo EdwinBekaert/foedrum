@@ -1276,6 +1276,14 @@ describe('precheck on gh pr ready', () => {
     assert.match(result.stderr, /could not read pull request of the current branch/);
   });
 
+  it('names the newest of several summaries for older heads', async () => {
+    const { result } = await ready(
+      'gh pr ready 160',
+      facts([summary(c1.sha), summary(c2.sha)], [c1, c2, c3]),
+    );
+    assert.match(result.stderr, /newest \/brew-review summary on pull request #160 is for c2c2c2c/);
+  });
+
   it('blocks an older summary when GitHub lists too few commits to include the head', async () => {
     const { result } = await ready('gh pr ready 160', {
       ...facts([summary(c2.sha)], [c1, c2]),
