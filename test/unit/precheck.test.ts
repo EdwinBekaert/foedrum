@@ -14,6 +14,7 @@ import {
   isDetached,
   isGatedCommand,
   type LookupPullRequest,
+  lockfileBinary,
   npmCheck,
   type ProcessOutcome,
   type PullRequestFacts,
@@ -448,6 +449,10 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
     'echo origin | xargs git push -f',
     'xargs -n 1 git push --force',
     'npx git push -f',
+    'npm exec -- git push -f',
+    'pnpm dlx git push --force',
+    'npx -c "git push -f"',
+    'npm exec --call "git push --force"',
     'command env time git push -f',
     'env -S "git push -f"',
     "Start-Process git -ArgumentList 'push','-f'",
@@ -1611,6 +1616,266 @@ describe('precheck on forbidden commands', () => {
       assert.deepEqual(calls, []);
     });
   }
+});
+
+// npx and its relatives download a package the lockfile did not install, past the dependency
+// guard (#175).
+describe('precheck on npx and the commands that run a package like it', () => {
+  const refusal = (run: string): string =>
+    `\`${run}\` would download a package that isn't in package-lock.json. Use the project's tools: \`npm run lint -- --write\` formats with Biome.\n`;
+  // node_modules/.bin in the fake checkout holds biome only.
+  const fakeBinaries = () => {
+    const asked: string[][] = [];
+    const binaryInstalled = async (cwd: string, name: string): Promise<boolean> => {
+      asked.push([cwd, name]);
+      return name === 'biome';
+    };
+    return { asked, binaryInstalled };
+  };
+  const gate = async (command: string, tool = 'Bash') => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const binaries = fakeBinaries();
+    const result = await precheck(
+      hookInput(command, '/work/tree', tool),
+      runCheck,
+      async () => undefined,
+      async () => false,
+      undefined,
+      binaries.binaryInstalled,
+    );
+    return { result, checks: calls, asked: binaries.asked };
+  };
+
+  const refused: [command: string, run: string, tool?: string][] = [
+    ['npx prettier --write x.ts', 'npx prettier'],
+    ['npx prettier --write x.ts', 'npx prettier', 'PowerShell'],
+    ['npx --yes some-pkg', 'npx some-pkg'],
+    ['npx -y some-pkg --flag', 'npx some-pkg'],
+    ['npm exec prettier -- --write x.ts', 'npm exec prettier'],
+    ['npm exec -- prettier --write x.ts', 'npm exec prettier'],
+    ['npm x prettier', 'npm x prettier'],
+    ['pnpm dlx prettier --write x.ts', 'pnpm dlx prettier'],
+    ['yarn dlx prettier --write x.ts', 'yarn dlx prettier'],
+    ['bunx prettier --write x.ts', 'bunx prettier'],
+    ['bun x prettier --write x.ts', 'bun x prettier'],
+    // A package given as an option is downloaded too, whatever the program.
+    ['npx -p prettier biome check', 'npx prettier'],
+    ['npx --package=prettier biome check', 'npx prettier'],
+    ['yarn dlx -p prettier biome', 'yarn dlx prettier'],
+    // Through wrappers, other shells and compound commands.
+    ['env CI=1 npx prettier --write x.ts', 'npx prettier'],
+    ['bash -c "npx prettier --write x.ts"', 'npx prettier'],
+    ['git status && npx prettier --write x.ts', 'npx prettier'],
+    // pnpm's shorthand for pnpm dlx, and the PowerShell shims npm and pnpm install on Windows.
+    ['pnpx prettier --write x.ts', 'pnpx prettier'],
+    ['npx.ps1 prettier --write x.ts', 'npx prettier', 'PowerShell'],
+    [
+      '& "C:\\Users\\dev\\AppData\\Roaming\\npm\\pnpm.ps1" dlx prettier',
+      'pnpm dlx prettier',
+      'PowerShell',
+    ],
+  ];
+  for (const [command, run, tool = 'Bash'] of refused) {
+    it(`refuses in ${tool}: ${command}`, async () => {
+      const { result, checks } = await gate(command, tool);
+      assert.deepEqual(result, { exitCode: 2, stderr: refusal(run) });
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  // A name that is not a plain binary name never reaches the file system: a version, a scope or a
+  // path is not what node_modules/.bin holds, and a name computed at run time may be anything.
+  const unnamed: [command: string, run: string][] = [
+    ['npx prettier@3 --write x.ts', 'npx prettier@3'],
+    ['npx @biomejs/biome check', 'npx @biomejs/biome'],
+    ['npx ../../tools/biome check', 'npx ../../tools/biome'],
+    ['npx $tool --write x.ts', 'npx $tool'],
+    // pnpm dlx, pnpx and yarn dlx always download, whatever node_modules/.bin holds.
+    ['pnpm dlx biome check', 'pnpm dlx biome'],
+    ['pnpx biome check', 'pnpx biome'],
+    ['yarn dlx biome', 'yarn dlx biome'],
+    // A -p value is a package name, which node_modules/.bin cannot vouch for.
+    ['npx -p biome biome check', 'npx biome'],
+    ['npx --package=tsc tsc', 'npx tsc'],
+    // Names Windows maps to a device or to another file.
+    ['npx nul', 'npx nul'],
+    ['npx CON check', 'npx CON'],
+    ['npx lpt1.txt', 'npx lpt1.txt'],
+    ['npx prn', 'npx prn'],
+    ['npx Aux.js', 'npx Aux.js'],
+    ['npx com9', 'npx com9'],
+    ['npx biome. check', 'npx biome.'],
+  ];
+  for (const [command, run] of unnamed) {
+    it(`refuses without looking: ${command}`, async () => {
+      const { result, asked } = await gate(command);
+      assert.deepEqual(result, { exitCode: 2, stderr: refusal(run) });
+      assert.deepEqual(asked, []);
+    });
+  }
+
+  for (const command of [
+    'npx biome check',
+    'npx --yes biome check src',
+    'npm exec biome -- check',
+    'bunx biome check',
+  ]) {
+    it(`lets through a binary the lockfile installed: ${command}`, async () => {
+      const { result, checks, asked } = await gate(command);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(checks, []);
+      assert.ok(asked.length > 0);
+      assert.ok(asked.every(([cwd, name]) => cwd === '/work/tree' && name === 'biome'));
+    });
+  }
+
+  // The gate looks in node_modules/.bin around the hook's working directory; after a change of
+  // directory npx looks elsewhere and may download a package of the same name.
+  const moved: [command: string, tool?: string][] = [
+    ['cd ../other && npx biome check'],
+    ['pushd ../other && npx biome check'],
+    ['bash -c "cd ../other && npx biome check"'],
+    ['Set-Location ..\\other; npx biome check', 'PowerShell'],
+    ['sl ..\\other; npx biome check', 'PowerShell'],
+    // PowerShell's drive and parent functions, and cmd's drive letter.
+    ['D:; npx biome check', 'PowerShell'],
+    ['cd..; npx biome check', 'PowerShell'],
+    ['cd\\; npx biome check', 'PowerShell'],
+    ['cmd /c "D: && npx biome check"'],
+    // npx's own directory option.
+    ['npx --prefix ../other biome check'],
+    ['npx --prefix=../other biome check'],
+  ];
+  for (const [command, tool = 'Bash'] of moved) {
+    it(`refuses a package runner after a change of directory in ${tool}: ${command}`, async () => {
+      const { result, checks } = await gate(command, tool);
+      assert.deepEqual(result, {
+        exitCode: 2,
+        stderr:
+          '`npx biome` is blocked in a command that changes directory: the gate looks for it in node_modules/.bin where the command starts, and npx would look where it runs. Run it as a command of its own, from the folder whose node_modules it uses.\n',
+      });
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  // One- and two-character names are binary names too, such as nx.
+  for (const name of ['x', 'nx']) {
+    it(`looks up a short name: npx ${name}`, async () => {
+      const { asked } = await gate(`npx ${name}`);
+      assert.deepEqual(asked, [['/work/tree', name]]);
+    });
+  }
+
+  it('lets through npx without a package', async () => {
+    const { result, asked } = await gate('npx --version');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, []);
+  });
+
+  it('still runs the check for a push after an installed binary', async () => {
+    const { result, checks } = await gate('npx biome check && git push');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(checks, ['/work/tree']);
+  });
+
+  it('lets through a change of directory without a package runner', async () => {
+    const { result } = await gate('cd src && git status');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+
+  // Every package counts, not only the first the gate finds.
+  for (const command of ['npx biome check && npx prettier --write x.ts']) {
+    it(`refuses a download after an installed binary: ${command}`, async () => {
+      const { result } = await gate(command);
+      assert.deepEqual(result, { exitCode: 2, stderr: refusal('npx prettier') });
+    });
+  }
+
+  // The refusal comes before the check and the pull request lookup, which the fake would fail.
+  for (const command of [
+    'npx prettier --write x.ts && git push',
+    'npx prettier && gh pr ready 1',
+  ]) {
+    it(`refuses a download before the check or the lookup: ${command}`, async () => {
+      const { result, checks } = await gate(command);
+      assert.deepEqual(result, { exitCode: 2, stderr: refusal('npx prettier') });
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  const movedAgain: [command: string, tool: string][] = [
+    ['chdir ../other && npx biome check', 'Bash'],
+    ['Push-Location ..\\other; npx biome check', 'PowerShell'],
+  ];
+  for (const [command, tool] of movedAgain) {
+    it(`refuses a package runner after ${command.split(' ')[0]}`, async () => {
+      const { result } = await gate(command, tool);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /^`npx biome` is blocked in a command that changes directory/);
+    });
+  }
+
+  it('blocks a force push through a package runner for its own reason', async () => {
+    const { result, checks } = await gate('npm exec -- git push -f');
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr: `${forbiddenReason('git push -f')}\n`,
+    });
+    assert.match(result.stderr, /^Force push is blocked/);
+    assert.deepEqual(checks, []);
+  });
+
+  // npx -c runs a command with the installed binaries on PATH; it downloads nothing itself.
+  it('lets through npx -c with a command that runs no package', async () => {
+    const { result, asked } = await gate('npx -c "npm run lint"');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, []);
+  });
+
+  it('refuses npx by default, when no check for binaries is given', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const result = await precheck(hookInput('npx biome check'), runCheck);
+    assert.deepEqual(result, { exitCode: 2, stderr: refusal('npx biome') });
+  });
+});
+
+describe('lockfileBinary', () => {
+  const tree = join('/work', 'tree');
+  const fakeFiles = (files: string[]) => {
+    const asked: string[] = [];
+    const read = async (path: string) => (files.includes(path) ? '{}' : undefined);
+    const exists = async (path: string) => {
+      asked.push(path);
+      return files.includes(path);
+    };
+    return { asked, read, exists };
+  };
+
+  it('looks in node_modules/.bin of the nearest folder up with a package.json', async () => {
+    const binary = join(tree, 'node_modules', '.bin', 'biome');
+    const files = fakeFiles([join(tree, 'package.json'), binary]);
+    const installed = lockfileBinary(files.read, files.exists);
+    assert.equal(await installed(join(tree, 'src', 'cli'), 'biome'), true);
+    assert.equal(await installed(join(tree, 'src', 'cli'), 'prettier'), false);
+    assert.deepEqual(files.asked, [binary, join(tree, 'node_modules', '.bin', 'prettier')]);
+  });
+
+  it('stops at the nearest package.json, not the outermost', async () => {
+    const files = fakeFiles([
+      join(tree, 'package.json'),
+      join(tree, 'node_modules', '.bin', 'biome'),
+      join(tree, 'src', 'package.json'),
+    ]);
+    const installed = lockfileBinary(files.read, files.exists);
+    assert.equal(await installed(join(tree, 'src', 'cli'), 'biome'), false);
+    assert.deepEqual(files.asked, [join(tree, 'src', 'node_modules', '.bin', 'biome')]);
+  });
+
+  it('answers false outside a package, without looking for the binary', async () => {
+    const files = fakeFiles([]);
+    assert.equal(await lockfileBinary(files.read, files.exists)(tree, 'biome'), false);
+    assert.deepEqual(files.asked, []);
+  });
 });
 
 describe('npmCheck', () => {

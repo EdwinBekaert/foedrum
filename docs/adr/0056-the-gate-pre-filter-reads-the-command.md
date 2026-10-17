@@ -1,6 +1,6 @@
 # 0056. The local gate's pre-filter reads the command, not the whole hook input
 
-Date: 2026-10-17 · Status: Accepted, amended by [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the pre-filter matches)
+Date: 2026-10-17 · Status: Accepted, amended by [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) and [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the pre-filter matches)
 
 ## Context
 [ADR 0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) has the gate exit before parsing when the hook input mentions none of `git`, `gh`, `push`, `merge`, `pwsh` and `powershell`, and has the pre-filter match the raw hook input. That input holds more than the command: the `cwd`, the `transcript_path`, the tool's name and the tool call's `description`. So a checkout under `~/git/` or `~/github/`, a worktree named `…-github-…`, a description such as "Show git status", and every PowerShell call (its input names the tool `PowerShell`) send the call to the parser, whatever the command is. The parser costs time on every such call, and in a checkout whose path contains `git` the unit tests that build their hook input with the real checkout path failed (#152, #132).
