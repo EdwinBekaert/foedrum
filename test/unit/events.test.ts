@@ -196,6 +196,19 @@ describe('Event', () => {
     accepts(Event, { ...valid['batch.on_tap'], pullRequests: [] });
   });
 
+  it('rejects gravity readings that are empty, unbounded or not of a check', () => {
+    const finished = (readings: unknown) => ({ ...valid['step.finished'], readings });
+    const exited = { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' };
+    rejects(Event, finished([]));
+    rejects(Event, finished([{ ...exited, tail: 'x'.repeat(4001) }]));
+    rejects(Event, finished([{ ...exited, check: 'e2e' }]));
+    rejects(Event, finished([{ ...exited, command: '' }]));
+    rejects(Event, finished([{ ...exited, exitCode: 1.5 }]));
+    rejects(Event, finished([{ result: 'skipped' }]));
+    rejects(Event, finished([{ result: 'passed', check: 'test' }]));
+    rejects(Event, finished([{ ...exited, result: 'killed', killed: 'crashed' }]));
+  });
+
   it('accepts an attempt scheduled by an onFail or onBlocked route (ADR 0064)', () => {
     for (const why of ['failed', 'findings'] as const) {
       accepts(Event, { ...valid['step.scheduled'], route: { from: 'implement', why } });
