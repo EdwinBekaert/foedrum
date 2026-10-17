@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { editFile, type Mutant, parseMutant } from '../../scripts/mutants/core.ts';
+import { editFile, type Mutant, parseMutant, touchedFiles } from '../../scripts/mutants/core.ts';
 
 const mutant = (fields: Partial<Mutant> = {}): Mutant => ({
   file: 'src/engine/wait.ts',
@@ -115,6 +115,40 @@ describe('parseMutant', () => {
       reasonOf(mutant({ original: "log('timeout');", replacement: 'log(timeout);' })),
       /timeout/,
     );
+  });
+});
+
+describe('mutants of the files the change touches', () => {
+  it('reads a list that starts with a byte order mark', () => {
+    const bom = String.fromCodePoint(0xfeff);
+    assert.deepEqual(touchedFiles(`${bom}D\tsrc/gone.ts\nM\tsrc/kept.ts\n`), ['src/kept.ts']);
+  });
+
+  it('lists the files a change adds, modifies, renames or copies to, and not those it deletes', () => {
+    const nameStatus = [
+      'M\tsrc/engine/wait.ts',
+      'A\tscripts/new.ts',
+      'D\tsrc/gone.ts',
+      'R087\tsrc/old.ts\tsrc/renamed.ts',
+      'C100\tsrc/engine/wait.ts\tsrc/copy.ts',
+      'T\tsrc/typed.ts',
+      '',
+    ].join('\r\n');
+    assert.deepEqual(touchedFiles(nameStatus), [
+      'src/engine/wait.ts',
+      'scripts/new.ts',
+      'src/renamed.ts',
+      'src/copy.ts',
+      'src/typed.ts',
+    ]);
+  });
+
+  it('refuses a mutant of a file the change does not touch, when given the touched files', () => {
+    assert.deepEqual(parseMutant(mutant(), ['src/engine/other.ts']), {
+      ok: false,
+      reason: '"src/engine/wait.ts" is not a file the change touches',
+    });
+    assert.equal(parseMutant(mutant(), ['src/engine/wait.ts']).ok, true);
   });
 });
 

@@ -59,8 +59,19 @@ const names = (code: string): Set<string> => {
   return new Set([...quoted, ...bare]);
 };
 
-// Checks one entry of Brett's answer on its own: its shape, its path and the allowlist.
-export const parseMutant = (value: unknown): MutantCheck => {
+// The files a change leaves at its head, from `git diff --name-status` (files.txt of the review).
+// A deleted file is gone at the head; a renamed or copied one counts by its new path.
+export const touchedFiles = (nameStatus: string): string[] =>
+  nameStatus
+    .replace(/^﻿/, '')
+    .split(/\r?\n/)
+    .map((line) => line.split('\t'))
+    .filter(([status = '', path]) => path !== undefined && !status.startsWith('D'))
+    .map((fields) => fields.at(-1) ?? '');
+
+// Checks one entry of Brett's answer on its own: its shape, its path and the allowlist, and,
+// given the files the change touches, that it edits one of them (#140).
+export const parseMutant = (value: unknown, touched?: readonly string[]): MutantCheck => {
   if (typeof value !== 'object' || value === null) {
     return { ok: false, reason: 'the entry is not an object' };
   }
@@ -78,6 +89,9 @@ export const parseMutant = (value: unknown): MutantCheck => {
       ok: false,
       reason: `${JSON.stringify(mutant.file)} is not a file under src/ or scripts/`,
     };
+  }
+  if (touched !== undefined && !touched.includes(mutant.file)) {
+    return { ok: false, reason: `${JSON.stringify(mutant.file)} is not a file the change touches` };
   }
   if (/[\r\n\p{Zl}\p{Zp}]/u.test(mutant.replacement)) {
     return { ok: false, reason: 'the replacement is more than one line' };

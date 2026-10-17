@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -30,16 +30,17 @@ interface Machine {
 }
 
 describe('the state branch with real git', () => {
+  let seeds: TempDir;
+  let seed: string;
   let dir: TempDir;
   let origin: string;
   const stores: EventStore[] = [];
 
-  beforeEach(() => {
-    dir = makeTempDir('state-branch');
-    origin = join(dir.path, 'origin.git');
-    const seed = join(dir.path, 'seed');
-    git(dir.path, ['init', '-q', '--bare', '-b', 'main', origin]);
-    git(dir.path, ['init', '-q', '-b', 'main', seed]);
+  // The Brewery's first commit, made once for the file; each test's remote is a bare copy of it.
+  before(() => {
+    seeds = makeTempDir('state-branch-seed');
+    seed = join(seeds.path, 'seed');
+    git(seeds.path, ['init', '-q', '-b', 'main', seed]);
     writeFileSync(join(seed, 'foedrum.jsonc'), '{}\n');
     git(seed, ['add', 'foedrum.jsonc']);
     git(seed, [
@@ -52,7 +53,13 @@ describe('the state branch with real git', () => {
       '-m',
       'Brewery',
     ]);
-    git(seed, ['push', '-q', origin, 'main']);
+  });
+  after(() => removeTree(seeds.path));
+
+  beforeEach(() => {
+    dir = makeTempDir('state-branch');
+    origin = join(dir.path, 'origin.git');
+    git(dir.path, ['clone', '-q', '--bare', '--no-hardlinks', seed, origin]);
   });
   afterEach(async () => {
     for (const store of stores.splice(0)) store.close();
@@ -372,18 +379,19 @@ describe('the state branch with real git', () => {
 
   it('refuses a remote branch that holds a symbolic link', async () => {
     // A commit on foedrum/state whose tree has batches/b1 as a link to a folder outside.
-    const seed = join(dir.path, 'seed');
+    const author = ['-c', 'user.name=Test', '-c', 'user.email=t@example.com'];
+    const work = join(dir.path, 'work-clone');
+    git(dir.path, ['clone', '-q', origin, work]);
     const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
-      cwd: seed,
+      cwd: work,
       input: '../../outside',
       encoding: 'utf8',
     }).trim();
-    git(seed, ['checkout', '-q', '--orphan', 'foedrum/state']);
-    git(seed, ['rm', '-rq', '--cached', '.']);
-    git(seed, ['update-index', '--add', '--cacheinfo', `120000,${blob},batches/b1`]);
-    const author = ['-c', 'user.name=Test', '-c', 'user.email=t@example.com'];
-    git(seed, [...author, 'commit', '-q', '-m', 'Link out']);
-    git(seed, ['push', '-q', origin, 'foedrum/state']);
+    git(work, ['checkout', '-q', '--orphan', 'foedrum/state']);
+    git(work, ['rm', '-rq', '--cached', '.']);
+    git(work, ['update-index', '--add', '--cacheinfo', `120000,${blob},batches/b1`]);
+    git(work, [...author, 'commit', '-q', '-m', 'Link out']);
+    git(work, ['push', '-q', origin, 'foedrum/state']);
 
     const a = machine('a');
     await assert.rejects(

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -30,6 +30,25 @@ const git = (cwd: string, args: string[]): string =>
   });
 
 const lines = (text: string): string[] => text.split('\n').filter((line) => line !== '');
+
+// The first commit, made once for the file. Each test's origin is a bare copy of it, and the
+// user's clone is a clone of that origin, on main and tracking it.
+let seeds: TempDir;
+let seed: string;
+before(() => {
+  seeds = makeTempDir('attempts-seed');
+  seed = join(seeds.path, 'seed');
+  git(seeds.path, ['init', '-q', '-b', 'main', seed]);
+  writeFileSync(join(seed, 'readme.txt'), 'hello\n');
+  git(seed, ['add', 'readme.txt']);
+  git(seed, ['commit', '-q', '-m', 'Initial commit']);
+});
+after(() => removeTree(seeds.path));
+
+const cloneSeed = (dir: string, origin: string, user: string): void => {
+  git(dir, ['clone', '-q', '--bare', '--no-hardlinks', seed, origin]);
+  git(dir, ['clone', '-q', origin, user]);
+};
 
 const attempt = (batchId: string, stepId = 'implement', n = 1): AttemptRef => ({
   batchId,
@@ -67,13 +86,7 @@ describe('attempt worktrees with real git', () => {
     user = join(dir.path, 'user');
     userWorktree = join(dir.path, 'mine');
     workRoot = join(dir.path, 'work');
-    git(dir.path, ['init', '-q', '--bare', '-b', 'main', origin]);
-    git(dir.path, ['init', '-q', '-b', 'main', user]);
-    writeFileSync(join(user, 'readme.txt'), 'hello\n');
-    git(user, ['add', 'readme.txt']);
-    git(user, ['commit', '-q', '-m', 'Initial commit']);
-    git(user, ['remote', 'add', 'origin', origin]);
-    git(user, ['push', '-q', '-u', 'origin', 'main']);
+    cloneSeed(dir.path, origin, user);
     // The user works on a topic branch, with uncommitted changes, and has a worktree of their own.
     git(user, ['switch', '-q', '-c', 'topic']);
     writeFileSync(join(user, 'readme.txt'), 'changed\n');
@@ -261,13 +274,7 @@ describe('the driver and attempt worktrees with real git', () => {
     const origin = join(dir.path, 'origin.git');
     user = join(dir.path, 'user');
     workRoot = join(dir.path, 'work');
-    git(dir.path, ['init', '-q', '--bare', '-b', 'main', origin]);
-    git(dir.path, ['init', '-q', '-b', 'main', user]);
-    writeFileSync(join(user, 'readme.txt'), 'hello\n');
-    git(user, ['add', 'readme.txt']);
-    git(user, ['commit', '-q', '-m', 'Initial commit']);
-    git(user, ['remote', 'add', 'origin', origin]);
-    git(user, ['push', '-q', '-u', 'origin', 'main']);
+    cloneSeed(dir.path, origin, user);
     git(user, ['switch', '-q', '-c', 'topic']);
     // The user's HEAD is ahead of origin/main, so a worktree made at the base is told apart.
     writeFileSync(join(user, 'topic.txt'), 'topic\n');

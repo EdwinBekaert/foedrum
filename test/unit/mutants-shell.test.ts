@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { applyMutant, checkMutants } from '../../scripts/mutants.ts';
+import { applyMutant, checkMutants, main } from '../../scripts/mutants.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const source = 'export const add = (a, b) => {\n  return a + b;\n};\n';
@@ -178,5 +178,64 @@ describe('mutants on a scratch tree', () => {
     });
     assert.equal((await applyMutant(linked, answer, 1)).ok, false);
     assert.equal(readFileSync(join(dir.path, 'outside', 'add.ts'), 'utf8'), source);
+  });
+
+  it('marks a mutant of a file the change does not touch invalid, for checking and applying', async () => {
+    write({ mutants: [valid] });
+    const files = join(dir.path, 'files.txt');
+    writeFileSync(files, 'M\tsrc/other.ts\n');
+    const invalid = 'mutant 1: invalid: "src/add.ts" is not a file the change touches';
+    assert.deepEqual(await checkMutants(tree, answer, files), { ok: true, lines: [invalid] });
+    assert.deepEqual(await applyMutant(tree, answer, 1, files), { ok: false, lines: [invalid] });
+    assert.equal(read(), source);
+    writeFileSync(files, 'M\tsrc/add.ts\n');
+    assert.deepEqual(await checkMutants(tree, answer, files), {
+      ok: true,
+      lines: ['mutant 1: valid src/add.ts:2'],
+    });
+  });
+
+  it('fails when the list of the files the change touches cannot be read', async () => {
+    write({ mutants: [valid] });
+    const missing = join(dir.path, 'missing.txt');
+    for (const result of [
+      await checkMutants(tree, answer, missing),
+      await applyMutant(tree, answer, 1, missing),
+    ]) {
+      assert.equal(result.ok, false);
+      assert.match(result.lines.join('\n'), /^cannot read the changed files: /);
+    }
+    assert.equal(read(), source);
+  });
+
+  it('passes --touched from the command line to checking and applying', async () => {
+    write({ mutants: [valid] });
+    const files = join(dir.path, 'files.txt');
+    writeFileSync(files, 'M\tsrc/other.ts\n');
+    const invalid = 'mutants: mutant 1: invalid: "src/add.ts" is not a file the change touches';
+    assert.deepEqual(await main([tree, answer, '--touched', files]), {
+      exitCode: 0,
+      stdout: [invalid],
+      stderr: [],
+    });
+    assert.deepEqual(await main([tree, answer, '1', '--touched', files]), {
+      exitCode: 1,
+      stdout: [invalid],
+      stderr: [],
+    });
+    assert.equal(read(), source);
+    assert.deepEqual(await main([tree, answer, '1']), {
+      exitCode: 0,
+      stdout: ['mutants: mutant 1: applied src/add.ts:2'],
+      stderr: [],
+    });
+  });
+
+  it('says how to use it without a tree or an answer', async () => {
+    for (const argv of [[], [tree]]) {
+      const result = await main(argv);
+      assert.equal(result.exitCode, 2, argv.join(' '));
+      assert.match(result.stderr.join('\n'), /^usage: /);
+    }
   });
 });
