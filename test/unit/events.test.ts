@@ -196,6 +196,34 @@ describe('Event', () => {
     accepts(Event, { ...valid['batch.on_tap'], pullRequests: [] });
   });
 
+  it("accepts a check step's finish with its gravity readings (ADR 0069)", () => {
+    const tail = `${'x'.repeat(3990)}\nnot ok 3\n`.slice(-4000);
+    accepts(Event, {
+      ...valid['step.finished'],
+      outcome: { kind: 'failed', retryable: false, reason: 'the check "test" failed' },
+      readings: [
+        { result: 'skipped', check: 'typecheck' },
+        { result: 'exited', check: 'lint', command: 'npm run lint', exitCode: 0, tail: '' },
+        { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail },
+      ],
+    });
+    // A Brewery's literal command has no check name; Windows exit codes are unsigned.
+    accepts(Event, {
+      ...valid['step.finished'],
+      readings: [{ result: 'exited', command: 'make e2e', exitCode: 3221225477, tail: 'boom' }],
+    });
+    for (const killed of ['timed-out', 'stopped', 'too-much-output'] as const) {
+      accepts(Event, {
+        ...valid['step.finished'],
+        readings: [{ result: 'killed', check: 'test', command: 'npm test', killed, tail: '' }],
+      });
+    }
+    accepts(Event, {
+      ...valid['step.finished'],
+      readings: [{ result: 'unstarted', check: 'build', command: 'cargo build', tail: 'ENOENT' }],
+    });
+  });
+
   it('rejects gravity readings that are empty, unbounded or not of a check', () => {
     const finished = (readings: unknown) => ({ ...valid['step.finished'], readings });
     const exited = { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' };
