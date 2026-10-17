@@ -54,7 +54,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
   - marking a pull request ready through `gh api` (the GraphQL `markPullRequestReadyForReview` mutation): use `gh pr ready <n>`, which the gate checks; and `gh api graphql` with a query the gate cannot read (`query=@file`, `--input`, a variable);
   - defining a git or gh alias that pushes, merges, opens a pull request or marks one ready (`git config alias.*`, `git -c alias.*=`, `gh alias set`);
   - commands nested too deeply to check (more than 8 levels of shells and substitutions);
-  - `npx`, `npm exec`, `pnpm dlx`, `yarn dlx` and `bunx` of anything but a binary the lockfile installed (`node_modules/.bin/<name>` in the package around the working directory), with one line: they would download a package that isn't in `package-lock.json`, past the dependency guard ([ADR 0065](docs/adr/0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md)). `npx` only runs what the lockfile installed.
+  - `npx`, `npm exec`, `pnpm dlx`, `yarn dlx` and `bunx` of anything but a binary the lockfile installed (`node_modules/.bin/<name>` in the package around the working directory), with one line: they would download a package that isn't in `package-lock.json`, past the dependency guard ([ADR 0065](docs/adr/0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md)).
 
   The deny rules in `.claude/settings.json` are the first layer; the hook also catches forms the rules miss, such as `git -C <dir> push -f`, `gh -R owner/repo pr merge` or `bash -c "git push -f"`.
 - `npm run check` fails on a permission rule in `.claude/settings.json` that Claude Code warns about at startup or skips (`scripts/startup-warnings.ts`, which links the docs it follows; update it when they change).
