@@ -128,6 +128,17 @@ describe('coveringTestsFor', () => {
     ]);
   });
 
+  it('finds the name after a string that holds the other kind of quote', () => {
+    const tree = sources({
+      'scripts/precheck.ts': '',
+      'test/integration/gate.test.ts':
+        "it('prints \"ok\" here', () => run(join(root, 'scripts', 'precheck.ts')));\n",
+    });
+    assert.deepEqual(coveringTestsFor(tree, ['scripts/precheck.ts']), [
+      'test/integration/gate.test.ts',
+    ]);
+  });
+
   it('does not take a path to another file with the same name as naming the target', () => {
     const tree = sources({
       'scripts/mutants/core.ts': '',

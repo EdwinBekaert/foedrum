@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { coveringTests, main, mutantTests } from '../../scripts/mutant-tests.ts';
@@ -51,6 +51,15 @@ describe('the test files for mutants of a tree', () => {
     assert.deepEqual(await mutantTests(tree, ['src/a.ts']), {
       ok: true,
       lines: ['test/unit/a.test.ts'],
+    });
+  });
+
+  it('reads only regular files, never what a link named like a source file leads to', async () => {
+    mkdirSync(join(dir.path, 'outside'));
+    symlinkSync(join(dir.path, 'outside'), join(dir.path, 'test', 'unit', 'linked.ts'), 'junction');
+    assert.deepEqual(await mutantTests(dir.path, ['src/engine/fold.ts']), {
+      ok: true,
+      lines: ['test/unit/check.test.ts', 'test/unit/fold.test.ts'],
     });
   });
 
