@@ -545,6 +545,7 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
 /** Schedules the next attempt of `stepId`, with the deadline its recipe gives it. */
 function schedule(draft: Draft, batchId: string, stepId: string): void {
   const batch = draft.batch(batchId);
+  requireStep(draft, batch, stepId);
   const attempts = [...(batch.steps.get(stepId)?.attempts.keys() ?? [])];
   draft.push({
     type: 'step.scheduled',
@@ -558,6 +559,7 @@ function schedule(draft: Draft, batchId: string, stepId: string): void {
 /** Schedules what follows `stepId` in the batch's recipe, or puts the batch on tap. */
 function continueAfter(draft: Draft, batchId: string, stepId: string): void {
   const batch = draft.batch(batchId);
+  requireStep(draft, batch, stepId);
   const next = recipeOf(draft, batch).after(batch, stepId);
   switch (next.kind) {
     case 'step':
@@ -608,6 +610,13 @@ function find(draft: Draft, name: string): Recipe {
   const recipe = draft.context.recipes.find(name);
   if (recipe === undefined) throw new Refusal(`the Brewery has no recipe ${name}`);
   return recipe;
+}
+
+/** Refuses a step the batch's recipe does not have: its file changed under the batch. */
+function requireStep(draft: Draft, batch: Batch, stepId: string): void {
+  if (!recipeOf(draft, batch).has(stepId)) {
+    throw new Refusal(`recipe ${batch.recipe?.name} has no step ${stepId}`);
+  }
 }
 
 function recipeOf(draft: Draft, batch: Batch): Recipe {
