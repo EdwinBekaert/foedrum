@@ -539,15 +539,29 @@ describe('createIntake', () => {
 
     it('routes nothing once the pass is past its deadline', async () => {
       accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      // The Brewery's listing answers only once the test lets it, after the pass was given up.
+      let release = (): void => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let answered = (): void => {};
+      const listed = new Promise<void>((resolve) => {
+        answered = resolve;
+      });
       const tracker: TargetTracker = {
         issues: async (repo) => {
-          if (repo === brewery) await new Promise((resolve) => setTimeout(resolve, 100));
-          return repo === brewery ? [labelled(12)] : [];
+          if (repo !== brewery) return [];
+          await released;
+          answered();
+          return [labelled(12)];
         },
         pullRequest: async () => 'open',
       };
-      await breweryIntake(tracker, { deadlineMs: 20 }).poll();
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await breweryIntake(tracker, { deadlineMs: 1 }).poll();
+      release();
+      await listed;
+      // What the dead pass does with the late listing settles in the next turns.
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
       assert.deepStrictEqual(lanes(), ['12-1 ordered']);
     });
 

@@ -460,40 +460,49 @@ describe('runServe', () => {
       assert.equal(lines.filter((line) => /rate limit/.test(line)).length, 1, lines.join('\n'));
     });
 
-    it('runs a slow pass to its deadline while the ticks go on and the batch leases stay alive', async () => {
+    it('ticks on while a slow pass is underway, and the batch leases stay alive', {
+      timeout: 10_000,
+    }, async () => {
       setup = intakeSetup({ concurrency: 2 });
-      const github = fakeGitHubApi({
-        login: 'ann',
-        issues: {},
-        instead: (_method, url) => (url.pathname.endsWith('/issues') ? 'hang' : undefined),
+      const github = fakeGitHubApi({ login: 'ann', issues: {} });
+      // The Brewery's listing answers only once the test lets it, three ticks after it was asked.
+      let release = (): void => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
       });
-      const late =
-        /the intake failed the pass: The intake pass took longer than its deadline of 40 ms/;
+      const waits = () => calls.filter((call) => call === 'wait').length;
       let listedAt: number | undefined;
-      let lateAt: number | undefined;
-      const stop = () => {
-        const waits = calls.filter((call) => call === 'wait').length;
-        if (listedAt === undefined && github.requests.some(listingOf(brewerySpelled))) {
-          listedAt = waits;
+      const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (listingOf(brewerySpelled)(`GET ${url.pathname}${url.search}`)) {
+          listedAt ??= waits();
+          await released;
         }
-        if (lateAt === undefined && lines.some((line) => late.test(line))) lateAt = waits;
-        return lateAt !== undefined;
+        return github.fetch(input, init);
+      }) as typeof globalThis.fetch;
+      let lease: ReturnType<EventStore['batchLeases']>[number] | undefined;
+      let releasedAt: number | undefined;
+      const stop = () => {
+        if (listedAt !== undefined && releasedAt === undefined && waits() - listedAt >= 3) {
+          // Three minutes of ticks into the pass: past half the lease, so only a heartbeat keeps it.
+          lease = store.batchLeases(new Date(now)).find(({ batchId }) => batchId === '12-1');
+          releasedAt = waits();
+          release();
+        }
+        return releasedAt !== undefined && waits() > releasedAt + 1;
       };
       const code = await runServe(
         setup,
-        shell({
-          fetch: github.fetch,
-          runner: () => hanging,
-          intakeDeadlineMs: 40,
-          ...ticking(stop, 60_000),
-        }),
+        shell({ fetch, runner: () => hanging, ...ticking(stop, 60_000) }),
       );
       assert.equal(code, 0);
-      assert.ok(listedAt !== undefined && lateAt !== undefined, lines.join('\n'));
-      // The driver ticked on while the pass hung: the heartbeat was never held off.
-      assert.ok(lateAt - listedAt >= 2, `${listedAt} ${lateAt}`);
-      const lease = store.batchLeases(new Date(now)).find(({ batchId }) => batchId === '12-1');
+      assert.ok(releasedAt !== undefined, lines.join('\n'));
       assert.equal(lease?.owner, 'cellar');
+      assert.ok((lease?.expiresAt.getTime() ?? 0) > now - 60_000, 'renewed during the pass');
+      assert.deepStrictEqual(
+        lines.filter((line) => line.includes('the intake failed')),
+        [],
+      );
     });
 
     it('waits for the pass underway before it stops', async () => {
