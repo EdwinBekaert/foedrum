@@ -168,9 +168,11 @@ describe('claude with the runner settings', { skip: real.kind === 'skip' && real
       sandbox: false,
     };
     // The control: the same rules let an allowed subcommand run, so a denial below is theirs.
+    // `echo` is read-only, which claude allows by itself; it shows the command really ran.
     it(`runs git status in ${shell} for a brewer allowed git subcommands`, async () => {
-      const outcome = await run(gitSubcommands, 'git status', shell);
+      const outcome = await run(gitSubcommands, 'git status; echo probe:ran', shell);
       assert.deepEqual(outcome.denied, []);
+      assert.equal(outcome.printed.length, 1, 'the command printed nothing');
     });
     for (const push of pushes) {
       it(`denies ${push} in ${shell} to a brewer allowed git subcommands`, async () => {
