@@ -1134,6 +1134,68 @@ describe('precheck on gh pr ready', () => {
     });
   });
 
+  // Plain documentation needs no review summary (#183): *.md in a subfolder of docs/ other than adr/.
+  for (const files of [
+    ['docs/milestones/README.md'],
+    ['docs/milestones/m0.md'],
+    ['Docs/Milestones/M0.MD'],
+    ['docs/adr-notes/plan.md'],
+    ['docs/milestones/README.md', 'docs/milestones/m0.md'],
+    ['docs/milestones/2026/plan.md'],
+  ]) {
+    it(`allows a pull request of only plain docs without a summary: ${files.join(', ')}`, async () => {
+      const { result, lookups, checks } = await ready('gh pr ready 160', {
+        ...facts(['Looks good to me.'], [c1, c2, c3]),
+        files,
+      });
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lookups, [['/work/tree', { pr: '160' }]]);
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  // ADRs, the top-level docs (the design and the review's criteria), CLAUDE.md, prompts, root files
+  // and anything that is not Markdown in a subfolder of docs/ are reviewed.
+  for (const files of [
+    ['docs/glossary.md'],
+    ['docs/architecture.md'],
+    ['docs/brewers-and-recipes.md'],
+    ['docs/architecture.md', 'docs/milestones/README.md'],
+    ['Docs/Guide.MD'],
+    ['docs/adr-overview.md'],
+    ['docs/milestones/README.md', 'docs/adr/0001-record-architecture-decisions.md'],
+    ['Docs/ADR/0001-record-architecture-decisions.md'],
+    ['docs/milestones/README.md', 'CLAUDE.md'],
+    ['docs/milestones/README.md', '.claude/skills/brew-review/SKILL.md'],
+    ['README.md'],
+    ['docs/milestones/notes.txt'],
+    ['docs/notes.md.txt'],
+    ['docs/milestones/notes.md.txt'],
+    ['src/docs/readme.md'],
+    ['src/docs/milestones/m0.md'],
+    ['docs/adr/sub/notes.md'],
+    [],
+  ]) {
+    it(`blocks a pull request without a summary that changes: ${files.join(', ') || 'nothing'}`, async () => {
+      const { result } = await ready('gh pr ready 160', {
+        ...facts(['Looks good to me.'], [c1, c2, c3]),
+        files,
+      });
+      assert.match(
+        result.stderr,
+        /^gh pr ready is blocked: pull request #160 has no \/brew-review summary/,
+      );
+    });
+  }
+
+  it('blocks a pull request without a summary whose file list could not be read', async () => {
+    const { result } = await ready('gh pr ready 160', facts(['Looks good to me.'], [c1, c2, c3]));
+    assert.match(
+      result.stderr,
+      /^gh pr ready is blocked: pull request #160 has no \/brew-review summary/,
+    );
+  });
+
   it('asks for the current branch’s pull request, and the repository given, as gh would', async () => {
     const pullRequest = facts([summary(c3.sha)], [c1, c2, c3]);
     assert.deepEqual((await ready('gh pr ready', pullRequest)).lookups, [['/work/tree', {}]]);
@@ -1372,6 +1434,11 @@ describe('ghPullRequest', () => {
     url: 'https://github.com/owner/repo/pull/160',
     headRefOid: 'c3',
     comments: [{ body: 'first' }, { body: '## Review: `x` @ `c3`' }],
+    files: [
+      { path: 'docs/milestones/README.md', changeType: 'MODIFIED' },
+      { path: 'CLAUDE.md', changeType: 'MODIFIED' },
+    ],
+    changedFiles: 2,
   });
 
   it('reads the pull request with gh pr view and its commits with their parents with gh api', async () => {
@@ -1387,6 +1454,7 @@ describe('ghPullRequest', () => {
       number: 160,
       head: 'c3',
       comments: ['first', '## Review: `x` @ `c3`'],
+      files: ['docs/milestones/README.md', 'CLAUDE.md'],
       commits: [
         { sha: 'c1', parents: ['b0'] },
         { sha: 'c2', parents: ['c1'] },
@@ -1396,7 +1464,15 @@ describe('ghPullRequest', () => {
     assert.deepEqual(calls, [
       [
         'gh',
-        ['pr', 'view', '160', '--repo', 'owner/repo', '--json', 'number,url,headRefOid,comments'],
+        [
+          'pr',
+          'view',
+          '160',
+          '--repo',
+          'owner/repo',
+          '--json',
+          'number,url,headRefOid,comments,files,changedFiles',
+        ],
         '/work/tree',
       ],
       [
@@ -1421,7 +1497,64 @@ describe('ghPullRequest', () => {
       { exitCode: 0, output: 'c3 c2\n' },
     ]);
     await ghPullRequest(runProcess)('/work/tree', {});
-    assert.deepEqual(calls[0]?.[1], ['pr', 'view', '--json', 'number,url,headRefOid,comments']);
+    assert.deepEqual(calls[0]?.[1], [
+      'pr',
+      'view',
+      '--json',
+      'number,url,headRefOid,comments,files,changedFiles',
+    ]);
+  });
+
+  // A list it cannot read, or one cut off, leaves the files out, so the pull request is not exempt.
+  for (const [name, fields] of [
+    [
+      'lists fewer files than it changes',
+      { files: [{ path: 'docs/a.md', changeType: 'ADDED' }], changedFiles: 101 },
+    ],
+    ['has no file list', { files: undefined, changedFiles: 1 }],
+    ['has no file count', { changedFiles: undefined }],
+    [
+      'lists a file without a path among ones with a path',
+      {
+        files: [{ path: 'docs/a.md', changeType: 'ADDED' }, { name: 'CLAUDE.md' }],
+        changedFiles: 1,
+      },
+    ],
+    ['lists a file without a path', { files: [{ name: 'docs/a.md' }], changedFiles: 1 }],
+    // GitHub lists a moved file by its new path only, so a reviewed file moved into docs/ would look
+    // like plain docs (#187 review).
+    [
+      'lists a renamed file',
+      { files: [{ path: 'docs/claude.md', changeType: 'RENAMED' }], changedFiles: 1 },
+    ],
+    [
+      'lists a copied file',
+      { files: [{ path: 'docs/claude.md', changeType: 'COPIED' }], changedFiles: 1 },
+    ],
+    ['lists a file without a change type', { files: [{ path: 'docs/a.md' }], changedFiles: 1 }],
+  ] as const) {
+    it(`leaves the files out when gh pr view's answer ${name}`, async () => {
+      const { runProcess } = fakeGh([
+        { exitCode: 0, output: JSON.stringify({ ...JSON.parse(view), ...fields }) },
+        { exitCode: 0, output: 'c3 c2\n' },
+      ]);
+      const pullRequest = await ghPullRequest(runProcess)('/work/tree', { pr: '160' });
+      assert.equal(pullRequest.files, undefined);
+      assert.equal(pullRequest.head, 'c3');
+    });
+  }
+
+  it('reads the paths of added, modified and deleted files', async () => {
+    const files = ['ADDED', 'MODIFIED', 'DELETED'].map((changeType, i) => ({
+      path: `docs/${i}.md`,
+      changeType,
+    }));
+    const { runProcess } = fakeGh([
+      { exitCode: 0, output: JSON.stringify({ ...JSON.parse(view), files, changedFiles: 3 }) },
+      { exitCode: 0, output: 'c3 c2\n' },
+    ]);
+    const pullRequest = await ghPullRequest(runProcess)('/work/tree', { pr: '160' });
+    assert.deepEqual(pullRequest.files, ['docs/0.md', 'docs/1.md', 'docs/2.md']);
   });
 
   it('rejects with what gh said when gh fails', async () => {
