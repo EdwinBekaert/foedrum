@@ -1134,12 +1134,9 @@ describe('precheck on gh pr ready', () => {
     });
   });
 
-  // Plain documentation needs no review summary (#183): *.md under docs/, except docs/adr/.
+  // Plain documentation needs no review summary (#183): *.md in a subfolder of docs/ other than adr/.
   for (const files of [
     ['docs/milestones/README.md'],
-    ['docs/architecture.md', 'docs/milestones/README.md'],
-    ['Docs/Guide.MD'],
-    ['docs/adr-overview.md'],
     ['docs/milestones/m0.md'],
     ['Docs/Milestones/M0.MD'],
     ['docs/adr-notes/plan.md'],
@@ -1155,8 +1152,15 @@ describe('precheck on gh pr ready', () => {
     });
   }
 
-  // ADRs, CLAUDE.md, prompts, root files and anything that is not Markdown under docs/ are reviewed.
+  // ADRs, the top-level docs (the design and the review's criteria), CLAUDE.md, prompts, root files
+  // and anything that is not Markdown in a subfolder of docs/ are reviewed.
   for (const files of [
+    ['docs/glossary.md'],
+    ['docs/architecture.md'],
+    ['docs/brewers-and-recipes.md'],
+    ['docs/architecture.md', 'docs/milestones/README.md'],
+    ['Docs/Guide.MD'],
+    ['docs/adr-overview.md'],
     ['docs/milestones/README.md', 'docs/adr/0001-record-architecture-decisions.md'],
     ['Docs/ADR/0001-record-architecture-decisions.md'],
     ['docs/milestones/README.md', 'CLAUDE.md'],
