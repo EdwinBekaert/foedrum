@@ -128,6 +128,19 @@ describe('coveringTestsFor', () => {
     ]);
   });
 
+  it('does not take a path to another file with the same name as naming the target', () => {
+    const tree = sources({
+      'scripts/mutants/core.ts': '',
+      'scripts/deps-sync/core.ts': '',
+      'test/unit/deps-sync-core.test.ts': imports('../../scripts/deps-sync/core.ts'),
+      'test/integration/deps-sync.test.ts': "const core = 'scripts/deps-sync/core.ts';\n",
+      'test/integration/mutants.test.ts': "const core = 'scripts/mutants/core.ts';\n",
+    });
+    assert.deepEqual(coveringTestsFor(tree, ['scripts/mutants/core.ts']), [
+      'test/integration/mutants.test.ts',
+    ]);
+  });
+
   it('ends on a cycle of imports', () => {
     const tree = sources({
       'src/a.ts': imports('./b.ts'),

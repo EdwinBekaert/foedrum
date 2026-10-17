@@ -56,6 +56,17 @@ export const mutantTests = select(testsFor);
 // The tests the coverage delta runs for `files` (`--coverage`): every layer, any depth.
 export const coveringTests = select(coveringTestsFor);
 
+export interface MainResult {
+  exitCode: number;
+  stdout: string[];
+  stderr: string[];
+}
+
+// The command line: its arguments, and what it prints and exits with.
+export const main = async (_argv: readonly string[]): Promise<MainResult> => {
+  throw new Error('not implemented');
+};
+
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
     options: { coverage: { type: 'boolean' } },

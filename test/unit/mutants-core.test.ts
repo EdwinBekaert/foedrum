@@ -119,6 +119,11 @@ describe('parseMutant', () => {
 });
 
 describe('mutants of the files the change touches', () => {
+  it('reads a list that starts with a byte order mark', () => {
+    const bom = String.fromCodePoint(0xfeff);
+    assert.deepEqual(touchedFiles(`${bom}D\tsrc/gone.ts\nM\tsrc/kept.ts\n`), ['src/kept.ts']);
+  });
+
   it('lists the files a change adds, modifies, renames or copies to, and not those it deletes', () => {
     const nameStatus = [
       'M\tsrc/engine/wait.ts',
