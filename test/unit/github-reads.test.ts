@@ -98,6 +98,57 @@ describe('createGitHubReads', () => {
       assert.equal(requests[5]?.headers['if-none-match'], undefined);
     });
 
+    it('keeps at most its bytes, dropping the least recently used (ADR 0068)', async () => {
+      // Each body is "aaaaaaaaaa" with its quotes: 12 bytes.
+      const body = (letter: string) => letter.repeat(10);
+      const { reads, requests } = readsWith(
+        [
+          { status: 200, body: body('a'), headers: { etag: '"a"' } },
+          { status: 200, body: body('b'), headers: { etag: '"b"' } },
+          { status: 200, body: body('c'), headers: { etag: '"c"' } },
+          { status: 200, body: body('a') },
+          { status: 304 },
+        ],
+        { maxBytes: 30 },
+      );
+      await reads.get('/a');
+      await reads.get('/b');
+      // 36 bytes: /a goes.
+      await reads.get('/c');
+      await reads.get('/a');
+      await reads.get('/c');
+      assert.equal(requests[3]?.headers['if-none-match'], undefined);
+      assert.equal(requests[4]?.headers['if-none-match'], '"c"');
+    });
+
+    it('keeps no answer longer than all its bytes', async () => {
+      const { reads, requests } = readsWith(
+        [
+          { status: 200, body: 'a'.repeat(40), headers: { etag: '"a"' } },
+          { status: 200, body: 'a'.repeat(40), headers: { etag: '"a"' } },
+        ],
+        { maxBytes: 30 },
+      );
+      await reads.get('/a');
+      await reads.get('/a');
+      assert.equal(requests[1]?.headers['if-none-match'], undefined);
+    });
+
+    it('keeps the answers it has when one is longer than all its bytes', async () => {
+      const { reads, requests } = readsWith(
+        [
+          { status: 200, body: 'b', headers: { etag: '"b"' } },
+          { status: 200, body: 'a'.repeat(40), headers: { etag: '"a"' } },
+          { status: 304 },
+        ],
+        { maxBytes: 30 },
+      );
+      await reads.get('/b');
+      await reads.get('/a');
+      await reads.get('/b');
+      assert.equal(requests[2]?.headers['if-none-match'], '"b"');
+    });
+
     it('hands the request the caller signal', async () => {
       const { reads, requests } = readsWith(['hang']);
       const controller = new AbortController();
@@ -178,6 +229,22 @@ describe('createGitHubReads', () => {
       assert.equal(requests.length, 2);
     });
 
+    it('fails past its most bytes in one list, instead of collecting on (ADR 0068)', async () => {
+      // ["aaaaaaaaaa"]: 14 bytes a page.
+      const page = (link?: string): Answer => ({
+        status: 200,
+        body: ['a'.repeat(10)],
+        ...(link === undefined ? {} : { headers: { link } }),
+      });
+      const { reads, requests } = readsWith([page(next(2)), page(next(3)), page()], {
+        maxListBytes: 30,
+      });
+      await assert.rejects(reads.pages('/r', 'the issues'), /the issues is longer than 30 bytes/);
+      assert.equal(requests.length, 3);
+      const { reads: enough } = readsWith([page(next(2)), page()], { maxListBytes: 30 });
+      assert.equal((await enough.pages('/r', 'the issues')).length, 2);
+    });
+
     it('fails on a page that is not 200 or not a list, naming what it read', async () => {
       const notFound = readsWith([{ status: 404, body: { message: 'Not Found' } }]);
       await assert.rejects(
@@ -207,7 +274,13 @@ describe('createGitHubReads', () => {
 
   it('refuses a cache or page limit that is no positive whole number', () => {
     const client = createGitHubClient({ token: 't', fetch: fakeFetch([]).fetch });
-    for (const options of [{ maxEntries: 0 }, { maxPages: 0 }, { maxPages: 1.5 }]) {
+    for (const options of [
+      { maxEntries: 0 },
+      { maxPages: 0 },
+      { maxPages: 1.5 },
+      { maxBytes: 0 },
+      { maxListBytes: -1 },
+    ]) {
       assert.throws(() => createGitHubReads(client, options), RangeError);
     }
   });

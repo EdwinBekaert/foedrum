@@ -87,7 +87,7 @@ describe('BreweryConfig', () => {
   );
   const invalid: [string, unknown][] = [
     ['no repositories', { permissionCeiling: [] }],
-    ['an unknown field', { repositories: {}, concurrency: 2 }],
+    ['an unknown field', { repositories: {}, parallelism: 2 }],
     ['a $schema that is not a string', { $schema: 1, repositories: {} }],
     ['a repository key that is not owner/name', { repositories: { web: { checks } } }],
     ['a repository key with a parent segment', { repositories: { 'acme/..': { checks } } }],
@@ -238,6 +238,52 @@ describe('BreweryConfig for foedrum serve (ADR 0063)', () => {
       'not a url',
     ]) {
       assert.equal(accepted(config({}, { githubApi })), false, githubApi);
+    }
+  });
+});
+
+describe('BreweryConfig for the intake in foedrum serve (ADR 0068)', () => {
+  it('names the allow-listed users, the concurrency and how often the intake polls', () => {
+    const result = BreweryConfig.safeParse(
+      config({}, { users: ['ann', 'Bob-2'], concurrency: 3, pollEvery: '2m' }),
+    );
+    assert.equal(result.success, true, result.error?.message);
+    assert.deepStrictEqual(
+      [result.data?.users, result.data?.concurrency, result.data?.pollEvery],
+      [['ann', 'Bob-2'], 3, '2m'],
+    );
+  });
+
+  it('leaves them out when the file does, so a config without them stays valid', () => {
+    const parsed = BreweryConfig.parse(config({}));
+    assert.deepStrictEqual(
+      [parsed.users, parsed.concurrency, parsed.pollEvery],
+      [undefined, undefined, undefined],
+    );
+  });
+
+  it('refuses a user that is no GitHub login', () => {
+    for (const user of ['', '-ann', 'ann-', 'an--n', 'ann bob', 'a'.repeat(40), 'ann/x']) {
+      assert.equal(accepted(config({}, { users: [user] })), false, user);
+    }
+    assert.equal(accepted(config({}, { users: ['a'.repeat(39)] })), true);
+  });
+
+  it('takes a concurrency of 1 to 20 whole batches', () => {
+    for (const concurrency of [1, 20]) {
+      assert.equal(accepted(config({}, { concurrency })), true, String(concurrency));
+    }
+    for (const concurrency of [0, 21, 1.5, -1, '2']) {
+      assert.equal(accepted(config({}, { concurrency })), false, String(concurrency));
+    }
+  });
+
+  it('polls every 30 seconds at most and every hour at least', () => {
+    for (const pollEvery of ['30s', '60s', '5m', '1h', '3600s']) {
+      assert.equal(accepted(config({}, { pollEvery })), true, pollEvery);
+    }
+    for (const pollEvery of ['29s', '10s', '61m', '2h', '1d', '60', 'soon']) {
+      assert.equal(accepted(config({}, { pollEvery })), false, pollEvery);
     }
   });
 });

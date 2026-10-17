@@ -8,7 +8,12 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
-import { formatNotice, runServe, type ServeShell } from '../../src/cli/serve.ts';
+import {
+  formatIntakeNotice,
+  formatNotice,
+  runServe,
+  type ServeShell,
+} from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -17,9 +22,10 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { fakeFetch } from '../helpers/fake-fetch.ts';
+import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { local, serveInputs } from '../helpers/serve-brewery.ts';
+import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const issue = JSON.parse(
@@ -307,6 +313,311 @@ describe('runServe', () => {
     assert.deepStrictEqual(types().slice(-1), ['step.scheduled']);
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
   });
+
+  describe('the intake in its loop (ADR 0068)', () => {
+    const target = { alias: 'web', intake: { labels: ['foedrum'] } };
+    const intakeSetup = (
+      fields: Record<string, unknown> = {},
+      web: Record<string, unknown> = {},
+    ) => {
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...serveInputs().files,
+            config: config(fields, web),
+            local: local({ workRoot: dir.path }),
+          },
+        }),
+      );
+      assert.equal(
+        result.kind,
+        'ready',
+        result.kind === 'refused' ? result.problems.join('\n') : '',
+      );
+      return result.kind === 'ready' ? result.setup : assert.fail();
+    };
+    const brewerySpelled = 'Acme/Brewery';
+    const listingOf = (repo: string) => (request: string) =>
+      request.startsWith(`GET /repos/${repo}/issues?`);
+    let now: number;
+    beforeEach(() => {
+      now = t0.getTime();
+    });
+    const state = () => createCommandLog({ store, recipes: setup.recipes }).state();
+    const lane = (batchId: string) => state().batches.get(batchId)?.lane.kind;
+    /** A clock that moves `stepMs` at every wait; serve stops once `stop` holds, or at 200 waits. */
+    const ticking = (stop: () => boolean, stepMs = 5000) => ({
+      clock: () => new Date(now),
+      wait: async () => {
+        calls.push('wait');
+        now += stepMs;
+        // Lets the pass underway go on between ticks, as the real wait does.
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        if (stop() || calls.length > 200) controller.abort();
+      },
+    });
+    /** A store with no order in it, which serve closes as it closes the one of beforeEach. */
+    const empty = (): EventStore => {
+      const inner = openSqliteEventStore(':memory:');
+      return {
+        ...inner,
+        close: () => {
+          closed++;
+        },
+      };
+    };
+    const hanging: BrewerRunner = {
+      start: () => ({ ended: new Promise(() => {}), stop: () => {} }),
+      progress: () => undefined,
+    };
+
+    it('orders and routes a labelled Brewery issue and a claimed target issue, marks the claim and releases it', async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 }, target);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'Add a --json flag.' },
+          ],
+          'acme/web': [
+            {
+              number: 7,
+              labels: ['foedrum', 'recipe:stout'],
+              author: 'ann',
+              body: 'Add a dark theme.',
+            },
+          ],
+        },
+      });
+      const done = () =>
+        lane('12-1') === 'on_tap' &&
+        lane('web-7') === 'on_tap' &&
+        github.created.length === 1 &&
+        github.refs.size === 0 &&
+        github.comments.get('acme/web#7')?.length === 2;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
+      assert.ok(done(), lines.join('\n'));
+      for (const batchId of ['12-1', 'web-7']) {
+        assert.deepStrictEqual(state().batches.get(batchId)?.recipe, {
+          name: 'stout',
+          reason: 'the label recipe:stout',
+          source: 'label',
+        });
+      }
+      const claimed = github.issue('acme/web', 7);
+      assert.deepStrictEqual(claimed?.assignees, ['ann']);
+      // foedrum:claimed was added with the claim and removed with its release.
+      assert.deepStrictEqual(claimed?.labels, ['foedrum', 'recipe:stout']);
+      assert.ok(github.requests.includes('GET /user'));
+      for (const line of [
+        `ordered ${brewerySpelled}#12 as batch 12-1`,
+        'ordered acme/web#7 as batch web-7',
+        'routed batch 12-1 to the recipe stout',
+        'routed batch web-7 to the recipe stout',
+      ]) {
+        assert.ok(lines.includes(`foedrum serve: ${line}`), `${line}\n${lines.join('\n')}`);
+      }
+      assert.deepStrictEqual(
+        plans.map(({ prompt }) => /Add a (--json flag|dark theme)/.exec(prompt)?.[0]).sort(),
+        ['Add a --json flag', 'Add a dark theme'],
+      );
+    });
+
+    it('polls every pollEvery, not at every tick, and reads no login without a target intake', async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 });
+      const github = fakeGitHubApi({ login: 'ann', issues: {} });
+      const stop = () => now >= t0.getTime() + 125_000;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      // At 0, 60 and 120 seconds.
+      assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
+      assert.equal(github.requests.includes('GET /user'), false);
+    });
+
+    it("polls at foedrum.jsonc's pollEvery", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2, pollEvery: '2m' });
+      const github = fakeGitHubApi({ login: 'ann', issues: {} });
+      const stop = () => now >= t0.getTime() + 245_000;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      // At 0 and 120 seconds, and 240.
+      assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
+    });
+
+    it("times GitHub's rate-limit pause on serve's clock, not the machine's", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 });
+      // Years ahead of the machine's clock: a pause timed by Date.now would last its hour at most.
+      const start = Date.parse('2031-01-01T00:00:00.000Z');
+      now = start;
+      let first = true;
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {},
+        instead: (_method, url) => {
+          if (!url.pathname.endsWith('/issues') || !first) return undefined;
+          first = false;
+          const reset = String(Math.floor((start + 180_000) / 1000));
+          return {
+            status: 403,
+            body: { message: 'API rate limit exceeded' },
+            headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset },
+          };
+        },
+      });
+      const stop = () => now >= start + 250_000;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      // Refused at 0; asked again at 180 and 240 seconds of serve's clock.
+      assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
+    });
+
+    it("starts no pass while GitHub's rate limit pauses the token (ADR 0052)", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 });
+      let first = true;
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {},
+        instead: (_method, url) => {
+          if (!url.pathname.endsWith('/issues') || !first) return undefined;
+          first = false;
+          const reset = String(Math.floor((t0.getTime() + 180_000) / 1000));
+          return {
+            status: 403,
+            body: { message: 'API rate limit exceeded' },
+            headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset },
+          };
+        },
+      });
+      const stop = () => now >= t0.getTime() + 250_000;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      // At 0, refused; then not until the reset at 180 seconds, and again at 240.
+      assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
+      assert.equal(lines.filter((line) => /rate limit/.test(line)).length, 1, lines.join('\n'));
+    });
+
+    it('ticks on while a slow pass is underway, and the batch leases stay alive', {
+      timeout: 10_000,
+    }, async () => {
+      setup = intakeSetup({ concurrency: 2 });
+      const github = fakeGitHubApi({ login: 'ann', issues: {} });
+      // The Brewery's listing answers only once the test lets it, three ticks after it was asked.
+      let release = (): void => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waits = () => calls.filter((call) => call === 'wait').length;
+      let listedAt: number | undefined;
+      const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (listingOf(brewerySpelled)(`GET ${url.pathname}${url.search}`)) {
+          listedAt ??= waits();
+          await released;
+        }
+        return github.fetch(input, init);
+      }) as typeof globalThis.fetch;
+      let lease: ReturnType<EventStore['batchLeases']>[number] | undefined;
+      let releasedAt: number | undefined;
+      const stop = () => {
+        if (listedAt !== undefined && releasedAt === undefined && waits() - listedAt >= 3) {
+          // Three minutes of ticks into the pass: past half the lease, so only a heartbeat keeps it.
+          lease = store.batchLeases(new Date(now)).find(({ batchId }) => batchId === '12-1');
+          releasedAt = waits();
+          release();
+        }
+        return releasedAt !== undefined && waits() > releasedAt + 1;
+      };
+      const code = await runServe(
+        setup,
+        shell({ fetch, runner: () => hanging, ...ticking(stop, 60_000) }),
+      );
+      assert.equal(code, 0);
+      assert.ok(releasedAt !== undefined, lines.join('\n'));
+      assert.equal(lease?.owner, 'cellar');
+      assert.ok((lease?.expiresAt.getTime() ?? 0) > now - 60_000, 'renewed during the pass');
+      assert.deepStrictEqual(
+        lines.filter((line) => line.includes('the intake failed')),
+        [],
+      );
+    });
+
+    it('waits for the pass underway before it stops', async () => {
+      setup = intakeSetup({ concurrency: 2 });
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {},
+        instead: (_method, url) => (url.pathname.endsWith('/issues') ? 'hang' : undefined),
+      });
+      const stop = () => github.requests.some(listingOf(brewerySpelled));
+      await runServe(
+        setup,
+        shell({
+          fetch: github.fetch,
+          runner: () => hanging,
+          intakeDeadlineMs: 40,
+          ...ticking(stop),
+        }),
+      );
+      const late = lines.findIndex((line) => /the intake failed the pass/.test(line));
+      assert.ok(late !== -1 && late < lines.indexOf('foedrum serve: stopped'), lines.join('\n'));
+      assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    });
+
+    it("orders up to foedrum.jsonc's concurrency in one pass", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2 });
+      // A recipe the Brewery lacks: both batches stay Ordered, holding their places.
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [12, 13, 14].map((number) => ({
+            number,
+            labels: ['recipe:pint'],
+            author: 'ann',
+          })),
+        },
+      });
+      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      assert.deepStrictEqual([...state().batches.keys()], ['12-1', '13-1']);
+    });
+
+    it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
+      store = empty();
+      setup = intakeSetup();
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      log.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      log.issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' }, t0);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: { 'acme/web': [{ number: 7, labels: ['foedrum:claimed'], author: 'ann' }] },
+      });
+      const released = () => github.comments.get('acme/web#7')?.length === 1;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(released) })), 0);
+      assert.ok(released(), lines.join('\n'));
+      assert.ok(github.requests.includes('GET /user'));
+      assert.deepStrictEqual(github.issue('acme/web', 7)?.labels, []);
+    });
+
+    it("stops when it cannot read the token's login for a target intake", async () => {
+      setup = intakeSetup({}, target);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {},
+        instead: (_method, url) =>
+          url.pathname === '/user'
+            ? { status: 401, body: { message: 'Bad credentials' } }
+            : undefined,
+      });
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch })), 1);
+      assert.equal(
+        lines.at(-1),
+        'foedrum serve: GitHub answered 401 to the login of the token: Bad credentials',
+      );
+      assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    });
+  });
 });
 
 describe('formatNotice', () => {
@@ -351,6 +662,32 @@ describe('formatNotice', () => {
         `the effect ${JSON.stringify(['12-1', 'brew', 1, 'comment'])} failed: GitHub answered 502`,
         'cleaned batch 12-1: removed worktree 12-1/brew/1; could not clean x: busy',
         'cleaned batch 12-1: nothing to remove',
+      ],
+    );
+  });
+});
+
+describe('formatIntakeNotice', () => {
+  it('says what the intake did or could not do in one line for each notice (ADR 0068)', () => {
+    const command = { kind: 'order', batchId: '12-1', order: { issue: 12 } } as const;
+    assert.deepStrictEqual(
+      [
+        formatIntakeNotice({ kind: 'ordered', repo: 'acme/web', issue: 7, batchId: 'web-7' }),
+        formatIntakeNotice({ kind: 'routed', batchId: 'web-7', recipe: 'stout' }),
+        formatIntakeNotice({ kind: 'unrouted', batchId: '12-1', reason: 'no recipe pint' }),
+        formatIntakeNotice({ kind: 'taken', repo: 'acme/web', issue: 3, by: 'bob/brewery' }),
+        formatIntakeNotice({ kind: 'taken', repo: 'acme/web', issue: 4, by: undefined }),
+        formatIntakeNotice({ kind: 'refused', command, reason: 'batch 12-1 exists' }),
+        formatIntakeNotice({ kind: 'failed', what: 'listing acme/web', error: new Error('502') }),
+      ],
+      [
+        'ordered acme/web#7 as batch web-7',
+        'routed batch web-7 to the recipe stout',
+        'batch 12-1 is not routed: no recipe pint',
+        'acme/web#3 is claimed by bob/brewery',
+        'acme/web#4 is claimed by a ref whose record cannot be read',
+        'order of batch 12-1 was refused: batch 12-1 exists',
+        'the intake failed listing acme/web: 502',
       ],
     );
   });

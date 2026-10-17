@@ -9,6 +9,12 @@ export const Duration = z
   .regex(/^[1-9][0-9]*[smhd]$/, 'Must be a whole number followed by s, m, h or d, such as "30m"')
   .describe('A positive whole number of seconds, minutes, hours or days: "90s", "30m", "2h", "3d"');
 
+const UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+/** A `Duration` ("30m") in milliseconds. */
+export const durationMs = (duration: string): number =>
+  Number(duration.slice(0, -1)) * UNIT_MS[duration.slice(-1) as keyof typeof UNIT_MS];
+
 // `con` → `[cC][oO][nN]`: the generated JSON Schema keeps a pattern but not its flags.
 const anyCase = (word: string): string =>
   [...word].map((letter) => `[${letter}${letter.toUpperCase()}]`).join('');
