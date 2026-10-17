@@ -449,6 +449,8 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
     'echo origin | xargs git push -f',
     'xargs -n 1 git push --force',
     'npx git push -f',
+    'npm exec -- git push -f',
+    'pnpm dlx git push --force',
     'command env time git push -f',
     'env -S "git push -f"',
     "Start-Process git -ArgumentList 'push','-f'",
