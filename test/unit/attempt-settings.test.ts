@@ -100,6 +100,8 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(command git *)`,
       `${shell}(xargs *)`,
       `${shell}(env git -C . push)`,
+      `${shell}(env /usr/bin/git -C . push)`,
+      `${shell}(env git.exe -C . push)`,
       // Subcommands that push, or run commands of their own.
       `${shell}(git send-pack *)`,
       `${shell}(git http-push *)`,
@@ -124,6 +126,7 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(npm run *)`,
       // A complete subcommand that only starts like push.
       `${shell}(git pu)`,
+      `${shell}(git pu *)`,
       `${shell}(./gradlew *)`,
       `${shell}(bash ./build.sh)`,
       `${shell}(npx tsc)`,
