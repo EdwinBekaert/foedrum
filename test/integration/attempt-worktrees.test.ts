@@ -8,6 +8,7 @@ import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
+import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
@@ -470,7 +471,7 @@ describe('the driver and attempt worktrees with real git', () => {
         test: 'node check.mjs',
       }),
       exec: execProcess,
-      env: process.env,
+      env: { base: brewerBaseEnv(process.env, process.platform), forced: {} },
       clock,
     });
     driver = await openDriver({

@@ -161,7 +161,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       repositoryChecks: (repo) =>
         setup.repositories.find((repository) => sameRepo(repository.repo, repo))?.checks,
       exec: shell.exec,
-      env: { ...setup.brewerEnv.base, ...setup.brewerEnv.forced },
+      env: setup.brewerEnv,
       clock,
     });
     const runner = stepRunner({

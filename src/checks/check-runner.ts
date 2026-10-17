@@ -4,7 +4,7 @@
 // when the engine stops the attempt; the first check that does not pass ends the step. No model.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import type { Env } from '../engine/brewer-env.ts';
+import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
@@ -38,7 +38,9 @@ const NO_CHECKS: RepositoryChecks = {
 };
 
 export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
-  const { state, checks, exec, env, clock, platform = process.platform } = options;
+  const { state, checks, exec, clock, platform = process.platform } = options;
+  // Nothing a brewer does not get; by key, so a forced PATH replaces Path on Windows (ADR 0063).
+  const env = buildBrewerEnv({ ...options.env, brewer: {}, platform });
   // The attempts it runs, by key, with when they started: their progress for the heartbeat.
   const running = new Map<string, AttemptProgress>();
 
