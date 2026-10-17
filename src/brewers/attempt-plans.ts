@@ -84,7 +84,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
-    if (read.kind === 'order') return options.orderText(read);
+    if (read.kind === 'order') {
+      const text = await options.orderText(read);
+      // Anyone who can file an issue writes its body: it gets the limit of an input file.
+      if (Buffer.byteLength(text, 'utf8') > MAX_INPUT_BYTES) {
+        throw new Error(
+          `the input "${name}" was not read: it is larger than ${MAX_INPUT_BYTES} bytes`,
+        );
+      }
+      return text;
+    }
     const found = files.read(read.path, MAX_INPUT_BYTES, read.root);
     switch (found.kind) {
       case 'text':
