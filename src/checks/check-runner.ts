@@ -9,6 +9,7 @@ import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { envNameKey } from '../platform/env.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import { passed, planChecks, type RepositoryChecks, readingOf, settleReadings } from './gravity.ts';
@@ -34,6 +35,15 @@ export interface CheckRunnerOptions {
  */
 const KILL_MARGIN_MS = 10_000;
 
+/**
+ * claude's login and settings, which the brewers' base keeps for claude: a check, which has the
+ * network outside the sandbox, gets none of them (ADR 0069).
+ */
+const forClaude = (key: string): boolean =>
+  key.startsWith('ANTHROPIC_') ||
+  key === 'CLAUDE_CONFIG_DIR' ||
+  key === 'CLAUDE_CODE_GIT_BASH_PATH';
+
 // None of a repository's checks: what a step of literal commands plans against.
 const NO_CHECKS: RepositoryChecks = {
   build: null,
@@ -45,8 +55,13 @@ const NO_CHECKS: RepositoryChecks = {
 
 export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
   const { state, checks, exec, clock, platform = process.platform } = options;
-  // Nothing a brewer does not get; by key, so a forced PATH replaces Path on Windows (ADR 0063).
-  const env = buildBrewerEnv({ ...options.env, brewer: {}, platform });
+  // Nothing a brewer does not get, and not claude's login either: by key, so a forced PATH
+  // replaces Path on Windows (ADR 0063, ADR 0069).
+  const key = envNameKey(platform);
+  const base = Object.fromEntries(
+    Object.entries(options.env.base).filter(([name]) => !forClaude(key(name))),
+  );
+  const env = buildBrewerEnv({ base, brewer: {}, forced: options.env.forced, platform });
   // The attempts it runs, by key, with when they started: their progress for the heartbeat.
   const running = new Map<string, AttemptProgress>();
 
