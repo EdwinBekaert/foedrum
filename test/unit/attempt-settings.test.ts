@@ -84,6 +84,28 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(git push *)`,
       `${shell}(git push origin)`,
       `${shell}(git.e*)`,
+      // The program word spelt another way, or a wrapper that runs git (review of #170).
+      `${shell}(/*)`,
+      `${shell}(./*)`,
+      `${shell}( git *)`,
+      `${shell}(/usr/bin/git *)`,
+      `${shell}(/mingw64/bin/git -C . push)`,
+      `${shell}(C:\\Git\\cmd\\git.exe *)`,
+      `${shell}(\\git *)`,
+      `${shell}('git' *)`,
+      `${shell}("git" *)`,
+      `${shell}(& git *)`,
+      `${shell}(GIT_DIR=.git git *)`,
+      `${shell}(env git *)`,
+      `${shell}(command git *)`,
+      `${shell}(xargs *)`,
+      `${shell}(env git -C . push)`,
+      // Subcommands that push, or run commands of their own.
+      `${shell}(git send-pack *)`,
+      `${shell}(git http-push *)`,
+      `${shell}(git subtree *)`,
+      `${shell}(git submodule *)`,
+      `${shell}(git s*)`,
     ]) {
       it(`refuses to allow ${rule}, which reaches a push`, () => {
         assert.throws(
