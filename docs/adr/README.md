@@ -15,7 +15,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0009](0009-agpl-and-cla.md) | AGPL-3.0 with a Contributor License Agreement | Accepted |
 | [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted, amended by 0039 and 0049 |
 | [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted, amended by 0024 and 0044 |
-| [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted, amended by 0029 |
+| [0012](0012-worktrees-from-local-clones.md) | Worktrees from local clones | Accepted, amended by 0029 and 0063 |
 | [0013](0013-single-repo-sub-orders-bottles-and-releases.md) | Single-repository sub-orders, bottles and release dependencies | Accepted, amended by 0043 |
 | [0014](0014-interactive-refinement-plugin.md) | Interactive refinement through a Claude Code plugin | Accepted, generalised by 0019 |
 | [0015](0015-house-yeast.md) | House yeast: scoped, budgeted, promotable rules | Accepted, amended by 0017 and 0018 |
@@ -40,14 +40,14 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0034](0034-brett-mutants-as-structured-line-edits.md) | Brett’s mutants are one-line structured edits, not patches (amends 0017) | Accepted, amended by 0040 and 0054 |
 | [0035](0035-the-process-runner-kills-at-an-output-limit.md) | The process runner kills a process at an output limit | Accepted |
 | [0036](0036-test-budget-in-cpu-time.md) | The per-file test budget is CPU time (amends 0021) | Accepted, amended by 0038 and 0054 |
-| [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) | Attempt worktrees in the engine, the Brewery marker and driver locks (amends 0029 and 0033) | Accepted, amended by 0061 |
+| [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) | Attempt worktrees in the engine, the Brewery marker and driver locks (amends 0029 and 0033) | Accepted, amended by 0061 and 0063 |
 | [0038](0038-npm-test-processes-refuse-process-starts.md) | npm test's processes refuse to start processes (amends 0021 and 0036) | Accepted |
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted, amended by 0054 |
 | [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) | Untrusted input in per-prompt nonce tags (amends 0018 and 0019) | Accepted |
 | [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047 and 0062 |
 | [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) | Target-repository issues as a work queue, claimed by a ref (amends 0008, 0013, 0024, 0029 and 0033) | Accepted, amended by 0050 |
-| [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051 and 0055 |
+| [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051, 0055 and 0063 |
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted, amended by 0056 and 0060 |
 | [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057 and 0062 |
 | [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted, amended by 0048 and 0057 |
@@ -62,9 +62,11 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0056](0056-the-gate-pre-filter-reads-the-command.md) | The local gate's pre-filter reads the command, not the whole hook input (amends 0045) | Accepted, amended by 0060 |
 | [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) | Real-claude tests are opt-in, and proofs of claude leave the suite (amends 0046, 0047 and 0049) | Accepted, amended by 0062 |
 | [0058](0058-the-planted-git-defect-moves-from-the-unit-test-to-the-code.md) | The planted git defect moves from the unit test to the code (amends 0022) | Accepted |
+| [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) | Attempt plans from the brewer of the step, and on tap without a pull request (amends 0043, 0047 and 0053) | Accepted, amended by 0062 and 0063 |
 | [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) | The local gate refuses `gh pr ready` until the review summary for the head is on the pull request (amends 0045 and 0056) | Accepted |
 | [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) | Chaos faults at their sites, shrinking, and the worktree and state branch cases (amends 0037 and 0051) | Accepted |
 | [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted |
+| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted |
 
 ## Template
 

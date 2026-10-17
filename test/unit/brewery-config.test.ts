@@ -169,3 +169,75 @@ describe('BreweryConfig', () => {
     });
   }
 });
+
+/** The fields `serve` reads (ADR 0063). */
+interface ServeFields {
+  brewery?: string;
+  githubApi?: string;
+  repositories: Record<string, { source?: string; base?: string }>;
+}
+
+describe('BreweryConfig for foedrum serve (ADR 0063)', () => {
+  it('names the Brewery and the GitHub API, and each repository its source and base', () => {
+    const parsed = BreweryConfig.safeParse(
+      config(
+        { source: 'managed', base: 'release/2.x' },
+        { brewery: 'acme/brewery', githubApi: 'https://github.example.com/api/v3' },
+      ),
+    ).data as ServeFields | undefined;
+    assert.equal(parsed?.brewery, 'acme/brewery');
+    assert.equal(parsed?.githubApi, 'https://github.example.com/api/v3');
+    assert.equal(parsed?.repositories['acme/web']?.source, 'managed');
+    assert.equal(parsed?.repositories['acme/web']?.base, 'release/2.x');
+  });
+
+  it('leaves them out when the file does, so a config without them stays valid', () => {
+    const parsed = BreweryConfig.parse(config({})) as ServeFields;
+    assert.equal(parsed.brewery, undefined);
+    assert.equal(parsed.githubApi, undefined);
+    assert.equal(parsed.repositories['acme/web']?.source, undefined);
+    assert.equal(parsed.repositories['acme/web']?.base, undefined);
+  });
+
+  it('refuses a Brewery that is not owner/name', () => {
+    assert.equal(accepted(config({}, { brewery: 'brewery' })), false);
+  });
+
+  it('refuses a source other than local or managed', () => {
+    assert.equal(accepted(config({ source: 'remote' })), false);
+  });
+
+  it('refuses a base git would read as an option, a range or no branch', () => {
+    for (const base of [
+      '-main',
+      'main..dev',
+      'feat//x',
+      'main/',
+      'main.lock',
+      'a b',
+      '',
+      'x@{1}',
+    ]) {
+      assert.equal(accepted(config({ base })), false, base);
+    }
+  });
+
+  it('takes the API over https, or over http only on a loopback address', () => {
+    for (const githubApi of [
+      'http://127.0.0.1:4000',
+      'http://localhost:4000/api',
+      'http://[::1]:80',
+    ]) {
+      assert.equal(accepted(config({}, { githubApi })), true, githubApi);
+    }
+    for (const githubApi of [
+      'http://api.github.com',
+      'ftp://api.github.com',
+      'https://user:secret@api.github.com',
+      'https://api.github.com/?x=1',
+      'not a url',
+    ]) {
+      assert.equal(accepted(config({}, { githubApi })), false, githubApi);
+    }
+  });
+});
