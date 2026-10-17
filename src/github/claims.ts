@@ -6,10 +6,9 @@
 
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import { claimRef } from '../engine/issue-claims.ts';
-import { Repo } from '../schemas/events.ts';
 import { GitCommit, GitHubError, GitRef, RepositoryId } from '../schemas/github.ts';
 import { CommitSha } from '../schemas/store.ts';
-import type { z } from '../schemas/zod.ts';
+import { checked, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 
 /** git's empty tree: every claim commit has it, and no parent. */
@@ -24,25 +23,6 @@ const UPDATE_REFS = `mutation ($input: UpdateRefsInput!) {
 const REPOSITORY_ID = `query ($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { id }
 }`;
-
-// `owner/name` as path segments; checked first, since it becomes part of a URL.
-const repoPath = (repo: string): string => {
-  if (!Repo.safeParse(repo).success)
-    throw new Error(`The repository must be owner/name, got ${repo}`);
-  return repo.split('/').map(encodeURIComponent).join('/');
-};
-
-const checked = <T>(schema: z.ZodType<T>, body: unknown, what: string): T => {
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) throw new Error(`GitHub's answer to ${what} is not what it should be`);
-  return parsed.data;
-};
-
-const refused = (status: number, body: unknown, what: string): Error => {
-  const parsed = GitHubError.safeParse(body);
-  const said = parsed.success ? `: ${parsed.data.message}` : '';
-  return new Error(`GitHub answered ${status} to ${what}${said}`);
-};
 
 export const githubClaimHost = (client: GitHubClient): ClaimHost => {
   const ids = new Map<string, string>();
