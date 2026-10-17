@@ -38,6 +38,13 @@ export interface DriverEffects {
   deadlineMs?: number;
 }
 
+/** The attempt worktrees of a repository the attempts write in, and the base new ones start at. */
+export interface RepositoryWorktrees {
+  repo: string;
+  base: string;
+  manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
+}
+
 /** What the driver reports instead of failing: it keeps driving. */
 export type DriverNotice =
   | Notice
@@ -63,12 +70,10 @@ export interface DriverOptions {
   stateBranch: Pick<StateBranch, 'flush'>;
   /** The limits of an attempt: its brewer's, from the recipe its batch brews. */
   limits: (attempt: AttemptRef) => AttemptLimits;
-  /** The attempt worktrees of the one repository the attempts write in, and their base. */
-  worktrees?: {
-    repo: string;
-    base: string;
-    manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
-  };
+  /** The attempt worktrees of each repository the attempts write in, and their base. */
+  worktrees?: readonly RepositoryWorktrees[];
+  /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
+  alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
   leaseMs?: number;
@@ -97,9 +102,37 @@ export interface Driver {
   applyEffects(): Promise<void>;
   /** The folded state of every committed event. */
   state(): State;
-  /** Lets the driver's lock go; its batch leases expire on their own. */
+  /** Stops the runs it still has and lets its lock go; its batch leases expire on their own. */
   close(): void;
 }
+
+/**
+ * The repository an attempt of `batchId` writes in (ADR 0063): a claimed issue's, a sub-order's,
+ * or the only one of the Brewery for a Brewery order. Throws with the reason when there is none.
+ */
+export const repositoryOf = (
+  state: State,
+  batchId: string,
+  repositories: readonly RepositoryWorktrees[],
+): RepositoryWorktrees => {
+  const batch = state.batches.get(batchId);
+  // A Brewery issue that is a sub-order writes in its repository, with a parent batch or not.
+  const repo =
+    batch?.repo ?? (batch === undefined ? undefined : state.subOrders.get(batch.issue)?.repo);
+  if (repo === undefined) {
+    const [only] = repositories;
+    if (only !== undefined && repositories.length === 1) return only;
+    throw new Error(
+      `batch ${batchId} names no repository, and the Brewery has ${repositories.length}`,
+    );
+  }
+  // GitHub names are case-insensitive.
+  const found = repositories.find((each) => each.repo.toLowerCase() === repo.toLowerCase());
+  if (found === undefined) {
+    throw new Error(`batch ${batchId} writes in ${repo}, which the Brewery does not list`);
+  }
+  return found;
+};
 
 /** The attempt `ref` in `state`, if it was scheduled. */
 const attemptOf = (state: State, ref: AttemptRef) =>
@@ -122,7 +155,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     takes,
     stateBranch,
     limits,
-    worktrees,
+    worktrees = [],
+    alsoCleans = [],
     effects,
     leaseMs = defaultLeaseMs,
     reminderMs = defaultReminderMs,
@@ -139,8 +173,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const lock = options.lock();
   const { owner } = lock;
   const log = createCommandLog({ store, recipes, reminderMs, routingMs });
+  // What the worktree cleanup goes over: each repository's worktrees, and what goes with them.
+  const cleaners = [...worktrees.map(({ manager }) => manager), ...alsoCleans];
   const cleanup = createWorktreeCleanup({
-    worktrees: worktrees === undefined ? [] : [worktrees.manager],
+    worktrees: cleaners,
     state: log.state,
     leases: () => store.currentLeases(clock()),
   });
@@ -229,7 +265,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const noteEnded = (): void => {
     const stored = store.eventsAfter(seenId);
     seenId = stored.at(-1)?.id ?? seenId;
-    if (worktrees === undefined) return;
+    if (cleaners.length === 0) return;
     for (const batchId of endedBatches(stored.map(({ event }) => event))) toClean.add(batchId);
   };
 
@@ -267,14 +303,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    */
   const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
     const started = { type: 'step.started', ...ref } as const;
-    if (worktrees === undefined) {
+    if (worktrees.length === 0) {
       return issue({ kind: 'record', event: started }, (tx) => leaseAttempt(tx, key));
     }
     // The lease first: only the holder of an attempt's lease may make its worktree.
     store.withTransaction((tx) => leaseAttempt(tx, key));
+    let repository: RepositoryWorktrees;
     let made: AttemptWorktree;
     try {
-      made = await worktrees.manager.create(ref, worktrees.base);
+      repository = repositoryOf(log.state(), ref.batchId, worktrees);
+      made = await repository.manager.create(ref, repository.base);
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;
@@ -282,7 +320,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       releaseAttempt(key);
       return false;
     }
-    const worktree = { repo: worktrees.repo, ...made };
+    const worktree = { repo: repository.repo, ...made };
     if (issue({ kind: 'record', event: { ...started, worktree } })) return true;
     releaseAttempt(key);
     return false;
@@ -349,7 +387,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           releaseAttempt(key);
         }
         // An attempt of an ended batch held its worktree until now.
-        if (worktrees !== undefined && batchIsOver(log.state(), ref.batchId)) {
+        if (cleaners.length > 0 && batchIsOver(log.state(), ref.batchId)) {
           toClean.add(ref.batchId);
         }
         moved = true;
@@ -497,6 +535,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     applyEffects,
     state: log.state,
     close: () => {
+      // Their ends are not recorded: the next start of this owner loses them (ADR 0033, ADR 0063).
+      for (const { run } of runs.values()) run.stop();
       supervisor.stop();
       lock.release();
     },

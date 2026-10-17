@@ -33,6 +33,8 @@ export interface CliContext {
   /** Where the command comes from: the surface its events record. */
   surface: Surface;
   now: () => Date;
+  /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
+  serve: () => Promise<CliResult>;
 }
 
 export interface CliResult {
@@ -52,12 +54,19 @@ const SEE_HELP = 'run foedrum --help for the commands';
 const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
 
 /** The text with each control character but the line feed shown as a `\uXXXX` escape. */
-const printable = (text: string): string =>
+export const printable = (text: string): string =>
   text.replace(CONTROL, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 
 const usageError = (line: string): CliResult => ({ exitCode: 2, stdout: '', stderr: `${line}\n` });
 
+/**
+ * `foedrum serve`, the Cellar (ADR 0063): a program that runs until Ctrl+C, not a command of the
+ * command layer that a comment or the plugin could issue, so it is not in the registry.
+ */
+const SERVE = { name: 'serve', summary: "Run the Cellar: brew the Brewery's batches until Ctrl+C" };
+
 const usage = (): CliResult => {
+  const serve = [SERVE.name, SERVE.summary];
   const rows = commands.map(({ name, summary, positionals, rest }) => [
     [
       name,
@@ -66,7 +75,12 @@ const usage = (): CliResult => {
     ].join(' '),
     summary,
   ]);
-  const lines = ['Usage: foedrum <command> [arguments]', '', 'Commands:', ...columns(rows)];
+  const lines = [
+    'Usage: foedrum <command> [arguments]',
+    '',
+    'Commands:',
+    ...columns([serve, ...rows]),
+  ];
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 };
 
@@ -99,7 +113,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     return usageError(`foedrum: unknown option ${JSON.stringify(name)}; ${SEE_HELP}`);
   }
   const command = commands.find((candidate) => candidate.name === name);
-  if (command === undefined) {
+  if (command === undefined && name !== SERVE.name) {
     return usageError(`foedrum: unknown command ${JSON.stringify(name)}; ${SEE_HELP}`);
   }
   const prefix = `foedrum ${name}`;
@@ -117,6 +131,11 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const [unknown] = options;
   if (unknown !== undefined) return usageError(`${prefix}: unknown option "${unknown.rawName}"`);
   const values = tokens.flatMap((token) => (token.kind === 'positional' ? [token.value] : []));
+  if (command === undefined) {
+    const [extra] = values;
+    if (extra !== undefined) return usageError(`${prefix}: unexpected argument "${extra}"`);
+    return context.serve();
+  }
   const { positionals, rest: restField } = command;
   const extra = values[positionals.length];
   if (extra !== undefined && restField === undefined) {

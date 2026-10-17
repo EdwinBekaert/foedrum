@@ -6,6 +6,16 @@
       "description": "The JSON Schema of this file, for editors",
       "type": "string"
     },
+    "brewery": {
+      "description": "The Brewery's own owner/name on GitHub; foedrum serve needs it (ADR 0063)",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*\\/(?!\\.\\.?$)[\\w.][\\w.-]*$"
+    },
+    "githubApi": {
+      "description": "The GitHub REST API's base URL; default https://api.github.com",
+      "type": "string",
+      "format": "uri"
+    },
     "permissionCeiling": {
       "default": [],
       "description": "The most any repository may add to its brewers; a rule covers narrower ones",
@@ -583,6 +593,19 @@
             ],
             "additionalProperties": false,
             "description": "Polls the repository for issues to claim and brew; without it, none are"
+          },
+          "source": {
+            "description": "Where attempt worktrees come from: the user's clone (local, the default) or a managed clone (ADR 0012)",
+            "type": "string",
+            "enum": [
+              "local",
+              "managed"
+            ]
+          },
+          "base": {
+            "description": "The branch attempts start from, at origin/<base> after a fetch; default main (ADR 0063)",
+            "type": "string",
+            "pattern": "^(?![-./])(?!.*\\.\\.)(?!.*\\/\\/)(?!.*\\/\\.)(?!.*\\.lock$)[A-Za-z0-9._/-]{1,200}(?<![/.])$"
           }
         },
         "required": [

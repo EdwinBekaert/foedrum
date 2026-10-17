@@ -884,7 +884,7 @@ export const openChaosEngine = async (
           ...(clone === undefined
             ? {}
             : {
-                worktrees: { repo: chaosRepo, base: 'origin/main', manager: clone.manager(life) },
+                worktrees: [{ repo: chaosRepo, base: 'origin/main', manager: clone.manager(life) }],
               }),
           limits: () => ({ ...defaultLimits, ...scenarioLimits }),
           effects: {
