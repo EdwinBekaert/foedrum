@@ -432,30 +432,55 @@ describe('loadRecipes: an onBlocked route and its rounds (ADR 0064)', () => {
   });
 });
 
-describe('loadRecipes: test-first recipes (ADR 0028, #25)', () => {
-  it('refuses a recipe that resolves to test-first, saying to set testFirst: false', () => {
-    const cellarman = brewer('cellarman', {
-      access: 'write',
-      tree: 'task',
-      git: { commit: true },
-      produces: 'commits',
-    });
-    const files = brewery({
-      recipes: [
-        recipe('pale', [{ brewer: 'maltster' }], { testFirst: true }),
-        recipe('amber', [{ brewer: 'cellarman' }]),
-        recipe('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
-      ],
-      brewers: [maltster, brewmaster, cellarman],
-    });
-    const refused = (name: string) =>
-      `recipes/${name}.jsonc: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`;
-    assert.deepEqual(problemsOf(files), [refused('pale'), refused('amber')]);
+describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064)', () => {
+  const writer = (name: string) =>
+    brewer(name, { access: 'write', tree: 'task', git: { commit: true }, produces: 'commits' });
+  const writers = [writer('gauger'), writer('cellarman')];
+  const withWriters = (...recipes: BreweryFile[]) =>
+    brewery({ recipes, brewers: [maltster, brewmaster, ...writers] });
+  const red = { id: 'red', check: 'test', expect: 'fail', of: 'gauge' };
+  const noProof = (name: string) =>
+    `recipes/${name}.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)`;
+  const unbrewedCheck =
+    'recipes/pale.jsonc: step "red" is a check step, which the engine does not brew yet (ADR 0053)';
+
+  it('refuses a test-first recipe without a red proof, naming the fix', () => {
+    const files = withWriters(
+      recipe('pale', [{ brewer: 'maltster' }], { testFirst: true }),
+      recipe('amber', [{ brewer: 'cellarman' }]),
+      recipe('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
+    );
+    assert.deepEqual(problemsOf(files), [noProof('pale'), noProof('amber')]);
     const stout = files.recipes.filter(({ path }) => path === 'recipes/stout.jsonc');
     assert.equal(
       loaded(loadRecipes({ ...files, recipes: stout })).find('stout')?.firstStep,
       'cellarman',
     );
+  });
+
+  it('refuses a red proof of another step than the first that commits', () => {
+    const steps = [
+      { id: 'plan', brewer: 'maltster' },
+      { id: 'red', check: 'test', expect: 'fail', of: 'plan' },
+      { id: 'gauge', brewer: 'gauger' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      unbrewedCheck,
+      noProof('pale'),
+    ]);
+  });
+
+  it('refuses a step that commits before the red proof, other than the one it proves', () => {
+    const steps = [
+      { id: 'gauge', brewer: 'gauger' },
+      { id: 'implement', brewer: 'cellarman' },
+      red,
+      { id: 'tidy', brewer: 'cellarman' },
+    ];
+    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+      unbrewedCheck,
+      'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge" (ADR 0064)',
+    ]);
   });
 });
 
