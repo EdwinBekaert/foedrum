@@ -162,17 +162,19 @@ describe('claude with the runner settings', { skip: real.kind === 'skip' && real
   // The PowerShell tool needs PowerShell 7 outside Windows; these machines need not have it.
   const shells: Shell[] = process.platform === 'win32' ? ['Bash', 'PowerShell'] : ['Bash'];
   for (const shell of shells) {
+    const gitSubcommands: AttemptPermissions = {
+      allow: ['Read', `${shell}(git status *)`, `${shell}(git commit *)`],
+      deny: [],
+      sandbox: false,
+    };
+    // The control: the same rules let an allowed subcommand run, so a denial below is theirs.
+    it(`runs git status in ${shell} for a brewer allowed git subcommands`, async () => {
+      const outcome = await run(gitSubcommands, 'git status', shell);
+      assert.deepEqual(outcome.denied, []);
+    });
     for (const push of pushes) {
       it(`denies ${push} in ${shell} to a brewer allowed git subcommands`, async () => {
-        const outcome = await run(
-          {
-            allow: ['Read', `${shell}(git status *)`, `${shell}(git commit *)`],
-            deny: [],
-            sandbox: false,
-          },
-          push,
-          shell,
-        );
+        const outcome = await run(gitSubcommands, push, shell);
         assert.deepEqual(outcome.denied, [shell]);
       });
     }
