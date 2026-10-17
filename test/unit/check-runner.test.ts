@@ -71,6 +71,7 @@ const setup = ({
   repo = repository,
   platform = 'linux',
   layers = env,
+  clock = () => now,
 }: {
   checks?: readonly CheckRef[];
   scripts?: Record<string, Script>;
@@ -79,6 +80,7 @@ const setup = ({
   repo?: RepositoryChecks | null;
   platform?: NodeJS.Platform;
   layers?: { base: Record<string, string>; forced: Record<string, string> };
+  clock?: () => Date;
 } = {}) => {
   const { calls, exec } = fakeExec(scripts);
   const stepChecks: StepChecks = {
@@ -95,7 +97,7 @@ const setup = ({
     },
     exec,
     env: layers,
-    clock: () => now,
+    clock,
     platform,
   });
   return { calls, repos, runner };
@@ -202,6 +204,21 @@ describe('createCheckRunner', () => {
       SystemRoot: 'C:\\Windows',
       npm_config_ignore_scripts: 'true',
     });
+  });
+
+  it('gives each check only what the checks before it left of the deadline', async () => {
+    // Each check takes ten minutes of the step's thirty: the clock moves on with every one run.
+    const ran: { calls?: readonly unknown[] } = {};
+    const { calls, runner } = setup({
+      checks: ['typecheck', 'lint', 'test'],
+      clock: () => new Date(now.getTime() + 10 * 60_000 * (ran.calls?.length ?? 0)),
+    });
+    ran.calls = calls;
+    await runner.start({ ref, limits }).ended;
+    assert.deepEqual(
+      calls.map(({ options }) => options.timeoutMs),
+      [30 * 60_000, 20 * 60_000, 10 * 60_000],
+    );
   });
 
   it('gives a check what is left until the deadline, at least a millisecond', async () => {
