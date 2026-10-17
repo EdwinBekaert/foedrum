@@ -529,6 +529,43 @@ describe('createIntake', () => {
       assert.equal(failed?.kind === 'failed' ? failed.what : '', `listing ${brewery}`);
     });
 
+    it('leaves a batch without a recipe label Ordered for its deadline, without a notice', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      const { tracker } = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
+      await breweryIntake(tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(notices, []);
+    });
+
+    it('routes nothing once the pass is past its deadline', async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      const tracker: TargetTracker = {
+        issues: async (repo) => {
+          if (repo === brewery) await new Promise((resolve) => setTimeout(resolve, 100));
+          return repo === brewery ? [labelled(12)] : [];
+        },
+        pullRequest: async () => 'open',
+      };
+      await breweryIntake(tracker, { deadlineMs: 20 }).poll();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.deepStrictEqual(lanes(), ['12-1 ordered']);
+    });
+
+    it('never orders a sub-order: its decomposition does', async () => {
+      accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+      accept({
+        kind: 'record',
+        event: {
+          type: 'order.decomposed',
+          batchId: '1-1',
+          subOrders: [{ issue: 2, repo: web }],
+          dependencies: [],
+        },
+      });
+      const { tracker } = fakeTracker({ [brewery]: [labelled(2)], [web]: [], [api]: [] });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 ordered']);
+    });
     it('lists the Brewery with no filter, and with the pass signal', async () => {
       const calls: [string, unknown, boolean][] = [];
       const tracker: TargetTracker = {
