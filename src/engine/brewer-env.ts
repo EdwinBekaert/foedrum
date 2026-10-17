@@ -50,12 +50,13 @@ export function brewerBaseEnv(
   env: Readonly<Record<string, string | undefined>>,
   platform: NodeJS.Platform,
 ): Record<string, string> {
-  // Windows does not tell names apart by case: `Path` is `PATH` there.
-  const flags = platform === 'win32' ? 'i' : '';
-  const kept = new RegExp(`^(?:${BASE_NAMES.join('|')}|ANTHROPIC_[A-Z0-9_]+)$`, flags);
+  // By key, as buildBrewerEnv merges: on Windows `Path` is `PATH`.
+  const key = envNameKey(platform);
+  const kept = (name: string): boolean =>
+    BASE_NAMES.includes(key(name)) || /^ANTHROPIC_[A-Z0-9_]+$/.test(key(name));
   return Object.fromEntries(
     Object.entries(env).flatMap(([name, value]) =>
-      value === undefined || !kept.test(name) ? [] : [[name, value]],
+      value === undefined || !kept(name) ? [] : [[name, value]],
     ),
   );
 }
