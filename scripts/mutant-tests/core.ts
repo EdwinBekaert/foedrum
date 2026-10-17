@@ -5,8 +5,9 @@
 import { posix } from 'node:path';
 
 // `from '…'`, `import '…'` and `import('…')` with a relative specifier. Text in comments or strings
-// may match too; that only adds a test file to the run.
-const SPECIFIER = /\b(?:from|import)\s*\(?\s*(['"])(\.{1,2}\/[^'"\n]*)\1/g;
+// may match too; that only adds a test file to the run. The whitespace splits only one way, so a
+// long run of it after `import` does not backtrack.
+const SPECIFIER = /\b(?:from|import)\s*(?:\(\s*)?(['"])(\.{1,2}\/[^'"\n]*)\1/g;
 
 // The relative module specifiers a TypeScript source imports or re-exports, statically or with
 // import(). Packages and node: built-ins are left out.
