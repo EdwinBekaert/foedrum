@@ -1,7 +1,7 @@
 // `foedrum serve` as the real program (ADR 0063). It refuses a folder that is no Brewery, and,
 // opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057), it brews one real step end to end on a throwaway
-// Brewery: an order routed on the Brewery's state branch, the order's text from a fake GitHub, the
-// real claude runner against the fake Messages API (no login, no tokens), real attempt worktrees
+// Brewery: a labelled issue the intake orders and routes from a fake GitHub (ADR 0068), the order's
+// text from there too, the real claude runner against the fake Messages API (no login, no tokens), real attempt worktrees
 // of the user's clone, and the state branch pushed back. It tests Foedrum's wiring, not claude.
 
 import assert from 'node:assert/strict';
@@ -12,13 +12,8 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createCommandLog } from '../../src/engine/command-log.ts';
-import { loadRecipes } from '../../src/engine/recipe-files.ts';
-import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { openStateBranch } from '../../src/engine/state-branch-git.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { runGit } from '../../src/workspace/git.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { brewer, recipe } from '../helpers/serve-brewery.ts';
@@ -54,16 +49,25 @@ describe('foedrum serve', () => {
   });
 });
 
-/** A fake GitHub REST API on 127.0.0.1 that knows one issue of the Brewery. */
+/** A fake GitHub REST API on 127.0.0.1 that lists one labelled issue of the Brewery. */
 const startFakeGitHub = async (body: string) => {
   const requests: { url: string; authorization: string | undefined }[] = [];
   const server: Server = createServer((request, response) => {
     requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
-    if (request.method === 'GET' && request.url === '/repos/acme/brewery/issues/12') {
+    const issue = {
+      number: 12,
+      state: 'open',
+      user: { login: 'ann' },
+      labels: ['recipe:stout'],
+      body,
+    };
+    const path = request.url?.split('?')[0];
+    if (
+      request.method === 'GET' &&
+      (path === '/repos/acme/brewery/issues/12' || path === '/repos/acme/brewery/issues')
+    ) {
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(
-        JSON.stringify({ number: 12, state: 'open', user: { login: 'ann' }, labels: [], body }),
-      );
+      response.end(JSON.stringify(path.endsWith('/12') ? issue : [issue]));
       return;
     }
     response.writeHead(404, { 'content-type': 'application/json' });
@@ -91,7 +95,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     await removeTree(dir.path);
   });
 
-  it('from an order on the state branch through started and finished to on tap, pushed back', async () => {
+  it('from a labelled issue the intake orders and routes, through started and finished to on tap, pushed back', async () => {
     // The target repository: an origin and the user's clone of it.
     const seed = join(dir.path, 'seed');
     git(dir.path, ['init', '-q', '-b', 'main', seed]);
@@ -137,33 +141,6 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       JSON.stringify({ workRoot: work, clones: { 'acme/web': clone } }),
     );
 
-    // An earlier driver ordered issue 12 and routed it to stout: its events are on the state
-    // branch, and serve starts without a store of its own, so it rebuilds it from there.
-    const loaded = loadRecipes({
-      recipes: [{ path: 'recipes/stout.jsonc', text: recipe }],
-      brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
-    });
-    assert.ok(loaded.valid);
-    const earlier = openSqliteEventStore(join(dir.path, 'earlier.db'));
-    const log = createCommandLog({ store: earlier, recipes: loaded.recipes });
-    const now = new Date();
-    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, now);
-    const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
-    assert.equal(log.issue({ ...route, source: 'label' }, now).kind, 'accepted');
-    const seeding = join(dir.path, 'seed-state');
-    const branch = openStateBranch({
-      store: earlier,
-      git: runGit,
-      clone: brewery,
-      worktree: seeding,
-    });
-    // A new branch is pushed by its start already.
-    await branch.start();
-    await branch.flush();
-    earlier.close();
-    git(brewery, ['worktree', 'remove', '--force', seeding]);
-    git(brewery, ['branch', '-D', 'foedrum/state']);
-
     // The fake model writes the out doc in the attempt's worktree.
     const worktree = join(realpathSync(work), 'acme.web', 'attempts', '12-1', 'brew', '1');
     api = await startFakeMessagesApi({
@@ -202,8 +179,6 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
         return '';
       }
     };
-    assert.match(pushed(), /"batch.recipe_chosen"/);
-
     const stop = new AbortController();
     const started = Date.now();
     const serving = execProcess(process.execPath, [main, 'serve'], {
@@ -240,10 +215,19 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       `${result.stdout}\n${result.stderr}`,
     );
     assert.match(result.stdout, /^foedrum serve: brewing for acme\/brewery in /m);
-    // The order's text came from GitHub, with the token, and reached the model in nonce tags.
-    assert.deepStrictEqual(github.requests, [
-      { url: '/repos/acme/brewery/issues/12', authorization: 'Bearer ghp_test_not_a_token' },
-    ]);
+    assert.match(result.stdout, /^foedrum serve: ordered acme\/brewery#12 as batch 12-1$/m);
+    assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
+    // The listing and the order's text came from GitHub, with the token, and the text reached the
+    // model in nonce tags.
+    assert.deepStrictEqual(
+      github.requests
+        .slice(0, 2)
+        .map(({ url, authorization }) => [url.split('?')[0], authorization]),
+      [
+        ['/repos/acme/brewery/issues', 'Bearer ghp_test_not_a_token'],
+        ['/repos/acme/brewery/issues/12', 'Bearer ghp_test_not_a_token'],
+      ],
+    );
     assert.match(
       api.bodies[0] ?? '',
       /untrusted-input-[0-9a-f]{32} source=\\"issue #12 body\\" name=\\"order\\">\\nAdd a --json flag\./,
