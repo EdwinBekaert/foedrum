@@ -316,3 +316,30 @@ describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)',
     );
   });
 });
+
+describe('loadRecipes: test-first recipes (ADR 0028, #25)', () => {
+  it('refuses a recipe that resolves to test-first, saying to set testFirst: false', () => {
+    const cellarman = brewer('cellarman', {
+      access: 'write',
+      tree: 'task',
+      git: { commit: true },
+      produces: 'commits',
+    });
+    const files = brewery({
+      recipes: [
+        recipe('pale', [{ brewer: 'maltster' }], { testFirst: true }),
+        recipe('amber', [{ brewer: 'cellarman' }]),
+        recipe('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
+      ],
+      brewers: [maltster, brewmaster, cellarman],
+    });
+    const refused = (name: string) =>
+      `recipes/${name}.jsonc: it is a test-first recipe, which the engine does not brew yet: set testFirst: false until test-first recipes land (#25) (ADR 0053)`;
+    assert.deepEqual(problemsOf(files), [refused('pale'), refused('amber')]);
+    const stout = files.recipes.filter(({ path }) => path === 'recipes/stout.jsonc');
+    assert.equal(
+      loaded(loadRecipes({ ...files, recipes: stout })).find('stout')?.firstStep,
+      'cellarman',
+    );
+  });
+});
