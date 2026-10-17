@@ -39,7 +39,10 @@ export interface DriverEffects {
   deadlineMs?: number;
 }
 
-/** The attempt worktrees of a repository the attempts write in, and the base new ones start at. */
+/**
+ * The attempt worktrees of a repository the attempts write in, and the base a batch starts at
+ * until its task tree moves (ADR 0066).
+ */
 export interface RepositoryWorktrees {
   repo: string;
   base: string;

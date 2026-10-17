@@ -49,8 +49,8 @@ export interface BrewingOptions {
   /** The driver's lock, which names its owner; default a fake one of driver-1, held. */
   lock?: DriverLock;
   /**
-   * The attempt worktrees of the one repository the attempts write in, and the base new ones start
-   * from; without them, attempts get no worktree and nothing is cleaned.
+   * The attempt worktrees of the one repository the attempts write in, and the base a batch starts
+   * from until its task tree moves (ADR 0066); without them, attempts get no worktree and nothing is cleaned.
    */
   worktrees?: {
     repo: string;
