@@ -151,9 +151,9 @@ function brewerStep(step: Step): BrewerStep | string {
 }
 
 /**
- * The guard every attempt has anyway: the runner requires the out doc. Not `noPush`: the runner's
- * deny rule matches only a command that starts with the push, and nothing checks the remote after
- * the attempt yet.
+ * The guard every attempt has anyway: the runner requires the out doc. Not `noPush`: no allow rule
+ * reaches a push (ADR 0062), but a script or hook an allowed command runs can, and nothing checks
+ * the remote after the attempt yet.
  */
 const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc']);
 

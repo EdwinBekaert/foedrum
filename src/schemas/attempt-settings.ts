@@ -2,7 +2,7 @@
 // (ADR 0042, ADR 0046). claude drops a file that fails its own validation silently, deny rules
 // included, so only the keys the runner uses exist here, strictly.
 
-import { AllowedTool, parseRule, ToolRule } from './primitives.ts';
+import { BrewerAllowedTool, parseRule, ToolRule } from './primitives.ts';
 import { z } from './zod.ts';
 
 /** The shells whose `git push` every attempt denies (brewers-and-recipes §1.1). */
@@ -19,7 +19,7 @@ export const alwaysDenied = (allow: readonly string[]): string[] => {
 
 export const AttemptSettings = z
   .strictObject({
-    permissions: z.strictObject({ allow: z.array(AllowedTool), deny: z.array(ToolRule) }),
+    permissions: z.strictObject({ allow: z.array(BrewerAllowedTool), deny: z.array(ToolRule) }),
     // Only where the isolation level relies on Claude Code's sandbox: it must run, or nothing does.
     sandbox: z
       .strictObject({

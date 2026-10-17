@@ -31,6 +31,30 @@ export const IntakeFilter = z
   .describe('Polls the repository for issues to claim and brew; without it, none are');
 export type IntakeFilter = z.infer<typeof IntakeFilter>;
 
+/** A branch name git reads as one: no option, range, reflog entry or empty segment. */
+const BranchName = z
+  .string()
+  .regex(
+    /^(?![-./])(?!.*\.\.)(?!.*\/\/)(?!.*\/\.)(?!.*\.lock$)[A-Za-z0-9._/-]{1,200}(?<![/.])$/,
+    'Must be a branch name such as "main" or "release/2.x"',
+  );
+
+/** Where a repository's attempt worktrees come from (ADR 0012). */
+export const RepositorySource = z.enum(['local', 'managed']);
+export type RepositorySource = z.infer<typeof RepositorySource>;
+
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/** Where the GitHub REST API is: the token goes with every request (ADR 0063). */
+const GitHubApi = z.url().refine((url) => {
+  const parsed = URL.parse(url);
+  if (parsed === null || parsed.username !== '' || parsed.password !== '') return false;
+  if (parsed.search !== '' || parsed.hash !== '') return false;
+  return (
+    parsed.protocol === 'https:' || (parsed.protocol === 'http:' && LOOPBACK.has(parsed.hostname))
+  );
+}, 'Must be an https URL without credentials, a query or a fragment, or http on a loopback address');
+
 const RepositoryConfig = z
   .strictObject({
     checks: Checks,
@@ -51,6 +75,12 @@ const RepositoryConfig = z
       'The short name that starts the batch ids of its claimed issues; required with an intake',
     ),
     intake: IntakeFilter.optional(),
+    source: RepositorySource.optional().describe(
+      "Where attempt worktrees come from: the user's clone (local, the default) or a managed clone (ADR 0012)",
+    ),
+    base: BranchName.optional().describe(
+      'The branch attempts start from, at origin/<base> after a fetch; default main (ADR 0063)',
+    ),
   })
   .refine((repository) => repository.intake === undefined || repository.alias !== undefined, {
     message: 'An intake needs an alias, for the batch ids of the issues it claims',
@@ -64,6 +94,12 @@ const RepositoryConfig = z
 export const BreweryConfig = z
   .strictObject({
     $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
+    brewery: Repo.optional().describe(
+      "The Brewery's own owner/name on GitHub; foedrum serve needs it (ADR 0063)",
+    ),
+    githubApi: GitHubApi.optional().describe(
+      "The GitHub REST API's base URL; default https://api.github.com",
+    ),
     permissionCeiling: z
       .array(AllowedTool)
       .default([])

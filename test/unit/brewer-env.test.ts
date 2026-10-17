@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildBrewerEnv } from '../../src/engine/brewer-env.ts';
+import { brewerBaseEnv, buildBrewerEnv } from '../../src/engine/brewer-env.ts';
 
 const forced = {
   PATH: '/usr/bin:/bin',
@@ -91,5 +91,84 @@ describe('buildBrewerEnv (#81)', () => {
       [base, brewer, forcedPath],
       [{ Path: 'C:\\base' }, { TZ: 'UTC' }, { PATH: 'C:\\Windows' }],
     );
+  });
+});
+
+describe('brewerBaseEnv (ADR 0063)', () => {
+  const engine = {
+    PATH: '/usr/bin',
+    HOME: '/home/ann',
+    TMPDIR: '/tmp/ann',
+    CLAUDE_CONFIG_DIR: '/home/ann/.claude-work',
+    ANTHROPIC_API_KEY: 'sk-ant-x',
+    ANTHROPIC_BASE_URL: 'https://proxy.example',
+    GH_TOKEN: 'ghp_secret',
+    GITHUB_TOKEN: 'ghp_secret',
+    AWS_SECRET_ACCESS_KEY: 'aws',
+    NODE_OPTIONS: '--inspect',
+    CLAUDE_CODE_USE_BEDROCK: '1',
+    UNSET: undefined,
+  };
+
+  it("keeps what a process needs to start and claude's own login, nothing else", () => {
+    assert.deepEqual(brewerBaseEnv(engine, 'linux'), {
+      PATH: '/usr/bin',
+      HOME: '/home/ann',
+      TMPDIR: '/tmp/ann',
+      CLAUDE_CONFIG_DIR: '/home/ann/.claude-work',
+      ANTHROPIC_API_KEY: 'sk-ant-x',
+      ANTHROPIC_BASE_URL: 'https://proxy.example',
+    });
+  });
+
+  it('keeps what claude needs to find its login and start on macOS and Windows', () => {
+    const posix = { USER: 'ann', LOGNAME: 'ann' };
+    assert.deepEqual(brewerBaseEnv(posix, 'darwin'), posix);
+    const windows = {
+      CLAUDE_CODE_GIT_BASH_PATH: 'D:\\Git\\bin\\bash.exe',
+      SystemDrive: 'C:',
+      ProgramFiles: 'C:\\Program Files',
+      ProgramData: 'C:\\ProgramData',
+      HOMEDRIVE: 'C:',
+      HOMEPATH: '\\Users\\ann',
+    };
+    assert.deepEqual(brewerBaseEnv(windows, 'win32'), windows);
+  });
+
+  it('keeps every name of the allowlist ADR 0063 lists', () => {
+    const names = [
+      'PATH',
+      'PATHEXT',
+      'SYSTEMROOT',
+      'WINDIR',
+      'COMSPEC',
+      'TEMP',
+      'TMP',
+      'TMPDIR',
+      'HOME',
+      'USERPROFILE',
+      'APPDATA',
+      'LOCALAPPDATA',
+      'SYSTEMDRIVE',
+      'PROGRAMFILES',
+      'PROGRAMDATA',
+      'HOMEDRIVE',
+      'HOMEPATH',
+      'USER',
+      'LOGNAME',
+      'CLAUDE_CONFIG_DIR',
+      'CLAUDE_CODE_GIT_BASH_PATH',
+      'ANTHROPIC_AUTH_TOKEN',
+    ];
+    const env = Object.fromEntries(names.map((name) => [name, `${name} value`]));
+    for (const platform of ['linux', 'win32'] as const) {
+      assert.deepEqual(brewerBaseEnv(env, platform), env, platform);
+    }
+  });
+
+  it('matches names in any case on Windows, keeping their spelling, and exactly elsewhere', () => {
+    const env = { Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', userprofile: 'C:\\Users\\ann' };
+    assert.deepEqual(brewerBaseEnv(env, 'win32'), env);
+    assert.deepEqual(brewerBaseEnv(env, 'linux'), {});
   });
 });
