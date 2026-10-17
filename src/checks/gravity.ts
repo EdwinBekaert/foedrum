@@ -3,6 +3,7 @@
 // check-runner.ts runs the commands.
 
 import type { Ending } from '../engine/decide.ts';
+import { findSecrets } from '../formats/secrets.ts';
 import { type GravityReading, MAX_TAIL_LENGTH } from '../schemas/events.ts';
 import type { CheckName, Command } from '../schemas/primitives.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
@@ -62,6 +63,24 @@ export function tailOf(output: string): string {
   return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
 }
 
+/**
+ * `output` with each line that looks like a secret left out, saying what it looked like. A check
+ * runs code a brewer may have written, so what it prints is untrusted (ADR 0069). A commit hash
+ * counts too: the engine cannot tell one from a 40-character key.
+ */
+function withoutSecrets(output: string): string {
+  // By line number; findSecrets splits the same lines, a CR going with its line.
+  const found = new Map(findSecrets(output, () => false).map(({ line, kind }) => [line, kind]));
+  if (found.size === 0) return output;
+  return output
+    .split('\n')
+    .map((line, index) => {
+      const kind = found.get(index + 1);
+      return kind === undefined ? line : `[left out: a line that looks like a secret (${kind})]`;
+    })
+    .join('\n');
+}
+
 /** What one run of `check` read. */
 export function readingOf(
   check: Extract<PlannedCheck, { kind: 'run' }>,
@@ -71,7 +90,8 @@ export function readingOf(
     ...(check.check === undefined ? {} : { check: check.check }),
     command: check.command,
   };
-  const tail = tailOf(run.output);
+  // Secrets out first, so the bound never keeps half of one.
+  const tail = tailOf(withoutSecrets(run.output));
   if (run.killed !== undefined) return { result: 'killed', ...ran, killed: run.killed, tail };
   if (run.exitCode === null) return { result: 'unstarted', ...ran, tail };
   return { result: 'exited', ...ran, exitCode: run.exitCode, tail };
