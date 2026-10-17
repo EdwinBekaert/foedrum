@@ -617,11 +617,33 @@ export type StaleReason = (cwd: string) => Promise<string | undefined>;
 // Whether HEAD in the checkout around `cwd` is detached; rejects when it cannot tell.
 export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 
+// The pull request `gh pr ready` names: its number, URL or branch (none for the current branch's),
+// and the repository given with -R.
+export interface ReadyTarget {
+  pr?: string;
+  repo?: string;
+}
+
+// What the gate needs to know of a pull request: its head, its comments, oldest first, and its
+// commits (those on its branch that are not on the base) with their parents.
+export interface PullRequestFacts {
+  number: number;
+  head: string;
+  comments: string[];
+  commits: { sha: string; parents: string[] }[];
+}
+
+// Reads the pull request from GitHub, run in the checkout around `cwd`; rejects when it cannot.
+export type LookupPullRequest = (cwd: string, target: ReadyTarget) => Promise<PullRequestFacts>;
+
 export const precheck = async (
   input: string,
   runCheck: RunCheck,
   staleReason: StaleReason = async () => undefined,
   headIsDetached: HeadIsDetached = async () => false,
+  lookupPullRequest: LookupPullRequest = async () => {
+    throw new Error('no pull request lookup');
+  },
 ): Promise<HookResult> => {
   if (!MAY_PUSH_OR_MERGE.test(normalised(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -744,6 +766,12 @@ export const gitHeadIsDetached =
       );
     }
     return isDetached(outcome);
+  };
+
+export const ghPullRequest =
+  (_runProcess: RunProcess): LookupPullRequest =>
+  async () => {
+    throw new Error('not implemented');
   };
 
 const readStdin = async (): Promise<string> => {
