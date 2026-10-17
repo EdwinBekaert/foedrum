@@ -123,6 +123,54 @@ describe('githubTargetTracker', () => {
       );
     });
 
+    it("asks GitHub for the filter's labels, never its milestone (ADR 0068)", async () => {
+      const { tracker, requests } = trackerWith([{ status: 200, body: [] }]);
+      await tracker.issues('acme/web', { labels: ['foedrum', 'good first issue', 'a&b'] });
+      const url = new URL(requests[0]?.url ?? '');
+      assert.equal(url.searchParams.get('labels'), 'foedrum,good first issue,a&b');
+      assert.equal(url.searchParams.get('state'), 'open');
+      assert.equal(url.searchParams.get('milestone'), null);
+      const withMilestone = trackerWith([{ status: 200, body: [] }]);
+      await withMilestone.tracker.issues('acme/web', { labels: ['foedrum'], milestone: 'M1' });
+      const asked = new URL(withMilestone.requests[0]?.url ?? '');
+      assert.deepStrictEqual(
+        [asked.searchParams.get('labels'), asked.searchParams.get('milestone')],
+        ['foedrum', null],
+      );
+    });
+
+    it('reads a repository with 6,000 open issues and 3 candidates in one page', async () => {
+      const [issue] = fixture('issues') as Record<string, unknown>[];
+      const candidates = [1, 2, 3].map((number) => ({ ...issue, number, labels: ['foedrum'] }));
+      const requests: string[] = [];
+      // GitHub as it filters: only the candidates carry the label; without it, 600 pages.
+      const fetch = (async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        requests.push(url.href);
+        const filtered = url.searchParams.get('labels') === 'foedrum';
+        const page = Number(url.searchParams.get('page') ?? '1');
+        const body = filtered
+          ? candidates
+          : Array.from({ length: 10 }, (_, index) => ({ ...issue, number: page * 10 + index }));
+        const link =
+          !filtered && page < 600
+            ? `<${api}/repositories/42/issues?page=${page + 1}>; rel="next"`
+            : '';
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json', ...(link === '' ? {} : { link }) },
+        });
+      }) as typeof globalThis.fetch;
+      const client = createGitHubClient({ token: 'ghp_test', fetch });
+      const tracker = githubTargetTracker(createGitHubReads(client));
+      const issues = await tracker.issues('acme/web', { labels: ['foedrum'] });
+      assert.deepStrictEqual(
+        issues.map(({ number }) => number),
+        [1, 2, 3],
+      );
+      assert.equal(requests.length, 1);
+    });
+
     it('fails on an answer it cannot read, naming the repository', async () => {
       const broken = [{ number: 'seven', state: 'open', labels: [], assignees: [] }];
       const { tracker } = trackerWith([{ status: 200, body: broken }]);
