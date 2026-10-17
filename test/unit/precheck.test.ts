@@ -1610,6 +1610,18 @@ describe('precheck on npx and the commands that run a package like it', () => {
     ['npx @biomejs/biome check', 'npx @biomejs/biome'],
     ['npx ../../tools/biome check', 'npx ../../tools/biome'],
     ['npx $tool --write x.ts', 'npx $tool'],
+    // pnpm dlx, pnpx and yarn dlx always download, whatever node_modules/.bin holds.
+    ['pnpm dlx biome check', 'pnpm dlx biome'],
+    ['pnpx biome check', 'pnpx biome'],
+    ['yarn dlx biome', 'yarn dlx biome'],
+    // A -p value is a package name, which node_modules/.bin cannot vouch for.
+    ['npx -p biome biome check', 'npx biome'],
+    ['npx --package=tsc tsc', 'npx tsc'],
+    // Names Windows maps to a device or to another file.
+    ['npx nul', 'npx nul'],
+    ['npx CON check', 'npx CON'],
+    ['npx lpt1.txt', 'npx lpt1.txt'],
+    ['npx biome. check', 'npx biome.'],
   ];
   for (const [command, run] of unnamed) {
     it(`refuses without looking: ${command}`, async () => {
@@ -1642,6 +1654,14 @@ describe('precheck on npx and the commands that run a package like it', () => {
     ['bash -c "cd ../other && npx biome check"'],
     ['Set-Location ..\\other; npx biome check', 'PowerShell'],
     ['sl ..\\other; npx biome check', 'PowerShell'],
+    // PowerShell's drive and parent functions, and cmd's drive letter.
+    ['D:; npx biome check', 'PowerShell'],
+    ['cd..; npx biome check', 'PowerShell'],
+    ['cd\\; npx biome check', 'PowerShell'],
+    ['cmd /c "D: && npx biome check"'],
+    // npx's own directory option.
+    ['npx --prefix ../other biome check'],
+    ['npx --prefix=../other biome check'],
   ];
   for (const [command, tool = 'Bash'] of moved) {
     it(`refuses a package runner after a change of directory in ${tool}: ${command}`, async () => {
