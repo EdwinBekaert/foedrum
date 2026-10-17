@@ -9,3 +9,9 @@ const cell = new Int32Array(new SharedArrayBuffer(4));
 export const descheduled = (ms: number): void => {
   Atomics.wait(cell, 0, 0, ms);
 };
+
+/** The CPU time this process has used, in ms: what a performance check measures (ADR 0070). */
+export const cpuTimeMs = (): number => {
+  const { user, system } = process.cpuUsage();
+  return (user + system) / 1000;
+};
