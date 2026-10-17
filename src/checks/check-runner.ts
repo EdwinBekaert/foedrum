@@ -28,6 +28,12 @@ export interface CheckRunnerOptions {
   platform?: NodeJS.Platform;
 }
 
+/**
+ * How long before the attempt's deadline a check is killed: the process runner's grace between
+ * SIGTERM and SIGKILL (2.5 s) and a supervisor tick (5 s, ADR 0027), with room to spare.
+ */
+const KILL_MARGIN_MS = 10_000;
+
 // None of a repository's checks: what a step of literal commands plans against.
 const NO_CHECKS: RepositoryChecks = {
   build: null,
@@ -81,8 +87,11 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
         readings.push({ result: 'skipped', check: check.check });
         continue;
       }
-      // The process runner kills the tree at the step's deadline, also when no tick comes.
-      const timeoutMs = Math.max(1, Date.parse(current.deadlineAt) - clock().getTime());
+      // The process runner kills the tree before the step's deadline, also when no tick comes:
+      // early enough that the kill's grace ends and the reading is recorded before a tick expires
+      // the attempt and loses it.
+      const left = Date.parse(current.deadlineAt) - clock().getTime();
+      const timeoutMs = Math.max(1, left - KILL_MARGIN_MS);
       const result = await exec(check.command, [], {
         cwd: worktree.path,
         env,
