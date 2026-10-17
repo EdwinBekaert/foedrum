@@ -2,7 +2,14 @@
 
 import { Repo } from './events.ts';
 import { RepositoryAlias } from './ids.ts';
-import { AllowedTool, Command, Duration, RelativePath, withinCeiling } from './primitives.ts';
+import {
+  AllowedTool,
+  Command,
+  Duration,
+  durationMs,
+  RelativePath,
+  withinCeiling,
+} from './primitives.ts';
 import { z } from './zod.ts';
 
 // null: the repository has no such check; a gravity reading skips it and records the skip.
@@ -55,6 +62,20 @@ const GitHubApi = z.url().refine((url) => {
   );
 }, 'Must be an https URL without credentials, a query or a fragment, or http on a loopback address');
 
+/** A GitHub login: letters, digits and single hyphens, never at either end, at most 39. */
+const GitHubLogin = z
+  .string()
+  .regex(
+    /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/,
+    'Must be a GitHub login such as "octocat"',
+  );
+
+/** How often the intake polls (ADR 0052, ADR 0068). */
+const PollEvery = Duration.refine((duration) => {
+  const ms = durationMs(duration);
+  return ms >= 30_000 && ms <= 3_600_000;
+}, 'Must be from "30s" to "1h"');
+
 const RepositoryConfig = z
   .strictObject({
     checks: Checks,
@@ -99,6 +120,19 @@ export const BreweryConfig = z
     ),
     githubApi: GitHubApi.optional().describe(
       "The GitHub REST API's base URL; default https://api.github.com",
+    ),
+    users: z
+      .array(GitHubLogin)
+      .optional()
+      .describe('The GitHub users who may order work: only their issues become orders'),
+    concurrency: z
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .describe('How many batches may be Ordered or Brewing at once; default 1 (ADR 0068)'),
+    pollEvery: PollEvery.optional().describe(
+      'How often the intake polls GitHub, from "30s" to "1h"; default "60s" (ADR 0052)',
     ),
     permissionCeiling: z
       .array(AllowedTool)

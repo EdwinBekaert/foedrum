@@ -110,6 +110,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     git(dir.path, ['init', '-q', '-b', 'main', files]);
     const config = {
       brewery: 'acme/brewery',
+      users: ['ann'],
       githubApi: github.url,
       repositories: {
         'acme/web': {

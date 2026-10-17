@@ -146,7 +146,7 @@ describe('serveSetup', () => {
   });
 
   it('refuses a Brewery without a repository: no attempt could get a worktree', () => {
-    const empty = JSON.stringify({ brewery: 'acme/brewery', repositories: {} });
+    const empty = JSON.stringify({ brewery: 'acme/brewery', users: ['ann'], repositories: {} });
     assert.deepStrictEqual(refused(inputs({ files: { ...inputs().files, config: empty } })), [
       'foedrum.jsonc: list at least one repository under "repositories" for foedrum serve',
     ]);
