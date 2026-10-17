@@ -156,8 +156,9 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       clone: brewery,
       worktree: seeding,
     });
+    // A new branch is pushed by its start already.
     await branch.start();
-    assert.equal((await branch.flush()).kind, 'pushed');
+    await branch.flush();
     earlier.close();
     git(brewery, ['worktree', 'remove', '--force', seeding]);
     git(brewery, ['branch', '-D', 'foedrum/state']);
@@ -187,15 +188,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       GH_TOKEN: 'ghp_test_not_a_token',
     };
 
-    const stop = new AbortController();
-    const started = Date.now();
-    const serving = execProcess(process.execPath, [main, 'serve'], {
-      cwd: brewery,
-      env,
-      signal: stop.signal,
-      timeoutMs: 180_000,
-    });
-    // Done once the batch's events on the Brewery's origin end on tap.
+    // The batch's events on the Brewery's origin.
     const pushed = (): string => {
       try {
         return git(dir.path, [
@@ -208,6 +201,16 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
         return '';
       }
     };
+    assert.match(pushed(), /"batch.recipe_chosen"/);
+
+    const stop = new AbortController();
+    const started = Date.now();
+    const serving = execProcess(process.execPath, [main, 'serve'], {
+      cwd: brewery,
+      env,
+      signal: stop.signal,
+      timeoutMs: 180_000,
+    });
     let ended = false;
     void serving.then(() => {
       ended = true;
