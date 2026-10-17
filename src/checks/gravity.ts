@@ -66,21 +66,26 @@ export function tailOf(output: string): string {
 }
 
 /**
- * `output` with each line that looks like a secret left out, saying what it looked like. A check
- * runs code a brewer may have written, so what it prints is untrusted (ADR 0069). A commit hash
- * counts too: the engine cannot tell one from a 40-character key.
+ * `output` with each line that can reach the tail left out when it looks like a secret, saying
+ * what it looked like. A check runs code a brewer may have written, so what it prints is untrusted
+ * (ADR 0069). A commit hash counts too: the engine cannot tell one from a 40-character key. Only
+ * the lines the tail can keep are read, from the end, and of a long line only its end, so output
+ * written to stall the patterns costs no more than a tail's worth.
  */
 function withoutSecrets(output: string): string {
-  // By line number; findSecrets splits the same lines, a CR going with its line.
-  const found = new Map(findSecrets(output, () => false).map(({ line, kind }) => [line, kind]));
-  if (found.size === 0) return output;
-  return output
-    .split('\n')
-    .map((line, index) => {
-      const kind = found.get(index + 1);
-      return kind === undefined ? line : `[left out: a line that looks like a secret (${kind})]`;
-    })
-    .join('\n');
+  const lines = output.split('\n');
+  // Counted as kept once left out, so the tail never reaches a line that was not read.
+  let kept = 0;
+  for (let index = lines.length - 1; index >= 0 && kept < MAX_TAIL_LENGTH; index--) {
+    const line = lines[index] ?? '';
+    const read = line.length > 2 * MAX_TAIL_LENGTH ? line.slice(-2 * MAX_TAIL_LENGTH) : line;
+    const [secret] = findSecrets(read, () => false);
+    const left =
+      secret === undefined ? line : `[left out: a line that looks like a secret (${secret.kind})]`;
+    lines[index] = left;
+    kept += left.length + 1;
+  }
+  return lines.join('\n');
 }
 
 /** What one run of `check` read. */
