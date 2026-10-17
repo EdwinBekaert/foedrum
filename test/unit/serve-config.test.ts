@@ -10,6 +10,8 @@ import { linux, windows } from '../helpers/doctor-facts.ts';
 import { clone, config, home, local, models, root, serveInputs } from '../helpers/serve-brewery.ts';
 
 const inputs = serveInputs;
+// What the helper's foedrum.jsonc maps acme/web's checks to.
+const webChecks = { build: null, typecheck: null, lint: null, format: null, test: 'npm test' };
 
 const ready = (given: ServeInputs) => {
   const result = serveSetup(given);
@@ -30,7 +32,14 @@ describe('serveSetup', () => {
     assert.equal(setup.store, join(root, '.foedrum', 'index.db'));
     assert.equal(setup.stateWorktree, join(workRoot, 'state'));
     assert.deepStrictEqual(setup.repositories, [
-      { repo: 'acme/web', source: 'local', base: 'origin/main', clone, tools: ['Bash(npm test*)'] },
+      {
+        repo: 'acme/web',
+        source: 'local',
+        base: 'origin/main',
+        clone,
+        tools: ['Bash(npm test*)'],
+        checks: webChecks,
+      },
     ]);
     assert.deepStrictEqual(setup.github, { api: 'https://api.github.com', token: 'ghp_serve' });
     assert.equal(setup.claude, '/home/brewer/.local/bin/claude');
@@ -42,6 +51,9 @@ describe('serveSetup', () => {
     assert.deepStrictEqual(setup.models.models, { quick: 'claude-haiku-5-5' });
     assert.notEqual(setup.recipes.find('stout'), undefined);
     assert.equal(setup.brewers.find('stout', 'brew')?.brewer.name, 'cellarman');
+    // The check steps of the recipes, which the check runner runs (ADR 0069).
+    assert.deepStrictEqual(setup.checks.find('porter', 'green'), ['test']);
+    assert.equal(setup.checks.find('porter', 'brew'), undefined);
   });
 
   it("takes the machine's work root, GITHUB_TOKEN, the Brewery's API and each repository's source and base", () => {
@@ -69,6 +81,7 @@ describe('serveSetup', () => {
         base: 'origin/develop',
         clone,
         tools: ['Bash(npm test*)'],
+        checks: webChecks,
       },
     ]);
     assert.equal(setup.sandbox, false);
@@ -94,7 +107,13 @@ describe('serveSetup', () => {
       }),
     );
     assert.deepStrictEqual(setup.repositories, [
-      { repo: 'acme/web', source: 'managed', base: 'origin/main', tools: ['Bash(npm test*)'] },
+      {
+        repo: 'acme/web',
+        source: 'managed',
+        base: 'origin/main',
+        tools: ['Bash(npm test*)'],
+        checks: webChecks,
+      },
     ]);
   });
 

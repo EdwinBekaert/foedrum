@@ -16,6 +16,7 @@ import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
+import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { fakeFetch } from '../helpers/fake-fetch.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
@@ -299,6 +300,106 @@ describe('runServe', () => {
       lines.includes('foedrum serve: the state branch was not pushed: hook said \\u001b[2Jhi'),
       lines.join('\n'),
     );
+  });
+
+  describe('a recipe with a check step (ADR 0069)', () => {
+    type Call = { file: string; args: readonly string[]; options: ExecOptions };
+    /** Serve with a brewer that succeeds and a process runner that answers each check with `code`. */
+    const brewWithChecks = async (code: number) => {
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
+      const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
+      log.issue({ ...route, source: 'label' }, t0);
+      const checks: Call[] = [];
+      const exec: ExecProcess = async (file, args, options) => {
+        checks.push({ file, args, options });
+        const output = code === 0 ? 'ok 1\n' : 'not ok 1\n';
+        return { exitCode: code, stdout: output, stderr: '', output };
+      };
+      const succeeding: BrewerRunner = {
+        start: () => ({
+          ended: Promise.resolve({
+            ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          }),
+          stop: () => {},
+        }),
+        progress: () => undefined,
+      };
+      const code_ = await runServe(
+        setup,
+        shell({
+          runner: () => succeeding,
+          exec,
+          wait: async () => {
+            calls.push('wait');
+            const lane = log.state().batches.get('13-1')?.lane.kind;
+            if (lane === 'on_tap' || lane === 'stuck' || calls.length > 40) controller.abort();
+          },
+        }),
+      );
+      assert.equal(code_, 0);
+      const events = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .filter((event) => 'batchId' in event && event.batchId === '13-1');
+      return { checks, events, batch: log.state().batches.get('13-1') };
+    };
+    const worktreeOf = (attempt: number) =>
+      join(dir.path, 'acme.web', 'attempts', '13-1', 'green', String(attempt));
+
+    it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {
+      const { checks, events, batch } = await brewWithChecks(0);
+      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.deepStrictEqual(
+        checks.map(({ file, args, options }) => [file, args, options.cwd, options.shell]),
+        [['npm test', [], worktreeOf(1), true]],
+      );
+      // The brewers' environment: no GitHub token, and no npm lifecycle scripts.
+      const env = checks[0]?.options.env ?? {};
+      assert.equal(env.GH_TOKEN, undefined);
+      assert.equal(env.npm_config_ignore_scripts, 'true');
+      assert.equal(env.PATH, '/usr/bin');
+      const finished = events.filter(
+        (event) => event.type === 'step.finished' && event.stepId === 'green',
+      );
+      assert.deepStrictEqual(finished, [
+        {
+          type: 'step.finished',
+          batchId: '13-1',
+          stepId: 'green',
+          attempt: 1,
+          outcome: { kind: 'succeeded', output: null },
+          readings: [
+            { result: 'exited', check: 'test', command: 'npm test', exitCode: 0, tail: 'ok 1\n' },
+          ],
+        },
+      ]);
+    });
+
+    it('sends the batch back along onFail when the test fails, then makes it Stuck', async () => {
+      const { checks, events, batch } = await brewWithChecks(1);
+      assert.deepStrictEqual(
+        events
+          .filter((event) => event.type === 'step.scheduled')
+          .map((event) => [event.stepId, event.attempt, event.route]),
+        [
+          ['brew', 1, undefined],
+          ['green', 1, undefined],
+          ['brew', 2, { from: 'green', why: 'failed' }],
+          ['green', 2, undefined],
+        ],
+      );
+      assert.deepStrictEqual(
+        checks.map(({ options }) => options.cwd),
+        [worktreeOf(1), worktreeOf(2)],
+      );
+      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'green',
+        attempts: 2,
+        lastReason: 'the check "test" (npm test) failed with exit code 1',
+      });
+    });
   });
 
   it('does not tick once it was stopped before it started', async () => {
