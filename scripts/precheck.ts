@@ -382,6 +382,8 @@ interface Findings {
   pushes: boolean;
   // The pull requests `gh pr ready` marks ready, each needing its review summary.
   readies: ReadyTarget[];
+  // Whether any command read, decoded and nested ones too, mentions GH_REPO or GH_HOST.
+  ghEnv: boolean;
   reads: number;
 }
 
@@ -433,11 +435,12 @@ const positionals = (args: Word[], optionsWithValue: Set<string>): Word[] => {
   return result;
 };
 
-// The value of gh's last -R or --repo, given as the next word or after `=`: the last one wins.
+// The value of gh's last -R or --repo, given as the next word, after `=`, or joined to -R as gh
+// reads it: the last one wins.
 const repoOption = (args: Word[]): Word | undefined => {
   let repo: Word | undefined;
   for (const [i, arg] of args.entries()) {
-    const joined = /^(?:-R|--repo)=(.*)$/s.exec(arg.text);
+    const joined = /^(?:-R=?|--repo=)(.+)$/s.exec(arg.text);
     if (arg.text === '-R' || arg.text === '--repo') repo = args[i + 1];
     else if (joined !== null) repo = { ...arg, text: joined[1] ?? '' };
   }
@@ -445,21 +448,27 @@ const repoOption = (args: Word[]): Word | undefined => {
 };
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
-// (query=@…), its input (--input) or a value computed at run time.
+// (query=@…), its input (--input) or a value computed at run time, also with the field flag
+// joined to it (-Fquery=…, --field=query=…).
 const unreadableQuery = (args: Word[]): boolean =>
-  args.some(
-    (arg) =>
+  args.some((arg) => {
+    const field = arg.text.replace(/^(?:-[fF]|--(?:raw-)?field=)/, '');
+    return (
       arg.text === '--input' ||
       arg.text.startsWith('--input=') ||
-      (/^query=/.test(arg.text) && (arg.dynamic || arg.text.startsWith('query=@'))),
-  );
+      (/^query=/.test(field) && (arg.dynamic || field.startsWith('query=@')))
+    );
+  });
 
 // The pull request and repository of `gh pr ready`, unless it is --undo, which always passes.
+// Any argument computed at run time, or splatted in PowerShell (@args), may name another
+// repository.
 const readReady = (args: Word[], pr: Word | undefined, found: Findings): void => {
   if (args.some((arg) => arg.text === '--undo')) return;
   const repo = repoOption(args);
-  if (pr?.dynamic || repo?.dynamic) found.reasons.push(READY_COMPUTED_BLOCKED);
-  else {
+  if (args.some((arg) => arg.dynamic || /^@\w/.test(arg.text))) {
+    found.reasons.push(READY_COMPUTED_BLOCKED);
+  } else {
     found.readies.push({
       ...(pr === undefined ? {} : { pr: pr.text }),
       ...(repo === undefined ? {} : { repo: repo.text }),
@@ -482,7 +491,8 @@ const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): vo
     found.reasons.push(READY_API_BLOCKED);
   } else if (
     (group?.text === 'api' || group?.dynamic) &&
-    action?.text === 'graphql' &&
+    // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
+    args.some((arg) => arg.text === 'graphql') &&
     unreadableQuery(args)
   ) {
     found.reasons.push(UNREADABLE_QUERY_BLOCKED);
@@ -619,6 +629,7 @@ const read = (
   dialects: readonly Dialect[] = DIALECTS,
 ): void => {
   found.reads++;
+  if (/GH_REPO|GH_HOST/i.test(normalised(command))) found.ghEnv = true;
   if (depth > MAX_DEPTH || found.reads > MAX_READS) {
     found.reasons.push(TOO_DEEP_BLOCKED);
     return;
@@ -660,6 +671,7 @@ const noFindings = (reads: number): Findings => ({
   gated: false,
   pushes: false,
   readies: [],
+  ghEnv: false,
   reads,
 });
 
@@ -714,6 +726,8 @@ const SUMMARY_HEADING = /^## Review: `[^`\n]*` @ `([0-9a-f]{7,40})`/gm;
 // after the review is not a merge, and fails.
 const covers = ({ head, commits }: PullRequestFacts, reviewed: string): boolean => {
   if (head.startsWith(reviewed)) return true;
+  // A list that leaves out the head (GitHub lists at most 250) cannot show what came after.
+  if (!commits.some((commit) => commit.sha === head)) return false;
   const start = commits.find((commit) => commit.sha.startsWith(reviewed));
   if (start === undefined) return false;
   const parents = new Map(commits.map((commit) => [commit.sha, commit.parents]));
@@ -788,7 +802,7 @@ export const precheck = async (
   if (readies.size > 0 && found.gated)
     return { exitCode: 2, stderr: `${READY_COMBINED_BLOCKED}\n` };
   // gh reads the repository from them, and the gate's lookup would not.
-  if (readies.size > 0 && /GH_REPO|GH_HOST/i.test(normalised(command))) {
+  if (readies.size > 0 && found.ghEnv) {
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
   }
 
