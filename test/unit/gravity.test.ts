@@ -133,6 +133,43 @@ describe('readingOf', () => {
       tail: 'spawn /bin/sh ENOENT',
     });
   });
+
+  // The output is untrusted: a check runs code a brewer may have written (ADR 0069).
+  it('leaves out each line of the output that looks like a secret, saying what it looked like', () => {
+    const token = `ghp_${'A1b2'.repeat(9)}`;
+    const output = [
+      'ok 1 - reads the config',
+      `GH_TOKEN=${token}`,
+      'key AKIAABCDEFGHIJKLMNOP in the fixture',
+      'not ok 2 - password: hunter2',
+      'ok 3',
+      '',
+    ].join('\n');
+    const reading = readingOf(test, { exitCode: 1, output });
+    assert.equal(
+      reading.result === 'exited' && reading.tail,
+      [
+        'ok 1 - reads the config',
+        '[left out: a line that looks like a secret (GitHub token)]',
+        '[left out: a line that looks like a secret (AWS access key id)]',
+        '[left out: a line that looks like a secret (credential assignment)]',
+        'ok 3',
+        '',
+      ].join('\n'),
+    );
+    for (const secret of [token, 'AKIAABCDEFGHIJKLMNOP', 'hunter2']) {
+      assert.ok(!JSON.stringify(reading).includes(secret), secret);
+    }
+  });
+
+  it('leaves a secret out before it bounds the tail, so no part of it is kept', () => {
+    const token = `ghp_${'A1b2'.repeat(9)}`;
+    const output = `${token}\n${'x'.repeat(MAX_TAIL_LENGTH - 20)}`;
+    const reading = readingOf(test, { exitCode: null, output });
+    assert.ok(reading.result === 'unstarted');
+    assert.ok(!reading.tail.includes(token.slice(-12)), reading.tail.slice(0, 60));
+    assert.ok(reading.tail.length <= MAX_TAIL_LENGTH);
+  });
 });
 
 describe('passed', () => {
