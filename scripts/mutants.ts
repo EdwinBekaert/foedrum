@@ -1,12 +1,20 @@
-// `node scripts/mutants.ts <tree> <answer.json> [<n>]`: checks the mutants in Brett's answer
-// against the brew-review scratch tree, or applies mutant <n> to it (issue #43). A mutant edits
-// one line of a file under src/ or scripts/ (ADR 0034, 0040).
+// `node scripts/mutants.ts <tree> <answer.json> [<n>] [--touched <files.txt>]`: checks the
+// mutants in Brett's answer against the brew-review scratch tree, or applies mutant <n> to it
+// (issue #43). A mutant edits one line of a file under src/ or scripts/ (ADR 0034, 0040); with
+// --touched, one of the files the change touches, as the review's files.txt lists them (#140).
 // mutants/core.ts decides. Exits 1 when the answer cannot be read or mutant <n> is invalid.
 
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
-import { editFile, type Mutant, type MutantEdit, parseMutant } from './mutants/core.ts';
+import {
+  editFile,
+  type Mutant,
+  type MutantEdit,
+  parseMutant,
+  touchedFiles,
+} from './mutants/core.ts';
 
 type Result = { ok: boolean; lines: string[] };
 
@@ -50,8 +58,20 @@ const edit = async (
   return edited.ok ? { ...edited, target } : edited;
 };
 
-const check = async (tree: string, entry: unknown) => {
-  const parsed = parseMutant(entry);
+// The files the change touches, from the review's files.txt; undefined when none is given.
+const readTouched = async (
+  files: string | undefined,
+): Promise<{ ok: true; touched?: string[] } | { ok: false; lines: string[] }> => {
+  if (files === undefined) return { ok: true };
+  try {
+    return { ok: true, touched: touchedFiles(await readFile(files, 'utf8')) };
+  } catch (error) {
+    return { ok: false, lines: [`cannot read the changed files: ${(error as Error).message}`] };
+  }
+};
+
+const check = async (tree: string, entry: unknown, touched: string[] | undefined) => {
+  const parsed = parseMutant(entry, touched);
   if (!parsed.ok) return parsed;
   const { file, line } = parsed.mutant;
   const edited = await edit(tree, parsed.mutant);
@@ -63,13 +83,15 @@ const check = async (tree: string, entry: unknown) => {
 export const checkMutants = async (
   tree: string,
   answer: string,
-  _touched?: string,
+  files?: string,
 ): Promise<Result> => {
   const mutants = await readAnswer(answer);
   if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
+  const read = await readTouched(files);
+  if (!read.ok) return read;
   const lines: string[] = [];
   for (const [index, entry] of mutants.entries()) {
-    const result = await check(tree, entry);
+    const result = await check(tree, entry, read.touched);
     lines.push(
       `mutant ${index + 1}: ${result.ok ? `valid ${result.path}` : `invalid: ${result.reason}`}`,
     );
@@ -81,7 +103,7 @@ export const applyMutant = async (
   tree: string,
   answer: string,
   n: number,
-  _touched?: string,
+  files?: string,
 ): Promise<Result> => {
   const mutants = await readAnswer(answer);
   if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
@@ -89,22 +111,30 @@ export const applyMutant = async (
   if (!Number.isInteger(n) || entry === undefined) {
     return { ok: false, lines: [`mutant ${n}: no such mutant (the answer has ${mutants.length})`] };
   }
-  const result = await check(tree, entry);
+  const read = await readTouched(files);
+  if (!read.ok) return read;
+  const result = await check(tree, entry, read.touched);
   if (!result.ok) return { ok: false, lines: [`mutant ${n}: invalid: ${result.reason}`] };
   await writeFile(result.target, result.content);
   return { ok: true, lines: [`mutant ${n}: applied ${result.path}`] };
 };
 
 if (import.meta.main) {
-  const [tree, answer, n] = process.argv.slice(2);
+  const { values, positionals } = parseArgs({
+    options: { touched: { type: 'string' } },
+    allowPositionals: true,
+  });
+  const [tree, answer, n] = positionals;
   if (tree === undefined || answer === undefined) {
-    console.error('usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number>]');
+    console.error(
+      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number>] [--touched <files.txt>]',
+    );
     process.exitCode = 2;
   } else {
     const { ok, lines } =
       n === undefined
-        ? await checkMutants(tree, answer)
-        : await applyMutant(tree, answer, Number(n));
+        ? await checkMutants(tree, answer, values.touched)
+        : await applyMutant(tree, answer, Number(n), values.touched);
     for (const line of lines) console.log(`mutants: ${line}`);
     if (!ok) process.exitCode = 1;
   }

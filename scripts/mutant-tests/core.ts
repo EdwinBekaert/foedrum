@@ -42,8 +42,39 @@ export const testsFor = (
 // The test files among `sources`, in every layer, that reach one of `targets` through imports
 // at any depth, or name one in a string: the tests the coverage delta runs.
 export const coveringTestsFor = (
-  _sources: ReadonlyMap<string, string>,
-  _targets: readonly string[],
+  sources: ReadonlyMap<string, string>,
+  targets: readonly string[],
 ): string[] => {
-  throw new Error('not implemented');
+  const imports = new Map([...sources.keys()].map((file) => [file, importedBy(sources, file)]));
+  // Every file that reaches a target, found by walking back over the imports until none is new.
+  const reaching = new Set(targets);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [file, modules] of imports) {
+      if (!reaching.has(file) && modules.some((module) => reaching.has(module))) {
+        reaching.add(file);
+        grew = true;
+      }
+    }
+  }
+  const names = (test: string): boolean =>
+    targets.some((target) => namesFile(sources.get(test) ?? '', target));
+  return [...sources.keys()]
+    .filter((file) => ANY_TEST_FILE.test(file))
+    .filter((test) => reaching.has(test) || names(test))
+    .sort();
+};
+
+// A test file of any layer; fixtures are data, not tests.
+const ANY_TEST_FILE = /^test\/(?!fixtures\/).+\.test\.ts$/;
+
+const STRING = /(['"`])([^'"`\n]*)\1/g;
+
+// Whether `source` has a string that is `file`'s name or a path ending in it, as a test that
+// starts the file as a process has: join(root, 'scripts', 'precheck.ts').
+const namesFile = (source: string, file: string): boolean => {
+  const name = posix.basename(file);
+  return [...source.matchAll(STRING)].some(
+    ([, , text = '']) => text === name || text.endsWith(`/${name}`),
+  );
 };
