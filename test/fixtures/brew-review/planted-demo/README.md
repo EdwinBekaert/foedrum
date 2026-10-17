@@ -31,7 +31,7 @@ If a patch no longer applies because those files now exist, rebase the sample on
 | `0002` Compute retry backoff with a cap | implementation | Control: green step |
 | `0003` Wait for a bottle to be merged | implementation | **Planted:** `waitForMerge` polls with no deadline; `eventStorePath` builds a path with `homedir() + '/.foedrum/' + …` |
 | `0004` Test waiting for a merge | test | **Planted:** tests committed after the code; they pass immediately |
-| `0005` Add a failing test for reading the current branch | test + stub | Red step (`not implemented`) in `test/integration/`, where real git is allowed (ADR 0021); there is no unit test with a fake process runner |
+| `0005` Add a failing test for reading the current branch | test + stub | Red step (`not implemented`) in `test/integration/`, where real git is allowed (ADR 0021, ADR 0058); there is no unit test with a fake process runner |
 | `0006` Read the current branch with git | implementation | **Planted:** green step for `0005` that runs git directly with `execFileSync`, not through the process runner: no deadline, no tree kill, and no injected runner a unit test could fake |
 | `0007` Add failing tests for Brewery names | test + stub | **Planted:** only rejection tests, against a stub that rejects everything (`() => false`); all three pass before any implementation exists |
 | `0008` Check Brewery names | implementation | The implementation the rejection tests cannot tell from the stub |
