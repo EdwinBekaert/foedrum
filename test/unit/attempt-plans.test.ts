@@ -69,7 +69,11 @@ const started: Event = {
   },
 };
 
-const setup = (events: Event[] = [...ordered, started], files: Record<string, OutDocRead> = {}) => {
+const setup = (
+  events: Event[] = [...ordered, started],
+  files: Record<string, OutDocRead> = {},
+  orderBody = 'Add a --json flag.',
+) => {
   const folders: string[] = [];
   const reads: { file: string; root: string }[] = [];
   const sizes: number[] = [];
@@ -85,7 +89,7 @@ const setup = (events: Event[] = [...ordered, started], files: Record<string, Ou
     platform: 'linux',
     orderText: async (order) => {
       orders.push(order);
-      return 'Add a --json flag.';
+      return orderBody;
     },
     files: {
       read: (file, maxBytes, root) => {
@@ -140,6 +144,17 @@ describe('createAttemptPlans: plan', () => {
       prompt,
       /source="file docs\/guide\.md" name="guide">[\s\S]*source="answers to the questions of step brew" name="answers">\nQ: Which flag\?\nA: --json\n\nQ: Also for status\?\nA: yes\n<\//,
     );
+  });
+
+  it("throws, naming the input, when the order's text is larger than 1 MiB (review of #165)", async () => {
+    const { plans } = setup(undefined, {}, 'x'.repeat(1024 * 1024 + 1));
+    await assert.rejects(
+      plans.plan(start),
+      /the input "order" was not read: it is larger than 1048576 bytes/,
+    );
+    // At the limit it is read.
+    const { plans: atLimit } = setup(undefined, {}, 'é'.repeat(512 * 1024));
+    assert.match((await atLimit.plan(start)).prompt, /name="order">\né/);
   });
 
   it('reads an input file of at most 1 MiB (review of #165)', async () => {
