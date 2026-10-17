@@ -138,9 +138,6 @@ function brewerStep(step: Step): BrewerStep | string {
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
-  if (step.onBlocked !== undefined) {
-    return `step "${id}" has an "onBlocked" route, which the engine does not follow yet (ADR 0053)`;
-  }
   // A Taster's lens and Brett's blocking flag would load and change nothing.
   if (step.lens !== undefined) {
     return `step "${id}" has a "lens", which the engine does not follow yet (ADR 0053)`;
@@ -207,7 +204,16 @@ function brewingRecipe(
         : { kind: 'step', stepId: next.id };
     },
     mayRetry: (batch, id) => (batch.steps.get(id)?.attempts.size ?? 0) < at(id).brewer.maxAttempts,
-    loopBack: () => undefined,
+    // A brewer step has no onFail; its onBlocked route counts the attempts it scheduled.
+    loopBack: (batch, id, why) => {
+      const route = at(id).step.onBlocked?.findings;
+      if (why !== 'findings' || route === undefined) return undefined;
+      const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
+      const rounds = [...attempts].filter(
+        (attempt) => attempt.route?.from === id && attempt.route.why === why,
+      ).length;
+      return rounds < route.maxRounds ? route.goto : undefined;
+    },
   };
 }
 

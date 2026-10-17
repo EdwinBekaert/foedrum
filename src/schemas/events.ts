@@ -60,6 +60,13 @@ export type WorktreeRef = z.infer<typeof WorktreeRef>;
 export const OrderRef = z.strictObject({ issue: IssueNumber, repo: Repo.optional() });
 export type OrderRef = z.infer<typeof OrderRef>;
 
+/**
+ * The route back that scheduled an attempt (ADR 0064): from the step whose check failed
+ * (`onFail`) or whose brewer was blocked by findings (`onBlocked`).
+ */
+export const ScheduleRoute = z.strictObject({ from: StepId, why: z.enum(['failed', 'findings']) });
+export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
+
 /** A sub-order writes in exactly one repository (architecture §3.2). */
 export const SubOrderRef = z.strictObject({ issue: IssueNumber, repo: Repo });
 export type SubOrderRef = z.infer<typeof SubOrderRef>;
@@ -199,17 +206,13 @@ export const Event = z.discriminatedUnion('type', [
     routeBy: Timestamp,
   }),
   recipeChosen,
-  z
-    .strictObject({
-      type: z.literal('step.scheduled'),
-      ...step,
-      deadlineAt: Timestamp,
-      route: z.unknown().optional(),
-    })
-    .refine((event) => {
-      if (event.route !== undefined) throw new Error('not implemented');
-      return true;
-    }),
+  // `route`: the onFail or onBlocked route that scheduled the attempt, which counts its rounds.
+  z.strictObject({
+    type: z.literal('step.scheduled'),
+    ...step,
+    deadlineAt: Timestamp,
+    route: ScheduleRoute.optional(),
+  }),
   // The step's `when` was false when the batch reached it, so it did not run (ADR 0064).
   z.strictObject({
     type: z.literal('step.skipped'),

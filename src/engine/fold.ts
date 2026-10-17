@@ -5,6 +5,7 @@ import type {
   Answer,
   Dependency,
   Event,
+  ScheduleRoute,
   SessionRef,
   StuckOption,
   StuckReason,
@@ -31,11 +32,18 @@ export type Lane =
  * the batch does next, it schedules new attempts, and the abandoned one never starts or finishes.
  */
 export type Attempt =
-  | { phase: 'scheduled'; attempt: number; deadlineAt: string; abandoned?: true }
+  | {
+      phase: 'scheduled';
+      attempt: number;
+      deadlineAt: string;
+      route?: ScheduleRoute;
+      abandoned?: true;
+    }
   | {
       phase: 'started';
       attempt: number;
       deadlineAt: string;
+      route?: ScheduleRoute;
       session?: SessionRef;
       worktree?: WorktreeRef;
       abandoned?: true;
@@ -44,6 +52,7 @@ export type Attempt =
       phase: 'finished';
       attempt: number;
       deadlineAt: string;
+      route?: ScheduleRoute;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;
@@ -245,7 +254,7 @@ function apply(state: State, event: Event): State {
       }));
     }
     case 'step.scheduled': {
-      const { batchId, stepId, attempt, deadlineAt } = event;
+      const { batchId, stepId, attempt, deadlineAt, route } = event;
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
@@ -254,7 +263,12 @@ function apply(state: State, event: Event): State {
           lane: { kind: 'brewing' },
           steps: put(batch.steps, stepId, {
             ...step,
-            attempts: put(step.attempts, attempt, { phase: 'scheduled', attempt, deadlineAt }),
+            attempts: put(step.attempts, attempt, {
+              phase: 'scheduled',
+              attempt,
+              deadlineAt,
+              ...(route === undefined ? {} : { route }),
+            }),
           }),
         };
       });
