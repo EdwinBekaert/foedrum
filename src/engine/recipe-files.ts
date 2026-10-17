@@ -47,7 +47,7 @@ export type LoadedRecipes =
 export const INVALID_RECIPES = "the Brewery's recipes are not valid";
 
 /** The longest deadline a step may have: a year. */
-const MAX_DEADLINE_MS = 365 * durationMs('1d');
+const MAX_DEADLINE_MS = durationMs('365d');
 
 /** A schema's reason in one line, as doctor prints it. */
 const oneLine = (reason: string): string =>

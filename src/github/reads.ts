@@ -69,6 +69,9 @@ export const createGitHubReads = (
     const headers = before === undefined ? {} : { 'if-none-match': before.etag };
     const answer = await client.rest('GET', path, undefined, signal, headers);
     forget(path);
+    if (answer.status === 304 && before === undefined) {
+      throw new Error(`GitHub answered 304 to ${path}, which named no ETag`);
+    }
     const etag = answer.headers.get('etag');
     const kept =
       answer.status === 304
@@ -76,9 +79,6 @@ export const createGitHubReads = (
         : answer.status === 200 && etag !== null
           ? { etag, answer }
           : undefined;
-    if (answer.status === 304 && before === undefined) {
-      throw new Error(`GitHub answered 304 to ${path}, which named no ETag`);
-    }
     // An answer longer than the whole cache is never kept.
     if (kept !== undefined && kept.answer.bytes <= maxBytes) {
       cache.set(path, kept);
