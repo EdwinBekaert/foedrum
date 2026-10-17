@@ -28,6 +28,11 @@ export interface Recipe {
   deadlineMs(stepId: string): number;
   /** When an attempt at `stepId` stalls, or `undefined` when it has no stall limit. */
   stall(stepId: string): Stall | undefined;
+  /**
+   * The `when` of `stepId` that is false for `batch`, so the batch skips the step when it reaches
+   * it, or `undefined` when the step runs (ADR 0064).
+   */
+  skip(batch: Batch, stepId: string): string | undefined;
   /** What follows `stepId` in `batch` once it succeeded or was skipped. */
   after(batch: Batch, stepId: string): Continuation;
   /** Whether `stepId` gets another attempt after a failed or cancelled one (`maxAttempts`). */

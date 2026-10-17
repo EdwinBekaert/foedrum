@@ -287,6 +287,7 @@ export const openSqliteEventStore = (
       case 'effect.applied': // indexed by the events_index_effects trigger
       case 'batch.recipe_chosen':
       case 'step.started':
+      case 'step.skipped':
       case 'input.received':
       case 'order.decomposed':
       case 'bottle.opened':

@@ -48,6 +48,12 @@ const valid: Record<Event['type'], Event> = {
     attempt: 1,
     deadlineAt: '2026-10-15T12:00:00Z',
   },
+  'step.skipped': {
+    type: 'step.skipped',
+    batchId: 'b1',
+    stepId: 'gauge',
+    when: 'recipe.testFirst',
+  },
   'step.started': { type: 'step.started', batchId: 'b1', stepId: 'brew', attempt: 1, session },
   'step.finished': {
     type: 'step.finished',
@@ -190,6 +196,12 @@ describe('Event', () => {
     accepts(Event, { ...valid['batch.on_tap'], pullRequests: [] });
   });
 
+  it('accepts an attempt scheduled by an onFail or onBlocked route (ADR 0064)', () => {
+    for (const why of ['failed', 'findings'] as const) {
+      accepts(Event, { ...valid['step.scheduled'], route: { from: 'implement', why } });
+    }
+  });
+
   it('accepts a pull request that was closed without a merge', () => {
     accepts(Event, { ...valid['pull_request.ended'], state: 'closed' });
   });
@@ -213,6 +225,21 @@ describe('Event', () => {
     ['a reserved batch id', { ...valid['batch.on_tap'], batchId: 'nul' }],
     ['an unsafe parent batch id', { ...valid['batch.ordered'], parentBatchId: '..' }],
     ['an unsafe step id', { ...valid['step.scheduled'], stepId: 'Plan' }],
+    ['an unsafe skipped step id', { ...valid['step.skipped'], stepId: '..' }],
+    [
+      'a route of another kind',
+      { ...valid['step.scheduled'], route: { from: 'implement', why: 'environment' } },
+    ],
+    [
+      'a route from an unsafe step id',
+      { ...valid['step.scheduled'], route: { from: 'Implement', why: 'findings' } },
+    ],
+    [
+      'a route with an unknown field',
+      { ...valid['step.scheduled'], route: { from: 'implement', why: 'failed', rounds: 1 } },
+    ],
+    ['a skip without its when', without(valid['step.skipped'], 'when')],
+    ['a skip with an empty when', { ...valid['step.skipped'], when: ' ' }],
     ['an unsafe step id in an answer', { ...valid['input.received'], stepId: 'a b' }],
     ['an unsafe rewind target', { ...valid['batch.rewound'], toStepId: 'plan/..' }],
     [

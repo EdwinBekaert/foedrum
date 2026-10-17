@@ -2,7 +2,7 @@
 // from the brewers the recipe uses, so an unset testFirst never reaches the engine as off.
 
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
-import { type Recipe as RecipeFile, walk } from '../schemas/recipe.ts';
+import { type Recipe as RecipeFile, stepBrewerName, walk } from '../schemas/recipe.ts';
 
 export type ResolvedRecipe = RecipeFile & { testFirst: boolean };
 
@@ -16,7 +16,7 @@ export type Brewers = (name: string) => Pick<BrewerFrontmatter, 'produces'> | un
 export function resolveRecipe(recipe: RecipeFile, brewers: Brewers): ResolvedRecipe {
   // Every brewer is looked up before any is judged, so a missing one is refused wherever it is.
   const used = [...walk(recipe.steps, ['steps'])].flatMap(({ step }) => {
-    const name = 'brewer' in step ? step.brewer : 'fallback' in step ? step.fallback : undefined;
+    const name = stepBrewerName(step);
     if (name === undefined) return [];
     const brewer = brewers(name);
     if (brewer === undefined) {

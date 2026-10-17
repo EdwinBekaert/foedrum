@@ -231,6 +231,20 @@ describe('inputsOf', () => {
       /the input "tasting" needs the out doc of step taste, which has none yet/,
     );
   });
+
+  it('leaves out the input of a step the batch skipped (ADR 0064)', () => {
+    const inputs = brewer({
+      inputs: [
+        { name: 'tests', from: 'step:gauge' },
+        { name: 'malt', from: 'step:malt' },
+      ],
+    }).inputs;
+    const skipped = { ...batch(), skipped: new Set(['gauge']) };
+    assert.deepEqual(
+      inputsOf(inputs, skipped, stepBrewer, brewWorktree).map(({ name }) => name),
+      ['malt'],
+    );
+  });
 });
 
 describe('inputsOf: the out doc of an earlier step (review of #165)', () => {
