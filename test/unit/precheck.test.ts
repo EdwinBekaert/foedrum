@@ -1187,6 +1187,67 @@ describe('precheck on gh pr ready', () => {
     });
   }
 
+  // The lookup runs before the command does, so it would see the head from before the push.
+  for (const command of [
+    'git push && gh pr ready 160',
+    'gh pr create --draft --fill && gh pr ready',
+    'bash -c "git push origin 154-x; gh pr ready 160"',
+  ]) {
+    it(`blocks gh pr ready in the same command as a push or a new pull request: ${command}`, async () => {
+      const { result, lookups, checks } = await ready(
+        command,
+        facts([summary(c3.sha)], [c1, c2, c3]),
+      );
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /^gh pr ready is blocked .*: run it as a command of its own/);
+      assert.deepEqual(lookups, []);
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  it('looks up the repository of the last -R, as gh does', async () => {
+    const { lookups } = await ready(
+      'gh pr ready 160 -R owner/first --repo=owner/last',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160', repo: 'owner/last' }]]);
+  });
+
+  const ghRepo: [tool: string, command: string][] = [
+    ['Bash', 'GH_REPO=owner/other gh pr ready 160'],
+    ['Bash', 'export GH_REPO=owner/other; gh pr ready 160'],
+    ['Bash', 'env GH_HOST=example.com gh pr ready 160'],
+    ['PowerShell', "$env:GH_REPO = 'owner/other'; gh pr ready 160"],
+  ];
+  for (const [tool, command] of ghRepo) {
+    it(`blocks gh pr ready in a command that sets the repository gh uses: ${command}`, async () => {
+      const { result, lookups } = await ready(
+        command,
+        facts([summary(c3.sha)], [c1, c2, c3]),
+        tool,
+      );
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /GH_REPO or GH_HOST/);
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  for (const command of [
+    'gh api graphql -F query=@ready.graphql -F id=PR_kw1',
+    'gh api graphql --input body.json',
+    'gh api graphql -f query="$q"',
+  ]) {
+    it(`blocks gh api graphql with a query the gate cannot read: ${command}`, async () => {
+      const { result } = await ready(command, facts([], [c1, c2, c3]));
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /gh api graphql with a query the gate cannot read/);
+    });
+  }
+
+  it('names gh pr ready among the plain commands when a command nests too deeply', () => {
+    assert.match(forbiddenReason(`${'eval '.repeat(40)}gh pr ready 160`) ?? '', /gh pr ready/);
+  });
+
   it("forbids defining an alias that marks a pull request ready: gh alias set r 'pr ready'", () => {
     assert.match(forbiddenReason("gh alias set r 'pr ready'") ?? '', /alias/);
   });
@@ -1265,6 +1326,18 @@ describe('ghPullRequest', () => {
       ghPullRequest(runProcess)('/work/tree', { pr: '160' }),
       /gh pr view exited 1: HTTP 401: Bad credentials/,
     );
+  });
+
+  it("cuts gh's output to one short line in the rejection", async () => {
+    const { runProcess } = fakeGh([
+      { exitCode: 1, output: `HTTP 502\n${'<html>'.repeat(2000)}\n` },
+    ]);
+    const error = await ghPullRequest(runProcess)('/work/tree', { pr: '160' }).catch(
+      (rejected: unknown) => rejected,
+    );
+    const message = error instanceof Error ? error.message : '';
+    assert.match(message, /^gh pr view exited 1: HTTP 502 /);
+    assert.ok(message.length <= 300 && !message.includes('\n'), message.slice(0, 400));
   });
 
   it('rejects with what gh said when the commits cannot be read', async () => {
