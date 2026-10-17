@@ -145,6 +145,10 @@ describe('modelOf (models.jsonc)', () => {
     assert.equal(modelOf(models, brewer({ name: 'taster' })), 'claude-haiku-5-5');
   });
 
+  it("takes the brewer's own alias when its name is only a property every object has", () => {
+    assert.equal(modelOf(models, brewer({ name: 'constructor' })), 'claude-sonnet-5-5');
+  });
+
   it('throws, naming the alias and the brewer, when models.jsonc has no model for the alias', () => {
     assert.throws(
       () => modelOf(models, brewer({ model: 'large' })),
