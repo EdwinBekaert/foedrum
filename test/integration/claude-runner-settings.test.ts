@@ -28,6 +28,8 @@ const real = realClaude();
 // allows as read-only).
 const probe = `node -e "process.stdout.write('probe:ran')"`;
 
+type Shell = 'Bash' | 'PowerShell';
+
 interface StreamEvent {
   type: string;
   subtype?: string;
@@ -45,21 +47,36 @@ interface Outcome {
 
 describe('claude with the runner settings', { skip: real.kind === 'skip' && real.reason }, () => {
   let dir: TempDir;
-  let api: FakeMessagesApi;
-  beforeEach(async () => {
+  beforeEach(() => {
     dir = makeTempDir('claude-runner-settings');
-    api = await startFakeMessagesApi({ name: 'Bash', input: { command: probe } });
     // An empty user settings folder, so nothing of the developer's own Claude Code is read.
     mkdirSync(join(dir.path, 'user'));
     mkdirSync(join(dir.path, 'worktree'));
   });
-  afterEach(async () => {
-    await api.close();
-    removeTree(dir.path);
-  });
+  afterEach(() => removeTree(dir.path));
 
-  /** Runs the brewer's command line with the attempt settings the runner writes for these permissions. */
-  const run = async (permissions: AttemptPermissions): Promise<Outcome> => {
+  /**
+   * Runs the brewer's command line with the attempt settings the runner writes for these
+   * permissions; the fake model runs `command` in `shell`.
+   */
+  const run = async (
+    permissions: AttemptPermissions,
+    command = probe,
+    shell: Shell = 'Bash',
+  ): Promise<Outcome> => {
+    const api = await startFakeMessagesApi({ name: shell, input: { command } });
+    try {
+      return await runWith(api, permissions, shell);
+    } finally {
+      await api.close();
+    }
+  };
+
+  const runWith = async (
+    api: FakeMessagesApi,
+    permissions: AttemptPermissions,
+    shell: Shell,
+  ): Promise<Outcome> => {
     const settingsFile = join(dir.path, 'attempt-settings.json');
     writeAttemptSettings(settingsFile, attemptSettings(permissions));
     const sessionId = randomUUID();
@@ -68,7 +85,7 @@ describe('claude with the runner settings', { skip: real.kind === 'skip' && real
       effort: 'low',
       maxTurns: 3,
       settingsFile,
-      tools: ['Read', 'Bash'],
+      tools: ['Read', shell],
       session: { kind: 'new', id: sessionId },
     });
     // Nothing of the developer's own Claude Code reaches the test, and nothing leaves the machine.
@@ -85,6 +102,8 @@ describe('claude with the runner settings', { skip: real.kind === 'skip' && real
         ANTHROPIC_API_KEY: 'sk-ant-test-not-a-key',
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         DISABLE_TELEMETRY: '1',
+        // Off by default where Git Bash is installed, for some accounts (docs: Tools, PowerShell).
+        ...(shell === 'PowerShell' ? { CLAUDE_CODE_USE_POWERSHELL_TOOL: '1' } : {}),
       },
       stdin: 'Run the probe.',
       maxLineBytes: 1024 * 1024,
@@ -131,4 +150,31 @@ describe('claude with the runner settings', { skip: real.kind === 'skip' && real
     assert.deepEqual(outcome.denied, ['Bash']);
     assert.deepEqual(outcome.printed, []);
   });
+
+  // #167, ADR 0062: a deny rule matches the command as written, so a push with git's options
+  // before the subcommand is denied only because no allow rule the runner writes reaches it.
+  const pushes = [
+    'git -C . push',
+    'git -c x=y push origin',
+    'git --git-dir=.git push',
+    "git p''ush",
+  ];
+  // The PowerShell tool needs PowerShell 7 outside Windows; these machines need not have it.
+  const shells: Shell[] = process.platform === 'win32' ? ['Bash', 'PowerShell'] : ['Bash'];
+  for (const shell of shells) {
+    for (const push of pushes) {
+      it(`denies ${push} in ${shell} to a brewer allowed git subcommands`, async () => {
+        const outcome = await run(
+          {
+            allow: ['Read', `${shell}(git status *)`, `${shell}(git commit *)`],
+            deny: [],
+            sandbox: false,
+          },
+          push,
+          shell,
+        );
+        assert.deepEqual(outcome.denied, [shell]);
+      });
+    }
+  }
 });
