@@ -12,6 +12,10 @@ export interface StepRunnerOptions {
   isCheck: (ref: AttemptRef) => boolean;
 }
 
-export function stepRunner(_options: StepRunnerOptions): BrewerRunner {
-  throw new Error('not implemented');
+export function stepRunner({ brewer, check, isCheck }: StepRunnerOptions): BrewerRunner {
+  return {
+    start: (attempt) => (isCheck(attempt.ref) ? check : brewer).start(attempt),
+    // Each runner knows only the attempts it runs.
+    progress: (ref) => check.progress(ref) ?? brewer.progress(ref),
+  };
 }
