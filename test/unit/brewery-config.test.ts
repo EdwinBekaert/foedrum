@@ -254,6 +254,14 @@ describe('BreweryConfig for the intake in foedrum serve (ADR 0068)', () => {
     );
   });
 
+  it('leaves them out when the file does, so a config without them stays valid', () => {
+    const parsed = BreweryConfig.parse(config({}));
+    assert.deepStrictEqual(
+      [parsed.users, parsed.concurrency, parsed.pollEvery],
+      [undefined, undefined, undefined],
+    );
+  });
+
   it('refuses a user that is no GitHub login', () => {
     for (const user of ['', '-ann', 'ann-', 'an--n', 'ann bob', 'a'.repeat(40), 'ann/x']) {
       assert.equal(accepted(config({}, { users: [user] })), false, user);
