@@ -29,7 +29,7 @@ A test-first recipe that passes the rule still has a check step, which ADR 0053'
 ### onBlocked: rounds recorded on the schedule
 - A brewer step may have `"onBlocked": { "findings": { "goto", "maxRounds" } }`. When its attempt ends `blocked` + `findings`, `loopBack` answers with the `goto` step while the route has been taken fewer than `maxRounds` times, and the batch goes back there; after that it is Stuck on the blocker, as before. `environment` and `divergence` blockers are always Stuck (brewers-and-recipes §2).
 - The attempt a route schedules records it: `step.scheduled` gets an optional `route: { from, why }` (`why`: `failed` for an `onFail` route, `findings` for an `onBlocked` one). The rounds a route used are the attempts of its `goto` step scheduled by it, over the batch's whole life, as attempts are counted (ADR 0053): a human's `retry` after the rounds ran out gives the step one more attempt, not another round.
-- A route back to a step the batch skipped makes it Stuck (`blocked`, `divergence`) instead of jumping: `step "<from>" routes back to step "<goto>", which was skipped`. With `testFirst` off, "this test is wrong" therefore goes to a human.
+- A route back to a step the batch skipped makes it Stuck (`blocked`, `divergence`) instead of jumping: `step <from> routes back to step <goto>, which was skipped`, worded as `decide`'s other divergence summaries. With `testFirst` off, "this test is wrong" therefore goes to a human.
 - `onFail` follows the same rule and record once check steps run (#176).
 
 ## Consequences
