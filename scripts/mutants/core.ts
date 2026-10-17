@@ -63,6 +63,7 @@ const names = (code: string): Set<string> => {
 // A deleted file is gone at the head; a renamed or copied one counts by its new path.
 export const touchedFiles = (nameStatus: string): string[] =>
   nameStatus
+    .replace(/^﻿/, '')
     .split(/\r?\n/)
     .map((line) => line.split('\t'))
     .filter(([status = '', path]) => path !== undefined && !status.startsWith('D'))

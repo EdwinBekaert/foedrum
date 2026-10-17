@@ -63,25 +63,26 @@ export interface MainResult {
 }
 
 // The command line: its arguments, and what it prints and exits with.
-export const main = async (_argv: readonly string[]): Promise<MainResult> => {
-  throw new Error('not implemented');
-};
-
-if (import.meta.main) {
+export const main = async (argv: readonly string[]): Promise<MainResult> => {
   const { values, positionals } = parseArgs({
+    args: [...argv],
     options: { coverage: { type: 'boolean' } },
     allowPositionals: true,
   });
   const [tree, ...files] = positionals;
   if (tree === undefined || files.length === 0) {
-    console.error('usage: node scripts/mutant-tests.ts [--coverage] <tree> <file>...');
-    process.exitCode = 2;
-  } else {
-    const { ok, lines } = await (values.coverage ? coveringTests : mutantTests)(tree, files);
-    if (ok) for (const line of lines) console.log(line);
-    else {
-      for (const line of lines) console.error(`mutant-tests: ${line}`);
-      process.exitCode = 1;
-    }
+    const usage = 'usage: node scripts/mutant-tests.ts [--coverage] <tree> <file>...';
+    return { exitCode: 2, stdout: [], stderr: [usage] };
   }
+  const { ok, lines } = await (values.coverage ? coveringTests : mutantTests)(tree, files);
+  return ok
+    ? { exitCode: 0, stdout: lines, stderr: [] }
+    : { exitCode: 1, stdout: [], stderr: lines.map((line) => `mutant-tests: ${line}`) };
+};
+
+if (import.meta.main) {
+  const { exitCode, stdout, stderr } = await main(process.argv.slice(2));
+  for (const line of stdout) console.log(line);
+  for (const line of stderr) console.error(line);
+  process.exitCode = exitCode;
 }

@@ -70,11 +70,14 @@ const ANY_TEST_FILE = /^test\/(?!fixtures\/).+\.test\.ts$/;
 
 const STRING = /(['"`])([^'"`\n]*)\1/g;
 
-// Whether `source` has a string that is `file`'s name or a path ending in it, as a test that
-// starts the file as a process has: join(root, 'scripts', 'precheck.ts').
+// Whether `source` has a string that is `file`'s name, `file` itself or a path ending in it, as a
+// test that starts the file as a process has: join(root, 'scripts', 'precheck.ts'). A path to
+// another file with the same name does not count, nor does a relative import specifier, which
+// the walk over the imports already follows.
 const namesFile = (source: string, file: string): boolean => {
   const name = posix.basename(file);
   return [...source.matchAll(STRING)].some(
-    ([, , text = '']) => text === name || text.endsWith(`/${name}`),
+    ([, , text = '']) =>
+      text === name || text === file || (!/^\.{1,2}\//.test(text) && text.endsWith(`/${file}`)),
   );
 };
