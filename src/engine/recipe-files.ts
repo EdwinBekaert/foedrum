@@ -111,6 +111,25 @@ function brewerStep(step: Step): BrewerStep | string {
   return step;
 }
 
+/** The guards every attempt has anyway: the runner requires the out doc and denies git push. */
+const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc', 'noPush']);
+
+/** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
+function unplannable(brewer: BrewerFrontmatter): string[] {
+  return [
+    ...(brewer.retryMode === 'resume' ? ['"retryMode": "resume"'] : []),
+    ...(brewer.houseYeast ? ['"houseYeast": true'] : []),
+    ...(brewer.skills.length > 0 ? ['"skills"'] : []),
+    ...(brewer.mcp.length > 0 ? ['"mcp"'] : []),
+    ...(brewer.context === 'repo' ? ['"context": "repo"'] : []),
+    ...(brewer.toolbox === undefined ? [] : ['"toolbox"']),
+    ...(brewer.doneWhen === undefined ? [] : ['"doneWhen"']),
+    ...brewer.guards
+      .filter((guard) => !ENFORCED_GUARDS.has(guard))
+      .map((guard) => `the guard "${guard}"`),
+  ];
+}
+
 /** A recipe of brewer steps in a line, each with its brewer. */
 function brewingRecipe(
   name: string,
@@ -185,6 +204,15 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       }
       const { brewer } = found;
       const id = stepId(step);
+      const refused = unplannable(brewer);
+      if (refused.length > 0) {
+        for (const what of refused) {
+          problems.push(
+            `${path}: step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
+          );
+        }
+        return [];
+      }
       const deadline = brewing.deadline ?? brewer.deadline;
       // The Duration schema has no upper bound; a deadline past what a time can hold would throw
       // when the step is scheduled, naming no file.
