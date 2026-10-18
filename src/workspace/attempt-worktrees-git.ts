@@ -4,7 +4,7 @@
 
 import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
 import { errorCode, removeTree } from '../platform/remove.ts';
@@ -355,14 +355,18 @@ const withoutCredentials = (url: string): string => {
   return parsed.toString();
 };
 
+/** Where the managed clone of `repo` is in the work root (ADR 0012). */
+export const managedClonePath = (workRoot: string, repo: string): string =>
+  join(workRoot, repoFolder(repo), 'clone.git');
+
 /**
  * The repository's managed clone (`source: managed`, ADR 0012): a bare partial clone in the work
  * root, made once. Returns its path.
  */
 export const ensureManagedClone = async (options: ManagedCloneOptions): Promise<string> => {
   const { git, workRoot, repo, url, reference } = options;
-  const folder = join(workRoot, repoFolder(repo));
-  const path = join(folder, 'clone.git');
+  const path = managedClonePath(workRoot, repo);
+  const folder = dirname(path);
   if (existsSync(path)) return path;
   // Cloned next to its place and renamed when done, so a crash never leaves half a clone there.
   const partial = join(folder, 'clone.partial');

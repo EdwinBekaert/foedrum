@@ -16,7 +16,7 @@ import {
   walk,
 } from '../schemas/recipe.ts';
 import type { Attempt } from './fold.ts';
-import type { Recipe, Recipes, Stall } from './recipes.ts';
+import type { Recipe, RecipeAction, Recipes, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
 /** A file of the Brewery, by its path from the Brewery's root with `/`: its text, or why not. */
@@ -102,6 +102,7 @@ function readAll<T extends { name: string }>(
 
 type BrewerStep = Extract<Step, { brewer: string }>;
 type CheckStep = Extract<Step, { check: unknown }>;
+type ActionStep = Extract<Step, { action: string }>;
 
 /** A step the engine runs, as its recipe answers about it. */
 interface LineStep {
@@ -114,7 +115,17 @@ interface LineStep {
   mayRetry: (attempts: readonly Attempt[]) => boolean;
   /** Where its onFail (a check) or onBlocked findings (a brewer) route goes, and how often. */
   route: { why: 'failed' | 'findings'; goto: string; maxRounds: number } | undefined;
+  /** The action it is, which the engine runs itself (ADR 0071); none for a brewer or a check. */
+  action?: RecipeAction;
 }
+
+/**
+ * The deadline of the openPullRequest action (ADR 0071): its effects are retried on every pass of
+ * the driver until then, through a GitHub rate-limit pause, which lasts an hour at most (ADR 0052).
+ */
+const ACTION_DEADLINE = '2h';
+/** How many attempts the action gets: one fails only when it has nothing to push. */
+const ACTION_ATTEMPTS = 3;
 
 /** The deadline of a check step without one of its own (ADR 0069). */
 const CHECK_DEADLINE = '30m';
@@ -168,16 +179,18 @@ function holds(when: string, settings: Settings): boolean {
 }
 
 /**
- * The step, when the engine runs it (a brewer or a check), else why it does not yet, naming the
- * ADR that says so.
+ * The step, when the engine runs it (a brewer, a check or the openPullRequest action), else why it
+ * does not yet, naming the ADR that says so.
  */
-function runnableStep(step: Step): BrewerStep | CheckStep | string {
+function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string {
   const id = stepId(step);
-  if (!('brewer' in step) && !('check' in step)) {
+  const opens = 'action' in step && step.action === 'openPullRequest';
+  if (!('brewer' in step) && !('check' in step) && !opens) {
     return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
+  if ('action' in step) return step;
   if ('check' in step) {
     // A red proof reads the test report against the commits of the step it proves.
     if ('of' in step) {
@@ -247,6 +260,7 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
 /** A recipe of brewer and check steps in a line, and its settings. */
 function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
+  const opens = steps.find((entry) => entry.action === 'openPullRequest')?.id;
   const at = (id: string) => {
     const found = byId.get(id);
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
@@ -256,6 +270,7 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
     // A recipe has at least one step (its schema).
     firstStep: steps[0]?.id ?? '',
     has: (id) => byId.has(id),
+    action: (id) => at(id).action,
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
     skip: (_batch, id) => {
@@ -264,10 +279,11 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
     },
     after: (_batch, id) => {
       const next = steps[at(id).index + 1];
-      // The pull requests come with the openPullRequest action, which the engine does not run yet.
-      return next === undefined
+      if (next !== undefined) return { kind: 'step', stepId: next.id };
+      // The batch goes on tap with the pull request of its action, which is the last step.
+      return opens === undefined
         ? { kind: 'done', pullRequests: [] }
-        : { kind: 'step', stepId: next.id };
+        : { kind: 'done', pullRequests: [], opens };
     },
     mayRetry: (batch, id) => at(id).mayRetry([...(batch.steps.get(id)?.attempts.values() ?? [])]),
     // A route counts the attempts of its goto step it scheduled (ADR 0064).
@@ -319,13 +335,33 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       return true;
     };
     const steps = value.steps.flatMap(
-      (step): { line: LineStep; brewer?: StepBrewer; checks?: readonly CheckRef[] }[] => {
+      (step, index): { line: LineStep; brewer?: StepBrewer; checks?: readonly CheckRef[] }[] => {
         const runnable = runnableStep(step);
         if (typeof runnable === 'string') {
           problems.push(`${path}: ${runnable}`);
           return [];
         }
         const id = stepId(step);
+        if ('action' in runnable) {
+          // The pull request holds the commits of the steps before it; none may come after it.
+          if (index < value.steps.length - 1) {
+            problems.push(
+              `${path}: step "${id}" opens the pull request, so it must be the last step of the recipe (ADR 0071)`,
+            );
+            return [];
+          }
+          const line: LineStep = {
+            id,
+            when: runnable.when,
+            deadline: ACTION_DEADLINE,
+            // An action makes no progress the runner could see; its deadline covers it.
+            stall: undefined,
+            mayRetry: (attempts) => attempts.length < ACTION_ATTEMPTS,
+            route: undefined,
+            action: 'openPullRequest',
+          };
+          return [{ line }];
+        }
         if ('check' in runnable) {
           const deadline = runnable.deadline ?? CHECK_DEADLINE;
           if (tooLong(id, deadline)) return [];

@@ -1,6 +1,6 @@
 # 0053. Recipe files reach the engine: brewer steps in a line first, and all or nothing
 
-Date: 2026-10-16 · Status: Accepted, amended by [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (a red proof required instead of the test-first refusal; `when` and `onBlocked`) and [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (check steps load) · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md)
+Date: 2026-10-16 · Status: Accepted, amended by [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (a red proof required instead of the test-first refusal; `when` and `onBlocked`), [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (check steps load) and [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) (the openPullRequest action loads) · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md)
 
 ## Context
 `decide` asks a recipe where a batch goes next through the `Recipes` interface (`src/engine/recipes.ts`, ADR 0025): the first step, whether a step exists, each step's deadline and stall limit, what follows a step, whether a step gets another attempt, and where a failed check or a findings blocker goes back to. Only the test fake implemented it, so the CLI passed an empty one and `retry`, `skip`, `answer`, `recipe` and `rewind` were refused with "the Brewery has no recipe …" (#126). `foedrum serve` (#148) needs the real one too.
