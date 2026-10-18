@@ -242,7 +242,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
     const [first = ''] = bodies;
     assert.match(
       first,
-      /untrusted-input-[0-9a-f]{32} source=\\"issue #12 body\\" name=\\"order\\">\nAdd a --json flag\./,
+      /untrusted-input-[0-9a-f]{32} source=\\"issue #12 body\\" name=\\"order\\">\\nAdd a --json flag\./,
     );
     assert.match(first, /When you finish, write brew\.md\./);
     assert.match(
