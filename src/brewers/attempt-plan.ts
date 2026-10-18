@@ -101,7 +101,7 @@ const commits = (brewer: BrewerFrontmatter): boolean =>
  * The shell commands `rules` allow, once each, in the order first named: each Bash or PowerShell
  * rule's command without its trailing star (#222); none when one of them allows any command.
  */
-export function shellCommandsOf(rules: readonly string[]): string[] {
+function shellCommandsOf(rules: readonly string[]): string[] {
   const commands = rules.flatMap((rule) => {
     const { tool, specifier } = parseRule(rule);
     if (tool !== 'Bash' && tool !== 'PowerShell') return [];
