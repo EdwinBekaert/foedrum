@@ -7,12 +7,13 @@ import { describe, it } from 'node:test';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads, type GitHubReadsOptions } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const api = 'https://api.github.com';
 
 const readsWith = (answers: Answer[], options?: GitHubReadsOptions) => {
   const fake = fakeFetch(answers);
-  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
   return { reads: createGitHubReads(client, options), requests: fake.requests };
 };
 
@@ -190,7 +191,7 @@ describe('createGitHubReads', () => {
       assert.equal(requests[1]?.url, `${api}/r?page=3`);
     });
 
-    it('never follows a next page off the API, so the token goes nowhere else', async () => {
+    it("never follows a next page off the API, so gh's login goes nowhere else", async () => {
       for (const link of [
         '<https://evil.example/steal>; rel="next"',
         `<${api}.evil.example/x>; rel="next"`,
@@ -273,7 +274,7 @@ describe('createGitHubReads', () => {
   });
 
   it('refuses a cache or page limit that is no positive whole number', () => {
-    const client = createGitHubClient({ token: 't', fetch: fakeFetch([]).fetch });
+    const client = createGitHubClient({ exec: ghOver(fakeFetch([]).fetch).exec });
     for (const options of [
       { maxEntries: 0 },
       { maxPages: 0 },

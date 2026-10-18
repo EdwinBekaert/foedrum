@@ -1,12 +1,14 @@
 // The GitHub side of a claim (ADR 0043): the claim ref created through the REST API, read back
 // with its commit's message, and deleted through GraphQL `updateRefs` only while it still points
-// at the commit that was read. A fake `fetch` with canned answers; no network (ADR 0021).
+// at the commit that was read. A fake `gh` over a fake `fetch` with canned answers; no process
+// and no network (ADR 0021).
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EMPTY_TREE, githubClaimHost } from '../../src/github/claims.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const repo = 'acme/web';
 const sha = 'a'.repeat(40);
@@ -15,12 +17,13 @@ const message = '{"brewery":"alice/brewery","issue":7,"claimedAt":"2026-10-16T09
 
 const hostWith = (answers: Answer[], timeoutMs?: number) => {
   const fake = fakeFetch(answers);
+  const gh = ghOver(fake.fetch);
   const client = createGitHubClient({
-    token: 'ghp_test',
-    fetch: fake.fetch,
+    exec: gh.exec,
+    env: { PATH: '/usr/bin', GH_TOKEN: 'ghp_test' },
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   });
-  return { host: githubClaimHost(client), requests: fake.requests };
+  return { host: githubClaimHost(client), requests: fake.requests, calls: gh.calls };
 };
 
 const refAt = (at: string) => ({
@@ -57,11 +60,15 @@ describe('githubClaimHost', () => {
       );
     });
 
-    it('authenticates with the token and names the API version', async () => {
-      const { host, requests } = hostWith([{ status: 201, body: { sha } }, { status: 201 }]);
+    it("names the API version, and leaves the login to gh's own (ADR 0073)", async () => {
+      const { host, requests, calls } = hostWith([{ status: 201, body: { sha } }, { status: 201 }]);
       await host.create(repo, 7, message);
       const headers: Record<string, string> = requests[0]?.headers ?? {};
-      assert.equal(headers.authorization, 'Bearer ghp_test');
+      assert.equal(headers.authorization, undefined);
+      for (const { args, options } of calls) {
+        assert.equal(options.env?.GH_TOKEN, undefined);
+        assert.doesNotMatch(args.join(' '), /ghp_test/);
+      }
       assert.equal(headers.accept, 'application/vnd.github+json');
       assert.equal(headers['x-github-api-version'], '2022-11-28');
       assert.match(headers['user-agent'] ?? '', /^foedrum/);
@@ -230,24 +237,9 @@ describe('githubClaimHost', () => {
     await assert.rejects(host.read(repo, 7), /did not answer within 20 ms/);
   });
 
-  it('gives up an answer whose declared length passes its limit, before reading it', async () => {
-    const declared = { ...commit(sha), headers: { 'content-length': '1000' } };
-    const fake = fakeFetch([refAt(sha), declared]);
-    const client = createGitHubClient({
-      token: 'ghp_test',
-      fetch: fake.fetch,
-      maxResponseBytes: 128,
-    });
-    await assert.rejects(githubClaimHost(client).read(repo, 7), /longer than 128 bytes/);
-  });
-
   it('gives up an answer longer than its limit, as the process runner does (ADR 0035)', async () => {
     const fake = fakeFetch([refAt(sha), commit(sha, 'x'.repeat(200))]);
-    const client = createGitHubClient({
-      token: 'ghp_test',
-      fetch: fake.fetch,
-      maxResponseBytes: 128,
-    });
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec, maxResponseBytes: 128 });
     await assert.rejects(githubClaimHost(client).read(repo, 7), /longer than 128 bytes/);
   });
 });

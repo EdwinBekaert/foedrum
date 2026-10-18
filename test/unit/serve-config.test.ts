@@ -41,7 +41,7 @@ describe('serveSetup', () => {
         checks: webChecks,
       },
     ]);
-    assert.deepStrictEqual(setup.github, { api: 'https://api.github.com', token: 'ghp_serve' });
+    assert.deepStrictEqual(setup.github, { hostname: 'github.com' });
     assert.equal(setup.claude, '/home/brewer/.local/bin/claude');
     assert.equal(setup.sandbox, true);
     assert.deepStrictEqual(setup.brewerEnv, {
@@ -56,15 +56,14 @@ describe('serveSetup', () => {
     assert.equal(setup.checks.find('porter', 'brew'), undefined);
   });
 
-  it("takes the machine's work root, GITHUB_TOKEN, the Brewery's API and each repository's source and base", () => {
+  it("takes the machine's work root, the host of the Brewery's API and each repository's source and base", () => {
     const workRoot = resolve('work');
     const setup = ready(
       inputs({
-        env: { GITHUB_TOKEN: 'ghp_other' },
         files: {
           ...inputs().files,
           config: config(
-            { githubApi: 'http://127.0.0.1:4000' },
+            { githubApi: 'https://ghe.example/api/v3' },
             { source: 'managed', base: 'develop' },
           ),
           local: local({ workRoot }),
@@ -73,7 +72,7 @@ describe('serveSetup', () => {
       }),
     );
     assert.equal(setup.workRoot, workRoot);
-    assert.deepStrictEqual(setup.github, { api: 'http://127.0.0.1:4000', token: 'ghp_other' });
+    assert.deepStrictEqual(setup.github, { hostname: 'ghe.example' });
     assert.deepStrictEqual(setup.repositories, [
       {
         repo: 'acme/web',
@@ -128,7 +127,6 @@ describe('serveSetup', () => {
       [
         `foedrum.jsonc: not found in ${root}; run foedrum serve in the Brewery's checkout`,
         `models.jsonc: not found in ${root}`,
-        "set GH_TOKEN or GITHUB_TOKEN to a GitHub token that can read the Brewery's issues",
       ],
     );
   });
@@ -202,11 +200,12 @@ describe('serveSetup', () => {
     assert.match(problems[0] ?? '', /^claude/);
   });
 
-  it('takes GH_TOKEN before GITHUB_TOKEN, and GITHUB_TOKEN when GH_TOKEN is empty', () => {
-    const both = ready(inputs({ env: { GH_TOKEN: 'ghp_x', GITHUB_TOKEN: 'ghp_y' } }));
-    assert.equal(both.github.token, 'ghp_x');
-    const empty = ready(inputs({ env: { GH_TOKEN: '', GITHUB_TOKEN: 'ghp_y' } }));
-    assert.equal(empty.github.token, 'ghp_y');
+  // Foedrum reaches GitHub only through gh's own login (ADR 0073).
+  it('needs no GitHub token, and keeps none that the environment has', () => {
+    const without = ready(inputs({ env: {} }));
+    assert.deepStrictEqual(without.github, { hostname: 'github.com' });
+    const withTokens = ready(inputs({ env: { GH_TOKEN: 'ghp_x', GITHUB_TOKEN: 'ghp_y' } }));
+    assert.doesNotMatch(JSON.stringify(withTokens), /ghp_x|ghp_y/);
   });
 
   it("keeps no GitHub token in the brewers' environment", () => {

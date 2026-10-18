@@ -50,6 +50,15 @@ const BranchName = z
 export const RepositorySource = z.enum(['local', 'managed']);
 export type RepositorySource = z.infer<typeof RepositorySource>;
 
+/**
+ * The host gh reaches `api` by (ADR 0073): `github.com` for https://api.github.com, a GitHub
+ * Enterprise host for https://<host>/api/v3, `github.localhost` for http://api.github.localhost;
+ * `undefined` for any other URL.
+ */
+export const githubHostOf = (_api: string): string | undefined => {
+  throw new Error('not implemented');
+};
+
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /** Where the GitHub REST API is: the token goes with every request (ADR 0063). */

@@ -9,6 +9,7 @@ import { githubOrderTitle } from '../../src/github/order-text.ts';
 import { githubPullRequests } from '../../src/github/pull-requests.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const head = 'foedrum/acme.brewery/12-1/acme.api';
 const url = 'https://github.com/acme/api/pull/9';
@@ -28,7 +29,7 @@ const listed = (
 
 const hostWith = (answers: Answer[]) => {
   const fake = fakeFetch(answers);
-  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
   let logins = 0;
   const host = githubPullRequests({
     client,
@@ -84,7 +85,7 @@ describe('githubPullRequests: the login', () => {
       { status: 200, body: [listed()] },
       { status: 200, body: [listed()] },
     ]);
-    const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
     let logins = 0;
     const host = githubPullRequests({
       client,
@@ -151,7 +152,7 @@ describe('githubOrderTitle', () => {
       { status: 200, body: { ...issue, title: 'Add a --json flag' } },
       { status: 200, body: { ...issue, number: 7, title: 'Dark theme' } },
     ]);
-    const reads = createGitHubReads(createGitHubClient({ token: 'ghp_test', fetch: fake.fetch }));
+    const reads = createGitHubReads(createGitHubClient({ exec: ghOver(fake.fetch).exec }));
     const title = githubOrderTitle(reads, 'acme/brewery');
     assert.equal(await title({ issue: 12 }), 'Add a --json flag');
     assert.equal(await title({ issue: 7, repo: 'acme/web' }), 'Dark theme');
@@ -169,7 +170,7 @@ describe('githubOrderTitle', () => {
       { status: 200, body: issue },
       { status: 200, body: { ...issue, number: 8, title: 'Other' } },
     ]);
-    const reads = createGitHubReads(createGitHubClient({ token: 'ghp_test', fetch: fake.fetch }));
+    const reads = createGitHubReads(createGitHubClient({ exec: ghOver(fake.fetch).exec }));
     const title = githubOrderTitle(reads, 'acme/brewery');
     assert.equal(await title({ issue: 12 }), '');
     await assert.rejects(

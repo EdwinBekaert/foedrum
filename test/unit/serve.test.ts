@@ -23,6 +23,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
@@ -102,7 +103,13 @@ describe('runServe', () => {
     return runner;
   };
 
-  const shell = (overrides: Partial<ServeShell> = {}): ServeShell => ({
+  // GitHub through a fake gh over a fake fetch (ADR 0073).
+  const shell = ({
+    fetch = fakeFetch([
+      { status: 200, body: { ...issue, number: 12, body: 'Add a --json flag.' } },
+    ]).fetch,
+    ...overrides
+  }: Partial<ServeShell> & { fetch?: typeof globalThis.fetch } = {}): ServeShell => ({
     out: (line) => lines.push(line),
     signal: controller.signal,
     clock: () => t0,
@@ -147,8 +154,7 @@ describe('runServe', () => {
     },
     // The stout recipe has no check step.
     exec: () => Promise.reject(new Error('no check step runs here')),
-    fetch: fakeFetch([{ status: 200, body: { ...issue, number: 12, body: 'Add a --json flag.' } }])
-      .fetch,
+    gh: ghOver(fetch).exec,
     ...overrides,
   });
 
@@ -468,7 +474,6 @@ describe('runServe', () => {
         HOME: home,
         npm_config_ignore_scripts: 'true',
       });
-      assert.ok(!Object.values(env).includes(setup.github.token));
       const finished = events.filter(
         (event) => event.type === 'step.finished' && event.stepId === 'green',
       );
@@ -818,7 +823,7 @@ describe('runServe', () => {
       assert.equal(await runServe(setup, shell({ fetch: github.fetch })), 1);
       assert.equal(
         lines.at(-1),
-        'foedrum serve: GitHub answered 401 to the login of the token: Bad credentials',
+        'foedrum serve: GitHub answered 401 to the login gh uses: Bad credentials',
       );
       assert.deepStrictEqual([lock.held, closed], [false, 1]);
     });

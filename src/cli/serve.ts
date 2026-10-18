@@ -74,8 +74,8 @@ export interface ServeShell {
   ) => BrewerRunner;
   /** The process runner the check steps' commands run through (ADR 0069). */
   exec: ExecProcess;
-  /** Default the global `fetch`. */
-  fetch?: typeof globalThis.fetch;
+  /** The process runner gh runs through, for GitHub (ADR 0073). */
+  gh: ExecProcess;
   /** How long an intake pass may take; default half the batch lease (ADR 0050). */
   intakeDeadlineMs?: number;
   /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
@@ -183,11 +183,10 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       pushes.push({ repo, base: into, push: shell.push(repository) });
     }
     const client = createGitHubClient({
-      token: setup.github.token,
-      baseUrl: setup.github.api,
+      exec: shell.gh,
+      hostname: setup.github.hostname,
       // GitHub's rate-limit pause runs on serve's clock, which also decides when to poll.
       now: () => clock().getTime(),
-      ...(shell.fetch === undefined ? {} : { fetch: shell.fetch }),
     });
     // One cache of conditional reads for the intake, the marks and the orders' text (ADR 0052).
     const reads = createGitHubReads(client);

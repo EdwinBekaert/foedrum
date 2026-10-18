@@ -10,6 +10,7 @@ import { createGitHubClient } from '../../src/github/client.ts';
 import { githubIssueMarks } from '../../src/github/marks.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`../fixtures/github/${name}.json`, import.meta.url), 'utf8'));
@@ -27,7 +28,7 @@ const marker = '<!-- foedrum:["web-7","claim.comment"] -->';
 
 const marksWith = (answers: Answer[], login = 'alice') => {
   const fake = fakeFetch(answers);
-  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
   const marks = githubIssueMarks({ client, reads: createGitHubReads(client), login });
   return { marks, requests: fake.requests };
 };
