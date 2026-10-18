@@ -231,6 +231,23 @@ describe('realGhFindings', () => {
     assert.match(problemOf(source), /cliFromCheckout/);
   });
 
+  it('accepts other files whose names end in main.ts', () => {
+    const source = [
+      "import { serveFromCheckout } from '../../src/cli/serve-main.ts';",
+      "const other = join('src', 'climain.ts');",
+      "const domain = 'src/domain.ts';",
+    ].join('\n');
+    assert.deepEqual(realGhFindings(source), []);
+  });
+
+  it('reads an escaped quote as part of its string, and a regular expression after ?', () => {
+    const source = [
+      "const said = 'it\\'s'; await doctorFromCheckout(cwd);",
+      "const pick = ok ? /'/ : other; await serveFromCheckout(dir);",
+    ].join('\n');
+    assert.deepEqual(lines(source), [1, 2]);
+  });
+
   it('ignores what comments say', () => {
     const source = [
       '// the facts main.ts gathers (doctorFromCheckout(cwd)) and',
