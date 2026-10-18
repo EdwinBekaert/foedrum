@@ -47,3 +47,9 @@ export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> {
   return readDoc(text, schema);
 }
+
+/**
+ * The assumptions of an out doc that succeeded, beside whatever else it holds (a brewer's own
+ * fields): what the status comment shows (ADR 0072).
+ */
+export const OutDocAssumptions = z.object({ assumptions: z.array(z.string()) });

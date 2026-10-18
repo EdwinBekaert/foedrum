@@ -1,0 +1,123 @@
+// The status comments of a Brewery's issues on GitHub (ADR 0072): found, read, made and edited as
+// the Brewery's own login, from synthetic answers in the shape GitHub's REST API gives
+// (test/fixtures/github/), through a fake `fetch`; no network (ADR 0021).
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { createGitHubClient } from '../../src/github/client.ts';
+import { createGitHubReads } from '../../src/github/reads.ts';
+import { githubStatusComments } from '../../src/github/status-comments.ts';
+import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+
+const api = 'https://api.github.com';
+const repo = 'acme/brewery';
+const marker = '<!-- foedrum:["7-1","status.2"] -->';
+const own = (id: number, body: string, login = 'Alice') => ({ id, user: { login }, body });
+
+const commentsWith = (answers: Answer[], login = 'alice') => {
+  const fake = fakeFetch(answers);
+  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const comments = githubStatusComments({ client, reads: createGitHubReads(client), login });
+  return { comments, requests: fake.requests };
+};
+
+const asked = (requests: { method: string; url: string; body: unknown }[]) =>
+  requests.map(({ method, url, body }) => ({ method, url, body }));
+
+describe('githubStatusComments', () => {
+  it("finds the Brewery's own comment whose body ends with the marker, on any page", async () => {
+    const { comments, requests } = commentsWith([
+      {
+        status: 200,
+        body: [own(500, `Planted\n\n${marker}`, 'mallory'), own(501, `${marker} and more`)],
+        headers: { link: `<${api}/repositories/42/issues/7/comments?page=2>; rel="next"` },
+      },
+      {
+        status: 200,
+        body: [{ id: 502, user: null, body: marker }, own(503, `Status\n\n${marker}`)],
+      },
+    ]);
+    assert.deepStrictEqual(await comments.find(repo, 7, marker), {
+      id: 503,
+      body: `Status\n\n${marker}`,
+    });
+    assert.equal(requests[0]?.url, `${api}/repos/acme/brewery/issues/7/comments?per_page=10`);
+  });
+
+  it('finds nothing when no comment of its own ends with the marker', async () => {
+    const { comments } = commentsWith([{ status: 200, body: [own(501, 'No marker.')] }]);
+    assert.equal(await comments.find(repo, 7, marker), undefined);
+  });
+
+  it("reads a comment of its own by its id, and nothing of someone else's or of one gone", async () => {
+    const { comments, requests } = commentsWith([
+      { status: 200, body: own(501, 'Status') },
+      { status: 200, body: own(502, 'Planted', 'mallory') },
+      { status: 404, body: { message: 'Not Found' } },
+    ]);
+    assert.equal(await comments.read(repo, 501), 'Status');
+    assert.equal(await comments.read(repo, 502), undefined);
+    assert.equal(await comments.read(repo, 503), undefined);
+    assert.equal(requests[0]?.url, `${api}/repos/acme/brewery/issues/comments/501`);
+  });
+
+  it('reads a comment again with its ETag', async () => {
+    const { comments, requests } = commentsWith([
+      { status: 200, body: own(501, 'Status'), headers: { etag: '"501"' } },
+      { status: 304 },
+    ]);
+    await comments.read(repo, 501);
+    assert.equal(await comments.read(repo, 501), 'Status');
+    assert.equal(requests[1]?.headers['if-none-match'], '"501"');
+  });
+
+  it('comments on the issue and answers the new id', async () => {
+    const { comments, requests } = commentsWith([{ status: 201, body: own(504, 'Status') }]);
+    assert.equal(await comments.create(repo, 7, 'Status'), 504);
+    assert.deepStrictEqual(asked(requests), [
+      {
+        method: 'POST',
+        url: `${api}/repos/acme/brewery/issues/7/comments`,
+        body: { body: 'Status' },
+      },
+    ]);
+  });
+
+  it('edits a comment by its id, and says when it is gone', async () => {
+    const { comments, requests } = commentsWith([
+      { status: 200, body: own(501, 'New') },
+      { status: 404, body: { message: 'Not Found' } },
+    ]);
+    assert.equal(await comments.edit(repo, 501, 'New'), 'edited');
+    assert.equal(await comments.edit(repo, 502, 'New'), 'gone');
+    assert.deepStrictEqual(asked(requests).slice(0, 1), [
+      {
+        method: 'PATCH',
+        url: `${api}/repos/acme/brewery/issues/comments/501`,
+        body: { body: 'New' },
+      },
+    ]);
+  });
+
+  it('fails on an answer it did not expect, naming the repository and never the token', async () => {
+    const { comments } = commentsWith([
+      { status: 500, body: { message: 'Server Error' } },
+      { status: 422, body: { message: 'Body is too long' } },
+      { status: 403, body: { message: 'Resource not accessible' } },
+    ]);
+    await assert.rejects(comments.read(repo, 501), /500.*acme\/brewery.*Server Error/);
+    await assert.rejects(comments.edit(repo, 501, 'x'), /422.*acme\/brewery.*Body is too long/);
+    await assert.rejects(comments.create(repo, 7, 'x'), (error: Error) => {
+      assert.match(error.message, /403.*acme\/brewery#7/);
+      assert.doesNotMatch(error.message, /ghp_test/);
+      return true;
+    });
+  });
+
+  it('refuses a comment id that is no positive integer before it asks GitHub', async () => {
+    const { comments, requests } = commentsWith([]);
+    await assert.rejects(comments.read(repo, 0), /comment id/);
+    await assert.rejects(comments.edit(repo, 1.5, 'x'), /comment id/);
+    assert.deepStrictEqual(requests, []);
+  });
+});

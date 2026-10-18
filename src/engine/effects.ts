@@ -1,5 +1,6 @@
 // Applying an external side effect through the idempotency ledger (invariant I4, ADR 0033).
 
+import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectKey } from './event-store.ts';
 
@@ -57,4 +58,35 @@ export const applyEffect = async (
   signal?.throwIfAborted();
   ledger.record(key, applied.result);
   return applied;
+};
+
+/**
+ * The effects of every source together (ADR 0072): the keys each gives, and each key applied by
+ * the source that gave it. The shortest deadline of theirs holds for all, the driver's when none
+ * sets one.
+ */
+export const combineEffects = (...sources: readonly DriverEffects[]): DriverEffects => {
+  // The source behind each key `due` gave; the driver asks `due` before it applies a key.
+  const owners = new Map<string, DriverEffects>();
+  const ownerOf = (key: string): DriverEffects => {
+    const owner = owners.get(key);
+    if (owner === undefined) throw new Error(`No effect ${key} is due`);
+    return owner;
+  };
+  const deadlines = sources.flatMap(({ deadlineMs }) =>
+    deadlineMs === undefined ? [] : [deadlineMs],
+  );
+  return {
+    due: (state, batchId) =>
+      sources.flatMap((source) => {
+        const keys = source.due(state, batchId);
+        for (const key of keys) owners.set(effectKey.encode(key), source);
+        return keys;
+      }),
+    target: {
+      find: async (key, signal) => ownerOf(key).target.find(key, signal),
+      apply: async (key, signal) => ownerOf(key).target.apply(key, signal),
+    },
+    ...(deadlines.length === 0 ? {} : { deadlineMs: Math.min(...deadlines) }),
+  };
 };

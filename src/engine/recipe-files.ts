@@ -273,6 +273,7 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
   return {
     // A recipe has at least one step (its schema).
     firstStep: steps[0]?.id ?? '',
+    steps: steps.map(({ id }) => id),
     has: (id) => byId.has(id),
     action: (id) => at(id).action,
     deadlineMs: (id) => durationMs(at(id).deadline),
