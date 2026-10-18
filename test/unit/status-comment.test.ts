@@ -243,6 +243,21 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'taste'), /⏹️.*attempt 2 stopped/);
   });
 
+  it('writes a pull request URL as an autolink of its normalized form, so it mentions no one', () => {
+    const odd = 'https://x.example/a @victim **[click](https://evil.example)**';
+    const normalized = 'https://x.example/a%20@victim%20**[click](https://evil.example)**';
+    const onTap = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [odd] } }), steps);
+    assert.ok(onTap.includes(`- <${normalized}>`), onTap);
+    assert.doesNotMatch(onTap, / @victim/);
+    const waiting = renderStatus(
+      batch({
+        lane: { kind: 'conditioning', on: { kind: 'merge', pullRequest: odd }, remindAt: at },
+      }),
+      steps,
+    );
+    assert.ok(waiting.includes(`the merge of <${normalized}>`), waiting);
+  });
+
   it('says so when a batch on tap has no pull request', () => {
     const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [] } }), steps);
     assert.match(text, /No pull request/);
