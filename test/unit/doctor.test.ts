@@ -3,10 +3,16 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type DoctorFacts, diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
+import {
+  credentialHelpersFor,
+  type DoctorFacts,
+  diagnose,
+  formatDiagnosis,
+  githubHostOfConfig,
+} from '../../src/cli/doctor.ts';
 import { INVALID_RECIPES, invalidRecipes } from '../../src/engine/recipe-files.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
-import { linux, macos, ran, windows } from '../helpers/doctor-facts.ts';
+import { linux, loggedIn, macos, ran, windows } from '../helpers/doctor-facts.ts';
 
 const required = (facts: DoctorFacts) =>
   diagnose(facts)
@@ -19,6 +25,7 @@ describe('diagnose: tools', () => {
       { name: 'node', version: '24.20.0', path: undefined },
       { name: 'npm', version: '11.6.2', path: '/usr/bin/npm' },
       { name: 'git', version: '2.47.1', path: '/usr/bin/git' },
+      { name: 'gh', version: '2.102.0', path: '/usr/bin/gh' },
       { name: 'claude', version: '2.1.301', path: '/home/brewer/.local/bin/claude' },
       { name: 'bwrap', version: '0.9.0', path: '/usr/bin/bwrap' },
       { name: 'socat', version: '1.7.4.4', path: '/usr/bin/socat' },
@@ -28,11 +35,11 @@ describe('diagnose: tools', () => {
   it('lists bubblewrap and socat on Linux only', () => {
     assert.deepEqual(
       diagnose(windows).tools.map((tool) => tool.name),
-      ['node', 'npm', 'git', 'claude'],
+      ['node', 'npm', 'git', 'gh', 'claude'],
     );
     assert.deepEqual(
       diagnose(macos).tools.map((tool) => tool.name),
-      ['node', 'npm', 'git', 'claude'],
+      ['node', 'npm', 'git', 'gh', 'claude'],
     );
   });
 
@@ -53,6 +60,148 @@ describe('diagnose: tools', () => {
     const diagnosis = diagnose(linux());
     assert.equal(diagnosis.ok, true);
     assert.deepEqual(diagnosis.problems, []);
+  });
+});
+
+// Foedrum reaches GitHub only through gh's own login, for the API and as git's credential
+// helper (ADR 0073).
+describe('diagnose: gh and its login (ADR 0073)', () => {
+  const problems = (facts: DoctorFacts) =>
+    diagnose(facts).problems.map(({ required, what, fix }) => ({ required, what, fix }));
+  const github = (facts: DoctorFacts) => ({
+    ...(facts.github ?? loggedIn()),
+  });
+
+  it('is not ok without gh, and says where to get it and to log in', () => {
+    assert.deepEqual(problems(linux({ gh: undefined })), [
+      {
+        required: true,
+        what: 'gh not found',
+        fix: 'install the GitHub CLI 2.26.0 or later, https://cli.github.com, then run gh auth login',
+      },
+    ]);
+    assert.equal(diagnose(linux({ gh: undefined })).ok, false);
+  });
+
+  it('is not ok with a gh older than 2.26.0, which keeps its login in the keyring', () => {
+    assert.deepEqual(
+      required(linux({ gh: ran('/usr/bin/gh', 'gh version 2.25.1 (2023-03-21)\n') })),
+      ['gh 2.25.1 is too old'],
+    );
+    for (const version of ['2.26.0', '2.26.1', '3.0.0']) {
+      const facts = linux({ gh: ran('/usr/bin/gh', `gh version ${version} (2026-01-01)\n`) });
+      assert.equal(diagnose(facts).ok, true, version);
+    }
+  });
+
+  it('is not ok when gh does not answer its version', () => {
+    assert.deepEqual(required(linux({ gh: ran('/usr/bin/gh', 'boom\n', 1) })), [
+      'gh at /usr/bin/gh did not report a version',
+    ]);
+  });
+
+  it("is not ok when gh has no login for the Brewery's host, and names the login to make", () => {
+    const facts = linux();
+    facts.github = {
+      ...loggedIn('ghe.example'),
+      login: ran(
+        '',
+        'You are not logged into any GitHub hosts. To log in, run: gh auth login\n',
+        1,
+      ),
+    };
+    assert.deepEqual(problems(facts), [
+      {
+        required: true,
+        what: 'gh is not logged in to ghe.example',
+        fix: 'run gh auth login --hostname ghe.example',
+      },
+    ]);
+  });
+
+  it('advises gh auth setup-git when git asks another helper first, naming it', () => {
+    const facts = linux();
+    facts.github = {
+      ...github(facts),
+      credentials: ran(
+        '',
+        'credential.helper\nmanager\0credential.https://github.com.helper\n!/usr/bin/gh auth git-credential\0',
+      ),
+    };
+    assert.deepEqual(problems(facts), [
+      {
+        required: false,
+        what: 'git asks manager for https://github.com credentials, not gh',
+        fix: "run gh auth setup-git --hostname github.com, so git pushes with gh's login",
+      },
+    ]);
+    assert.equal(diagnose(facts).ok, true);
+  });
+
+  it('advises gh auth setup-git when git has no credential helper for the host', () => {
+    const facts = linux();
+    // git config --get-regexp exits 1 when nothing matches.
+    facts.github = { ...github(facts), credentials: ran('', '', 1) };
+    assert.deepEqual(problems(facts), [
+      {
+        required: false,
+        what: 'git has no credential helper for https://github.com',
+        fix: "run gh auth setup-git --hostname github.com, so git pushes with gh's login",
+      },
+    ]);
+  });
+});
+
+describe('credentialHelpersFor', () => {
+  const listed = (entries: [string, string][]) =>
+    entries.map(([key, value]) => `${key}\n${value}\0`).join('');
+
+  it("lists the helpers in git's order, the general ones and those of a URL that covers the host", () => {
+    const config = listed([
+      ['credential.helper', 'cache'],
+      ['credential.https://github.com.helper', 'gh-one'],
+      ['credential.https://github.com/.helper', 'gh-two'],
+      ['credential.https://ghe.example.helper', 'other-host'],
+      ['credential.http://github.com.helper', 'plain-http'],
+      ['credential.https://github.com/acme.helper', 'one-path'],
+      ['credential.https://me@github.com.helper', 'one-user'],
+      ['credential.https://github.com:8443.helper', 'other-port'],
+      ['credential.https://github.com.username', 'me'],
+    ]);
+    assert.deepEqual(credentialHelpersFor('github.com', config), ['cache', 'gh-one', 'gh-two']);
+    assert.deepEqual(credentialHelpersFor('ghe.example', config), ['cache', 'other-host']);
+  });
+
+  it('clears the list at an empty value, as git does', () => {
+    const config = listed([
+      ['credential.helper', 'manager'],
+      ['credential.https://github.com.helper', ''],
+      ['credential.https://github.com.helper', 'gh'],
+    ]);
+    assert.deepEqual(credentialHelpersFor('github.com', config), ['gh']);
+    assert.deepEqual(credentialHelpersFor('ghe.example', config), ['manager']);
+  });
+
+  it('reads a key without a value as empty, and nothing as no helper', () => {
+    assert.deepEqual(credentialHelpersFor('github.com', 'credential.helper\0'), []);
+    assert.deepEqual(credentialHelpersFor('github.com', ''), []);
+  });
+
+  it('compares the host as git does, without regard to case', () => {
+    const config = listed([['credential.https://GitHub.com.helper', 'gh']]);
+    assert.deepEqual(credentialHelpersFor('github.com', config), ['gh']);
+  });
+});
+
+describe('githubHostOfConfig', () => {
+  it("names the host of foedrum.jsonc's githubApi, else github.com", () => {
+    const config = (githubApi?: string) =>
+      JSON.stringify({ repositories: {}, ...(githubApi === undefined ? {} : { githubApi }) });
+    assert.equal(githubHostOfConfig(undefined), 'github.com');
+    assert.equal(githubHostOfConfig(config()), 'github.com');
+    assert.equal(githubHostOfConfig(config('https://ghe.example/api/v3')), 'ghe.example');
+    assert.equal(githubHostOfConfig(config('http://api.github.localhost')), 'github.localhost');
+    assert.equal(githubHostOfConfig('{ not jsonc'), 'github.com');
   });
 });
 

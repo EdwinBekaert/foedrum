@@ -10,6 +10,7 @@ import type { DoctorFacts, ToolName, ToolRun } from './doctor.ts';
 const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
   npm: ['--version'],
   git: ['--version'],
+  gh: ['--version'],
   claude: ['--version'],
   bwrap: ['--version'],
   socat: ['-V'],
@@ -40,6 +41,10 @@ export interface DoctorShell {
   readFile?: (path: string) => string | undefined;
   /** The Brewery's recipe and brewer files in `cwd` (`readBreweryFiles`, ADR 0053). */
   readBrewery?: () => BreweryFiles;
+  /** The environment gh runs in, without the GitHub token variables; default this process's. */
+  env?: NodeJS.ProcessEnv;
+  /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
+  githubHost?: string;
 }
 
 /** Every tool's path and version answer, asked all at once. */
@@ -81,7 +86,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
-    tools: { npm, git, claude, bwrap, socat, podman, docker },
+    tools: { npm, git, gh: undefined, claude, bwrap, socat, podman, docker },
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),

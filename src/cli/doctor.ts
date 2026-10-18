@@ -8,7 +8,7 @@ import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
-export type ToolName = 'npm' | 'git' | 'claude' | 'bwrap' | 'socat' | 'podman' | 'docker';
+export type ToolName = 'npm' | 'git' | 'gh' | 'claude' | 'bwrap' | 'socat' | 'podman' | 'docker';
 
 /** A tool found on PATH, and what its version command answered. */
 export interface ToolRun {
@@ -37,7 +37,35 @@ export interface DoctorFacts {
   configUnreadable?: string | undefined;
   /** The Brewery's recipe and brewer files in the working directory (ADR 0053). */
   brewery?: BreweryFiles | undefined;
+  /** gh's login and git's credential helpers for the Brewery's GitHub host (ADR 0073). */
+  github?: GitHubFacts | undefined;
 }
+
+/** How a command answered: its exit code (`null` when it could not start or was killed) and output. */
+export interface CommandRun {
+  exitCode: number | null;
+  output: string;
+}
+
+/** What doctor asks about the GitHub host Foedrum reaches through gh's own login (ADR 0073). */
+export interface GitHubFacts {
+  /** gh's `--hostname`: `github.com`, a GitHub Enterprise host or `github.localhost`. */
+  host: string;
+  /** `gh auth status --hostname <host>`, without the token variables; undefined without gh. */
+  login: CommandRun | undefined;
+  /** What `git config --null --get-regexp ^credential\\.` printed; undefined without git. */
+  credentials: CommandRun | undefined;
+}
+
+/** The host gh reaches the Brewery's GitHub on, from foedrum.jsonc (ADR 0073). */
+export const githubHostOfConfig = (_config: string | undefined): string => {
+  throw new Error('not implemented');
+};
+
+/** The credential helpers git asks for `https://<host>`, in order (ADR 0073). */
+export const credentialHelpersFor = (_host: string, _listed: string): string[] => {
+  throw new Error('not implemented');
+};
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
 export type IsolationLevel = 'sandboxed' | 'permissions only';

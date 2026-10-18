@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { diagnose } from '../../src/cli/doctor.ts';
 import { type ServeInputs, serveSetup } from '../../src/cli/serve-config.ts';
-import { linux, windows } from '../helpers/doctor-facts.ts';
+import { linux, loggedIn, ran, windows } from '../helpers/doctor-facts.ts';
 import { clone, config, home, local, models, root, serveInputs } from '../helpers/serve-brewery.ts';
 
 const inputs = serveInputs;
@@ -192,6 +192,22 @@ describe('serveSetup', () => {
       problems[0] ?? '',
       /^the Brewery's recipes are not valid: recipes\/stout\.jsonc: /,
     );
+  });
+
+  // Foedrum reaches GitHub only through gh's own login (ADR 0073).
+  it('refuses without a gh login for its host, with the line to run', () => {
+    const facts = linux();
+    facts.github = {
+      ...loggedIn('ghe.example'),
+      login: ran(
+        '',
+        'You are not logged into any GitHub hosts. To log in, run: gh auth login\n',
+        1,
+      ),
+    };
+    assert.deepStrictEqual(refused(inputs({ diagnosis: diagnose(facts) })), [
+      'gh is not logged in to ghe.example: run gh auth login --hostname ghe.example',
+    ]);
   });
 
   it("refuses what doctor finds missing, with doctor's fix", () => {
