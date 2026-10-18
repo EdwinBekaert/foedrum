@@ -314,6 +314,18 @@ describe('realGhFindings reads templates and regular expressions as code does', 
       [1, 2, 3],
     );
   });
+
+  it('reads a regular expression after a keyword as one, and a division after a name as one', () => {
+    const source = [
+      "if (ok) return /'/.test(x) && execProcess('gh', ['auth', 'status']);",
+      'const kind = typeof /"/; await doctorFromCheckout(cwd);',
+      "const quotient = total / 2, other = returned / 4; await execProcess('gh', []);",
+    ].join('\n');
+    assert.deepEqual(
+      realGhFindings(source).map(({ line }) => line),
+      [1, 2, 3],
+    );
+  });
 });
 
 // Naming the configuration or the runner is not enough when the call hands over the real one.
