@@ -137,6 +137,10 @@ export interface RealGhFinding {
   problem: string;
 }
 
+// The keywords after which a `/` starts a regular expression, not a division.
+const REGEX_AFTER =
+  /(?<![\w$.])(?:return|typeof|instanceof|in|of|case|delete|void|throw|new|yield|await)\s*$/;
+
 interface Literal {
   start: number;
   value: string;
@@ -196,7 +200,12 @@ const scan = (source: string): { code: string; literals: Literal[] } => {
         i += 2;
       } else i += 1;
       previous = '`';
-    } else if (char === '/' && (previous === '' || /[(,=:[!&|?{};+\-*%<>~^]/.test(previous))) {
+    } else if (
+      char === '/' &&
+      (previous === '' ||
+        /[(,=:[!&|?{};+\-*%<>~^]/.test(previous) ||
+        REGEX_AFTER.test(source.slice(0, i)))
+    ) {
       let j = i + 1;
       let inClass = false;
       while (j < source.length && source[j] !== '\n' && (inClass || source[j] !== '/')) {
