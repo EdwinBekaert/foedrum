@@ -79,6 +79,9 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       });
       return openAttemptWorktrees({ git, workRoot, repo, clone: managed });
     },
+    push: () => {
+      throw new Error('not implemented');
+    },
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
   };
 };

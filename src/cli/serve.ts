@@ -22,6 +22,7 @@ import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import type { Claimant } from '../engine/issue-claims.ts';
+import type { BranchPush } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { githubClaimHost } from '../github/claims.ts';
@@ -52,6 +53,11 @@ export interface ServeShell {
   worktrees: (
     repository: ServeRepository,
   ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>>;
+  /**
+   * The pushes of the openPullRequest action (ADR 0071), from the clone the repository's
+   * worktrees are added to: the user's, or the managed one.
+   */
+  push: (repository: ServeRepository) => BranchPush;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,
