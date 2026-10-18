@@ -32,8 +32,18 @@ export const userName = (lookup: () => string, env: NodeJS.ProcessEnv): string =
  * to its own login, also when git asks it for a credential. Names compare as `platform` does.
  */
 export const withoutGitHubTokens = (
-  _env: NodeJS.ProcessEnv,
-  _platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
 ): NodeJS.ProcessEnv => {
-  throw new Error('not implemented');
+  const key = envNameKey(platform);
+  const tokens = new Set(GITHUB_TOKEN_VARIABLES.map(key));
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !tokens.has(key(name))));
 };
+
+/** The variables gh reads a token from, before its own login. */
+export const GITHUB_TOKEN_VARIABLES = [
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GH_ENTERPRISE_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+] as const;
