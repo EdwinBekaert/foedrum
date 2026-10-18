@@ -65,6 +65,28 @@ export const applyEffect = async (
  * the source that gave it. The shortest deadline of theirs holds for all, the driver's when none
  * sets one.
  */
-export const combineEffects = (..._sources: readonly DriverEffects[]): DriverEffects => {
-  throw new Error('not implemented');
+export const combineEffects = (...sources: readonly DriverEffects[]): DriverEffects => {
+  // The source behind each key `due` gave; the driver asks `due` before it applies a key.
+  const owners = new Map<string, DriverEffects>();
+  const ownerOf = (key: string): DriverEffects => {
+    const owner = owners.get(key);
+    if (owner === undefined) throw new Error(`No effect ${key} is due`);
+    return owner;
+  };
+  const deadlines = sources.flatMap(({ deadlineMs }) =>
+    deadlineMs === undefined ? [] : [deadlineMs],
+  );
+  return {
+    due: (state, batchId) =>
+      sources.flatMap((source) => {
+        const keys = source.due(state, batchId);
+        for (const key of keys) owners.set(effectKey.encode(key), source);
+        return keys;
+      }),
+    target: {
+      find: async (key, signal) => ownerOf(key).target.find(key, signal),
+      apply: async (key, signal) => ownerOf(key).target.apply(key, signal),
+    },
+    ...(deadlines.length === 0 ? {} : { deadlineMs: Math.min(...deadlines) }),
+  };
 };

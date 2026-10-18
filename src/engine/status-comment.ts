@@ -2,8 +2,16 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
+import { createHash } from 'node:crypto';
+import type { StuckReason, WaitCondition } from '../schemas/events.ts';
+import { StatusRevision } from '../schemas/status-comment.ts';
+import type { BatchEffectKey } from '../schemas/store.ts';
+import { z } from '../schemas/zod.ts';
+import { effectMarker } from './claim-effects.ts';
 import type { DriverEffects } from './driver.ts';
-import type { Batch } from './fold.ts';
+import { effectKey } from './effect-key.ts';
+import type { EffectTarget } from './effects.ts';
+import type { Attempt, Batch, Lane, State } from './fold.ts';
 import type { Recipes } from './recipes.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
@@ -28,14 +36,246 @@ export interface StatusComments {
   ): Promise<'edited' | 'gone'>;
 }
 
+/** How long a text a brewer or an issue wrote may be in the comment. */
+const longest = 200;
+/** How many assumptions of one step the comment shows. */
+const mostAssumptions = 10;
+
+/**
+ * `text`, which a brewer or an issue wrote, as one line of at most `longest` characters that
+ * GitHub renders as it is: no Markdown, no HTML (so no marker), and no mention.
+ */
+const plain = (text: string): string => {
+  const line = text.replace(/\s+/g, ' ').trim();
+  const chars = [...line];
+  const cut = chars.length > longest ? `${chars.slice(0, longest - 1).join('')}…` : line;
+  // Backslashes first; the entities after them, since they bring a `#` of their own.
+  return cut
+    .replace(/[\\`*_[\]#|~!]/g, '\\$&')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/@/g, '&#64;');
+};
+
+const code = (id: string): string => `\`${id}\``;
+
+const waitText = (on: WaitCondition): string => {
+  switch (on.kind) {
+    case 'merge':
+      return `the merge of ${on.pullRequest}`;
+    case 'release':
+      return `a release of ${plain(on.package)} ${plain(on.minVersion)} or later in ${plain(on.repo)}`;
+    case 'sibling':
+      return `the batch ${code(on.batchId)}`;
+    default:
+      return on satisfies never;
+  }
+};
+
+const stuckText = (reason: StuckReason): string => {
+  switch (reason.kind) {
+    case 'needs_input':
+      return `${code(reason.stepId)} needs input`;
+    case 'blocked':
+      return `${code(reason.stepId)} is blocked (${reason.blockerKind}): ${plain(reason.summary)}`;
+    case 'attempts_exhausted':
+      return `${code(reason.stepId)} used its ${reason.attempts} attempts; the last: ${plain(reason.lastReason)}`;
+    case 'deadline_passed':
+      return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
+    case 'waiting_for_session':
+      return `${code(reason.stepId)} waits for its session`;
+    case 'stalled':
+      return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
+    case 'routing':
+      return `no recipe was chosen by its routing deadline, ${reason.deadlineAt}`;
+    default:
+      return reason satisfies never;
+  }
+};
+
+/** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
+const laneText = (lane: Lane): string[] => {
+  switch (lane.kind) {
+    case 'ordered':
+      return ['📥 **Ordered**: waiting for a recipe'];
+    case 'brewing':
+      return ['🍺 **Brewing**'];
+    case 'conditioning':
+      return [`⏳ **Conditioning**: waiting for ${waitText(lane.on)}`];
+    case 'stuck': {
+      const { reason, options } = lane;
+      const questions =
+        reason.kind === 'needs_input'
+          ? reason.questions.map(
+              (question) =>
+                `- ${plain(question.q)} Options: ${question.options.map(plain).join(', ')} (recommended: ${plain(question.recommended)})`,
+            )
+          : [];
+      return [
+        `🔔 **Stuck**: ${stuckText(reason)}`,
+        ...questions,
+        `Get it moving with ${options.map(code).join(', ')}.`,
+      ];
+    }
+    case 'on_tap':
+      return ['🍻 **On tap**'];
+    case 'cancelled':
+      return [`🚫 **Cancelled** by ${plain(lane.by)} (${lane.via})`];
+    default:
+      return lane satisfies never;
+  }
+};
+
+const recipeText = (recipe: Batch['recipe']): string => {
+  if (recipe === undefined) return 'No recipe is chosen yet.';
+  const name = `Recipe **${plain(recipe.name)}**`;
+  switch (recipe.source) {
+    case 'label':
+      return `${name}, chosen by its label`;
+    case 'router':
+      return `${name}, chosen by the router: ${plain(recipe.reason)}`;
+    case 'human':
+      return `${name}, chosen by ${plain(recipe.by)} (${recipe.via})`;
+    default:
+      return recipe satisfies never;
+  }
+};
+
+/** The attempts of a step, latest first. */
+const latestFirst = (batch: Batch, stepId: string): Attempt[] =>
+  [...(batch.steps.get(stepId)?.attempts.values() ?? [])].sort((a, b) => b.attempt - a.attempt);
+
+const stepLine = (batch: Batch, stepId: string): string => {
+  const id = code(stepId);
+  if (batch.skipped?.has(stepId) === true) return `- ⏭️ ${id}: skipped`;
+  const [latest] = latestFirst(batch, stepId);
+  if (latest === undefined) return `- ⬜ ${id}`;
+  const { lane } = batch;
+  const n = latest.attempt;
+  if (lane.kind === 'stuck' && 'stepId' in lane.reason && lane.reason.stepId === stepId) {
+    return `- 🔔 ${id}: stuck at attempt ${n}`;
+  }
+  if (latest.phase !== 'finished') {
+    return latest.abandoned === true
+      ? `- ⏹️ ${id}: attempt ${n} stopped`
+      : `- ▶️ ${id}: brewing, attempt ${n}`;
+  }
+  const { outcome } = latest;
+  switch (outcome.kind) {
+    case 'succeeded':
+      return `- ✅ ${id}`;
+    case 'failed':
+      return `- ❌ ${id}: attempt ${n} failed: ${plain(outcome.reason)}`;
+    case 'needs_input':
+      return `- ❓ ${id}: attempt ${n} asked for input`;
+    case 'cancelled':
+      return `- ⏹️ ${id}: attempt ${n} stopped`;
+    default:
+      return outcome satisfies never;
+  }
+};
+
+/** What of an out doc the comment shows; a brewer's own fields may stand beside it. */
+const Assumptions = z.object({ assumptions: z.array(z.string()) });
+
+/** The assumptions of the latest out doc of `stepId` that succeeded. */
+const assumptionsOf = (batch: Batch, stepId: string): string[] => {
+  for (const attempt of latestFirst(batch, stepId)) {
+    if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') continue;
+    const parsed = Assumptions.safeParse(attempt.outcome.output);
+    return parsed.success ? parsed.data.assumptions.map(plain).filter((text) => text !== '') : [];
+  }
+  return [];
+};
+
+const assumptionLines = (batch: Batch, stepIds: readonly string[]): string[] =>
+  stepIds.flatMap((stepId) => {
+    const all = assumptionsOf(batch, stepId);
+    const shown = all.slice(0, mostAssumptions).map((text) => `- ${code(stepId)}: ${text}`);
+    const more = all.length - shown.length;
+    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+  });
+
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the assumptions of
  * its out docs and, on tap, its pull requests. Every text a brewer or an issue wrote is one
  * escaped line.
  */
-export const renderStatus = (_batch: Batch, _steps?: readonly string[]): string => {
-  throw new Error('not implemented');
+export const renderStatus = (batch: Batch, steps?: readonly string[]): string => {
+  // The recipe's steps, then any the batch has that the recipe no longer lists.
+  const stepIds = [...new Set([...(steps ?? []), ...batch.steps.keys(), ...(batch.skipped ?? [])])];
+  const sections = [
+    [`### Foedrum · batch ${code(batch.id)}`],
+    laneText(batch.lane),
+    [recipeText(batch.recipe), ...stepIds.map((stepId) => stepLine(batch, stepId))],
+  ];
+  const assumptions = assumptionLines(batch, stepIds);
+  if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
+  if (batch.lane.kind === 'on_tap') {
+    const { pullRequests } = batch.lane;
+    sections.push(
+      pullRequests.length === 0
+        ? ['No pull request.']
+        : ['**Pull requests**', ...pullRequests.map((url) => `- ${url}`)],
+    );
+  }
+  return sections.map((lines) => lines.join('\n')).join('\n\n');
+};
+
+/** The first 16 hex digits of the SHA-256 of `text`: what a revision records of it. */
+const digestOf = (text: string): string =>
+  createHash('sha256').update(text).digest('hex').slice(0, 16);
+
+const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
+  batchId,
+  effect: `status.${revision}`,
+});
+
+/** What revision `revision` of `batchId` recorded, or undefined when it is not in the ledger. */
+const recorded = (state: State, batchId: string, revision: number): StatusRevision | undefined => {
+  const key = effectKey.encode(revisionKey(batchId, revision));
+  if (!state.effects.has(key)) return undefined;
+  const parsed = StatusRevision.safeParse(state.effects.get(key));
+  if (!parsed.success) throw new Error(`The ledger's ${key} is not a status comment's revision`);
+  return parsed.data;
+};
+
+/** A revision of a status comment that is due. */
+export interface DueRevision {
+  key: BatchEffectKey;
+  issue: number;
+  text: string;
+  digest: string;
+  /** The latest revision recorded; absent for the first. */
+  previous?: StatusRevision;
+}
+
+/**
+ * The revision of the status comment of `batchId` that the recorded events call for: the next one
+ * when the batch's text is not the one the latest revision showed, else none. A batch of a claimed
+ * target issue has none (ADR 0072).
+ */
+export const statusDue = (
+  state: State,
+  batchId: string,
+  steps?: readonly string[],
+): DueRevision | undefined => {
+  const batch = state.batches.get(batchId);
+  if (batch === undefined || batch.repo !== undefined) return undefined;
+  let revision = 1;
+  let previous: StatusRevision | undefined;
+  for (let found = recorded(state, batchId, revision); found !== undefined; ) {
+    previous = found;
+    revision += 1;
+    found = recorded(state, batchId, revision);
+  }
+  const text = renderStatus(batch, steps);
+  const digest = digestOf(text);
+  if (previous?.digest === digest) return undefined;
+  const due = { key: revisionKey(batchId, revision), issue: batch.issue, text, digest };
+  return previous === undefined ? due : { ...due, previous };
 };
 
 export interface StatusEffectsOptions {
@@ -50,7 +290,86 @@ export interface StatusEffectsOptions {
   deadlineMs?: number;
 }
 
-/** The status comment of every batch of a Brewery issue, for the driver. */
-export const statusEffects = (_options: StatusEffectsOptions): DriverEffects => {
-  throw new Error('not implemented');
+const minuteMs = 60_000;
+
+/** A revision's result, checked: the id comes from the code host, and the ledger keeps it. */
+const revisionOf = (comment: number, digest: string): StatusRevision => {
+  const parsed = StatusRevision.safeParse({ comment, digest });
+  if (!parsed.success) {
+    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
+  }
+  return parsed.data;
+};
+
+/**
+ * The status comment of every batch of a Brewery issue, for the driver: a revision whenever its
+ * text changed, at most one every `everyMs` per batch, except its first and the one that shows it
+ * ended, which are due at once (ADR 0072).
+ */
+export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
+  const { brewery, comments, recipes, clock, everyMs = minuteMs, deadlineMs } = options;
+  // The revision behind each key `due` gave; the driver asks `due` before it applies a key.
+  const revisions = new Map<string, DueRevision>();
+  // When this driver last applied or found a revision of each batch.
+  const lastAt = new Map<string, number>();
+  const revisionFor = (key: string): DueRevision => {
+    const due = revisions.get(key);
+    if (due === undefined) throw new Error(`No status comment revision ${key} is due`);
+    return due;
+  };
+  const done = (due: DueRevision, result: StatusRevision): StatusRevision => {
+    lastAt.set(due.key.batchId, clock().getTime());
+    return result;
+  };
+  // The comment that already shows the revision of `key`, by the text before its marker.
+  const shown = (due: DueRevision, comment: number, body: string, marker: string) => ({
+    result: done(due, revisionOf(comment, digestOf(body.slice(0, -marker.length).trimEnd()))),
+  });
+  const target: EffectTarget = {
+    find: async (key, signal) => {
+      const due = revisionFor(key);
+      const marker = effectMarker(key);
+      if (due.previous !== undefined) {
+        const body = await comments.read(brewery, due.previous.comment, signal);
+        // Still there: a run before would have edited it, not made another.
+        if (body !== undefined) {
+          return body.endsWith(marker) ? shown(due, due.previous.comment, body, marker) : undefined;
+        }
+      }
+      const found = await comments.find(brewery, due.issue, marker, signal);
+      return found === undefined ? undefined : shown(due, found.id, found.body, marker);
+    },
+    apply: async (key, signal) => {
+      const due = revisionFor(key);
+      const body = `${due.text}\n\n${effectMarker(key)}`;
+      if (due.previous !== undefined) {
+        const edited = await comments.edit(brewery, due.previous.comment, body, signal);
+        if (edited === 'edited') return done(due, revisionOf(due.previous.comment, due.digest));
+      }
+      // The first revision, or the comment was deleted by hand: it is made again.
+      const id = await comments.create(brewery, due.issue, body, signal);
+      return done(due, revisionOf(id, due.digest));
+    },
+  };
+  return {
+    due: (state, batchId) => {
+      const batch = state.batches.get(batchId);
+      const name = batch?.recipe?.name;
+      const due = statusDue(
+        state,
+        batchId,
+        name === undefined ? undefined : recipes.find(name)?.steps,
+      );
+      if (batch === undefined || due === undefined) return [];
+      const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled';
+      const last = lastAt.get(batchId);
+      if (due.previous !== undefined && !ended && last !== undefined) {
+        if (clock().getTime() - last < everyMs) return [];
+      }
+      revisions.set(effectKey.encode(due.key), due);
+      return [due.key];
+    },
+    target,
+    ...(deadlineMs === undefined ? {} : { deadlineMs }),
+  };
 };
