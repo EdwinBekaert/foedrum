@@ -448,9 +448,8 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     const unprovenLines = testFirst ? unproven(value, commits) : [];
     for (const line of unprovenLines) problems.push(`${path}: ${line}`);
     // The cleanup of an ended batch deletes its attempt branches: only a pull request keeps the
-    // commits (ADR 0084).
-    const last = value.steps.at(-1);
-    const opens = last !== undefined && 'action' in last && last.action === 'openPullRequest';
+    // commits (ADR 0084). A recipe whose action is not last is refused for its place (ADR 0071).
+    const opens = value.steps.some((step) => 'action' in step && step.action === 'openPullRequest');
     const unopened = opens ? [] : order.filter(commits);
     for (const step of unopened) {
       problems.push(
