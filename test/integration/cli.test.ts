@@ -12,13 +12,43 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { cliFromCheckout } from '../../src/cli/cli-main.ts';
 import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { cannedGhLogin, doctorHere, resolveWithMadeUpGh } from './canned-gh-login.ts';
+import { cannedGhLogin, doctorHere, MADE_UP_GH, resolveWithMadeUpGh } from './canned-gh-login.ts';
 
 const foedrumIn = (cwd: string, args: string[]) =>
   cliFromCheckout(args, cwd, { exec: cannedGhLogin(), resolve: resolveWithMadeUpGh });
+
+describe('foedrum doctor and serve through cliFromCheckout', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('cli-runner');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  // The programs the injected runner was asked to start: gh among them means its login check went
+  // through the runner and the PATH lookup the test gave, never the real ones (ADR 0086).
+  const started = async (args: string[]): Promise<string[]> => {
+    const files: string[] = [];
+    const canned = cannedGhLogin();
+    const exec: ExecProcess = (file, execArgs, options) => {
+      files.push(file);
+      return canned(file, execArgs, options);
+    };
+    await cliFromCheckout(args, dir.path, { exec, resolve: resolveWithMadeUpGh });
+    return files;
+  };
+
+  it('asks doctor’s gh through the injected runner', async () => {
+    assert.ok((await started(['doctor'])).includes(MADE_UP_GH));
+  });
+
+  it('asks serve’s gh through the injected runner, before it refuses a folder that is no Brewery', async () => {
+    assert.ok((await started(['serve'])).includes(MADE_UP_GH));
+  });
+});
 
 describe('foedrum status and replay on store files', () => {
   let brewery: TempDir;
