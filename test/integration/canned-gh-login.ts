@@ -1,10 +1,13 @@
-// doctor and serve on this machine, with gh's login check answered from captured output (ADR
-// 0073): what doctor does with gh's answer is the unit tests' (captured gh output), and whether
-// `gh auth status` works is gh's business. So the real runner starts every other tool, and no
-// test asks the real gh for a login, reaches github.com or touches the keyring.
+// doctor and serve on this machine, with gh answered from captured output (ADR 0073): what doctor
+// does with gh's answers is the unit tests' (captured gh output), and whether gh works, and how fast
+// it starts, is gh's business (ADR 0070). So gh is found at a made-up path and never started; the
+// real runner starts every other tool, and no test asks the real gh for a login, reaches
+// github.com or touches the keyring.
 
+import { parse } from 'node:path';
 import { doctorFromCheckout } from '../../src/cli/doctor-main.ts';
 import { runCli } from '../../src/cli/run.ts';
+import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
 
 /** A host no real account logs in to: the only one the canned answer is logged in to. */
@@ -16,28 +19,43 @@ export const MADE_UP_CONFIG = JSON.stringify({
   githubApi: `https://${MADE_UP_HOST}/api/v3`,
 });
 
-// What gh 2.102.0 printed for a host it was logged in to (the token line left out), and with no
-// login at all.
+/** Where the tests' PATH lookup finds gh: no file is there, and nothing starts it. */
+export const MADE_UP_GH = '/made-up/bin/gh';
+
+/** The version the canned `gh --version` answers: above doctor's minimum, and no gh's release. */
+export const CANNED_GH_VERSION = '9999.0.0';
+
+/** The PATH lookup, but gh is `MADE_UP_GH`, whether this machine has a gh or not. */
+export const resolveWithMadeUpGh = (name: string): string | undefined =>
+  name === 'gh' ? MADE_UP_GH : resolveExecutable(name);
+
+// What gh 2.102.0 printed for its version and for a host it was logged in to (the token line left
+// out), and with no login at all.
+const VERSION = `gh version ${CANNED_GH_VERSION} (2026-01-01)\nhttps://github.com/cli/cli/releases/latest\n`;
 const LOGGED_IN = `${MADE_UP_HOST}\n  ✓ Logged in to ${MADE_UP_HOST} account brewer (keyring)\n  - Active account: true\n  - Git operations protocol: https\n`;
 const NO_LOGIN = 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n';
 
+// gh by its name, whatever the extension PATHEXT gave it (gh.exe, gh.cmd, gh.bat).
+const isGh = (file: string): boolean => parse(file).name.toLowerCase() === 'gh';
+
 /**
- * `exec`, except that `gh auth status` answers from captured output without starting gh: logged in
- * for `gh auth status --hostname <MADE_UP_HOST>`, no login for anything else. `version`, when given,
- * is what `gh --version` answers instead of gh.
+ * `exec`, except that gh answers from captured output without starting: `gh --version` with
+ * `CANNED_GH_VERSION`, and `gh auth status` logged in for `--hostname <MADE_UP_HOST>`, with no
+ * login for anything else.
  */
 export const cannedGhLogin =
-  (exec: ExecProcess = execProcess, version?: string): ExecProcess =>
+  (exec: ExecProcess = execProcess): ExecProcess =>
   async (file, args, options) => {
+    if (!isGh(file)) return exec(file, args, options);
+    if (args.join(' ') === '--version') {
+      return { exitCode: 0, stdout: VERSION, stderr: '', output: VERSION };
+    }
     if (args[0] === 'auth' && args[1] === 'status') {
       return args.join(' ') === `auth status --hostname ${MADE_UP_HOST}`
         ? { exitCode: 0, stdout: LOGGED_IN, stderr: '', output: LOGGED_IN }
         : { exitCode: 1, stdout: '', stderr: NO_LOGIN, output: NO_LOGIN };
     }
-    if (version !== undefined && args[0] === '--version' && /\bgh(?:\.exe)?$/i.test(file)) {
-      return { exitCode: 0, stdout: version, stderr: '', output: version };
-    }
-    return exec(file, args, options);
+    throw new Error(`gh ${args.join(' ')} has no canned answer`);
   };
 
 const notForDoctor = (what: string) => () => {
@@ -46,12 +64,13 @@ const notForDoctor = (what: string) => () => {
 
 /**
  * `foedrum doctor` in `cwd` through the command layer (`runCli`), with the facts main.ts gathers
- * (`doctorFromCheckout`) through `exec`: default the real runner with the canned login.
+ * (`doctorFromCheckout`) through `exec`, default the real runner with canned gh, and gh at
+ * `MADE_UP_GH`.
  */
 export const doctorHere = async (cwd: string, exec: ExecProcess = cannedGhLogin()) =>
   runCli(['doctor'], {
     cwd,
-    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec }),
+    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec, resolve: resolveWithMadeUpGh }),
     openStore: notForDoctor('store'),
     openWritableStore: notForDoctor('store'),
     recipes: notForDoctor('recipes'),

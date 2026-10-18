@@ -9,25 +9,28 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { resolveExecutable } from '../../src/platform/executables.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
-import { cannedGhLogin, doctorHere, MADE_UP_CONFIG, MADE_UP_HOST } from './canned-gh-login.ts';
+import {
+  CANNED_GH_VERSION,
+  cannedGhLogin,
+  doctorHere,
+  MADE_UP_CONFIG,
+  MADE_UP_GH,
+  MADE_UP_HOST,
+} from './canned-gh-login.ts';
 
 const VERSION = String.raw`\d+(?:\.\d+)+`;
-/** The version the canned `gh --version` answers: no real gh's, so the row shows it was used. */
-const GH_VERSION = '2.99.0';
 
 describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
     const dir = makeTempDir('doctor-machine');
     writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
     // A tool the runner killed at its deadline may hold the folder a moment longer on Windows.
-    const { exitCode, stdout, stderr } = await doctorHere(
-      dir.path,
-      cannedGhLogin(execProcess, `gh version ${GH_VERSION} (2026-01-01)\n`),
-    ).finally(() => removeTree(dir.path));
+    const { exitCode, stdout, stderr } = await doctorHere(dir.path).finally(() =>
+      removeTree(dir.path),
+    );
     assert.equal(stderr, '');
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
@@ -37,17 +40,11 @@ describe('foedrum doctor on this machine', () => {
     // CI has npm and git everywhere; npm is npm.cmd on Windows.
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
-    // The row shows the canned version at the path PATH gives, or that gh is missing.
-    const gh = resolveExecutable('gh');
-    assert.equal(
-      row('gh')?.replace(/ +/g, ' '),
-      gh === undefined ? '  gh missing'.replace(/ +/g, ' ') : ` gh ${GH_VERSION} ${gh}`,
-    );
+    // gh is found at a made-up path and answers its canned version, on every machine.
+    assert.equal(row('gh')?.replace(/ +/g, ' '), ` gh ${CANNED_GH_VERSION} ${MADE_UP_GH}`);
     // foedrum.jsonc names the made-up host, whose canned answer is logged in: doctor names no
-    // login to make where gh is there.
-    if (!/ missing$/.test(row('gh') ?? '')) {
-      assert.ok(!lines.some((line) => line.includes('gh auth login')), stdout);
-    }
+    // login to make.
+    assert.ok(!lines.some((line) => line.includes('gh auth login')), stdout);
     assert.match(row('claude') ?? '', new RegExp(`^  claude +(?:missing|${VERSION} +\\S.*)$`));
     const linux = process.platform === 'linux';
     assert.equal(row('bwrap') !== undefined, linux);
@@ -109,7 +106,7 @@ describe('foedrum doctor in a Brewery', () => {
 
 // doctor reads git's own credential settings (ADR 0073): the format the unit tests' fixtures stand
 // in for, from the real git, with a global configuration of the test's own and no system one.
-// These are about git, so gh's version is canned as well as its login.
+// gh answers from captured output here too.
 describe("foedrum doctor and git's credential helper", () => {
   const advice = async (helpers: string[]): Promise<string[]> => {
     const dir = makeTempDir('doctor-credentials');
@@ -127,10 +124,7 @@ describe("foedrum doctor and git's credential helper", () => {
       };
       const { stdout } = await doctorHere(
         dir.path,
-        cannedGhLogin(
-          (file, args, options) => execProcess(file, args, { ...options, env }),
-          'gh version 2.102.0 (2026-09-30)\n',
-        ),
+        cannedGhLogin((file, args, options) => execProcess(file, args, { ...options, env })),
       );
       return stdout
         .split('\n')

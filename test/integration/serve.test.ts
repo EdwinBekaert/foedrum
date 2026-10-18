@@ -19,7 +19,7 @@ import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { brewer, recipe } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { cannedGhLogin } from './canned-gh-login.ts';
+import { cannedGhLogin, resolveWithMadeUpGh } from './canned-gh-login.ts';
 import { type Route, SYNTHETIC_LOGIN, startFakeGitHubOverGh } from './fake-github-over-gh.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
@@ -42,7 +42,10 @@ describe('foedrum serve', () => {
 
   it('refuses a folder that is no Brewery, with one line per problem', async () => {
     // serve's own start, with a canned answer for gh's login check (ADR 0073).
-    const result = await serveFromCheckout(dir.path, { exec: cannedGhLogin() });
+    const result = await serveFromCheckout(dir.path, {
+      exec: cannedGhLogin(),
+      resolve: resolveWithMadeUpGh,
+    });
     assert.equal(result.exitCode, 1, result.stderr);
     assert.match(result.stderr, /^foedrum serve: foedrum\.jsonc: not found in /m);
     assert.match(result.stderr, /^foedrum serve: models\.jsonc: not found in /m);
