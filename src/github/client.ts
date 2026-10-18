@@ -106,7 +106,7 @@ const messagesOf = (errors: unknown): { message: string }[] =>
  * The API root gh asks on `hostname`, without a trailing `/`: where a next page's link must point
  * (ADR 0052). `github.localhost` is gh's development host, served over http.
  */
-export const apiRootOf = (hostname: string): string => {
+const apiRootOf = (hostname: string): string => {
   switch (hostname) {
     case 'github.com':
       return 'https://api.github.com';

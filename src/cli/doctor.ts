@@ -186,11 +186,9 @@ export const credentialHelpersFor = (host: string, listed: string): string[] => 
 // gh, its login and git's credential helper (ADR 0073): Foedrum reaches GitHub only through gh's
 // own login, for the API and, as git's credential helper, for pushes.
 const githubProblems = ({ tools, github }: DoctorFacts): Problem[] => {
-  const run = tools.gh;
   const host = github?.host ?? 'github.com';
-  if (run === undefined) return [{ required: true, what: 'gh not found', fix: GH_INSTALL }];
-  const version = versionOf(run);
-  if (version === undefined) return requiredProblems('gh', run, GH_INSTALL);
+  const version = versionOf(tools.gh);
+  if (version === undefined) return requiredProblems('gh', tools.gh, GH_INSTALL);
   if (isBefore(version, MIN_GH)) {
     return [{ required: true, what: `gh ${version} is too old`, fix: GH_INSTALL }];
   }

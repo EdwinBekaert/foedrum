@@ -41,7 +41,7 @@ export const withoutGitHubTokens = (
 };
 
 /** The variables gh reads a token from, before its own login. */
-export const GITHUB_TOKEN_VARIABLES = [
+const GITHUB_TOKEN_VARIABLES = [
   'GH_TOKEN',
   'GITHUB_TOKEN',
   'GH_ENTERPRISE_TOKEN',
