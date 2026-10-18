@@ -29,6 +29,7 @@ import type { StreamOptions, StreamResult } from '../../src/platform/processes.t
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { descheduled } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const fixtures = join(import.meta.dirname, '..', 'fixtures', 'claude-stream');
@@ -749,13 +750,20 @@ describe('waitFor', () => {
     assert.ok(performance.now() - started >= 15);
   });
 
-  it('resolves at once when the signal aborts, before its time', async () => {
+  // The clock stands still, so only the abort can end the wait, and it ends before the event loop
+  // turns once more: no wall time to compare, so load cannot fail it (ADR 0070).
+  it('resolves at once when the signal aborts, before its time', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
     const stop = new AbortController();
-    const started = performance.now();
     const waited = waitFor(60_000, stop.signal);
     stop.abort();
-    await waited;
-    assert.ok(performance.now() - started < 1000);
+    // A loaded machine takes the CPU away for a while (#147).
+    descheduled(1100);
+    const first = await Promise.race([
+      waited.then(() => 'resolved' as const),
+      new Promise<'not yet'>((answer) => setImmediate(() => answer('not yet'))),
+    ]);
+    assert.equal(first, 'resolved');
   });
 
   // Review of #136: a stop that came before the wait began must not cost the wait.
