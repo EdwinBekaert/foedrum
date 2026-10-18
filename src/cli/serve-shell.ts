@@ -10,7 +10,12 @@ import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
 import { type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
-import { ensureManagedClone, openAttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
+import {
+  ensureManagedClone,
+  managedClonePath,
+  openAttemptWorktrees,
+} from '../workspace/attempt-worktrees-git.ts';
+import { openBranchPush } from '../workspace/branch-push-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -79,9 +84,12 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       });
       return openAttemptWorktrees({ git, workRoot, repo, clone: managed });
     },
-    push: () => {
-      throw new Error('not implemented');
-    },
+    // From the clone the worktrees are added to; serveSetup refuses a local one without it.
+    push: ({ repo, source, clone }) =>
+      openBranchPush({
+        git,
+        clone: source === 'local' ? (clone ?? '') : managedClonePath(workRoot, repo),
+      }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
   };
 };

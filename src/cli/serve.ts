@@ -22,14 +22,19 @@ import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import type { Claimant } from '../engine/issue-claims.ts';
-import type { BranchPush } from '../engine/pull-request-actions.ts';
+import {
+  type BranchPush,
+  type PullRequestRepository,
+  pullRequestActions,
+} from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient, GitHubRateLimited } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
-import { githubOrderText } from '../github/order-text.ts';
+import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
+import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads } from '../github/reads.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
@@ -163,9 +168,13 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     const stateBranch = shell.stateBranch(store);
     await stateBranch.start();
     const worktrees: RepositoryWorktrees[] = [];
+    const pushes: PullRequestRepository[] = [];
     for (const repository of setup.repositories) {
       const { repo, base } = repository;
       worktrees.push({ repo, base, manager: await shell.worktrees(repository) });
+      // The pull request goes into the branch the attempts start from (ADR 0071).
+      const into = base.slice(base.indexOf('/') + 1);
+      pushes.push({ repo, base: into, push: shell.push(repository) });
     }
     const client = createGitHubClient({
       token: setup.github.token,
@@ -193,6 +202,14 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         claims,
       });
     }
+    // The login is read when the first pull request is looked up, so a Brewery that opens none
+    // asks for it no more than it did (ADR 0068).
+    const actions = pullRequestActions({
+      brewery: setup.brewery,
+      repositories: pushes,
+      host: githubPullRequests({ client, reads, login: () => githubLogin(client, signal) }),
+      orderTitle: githubOrderTitle(reads, setup.brewery),
+    });
     const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
     let opened: Driver | undefined;
     const plans = createAttemptPlans({
@@ -221,6 +238,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       worktrees,
       alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
       ...(effects === undefined ? {} : { effects }),
+      actions,
       report: (notice) => say(formatNotice(notice)),
     });
     opened = driver;
