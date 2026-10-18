@@ -98,16 +98,17 @@ const commits = (brewer: BrewerFrontmatter): boolean =>
   brewer.access === 'write' && brewer.git.commit;
 
 /**
- * The shell commands `rules` allow, once each, in the order first named: each Bash or PowerShell
- * rule's command without its trailing star (#222); none when one of them allows any command.
+ * The shell commands `rules` allow, once each, in the order first named: each Bash rule's command
+ * without its trailing star (#222); none when one of them allows any program. PowerShell rules
+ * are left out: the runner's sessions have no PowerShell tool (ADR 0074).
  */
 function shellCommandsOf(rules: readonly string[]): string[] {
   const commands = rules.flatMap((rule) => {
     const { tool, specifier } = parseRule(rule);
-    if (tool !== 'Bash' && tool !== 'PowerShell') return [];
-    return [(specifier ?? '').replace(/:?\*$/, '').trim()];
+    return tool === 'Bash' ? [(specifier ?? '').replace(/:?\*$/, '').trim()] : [];
   });
-  return commands.includes('') ? [] : [...new Set(commands)];
+  const anyProgram = commands.some((command) => command === '' || command.startsWith('*'));
+  return anyProgram ? [] : [...new Set(commands)];
 }
 
 /** The tool of each rule, once each, in the order first named. */
