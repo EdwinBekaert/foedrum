@@ -81,7 +81,9 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
    */
   const pointAtDecoy = (path: string): void => {
     const decoy = join(dir.path, 'decoy');
-    git(dir.path, ['init', '-q', decoy]);
+    // On a branch the fetch cannot bring, whatever init.defaultBranch says: git refuses to fetch
+    // into the branch checked out, also an unborn one.
+    git(dir.path, ['init', '-q', '-b', 'decoy', decoy]);
     git(decoy, ['fetch', '-q', user, '+refs/heads/*:refs/heads/*']);
     git(decoy, ['update-ref', `refs/heads/${branchOf('gauge')}`, start]);
     git(decoy, ['update-ref', `refs/heads/${branchOf('implement')}`, gaugeTip]);
