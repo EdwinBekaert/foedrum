@@ -231,6 +231,10 @@ describe('settleAttempt: a brewer that produces commits (ADR 0074)', () => {
   const committing: AttemptLimits = { ...limits, commitsSince: start };
   const counted = (count: number): CommitsSeen => ({ kind: 'counted', count });
 
+  it('succeeds on a done out doc with a commit after the start', () => {
+    assert.deepStrictEqual(settleAttempt(facts({ commits: counted(2) }), committing), succeeded);
+  });
+
   it('blocks on a divergence when the out doc says done but nothing was committed (#196)', () => {
     assert.deepStrictEqual(settleAttempt(facts({ commits: counted(0) }), committing), {
       kind: 'blocked',
@@ -259,5 +263,30 @@ describe('settleAttempt: a brewer that produces commits (ADR 0074)', () => {
       blockerKind: 'environment',
       summary: 'the commits since c0ffee0 were not counted: the runner did not count them',
     });
+  });
+
+  it('reads an out doc that is not done as before, with or without commits', () => {
+    const failedDoc = outDoc({ status: 'failed', summary: 'No way through' });
+    for (const commits of [counted(0), counted(1), undefined]) {
+      const seen = commits === undefined ? {} : { commits };
+      assert.deepStrictEqual(settleAttempt(facts({ outDoc: failedDoc, ...seen }), committing), {
+        kind: 'failed',
+        retryable: true,
+        reason: 'the brewer failed: No way through',
+      });
+    }
+  });
+
+  it('puts every earlier rule first: a crash fails as a crash, whatever was committed', () => {
+    const crashed = facts({ exit: { kind: 'exited', code: 3 }, commits: counted(0) });
+    assert.deepStrictEqual(settleAttempt(crashed, committing), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer process exited with code 3',
+    });
+  });
+
+  it('counts no commit for a brewer that does not produce them', () => {
+    assert.deepStrictEqual(settleAttempt(facts({ commits: counted(0) }), limits), succeeded);
   });
 });

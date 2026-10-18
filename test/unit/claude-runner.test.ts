@@ -235,6 +235,12 @@ describe('claudeBrewerRunner', () => {
         summary: 'the commits since ccccccc were not counted: git exited with 128',
       });
     });
+
+    it('counts nothing for an attempt whose limits name no start', async () => {
+      const { counts, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+      await runner.start(attempt).ended;
+      assert.deepEqual(counts, []);
+    });
   });
 
   it('stops at an init that is not what was asked, and blocks on the environment', async () => {
