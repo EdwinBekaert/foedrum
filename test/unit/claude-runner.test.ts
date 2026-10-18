@@ -273,6 +273,18 @@ describe('claudeBrewerRunner', () => {
       assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
     });
 
+    it('keeps the usage and the session the stream reported when stopped while counting (review of #208)', async () => {
+      let stop = (): void => {};
+      const { runner } = setup(clean, { plan: counting, whileCounting: () => stop() });
+      const run = runner.start(committing);
+      stop = run.stop;
+      assert.deepEqual(await run.ended, {
+        ending: { kind: 'cancelled' },
+        usage: { inputTokens: 2, outputTokens: 4, cacheReadTokens: 1670, cacheWriteTokens: 2452 },
+        session: { sessionId: session(1), model: 'claude-haiku-5-5', claudeVersion: '2.1.301' },
+      });
+    });
+
     it('blocks on the environment with the reason when the count itself throws (review of #208)', async () => {
       const { runner } = setup(clean, {
         plan: counting,
