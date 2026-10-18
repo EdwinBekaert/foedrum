@@ -534,6 +534,23 @@ describe('runServe', () => {
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
   });
 
+  // gh reads the login at the start, with the stop signal; a stop then ends that call (ADR 0073).
+  it('stops with 0, and says so, when it is stopped while it reads its login', async () => {
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/user') {
+        controller.abort(new Error('stopped by a signal'));
+        return new Promise<Response>((_, reject) => {
+          if (init?.signal?.aborted === true) reject(init.signal.reason);
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        });
+      }
+      return api.fetch(input, init);
+    }) as typeof globalThis.fetch;
+    assert.equal(await runServe(setup, shell({ fetch })), 0);
+    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+  });
+
   describe('the intake in its loop (ADR 0068)', () => {
     const target = { alias: 'web', intake: { labels: ['foedrum'] } };
     const intakeSetup = (
