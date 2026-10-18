@@ -122,7 +122,8 @@ let runs = 0;
 
 /** Brews one batch of the ale recipe to its end with `kills`, restarting after each one. */
 const brew = async (kills: readonly KillPoint[]) => {
-  const store = openSqliteEventStore(join(dir.path, `run-${++runs}.sqlite`));
+  const path = join(dir.path, `run-${++runs}.sqlite`);
+  let store = openSqliteEventStore(path);
   const code = codeHost(kills);
   const worktrees = fakeWorktrees();
   const log = createCommandLog({ store, recipes });
@@ -158,9 +159,12 @@ const brew = async (kills: readonly KillPoint[]) => {
       }
       await driver.tick();
       if (code.kills() >= starts) {
-        // The driver died at a kill point: what it kept in memory is gone.
+        // The driver died at a kill point: what it kept in memory is gone, and the next process
+        // opens the store from its file.
         driver.close();
         driver = undefined;
+        store.close();
+        store = openSqliteEventStore(path);
         continue;
       }
       if (driver.state().batches.get('12-1')?.lane.kind === 'on_tap') break;
