@@ -41,7 +41,7 @@ describe('outOfDate on a package tree npm ci installed', () => {
     copyFileSync(join(captured, 'package-lock.json'), join(project.path, 'package-lock.json'));
     mkdirSync(join(project.path, 'node_modules'));
     copyFileSync(
-      join(captured, 'installed.package-lock.json'),
+      join(captured, 'installed', 'package-lock.json'),
       join(project.path, 'node_modules', '.package-lock.json'),
     );
     assert.equal(await outOfDate(project.path), undefined);
