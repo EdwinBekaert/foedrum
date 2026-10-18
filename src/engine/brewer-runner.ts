@@ -127,15 +127,11 @@ const failed = (retryable: boolean, reason: string): Ending => ({
  * (ADR 0074): without one its work never reached the task tree, so a human sees why.
  */
 function doneWithCommits(
-  seen: CommitsSeen | undefined,
+  seen: CommitsSeen = { kind: 'uncounted', reason: 'the runner did not count them' },
   since: string,
   output: OutDocFrontmatter,
 ): Ending {
   const start = since.slice(0, 7);
-  if (seen === undefined) {
-    const summary = `the commits since ${start} were not counted: the runner did not count them`;
-    return { kind: 'blocked', blockerKind: 'environment', summary };
-  }
   switch (seen.kind) {
     case 'counted':
       if (seen.count > 0) return { kind: 'succeeded', output };

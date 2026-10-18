@@ -60,13 +60,12 @@ export interface PlanFacts {
  */
 export function attemptLimits(brewer: BrewerFrontmatter, start?: string): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
-  const commits = brewer.produces === 'commits' && start !== undefined;
   // Brewer-specific schemas are not built yet: every out doc is read against the contract's.
   return {
     outDoc: { file: brewer.output.doc, schema: OutDocFrontmatter },
     ...(maxTurns === undefined ? {} : { maxTurns }),
     ...(maxDenials === undefined ? {} : { maxDenials }),
-    ...(commits ? { commitsSince: start } : {}),
+    ...(brewer.produces === 'commits' && start !== undefined ? { commitsSince: start } : {}),
   };
 }
 
