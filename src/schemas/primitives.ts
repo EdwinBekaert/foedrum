@@ -104,10 +104,10 @@ const windowsExtension = /\.(?:exe|com|bat|cmd)$/;
 const gitWord = /(?:^|[\s/\\'"])git(?:-[a-z0-9-]+)?(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
 const ghWord = /(?:^|[\s/\\'"])gh(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
 const gitSubcommand = /^\s+([a-z][a-z0-9-]*)(?=\s|$)/;
-// What follows a program cannot be read as written when it has a quote, `$` or a backtick, or in
-// Bash a backslash: after a wrapper, `env g""h` and `env g\h` run gh (review of #225).
-const unreadableBash = /['"`$\\]/;
-const unreadablePowerShell = /['"`$]/;
+// What follows a program can be read as written only in plain characters: anything else may be a
+// quote, an escape or an expansion of the shell a wrapper starts (`env g""h`, `env /usr/bin/g?`,
+// `cmd /c g^h`, `bash -c g\h` run gh), so it fails closed (review of #225).
+const plainRest = /^[\sa-z0-9._/:=@+,-]*$/;
 
 /**
  * What a rule lets a shell run, read from its program word: not a shell rule (`none`); any program
@@ -138,7 +138,7 @@ function shellProgramOf(rule: string): ShellProgram {
   if (tool === 'Bash' && program.includes('\\')) return { kind: 'any' };
   const name = (program.split(/[/\\]/).at(-1) ?? '').replace(windowsExtension, '');
   if (star !== -1 && rest === '') return { kind: 'any', name };
-  const unreadable = (tool === 'Bash' ? unreadableBash : unreadablePowerShell).test(rest);
+  const unreadable = !plainRest.test(rest);
   return { kind: 'program', name, rest, star: star !== -1, unreadable };
 }
 
