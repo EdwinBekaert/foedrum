@@ -43,25 +43,29 @@ Full list: [glossary](glossary.md).
 
 ## 3. System overview
 
-```
-             GitHub: Brewery repo                         GitHub: target repos
-       issues · labels · comments · PRs                   branches · pull requests
-              ▲              │                                    ▲
-   projection │              │ poll                               │ push / PR
-              │              ▼                                    │
-┌──────────────────────────── foedrum serve ─────────────────────────────────────┐
-│  Intake ──► Router ──► Scheduler ──► Executor ──► BrewerRunner (claude CLI)    │
-│                           ▲   │          │             │                       │
-│                           │   ▼          ▼             ▼                       │
-│                       Supervisor     Workspace       Checks                    │
-│                   (leases, deadlines) (git worktrees) (gravity readings)       │
-│                           │                                                    │
-│              ┌────────────┴─────────────┐                                      │
-│              │ EventStore (node:sqlite) │ ◄── single source of truth           │
-│              └────────────┬─────────────┘                                      │
-│                           ▼                                                    │
-│      Projections: status comment · labels · CLI · (later) live dashboard       │
-└────────────────────────────────────────────────────────────────────────────────┘
+The Cellar (`foedrum serve`, `src/cli/serve.ts`) polls GitHub for orders and writes everything it learns as events through one command log into one event store, the single source of truth; the driver runs brewers in attempt worktrees, and the store's events reach GitHub as the state branch. Dotted lines are designed but not built yet.
+
+```mermaid
+flowchart LR
+  subgraph GH["GitHub"]
+    BI["Brewery issues"]
+    TI["target-repository issues"]
+    SB["branch foedrum/state"]
+    PR["branches and pull requests"]
+  end
+  subgraph Cellar["foedrum serve: the Cellar"]
+    IN["Intake<br/>every pollEvery"] --> CL["Command log<br/>decide, then append"]
+    DR["Driver<br/>a tick every 5 s"] --> CL
+    SU["Supervisor<br/>leases, deadlines"] --> CL
+    CL --> ES[("Event store<br/>node:sqlite")]
+    DR --> BR["Brewer runner<br/>claude CLI"]
+    BR -->|"works in"| WT["Attempt worktrees"]
+  end
+  BI -->|"poll, order"| IN
+  TI -->|"poll, claim"| IN
+  ES -->|"flush at step boundaries"| SB
+  WT -.->|"push, open the pull request"| PR
+  ES -.->|"status comment, labels"| BI
 ```
 
 - **One event store per Brewery**, which the Cellar (`foedrum serve`) and interactive sessions drive batches on; every writer appends through the command log, one write transaction at a time ([ADR 0044](adr/0044-batch-leases-held-by-the-driver-and-one-command-log.md)).
@@ -103,21 +107,41 @@ Enterprise changes usually span several repositories. Cross-repository work is a
 
 - **Release signals** are configured per repository: **GitHub release or tag** first; package registries (NuGet, npm, Maven, …) later through the same interface. Developing against a pre-release build is a later option.
 
-```
-Order #100
- ├─ #101  lib-core  add field X
- ├─ #102  lib-core  validate X
- ├─ #103  api       use X          blocked by #101, #102  (release of lib-core)
- └─ #104  web       show X         blocked by #103        (code)
+An example: order 100 splits into four sub-orders, one repository each, bottled per repository. The api sub-order needs a published lib-core, so it conditions until the release signal reports it.
 
-Bottle A  lib-core  #101 + #102 → PR → CI → lib-core 2.4.0
-Bottle B  api       #103 → waits for lib-core ≥ 2.4.0 → bump → PR
-Bottle C  web       #104 → PR
+```mermaid
+flowchart TD
+  O["order 100"] --> S1["101 lib-core<br/>add field X"]
+  O --> S2["102 lib-core<br/>validate X"]
+  O --> S3["103 api<br/>use X"]
+  O --> S4["104 web<br/>show X"]
+  S1 -->|"code: stacked on its branch"| S2
+  S1 & S2 --> BA["Bottle A: lib-core pull request"]
+  BA -->|"merged, CI publishes"| R(["release lib-core 2.4.0"])
+  R -->|"release: conditioning until then"| S3
+  S3 --> BB["Bottle B: api pull request<br/>bumps lib-core first"]
+  S4 --> BC["Bottle C: web pull request"]
 ```
 
 ### 3.3 Target-repository issues: a work queue, and triage
 
-A team often shares a target repository while every member has a private Brewery, so several Breweries pick issues from one repository ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
+A team often shares a target repository while every member has a private Brewery, so several Breweries pick issues from one repository ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)). GitHub refuses to create a ref that exists, so the claim ref decides which Brewery takes an issue (`githubClaimHost`, `src/github/claims.ts`):
+
+```mermaid
+sequenceDiagram
+  participant A as Brewery A intake
+  participant G as target repository on GitHub
+  participant B as Brewery B intake
+  A->>G: list open issues that pass the intake filter
+  B->>G: list open issues that pass the intake filter
+  A->>G: create refs/foedrum/claims/issues/42
+  G-->>A: 201, A holds the claim
+  B->>G: create refs/foedrum/claims/issues/42
+  G-->>B: 422 Reference already exists
+  Note over B: skips issue 42, it is taken
+  Note over A: batch.ordered records the claim
+  A->>G: marks through the ledger, assignee, label, claim comment
+```
 
 - **A work queue where a Brewery asks for it.** A repository with an **intake filter** (labels, optionally a milestone) has its open issues polled. The intake picks an issue that passes the filter, has no assignee or only this Brewery's own GitHub user (assign an issue to yourself and your Brewery picks it up), was opened by one of the Brewery's allow-listed users (§10), and has no batch in this Brewery in any lane (`isCandidate`, `src/engine/issue-claims.ts`). A pass claims candidates oldest first, only up to the Brewery's free capacity (`claimCandidates`'s `limit`: the capacity less its Ordered and Brewing batches), and leaves the rest for the next pass and for the other Breweries. Such a repository names a short **alias** in `foedrum.jsonc` (a lower-case letter, then letters and digits, at most 20, unique; `foedrum doctor` refuses a duplicate), and the batch of a claimed issue is `<alias>-<issue>`, which never collides with a Brewery issue's `<issue>-<n>`. Its `OrderRef` names the repository; the issue is an order, but its batch is kept apart from the Brewery's own orders and sub-orders, whose numbers it would collide with (`createIntake`, `src/engine/intake.ts`; [ADR 0050](adr/0050-the-intake-of-target-repository-issues.md)).
 - **The claim** is the ref `refs/foedrum/claims/issues/<n>` in the target repository, created through the API: creating a ref that exists fails, so exactly one Brewery wins. It points at a commit whose message names the Brewery (`{"brewery","issue","claimedAt"}`, no host or user names). A ref that names this Brewery is its own claim, left by a run killed before it ordered the batch; any other ref, or one that cannot be read, skips the issue. The claim comes before the order, and is the second effect outside the idempotency ledger next to the state branch's push: it is idempotent by its own atomic creation, and `batch.ordered` records it.
@@ -129,7 +153,25 @@ A team often shares a target repository while every member has a private Brewery
 
 ### 3.4 State in the Brewery repository
 
-The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 0011](adr/0011-state-in-the-brewery-repository.md)):
+The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 0011](adr/0011-state-in-the-brewery-repository.md)). SQLite is written first; the supervisor's next tick flushes the new events to the state branch, and a rejected push stops the engine instead of merging (`StateBranchStopError`, `src/engine/state-branch-git.ts`):
+
+```mermaid
+sequenceDiagram
+  participant C as command log
+  participant S as SQLite store
+  participant T as supervisor tick
+  participant W as state worktree
+  participant R as foedrum/state on GitHub
+  C->>S: append the events, one transaction
+  T->>S: read the events after the pushed-through marker
+  T->>W: write them to each batch's events.jsonl, commit without the user's hooks
+  W->>R: push
+  alt push accepted
+    T->>S: move the marker to the last pushed event
+  else rejected, another engine wrote
+    T->>C: stop the engine, never merge
+  end
+```
 
 - On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history. Events without a batch (bottles, releases) go to a top-level `events.jsonl`. Every line carries the store's event id, so a rebuild merges the files by id and gets the same ids and state ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)). Batch and step ids are path segments: lower case, a letter or digit at both ends, at most 64 characters, no Windows device names (`src/schemas/ids.ts`). A remote branch with a symbolic link or submodule is refused before checkout.
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed. SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
@@ -166,7 +208,18 @@ The engine runs in a terminal or as a service the user sets up (documented for s
 
 ### 4.1 Events
 
-State is derived from an append-only event log ([ADR 0002](adr/0002-event-sourced-engine-on-node-sqlite.md)).
+State is derived from an append-only event log ([ADR 0002](adr/0002-event-sourced-engine-on-node-sqlite.md)). Every change takes one path: `decide` turns a command and the folded state into events or a refusal, the guard checks each event against the state the ones before it lead to, the command log appends them in the transaction it decided in, and the pure fold turns the log back into state (`createCommandLog`, `src/engine/command-log.ts`):
+
+```mermaid
+flowchart LR
+  C["command<br/>human or engine"] --> D["decide<br/>src/engine/decide.ts"]
+  S["state"] --> D
+  D -->|"refused"| X["refusal<br/>nothing appended"]
+  D -->|"events"| A["guard per event<br/>src/engine/admit.ts"]
+  A -->|"admitted"| T[("append<br/>one transaction")]
+  T --> F["fold, pure<br/>src/engine/fold.ts"]
+  F --> S
+```
 
 ```ts
 type Event =
@@ -258,22 +311,29 @@ A brewer attempt runs through the `BrewerRunner` interface (`src/engine/brewer-r
 
 ### 4.3 Batch lifecycle
 
-```
-   ┌──── wait ──────────► conditioning   (waiting for a merge, a release or a sibling)
-   │                         │   ▲
-   │          route · recipe │   │ wait ¹
-   │                         ▼   │
-ordered ─ route · recipe ─► brewing ──── done ────► on_tap
- │  ▲                        │   ▲
- │  │ retry ²                │   │ retry · answer · skip
- │  │                        ▼   │ recipe · rewind
- └──┴──── unrouted ²  ────► stuck
+A batch's lane is the state of its state machine: each event moves it, and the guard allows each event only from the lanes it may come from (`rule`, `src/engine/admit.ts`; the lane it leads to, `src/engine/fold.ts`).
 
-ordered · brewing · conditioning · stuck ──► cancelled
-conditioning and stuck repeat their reminder (remind)
-¹ between steps, once a recipe step needs it (ADR 0025); until then a batch enters conditioning only from ordered
-² past its routing deadline an ordered batch is stuck on routing; retry sends it back to ordered with a new deadline, recipe brews it (ADR 0032)
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "On tap" as OnTap
+  [*] --> Ordered: batch.ordered
+  Ordered --> Brewing: routed, step.scheduled
+  Ordered --> Conditioning: batch.waiting
+  Conditioning --> Conditioning: reminder
+  Conditioning --> Brewing: step.scheduled
+  Brewing --> OnTap: batch.on_tap
+  Ordered --> Stuck: past the routing deadline
+  Brewing --> Stuck: batch.stuck
+  Stuck --> Stuck: reminder
+  Stuck --> Brewing: retry, answer, skip, recipe, rewind
+  Stuck --> Ordered: retry, when stuck on routing
+  OnTap --> [*]
+  Cancelled --> [*]
+  note right of Stuck: Ordered, Brewing, Conditioning and Stuck can each be cancelled
 ```
+
+Brewing → Conditioning between steps comes once a recipe step needs it (ADR 0025); until then a batch enters Conditioning only from Ordered. A retry of a batch Stuck on routing sends it back to Ordered with a new routing deadline; `recipe` brews it (ADR 0032).
 
 The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)). It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`). On tap and cancelled are terminal. A blocked out doc is recorded as a final failure and routed by its blocker kind (brewers-and-recipes §2). Rewind is allowed only from Stuck.
 
@@ -348,7 +408,21 @@ Orchestration should cost (almost) nothing:
 
 ## 8. Humans in the loop
 
-Foedrum has two **drivers** that share one deterministic engine library and one event store ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)):
+Foedrum has two **drivers** that share one deterministic engine library and one event store ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)). The autonomous one, the Cellar, runs this loop (`runServe`, `src/cli/serve.ts`); a slow GitHub never holds up a tick, because the intake pass is not awaited:
+
+```mermaid
+flowchart TD
+  L["take the driver lock cellar"] --> S["catch up the store<br/>from the state branch"]
+  S --> W["open each repository's attempt worktrees"]
+  W --> D["open the driver with the real runner"]
+  D --> P{"pollEvery passed, no pass underway,<br/>no rate-limit pause?"}
+  P -->|"yes"| I["start an intake pass, not awaited<br/>order, claim, route"]
+  P -->|"no"| T
+  I --> T["driver tick: leases, supervisor,<br/>attempts, effects"]
+  T --> Z{"stop signal?"}
+  Z -->|"no, wait 5 s"| P
+  Z -->|"yes"| E["wait for the pass underway,<br/>stop the runs, let the lock go"]
+```
 
 - **Interactive:** an engineer opens Claude Code and types a plugin command, for example `/foedrum:brew 21`. The session drives the batch, without `foedrum serve` running: it asks the engine for the next step, runs it, shows progress live, and asks the engineer right away when a brewer returns `needs_input`. Judgement-heavy steps (refine, triage, review) run in the session itself.
 - **Autonomous:** the Cellar (`foedrum serve`) picks up orders and commands from GitHub, and later from the Brewhouse dashboard. Run in the Brewery's checkout, it reads `foedrum.jsonc` (with the Brewery's `brewery` name), `.foedrum/local.jsonc`, `models.jsonc`, the recipe files and a token (`GH_TOKEN` or `GITHUB_TOKEN`), and refuses to start with one line per problem; then it takes the driver lock `cellar`, rebuilds or catches up its store from the state branch, opens each repository's attempt worktrees (making a managed clone first) and the driver with the real runner and the attempt plans, and ticks the driver every 5 seconds until a stop signal (Ctrl+C, a kill, a closed terminal, Ctrl+Break), which stops its runs and lets the lock go (`foedrum serve`, `src/cli/serve.ts` over the pure `serveSetup`; [ADR 0063](adr/0063-foedrum-serve-its-configuration-and-wiring.md)). Beside the ticks, never inside one, it runs the intake every `pollEvery` (default a minute, ADR 0052): a pass orders labelled Brewery issues, then claims target-repository issues, within `concurrency` and to its deadline of half a batch lease, and routes the Ordered batches by label; it starts no pass during GitHub's rate-limit pause, and a stop waits for the pass underway. With a target intake, or a claimed batch in its store, it reads the token's login at its start and gives the driver the claim marks and releases as its effects ([ADR 0068](adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
@@ -385,6 +459,27 @@ Browser testing *in target repositories* is a recipe concern, not a Foedrum test
 Published metrics: chaos runs passed, stuck-without-transition count (target 0), orchestration overhead, evaluation scores per model.
 
 ## 10. Security model
+
+A brewer is a model that reads untrusted text, so it runs as the least trusted part: the engine holds the GitHub credentials and decides, and the brewer gets a worktree, a minimal environment without a GitHub token (`brewerBaseEnv`) and only the runner's own settings.
+
+```mermaid
+flowchart LR
+  subgraph U["untrusted"]
+    IS["issue and pull request text"]
+    RF["target repository files"]
+  end
+  subgraph E["engine: holds the GitHub credentials"]
+    AL["allow-listed authors only"] --> NT["input in nonce tags, as data"]
+    OD["out doc read against its schema"]
+  end
+  subgraph B["brewer: worktree, minimal environment, no GitHub token"]
+    CC["claude, the runner's settings only<br/>tool allowlist, sandbox if any"]
+  end
+  IS --> AL
+  NT --> CC
+  RF --> CC
+  CC -->|"out doc, commits"| OD
+```
 
 | Threat | Mitigation |
 |---|---|
