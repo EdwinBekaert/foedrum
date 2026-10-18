@@ -114,6 +114,10 @@ const GH_HELPER = /(?:^|[\s!'"\\/])gh(?:\.exe)?['"]?\s+auth\s+git-credential(?:\
 const SANDBOX_TOOLS = 'bubblewrap and socat';
 const WSL2_ADVICE =
   'For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.';
+/** What the permissions-only level leaves open, and what closes it (ADR 0082). */
+const keyringAdvice = (closedBy: string) =>
+  `A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; ${closedBy} closes that.`;
+const WSL2_OR_CONTAINER = keyringAdvice('WSL2 or the container level');
 
 /** The first dotted number a version command printed; `undefined` when it failed. */
 const versionOf = (run: ToolRun | undefined): string | undefined =>
@@ -320,7 +324,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
-        [WSL2_ADVICE],
+        [WSL2_ADVICE, WSL2_OR_CONTAINER],
       );
     case 'linux': {
       // WSL 1 runs Linux programs on the Windows kernel, which has no bubblewrap; WSL 2 has. WSL 1
@@ -328,7 +332,10 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       // and later also WSL2.
       const wsl = /microsoft/i.test(kernelRelease);
       if (wsl && !/microsoft-standard|wsl2/i.test(kernelRelease)) {
-        return level({ level: 'permissions only', why: 'WSL 1 has no sandbox' }, [WSL2_ADVICE]);
+        return level({ level: 'permissions only', why: 'WSL 1 has no sandbox' }, [
+          WSL2_ADVICE,
+          WSL2_OR_CONTAINER,
+        ]);
       }
       const missing: Problem[] = [];
       if (tools.bwrap === undefined) {
@@ -348,14 +355,16 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (missing.length > 0) {
         return level(
           { level: 'permissions only', why: `the sandbox needs ${SANDBOX_TOOLS}` },
-          [],
+          [keyringAdvice(`the sandboxed level (${SANDBOX_TOOLS}) or the container level`)],
           missing,
         );
       }
       return level({ level: 'sandboxed', why: wsl ? `WSL2, ${SANDBOX_TOOLS}` : SANDBOX_TOOLS });
     }
     default:
-      return level({ level: 'permissions only', why: `no sandbox on ${platform}` });
+      return level({ level: 'permissions only', why: `no sandbox on ${platform}` }, [
+        keyringAdvice('the container level'),
+      ]);
   }
 };
 

@@ -3,7 +3,7 @@
 import { Repo } from './events.ts';
 import { RepositoryAlias } from './ids.ts';
 import {
-  AllowedTool,
+  CeilingTool,
   Command,
   Duration,
   durationMs,
@@ -102,7 +102,7 @@ const RepositoryConfig = z
       .optional()
       .describe('Runs once per worktree, before the first step'),
     tools: z
-      .array(AllowedTool)
+      .array(CeilingTool)
       .default([])
       .describe("Toolchain rules added to every brewer's allowlist, within the permission ceiling"),
     houseYeast: z
@@ -152,7 +152,7 @@ export const BreweryConfig = z
       'How often the intake polls GitHub, from "30s" to "1h"; default "60s" (ADR 0052)',
     ),
     permissionCeiling: z
-      .array(AllowedTool)
+      .array(CeilingTool)
       .default([])
       .describe('The most any repository may add to its brewers; a rule covers narrower ones'),
     repositories: z
