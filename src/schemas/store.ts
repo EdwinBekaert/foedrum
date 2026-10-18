@@ -87,6 +87,19 @@ export const CommitSha = z
  * How far the state branch has the log (ADR 0024): every event up to `eventId` is on the remote
  * branch, in `commit`. Kept in the store, never in the log, so it has no JSON Schema file.
  */
+/**
+ * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
+ * the commit pushed, the revision it was resolved from, and whether it was the base's, so nothing
+ * was pushed.
+ */
+export const PushResult = z.strictObject({
+  branch: Filled,
+  commit: CommitSha,
+  from: Filled,
+  empty: z.literal(true).optional(),
+});
+export type PushResult = z.infer<typeof PushResult>;
+
 export const PushedThrough = z.strictObject({ eventId: z.int().nonnegative(), commit: CommitSha });
 export type PushedThrough = z.infer<typeof PushedThrough>;
 

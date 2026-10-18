@@ -5,6 +5,7 @@
 
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
+import { PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
 import type { Ending } from './decide.ts';
 import { type DriverActions, repositoryOf } from './driver.ts';
@@ -86,14 +87,6 @@ type Plan =
   | { kind: 'run'; repository: PullRequestRepository; revision: string }
   | { kind: 'fail'; reason: string };
 
-/** What the recorded push says against pushing again: nothing to push, or what it pushed. */
-const unpushable = (recorded: unknown): 'empty' | { from: string } | undefined => {
-  if (typeof recorded !== 'object' || recorded === null) return undefined;
-  const { empty, from } = recorded as { empty?: unknown; from?: unknown };
-  if (empty === true) return 'empty';
-  return typeof from === 'string' ? { from } : undefined;
-};
-
 // The URL the code host answered, which the ledger keeps for good and `batch.on_tap` carries.
 const pullRequestUrl = (url: string): string => {
   if (!PullRequestUrl.safeParse(url).success) {
@@ -120,8 +113,16 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       }
       // The base is never the start here: the task tree has moved (ADR 0066).
       const revision = taskTreeStart(batch, { repo: repository.repo, base: repository.base });
-      const why = unpushable(state.effects.get(effectKey.encode(pushKey(batchId))));
-      if (why === 'empty') {
+      const recorded = state.effects.get(effectKey.encode(pushKey(batchId)));
+      const pushed = recorded === undefined ? undefined : PushResult.safeParse(recorded);
+      if (pushed?.success === false) {
+        return {
+          kind: 'fail',
+          reason: `the ledger holds a push of batch ${batchId} that is not one the engine records`,
+        };
+      }
+      const why = pushed?.data;
+      if (why?.empty === true) {
         return {
           kind: 'fail',
           reason: `batch ${batchId} has no commits beyond ${repository.base} to open a pull request with`,
@@ -154,7 +155,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         const { push, revision, base, branch } = effect;
         // The commit to push, and whether it is the base's: a pull request with no commits, which
         // the code host refuses, is recorded as nothing to push instead.
-        const resolve = async (signal?: AbortSignal) => {
+        const resolve = async (signal?: AbortSignal): Promise<PushResult> => {
           const commit = await push.commit(revision, signal);
           const empty = commit === (await push.commit(base, signal));
           return { branch, commit, from: revision, ...(empty ? { empty } : {}) };
