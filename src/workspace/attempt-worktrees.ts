@@ -155,6 +155,11 @@ export interface Claims {
    * the one untracked file a worktree of that step may have and still go (ADR 0081).
    */
   outDocs?: ReadonlyMap<string, string>;
+  /**
+   * The branch of each ended batch's task tree that no push recorded, by name, with the commit
+   * the batch started from: the only ref to its commits, kept while it holds any (ADR 0084).
+   */
+  unpushed?: ReadonlyMap<string, string>;
 }
 
 /**

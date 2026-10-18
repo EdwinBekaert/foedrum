@@ -530,6 +530,42 @@ describe('planClean', () => {
     assert.deepEqual(plan.kept, []);
   });
 
+  describe('the task tree no push recorded (ADR 0084)', () => {
+    const taskTree = ref('12-1', 'brew', 2);
+    const name = attemptBranch(taskTree);
+    const keptLine = `kept branch ${name}: it holds the task tree of batch 12-1, which no push recorded (ADR 0084)`;
+    const unpushed = (start: string): Claims => ({
+      ...claims({ '12-1': 'ended' }),
+      unpushed: new Map([[name, start]]),
+    });
+
+    it('removes its worktree but keeps its branch, and says why', () => {
+      const worktree = listed(taskTree);
+
+      const plan = planClean(facts([worktree]), unpushed('base'), root);
+
+      assert.deepEqual(plan.actions[0], {
+        kind: 'remove',
+        label: '12-1/brew/2',
+        path: worktree.path,
+        record: worktree.record,
+        branch: undefined,
+      });
+      assert.ok(!plan.actions.some((action) => action.kind === 'delete-branch'));
+      assert.deepEqual(plan.kept, [keptLine]);
+    });
+
+    it('keeps its branch when its worktree is gone already', () => {
+      const plan = planClean(
+        { worktrees: [], branches: [branchOf(taskTree)], folders: [] },
+        unpushed('base'),
+        root,
+      );
+
+      assert.deepEqual(plan, { actions: [], kept: [keptLine] });
+    });
+  });
+
   it('keeps the empty folder of a live batch', () => {
     const plan = planClean(
       { worktrees: [], branches: [], folders: [{ batchId: '13-1', attempts: [] }] },

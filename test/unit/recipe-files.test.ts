@@ -917,3 +917,38 @@ describe('loadRecipes: the openPullRequest action (ADR 0071)', () => {
     });
   });
 });
+
+describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
+  const cellarman = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const withCellarman = (steps: readonly unknown[]): BreweryFiles =>
+    brewery({
+      recipes: [recipe('stout', steps, { testFirst: false })],
+      brewers: [maltster, cellarman],
+    });
+
+  it('refuses a recipe whose brewer commits and that does not end by opening the pull request', () => {
+    assert.deepEqual(problemsOf(withCellarman([{ id: 'brew', brewer: 'cellarman' }])), [
+      'recipes/stout.jsonc: step "brew" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+    ]);
+  });
+
+  it('names every step that commits', () => {
+    assert.deepEqual(
+      problemsOf(
+        withCellarman([
+          { id: 'brew', brewer: 'cellarman' },
+          { id: 'plan', brewer: 'maltster' },
+          { id: 'polish', brewer: 'cellarman' },
+        ]),
+      ),
+      ['brew', 'polish'].map(
+        (id) =>
+          `recipes/stout.jsonc: step "${id}" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
+      ),
+    );
+  });
+});

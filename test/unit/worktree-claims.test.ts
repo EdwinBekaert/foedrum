@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
-import { type Batch, emptyState, type Lane } from '../../src/engine/fold.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import {
+  type Attempt,
+  type Batch,
+  emptyState,
+  type Lane,
+  type State,
+} from '../../src/engine/fold.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 
 const batch = (id: string, lane: Lane): Batch => ({
@@ -95,5 +102,83 @@ describe('worktreeClaims', () => {
     );
     // A live batch keeps its worktrees anyway: its brewers are not looked up.
     assert.deepEqual(asked, ['on-tap/brew', 'on-tap/check', 'cancelled/brew', 'cancelled/check']);
+  });
+});
+
+describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
+  const BASE = 'b'.repeat(40);
+  const TIP = 'c'.repeat(40);
+  const finished = (stepId: string, attempt: number, commit: string): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: '2026-10-15T00:00:00.000Z',
+    worktree: {
+      repo: 'acme/app',
+      path: `/work/acme.app/attempts/12-1/${stepId}/${attempt}`,
+      branch: `foedrum/12-1/${stepId}/${attempt}`,
+      commit,
+    },
+    outcome: { kind: 'succeeded', output: {} },
+  });
+  const step = (id: string, attempts: [number, Attempt][]) => ({
+    id,
+    inputs: [],
+    attempts: new Map(attempts),
+  });
+  // Brewed by plan at the base, then brew twice, each at the plan's tree; its task tree is the
+  // branch of brew's second attempt.
+  const brewed = (lane: Lane, effects: ReadonlyMap<string, unknown> = new Map()): State => ({
+    ...emptyState,
+    effects,
+    batches: new Map([
+      [
+        '12-1',
+        {
+          ...batch('12-1', lane),
+          steps: new Map([
+            ['plan', step('plan', [[1, finished('plan', 1, BASE)]])],
+            [
+              'brew',
+              step('brew', [
+                [1, finished('brew', 1, TIP)],
+                [2, finished('brew', 2, TIP)],
+              ]),
+            ],
+          ]),
+          taskTree: { kind: 'attempt', stepId: 'brew', attempt: 2, repo: 'acme/app' },
+        },
+      ],
+    ]),
+  });
+  const pushedFrom = (from: string): ReadonlyMap<string, unknown> =>
+    new Map([
+      [
+        effectKey.encode({ batchId: '12-1', effect: 'push' }),
+        { branch: 'foedrum/acme.app/12-1/brew/2', commit: TIP, from },
+      ],
+    ]);
+
+  it("names the branch of an ended batch's task tree, with the commit the batch started from", () => {
+    for (const lane of [lanes['on-tap'], lanes.cancelled] as Lane[]) {
+      assert.deepEqual(
+        worktreeClaims(brewed(lane), []).unpushed,
+        new Map([['foedrum/12-1/brew/2', BASE]]),
+        lane.kind,
+      );
+    }
+  });
+
+  it('leaves it out once a push recorded it', () => {
+    const state = brewed(lanes['on-tap'] as Lane, pushedFrom('refs/heads/foedrum/12-1/brew/2'));
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
+  });
+
+  it('names it when the push recorded another revision: the task tree moved since', () => {
+    const state = brewed(lanes['on-tap'] as Lane, pushedFrom('refs/heads/foedrum/12-1/brew/1'));
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', BASE]]));
+  });
+
+  it('names nothing of a live batch, which keeps its branches anyway', () => {
+    assert.deepEqual(worktreeClaims(brewed(lanes.brewing as Lane), []).unpushed, new Map());
   });
 });
