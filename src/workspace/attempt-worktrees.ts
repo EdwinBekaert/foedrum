@@ -162,10 +162,14 @@ export interface Claims {
  * untracked out doc, which is then named (ADR 0081).
  */
 export const worktreeStatus = (
-  _porcelain: string,
-  _outDoc: string | undefined,
+  porcelain: string,
+  outDoc: string | undefined,
 ): { state: 'clean' | 'dirty'; outDoc?: string } => {
-  throw new Error('not implemented');
+  const changes = porcelain.split(/\r?\n/).filter((line) => line !== '');
+  if (changes.length === 0) return { state: 'clean' };
+  // The out doc is one path segment (`PathSafeId`), so git names it as it is, unquoted.
+  const onlyOutDoc = outDoc !== undefined && changes.length === 1 && changes[0] === `?? ${outDoc}`;
+  return onlyOutDoc ? { state: 'clean', outDoc } : { state: 'dirty' };
 };
 
 export type Action =
@@ -265,7 +269,11 @@ export const planClean = (
       if (!known && worktree.branch !== undefined) branchesDone.delete(worktree.branch);
       const branch =
         worktree.branch === undefined || !known ? undefined : tips.get(worktree.branch);
-      actions.push({ ...removal, label: inside, branch });
+      const outDoc =
+        removal.kind === 'remove' && worktree.outDoc !== undefined
+          ? { outDoc: worktree.outDoc }
+          : {};
+      actions.push({ ...removal, ...outDoc, label: inside, branch });
       removed.add(inside);
       continue;
     }

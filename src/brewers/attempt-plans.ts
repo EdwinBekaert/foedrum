@@ -156,8 +156,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const found = recipe === undefined ? undefined : brewers.find(recipe, stepId);
       return found === undefined ? noBrewer : attemptLimits(found.brewer);
     },
-    outDoc: () => {
-      throw new Error('not implemented');
+    outDoc: ({ batchId, stepId }) => {
+      const recipe = state().batches.get(batchId)?.recipe?.name;
+      return recipe === undefined ? undefined : brewers.find(recipe, stepId)?.brewer.output.doc;
     },
   };
 }

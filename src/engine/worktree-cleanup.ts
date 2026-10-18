@@ -41,14 +41,14 @@ export const batchIsOver = (state: State, batchId: string): boolean => {
 };
 
 export const createWorktreeCleanup = (options: WorktreeCleanupOptions): WorktreeCleanup => {
-  const { worktrees, state, leases } = options;
+  const { worktrees, state, leases, outDoc } = options;
   // One repository after another, each with the claims of now. A repository whose facts cannot
   // be gathered is reported and the others go on; the next cleanup tries it again.
   const clean = async (scope: { batchId?: string }): Promise<CleanReport> => {
     const report: CleanReport = { done: [], kept: [], failed: [] };
     for (const manager of worktrees) {
       try {
-        const done = await manager.clean(worktreeClaims(state(), leases()), scope);
+        const done = await manager.clean(worktreeClaims(state(), leases(), outDoc), scope);
         report.done.push(...done.done);
         report.kept.push(...done.kept);
         report.failed.push(...done.failed);

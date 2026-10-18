@@ -17,10 +17,12 @@ import {
   type BatchFolderFact,
   type Claims,
   type ListedFact,
+  parseAttemptFolder,
   planClean,
   planWorktree,
   repoFolder,
   type Target,
+  worktreeStatus,
 } from './attempt-worktrees.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 import { parseWorktreeList } from './worktree-list.ts';
@@ -178,14 +180,19 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     return gitdir !== undefined && samePath(resolve(path, gitdir), record);
   };
   // The state of a worktree folder, with git run against its record only, never by
-  // discovery from inside the folder.
-  const stateOf = async (path: string, record: string | undefined): Promise<FolderState> => {
-    if (!existsSync(path)) return 'gone';
-    if (!existsSync(join(path, '.git'))) return 'no-git';
-    if (record === undefined || !(await pointsAt(path, record))) return 'foreign';
+  // discovery from inside the folder. With `outDoc`, that untracked file alone still counts as
+  // clean, and is named (ADR 0081).
+  const stateOf = async (
+    path: string,
+    record: string | undefined,
+    outDoc?: string,
+  ): Promise<{ state: FolderState; outDoc?: string }> => {
+    if (!existsSync(path)) return { state: 'gone' };
+    if (!existsSync(join(path, '.git'))) return { state: 'no-git' };
+    if (record === undefined || !(await pointsAt(path, record))) return { state: 'foreign' };
     const args = [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'];
     const status = await git(clone, args, { config: { 'core.fsmonitor': 'false' } });
-    return status.code === 0 && status.stdout.trim() === '' ? 'clean' : 'dirty';
+    return status.code === 0 ? worktreeStatus(status.stdout, outDoc) : { state: 'dirty' };
   };
   // One fetch at a time: concurrent fetches in one clone fail on git's ref locks.
   let fetching: Promise<unknown> = Promise.resolve();
@@ -213,7 +220,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     let listed: ListedFact | undefined;
     if (here !== undefined) {
       const record = recordOf(await readRecordsOfClone(), here.path);
-      listed = { ...here, inside, state: await stateOf(here.path, record), record };
+      listed = { ...here, inside, state: (await stateOf(here.path, record)).state, record };
     }
     const checkedOutAt = worktrees.find(
       (worktree) => worktree.branch === branch && !samePath(worktree.path, path),
@@ -298,8 +305,14 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
       for (const worktree of await listWorktrees()) {
         const inside = pathInside(root, worktree.path);
         const record = recordOf(records, worktree.path);
-        const state = inside === undefined ? 'unchecked' : await stateOf(worktree.path, record);
-        worktrees.push({ ...worktree, inside, state, record });
+        // The out doc of the attempt's step, which every attempt that ran here wrote (ADR 0081).
+        const ref = inside === undefined ? undefined : parseAttemptFolder(inside);
+        const outDoc = ref && claims.outDocs?.get(`${ref.batchId}/${ref.stepId}`);
+        const status =
+          inside === undefined
+            ? { state: 'unchecked' as const }
+            : await stateOf(worktree.path, record, outDoc);
+        worktrees.push({ ...worktree, inside, ...status, record });
       }
       const format = '--format=%(refname:lstrip=2)%00%(objectname)';
       const refs = await must(git, clone, ['for-each-ref', format, 'refs/heads/foedrum/']);

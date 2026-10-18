@@ -200,6 +200,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     takes,
     stateBranch,
     limits,
+    outDoc,
     worktrees = [],
     alsoCleans = [],
     effects,
@@ -225,6 +226,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     worktrees: cleaners,
     state: log.state,
     leases: () => store.currentLeases(clock()),
+    ...(outDoc === undefined ? {} : { outDoc }),
   });
   let started: DriverStart;
   // The batches it holds: at its start, those its owner held before, which it drives on.
