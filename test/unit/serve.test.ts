@@ -26,7 +26,7 @@ import { fakeFetch } from '../helpers/fake-fetch.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { config, home, local, serveInputs } from '../helpers/serve-brewery.ts';
+import { brewer, config, home, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const issue = JSON.parse(
@@ -443,6 +443,120 @@ describe('runServe', () => {
         attempts: 2,
         lastReason: 'the check "test" (npm test) failed with exit code 1',
       });
+    });
+  });
+
+  describe('test-first recipes (ADR 0078)', () => {
+    // The Gauger commits failing tests, the red proof reads them, the cellarman keeps them.
+    const nip = JSON.stringify({
+      name: 'nip',
+      description: 'Proves the tests red, then brews.',
+      steps: [
+        { id: 'gauge', brewer: 'gauger' },
+        { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
+        { id: 'implement', brewer: 'cellarman' },
+      ],
+    });
+    const guarded = brewer.replace(
+      '"maxAttempts": 1',
+      '"maxAttempts": 1,\n  "guards": ["testsUnchanged"]',
+    );
+    const gauger = brewer.replace('"name": "cellarman"', '"name": "gauger"');
+    const testFirstSetup = (web: Record<string, unknown>) => {
+      const files = serveInputs().files;
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            config: config({}, web),
+            local: local({ workRoot: dir.path }),
+            brewery: {
+              recipes: [{ path: 'recipes/nip.jsonc', text: nip }],
+              brewers: [
+                { path: 'brewers/cellarman.md', text: guarded },
+                { path: 'brewers/gauger.md', text: gauger },
+              ],
+            },
+          },
+        }),
+      );
+      assert.ok(result.kind === 'ready', JSON.stringify(result));
+      return result.setup;
+    };
+    const tap =
+      "TAP version 13\nnot ok 1 - adds two numbers\n  ---\n  error: 'not implemented'\n  ...\n1..1\n";
+    const gaugeDiff =
+      "diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1 @@\n+test('adds two numbers', () => assert.equal(add(1, 2), 3));\n";
+
+    /** Serve brewing batch 14-1 with the nip recipe: what the brewers, the checks and git saw. */
+    const brewTestFirst = async (testFirst: ServeSetup) => {
+      const log = createCommandLog({ store, recipes: testFirst.recipes });
+      log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
+      const route = { kind: 'route', batchId: '14-1', recipe: 'nip', reason: 'label' } as const;
+      log.issue({ ...route, source: 'label' }, t0);
+      const brewed: string[] = [];
+      const succeeding: BrewerRunner = {
+        start: ({ ref }) => {
+          brewed.push(ref.stepId);
+          const output = { status: 'done', summary: 'Brewed' };
+          return {
+            ended: Promise.resolve({ ending: { kind: 'succeeded', output } }),
+            stop: () => {},
+          };
+        },
+        progress: () => undefined,
+      };
+      const checks: string[] = [];
+      const exec: ExecProcess = async (file) => {
+        checks.push(file);
+        return { exitCode: 1, stdout: tap, stderr: '', output: tap };
+      };
+      const diffs: string[] = [];
+      const code = await runServe(
+        testFirst,
+        shell({
+          runner: () => succeeding,
+          exec,
+          git: async (_cwd, args) => {
+            const range = args.slice(-3, -1).join(' ');
+            diffs.push(range);
+            return { code: 0, stdout: range.endsWith('HEAD') ? '' : gaugeDiff, stderr: '' };
+          },
+          wait: async () => {
+            calls.push('wait');
+            const lane = log.state().batches.get('14-1')?.lane.kind;
+            if (lane === 'on_tap' || lane === 'stuck' || calls.length > 40) controller.abort();
+          },
+        }),
+      );
+      assert.equal(code, 0);
+      return { brewed, checks, diffs, batch: log.state().batches.get('14-1') };
+    };
+
+    it('makes a batch Stuck at its start, before any brewer runs, when the repository has no test report', async () => {
+      const { brewed, checks, batch } = await brewTestFirst(testFirstSetup({}));
+      assert.deepStrictEqual([brewed, checks], [[], []]);
+      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
+        kind: 'blocked',
+        stepId: 'gauge',
+        blockerKind: 'environment',
+        summary:
+          'recipe nip proves its tests red, which needs the test report of acme/web: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)',
+      });
+    });
+
+    it("proves the Gauger's tests red from the test report and guards them, through serve's git", async () => {
+      const { brewed, checks, diffs, batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }),
+      );
+      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.deepStrictEqual([brewed, checks], [['gauge', 'implement'], ['npm test']]);
+      // The red proof reads the Gauger's commits; the guard reads them and the cellarman's own.
+      const gaugeRange = /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/gauge\/1$/;
+      assert.equal(diffs.length, 3);
+      assert.match(diffs[0] ?? '', gaugeRange);
+      assert.match(diffs[1] ?? '', gaugeRange);
+      assert.match(diffs[2] ?? '', /^[0-9a-f]{40} HEAD$/);
     });
   });
 
