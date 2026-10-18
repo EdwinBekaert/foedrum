@@ -10,7 +10,7 @@ import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runn
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
-import type { ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 import type { TestReportConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
@@ -115,7 +115,9 @@ const setup = ({
   clearFails = undefined as string | undefined,
 } = {}) => {
   const order: string[] = [];
+  const execOptions: ExecOptions[] = [];
   const exec: ExecProcess = (file, _args, options) => {
+    execOptions.push(options);
     order.push(`exec ${file} in ${options.cwd}`);
     const stdout = test.stdout ?? '';
     return Promise.resolve({ exitCode: 0, stdout, stderr: '', output: stdout, ...test });
@@ -154,22 +156,24 @@ const setup = ({
   });
   const run = () =>
     runner.start({ ref, limits: { outDoc: { file: 'out.md', schema: undefined as never } } }).ended;
-  return { order, run };
+  return { order, run, execOptions };
 };
 
 const failedWith = (reason: string) => ({ kind: 'failed', retryable: false, reason });
 
 describe('createCheckRunner: the red proof (ADR 0078)', () => {
   it("proves red the proven step's tests from TAP on stdout, with the step's commits from git", async () => {
-    const { order, run } = setup();
+    const { order, run, execOptions } = setup();
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    // TAP on stdout may be as large as a report file: 16 MiB, past the runner's default 4 MiB.
+    assert.equal(execOptions[0]?.maxOutputBytes, 16 * 1024 * 1024);
     assert.deepEqual(
       end.readings?.map((reading) => [reading.result, 'exitCode' in reading && reading.exitCode]),
       [['exited', 1]],
     );
     assert.deepEqual(order, [
-      `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${redTree}`,
+      `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${redTree}`,
       `exec npm test in ${redTree}`,
     ]);
   });

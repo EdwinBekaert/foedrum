@@ -94,6 +94,13 @@ describe('parseJunit', () => {
     assert.match(parsed.readable ? '' : parsed.reason, /DOCTYPE/);
   });
 
+  it('refuses a report nested deeper than 256 elements, before it can overflow the stack', () => {
+    const deep = `<testsuites>${'<testsuite>'.repeat(300)}<testcase name="a"/>${'</testsuite>'.repeat(300)}</testsuites>`;
+    const parsed = parseJunit(deep);
+    assert.equal(parsed.readable, false);
+    assert.match(parsed.readable ? '' : parsed.reason, /nested deeper than 256 elements/);
+  });
+
   it('refuses what is not a JUnit report', () => {
     const refuses = (text: string, reason: RegExp) => {
       const parsed = parseJunit(text);

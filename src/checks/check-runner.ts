@@ -34,7 +34,8 @@ import { readDiff, stepCommits } from './step-commits.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
-  clear: (file: string) => void;
+  /** Clears the report only inside `root`, the worktree. */
+  clear: (file: string, root: string) => void | Promise<void>;
   /** Reads the report only inside `root`, the worktree. */
   read: (file: string, root: string) => OutDocRead;
 }
@@ -70,7 +71,7 @@ const KILL_MARGIN_MS = 10_000;
 const MAX_REPORT_BYTES = 16 * 1024 * 1024;
 
 /** The test report files of the real file system: removed when there, read as an out doc is. */
-const fileReports: ReportFiles = {
+export const fileReports: ReportFiles = {
   clear: (file) => rmSync(file, { force: true }),
   read: (file, root) => readOutDocFile(file, MAX_REPORT_BYTES, root),
 };
@@ -172,7 +173,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       report.path === undefined ? undefined : join(worktree.path, ...report.path.split('/'));
     if (file !== undefined) {
       try {
-        reports.clear(file);
+        reports.clear(file, worktree.path);
       } catch (error) {
         // A folder at the path, or on Windows a file another process holds open.
         const why = error instanceof Error ? error.message : String(error);

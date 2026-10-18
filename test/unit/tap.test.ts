@@ -142,6 +142,34 @@ describe('parseTap', () => {
     assert.doesNotMatch(report.other, /\r/);
   });
 
+  it('ends a line at a carriage return alone', () => {
+    const report = read('ok 1 - first\rok 2 - second\n1..2\n');
+    assert.deepEqual(brief(report.tests), [
+      ['first', 'passed', true],
+      ['second', 'passed', true],
+    ]);
+  });
+
+  it('ends a diagnostic block that never closes at a line no deeper than its start', () => {
+    const report = read(
+      [
+        'not ok 1 - first',
+        '  ---',
+        "  error: 'boom'",
+        '',
+        '    more',
+        'ok 2 - second',
+        'Bail out! gone',
+      ].join('\n'),
+    );
+    assert.deepEqual(brief(report.tests), [
+      ['first', 'failed', true],
+      ['second', 'passed', true],
+    ]);
+    assert.match(report.tests[0]?.detail ?? '', /more/);
+    assert.equal(report.bailedOut, 'gone');
+  });
+
   it('refuses text with no test point', () => {
     assert.deepEqual(parseTap('Error: Cannot find module\n'), {
       readable: false,

@@ -248,6 +248,38 @@ describe('judgeRed', () => {
     });
   });
 
+  it('does not take a call or an assertion in a line the step added for a declaration', () => {
+    const java = [
+      {
+        newPath: 'src/test/java/AddTest.java',
+        added: [
+          '  @Test',
+          '  void addNegative() {',
+          '    assertEquals(-3, calc.add(-1, -2));',
+          '    assert.equal(add(1, -2), -1);',
+        ],
+        removed: [],
+      },
+    ];
+    // "add" is an older test that passes: the step only calls the function it is named after.
+    const report = junit(`<testsuite>
+      <testcase classname="AddTest" name="add"/>
+      <testcase classname="AddTest" name="addNegative"><failure message="not implemented"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, java), { proven: true, tests: ['addNegative'] });
+  });
+
+  it('does not take a name longer than 1,000 characters for one the step added', () => {
+    const name = `adds ${'very '.repeat(250)}numbers`;
+    const long = [
+      { newPath: 'test/add.test.mjs', added: [`test('${name}', () => {`], removed: [] },
+    ];
+    assert.equal(
+      why(tap(...failing(1, name, 'not implemented')), long),
+      'none of the 1 tests in the report is one the step added',
+    );
+  });
+
   it('never takes an unnamed test, or a name that is only part of a word, for one the step added', () => {
     const report = tap('ok 1', 'ok 2 - adds two', ...failing(3, 'adds two numbers', 'x'));
     assert.deepEqual(judgeRed(report, gauged), { proven: true, tests: ['adds two numbers'] });

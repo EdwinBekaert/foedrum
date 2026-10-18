@@ -142,7 +142,7 @@ describe('guardTests (ADR 0078)', () => {
         'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: assert.equal(add(1, 2), 3);',
     });
     const flags =
-      '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
+      '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, args.join(' ')]),
       [
