@@ -258,6 +258,25 @@ describe('renderStatus', () => {
     assert.ok(waiting.includes(`the merge of <${normalized}>`), waiting);
   });
 
+  it("stays within GitHub's limit for a comment however many questions a brewer asked", () => {
+    const long = '@'.repeat(300);
+    const question = {
+      q: long,
+      options: Array(30).fill(long),
+      recommended: long,
+      whyBlocking: 'x',
+    };
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'needs_input', stepId: 'plan', questions: Array(40).fill(question) }),
+      }),
+      steps,
+    );
+    assert.ok(text.length <= 60_000, `${text.length} characters`);
+    assert.match(text, /and 30 more questions/);
+    assert.match(text, /and 20 more options/);
+  });
+
   it('says so when a batch on tap has no pull request', () => {
     const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [] } }), steps);
     assert.match(text, /No pull request/);
