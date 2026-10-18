@@ -110,7 +110,7 @@ Enterprise changes usually span several repositories. Cross-repository work is a
 An example: order 100 splits into four sub-orders, one repository each, bottled per repository. The api sub-order needs a published lib-core, so it conditions until the release signal reports it.
 
 ```mermaid
-flowchart LR
+flowchart TD
   O["order 100"] --> S1["101 lib-core<br/>add field X"]
   O --> S2["102 lib-core<br/>validate X"]
   O --> S3["103 api<br/>use X"]
