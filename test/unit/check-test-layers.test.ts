@@ -310,3 +310,38 @@ describe('realGhFindings reads templates and regular expressions as code does', 
     );
   });
 });
+
+// Naming the configuration or the runner is not enough when the call hands over the real one.
+describe('realGhFindings and what an injected value really is', () => {
+  it('reports a spawn of gh whose GH_CONFIG_DIR is the machine’s own or none', () => {
+    const source = [
+      "execProcess('gh', ['auth', 'status'], { env: { GH_CONFIG_DIR: process.env.GH_CONFIG_DIR } });",
+      "execProcess('gh', ['auth', 'status'], { env: { ...env, GH_CONFIG_DIR: undefined } });",
+      "execProcess('gh', ['auth', 'status'], { env: { GH_CONFIG_DIR: process.env['GH_CONFIG_DIR'] } });",
+    ].join('\n');
+    assert.deepEqual(
+      realGhFindings(source).map(({ line }) => line),
+      [1, 2, 3],
+    );
+  });
+
+  it('reports doctorFromCheckout, serveFromCheckout and cliFromCheckout given the real runner', () => {
+    const source = [
+      'await doctorFromCheckout(cwd, { exec: execProcess, resolve });',
+      'await serveFromCheckout(cwd, { resolve, exec: spawnProcess });',
+      "await cliFromCheckout(['doctor'], cwd, { exec: streamProcess });",
+      'await doctorFromCheckout(cwd, { exec: cannedGhLogin(execProcess), resolve });',
+    ].join('\n');
+    assert.deepEqual(
+      realGhFindings(source).map(({ line }) => line),
+      [1, 2, 3],
+    );
+  });
+
+  it('reports src/cli/main.ts written with escaped Windows separators', () => {
+    assert.deepEqual(
+      realGhFindings("const main = 'src\\\\cli\\\\main.ts';").map(({ line }) => line),
+      [1],
+    );
+  });
+});
