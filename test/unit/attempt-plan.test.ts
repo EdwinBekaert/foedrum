@@ -529,6 +529,23 @@ describe('planAttempt', () => {
       );
     });
 
+    it("names its own commands, then git.commit's, then the repository's, before the asking paragraph", () => {
+      const plan = planAttempt({
+        ...committing(['Read', 'Bash(ls *)']),
+        repoTools: ['Bash(npm test)'],
+      });
+      // In the order of the plan's allow rules, each without its star (review of #231).
+      const bash = plan.permissions.allow
+        .filter((rule) => rule.startsWith('Bash('))
+        .map((rule) => rule.slice('Bash('.length, -1).replace(/ \*$/, ''));
+      assert.deepEqual(bash, ['ls', 'git status', 'git add', 'git commit', 'npm test']);
+      assert.ok(
+        plan.prompt.includes(
+          `\n\nYour shell runs only: ${bash.join(', ')}. A denial stops that command only.\n\nPrefer deciding and recording an assumption over asking.`,
+        ),
+      );
+    });
+
     it('keeps the contract with the commit lines and its commands within 1,400 characters', () => {
       // Without the repository's rules, which differ per repository: the limit holds the fixed text.
       const { prompt } = planAttempt({
