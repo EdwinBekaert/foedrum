@@ -25,6 +25,8 @@ export interface GitHubAnswer {
   status: number;
   body: unknown;
   headers: Headers;
+  /** How long the answer was, in bytes: what the reads count against their cache (ADR 0068). */
+  bytes: number;
 }
 
 /**
@@ -144,16 +146,16 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
     return true;
   };
 
-  // The answer's text, given up once it passes `maxResponseBytes`: GitHub returns what anyone with
+  // The answer's bytes, given up once they pass `maxResponseBytes`: GitHub returns what anyone with
   // push access wrote, such as a claim commit's message, and nothing keeps that small.
-  const readLimited = async (response: Response, what: string): Promise<string> => {
+  const readLimited = async (response: Response, what: string): Promise<Buffer> => {
     const tooLong = () =>
       new Error(`GitHub's answer to ${what} is longer than ${maxResponseBytes} bytes`);
     if (Number(response.headers.get('content-length')) > maxResponseBytes) {
       await response.body?.cancel();
       throw tooLong();
     }
-    if (response.body === null) return '';
+    if (response.body === null) return Buffer.alloc(0);
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -167,7 +169,7 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
       }
       chunks.push(value);
     }
-    return Buffer.concat(chunks).toString('utf8');
+    return Buffer.concat(chunks);
   };
 
   const request = async (
@@ -199,9 +201,11 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.any(signals),
       });
+      const text = await readLimited(response, `${method} ${path}`);
       const answer = {
         status: response.status,
-        body: parse(await readLimited(response, `${method} ${path}`)),
+        body: parse(text.toString('utf8')),
+        bytes: text.byteLength,
         headers: response.headers,
       };
       if (limitedBy(answer)) throw new GitHubRateLimited(new Date(pausedUntil));

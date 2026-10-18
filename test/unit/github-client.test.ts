@@ -50,6 +50,13 @@ describe('createGitHubClient', () => {
     assert.equal(answer.headers.get('link'), '<x>; rel="next"');
   });
 
+  it('says how many bytes each answer was, for the reads to bound their cache (ADR 0068)', async () => {
+    const { client } = clientWith([{ status: 200, body: { title: 'é' } }, { status: 204 }]);
+    // {"title":"é"}: 13 characters, 14 bytes in UTF-8.
+    assert.equal((await client.rest('GET', '/repos/acme/web/issues/1')).bytes, 14);
+    assert.equal((await client.rest('GET', '/repos/acme/web/issues/2')).bytes, 0);
+  });
+
   it('names its base URL without a trailing slash, and asks there', async () => {
     const fake = fakeFetch([ok]);
     const client = createGitHubClient({

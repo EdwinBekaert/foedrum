@@ -1,6 +1,6 @@
 # 0032. A routing deadline for Ordered batches
 
-Date: 2026-10-16 · Status: Accepted, amended by [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (routing may skip steps whose when is false) · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) and [0027](0027-supervisor-lost-and-stalled-attempts.md)
+Date: 2026-10-16 · Status: Accepted, amended by [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (routing may skip steps whose when is false) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (the intake routes by label) · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) and [0027](0027-supervisor-lost-and-stalled-attempts.md)
 
 ## Context
 Invariant I1 says every non-terminal batch has exactly one pending action with a deadline. An Ordered batch had none: `batch.ordered` set no deadline, and the batch got one only when it was routed (`step.scheduled`) or entered Conditioning (`batch.waiting`). The property tests of #14 had to exempt Ordered from I1 (#98). An order whose routing never happens (the router crashed, a label was never read, the engine restarted between `batch.ordered` and `route`) sat in Ordered forever without a word, and I5 could not catch it because it had no deadline to miss. That breaks the engine rule that every wait has a deadline and a batch never sits silently.

@@ -53,3 +53,6 @@ export const GitHubComment = z.object({
   user: Account.nullable().optional(),
   body: z.string().optional(),
 });
+
+/** `GET /user`: the account of the token. */
+export const GitHubUser = z.object({ login: z.string().min(1) });
