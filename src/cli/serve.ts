@@ -314,6 +314,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       takes: () => true,
       stateBranch,
       limits: plans.limits,
+      outDoc: plans.outDoc,
       worktrees,
       alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
       effects,

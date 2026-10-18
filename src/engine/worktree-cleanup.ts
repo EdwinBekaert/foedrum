@@ -5,7 +5,7 @@ import type { Event } from '../schemas/events.ts';
 import type { AttemptWorktrees, CleanReport } from '../workspace/attempt-worktrees-git.ts';
 import type { Lease } from './event-store.ts';
 import type { State } from './fold.ts';
-import { laneStatus, worktreeClaims } from './worktree-claims.ts';
+import { laneStatus, type OutDocOf, worktreeClaims } from './worktree-claims.ts';
 
 export interface WorktreeCleanupOptions {
   /** One manager per repository the Brewery's attempts write in. */
@@ -14,6 +14,8 @@ export interface WorktreeCleanupOptions {
   state: () => State;
   /** The leases alive now (`EventStore.currentLeases`). */
   leases: () => readonly Lease[];
+  /** The out doc of a step's brewer, which may be a worktree's only change (ADR 0081). */
+  outDoc?: OutDocOf;
 }
 
 export interface WorktreeCleanup {
@@ -39,14 +41,14 @@ export const batchIsOver = (state: State, batchId: string): boolean => {
 };
 
 export const createWorktreeCleanup = (options: WorktreeCleanupOptions): WorktreeCleanup => {
-  const { worktrees, state, leases } = options;
+  const { worktrees, state, leases, outDoc } = options;
   // One repository after another, each with the claims of now. A repository whose facts cannot
   // be gathered is reported and the others go on; the next cleanup tries it again.
   const clean = async (scope: { batchId?: string }): Promise<CleanReport> => {
     const report: CleanReport = { done: [], kept: [], failed: [] };
     for (const manager of worktrees) {
       try {
-        const done = await manager.clean(worktreeClaims(state(), leases()), scope);
+        const done = await manager.clean(worktreeClaims(state(), leases(), outDoc), scope);
         report.done.push(...done.done);
         report.kept.push(...done.kept);
         report.failed.push(...done.failed);
