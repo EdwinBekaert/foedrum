@@ -1,50 +1,38 @@
-// `foedrum doctor` on the real machine (ADR 0021): the program starts, finds the tools through
-// PATH and reads their versions through the process runner (npm.cmd through cmd.exe on Windows).
-// What a machine has differs, so this checks the report's structure only; the report itself is
-// in test/unit/cli.test.ts. gh runs with an empty configuration of its own, so it has no login
-// to check against github.com (ADR 0073).
+// `foedrum doctor` on the real machine (ADR 0021): its shell finds the tools through PATH and
+// reads their versions through the process runner (npm.cmd through cmd.exe on Windows). What a
+// machine has differs, so this checks the report's structure only; the report itself is in
+// test/unit/cli.test.ts. gh's login check gets a canned answer for a made-up host
+// (canned-gh-login.ts): no test asks the real gh for a login (ADR 0073).
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
-import { envWithoutGhLogin } from '../helpers/gh-config.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
+import { cannedGhLogin, doctorHere, MADE_UP_HOST } from './canned-gh-login.ts';
 
-const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
 const VERSION = String.raw`\d+(?:\.\d+)+`;
 
 describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
-    const config = makeTempDir('doctor-gh');
-    const { exitCode, stdout, stderr } = await execProcess(process.execPath, [main, 'doctor'], {
-      cwd: import.meta.dirname,
-      env: envWithoutGhLogin(config.path),
-      timeoutMs: 60_000,
-    }).finally(() => config.remove());
-    assert.equal(stderr, '');
+    const { exitCode, stdout } = await doctorHere(import.meta.dirname);
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
     const row = (name: string): string | undefined =>
       lines.find((line) => line.startsWith(`  ${name} `));
     assert.match(row('node') ?? '', new RegExp(`^  node +${VERSION}$`));
-    // CI has npm and git everywhere; npm is npm.cmd on Windows.
+    // CI has npm, git and gh everywhere; npm is npm.cmd on Windows.
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
-    // CI has gh everywhere too; here it has no login, which is a required problem.
     const inCi = process.env.CI !== undefined && process.env.CI !== '';
     assert.match(
       row('gh') ?? '',
       new RegExp(`^  gh +(?:${inCi ? '' : 'missing|'}${VERSION} +\\S.*)$`),
     );
+    // The canned answer is logged in, so doctor names no login to make where gh is there.
     if (!/ missing$/.test(row('gh') ?? '')) {
-      assert.ok(
-        lines.includes(
-          '  gh is not logged in to github.com (required): run gh auth login --hostname github.com',
-        ),
-        stdout,
-      );
+      assert.ok(!lines.some((line) => line.includes('gh auth login')), stdout);
     }
     assert.match(row('claude') ?? '', new RegExp(`^  claude +(?:missing|${VERSION} +\\S.*)$`));
     const linux = process.platform === 'linux';
@@ -93,11 +81,7 @@ describe('foedrum doctor in a Brewery', () => {
         },
       };
       writeFileSync(join(dir.path, 'foedrum.jsonc'), JSON.stringify(config));
-      const { exitCode, stdout } = await execProcess(process.execPath, [main, 'doctor'], {
-        cwd: dir.path,
-        env: envWithoutGhLogin(dir.path),
-        timeoutMs: 60_000,
-      });
+      const { exitCode, stdout } = await doctorHere(dir.path);
       assert.equal(exitCode, 1);
       assert.match(
         stdout,
@@ -111,23 +95,26 @@ describe('foedrum doctor in a Brewery', () => {
 
 // doctor reads git's own credential settings (ADR 0073): the format the unit tests' fixtures stand
 // in for, from the real git, with a global configuration of the test's own and no system one.
+// These are about git, so gh's version is canned as well as its login.
 describe("foedrum doctor and git's credential helper", () => {
   const advice = async (helpers: string[]): Promise<string[]> => {
     const dir = makeTempDir('doctor-credentials');
     try {
       const global = join(dir.path, 'gitconfig');
       const lines = helpers.map((helper) => `\thelper = ${helper}\n`).join('');
-      writeFileSync(global, `[credential "https://github.com"]\n${lines}`);
-      const { stdout } = await execProcess(process.execPath, [main, 'doctor'], {
-        cwd: dir.path,
-        env: {
-          ...envWithoutGhLogin(dir.path),
-          GIT_CONFIG_GLOBAL: global,
-          GIT_CONFIG_NOSYSTEM: '1',
-          // The folder is inside Foedrum's own checkout: git must not read its local settings.
-          GIT_CEILING_DIRECTORIES: dirname(dir.path),
-        },
-        timeoutMs: 60_000,
+      writeFileSync(global, `[credential "https://${MADE_UP_HOST}"]\n${lines}`);
+      const env = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: global,
+        GIT_CONFIG_NOSYSTEM: '1',
+        // The folder is inside Foedrum's own checkout: git must not read its local settings.
+        GIT_CEILING_DIRECTORIES: dirname(dir.path),
+      };
+      const { stdout } = await doctorHere(dir.path, {
+        exec: cannedGhLogin(
+          (file, args, options) => execProcess(file, args, { ...options, env }),
+          'gh version 2.102.0 (2026-09-30)\n',
+        ),
       });
       return stdout
         .split('\n')
@@ -142,12 +129,12 @@ describe("foedrum doctor and git's credential helper", () => {
   });
 
   it('names the helper git asks first when it is not gh, and when there is none', async () => {
-    const fix = "run gh auth setup-git --hostname github.com, so git pushes with gh's login";
+    const fix = `run gh auth setup-git --hostname ${MADE_UP_HOST}, so git pushes with gh's login`;
     assert.deepEqual(await advice(['store', '!gh auth git-credential']), [
-      `  git asks store for https://github.com credentials, not gh: ${fix}`,
+      `  git asks store for https://${MADE_UP_HOST} credentials, not gh: ${fix}`,
     ]);
     assert.deepEqual(await advice([]), [
-      `  git has no credential helper for https://github.com: ${fix}`,
+      `  git has no credential helper for https://${MADE_UP_HOST}: ${fix}`,
     ]);
   });
 });

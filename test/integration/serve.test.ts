@@ -1,4 +1,5 @@
-// `foedrum serve` as the real program (ADR 0063). It refuses a folder that is no Brewery, and,
+// `foedrum serve` (ADR 0063). Its own start refuses a folder that is no Brewery, with a canned
+// answer for gh's login check (canned-gh-login.ts); and, as the real program,
 // opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057), it brews one real step end to end on a throwaway
 // Brewery: a labelled issue the intake orders and routes from a fake GitHub (ADR 0068) that the
 // real gh reaches with a synthetic login of the test's own (ADR 0073), the order's text from there
@@ -11,13 +12,14 @@ import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { serveFromCheckout } from '../../src/cli/serve-main.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
-import { envWithoutGhLogin } from '../helpers/gh-config.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { brewer, recipe } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { cannedGhLogin } from './canned-gh-login.ts';
 import { type Route, SYNTHETIC_LOGIN, startFakeGitHubOverGh } from './fake-github-over-gh.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
@@ -39,12 +41,8 @@ describe('foedrum serve', () => {
   afterEach(() => dir.remove());
 
   it('refuses a folder that is no Brewery, with one line per problem', async () => {
-    const result = await execProcess(process.execPath, [main, 'serve'], {
-      cwd: dir.path,
-      // gh has no login here, so its check reaches no GitHub (ADR 0073).
-      env: envWithoutGhLogin(dir.path),
-      timeoutMs: 60_000,
-    });
+    // serve's own start, with a canned answer for gh's login check (ADR 0073).
+    const result = await serveFromCheckout(dir.path, { exec: cannedGhLogin() });
     assert.equal(result.exitCode, 1, result.stderr);
     assert.match(result.stderr, /^foedrum serve: foedrum\.jsonc: not found in /m);
     assert.match(result.stderr, /^foedrum serve: models\.jsonc: not found in /m);
