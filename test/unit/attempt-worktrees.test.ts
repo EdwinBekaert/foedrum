@@ -564,6 +564,24 @@ describe('planClean', () => {
 
       assert.deepEqual(plan, { actions: [], kept: [keptLine] });
     });
+
+    it('deletes its branch and the other branches of the batch when it holds nothing past the start', () => {
+      const other = ref('12-1', 'brew', 1);
+
+      const plan = planClean(
+        { worktrees: [], branches: [branchOf(other), branchOf(taskTree)], folders: [] },
+        unpushed(tipOf(name)),
+        root,
+      );
+
+      assert.deepEqual(plan, {
+        actions: [
+          { kind: 'delete-branch', branch: attemptBranch(other), tip: tipOf(attemptBranch(other)) },
+          { kind: 'delete-branch', branch: name, tip: tipOf(name) },
+        ],
+        kept: [],
+      });
+    });
   });
 
   it('keeps the empty folder of a live batch', () => {

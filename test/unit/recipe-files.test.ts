@@ -954,4 +954,21 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       ),
     );
   });
+
+  it('loads it when it ends with the openPullRequest action', () => {
+    const stout = loaded(
+      loadRecipes(
+        withCellarman([{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }]),
+      ),
+    ).find('stout');
+    assert.deepEqual(stout?.steps, ['brew', 'open-pull-request']);
+  });
+
+  it('still puts a recipe that commits nothing on tap without a pull request', () => {
+    const pale = loaded(loadRecipes(brewery())).find('pale');
+    assert.deepEqual(pale?.after(batch({ maltster: 1, plan: 1 }), 'plan'), {
+      kind: 'done',
+      pullRequests: [],
+    });
+  });
 });
