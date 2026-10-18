@@ -40,22 +40,44 @@ export interface StatusComments {
 const longest = 200;
 /** How many assumptions of one step the comment shows. */
 const mostAssumptions = 10;
+/** How many questions of a batch Stuck for input the comment shows, and options of each. */
+const mostQuestions = 10;
+const mostOptions = 10;
+/**
+ * How long the text may be: below GitHub's 65,536 characters for a comment, with room for the
+ * marker. Escaping can make each text a brewer wrote five times as long, so the caps alone do not
+ * keep it there.
+ */
+const longestText = 60_000;
+
+/** HTML's characters and `@`, as the entities GitHub shows as themselves. */
+const entities: Readonly<Record<string, string>> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '@': '&#64;',
+};
+
+/** One character as GitHub shows it as itself: Markdown's escaped, the rest of `entities`. */
+const shownAsItself = (char: string): string =>
+  entities[char] ?? (/[\\`*_[\]#|~!]/.test(char) ? `\\${char}` : char);
 
 /**
  * `text`, which a brewer or an issue wrote, as one line of at most `longest` characters that
- * GitHub renders as it is: no Markdown, no HTML (so no marker), and no mention.
+ * GitHub renders as it is: no Markdown, no HTML (so no marker), and no mention. It is cut after
+ * escaping, between characters, so no escape is cut in half and the line never grows past
+ * `longest`.
  */
 const plain = (text: string): string => {
-  const line = text.replace(/\s+/g, ' ').trim();
-  const chars = [...line];
-  const cut = chars.length > longest ? `${chars.slice(0, longest - 1).join('')}…` : line;
-  // Backslashes first; the entities after them, since they bring a `#` of their own.
-  return cut
-    .replace(/[\\`*_[\]#|~!]/g, '\\$&')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/@/g, '&#64;');
+  const shown = [...text.replace(/\s+/g, ' ').trim()].map(shownAsItself);
+  const whole = shown.join('');
+  if (whole.length <= longest) return whole;
+  let line = '';
+  for (const each of shown) {
+    if (line.length + each.length > longest - 1) break;
+    line += each;
+  }
+  return `${line}…`;
 };
 
 const code = (id: string): string => `\`${id}\``;
@@ -111,13 +133,16 @@ const laneText = (lane: Lane): string[] => {
       return [`⏳ **Conditioning**: waiting for ${waitText(lane.on)}`];
     case 'stuck': {
       const { reason, options } = lane;
-      const questions =
-        reason.kind === 'needs_input'
-          ? reason.questions.map(
-              (question) =>
-                `- ${plain(question.q)} Options: ${question.options.map(plain).join(', ')} (recommended: ${plain(question.recommended)})`,
-            )
-          : [];
+      const asked = reason.kind === 'needs_input' ? reason.questions : [];
+      const questions = asked.slice(0, mostQuestions).map((question) => {
+        const options = question.options.slice(0, mostOptions).map(plain);
+        const more = question.options.length - options.length;
+        if (more > 0) options.push(`and ${more} more options`);
+        return `- ${plain(question.q)} Options: ${options.join(', ')} (recommended: ${plain(question.recommended)})`;
+      });
+      if (asked.length > questions.length) {
+        questions.push(`- and ${asked.length - questions.length} more questions`);
+      }
       return [
         `🔔 **Stuck**: ${stuckText(reason)}`,
         ...questions,
@@ -224,7 +249,12 @@ export const renderStatus = (batch: Batch, steps?: readonly string[]): string =>
         : ['**Pull requests**', ...pullRequests.map((url) => `- ${link(url)}`)],
     );
   }
-  return sections.map((lines) => lines.join('\n')).join('\n\n');
+  const text = sections.map((lines) => lines.join('\n')).join('\n\n');
+  if (text.length <= longestText) return text;
+  // Whole lines only, so no escape or entity is cut in half.
+  const cutNote = '\n\n… the rest is cut: GitHub keeps comments shorter.';
+  const kept = text.slice(0, longestText - cutNote.length);
+  return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
 
 /** The first 16 hex digits of the SHA-256 of `text`: what a revision records of it. */
