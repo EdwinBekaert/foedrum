@@ -175,6 +175,13 @@ describe('pullRequestText', () => {
     assert.equal(pullRequestText({ title: ' \n ', closes, reports: [] }).title, 'acme/brewery#12');
   });
 
+  it('stays within the limit when a report is one long run of backticks (review of #198)', () => {
+    const reports = [{ stepId: 'plan', summary: '`'.repeat(30_000), assumptions: [] }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.ok(body.length <= 65_536, `${body.length}`);
+    assert.ok(body.endsWith('\nCloses acme/brewery#12'));
+  });
+
   it("cuts the reports short within GitHub's limit of a body, saying so", () => {
     const reports = Array.from({ length: 100 }, (_, i) => ({
       stepId: `s${i}`,

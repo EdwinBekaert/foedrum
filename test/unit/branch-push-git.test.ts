@@ -3,6 +3,7 @@
 // it as an option.
 
 import assert from 'node:assert/strict';
+import { devNull } from 'node:os';
 import { describe, it } from 'node:test';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
@@ -92,6 +93,12 @@ describe('openBranchPush: push', () => {
       calls.map(({ cwd, args }) => [cwd, ...args]),
       [[clone, 'push', '--no-verify', 'origin', `${TIP}:refs/heads/${branch}`]],
     );
+  });
+
+  it("runs none of the clone's hooks, which a brewer's code can write (review of #198)", async () => {
+    const { git, calls } = recordingGit();
+    await openBranchPush({ git, clone }).push(TIP, branch);
+    assert.deepEqual(calls[0]?.options?.config, { 'core.hooksPath': devNull });
   });
 
   it("fails with git's reason, as a push the remote rejected", async () => {

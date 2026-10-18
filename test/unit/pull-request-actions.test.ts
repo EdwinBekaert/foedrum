@@ -22,14 +22,20 @@ const action = { batchId: '12-1', stepId: 'open-pull-request', attempt: 1 };
 const push = effectKey.encode({ batchId: '12-1', effect: 'push' });
 const open = effectKey.encode({ batchId: '12-1', effect: 'pull_request' });
 
-/** A clone whose revisions name `tip`, and a remote with the branches it was pushed. */
-const fakePush = (remote: Record<string, string> = {}) => {
+const base = 'b'.repeat(40);
+const from = 'refs/heads/foedrum/12-1/implement/1';
+
+/**
+ * A clone whose revisions name `tip`, but for `origin/main` at `main`, and a remote with the
+ * branches it was pushed.
+ */
+const fakePush = (remote: Record<string, string> = {}, main = base) => {
   const asked: string[] = [];
   const pushes: string[] = [];
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
-      return tip;
+      return revision === 'origin/main' ? main : tip;
     },
     remoteTip: async (name) => remote[name],
     push: async (commit, name) => {
@@ -107,11 +113,12 @@ const applied = (key: string, result: unknown): Event => ({ type: 'effect.applie
 const actionsWith = (
   options: {
     remote?: Record<string, string>;
+    main?: string;
     opened?: Record<string, string>;
     answer?: string;
   } = {},
 ) => {
-  const pushed = fakePush(options.remote);
+  const pushed = fakePush(options.remote, options.main);
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
@@ -146,15 +153,17 @@ describe('pullRequestActions: the push', () => {
   it('pushes the tip of the task tree, read in the clone, to the bottle branch', async () => {
     const { actions, asked, pushes } = actionsWith();
     keysOf(brewing(), actions);
-    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip });
-    assert.deepEqual(asked, ['refs/heads/foedrum/12-1/implement/1']);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.deepEqual(asked, [from, 'origin/main']);
     assert.deepEqual(pushes, [`${tip} ${branch}`]);
   });
 
   it('finds the push when the remote branch is at that tip already, and not otherwise', async () => {
     const at = actionsWith({ remote: { [branch]: tip } });
     keysOf(brewing(), at.actions);
-    assert.deepEqual(await at.actions.target.find(push), { result: { branch, commit: tip } });
+    assert.deepEqual(await at.actions.target.find(push), {
+      result: { branch, commit: tip, from },
+    });
     const elsewhere = actionsWith({ remote: { [branch]: other } });
     keysOf(brewing(), elsewhere.actions);
     assert.equal(await elsewhere.actions.target.find(push), undefined);
@@ -222,7 +231,7 @@ describe('pullRequestActions: how the attempt ends', () => {
       ordered({ issue: 12 }),
       ...brewed,
       ...opening,
-      applied(push, { branch, commit: tip }),
+      applied(push, { branch, commit: tip, from }),
       applied(open, url),
     ]);
     assert.deepEqual(actions.ending(state, action), {
@@ -250,6 +259,41 @@ describe('pullRequestActions: how the attempt ends', () => {
       kind: 'failed',
       retryable: false,
       reason: 'batch 12-1 writes in acme/web, which the Brewery does not list',
+    });
+  });
+});
+
+describe('pullRequestActions: a push that cannot carry the batch (review of #198)', () => {
+  it('records a task tree at the base as nothing to push, pushes nothing, and fails for good', async () => {
+    const { actions, pushes } = actionsWith({ main: tip });
+    keysOf(brewing(), actions);
+    const nothing = { branch, commit: tip, from, empty: true };
+    assert.deepEqual(await actions.target.find(push), { result: nothing });
+    assert.deepEqual(await actions.target.apply(push), nothing);
+    assert.deepEqual(pushes, []);
+    const state = fold([ordered({ issue: 12 }), ...brewed, ...opening, applied(push, nothing)]);
+    assert.deepEqual(actions.due(state, action), []);
+    assert.deepEqual(actions.ending(state, action), {
+      kind: 'failed',
+      retryable: false,
+      reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+    });
+  });
+
+  it('fails for good when the task tree moved after the push, as a rewind moves it', () => {
+    const { actions } = actionsWith();
+    const earlier = 'refs/heads/foedrum/12-1/plan/1';
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: other, from: earlier }),
+    ]);
+    assert.deepEqual(actions.due(state, action), []);
+    assert.deepEqual(actions.ending(state, action), {
+      kind: 'failed',
+      retryable: false,
+      reason: `batch 12-1 pushed ${earlier} for its pull request, and its task tree has moved to ${from} since: updating an open bottle is not supported yet (ADR 0071)`,
     });
   });
 });
