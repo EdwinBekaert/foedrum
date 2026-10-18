@@ -35,6 +35,8 @@ export interface AttemptPlansOptions {
   repoTools: (repo: string) => readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
+  clone?: (repo: string) => string;
   /** The Brewery's work root (ADR 0037). */
   workRoot: string;
   /** The brewer's minimal base environment and the runner's forced variables (ADR 0028). */

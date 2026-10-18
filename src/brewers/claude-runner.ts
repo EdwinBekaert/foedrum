@@ -57,6 +57,11 @@ export interface ClaudeAttemptPlan {
   permissions: AttemptPermissions;
   /** Where the runner writes the attempt's settings file. */
   settingsFile: string;
+  /**
+   * For a brewer that produces commits: the clone its worktree was added to and the attempt's
+   * branch, where its commits are counted, never what its worktree says (ADR 0074).
+   */
+  commits?: { clone: string; branch: string };
 }
 
 /** An out doc as the runner found it. */
@@ -78,7 +83,7 @@ export interface ClaudeRunnerDeps {
   now: () => Date;
   /** Resolves after `ms`, or at once when `signal` aborts. */
   wait: (ms: number, signal: AbortSignal) => Promise<void>;
-  /** The commits in the worktree after the limits' `commitsSince` (ADR 0074). */
+  /** The commits on the attempt's branch in its clone after the limits' `commitsSince` (ADR 0074). */
   commits: CountCommits;
 }
 
@@ -348,7 +353,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         since === undefined
           ? undefined
           : await deps
-              .commits(plan.cwd, since, stopping.signal)
+              .commits(plan.cwd, '', since, stopping.signal)
               .catch(
                 (error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }),
               );
