@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { serveFromCheckout } from '../../src/cli/serve-main.ts';
-import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import type { ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const answer = (stdout: string, exitCode = 0, stderr = ''): ExecResult => ({
@@ -18,9 +18,9 @@ const answer = (stdout: string, exitCode = 0, stderr = ''): ExecResult => ({
 // What each program answers: its version, gh's login check as gh 2.102.0 prints a missing login,
 // and git's credential listing with nothing in it.
 const fakeRunner = () => {
-  const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
-  const exec: ExecProcess = async (file, args, options) => {
-    calls.push({ file, args, options });
+  const calls: { file: string; args: readonly string[] }[] = [];
+  const exec: ExecProcess = async (file, args) => {
+    calls.push({ file, args });
     if (args[0] === 'auth') {
       return answer(
         '',
