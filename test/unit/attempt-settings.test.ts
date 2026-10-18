@@ -170,6 +170,32 @@ describe('attemptSettings and git with options before the subcommand', () => {
   }
 });
 
+// #204: gh answers from the maintainer's login in the OS keyring, and a brewer runs as the same
+// OS user, so no rule a brewer may have starts gh: only the engine talks to GitHub (ADR 0082).
+describe('attemptSettings and gh', () => {
+  const ghCalls = ['gh api user', 'gh pr merge 1', 'gh auth token'];
+
+  for (const shell of ['Bash', 'PowerShell']) {
+    for (const rule of [
+      `${shell}(git status *)`,
+      `${shell}(npm test)`,
+      `${shell}(npm run *)`,
+      `${shell}(npx tsc)`,
+      `${shell}(ghc --make Main)`,
+      `${shell}(cat gh.txt)`,
+      `${shell}(npm run gh)`,
+      `${shell}(git-lfs install)`,
+    ]) {
+      it(`allows ${rule}, which starts no gh`, () => {
+        const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
+        for (const call of ghCalls) {
+          assert.equal(withinCeiling(`${shell}(${call})`, settings.permissions.allow), false, call);
+        }
+      });
+    }
+  }
+});
+
 describe('writeAttemptSettings', () => {
   let dir: TempDir;
   let file: string;

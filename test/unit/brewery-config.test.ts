@@ -54,6 +54,23 @@ describe('BreweryConfig', () => {
     assert.equal(accepted(config({ tools: ['Bash(npm test*)', 'Bash(npm run lint*)'] })), true);
   });
 
+  // The ceiling bounds what a repository adds; it is not an allowlist (ADR 0062, ADR 0082).
+  it('accepts a ceiling of every shell command, and rules that only look like gh', () => {
+    assert.equal(
+      accepted(config({ tools: ['Bash(npm test)'] }, { permissionCeiling: ['Bash(*)'] })),
+      true,
+    );
+    assert.equal(
+      accepted(
+        config(
+          {},
+          { permissionCeiling: ['Bash(ghc *)', 'Bash(cat gh.txt)', 'PowerShell(npm run gh)'] },
+        ),
+      ),
+      true,
+    );
+  });
+
   it('accepts a repository whose issues the intake polls, under a short alias (ADR 0043)', () => {
     const intake = { labels: ['foedrum', 'ready'], milestone: 'v2' };
     assert.deepEqual(BreweryConfig.parse(config({ alias: 'web', intake })).repositories, {

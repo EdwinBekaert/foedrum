@@ -522,6 +522,18 @@ describe('diagnose: isolation (ADR 0010)', () => {
   });
 });
 
+// #204: a brewer or a check step runs as the maintainer's OS user, so on the permissions-only level
+// it can still ask the OS keyring for gh's login; the line says what closes that (ADR 0082).
+describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () => {
+  const keyring = (facts: DoctorFacts) =>
+    diagnose(facts).advice.filter((line) => /keyring/.test(line));
+
+  it('says nothing about the keyring on the sandboxed level', () => {
+    const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
+    for (const facts of [macos, linux(), wsl2]) assert.deepEqual(keyring(facts), []);
+  });
+});
+
 describe('diagnose: the Brewery config (ADR 0043)', () => {
   const checks = '{ "build": null, "typecheck": null, "lint": null, "format": null, "test": null }';
   const config = (web: string, api: string): string =>
