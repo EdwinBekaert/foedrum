@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { join } from 'node:path';
 import { withoutGitHubTokens } from '../../src/platform/env.ts';
 import { execProcess } from '../../src/platform/processes.ts';
+import { hangGuardMs } from '../helpers/load.ts';
 
 export const FAKE_HOST = 'github.localhost';
 /** The login the fake GitHub answers for, never a credential of any real account. */
@@ -86,7 +87,8 @@ export const startFakeGitHubOverGh = async (configDir: string, route: Route) => 
       cwd: configDir,
       env: { ...env, GH_CONFIG_DIR: configDir },
       stdin: SYNTHETIC_LOGIN,
-      timeoutMs: 30_000,
+      // Only a guard against a hang, never a limit on how long gh may take (ADR 0075).
+      timeoutMs: hangGuardMs,
     },
   );
   if (login.exitCode !== 0) {
