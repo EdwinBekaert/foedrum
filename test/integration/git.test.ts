@@ -3,15 +3,15 @@
 // hold git's output open.
 
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
-import { isPidAlive } from '../../src/platform/processes.ts';
+import { execProcessWith, isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { runGit } from '../../src/workspace/git.ts';
+import { runGit, runGitWith } from '../../src/workspace/git.ts';
+import { cuedTimers, waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { killLeftovers } from './leftover-processes.ts';
+import { lateKill } from './late-kill.ts';
+import { killLeftovers, pidIn } from './leftover-processes.ts';
 
 describe('runGit with real git', () => {
   let dir: TempDir;
@@ -34,23 +34,26 @@ describe('runGit with real git', () => {
   });
 
   it('ends git and the processes it started at the timeout', async () => {
-    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
+    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps until
+    // it is killed, longer than waitUntil waits, so only the kill of the tree can end it.
     const node = process.execPath.replaceAll('\\', '/');
-    const script = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
+    const script = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setInterval(() => {}, 1 << 30)`;
     const hang = `alias.hang=!"${node}" -e "${script}"`;
-    const started = Date.now();
+    // A loaded machine (#147): git's processes start later than the deadline expects, and the
+    // kill takes effect late. So the test reaches the deadline once git's child is up, and waits
+    // for the child to end instead of giving it a fixed time (ADR 0070).
+    const deadline = cuedTimers();
+    const loaded = runGitWith(execProcessWith(lateKill(2500), deadline));
 
-    const result = await runGit(dir.path, ['-c', hang, 'hang'], { timeoutMs: 2000 });
+    const running = loaded(dir.path, ['-c', hang, 'hang'], { timeoutMs: 10 });
+    await waitUntil('the child of git to start', () => pidIn(pidFile) !== undefined);
+    deadline.fire();
+    const result = await running;
 
-    const elapsed = Date.now() - started;
     assert.equal(result.code, null);
-    assert.ok(elapsed < 10_000, `runGit returned after ${elapsed} ms`);
-    assert.ok(existsSync(pidFile), 'the child of git started');
-    const pid = Number(readFileSync(pidFile, 'utf8'));
-    // taskkill and SIGKILL take effect at once, but give the OS a moment to reap.
-    for (let i = 0; i < 20 && isPidAlive(pid); i++) await delay(100);
-    const alive = isPidAlive(pid);
-    if (alive) process.kill(pid);
-    assert.equal(alive, false, 'the child of git was left running');
+    const pid = pidIn(pidFile) ?? 0;
+    // The kill is late, so the child still runs: runGit answered without waiting for it.
+    assert.ok(isPidAlive(pid), 'runGit waited for the child of git');
+    await waitUntil('the child of git to end', () => !isPidAlive(pid));
   });
 });

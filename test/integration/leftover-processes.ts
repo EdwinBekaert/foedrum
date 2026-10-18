@@ -36,13 +36,18 @@ const pidsNaming = async (marker: string): Promise<number[]> => {
     .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
 };
 
+/** The pid a child wrote to `pidFile`, or undefined while it has written none. */
+export const pidIn = (pidFile: string): number | undefined => {
+  if (!existsSync(pidFile)) return undefined;
+  const written = Number(readFileSync(pidFile, 'utf8'));
+  return Number.isInteger(written) && written > 0 ? written : undefined;
+};
+
 /** Kills the child that wrote `pidFile`, and any process that names `pidFile`, if still alive. */
 export const killLeftovers = async (pidFile: string): Promise<void> => {
   const pids = new Set(await pidsNaming(pidFile));
-  if (existsSync(pidFile)) {
-    const written = Number(readFileSync(pidFile, 'utf8'));
-    if (Number.isInteger(written) && written > 0) pids.add(written);
-  }
+  const written = pidIn(pidFile);
+  if (written !== undefined) pids.add(written);
   for (const pid of pids) {
     if (!isPidAlive(pid)) continue;
     try {
