@@ -1,6 +1,6 @@
 // `foedrum serve`, the Cellar (ADR 0063): takes the driver lock `cellar`, opens the event store and
 // the state branch, each repository's attempt worktrees and the driver with the real runner, the
-// attempt plans and the claim effects, ticks the driver until Ctrl+C with the intake polling beside
+// attempt plans, the status comments and the claim effects, ticks the driver until Ctrl+C with the intake polling beside
 // the ticks (ADR 0068), and closes it all again. The machine comes in through `ServeShell`;
 // serve-main.ts gives it the real one.
 
@@ -19,17 +19,20 @@ import {
 } from '../engine/driver.ts';
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
+import { combineEffects } from '../engine/effects.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import type { Claimant } from '../engine/issue-claims.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
+import { statusEffects } from '../engine/status-comment.ts';
 import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient, GitHubRateLimited } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
 import { githubOrderText } from '../github/order-text.ts';
 import { createGitHubReads } from '../github/reads.ts';
+import { githubStatusComments } from '../github/status-comments.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import { printable } from './run.ts';
@@ -171,22 +174,26 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     // One cache of conditional reads for the intake, the marks and the orders' text (ADR 0052).
     const reads = createGitHubReads(client);
     const claims = githubClaimHost(client);
-    // The claims and their marks need the token's login; a Brewery that claims nothing does not.
+    // The token's login: the status comments and the claim marks count only its own (ADR 0072).
+    const login = await githubLogin(client, signal);
+    const claimant: Claimant = { brewery: setup.brewery, login };
+    const status = statusEffects({
+      brewery: setup.brewery,
+      comments: githubStatusComments({ client, reads, login }),
+      recipes: setup.recipes,
+      clock,
+    });
     // A claimed batch the store has keeps its marks and release due, intake or not (ADR 0050).
-    let claimant: Claimant = { brewery: setup.brewery, login: '' };
-    let effects: ReturnType<typeof claimEffects> | undefined;
     const claimed = [
       ...createCommandLog({ store, recipes: setup.recipes }).state().batches.values(),
     ].some((batch) => batch.repo !== undefined);
-    if (setup.intake.repositories.length > 0 || claimed) {
-      const login = await githubLogin(client, signal);
-      claimant = { brewery: setup.brewery, login };
-      effects = claimEffects({
-        claimant,
-        marks: githubIssueMarks({ client, reads, login }),
-        claims,
-      });
-    }
+    const effects =
+      setup.intake.repositories.length > 0 || claimed
+        ? combineEffects(
+            status,
+            claimEffects({ claimant, marks: githubIssueMarks({ client, reads, login }), claims }),
+          )
+        : status;
     const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
     let opened: Driver | undefined;
     const plans = createAttemptPlans({
@@ -214,7 +221,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       limits: plans.limits,
       worktrees,
       alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
-      ...(effects === undefined ? {} : { effects }),
+      effects,
       report: (notice) => say(formatNotice(notice)),
     });
     opened = driver;
