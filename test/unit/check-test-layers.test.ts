@@ -170,8 +170,12 @@ describe('realGhFindings', () => {
       "await guarded('gh', ['api', 'user']);",
       "await spawnProcess('gh.exe', ['auth', 'token']);",
       'const stream = streamProcess(`gh`, args);',
+      "spawn('gh', []);",
+      "exec('gh api user');",
+      "execFile('gh', args);",
+      "await spawnProcess('gh.cmd', args);",
     ].join('\n');
-    assert.deepEqual(lines(source), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(lines(source), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     assert.match(problemOf(source), /starts gh/);
     assert.match(problemOf(source), /GH_CONFIG_DIR/);
   });
@@ -184,6 +188,7 @@ describe('realGhFindings', () => {
       "const found = resolveExecutable('gh');",
       "const row = at('gh');",
       "const isGh = name === 'gh';",
+      "execSync('gh auth status', { env: { ...env, GH_CONFIG_DIR: configDir } });",
     ].join('\n');
     assert.deepEqual(realGhFindings(source), []);
   });
