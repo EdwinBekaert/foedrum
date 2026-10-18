@@ -3,6 +3,8 @@
 // test asks the real gh for a login (ADR 0021, ADR 0073).
 
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { serveFromCheckout } from '../../src/cli/serve-main.ts';
 import type { ExecProcess, ExecResult } from '../../src/platform/processes.ts';
@@ -37,7 +39,32 @@ const fakeRunner = () => {
 
 describe('serveFromCheckout', () => {
   const dir = makeTempDir('serve-main');
-  after(() => dir.remove());
+  const ghe = makeTempDir('serve-main-ghe');
+  after(() => {
+    dir.remove();
+    ghe.remove();
+  });
+
+  it('asks gh about the host its own foedrum.jsonc names', async () => {
+    writeFileSync(
+      join(ghe.path, 'foedrum.jsonc'),
+      '{ "repositories": {}, "githubApi": "https://ghe.example/api/v3" }',
+    );
+    const { exec, calls } = fakeRunner();
+    const result = await serveFromCheckout(ghe.path, {
+      exec,
+      resolve: (name) => `/usr/bin/${name}`,
+    });
+    assert.ok(
+      result.stderr
+        .split('\n')
+        .includes(
+          'foedrum serve: gh is not logged in to ghe.example: run gh auth login --hostname ghe.example',
+        ),
+      result.stderr,
+    );
+    assert.ok(calls.some(({ args }) => args.join(' ') === 'auth status --hostname ghe.example'));
+  });
 
   it('asks gh for its login through the runner it is given, and refuses without one', async () => {
     const { exec, calls } = fakeRunner();
