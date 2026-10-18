@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
+import { BreweryConfig, githubHostOf } from '../../src/schemas/brewery-config.ts';
 import { readJsonc } from '../../src/schemas/read.ts';
 
 const fixture = join(import.meta.dirname, '..', 'fixtures', 'config', 'foedrum.jsonc');
@@ -222,22 +222,36 @@ describe('BreweryConfig for foedrum serve (ADR 0063)', () => {
     }
   });
 
-  it('takes the API over https, or over http only on a loopback address', () => {
+  // gh takes a host, not a URL (ADR 0073): only an API root gh works out from a host will do.
+  it('takes only an API root gh reaches by its host, and names that host', () => {
+    for (const [githubApi, host] of [
+      ['https://api.github.com', 'github.com'],
+      ['https://api.github.com/', 'github.com'],
+      ['https://ghe.example/api/v3', 'ghe.example'],
+      ['https://GHE.example/api/v3/', 'ghe.example'],
+      ['http://api.github.localhost', 'github.localhost'],
+    ]) {
+      assert.equal(accepted(config({}, { githubApi })), true, githubApi);
+      assert.equal(githubHostOf(githubApi ?? ''), host, githubApi);
+    }
     for (const githubApi of [
       'http://127.0.0.1:4000',
       'http://localhost:4000/api',
-      'http://[::1]:80',
-    ]) {
-      assert.equal(accepted(config({}, { githubApi })), true, githubApi);
-    }
-    for (const githubApi of [
       'http://api.github.com',
+      'https://api.github.com/api/v3',
+      'https://ghe.example',
+      'https://ghe.example/api',
+      'https://ghe.example:8443/api/v3',
+      'https://api.github.localhost',
+      'https://github.localhost/api/v3',
+      'https://x.github.localhost/api/v3',
       'ftp://api.github.com',
       'https://user:secret@api.github.com',
       'https://api.github.com/?x=1',
       'not a url',
     ]) {
       assert.equal(accepted(config({}, { githubApi })), false, githubApi);
+      assert.equal(githubHostOf(githubApi), undefined, githubApi);
     }
   });
 });

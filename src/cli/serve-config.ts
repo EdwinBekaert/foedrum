@@ -18,6 +18,7 @@ import type { Recipes } from '../engine/recipes.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import {
   BreweryConfig,
+  githubHostOf,
   type RepositorySource,
   type TestReportConfig,
 } from '../schemas/brewery-config.ts';
@@ -91,7 +92,8 @@ export interface ServeSetup {
   brewers: StepBrewers;
   /** The checks of the recipes' check steps (ADR 0069). */
   checks: StepChecks;
-  github: { api: string; token: string };
+  /** The host gh reaches GitHub on, with its own login (ADR 0073). */
+  github: { hostname: string };
   /** Where claude is, as doctor found it. */
   claude: string;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
@@ -152,12 +154,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   // Without the file, every default applies.
   const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
   const models = read('models.jsonc', files.models, ModelsConfig, notFound, problems);
-  const token = env.GH_TOKEN || env.GITHUB_TOKEN;
-  if (token === undefined || token === '') {
-    problems.push(
-      "set GH_TOKEN or GITHUB_TOKEN to a GitHub token that can read the Brewery's issues",
-    );
-  }
 
   if (config !== undefined && Object.keys(config.repositories).length === 0) {
     problems.push(
@@ -221,7 +217,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     problems.length > 0 ||
     config?.brewery === undefined ||
     models === undefined ||
-    token === undefined ||
     !loaded.valid ||
     claude === undefined
   ) {
@@ -247,7 +242,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         pollEveryMs: durationMs(config.pollEvery ?? DEFAULT_POLL),
         repositories: intakeRepositories(config),
       },
-      github: { api: config.githubApi ?? DEFAULT_API, token },
+      github: { hostname: githubHostOf(config.githubApi ?? DEFAULT_API) ?? 'github.com' },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
       brewerEnv: {

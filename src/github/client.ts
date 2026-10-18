@@ -1,17 +1,24 @@
-// A small GitHub client over the built-in fetch (ADR 0008): REST and GraphQL calls with the
-// Brewery's token, each given up after its timeout or when the caller's signal aborts. It returns
-// what GitHub answered, parsed but unchecked: every caller checks it, since it comes from outside.
-// On GitHub's rate limit it pauses, and fails every request until the pause ends (ADR 0052).
+// A small GitHub client over `gh api` (ADR 0073): REST and GraphQL calls with gh's own login,
+// each given up after its timeout or when the caller's signal aborts. Foedrum never holds a token.
+// It returns what GitHub answered, parsed but unchecked: every caller checks it, since it comes
+// from outside. On GitHub's rate limit it pauses, and fails every request until the pause ends
+// (ADR 0052).
 
+import { envNameKey, withoutGitHubTokens } from '../platform/env.ts';
+import { type ExecProcess, execProcess } from '../platform/processes.ts';
 import { GitHubError } from '../schemas/github.ts';
 
 export interface GitHubClientOptions {
-  /** A fine-grained personal access token (ADR 0008); it never appears in an error. */
-  token: string;
-  /** Default the global `fetch`. */
-  fetch?: typeof globalThis.fetch;
-  /** Default `https://api.github.com`. */
-  baseUrl?: string;
+  /** The process runner gh runs through; default the real one. Unit tests pass a fake (ADR 0021). */
+  exec?: ExecProcess;
+  /** gh's `--hostname`: `github.com` (the default), a GitHub Enterprise host or `github.localhost`. */
+  hostname?: string;
+  /** The environment gh runs in, without the GitHub token variables; default this process's. */
+  env?: NodeJS.ProcessEnv;
+  /** Default this process's platform; it decides how environment names compare. */
+  platform?: NodeJS.Platform;
+  /** Where gh runs; default this process's working directory. */
+  cwd?: string;
   /** How long one request may take; default 30 s. */
   timeoutMs?: number;
   /** How long an answer may be; default 4 MiB, the process runner's output limit (ADR 0035). */
@@ -95,15 +102,88 @@ const messagesOf = (errors: unknown): { message: string }[] =>
       }))
     : [];
 
-export const createGitHubClient = (options: GitHubClientOptions): GitHubClient => {
+/**
+ * The API root gh asks on `hostname`, without a trailing `/`: where a next page's link must point
+ * (ADR 0052). `github.localhost` is gh's development host, served over http.
+ */
+const apiRootOf = (hostname: string): string => {
+  switch (hostname) {
+    case 'github.com':
+      return 'https://api.github.com';
+    case 'github.localhost':
+      return 'http://api.github.localhost';
+    default:
+      return `https://${hostname}/api/v3`;
+  }
+};
+
+/** Room for the status line and the headers, above an answer's own limit. */
+const HEADER_BYTES = 64 * 1024;
+
+/** gh's name for the host's GraphQL endpoint, which is not under the REST API's root everywhere. */
+const GRAPHQL = 'graphql';
+
+const STATUS_LINE = /^HTTP\/\d+(?:\.\d+)? (\d{3})(?: .*)?$/;
+
+/**
+ * What `gh api --include` printed: a status line, header lines up to an empty one, then the body.
+ * `undefined` when it printed no status line, so gh failed before GitHub answered.
+ */
+const parseInclude = (
+  stdout: string,
+): { status: number; headers: Headers; body: string } | undefined => {
+  const lines = stdout.split('\n');
+  const status = STATUS_LINE.exec(lines[0]?.replace(/\r$/, '') ?? '');
+  if (status === null) return undefined;
+  const headers = new Headers();
+  let at = 1;
+  for (; at < lines.length; at++) {
+    const line = lines[at]?.replace(/\r$/, '') ?? '';
+    if (line === '') break;
+    const colon = line.indexOf(':');
+    try {
+      if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+    } catch {
+      // A header no request could carry says nothing the client reads.
+    }
+  }
+  return { status: Number(status[1]), headers, body: lines.slice(at + 1).join('\n') };
+};
+
+// gh's environment: no token variable, which gh would prefer to its own login (ADR 0073), and no
+// debug output; it never prompts or looks for updates, and prints no colours.
+const ghEnvironment = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv => {
+  const key = envNameKey(platform);
+  const debug = new Set(['GH_DEBUG', 'DEBUG'].map(key));
+  const kept = Object.entries(withoutGitHubTokens(env, platform)).filter(
+    ([name]) => !debug.has(key(name)),
+  );
+  return {
+    ...Object.fromEntries(kept),
+    GH_PROMPT_DISABLED: '1',
+    GH_NO_UPDATE_NOTIFIER: '1',
+    NO_COLOR: '1',
+  };
+};
+
+const firstLineOf = (text: string): string | undefined =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line !== '');
+
+export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubClient => {
   const {
-    token,
-    fetch = globalThis.fetch,
+    exec = execProcess,
+    hostname = 'github.com',
+    platform = process.platform,
+    cwd = process.cwd(),
     timeoutMs = 30_000,
     maxResponseBytes = 4 * 1024 * 1024,
     now = Date.now,
   } = options;
-  const baseUrl = options.baseUrl?.replace(/\/+$/, '') ?? 'https://api.github.com';
+  const baseUrl = apiRootOf(hostname);
+  const env = ghEnvironment(options.env ?? process.env, platform);
 
   // Requests wait for GitHub's rate limit until `pausedUntil`; `secondaries` counts the secondary
   // limits without headers in a row, whose pause doubles.
@@ -146,80 +226,87 @@ export const createGitHubClient = (options: GitHubClientOptions): GitHubClient =
     return true;
   };
 
-  // The answer's bytes, given up once they pass `maxResponseBytes`: GitHub returns what anyone with
-  // push access wrote, such as a claim commit's message, and nothing keeps that small.
-  const readLimited = async (response: Response, what: string): Promise<Buffer> => {
-    const tooLong = () =>
-      new Error(`GitHub's answer to ${what} is longer than ${maxResponseBytes} bytes`);
-    if (Number(response.headers.get('content-length')) > maxResponseBytes) {
-      await response.body?.cancel();
-      throw tooLong();
-    }
-    if (response.body === null) return Buffer.alloc(0);
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxResponseBytes) {
-        await reader.cancel();
-        throw tooLong();
-      }
-      chunks.push(value);
-    }
-    return Buffer.concat(chunks);
-  };
-
+  // One request through `gh api --include`, with an argument array and no shell; a body goes on
+  // stdin. gh exits 1 on a status of 300 or more after printing the answer, so a 304 or a 404 is
+  // an answer like a 200; without a status line, gh failed before GitHub answered (ADR 0073).
   const request = async (
     method: string,
-    path: string,
+    endpoint: string,
     body: unknown,
     signal: AbortSignal | undefined,
     headers: Readonly<Record<string, string>> = {},
   ): Promise<GitHubAnswer> => {
-    if (now() < pausedUntil) throw new GitHubRateLimited(new Date(pausedUntil));
-    const timeout = new AbortController();
-    const timer = setTimeout(
-      () =>
-        timeout.abort(new Error(`GitHub did not answer within ${timeoutMs} ms: ${method} ${path}`)),
-      timeoutMs,
-    );
-    const signals = signal === undefined ? [timeout.signal] : [timeout.signal, signal];
-    try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        method,
-        headers: {
-          ...headers,
-          accept: 'application/vnd.github+json',
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-          'user-agent': 'foedrum',
-          'x-github-api-version': '2022-11-28',
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.any(signals),
-      });
-      const text = await readLimited(response, `${method} ${path}`);
-      const answer = {
-        status: response.status,
-        body: parse(text.toString('utf8')),
-        bytes: text.byteLength,
-        headers: response.headers,
-      };
-      if (limitedBy(answer)) throw new GitHubRateLimited(new Date(pausedUntil));
-      return answer;
-    } finally {
-      clearTimeout(timer);
+    const what = `${method} ${endpoint}`;
+    // Never an option of gh's: a path starts with `/`, and GraphQL is gh's name for its endpoint.
+    if (endpoint !== GRAPHQL && !endpoint.startsWith('/')) {
+      throw new Error(`A GitHub API path starts with /: ${JSON.stringify(endpoint)}`);
     }
+    if (now() < pausedUntil) throw new GitHubRateLimited(new Date(pausedUntil));
+    const sent = {
+      ...headers,
+      accept: 'application/vnd.github+json',
+      'user-agent': 'foedrum',
+      'x-github-api-version': '2022-11-28',
+    };
+    const args = [
+      'api',
+      '--include',
+      '--hostname',
+      hostname,
+      '--method',
+      method,
+      ...Object.entries(sent).flatMap(([name, value]) => ['-H', `${name}: ${value}`]),
+      endpoint,
+      ...(body === undefined ? [] : ['--input', '-']),
+    ];
+    const tooLong = () =>
+      new Error(`GitHub's answer to ${what} is longer than ${maxResponseBytes} bytes`);
+    const ran = await exec('gh', args, {
+      cwd,
+      env,
+      timeoutMs,
+      signal,
+      maxOutputBytes: maxResponseBytes + HEADER_BYTES,
+      ...(body === undefined ? {} : { stdin: JSON.stringify(body) }),
+    });
+    switch (ran.killed) {
+      case undefined:
+        break;
+      case 'timed-out':
+        throw new Error(`GitHub did not answer within ${timeoutMs} ms: ${what}`);
+      case 'too-much-output':
+        throw tooLong();
+      case 'stopped':
+        throw signal?.reason ?? new Error(`${what} was stopped`);
+      default: {
+        const unknown: never = ran.killed;
+        throw new Error(`unknown kill ${String(unknown)}`);
+      }
+    }
+    const printed = ran.exitCode === 0 || ran.exitCode === 1 ? parseInclude(ran.stdout) : undefined;
+    if (printed === undefined) {
+      const said = firstLineOf(ran.stderr) ?? `gh exited with ${ran.exitCode}`;
+      // gh's exit code for a host it has no login for.
+      const login = ran.exitCode === 4 ? `; run gh auth login --hostname ${hostname}` : '';
+      throw new Error(`gh could not ask GitHub for ${what}: ${said}${login}`);
+    }
+    const bytes = Buffer.byteLength(printed.body);
+    if (bytes > maxResponseBytes) throw tooLong();
+    const answer = {
+      status: printed.status,
+      body: parse(printed.body),
+      bytes,
+      headers: printed.headers,
+    };
+    if (limitedBy(answer)) throw new GitHubRateLimited(new Date(pausedUntil));
+    return answer;
   };
 
   return {
     baseUrl,
     rest: request,
     graphql: async (query, variables, signal) => {
-      const answer = await request('POST', '/graphql', { query, variables }, signal);
+      const answer = await request('POST', GRAPHQL, { query, variables }, signal);
       if (answer.status !== 200)
         throw new Error(`GitHub answered ${answer.status} to a GraphQL request`);
       const parsed = (

@@ -49,6 +49,20 @@ describe('gitEnv', () => {
     assert.equal(gitEnv({ GIT_SSH: 'plink.exe' }).GIT_SSH, 'plink.exe');
     assert.equal(gitEnv({ GIT_SSH_COMMAND: 'ssh -i key' }).GIT_SSH_COMMAND, 'ssh -i key');
   });
+
+  // gh auth git-credential answers with a token variable before gh's own login (ADR 0073).
+  it('removes the GitHub token variables, so git gets the credential of gh login', () => {
+    const env = gitEnv(
+      { PATH: '/bin', GH_TOKEN: 'a', GITHUB_TOKEN: 'b', GH_ENTERPRISE_TOKEN: 'c' },
+      {},
+      'linux',
+    );
+    assert.equal(env.PATH, '/bin');
+    for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN']) {
+      assert.equal(name in env, false, name);
+    }
+    assert.equal('gh_token' in gitEnv({ gh_token: 'a' }, {}, 'win32'), false);
+  });
 });
 
 describe('runGitWith', () => {

@@ -11,7 +11,7 @@ import { type GitHubReads, pageSize } from './reads.ts';
 export interface GitHubPullRequestsOptions {
   client: GitHubClient;
   reads: GitHubReads;
-  /** The login of the Brewery's token, read once when first needed. */
+  /** The login gh uses, read once when first needed (ADR 0073). */
   login: () => Promise<string>;
 }
 

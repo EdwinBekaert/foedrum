@@ -8,6 +8,7 @@ import { createGitHubClient } from '../../src/github/client.ts';
 import { githubOrderText } from '../../src/github/order-text.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const issue = JSON.parse(
   readFileSync(new URL('../fixtures/github/issue.json', import.meta.url), 'utf8'),
@@ -15,7 +16,7 @@ const issue = JSON.parse(
 
 const orderTextWith = (answers: Answer[]) => {
   const fake = fakeFetch(answers);
-  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
   return { orderText: githubOrderText(createGitHubReads(client), 'acme/brewery'), ...fake };
 };
 

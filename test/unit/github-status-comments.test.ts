@@ -1,6 +1,6 @@
 // The status comments of a Brewery's issues on GitHub (ADR 0072): found, read, made and edited as
 // the Brewery's own login, from synthetic answers in the shape GitHub's REST API gives
-// (test/fixtures/github/), through a fake `fetch`; no network (ADR 0021).
+// (test/fixtures/github/), through a fake `gh` over a fake `fetch`; no network (ADR 0021, ADR 0073).
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -8,6 +8,7 @@ import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { githubStatusComments } from '../../src/github/status-comments.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const api = 'https://api.github.com';
 const repo = 'acme/brewery';
@@ -16,7 +17,7 @@ const own = (id: number, body: string, login = 'Alice') => ({ id, user: { login 
 
 const commentsWith = (answers: Answer[], login = 'alice') => {
   const fake = fakeFetch(answers);
-  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
   const comments = githubStatusComments({ client, reads: createGitHubReads(client), login });
   return { comments, requests: fake.requests };
 };

@@ -36,7 +36,17 @@ const answers: Record<string, ExecResult> = {
     stderr: '',
     output: 'socat version 1.7.4.4\n',
   },
+  // git config exits 1 when no setting matches.
+  '/usr/bin/git config --null --get-regexp ^credential\\.': {
+    exitCode: 1,
+    stdout: '',
+    stderr: '',
+    output: '',
+  },
 };
+
+// The call doctor makes to read git's credential helpers (ADR 0073).
+const CREDENTIALS = ['config', '--null', '--get-regexp', '^credential\\.'];
 
 // What a fake shell finds on PATH and answers besides the tools above.
 interface Extra {
@@ -48,7 +58,10 @@ const fakeShell = (extra: Extra = { onPath: {}, answers: {} }) => {
   const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
   const exec: ExecProcess = async (file, args, options) => {
     calls.push({ file, args, options });
-    const answer = extra.answers[file] ?? answers[file];
+    // By the whole command first, then by the program alone.
+    const command = [file, ...args].join(' ');
+    const answer =
+      extra.answers[command] ?? answers[command] ?? extra.answers[file] ?? answers[file];
     if (answer === undefined) throw new Error(`unexpected ${file}`);
     return answer;
   };
@@ -81,6 +94,7 @@ describe('gatherDoctorFacts', () => {
       [
         ['/home/brewer/.local/bin/claude', ['--version']],
         ['/usr/bin/git', ['--version']],
+        ['/usr/bin/git', CREDENTIALS],
         ['/usr/bin/npm', ['--version']],
         // socat has no --version.
         ['/usr/bin/socat', ['-V']],
@@ -102,6 +116,7 @@ describe('gatherDoctorFacts', () => {
     assert.deepEqual((await gatherDoctorFacts(shell)).tools, {
       npm: { path: '/usr/bin/npm', exitCode: 0, output: '11.6.2\n' },
       git: { path: '/usr/bin/git', exitCode: 0, output: 'git version 2.47.1\n' },
+      gh: undefined,
       // A command the runner killed at its deadline says so first, so doctor can show why.
       claude: {
         path: '/home/brewer/.local/bin/claude',
@@ -183,6 +198,111 @@ describe('gatherDoctorFacts', () => {
       ),
       report,
     );
+  });
+});
+
+// Foedrum reaches GitHub only through gh's own login (ADR 0073).
+describe("gatherDoctorFacts: gh's login and git's credential helpers", () => {
+  const out = (stdout: string, exitCode = 0, stderr = ''): ExecResult => ({
+    exitCode,
+    stdout,
+    stderr,
+    output: `${stdout}${stderr}`,
+  });
+  const withGh: Extra = {
+    onPath: { gh: '/usr/bin/gh' },
+    answers: {
+      '/usr/bin/gh': out('gh version 2.102.0 (2026-09-30)\n'),
+      '/usr/bin/gh auth status --hostname ghe.example': out(
+        'ghe.example\n  ✓ Logged in to ghe.example account brewer (keyring)\n',
+      ),
+      '/usr/bin/gh auth status --hostname github.com': out(
+        '',
+        1,
+        'You are not logged into any GitHub hosts. To log in, run: gh auth login\n',
+      ),
+      // A warning on stderr stays out of the listing, which is NUL-separated stdout only.
+      '/usr/bin/git config --null --get-regexp ^credential\\.': out(
+        'credential.https://ghe.example.helper\n!/usr/bin/gh auth git-credential\0',
+        0,
+        'warning: unable to access /home/brewer/.config/git/attributes\n',
+      ),
+    },
+  };
+  const ghe = '{ "repositories": {}, "githubApi": "https://ghe.example/api/v3" }';
+
+  it('asks gh about the host foedrum.jsonc names, and git for its credential settings', async () => {
+    const { calls, shell } = fakeShell(withGh);
+    const facts = await gatherDoctorFacts({ ...shell, readFile: () => ghe });
+    assert.deepEqual(facts.github, {
+      host: 'ghe.example',
+      login: {
+        exitCode: 0,
+        output: 'ghe.example\n  ✓ Logged in to ghe.example account brewer (keyring)\n',
+      },
+      credentials: {
+        exitCode: 0,
+        output: 'credential.https://ghe.example.helper\n!/usr/bin/gh auth git-credential\0',
+      },
+    });
+    const asked = calls.filter(({ args }) => args[0] === 'auth' || args[0] === 'config');
+    assert.deepEqual(
+      asked.map(({ file, args, options }) => [file, args, options.cwd, options.timeoutMs]),
+      [
+        ['/usr/bin/gh', ['auth', 'status', '--hostname', 'ghe.example'], '/work/brewery', 10_000],
+        ['/usr/bin/git', CREDENTIALS, '/work/brewery', 10_000],
+      ],
+    );
+  });
+
+  it('asks gh without the token variables, which gh would take for a login', async () => {
+    const { calls, shell } = fakeShell(withGh);
+    await gatherDoctorFacts({
+      ...shell,
+      env: { PATH: '/usr/bin', GH_TOKEN: 'a', GITHUB_TOKEN: 'b', GH_ENTERPRISE_TOKEN: 'c' },
+    });
+    const status = calls.find(({ args }) => args[0] === 'auth');
+    assert.deepEqual(status?.options.env, { PATH: '/usr/bin' });
+  });
+
+  it('keeps what gh said when it has no login, from stderr too', async () => {
+    const { shell } = fakeShell(withGh);
+    const facts = await gatherDoctorFacts(shell);
+    assert.deepEqual(facts.github?.login, {
+      exitCode: 1,
+      output: 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n',
+    });
+    // No foedrum.jsonc: github.com.
+    assert.equal(facts.github?.host, 'github.com');
+  });
+
+  it('asks about the host the shell names, before the one foedrum.jsonc names', async () => {
+    const { calls, shell } = fakeShell(withGh);
+    const facts = await gatherDoctorFacts({ ...shell, githubHost: 'github.com' });
+    assert.equal(facts.github?.host, 'github.com');
+    assert.ok(calls.some(({ args }) => args.join(' ') === 'auth status --hostname github.com'));
+  });
+
+  it('has no login without gh, and no helpers without git', async () => {
+    const { shell } = fakeShell();
+    assert.equal((await gatherDoctorFacts(shell)).github?.login, undefined);
+    const noGit = fakeShell(withGh);
+    const facts = await gatherDoctorFacts({
+      ...noGit.shell,
+      resolve: (name) => (name === 'git' ? undefined : noGit.shell.resolve(name)),
+    });
+    assert.equal(facts.github?.credentials, undefined);
+    assert.equal(facts.github?.login?.exitCode, 1);
+  });
+
+  it('says first that gh was killed at its deadline', async () => {
+    const killed: ExecResult = { ...out(''), exitCode: null, killed: 'timed-out' };
+    const { shell } = fakeShell({
+      onPath: withGh.onPath,
+      answers: { ...withGh.answers, '/usr/bin/gh auth status --hostname github.com': killed },
+    });
+    const facts = await gatherDoctorFacts(shell);
+    assert.deepEqual(facts.github?.login, { exitCode: null, output: 'timed out after 10 s\n' });
   });
 });
 

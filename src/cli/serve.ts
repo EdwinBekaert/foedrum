@@ -81,10 +81,10 @@ export interface ServeShell {
   ) => BrewerRunner;
   /** The process runner the check steps' commands run through (ADR 0069). */
   exec: ExecProcess;
+  /** The process runner gh runs through, for GitHub (ADR 0073). */
+  gh: ExecProcess;
   /** git, for the commits red proofs and the testsUnchanged guard read (ADR 0078). */
   git: Git;
-  /** Default the global `fetch`. */
-  fetch?: typeof globalThis.fetch;
   /** How long an intake pass may take; default half the batch lease (ADR 0050). */
   intakeDeadlineMs?: number;
   /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
@@ -192,16 +192,15 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       pushes.push({ repo, base: into, push: shell.push(repository) });
     }
     const client = createGitHubClient({
-      token: setup.github.token,
-      baseUrl: setup.github.api,
+      exec: shell.gh,
+      hostname: setup.github.hostname,
       // GitHub's rate-limit pause runs on serve's clock, which also decides when to poll.
       now: () => clock().getTime(),
-      ...(shell.fetch === undefined ? {} : { fetch: shell.fetch }),
     });
     // One cache of conditional reads for the intake, the marks and the orders' text (ADR 0052).
     const reads = createGitHubReads(client);
     const claims = githubClaimHost(client);
-    // The token's login: the status comments and the claim marks count only its own (ADR 0072).
+    // gh's login: the status comments and the claim marks count only its own (ADR 0072, ADR 0073).
     const login = await githubLogin(client, signal);
     const claimant: Claimant = { brewery: setup.brewery, login };
     const status = statusEffects({
@@ -252,7 +251,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     });
     const repositoryNamed = (repo: string) =>
       setup.repositories.find((repository) => sameRepo(repository.repo, repo));
-    // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069).
+    // A check step's commands run in the brewers' environment, without a token variable (ADR 0069);
+    // as the same OS user they can still start gh, which answers from its login (ADR 0073, #204).
     const checks = createCheckRunner({
       state,
       checks: setup.checks,
@@ -381,6 +381,11 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     say('stopped');
     return 0;
   } catch (error) {
+    // A call the stop itself ended, such as gh reading the login at the start, is a stop.
+    if (signal.aborted && error === signal.reason) {
+      say('stopped');
+      return 0;
+    }
     say(messageOf(error));
     return 1;
   } finally {

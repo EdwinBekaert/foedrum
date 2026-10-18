@@ -26,3 +26,24 @@ export const userName = (lookup: () => string, env: NodeJS.ProcessEnv): string =
   );
   return named ?? 'unknown';
 };
+
+/**
+ * `env` without the variables gh reads a GitHub token from (ADR 0073): gh would prefer any of them
+ * to its own login, also when git asks it for a credential. Names compare as `platform` does.
+ */
+export const withoutGitHubTokens = (
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv => {
+  const key = envNameKey(platform);
+  const tokens = new Set(GITHUB_TOKEN_VARIABLES.map(key));
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !tokens.has(key(name))));
+};
+
+/** The variables gh reads a token from, before its own login. */
+const GITHUB_TOKEN_VARIABLES = [
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GH_ENTERPRISE_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+] as const;

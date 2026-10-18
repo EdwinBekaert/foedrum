@@ -65,5 +65,5 @@ export const GitHubComment = z.object({
   body: z.string().optional(),
 });
 
-/** `GET /user`: the account of the token. */
+/** `GET /user`: the account gh is logged in as (ADR 0073). */
 export const GitHubUser = z.object({ login: z.string().min(1) });

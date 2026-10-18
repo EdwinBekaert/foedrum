@@ -9,6 +9,7 @@ import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { githubTargetTracker } from '../../src/github/tracker.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`../fixtures/github/${name}.json`, import.meta.url), 'utf8'));
@@ -28,7 +29,7 @@ const pullRequest = 'https://github.com/acme/web/pull/12';
 
 const trackerWith = (answers: Answer[]) => {
   const fake = fakeFetch(answers);
-  const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+  const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
   return { tracker: githubTargetTracker(createGitHubReads(client)), requests: fake.requests };
 };
 
@@ -167,7 +168,7 @@ describe('githubTargetTracker', () => {
           headers: { 'content-type': 'application/json', ...(link === '' ? {} : { link }) },
         });
       }) as typeof globalThis.fetch;
-      const client = createGitHubClient({ token: 'ghp_test', fetch });
+      const client = createGitHubClient({ exec: ghOver(fetch).exec });
       const tracker = githubTargetTracker(createGitHubReads(client));
       const issues = await tracker.issues('acme/web', { labels: ['foedrum'] });
       assert.deepStrictEqual(
