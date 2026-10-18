@@ -4,7 +4,7 @@
 // and ends each attempt itself; no process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -22,17 +22,13 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
-import { fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, config, home, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
-const issue = JSON.parse(
-  readFileSync(new URL('../fixtures/github/issue.json', import.meta.url), 'utf8'),
-) as object;
 const t0 = new Date('2026-10-17T12:00:00.000Z');
 
 describe('runServe', () => {
@@ -45,6 +41,8 @@ describe('runServe', () => {
   let controller: AbortController;
   let lock: ReturnType<typeof fakeLock>;
   let plans: ClaudeAttemptPlan[];
+  /** The Brewery's issue 12 with its text, where the status comment goes too (ADR 0072). */
+  let api: FakeGitHubApi;
   // What the shell's pushes pushed, as `<repo> <commit> <branch>`.
   let pushes: string[];
 
@@ -70,6 +68,12 @@ describe('runServe', () => {
     controller = new AbortController();
     lock = fakeLock('cellar');
     plans = [];
+    api = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [{ number: 12, labels: [], author: 'ann', body: 'Add a --json flag.' }],
+      },
+    });
     // An order routed to the one-step recipe, as the state branch would have it.
     const log = createCommandLog({ store, recipes: setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
@@ -105,9 +109,7 @@ describe('runServe', () => {
 
   // GitHub through a fake gh over a fake fetch (ADR 0073).
   const shell = ({
-    fetch = fakeFetch([
-      { status: 200, body: { ...issue, number: 12, body: 'Add a --json flag.' } },
-    ]).fetch,
+    fetch = api.fetch,
     ...overrides
   }: Partial<ServeShell> & { fetch?: typeof globalThis.fetch } = {}): ServeShell => ({
     out: (line) => lines.push(line),
@@ -252,6 +254,14 @@ describe('runServe', () => {
       ],
     );
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    // One status comment on the order's issue, by the token's login, followed up to on tap.
+    const status = api.comments.get('acme/brewery#12') ?? [];
+    assert.equal(status.length, 1, 'one status comment');
+    assert.equal(status[0]?.author, 'ann');
+    assert.match(status[0]?.body ?? '', /On tap/);
+    assert.match(status[0]?.body ?? '', /`brew`/);
+    // The batch goes on tap within the first tick, so whether an edit came first is the timing's.
+    assert.match(status[0]?.body ?? '', /<!-- foedrum:\["12-1","status\.\d+"\] -->$/);
   });
 
   it('refuses a second Cellar, opening nothing', async () => {
@@ -634,7 +644,7 @@ describe('runServe', () => {
       );
     });
 
-    it('polls every pollEvery, not at every tick, and reads no login without a target intake', async () => {
+    it("polls every pollEvery, not at every tick, and reads the token's login without a target intake", async () => {
       store = empty();
       setup = intakeSetup({ concurrency: 2 });
       const github = fakeGitHubApi({ login: 'ann', issues: {} });
@@ -642,7 +652,8 @@ describe('runServe', () => {
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
       // At 0, 60 and 120 seconds.
       assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
-      assert.equal(github.requests.includes('GET /user'), false);
+      // The status comments count only the Brewery's own comments (ADR 0072).
+      assert.equal(github.requests.includes('GET /user'), true);
     });
 
     it("polls at foedrum.jsonc's pollEvery", async () => {

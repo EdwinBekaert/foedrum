@@ -139,6 +139,19 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     return notFound();
   };
 
+  // A comment of the repository by its id: read, or its body replaced.
+  const onComment = (method: string, repo: string, id: number, body: unknown): Response => {
+    const prefix = `${repo.toLowerCase()}#`;
+    const found = [...comments.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .flatMap(([, list]) => list)
+      .find((comment) => comment.id === id);
+    if (found === undefined) return notFound();
+    if (method === 'PATCH') found.body = (body as { body?: string }).body ?? '';
+    else if (method !== 'GET') return notFound();
+    return json(200, { id, user: { login: found.author }, body: found.body });
+  };
+
   const pulls: FakeApiPull[] = [];
   const asPull = (pull: FakeApiPull) => ({
     number: pull.number,
@@ -204,6 +217,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       );
       return json(200, listed.map(asIssue));
     }
+    const [, id] = /^issues\/comments\/(\d+)$/.exec(rest) ?? [];
+    if (id !== undefined) return onComment(method, repo, Number(id), body);
     if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
     if (rest === 'pulls') return onPulls(method, repo, url, body);

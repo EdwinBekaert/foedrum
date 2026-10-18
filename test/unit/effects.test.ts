@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { DriverEffects } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
-import { applyEffect, type EffectTarget, type Ledger } from '../../src/engine/effects.ts';
+import {
+  applyEffect,
+  combineEffects,
+  type EffectTarget,
+  type Ledger,
+} from '../../src/engine/effects.ts';
 import type { EffectKey } from '../../src/engine/event-store.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 
 const key: EffectKey = { batchId: '7-1', stepId: 'open-pr', attempt: 2, effect: 'pull_request' };
 const text = effectKey.encode(key);
@@ -158,5 +165,52 @@ describe('applyEffect', () => {
     await assert.rejects(applyEffect(ledger, key, target, controller.signal), /past its deadline/);
     assert.deepEqual(calls, []);
     assert.deepEqual(records, []);
+  });
+});
+
+describe('combineEffects', () => {
+  const state = emptyState;
+  /** A source that gives `effects` of batch 7-1 and applies each as `<name> <key>`. */
+  const source = (
+    name: string,
+    effects: readonly string[],
+    deadlineMs?: number,
+  ): DriverEffects => ({
+    due: () => effects.map((effect) => ({ batchId: '7-1', effect })),
+    target: {
+      find: async () => undefined,
+      apply: async (k) => `${name} ${k}`,
+    },
+    ...(deadlineMs === undefined ? {} : { deadlineMs }),
+  });
+  const keyOf = (effect: string): string => effectKey.encode({ batchId: '7-1', effect });
+
+  it('gives the keys of every source, in their order', () => {
+    const both = combineEffects(source('claim', ['claim.label']), source('status', ['status.1']));
+    assert.deepEqual(both.due(state, '7-1'), [
+      { batchId: '7-1', effect: 'claim.label' },
+      { batchId: '7-1', effect: 'status.1' },
+    ]);
+  });
+
+  it('applies each key through the source that gave it', async () => {
+    const both = combineEffects(source('claim', ['claim.label']), source('status', ['status.1']));
+    both.due(state, '7-1');
+    assert.equal(await both.target.apply(keyOf('status.1')), `status ${keyOf('status.1')}`);
+    assert.equal(await both.target.apply(keyOf('claim.label')), `claim ${keyOf('claim.label')}`);
+  });
+
+  it('refuses a key that no source gave', async () => {
+    const both = combineEffects(source('claim', ['claim.label']));
+    both.due(state, '7-1');
+    await assert.rejects(both.target.find(keyOf('status.1')), /No effect .*status\.1.* is due/);
+  });
+
+  it('holds every effect to the shortest deadline a source sets, and to none when none does', () => {
+    assert.equal(
+      combineEffects(source('a', [], 900), source('b', []), source('c', [], 400)).deadlineMs,
+      400,
+    );
+    assert.equal(combineEffects(source('a', []), source('b', [])).deadlineMs, undefined);
   });
 });
