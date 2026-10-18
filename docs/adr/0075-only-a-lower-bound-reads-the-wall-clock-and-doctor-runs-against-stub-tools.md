@@ -24,7 +24,8 @@ Each fix was shown red under a modelled load first, as ADR 0070 asks: the test p
 - The orphan tests wait up to the levels' own 30 s when the kill misses, then fail by the record, not by a window; with `jobObject: false` the Job Object test fails after 30 s.
 - No test shows any more that the driver lock's default wait is about 2 s (`WAIT_MS` in `src/engine/driver-lock.ts`); the integration test shows that the wait works across processes, and the unit tests pass `waitMs: 0`.
 - doctor's report is checked line by line on each platform, so a change to its wording or order fails the integration test as well as the unit snapshot, and the test needs no tool but node and git on the machine. The stubs cost a node start per probe, and the modelled load costs 3.1 s of wall time per case, no CPU time.
-- The real version output of bwrap, socat, podman and docker is no longer read by any test on the machines that have them; what doctor parses is the captured text.
+- The real version output of npm, claude, bwrap, socat, podman and docker is no longer read by any test, even on the machines that have them (npm on every CI leg); what doctor parses is the captured text. git's is still read, since git stays real.
+- The `outOfDate` integration test reads one capture, from npm 11.19.0 on Windows. The record npm writes today is still read on every CI leg, by `npm run check`, whose first step runs `outOfDate` on the checkout CI has just installed with `npm ci`.
 
 ## Alternatives considered
 - **Keep the exceptions with longer limits:** a longer window holds until a busier day, and for the orphans it cannot pass 30 s.

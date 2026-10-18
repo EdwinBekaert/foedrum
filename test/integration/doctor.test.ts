@@ -34,6 +34,9 @@ import {
 import { type CapturedAnswer, stubPath, writeStubTools } from './stub-tools.ts';
 
 const realGit = resolveExecutable('git') ?? '';
+// What each tool prints for its version, in its own format, with the versions of the captures in
+// test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
+// canned-gh-login.ts. The real tools' output is no longer read here (ADR 0075).
 const answers = (started: string): Record<string, CapturedAnswer> => ({
   'npm --version': { stdout: '11.6.2\n' },
   'gh --version': { stdout: GH_VERSION_ANSWER },

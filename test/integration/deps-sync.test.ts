@@ -27,7 +27,8 @@ const runScript = (cwd: string) =>
 // The record a real npm ci wrote (npm 11.19.0 on Windows, for this repository's lock file of
 // 2026-10-18), captured in test/fixtures/deps-sync, so this checks the core against what npm writes,
 // with the optional packages of other platforms skipped, whatever state this checkout's own
-// node_modules is in (#212).
+// node_modules is in (#212). The record npm writes today is read on every CI leg anyway: CI runs
+// npm ci and then npm run check, whose first step (scripts/check.ts) runs outOfDate on it.
 describe('outOfDate on a package tree npm ci installed', () => {
   let project: TempDir;
   beforeEach(() => {

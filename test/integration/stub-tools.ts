@@ -27,6 +27,12 @@ export const writeStubTools = (bin: string, answers: Record<string, CapturedAnsw
   mkdirSync(bin, { recursive: true });
   const answersFile = join(bin, 'answers.json');
   writeFileSync(answersFile, JSON.stringify(answers));
+  // The scripts quote these paths as they are: a % would expand in cmd.exe even inside quotes,
+  // and a single quote would end sh's quoting, so a stub would start the wrong file.
+  const unquotable = process.platform === 'win32' ? /[%"]/ : /'/;
+  for (const path of [process.execPath, tool, answersFile]) {
+    if (unquotable.test(path)) throw new Error(`a stub tool cannot quote the path ${path}`);
+  }
   const names = new Set(Object.keys(answers).map((line) => line.split(' ')[0] ?? ''));
   for (const name of names) {
     const file = stubPath(bin, name);
