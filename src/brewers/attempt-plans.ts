@@ -13,6 +13,7 @@ import type { StepBrewers } from '../engine/recipe-files.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import {
   answersOf,
   attemptLimits,
@@ -36,7 +37,7 @@ export interface AttemptPlansOptions {
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
   /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
-  clone?: (repo: string) => string;
+  clone: (repo: string) => string;
   /** The Brewery's work root (ADR 0037). */
   workRoot: string;
   /** The brewer's minimal base environment and the runner's forced variables (ADR 0028). */
@@ -143,7 +144,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (answers !== undefined) inputs.push(answers);
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
-      return planAttempt({
+      const plan = planAttempt({
         brewer: found.brewer,
         instructions: found.instructions,
         worktree: worktree.path,
@@ -156,6 +157,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
+      if (found.brewer.produces !== 'commits') return plan;
+      // Its commits are counted on its branch in the clone, built from the attempt as the
+      // worktree's is, never from the recorded branch or the worktree's own git files (ADR 0037).
+      const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(ref) };
+      return { ...plan, commits };
     },
     limits: (ref) => {
       const batch = state().batches.get(ref.batchId);

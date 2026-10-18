@@ -44,7 +44,7 @@ import { createGitHubReads } from '../github/reads.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { ExecProcess } from '../platform/processes.ts';
-import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
+import { type AttemptWorktrees, worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
@@ -233,6 +233,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       brewers: setup.brewers,
       models: setup.models,
       repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
+      // Where a commit-producing attempt's commits are counted (ADR 0074).
+      clone: (repo) => {
+        const repository = setup.repositories.find((each) => sameRepo(each.repo, repo));
+        if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
+        return worktreeClonePath(setup.workRoot, repository);
+      },
       sandbox: setup.sandbox,
       workRoot: setup.workRoot,
       env: setup.brewerEnv,

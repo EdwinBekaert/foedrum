@@ -264,6 +264,22 @@ const noFacts = (exit: ProcessExit): AttemptFacts => ({
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
 
+  /** The commits after `since` where the plan says to count them; none without a start. */
+  const commitsOf = async (
+    plan: ClaudeAttemptPlan,
+    since: string | undefined,
+    signal: AbortSignal,
+  ): Promise<CommitsSeen | undefined> => {
+    if (since === undefined) return undefined;
+    if (plan.commits === undefined) {
+      return { kind: 'uncounted', reason: 'the plan names no clone to count them in' };
+    }
+    const { clone, branch } = plan.commits;
+    return deps
+      .commits(clone, branch, since, signal)
+      .catch((error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }));
+  };
+
   const start = (attempt: AttemptStart) => {
     const key = attemptKey.encode(attempt.ref);
     const { limits } = attempt;
@@ -347,16 +363,17 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         MAX_OUT_DOC_BYTES,
         plan.cwd,
       );
-      // What the next step starts from is in git, not in the stream (ADR 0074).
-      const since = limits.commitsSince;
-      const commits =
-        since === undefined
-          ? undefined
-          : await deps
-              .commits(plan.cwd, '', since, stopping.signal)
-              .catch(
-                (error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }),
-              );
+      // What the next step starts from is the attempt's branch in the clone, not the stream, nor
+      // the worktree's own git files, which the brewer can write (ADR 0074).
+      // Not after a stop: the runner's own (a limit it saw in the stream) settles before any count.
+      const stopped = stopping.signal.aborted;
+      const commits = stopped
+        ? undefined
+        : await commitsOf(plan, limits.commitsSince, stopping.signal);
+      // A stop while counting kills git: the attempt was stopped, git did not fail.
+      if (!stopped && stopping.signal.aborted) {
+        return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
+      }
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         exit,

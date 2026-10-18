@@ -4,7 +4,7 @@
 // a fake one (ADR 0021).
 
 import type { CommitsSeen } from '../engine/brewer-runner.ts';
-import type { Git } from './git.ts';
+import type { Git, GitResult } from './git.ts';
 
 /**
  * Counts the commits on `branch` in `clone` after `since`; never throws, git's failure is
@@ -17,8 +17,40 @@ export type CountCommits = (
   signal?: AbortSignal,
 ) => Promise<CommitsSeen>;
 
+// A full sha, SHA-1 or SHA-256 as `CommitSha` allows, and an attempt's branch (`attemptBranch`),
+// so that nothing reaches git as an option or a revision expression.
+const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const ATTEMPT_BRANCH = /^foedrum\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*\/\d+$/;
+
+const firstLine = ({ code, stderr }: GitResult): string =>
+  stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line !== '') ??
+  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
+
 export const countCommits =
-  (_git: Git): CountCommits =>
-  async () => {
-    throw new Error('not implemented');
+  (git: Git): CountCommits =>
+  async (clone, branch, since, signal) => {
+    if (!SHA.test(since)) return { kind: 'uncounted', reason: `${since} is no full commit sha` };
+    if (!ATTEMPT_BRANCH.test(branch)) {
+      return { kind: 'uncounted', reason: `${JSON.stringify(branch)} is no attempt branch` };
+    }
+    const tip = `refs/heads/${branch}`;
+    const options = signal === undefined ? {} : { signal };
+    const ancestor = await git(clone, ['merge-base', '--is-ancestor', since, tip], options);
+    // 0: an ancestor, 1: not one; anything else is git failing.
+    if (ancestor.code === 1) return { kind: 'rewritten' };
+    if (ancestor.code !== 0) {
+      return { kind: 'uncounted', reason: `git merge-base failed: ${firstLine(ancestor)}` };
+    }
+    const listed = await git(clone, ['rev-list', '--count', `${since}..${tip}`], options);
+    if (listed.code !== 0) {
+      return { kind: 'uncounted', reason: `git rev-list failed: ${firstLine(listed)}` };
+    }
+    const count = listed.stdout.trim();
+    if (!/^\d+$/.test(count)) {
+      return { kind: 'uncounted', reason: `git rev-list gave no count: ${JSON.stringify(count)}` };
+    }
+    return { kind: 'counted', count: Number(count) };
   };

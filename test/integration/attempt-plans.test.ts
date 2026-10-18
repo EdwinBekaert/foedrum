@@ -135,6 +135,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       brewers: loaded.brewers,
       models: { models: { quick: 'claude-haiku-5-5' }, brewers: {} },
       repoTools: () => [],
+      clone: () => clone,
       sandbox: false,
       workRoot,
       env: {

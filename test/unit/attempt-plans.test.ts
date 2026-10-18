@@ -243,6 +243,7 @@ describe('createAttemptPlans: limits', () => {
       brewers: two.brewers,
       models: { models: {}, brewers: {} },
       repoTools: () => [],
+      clone: () => join('/clones', 'acme/api'),
       sandbox: false,
       workRoot,
       env: { base: {}, forced: {} },
