@@ -1,5 +1,6 @@
 // A throwaway Brewery's files for `foedrum serve`'s tests (ADR 0063): one target repository, a
-// one-step recipe whose brewer reads the order and commits, the same with a test check after it,
+// recipe whose brewer reads the order and commits, the same with a test check after it, each
+// opening its pull request,
 // and the inputs `serveSetup` reads them from.
 
 import { resolve } from 'node:path';
@@ -30,11 +31,12 @@ export const local = (fields: Record<string, unknown> = {}) =>
 export const models = (alias = 'quick') =>
   JSON.stringify({ models: { [alias]: 'claude-haiku-5-5' } });
 
-// Its brewer commits with no red proof before it, so it says testFirst: false (ADR 0064).
+// Its brewer commits with no red proof before it, so it says testFirst: false (ADR 0064), and
+// the commits go into a pull request (ADR 0084).
 export const recipe = JSON.stringify({
   name: 'stout',
-  description: 'Brews an order in one step.',
-  steps: [{ id: 'brew', brewer: 'cellarman' }],
+  description: 'Brews an order in one step and opens its pull request.',
+  steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
   testFirst: false,
 });
 // The cellarman brews, then the repository's test check reads the task tree; a failing test sends
@@ -45,6 +47,7 @@ export const porter = JSON.stringify({
   steps: [
     { id: 'brew', brewer: 'cellarman' },
     { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
+    { action: 'openPullRequest' },
   ],
   testFirst: false,
 });
