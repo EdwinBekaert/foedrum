@@ -334,6 +334,13 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
         ['/repos/acme/brewery/issues/12', `token ${SYNTHETIC_LOGIN}`],
       ],
     );
+    // So did the pull request's lookup and its opening (ADR 0071, ADR 0073).
+    const pullRequests = read.filter(([path]) => path === '/repos/acme/web/pulls');
+    assert.ok(pullRequests.length >= 2, JSON.stringify(read));
+    assert.ok(
+      pullRequests.every(([, authorization]) => authorization === `token ${SYNTHETIC_LOGIN}`),
+      JSON.stringify(pullRequests),
+    );
     assert.match(
       api.bodies[0] ?? '',
       /untrusted-input-[0-9a-f]{32} source=\\"issue #12 body\\" name=\\"order\\">\\nAdd a --json flag\./,
