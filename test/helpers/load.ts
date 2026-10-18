@@ -18,13 +18,9 @@ export const descheduled = (ms: number): void => {
  */
 export const hangGuardMs = 120_000;
 
-/** Polls `done` until it holds, and fails after `ms`, a guard against a hang. */
-export const waitUntil = async (
-  what: string,
-  done: () => boolean,
-  ms = hangGuardMs,
-): Promise<void> => {
-  const until = performance.now() + ms;
+/** Polls `done` until it holds, and fails after `hangGuardMs`, a guard against a hang. */
+export const waitUntil = async (what: string, done: () => boolean): Promise<void> => {
+  const until = performance.now() + hangGuardMs;
   while (!done()) {
     if (performance.now() > until) throw new Error(`timed out waiting for ${what}`);
     await new Promise((settle) => setTimeout(settle, 50));
