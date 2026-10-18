@@ -64,7 +64,14 @@ describe('BreweryConfig', () => {
       accepted(
         config(
           {},
-          { permissionCeiling: ['Bash(ghc *)', 'Bash(cat gh.txt)', 'PowerShell(npm run gh)'] },
+          {
+            permissionCeiling: [
+              'Bash(ghc *)',
+              'Bash(cat gh.txt)',
+              'PowerShell(npm run gh)',
+              'Bash(env *)',
+            ],
+          },
         ),
       ),
       true,
