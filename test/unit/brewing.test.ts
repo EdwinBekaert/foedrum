@@ -489,8 +489,14 @@ describe('brewing with the fake brewer runner', () => {
     it('cleans the batch once it is on tap, with no lease left', async () => {
       const worktrees = fakeWorktrees();
       await brew({ plan: [behave.succeed()], implement: [behave.succeed()] }, { worktrees });
+      // Its recipe opens no pull request, so the cleanup keeps its task tree's branch, at the
+      // commit the batch started from (ADR 0084).
+      const unpushed = new Map([['foedrum/b1/implement/1', FAKE_COMMIT]]);
       assert.deepStrictEqual(worktrees.cleans(), [
-        { claims: { batches: new Map([['b1', 'ended']]), leased: [] }, scope: { batchId: 'b1' } },
+        {
+          claims: { batches: new Map([['b1', 'ended']]), leased: [], unpushed },
+          scope: { batchId: 'b1' },
+        },
       ]);
     });
 
@@ -611,7 +617,10 @@ describe('brewing with the fake brewer runner', () => {
       });
       const { repair } = await restarted.start();
       assert.deepStrictEqual(worktrees.cleans(), [
-        { claims: { batches: new Map([['b1', 'live']]), leased: [] }, scope: {} },
+        {
+          claims: { batches: new Map([['b1', 'live']]), leased: [], unpushed: new Map() },
+          scope: {},
+        },
       ]);
       assert.deepStrictEqual(repair.done, [`cleaned ${worktrees.root} every batch`]);
     });
