@@ -35,6 +35,7 @@ export type Git = (
 export const gitEnv = (
   env: NodeJS.ProcessEnv,
   config: Readonly<Record<string, string>> = {},
+  _platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv => {
   // core.longpaths, then the call's own configuration, after any configuration the environment
   // already gives git: out docs on the state branch can be deeper than Windows' 260 characters

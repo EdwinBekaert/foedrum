@@ -26,3 +26,14 @@ export const userName = (lookup: () => string, env: NodeJS.ProcessEnv): string =
   );
   return named ?? 'unknown';
 };
+
+/**
+ * `env` without the variables gh reads a GitHub token from (ADR 0073): gh would prefer any of them
+ * to its own login, also when git asks it for a credential. Names compare as `platform` does.
+ */
+export const withoutGitHubTokens = (
+  _env: NodeJS.ProcessEnv,
+  _platform: NodeJS.Platform,
+): NodeJS.ProcessEnv => {
+  throw new Error('not implemented');
+};
