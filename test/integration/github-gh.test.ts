@@ -8,6 +8,7 @@ import { after, before, describe, it } from 'node:test';
 import { createGitHubClient, GitHubRateLimited } from '../../src/github/client.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { execProcessWith, processSpawner, type Timers } from '../../src/platform/processes.ts';
+import { hangGuardMs } from '../helpers/load.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 import {
   FAKE_HOST,
@@ -79,6 +80,8 @@ describe('the GitHub client through the real gh (ADR 0073)', {
       exec: execProcessWith(processSpawner, loaded),
       hostname: FAKE_HOST,
       cwd: dir.path,
+      // Only a guard against a hang: how fast gh answers is gh's business (ADR 0070).
+      timeoutMs: hangGuardMs,
       env: options.env ?? fake?.env ?? {},
       ...(options.maxResponseBytes === undefined
         ? {}
