@@ -1460,6 +1460,17 @@ describe('openDriver', () => {
       assert.equal(driver.state().batches.get('b1')?.lane.kind, 'on_tap');
     });
 
+    it('opens no pull request before the push is recorded: a failed push stops the pass', async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions([push]);
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(applied, []);
+    });
+
     it('ends the attempt from the ledger when a driver before it applied both and died', async () => {
       const { actions, applied } = fakeActions();
       orderAle('b1');
@@ -1478,6 +1489,20 @@ describe('openDriver', () => {
       await second.tick();
       assert.deepStrictEqual(applied, []);
       assert.equal(second.state().batches.get('b1')?.lane.kind, 'on_tap');
+    });
+
+    it('applies the actions of a batch another driver holds only once it has the batch', async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions();
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.drive();
+      holdFor('other', 'b1', 10);
+      await driver.applyEffects();
+      assert.deepStrictEqual(applied, []);
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
     });
 
     it('blocks the action on its environment when the driver has no actions to run it with', async () => {

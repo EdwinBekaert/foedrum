@@ -1667,6 +1667,31 @@ describe('decide: on tap with the pull request of the openPullRequest step (ADR 
     });
   });
 
+  it('goes on tap without one when its when skipped the step', () => {
+    const when = 'recipe.testFirst';
+    const done = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'succeeded', output: null },
+    } as const;
+    assert.deepStrictEqual(decide(fold(brewing('plan', 1, 'ale')), done, ale({ [open]: when })), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'step.finished',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 1,
+          outcome: { kind: 'succeeded', output: null },
+        },
+        { type: 'step.skipped', batchId: 'b1', stepId: open, when },
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ],
+    });
+  });
+
   it('refuses a skip of the step, which would put the batch on tap without it', () => {
     const blocked: StuckReason = {
       kind: 'deadline_passed',
