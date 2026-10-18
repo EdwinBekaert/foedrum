@@ -81,7 +81,13 @@ export const startFakeGitHubOverGh = async (configDir: string, route: Route) => 
   const login = await execProcess(
     'gh',
     ['auth', 'login', '--hostname', FAKE_HOST, '--with-token', '--insecure-storage'],
-    { cwd: configDir, env, stdin: SYNTHETIC_LOGIN, timeoutMs: 30_000 },
+    // The configuration is named in the call itself, as check-test-layers requires (ADR 0086).
+    {
+      cwd: configDir,
+      env: { ...env, GH_CONFIG_DIR: configDir },
+      stdin: SYNTHETIC_LOGIN,
+      timeoutMs: 30_000,
+    },
   );
   if (login.exitCode !== 0) {
     server.close();
