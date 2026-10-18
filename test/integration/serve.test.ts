@@ -52,11 +52,20 @@ describe('foedrum serve', () => {
   });
 });
 
+/** A pull request the recipe's openPullRequest action asked for, as it was sent. */
+interface Pull {
+  title: string;
+  head: string;
+  base: string;
+  body: string;
+}
+
 /**
  * The Brewery's one labelled issue and its listing, the login serve reads at its start, the
- * status comments it makes on the order's issue (ADR 0072), and a 404 for anything else.
+ * status comments it makes on the order's issue (ADR 0072), the target repository's pull
+ * requests, each one opened pushed to `pulls` (ADR 0071), and a 404 for anything else.
  */
-const brewerysIssue = (body: string): Route => {
+const brewerysIssue = (body: string, pulls: Pull[]): Route => {
   const login = 'cellar-bot';
   const comments = new Map<number, string>();
   const commentOf = (id: number) => ({ id, user: { login }, body: comments.get(id) });
@@ -68,6 +77,7 @@ const brewerysIssue = (body: string): Route => {
     };
     const issue = {
       number: 12,
+      title: 'Add a --json flag',
       state: 'open',
       user: { login: 'ann' },
       labels: ['recipe:stout'],
@@ -88,6 +98,17 @@ const brewerysIssue = (body: string): Route => {
         comments.set(comments.size + 1, sent());
         return answer(201, commentOf(comments.size));
       }
+    }
+    // The openPullRequest action (ADR 0071): none from the bottle branch yet, then the one it opens.
+    if (method === 'GET' && bare === '/repos/acme/web/pulls') return answer(200, []);
+    if (method === 'POST' && bare === '/repos/acme/web/pulls') {
+      const pull = JSON.parse(text) as Pull;
+      pulls.push(pull);
+      return answer(201, {
+        html_url: `https://github.com/acme/web/pull/${pulls.length}`,
+        user: { login },
+        head: { ref: pull.head, repo: { full_name: 'acme/web' } },
+      });
     }
     if (comment !== null && comments.has(id)) {
       if (method === 'GET') return answer(200, commentOf(id));
@@ -129,7 +150,8 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     mkdirSync(work);
     const ghConfig = join(dir.path, 'gh');
     mkdirSync(ghConfig);
-    github = await startFakeGitHubOverGh(ghConfig, brewerysIssue('Add a --json flag.'));
+    const pulls: Pull[] = [];
+    github = await startFakeGitHubOverGh(ghConfig, brewerysIssue('Add a --json flag.', pulls));
     const files = join(dir.path, 'brewery-seed');
     git(dir.path, ['init', '-q', '-b', 'main', files]);
     const config = {
@@ -250,10 +272,31 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
         'step.scheduled',
         'step.started',
         'step.finished',
+        // The openPullRequest action (ADR 0071, ADR 0084).
+        'step.scheduled',
+        'step.started',
+        'step.finished',
         'batch.on_tap',
       ],
       `${result.stdout}\n${result.stderr}`,
     );
+    // The brewer's commit went to the bottle branch of the target repository's origin, and the
+    // pull request asks for it to go into main, closing the Brewery's issue.
+    const branch = 'foedrum/acme.brewery/12-1/acme.web';
+    const pushedTip = git(dir.path, [
+      '--git-dir',
+      join(dir.path, 'web.git'),
+      'log',
+      '-1',
+      '--format=%s',
+      branch,
+    ]);
+    assert.equal(pushedTip.trim(), 'Add a --json flag');
+    assert.deepStrictEqual(
+      pulls.map(({ head, base, title }) => ({ head, base, title })),
+      [{ head: branch, base: 'main', title: 'Add a --json flag' }],
+    );
+    assert.match(pulls[0]?.body ?? '', /\nCloses acme\/brewery#12$/i);
     assert.match(result.stdout, /^foedrum serve: brewing for acme\/brewery in /m);
     assert.match(result.stdout, /^foedrum serve: ordered acme\/brewery#12 as batch 12-1$/m);
     assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
