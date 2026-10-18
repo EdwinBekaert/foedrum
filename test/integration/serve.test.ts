@@ -69,6 +69,12 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
   const login = 'cellar-bot';
   const comments = new Map<number, string>();
   const commentOf = (id: number) => ({ id, user: { login }, body: comments.get(id) });
+  // A pull request as GitHub answers it, opened by the Brewery's login from acme/web itself.
+  const opened = (pull: Pull, number: number) => ({
+    html_url: `https://github.com/acme/web/pull/${number}`,
+    user: { login },
+    head: { ref: pull.head, repo: { full_name: 'acme/web' } },
+  });
   return ({ method, path, body: text }, response) => {
     const answer = (status: number, value: unknown): true => {
       response.writeHead(status, { 'content-type': 'application/json' });
@@ -100,15 +106,16 @@ const brewerysIssue = (body: string, pulls: Pull[]): Route => {
       }
     }
     // The openPullRequest action (ADR 0071): none from the bottle branch yet, then the one it opens.
-    if (method === 'GET' && bare === '/repos/acme/web/pulls') return answer(200, []);
+    if (method === 'GET' && bare === '/repos/acme/web/pulls') {
+      const head = new URLSearchParams(path.split('?')[1] ?? '').get('head');
+      const listed = pulls.flatMap((pull, index) =>
+        head === `acme:${pull.head}` ? [opened(pull, index + 1)] : [],
+      );
+      return answer(200, listed);
+    }
     if (method === 'POST' && bare === '/repos/acme/web/pulls') {
-      const pull = JSON.parse(text) as Pull;
-      pulls.push(pull);
-      return answer(201, {
-        html_url: `https://github.com/acme/web/pull/${pulls.length}`,
-        user: { login },
-        head: { ref: pull.head, repo: { full_name: 'acme/web' } },
-      });
+      pulls.push(JSON.parse(text) as Pull);
+      return answer(201, opened(pulls.at(-1) as Pull, pulls.length));
     }
     if (comment !== null && comments.has(id)) {
       if (method === 'GET') return answer(200, commentOf(id));
@@ -193,7 +200,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       { name: 'Bash', input: { command: 'git add flag.txt', description: 'Stage the flag' } },
       {
         name: 'Bash',
-        input: { command: 'git commit -q -m "Add a --json flag"', description: 'Commit it' },
+        input: { command: 'git commit -q -m "Brew the flag"', description: 'Commit it' },
       },
       {
         name: 'Write',
@@ -291,12 +298,24 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       '--format=%s',
       branch,
     ]);
-    assert.equal(pushedTip.trim(), 'Add a --json flag');
+    assert.equal(pushedTip.trim(), 'Brew the flag');
     assert.deepStrictEqual(
       pulls.map(({ head, base, title }) => ({ head, base, title })),
       [{ head: branch, base: 'main', title: 'Add a --json flag' }],
     );
     assert.match(pulls[0]?.body ?? '', /\nCloses acme\/brewery#12$/i);
+    // Opened through the ledger, and the batch went on tap with the URL GitHub answered.
+    const events = pushed()
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => (JSON.parse(line) as { event: Record<string, unknown> }).event);
+    assert.ok(
+      events.some((e) => e.type === 'effect.applied' && e.key === '["12-1","pull_request"]'),
+      JSON.stringify(events),
+    );
+    assert.deepStrictEqual(events.find((e) => e.type === 'batch.on_tap')?.pullRequests, [
+      'https://github.com/acme/web/pull/1',
+    ]);
     assert.match(result.stdout, /^foedrum serve: brewing for acme\/brewery in /m);
     assert.match(result.stdout, /^foedrum serve: ordered acme\/brewery#12 as batch 12-1$/m);
     assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
