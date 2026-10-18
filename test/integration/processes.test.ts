@@ -18,7 +18,6 @@ import {
   runProcessThrough,
   type Spawner,
   spawnCommand,
-  spawnProcess,
   streamProcess,
   streamProcessWith,
 } from '../../src/platform/processes.ts';
@@ -132,12 +131,18 @@ describe('execProcess with a real tree of processes', () => {
   // the grandchild holds the output open and the deadline kills its process group. The levels
   // left over end by themselves after 30 s, so the test waits for them and never kills a pid
   // itself: the exited parent's may be reused.
-  it('leaves no process of the tree running when the parent exits before its grandchild', async () => {
+  it('leaves no process of the tree running when the parent exits before its grandchild', {
+    timeout: hangGuardMs,
+  }, async () => {
     // Run outside dir.path: on Windows a surviving orphan's working directory could not be
     // removed after the test.
     const cwd = import.meta.dirname;
-    // A loaded machine (#147): the two levels start later than the deadline expects.
-    const done = spawnProcess(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
+    // A loaded machine (#147): the two levels start later than the deadline expects. So the
+    // test reaches the deadline once the grandchild runs and its parent has exited (ADR 0070).
+    // On Windows the Job Object ends the tree when the parent exits, without the deadline.
+    const deadline = cuedTimers();
+    const run = runProcessThrough(execProcessWith(processSpawner, deadline));
+    const done = run(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
       timeoutMs: 10,
       jobObject: true,
     });
@@ -145,6 +150,7 @@ describe('execProcess with a real tree of processes', () => {
       const [parent, grandchild] = pidsIn(pidFile);
       return grandchild !== undefined && parent !== undefined && !isPidAlive(parent);
     });
+    if (process.platform !== 'win32') deadline.fire();
     await done;
     const [, grandchild = 0] = pidsIn(pidFile);
     const until = Date.now() + 10_000;
