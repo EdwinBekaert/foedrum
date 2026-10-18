@@ -277,6 +277,21 @@ describe('renderStatus', () => {
     assert.match(text, /and 20 more options/);
   });
 
+  it('counts no more questions or options when it shows them all', () => {
+    const question = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+    const asked = renderStatus(
+      batch({ lane: stuck({ kind: 'needs_input', stepId: 'plan', questions: [question] }) }),
+      steps,
+    );
+    const blocked = renderStatus(
+      batch({
+        lane: stuck({ kind: 'blocked', stepId: 'plan', blockerKind: 'findings', summary: 'x' }),
+      }),
+      steps,
+    );
+    for (const text of [asked, blocked]) assert.doesNotMatch(text, /more (questions|options)/);
+  });
+
   it('escapes every Markdown character a brewer wrote, exactly', () => {
     const text = renderStatus(
       batch({ steps: new Map([step('plan', done(1, ['[a](b) `c` #d |e ~f !g _h']))]) }),
