@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -265,6 +265,36 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
       const differ = [...names].filter((name) => env[name] !== held[name]);
       assert.deepEqual(differ, []);
     }
+  });
+
+  // The helper loads no module: a lookup of the module path costs a scan of every module on it at
+  // each start, about 15 s on a runner image with many installed (#177's checks timed out on
+  // Windows CI). A module there that exports a name the helper could call would run if it did.
+  it('loads no PowerShell module from the module path, so none can run in the helper', async () => {
+    const modules = join(dir.path, 'modules');
+    const marker = join(dir.path, 'imported');
+    mkdirSync(join(modules, 'Planted'), { recursive: true });
+    const exported = ['New-Object', 'Write-Output'].map(
+      (name) => `function ${name} { throw 'planted' }`,
+    );
+    writeFileSync(
+      join(modules, 'Planted', 'Planted.psm1'),
+      [
+        `[IO.File]::WriteAllText('${marker}', '1')`,
+        ...exported,
+        'Export-ModuleMember -Function *',
+      ].join('\n'),
+    );
+    const result = await execProcess(process.execPath, ['-e', 'process.exit(3)'], {
+      cwd: dir.path,
+      env: { ...process.env, PSModulePath: modules },
+      jobObject: true,
+    });
+    assert.deepEqual(
+      { exitCode: result.exitCode, imported: existsSync(marker) },
+      { exitCode: 3, imported: false },
+      result.output,
+    );
   });
 
   it('passes on an exit code above 2^31, as Windows reports a crash', async () => {
