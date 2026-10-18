@@ -54,6 +54,30 @@ describe('BreweryConfig', () => {
     assert.equal(accepted(config({ tools: ['Bash(npm test*)', 'Bash(npm run lint*)'] })), true);
   });
 
+  // The ceiling bounds what a repository adds; it is not an allowlist (ADR 0062, ADR 0082).
+  it('accepts a ceiling of every shell command, and rules that only look like gh', () => {
+    assert.equal(
+      accepted(config({ tools: ['Bash(npm test)'] }, { permissionCeiling: ['Bash(*)'] })),
+      true,
+    );
+    assert.equal(
+      accepted(
+        config(
+          {},
+          {
+            permissionCeiling: [
+              'Bash(ghc *)',
+              'Bash(cat gh.txt)',
+              'PowerShell(npm run gh)',
+              'Bash(env *)',
+            ],
+          },
+        ),
+      ),
+      true,
+    );
+  });
+
   it('accepts a repository whose issues the intake polls, under a short alias (ADR 0043)', () => {
     const intake = { labels: ['foedrum', 'ready'], milestone: 'v2' };
     assert.deepEqual(BreweryConfig.parse(config({ alias: 'web', intake })).repositories, {
@@ -137,6 +161,58 @@ describe('BreweryConfig', () => {
   for (const [what, value] of invalid) {
     it(`rejects ${what}`, () => {
       assert.equal(accepted(value), false);
+    });
+  }
+
+  // #204: gh answers from the maintainer's login in the OS keyring, so neither the ceiling nor a
+  // repository's tools name it, even under a ceiling of every command (ADR 0082).
+  const gh: [string, unknown, (string | number)[]][] = [
+    [
+      'gh in the ceiling',
+      config({}, { permissionCeiling: ['Bash(gh *)'] }),
+      ['permissionCeiling', 0],
+    ],
+    [
+      'gh by path in the ceiling',
+      config({}, { permissionCeiling: ['Read', 'PowerShell(C:\\Tools\\gh.exe api *)'] }),
+      ['permissionCeiling', 1],
+    ],
+    [
+      'gh after a wrapper in the ceiling',
+      config({}, { permissionCeiling: ['Bash(env gh pr list)'] }),
+      ['permissionCeiling', 0],
+    ],
+    [
+      'gh by path after a wrapper in the ceiling',
+      config({}, { permissionCeiling: ['Bash(env /usr/bin/gh pr list)'] }),
+      ['permissionCeiling', 0],
+    ],
+    // A star right after the name still names gh (review of #225).
+    [
+      'gh with a star in the ceiling',
+      config({}, { permissionCeiling: ['Bash(gh*)'] }),
+      ['permissionCeiling', 0],
+    ],
+    [
+      'gh by path with a star in the repository tools',
+      config({ tools: ['Bash(/usr/bin/gh*)'] }, { permissionCeiling: ['Bash(*)'] }),
+      ['repositories', 'acme/web', 'tools', 0],
+    ],
+    [
+      'gh in the repository tools, under a ceiling of every command',
+      config({ tools: ['Bash(npm test)', 'Bash(gh pr list)'] }, { permissionCeiling: ['Bash(*)'] }),
+      ['repositories', 'acme/web', 'tools', 1],
+    ],
+  ];
+  for (const [what, value, path] of gh) {
+    it(`rejects ${what}, pointing at the rule`, () => {
+      const result = BreweryConfig.safeParse(value);
+      assert.equal(result.success, false);
+      assert.deepEqual(
+        result.error?.issues.map((issue) => issue.path),
+        [path],
+      );
+      assert.match(result.error?.message ?? '', /only the engine talks to GitHub/);
     });
   }
 

@@ -6,8 +6,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
-import { setTimeout as delay } from 'node:timers/promises';
+import { afterEach, beforeEach, describe, it, type TestContext } from 'node:test';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { jobObjectCommand } from '../../src/platform/job-object.ts';
 import {
@@ -38,6 +37,19 @@ const pidsIn = (file: string): number[] =>
     : [];
 
 const alive = (pids: number[]): number[] => pids.filter((pid) => isPidAlive(pid));
+
+// The orphans of the tree that ended by themselves after their 30 s, not by a kill.
+const endedByThemselves = (pidFile: string): number[] => pidsIn(`${pidFile}.ended`);
+
+// A loaded machine for the rest of test `t` (#212): every reading of Date.now() is 10.1 s after
+// the one before, as when the OS takes the CPU away from the test process between them.
+const losesTimeOnEveryReading = (t: TestContext): void => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => {
+    now += 10_100;
+    return now;
+  });
+};
 
 // Waits for every process to end, however long a loaded machine takes to kill and reap them
 // (ADR 0070). Kills what is left, so a failing test leaves nothing running.
@@ -130,18 +142,20 @@ describe('execProcess with a real tree of processes', () => {
   // kill-on-close Job Object instead (ADR 0039), which ends it when the parent exits. Elsewhere
   // the grandchild holds the output open and the deadline kills its process group. The levels
   // left over end by themselves after 30 s, so the test waits for them and never kills a pid
-  // itself: the exited parent's may be reused.
+  // itself: the exited parent's may be reused. Whether the kill ended them or their own 30 s is
+  // an order of events, which the tree records (ADR 0070, #212), not a bound on the wall clock.
   it('leaves no process of the tree running when the parent exits before its grandchild', {
     timeout: hangGuardMs,
-  }, async () => {
+  }, async (t) => {
     // Run outside dir.path: on Windows a surviving orphan's working directory could not be
     // removed after the test.
     const cwd = import.meta.dirname;
     // A loaded machine (#147): the two levels start later than the deadline expects. So the
     // test reaches the deadline once the grandchild runs and its parent has exited (ADR 0070).
     // On Windows the Job Object ends the tree when the parent exits, without the deadline.
+    // The kill lands a second late elsewhere (#212).
     const deadline = cuedTimers();
-    const run = runProcessThrough(execProcessWith(processSpawner, deadline));
+    const run = runProcessThrough(execProcessWith(lateKill(1_000), deadline));
     const done = run(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
       timeoutMs: 10,
       jobObject: true,
@@ -153,9 +167,10 @@ describe('execProcess with a real tree of processes', () => {
     if (process.platform !== 'win32') deadline.fire();
     await done;
     const [, grandchild = 0] = pidsIn(pidFile);
-    const until = Date.now() + 10_000;
-    while (isPidAlive(grandchild) && Date.now() < until) await delay(100);
-    assert.equal(isPidAlive(grandchild), false, `grandchild ${grandchild} still running`);
+    // And the test process loses 10.1 s between two readings of the clock (#212).
+    losesTimeOnEveryReading(t);
+    await waitUntil('the grandchild to end', () => !isPidAlive(grandchild));
+    assert.deepEqual(endedByThemselves(pidFile), [], 'the grandchild ended by itself');
   });
 
   it('answers without an exit code when the program does not exist', async () => {
@@ -332,8 +347,14 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
   // The job, not taskkill: a kill of the helper alone, with no tree walk, must end every level.
   // The levels are detached, so no node holds the next in a job of its own, as cmd.exe does not;
   // the levels left over end by themselves after 30 s.
-  it('ends the whole tree when only the helper is killed', async () => {
-    const exec = execProcessWith({ ...processSpawner, killTree: (pid) => process.kill(pid) });
+  it('ends the whole tree when only the helper is killed', async (t) => {
+    // A loaded machine (#212): the kill lands a second late.
+    const exec = execProcessWith({
+      ...processSpawner,
+      killTree: (pid) => {
+        setTimeout(() => process.kill(pid), 1_000);
+      },
+    });
     const stop = new AbortController();
     const done = exec(process.execPath, [tree, pidFile, '2', 'orphan'], {
       cwd: dir.path,
@@ -343,12 +364,13 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     await waitUntil('three levels to start', () => pidsIn(pidFile).length === 3);
     stop.abort();
     assert.equal((await done).killed, 'stopped');
-    // The levels end by themselves after 30 s, so only a bound below that can tell the job's
-    // kill from their own end: the bound is the property, as for the orphans of #92 (ADR 0070).
+    // The levels end by themselves after 30 s, and record it: the job's kill must come first, an
+    // order of events, as for the orphans of #92 (ADR 0070).
     const pids = pidsIn(pidFile);
-    const until = Date.now() + 10_000;
-    while (alive(pids).length > 0 && Date.now() < until) await delay(100);
-    assert.deepEqual(alive(pids), [], 'levels of the tree still running');
+    // And the test process loses 10.1 s between two readings of the clock.
+    losesTimeOnEveryReading(t);
+    await waitUntil('every level of the tree to end', () => alive(pids).length === 0);
+    assert.deepEqual(endedByThemselves(pidFile), [], 'levels of the tree ended by themselves');
   });
 
   // Fail closed: nothing runs outside a job when the helper cannot make one. The reason is the

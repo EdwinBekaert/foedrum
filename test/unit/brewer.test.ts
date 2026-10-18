@@ -181,6 +181,15 @@ describe('BrewerFrontmatter', () => {
       { ...taster, tools: { allow: ['Read', 'Bash(git *)'] } },
     ],
     ['a whole shell', { ...taster, tools: { allow: ['Read', 'PowerShell'] } }],
+    // #204: gh answers from the maintainer's login in the OS keyring (ADR 0082).
+    [
+      'a shell rule that starts gh',
+      { ...taster, tools: { allow: ['Read', 'Bash(gh pr view *)'] } },
+    ],
+    [
+      'gh after a wrapper',
+      { ...taster, tools: { allow: ['Read', 'PowerShell(env gh api user)'] } },
+    ],
     [
       'two inputs with the same name',
       {

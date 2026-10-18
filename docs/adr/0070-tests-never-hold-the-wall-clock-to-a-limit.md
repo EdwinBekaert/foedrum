@@ -1,6 +1,6 @@
 # 0070. Tests never hold the wall clock to a limit
 
-Date: 2026-10-17 · Status: Accepted · Extends [0036](0036-test-budget-in-cpu-time.md)
+Date: 2026-10-17 · Status: Accepted · Extends [0036](0036-test-budget-in-cpu-time.md) · Amended by [0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md)
 
 ## Context
 Several sessions often run on one machine, and `npm test` and `npm run test:integration` run below normal priority (ADR 0054), so a test process regularly loses the CPU for seconds. On 2026-10-16 and 17 five tests failed in full runs while other sessions ran, and passed on their own (#147). Three sessions lost a rerun to them, and the gate blocked a push:

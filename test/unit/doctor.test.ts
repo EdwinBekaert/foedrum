@@ -398,13 +398,19 @@ describe('diagnose: isolation (ADR 0010)', () => {
   it('is sandboxed on WSL2 with bubblewrap and socat', () => {
     const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
     assert.equal(diagnose(wsl2).isolation.level, 'sandboxed');
-    assert.deepEqual(diagnose(wsl2).advice, []);
+    assert.deepEqual(
+      diagnose(wsl2).advice.filter((line) => /WSL2/.test(line)),
+      [],
+    );
   });
 
   it('is sandboxed on a WSL 2 kernel from before the WSL2 suffix', () => {
     const wsl2 = { ...linux(), kernelRelease: '4.19.128-microsoft-standard' };
     assert.equal(diagnose(wsl2).isolation.level, 'sandboxed');
-    assert.deepEqual(diagnose(wsl2).advice, []);
+    assert.deepEqual(
+      diagnose(wsl2).advice.filter((line) => /WSL2/.test(line)),
+      [],
+    );
   });
 
   it('is permissions only on Linux without bubblewrap or socat, which it reports as missing', () => {
@@ -422,7 +428,7 @@ describe('diagnose: isolation (ADR 0010)', () => {
     const diagnosis = diagnose(windows);
     assert.equal(diagnosis.isolation.level, 'permissions only');
     assert.equal(diagnosis.ok, true);
-    assert.equal(diagnosis.advice.length, 1);
+    assert.equal(diagnosis.advice.length, 2, 'WSL2, and what the level leaves open (ADR 0082)');
     assert.match(diagnosis.advice[0] ?? '', /WSL2/);
   });
 
@@ -518,6 +524,66 @@ describe('diagnose: isolation (ADR 0010)', () => {
         usable: false,
         said: output.trim(),
       });
+    }
+  });
+});
+
+// #204: a brewer or a check step runs as the maintainer's OS user, so on the permissions-only level
+// it can still ask the OS keyring for gh's login; the line says what closes that (ADR 0082).
+describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () => {
+  const keyring = (facts: DoctorFacts) =>
+    diagnose(facts).advice.filter((line) => /keyring/.test(line));
+
+  it('says on native Windows and WSL 1 that a brewer can still ask the keyring, which WSL2 or the container level closes', () => {
+    for (const facts of [windows, { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' }]) {
+      const [line, ...more] = keyring(facts);
+      assert.deepEqual(more, []);
+      assert.match(line ?? '', /brewer/);
+      assert.match(line ?? '', /check step/);
+      assert.match(line ?? '', /gh's login/);
+      assert.match(line ?? '', /WSL2 or the container level/);
+    }
+  });
+
+  it('names the sandboxed level and the container level on Linux without bubblewrap', () => {
+    const [line, ...more] = keyring(linux({ bwrap: undefined }));
+    assert.deepEqual(more, []);
+    assert.match(line ?? '', /gh's login/);
+    assert.match(line ?? '', /sandboxed level .*or the container level/);
+  });
+
+  it('names the container level on an operating system without a sandbox', () => {
+    const [line] = keyring({ ...macos, platform: 'freebsd' });
+    assert.match(line ?? '', /gh's login/);
+    assert.match(line ?? '', /the container level/);
+    assert.doesNotMatch(line ?? '', /WSL2/);
+  });
+
+  // Check steps run outside the OS sandbox at every level until #190 (ADR 0069, review of #225).
+  it('says what closes it for brewers only, since check steps keep it until #190', () => {
+    const permissionsOnly = [
+      windows,
+      { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' },
+      linux({ bwrap: undefined }),
+      { ...macos, platform: 'freebsd' as const },
+    ];
+    for (const facts of permissionsOnly) {
+      const [line] = keyring(facts);
+      assert.match(line ?? '', /closes that for brewers/);
+      assert.match(line ?? '', /check steps .*until #190/);
+    }
+  });
+
+  it('says on the sandboxed level that check steps can still ask the keyring until #190', () => {
+    const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
+    for (const facts of [macos, linux(), wsl2]) {
+      const [line, ...more] = keyring(facts);
+      assert.deepEqual(more, []);
+      assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
+      assert.match(line ?? '', /check steps/);
+      assert.match(line ?? '', /gh's login/);
+      assert.match(line ?? '', /#190/);
+      assert.doesNotMatch(line ?? '', /brewer/);
     }
   });
 });
