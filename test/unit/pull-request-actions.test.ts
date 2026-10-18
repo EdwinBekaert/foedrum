@@ -323,3 +323,18 @@ describe('pullRequestActions: a push that cannot carry the batch (review of #198
     });
   });
 });
+
+describe('pullRequestActions: the recorded push is read by its schema (review of #198)', () => {
+  it('fails for good on a recorded push that is not one the engine records', () => {
+    for (const result of [{ from: 5 }, { branch, commit: 'HEAD', from }, 'pushed']) {
+      const { actions } = actionsWith();
+      const state = fold([ordered({ issue: 12 }), ...brewed, ...opening, applied(push, result)]);
+      assert.deepEqual(actions.due(state, action), []);
+      assert.deepEqual(actions.ending(state, action), {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the ledger holds a push of batch 12-1 that is not one the engine records',
+      });
+    }
+  });
+});
