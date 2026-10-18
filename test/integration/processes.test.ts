@@ -385,6 +385,21 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     );
   });
 
+  // Module autoloading stays off for the whole script, not only for the cmdlets it calls today: a
+  // cmdlet added later would bring back the scan of the module path on every start (#177). One
+  // of Microsoft.PowerShell.Utility's, added before the job is made, cannot be found.
+  it('fails closed when its script calls a cmdlet, because module autoloading is off', async () => {
+    const withCmdlet = editedHelper((script) =>
+      script.replace('$module = [AppDomain]', '[void](Get-Date)\n$module = [AppDomain]'),
+    );
+    const result = await execProcessWith(withCmdlet)(process.execPath, ['-e', ''], {
+      cwd: dir.path,
+      jobObject: true,
+    });
+    assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /cannot run in a Job Object: .*Get-Date/);
+  });
+
   // A failure after the program exists but before it runs: the suspended program would hold the
   // output open, so the helper ends it and the call answers at once, not at its deadline. Runs
   // outside dir.path, whose removal such a program would block.
