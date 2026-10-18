@@ -11,7 +11,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0005](0005-typed-step-outcomes-and-out-docs.md) | Typed step outcomes via out docs | Accepted |
 | [0006](0006-no-mid-run-questions.md) | Brewers never ask questions mid-run | Accepted |
 | [0007](0007-jsonc-config-and-json-frontmatter.md) | JSONC configuration, JSON frontmatter | Accepted, amended by 0020 |
-| [0008](0008-polling-intake.md) | Polling intake | Accepted, amended by 0043, 0050, 0052 and 0068 |
+| [0008](0008-polling-intake.md) | Polling intake | Accepted, amended by 0043, 0050, 0052 and 0068; partly superseded by 0073 |
 | [0009](0009-agpl-and-cla.md) | AGPL-3.0 with a Contributor License Agreement | Accepted |
 | [0010](0010-cross-platform-and-isolation-levels.md) | Cross-platform support and isolation levels | Accepted, amended by 0039 and 0049 |
 | [0011](0011-state-in-the-brewery-repository.md) | State in the Brewery repository (amends 0002) | Accepted, amended by 0024 and 0044 |
@@ -55,7 +55,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0049](0049-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted, amended by 0057 |
 | [0050](0050-the-intake-of-target-repository-issues.md) | The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines (amends 0008, 0043 and 0044) | Accepted, amended by 0052 and 0068 |
 | [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) | Chaos runs on the real driver, with two drivers and a terminal on one store (amends 0033 and 0044) | Accepted, amended by 0055 and 0061 |
-| [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) | GitHub reads: conditional requests, rate-limit pauses and the polling interval (amends 0008 and 0050) | Accepted, amended by 0068 |
+| [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) | GitHub reads: conditional requests, rate-limit pauses and the polling interval (amends 0008 and 0050) | Accepted, amended by 0068 and 0073 |
 | [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) | Recipe files reach the engine: brewer steps in a line first, and all or nothing (amends 0025) | Accepted, amended by 0064 and 0069 |
 | [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) | Test runs below normal priority, and review runs scoped to their question (amends 0034, 0036 and 0040) | Accepted |
 | [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) | A step waits for the lease of its abandoned attempt (amends 0044 and 0051) | Accepted |
@@ -66,7 +66,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) | The local gate refuses `gh pr ready` until the review summary for the head is on the pull request (amends 0045 and 0056) | Accepted |
 | [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) | Chaos faults at their sites, shrinking, and the worktree and state branch cases (amends 0037 and 0051) | Accepted |
 | [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted |
-| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066 and 0068 |
+| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066, 0068 and 0073 |
 | [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) | Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required (amends 0025, 0032 and 0053) | Accepted, amended by 0069 |
 | [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) | The local gate refuses npx of packages that are not in the lockfile (amends 0045 and 0056) | Accepted |
 | [0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md) | The task tree continues from the latest succeeded attempt (amends 0029, 0037, 0059 and 0063) | Accepted |
@@ -75,6 +75,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) | Check steps run the repository's commands in an attempt of their own (amends 0023, 0031, 0053 and 0064) | Accepted |
 | [0070](0070-tests-never-hold-the-wall-clock-to-a-limit.md) | Tests never hold the wall clock to a limit (extends 0036) | Accepted |
 | [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted |
+| [0073](0073-github-only-through-gh-s-own-login.md) | GitHub only through `gh`'s own login: Foedrum never holds a token (supersedes part of 0008 and 0063, amends 0052) | Accepted |
 
 ## Template
 

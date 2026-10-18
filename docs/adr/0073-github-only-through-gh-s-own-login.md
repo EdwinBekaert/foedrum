@@ -1,0 +1,58 @@
+# 0073. GitHub only through `gh`'s own login: Foedrum never holds a token
+
+Date: 2026-10-18 · Status: Accepted · Supersedes [0008](0008-polling-intake.md)'s client over `fetch` and its fine-grained personal access token, and [0063](0063-foedrum-serve-its-configuration-and-wiring.md)'s `GH_TOKEN` and `GITHUB_TOKEN` · Amends [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (the client's transport, and the opt-in test against GitHub) and [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (`githubApi`)
+
+## Context
+`foedrum serve` reads a token from `GH_TOKEN` or `GITHUB_TOKEN` (ADR 0063), and `src/github/client.ts` sends it as a bearer header with the built-in `fetch` (ADR 0008). A token in an environment variable can be read by every process started from that shell, and it ends up in sessions, logs and scripts. Git pushes and fetches of the state branch and the bottle branches (ADR 0071) already reach GitHub another way: through git's credential helper, which on a machine where `gh auth setup-git` was run is `gh auth git-credential`, answering from the login `gh auth login` stored in the OS keyring.
+
+That gives two credential systems. They also get in each other's way. A live run of `serve` on Windows (2026-10-18, #194) with `GH_TOKEN=unused` in its environment stopped at its first fetch with `remote: Invalid username or token`: `gh auth git-credential` answers with an environment token before the keyring login, and git's environment was serve's.
+
+The research behind ADR 0008 chose `fetch` over `gh` as the transport, to avoid a process per request. At one poll every 60 seconds (ADR 0052), a process per call costs nothing that matters, and with `gh` no token passes through Foedrum.
+
+## Decision
+
+### One login, `gh`'s
+- Foedrum reaches GitHub only through the maintainer's `gh` login (`gh auth login`, which stores the credential in the OS keyring since gh 2.26.0): the API through `gh api`, git over https through `gh` as git's credential helper (`gh auth setup-git`). Foedrum never reads, stores, passes or logs a token, and never runs `gh auth token`.
+- `GitHubClientOptions.token`, serve's `GH_TOKEN` and `GITHUB_TOKEN`, and the line that refused without them are gone.
+- **The token variables are removed** from the environment of every `gh` and `git` Foedrum starts: `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`, compared as the platform compares names (`withoutGitHubTokens`, `src/platform/env.ts`; for git in `gitEnv`, so the state branch, fetches, managed clones and bottle-branch pushes all go without them). `gh` would prefer any of them to the keyring login, also when git asks it for a credential, so a variable set for another tool cannot stop serve or make it act as someone else. They stay out of the brewers' environment, as before (ADR 0063's allowlist).
+- Foedrum does not configure git's credential helper itself: that is the user's git configuration. doctor checks it (below).
+
+### The client's transport is `gh api --include`
+- `createGitHubClient` keeps its interface (`rest`, `graphql`, `GitHubAnswer`, `GitHubRateLimited`). Its one request path runs `gh api --include --hostname <host> --method <m> -H <header>... <path>` through the injected process runner, with an argument array and no shell; a body goes on stdin with `--input -`. GraphQL goes to `gh api ... graphql`, gh's name for the host's GraphQL endpoint (on GitHub Enterprise it is not under the REST prefix).
+- **The answer is parsed from stdout:** a status line (`HTTP/1.1 304 Not Modified`), header lines up to an empty line, then the body. gh exits 1 for any status of 300 or more but still prints the status line, headers and body first, so a 304 (an unchanged ETag), a 404 or a rate-limited 403 is an answer like a 200. Anything else fails with gh's first line on stderr: no status line (exit 4 means no login for the host, the error says `gh auth login`), a process that could not start, or one the runner killed.
+- The timeout (30 s), the answer limit (4 MiB, ADR 0035) and the rate-limit pause stay where they are (ADR 0052). The runner kills `gh` at the timeout, when the caller's signal aborts, or when its output passes the answer limit plus 64 KiB for the status and headers; a body longer than the limit fails too.
+- Every request sends `Accept: application/vnd.github+json`, `User-Agent: foedrum` and `X-GitHub-Api-Version: 2022-11-28`, and `gh` runs with `GH_PROMPT_DISABLED`, `GH_NO_UPDATE_NOTIFIER` and `NO_COLOR` set and `GH_DEBUG` and `DEBUG` removed, so it never waits for input and prints nothing but the answer. A path must start with `/`, so nothing a caller passes reaches `gh` as an option; a body never goes in an argument.
+- The process runner (`execProcess`) takes the input it writes to the program's stdin, as `streamProcess` already did (ADR 0046): a program without a pipe to its stdin is ended and answers as not started.
+- **The host:** `githubApi` in `foedrum.jsonc` stays, and maps to `gh`'s `--hostname`: `https://api.github.com` (the default) is `github.com`, `https://<host>/api/v3` is a GitHub Enterprise host, and `http://api.github.localhost` is `github.localhost`, gh's development host, served over http. That last one is how tests reach a local fake GitHub (through `HTTP_PROXY`); the `http` loopback addresses ADR 0063 allowed go, since `gh` cannot reach them. Any other URL (another path, a port, a user, a query) is refused by the schema (`githubHostOf`, `src/schemas/brewery-config.ts`). The client's `baseUrl`, which the reads compare a next page's link with (ADR 0052), is the host's API root: `https://api.github.com`, `https://<host>/api/v3` or `http://api.github.localhost`.
+- Unit tests pass a fake process runner that answers with captured `gh api --include` output (ADR 0021).
+
+### doctor and serve check the login
+- **`gh` is a required tool:** installed, at least 2.26.0, and `gh auth status --hostname <host>` logged in, for the host `foedrum.jsonc`'s `githubApi` names (default `github.com`). doctor asks with the token variables removed, as Foedrum's own calls are made, so a variable cannot pass for a login. A missing or old `gh`, or no login, is a required problem with the line to run (`gh auth login --hostname <host>`).
+- **git's credential helper for `https://<host>`** should be `gh`. doctor reads git's credential settings in order (`git config --null --get-regexp ^credential\.`) and works out the helpers git would ask for that URL: `credential.helper` and `credential.<url>.helper` for a matching URL, where an empty value clears the list. When the first is not `gh auth git-credential`, doctor names the helper git asks first and recommends `gh auth setup-git --hostname <host>`. That is advice, not a required problem: another helper may still push, as someone else.
+- **serve refuses without a login**, with the same line, since it gathers the same facts as doctor at its start (ADR 0063), for the host its own `foedrum.jsonc` names.
+- doctor does not warn about a token variable set in its environment: Foedrum removes them from everything it starts, so they change nothing it does.
+
+### Brewers never reach `gh`
+A brewer runs as the same OS user, so a brewer that may run `gh` could use the maintainer's login. The permission ceiling and a brewer's allowlist refuse `Bash(gh *)`, as ADR 0062 does for git without a fixed subcommand, and doctor's isolation line says that on the permissions-only level a process of the maintainer's can still ask the keyring. That part is #204.
+
+### The tests against GitHub itself go
+`test/integration/github-claims.test.ts` and `test/integration/github-reads.test.ts` read a token from `FOEDRUM_GITHUB_TEST_TOKEN` and ran against github.com. They go: no token in an environment variable, and no Foedrum test reaches github.com. What they proved about GitHub (a ref that exists cannot be created again, `updateRefs` with `beforeOid`, real answers passing the schemas, a 304 for an unchanged listing) is recorded in ADR 0050 and ADR 0052. `test/integration/github-gh.test.ts` runs the real `gh` against a local fake instead: it tests Foedrum's parsing of `gh`'s output, not GitHub. The fake listens on 127.0.0.1, `gh` reaches it as `github.localhost` through `HTTP_PROXY`, and a synthetic login for that host only is made in the test's own `GH_CONFIG_DIR` with `--insecure-storage`, so neither the keyring nor the user's login is touched. It runs wherever `gh` is on PATH, and fails in CI without it. The integration tests that run the real `foedrum doctor` or `serve` give `gh` an empty configuration folder of its own (`envWithoutGhLogin`), so its `gh auth status` has no login to check against github.com.
+
+## Consequences
+- A Brewery runs `foedrum serve` after `gh auth login` and `gh auth setup-git` once, with no token in any environment variable, file or log. doctor reports both.
+- GitHub's rate limit is that of the `gh` login: 5,000 requests an hour for a user, shared with whatever else the user does with `gh`. A limit met elsewhere shows up in the answers and pauses Foedrum, as ADR 0052 says of a shared token.
+- A request costs a process start (tens of milliseconds) at a poll every minute.
+- `foedrum.jsonc`'s `githubApi` no longer accepts `http` on a loopback address; `http://api.github.localhost` takes its place for tests.
+- The opt-in `test/integration/serve.test.ts` (ADR 0063) reaches its fake GitHub through `gh` too, with the same synthetic login.
+- A GitHub App (a later milestone) is a second kind of `gh` login behind the same transport, not a token Foedrum holds.
+
+## Verification
+- On 2026-10-18, gh 2.102.0 on Windows printed, with `--include` against a local fake: the status line ending in LF, the headers in CRLF, an empty line, then the body; exit 1 with the whole answer for a 304, a 404 and a rate-limited 403 (`gh: HTTP 304`, `gh: Not Found (HTTP 404)` on stderr); exit 4 without a login. The unit tests' captured output is that.
+- The same day, `test/integration/github-gh.test.ts` passed 7 of 7 with gh 2.102.0, and the opt-in `test/integration/serve.test.ts` (`FOEDRUM_REAL_CLAUDE=1`) brewed its step end to end with the listing and the order's text read through `gh`, with `GH_TOKEN` set in serve's environment and never used.
+
+## Alternatives considered
+- **Keep `fetch` and read the token with `gh auth token` at start:** one process instead of one per call, but Foedrum then holds the token in memory and in every request it builds, and a mistake can log it. The point is that it never has it.
+- **Keep the token variables and document them as optional:** two credential systems again, and the variable wins over the keyring in `gh auth git-credential`, which is how the live run failed.
+- **Configure `gh` as git's credential helper per call (`GIT_CONFIG_COUNT`):** independent of the user's configuration, but it overrides a helper the user chose for that host for every Foedrum git call; doctor names the problem and the user decides.
+- **Warn in doctor when a token variable is set:** useful only while Foedrum would use it; it removes them.
+- **Reach the local fake at `http://127.0.0.1:<port>` as before:** `gh` takes a hostname, not a URL, and speaks https to every host but `github.localhost`.

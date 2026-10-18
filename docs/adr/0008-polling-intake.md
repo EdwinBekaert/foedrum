@@ -1,6 +1,6 @@
 # 0008. Polling intake
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [0050](0050-the-intake-of-target-repository-issues.md), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)
+Date: 2026-10-13 · Status: Accepted · Amended by [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [0050](0050-the-intake-of-target-repository-issues.md), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md); its client over `fetch` and its personal access token superseded by [0073](0073-github-only-through-gh-s-own-login.md)
 
 ## Context
 Foedrum runs on a developer's machine, usually behind NAT, without a public endpoint. Webhooks require a reachable server or a relay service.
