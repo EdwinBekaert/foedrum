@@ -78,6 +78,29 @@ describe('githubPullRequests: find', () => {
   });
 });
 
+describe('githubPullRequests: the login', () => {
+  it('reads the login again after a read that failed', async () => {
+    const fake = fakeFetch([
+      { status: 200, body: [listed()] },
+      { status: 200, body: [listed()] },
+    ]);
+    const client = createGitHubClient({ token: 'ghp_test', fetch: fake.fetch });
+    let logins = 0;
+    const host = githubPullRequests({
+      client,
+      reads: createGitHubReads(client),
+      login: async () => {
+        logins++;
+        if (logins === 1) throw new Error('GitHub did not answer');
+        return 'brewer-bot';
+      },
+    });
+    await assert.rejects(host.find('acme/api', head), /GitHub did not answer/);
+    assert.equal(await host.find('acme/api', head), url);
+    assert.equal(logins, 2);
+  });
+});
+
 describe('githubPullRequests: open', () => {
   const request = { head, base: 'main', title: 'Add a --json flag', body: 'Closes acme/api#7' };
 

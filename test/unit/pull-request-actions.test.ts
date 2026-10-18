@@ -215,6 +215,17 @@ describe('pullRequestActions: the pull request', () => {
     }
   });
 
+  it('refuses a pull request it found whose URL is not one without credentials', async () => {
+    for (const answer of [
+      'http://github.com/acme/api/pull/9',
+      'https://x:y@github.com/acme/api/pull/9',
+    ]) {
+      const { actions } = actionsWith({ opened: { [branch]: answer } });
+      keysOf(brewing(), actions);
+      await assert.rejects(actions.target.find(open), /not a pull request URL/);
+    }
+  });
+
   it('refuses a key it did not call for', async () => {
     const { actions } = actionsWith();
     await assert.rejects(
@@ -237,6 +248,21 @@ describe('pullRequestActions: how the attempt ends', () => {
     assert.deepEqual(actions.ending(state, action), {
       kind: 'succeeded',
       output: { pullRequest: url },
+    });
+  });
+
+  it('fails retryably while the ledger has no pull request yet', () => {
+    const { actions } = actionsWith();
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from }),
+    ]);
+    assert.deepEqual(actions.ending(state, action), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the ledger has no pull request of batch 12-1',
     });
   });
 

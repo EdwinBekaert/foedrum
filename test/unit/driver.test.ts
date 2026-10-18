@@ -1505,6 +1505,54 @@ describe('openDriver', () => {
       assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
     });
 
+    it('continues a retry of the action where the first attempt stopped: no second push', async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions([pullRequest]);
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(applied, [push]);
+      // Past the action's deadline, the batch is Stuck; a human retries it.
+      now = at(61);
+      await driver.tick();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      const retry = { kind: 'retry', batchId: 'b1', by: 'octocat', via: 'terminal' } as const;
+      assert.equal(intake.issue(retry, now).kind, 'accepted');
+      await driver.tick();
+      assert.deepStrictEqual(applied, [push, pullRequest]);
+      const second = driver.state().batches.get('b1')?.steps.get('open')?.attempts.get(2);
+      assert.equal(second?.phase, 'finished');
+      assert.deepStrictEqual(driver.state().batches.get('b1')?.lane, {
+        kind: 'on_tap',
+        pullRequests: [url],
+      });
+    });
+
+    it('ends the action only under the batch lease, once another driver lets it go', async () => {
+      const brewer = handRunner();
+      const { actions } = fakeActions();
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.drive();
+      for (const key of [push, pullRequest]) {
+        const event = { type: 'effect.applied', key, result: key === push ? {} : url } as const;
+        assert.equal(intake.issue({ kind: 'record', event }, now).kind, 'accepted');
+      }
+      holdFor('other', 'b1', 10);
+      await driver.applyEffects();
+      assert.equal(
+        driver.state().batches.get('b1')?.steps.get('open')?.attempts.get(1)?.phase,
+        'started',
+      );
+      now = at(11);
+      await driver.applyEffects();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'on_tap');
+    });
+
     it('blocks the action on its environment when the driver has no actions to run it with', async () => {
       const brewer = handRunner();
       orderAle('b1');
