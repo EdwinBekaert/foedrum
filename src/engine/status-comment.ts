@@ -4,9 +4,9 @@
 
 import { createHash } from 'node:crypto';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
+import { OutDocAssumptions } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
-import { z } from '../schemas/zod.ts';
 import { effectMarker } from './claim-effects.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -176,14 +176,11 @@ const stepLine = (batch: Batch, stepId: string): string => {
   }
 };
 
-/** What of an out doc the comment shows; a brewer's own fields may stand beside it. */
-const Assumptions = z.object({ assumptions: z.array(z.string()) });
-
 /** The assumptions of the latest out doc of `stepId` that succeeded. */
 const assumptionsOf = (batch: Batch, stepId: string): string[] => {
   for (const attempt of latestFirst(batch, stepId)) {
     if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') continue;
-    const parsed = Assumptions.safeParse(attempt.outcome.output);
+    const parsed = OutDocAssumptions.safeParse(attempt.outcome.output);
     return parsed.success ? parsed.data.assumptions.map(plain).filter((text) => text !== '') : [];
   }
   return [];
