@@ -12,8 +12,8 @@ import { openStateBranch } from '../engine/state-branch-git.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
 import {
   ensureManagedClone,
-  managedClonePath,
   openAttemptWorktrees,
+  worktreeClonePath,
 } from '../workspace/attempt-worktrees-git.ts';
 import { openBranchPush } from '../workspace/branch-push-git.ts';
 import type { Git } from '../workspace/git.ts';
@@ -84,12 +84,8 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       });
       return openAttemptWorktrees({ git, workRoot, repo, clone: managed });
     },
-    // From the clone the worktrees are added to; serveSetup refuses a local one without it.
-    push: ({ repo, source, clone }) =>
-      openBranchPush({
-        git,
-        clone: source === 'local' ? (clone ?? '') : managedClonePath(workRoot, repo),
-      }),
+    // From the clone the worktrees are added to.
+    push: (repository) => openBranchPush({ git, clone: worktreeClonePath(workRoot, repository) }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     exec: execProcess,
   };
