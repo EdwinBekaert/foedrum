@@ -6,16 +6,10 @@
 // Arguments with no captured answer fail loudly.
 
 import { appendFileSync, readFileSync } from 'node:fs';
-
-interface Answer {
-  stdout?: string;
-  stderr?: string;
-  exitCode?: number;
-  hang?: string;
-}
+import type { CapturedAnswer } from '../../integration/stub-tools.ts';
 
 const [answersFile = '', name = '', ...args] = process.argv.slice(2);
-const answers: Record<string, Answer> = JSON.parse(readFileSync(answersFile, 'utf8'));
+const answers: Record<string, CapturedAnswer> = JSON.parse(readFileSync(answersFile, 'utf8'));
 const asked = [name, ...args].join(' ');
 const answer = answers[asked];
 if (answer === undefined) {
