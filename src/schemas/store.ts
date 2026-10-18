@@ -84,13 +84,9 @@ export const CommitSha = z
   .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
 
 /**
- * How far the state branch has the log (ADR 0024): every event up to `eventId` is on the remote
- * branch, in `commit`. Kept in the store, never in the log, so it has no JSON Schema file.
- */
-/**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
- * the commit pushed, the revision it was resolved from, and whether it was the base's, so nothing
- * was pushed.
+ * the commit pushed, the revision it was resolved from, and whether the base already holds every
+ * commit of it, so nothing was pushed.
  */
 export const PushResult = z.strictObject({
   branch: Filled,
@@ -100,6 +96,10 @@ export const PushResult = z.strictObject({
 });
 export type PushResult = z.infer<typeof PushResult>;
 
+/**
+ * How far the state branch has the log (ADR 0024): every event up to `eventId` is on the remote
+ * branch, in `commit`. Kept in the store, never in the log, so it has no JSON Schema file.
+ */
 export const PushedThrough = z.strictObject({ eventId: z.int().nonnegative(), commit: CommitSha });
 export type PushedThrough = z.infer<typeof PushedThrough>;
 
