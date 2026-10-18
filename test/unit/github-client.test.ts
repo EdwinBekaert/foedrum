@@ -230,6 +230,16 @@ describe('createGitHubClient', () => {
       assert.equal(answer.body, '"one\\n\\ntwo"\n\nmore');
     });
 
+    it('reads a body of exactly its limit', async () => {
+      const body = JSON.stringify('x'.repeat(126));
+      assert.equal(Buffer.byteLength(body), 128);
+      const { client } = capturedClient([{ stdout: printed('200 OK', [], body), exitCode: 0 }], {
+        maxResponseBytes: 128,
+      });
+      const answer = await client.rest('GET', '/a');
+      assert.deepStrictEqual([answer.bytes, answer.body], [128, 'x'.repeat(126)]);
+    });
+
     it('fails on a body longer than its limit', async () => {
       const long = printed('200 OK', [], JSON.stringify('x'.repeat(200)));
       const { client, gh } = capturedClient([{ stdout: long, exitCode: 0 }], {
