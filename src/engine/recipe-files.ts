@@ -447,7 +447,16 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     }
     const unprovenLines = testFirst ? unproven(value, commits) : [];
     for (const line of unprovenLines) problems.push(`${path}: ${line}`);
-    const refused = ofNothing.length + unprovenLines.length > 0;
+    // The cleanup of an ended batch deletes its attempt branches: only a pull request keeps the
+    // commits (ADR 0084). A recipe whose action is not last is refused for its place (ADR 0071).
+    const opens = value.steps.some((step) => 'action' in step && step.action === 'openPullRequest');
+    const unopened = opens ? [] : order.filter(commits);
+    for (const step of unopened) {
+      problems.push(
+        `${path}: step "${stepId(step)}" has the brewer "${stepBrewerName(step)}", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
+      );
+    }
+    const refused = ofNothing.length + unprovenLines.length + unopened.length > 0;
     if (steps.length < value.steps.length || refused) continue;
     const [proof] = proofs;
     if (proof !== undefined) redProofs.set(value.name, proof);

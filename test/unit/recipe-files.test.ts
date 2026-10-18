@@ -20,6 +20,9 @@ const recipe = (name: string, steps: readonly unknown[], fields = {}): BreweryFi
   path: `recipes/${name}.jsonc`,
   text: recipeText(name, steps, fields),
 });
+// A recipe whose brewers commit opens its pull request last (ADR 0084).
+const opened = (name: string, steps: readonly unknown[], fields = {}): BreweryFile =>
+  recipe(name, [...steps, { action: 'openPullRequest' }], fields);
 const brewer = (name: string, fields = {}): BreweryFile => ({
   path: `brewers/${name}.md`,
   text: brewerText(name, fields),
@@ -449,9 +452,9 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
 
   it('refuses a test-first recipe without a red proof, naming the fix', () => {
     const files = withWriters(
-      recipe('pale', [{ brewer: 'maltster' }], { testFirst: true }),
-      recipe('amber', [{ brewer: 'cellarman' }]),
-      recipe('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
+      opened('pale', [{ brewer: 'maltster' }], { testFirst: true }),
+      opened('amber', [{ brewer: 'cellarman' }]),
+      opened('stout', [{ brewer: 'cellarman' }], { testFirst: false }),
     );
     assert.deepEqual(problemsOf(files), [noProof('pale'), noProof('amber')]);
     const stout = files.recipes.filter(({ path }) => path === 'recipes/stout.jsonc');
@@ -467,7 +470,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'red', check: 'test', expect: 'fail', of: 'plan' },
       { id: 'gauge', brewer: 'gauger' },
     ];
-    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+    assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       proofOfNothing,
       noProof('pale'),
     ]);
@@ -480,7 +483,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       red,
       { id: 'tidy', brewer: 'cellarman' },
     ];
-    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+    assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge" (ADR 0064)',
     ]);
   });
@@ -497,7 +500,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ];
     const before = (id: string) =>
       `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge" (ADR 0064)`;
-    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+    assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
       'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
       before('fix'),
@@ -513,7 +516,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       },
       { id: 'refine', session: 'refine', deadline: '1d', fallback: 'ghost' },
     ];
-    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
+    assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
       'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
     ]);
@@ -529,7 +532,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
   ];
 
   it('loads a test-first recipe with a red proof, which runs the test check (ADR 0078)', () => {
-    const result = loadRecipes(withWriters(recipe('pale', testFirst)));
+    const result = loadRecipes(withWriters(opened('pale', testFirst)));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
     const pale = result.recipes.find('pale');
     assert.equal(pale?.firstStep, 'plan');
@@ -544,7 +547,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
   });
 
   it('runs a step whose when is a bare recipe.testFirst in a test-first recipe (review of #184)', () => {
-    const result = loadRecipes(withWriters(recipe('pale', testFirst)));
+    const result = loadRecipes(withWriters(opened('pale', testFirst)));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
     const pale = result.recipes.find('pale');
     assert.equal(pale?.skip(batch({}), 'gauge'), undefined);
@@ -552,7 +555,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
   });
 
   it('routes a failed red proof back to the step it proves, once (ADR 0064, ADR 0069)', () => {
-    const result = loadRecipes(withWriters(recipe('pale', testFirst)));
+    const result = loadRecipes(withWriters(opened('pale', testFirst)));
     assert.ok(result.valid);
     const pale = result.recipes.find('pale');
     assert.equal(pale?.loopBack(batch({ gauge: 1 }), 'red', 'failed'), 'gauge');
@@ -565,7 +568,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'implement', brewer: 'cellarman' },
       { id: 'again', check: 'test', expect: 'fail', of: 'implement' },
     ];
-    const result = loadRecipes(withWriters(recipe('pale', steps)));
+    const result = loadRecipes(withWriters(opened('pale', steps)));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
     assert.deepEqual(result.checks.redProof('pale'), { id: 'red', of: 'gauge' });
     assert.equal(result.checks.proves('pale', 'again'), 'implement');
@@ -576,7 +579,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'brew', brewer: 'cellarman' },
       { id: 'green', check: 'test' },
     ];
-    const result = loadRecipes(withWriters(recipe('stout', steps, { testFirst: false })));
+    const result = loadRecipes(withWriters(opened('stout', steps, { testFirst: false })));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
     assert.equal(result.checks.redProof('stout'), undefined);
   });
@@ -758,7 +761,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       guards: ['requiresOutDoc', 'noPush', 'requiresCommits', 'scope'],
     });
     const files = brewery({
-      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
       brewers: [maltster, brewmaster, cellarman],
     });
     const refused = (what: string) =>
@@ -809,7 +812,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       guards: ['requiresOutDoc', 'testsUnchanged'],
     });
     const files = brewery({
-      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
       brewers: [maltster, brewmaster, cellarman],
     });
     assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
@@ -830,7 +833,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       guards: ['requiresOutDoc', 'requiresCommits'],
     });
     const files = brewery({
-      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
       brewers: [maltster, brewmaster, cellarman],
     });
     assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
@@ -912,6 +915,85 @@ describe('loadRecipes: the openPullRequest action (ADR 0071)', () => {
     const pale = paleRecipe();
     assert.equal(pale.action('maltster'), undefined);
     assert.deepEqual(pale.after(batch({ maltster: 1, plan: 1 }), 'plan'), {
+      kind: 'done',
+      pullRequests: [],
+    });
+  });
+});
+
+describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
+  const cellarman = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const withCellarman = (steps: readonly unknown[]): BreweryFiles =>
+    brewery({
+      recipes: [recipe('stout', steps, { testFirst: false })],
+      brewers: [maltster, cellarman],
+    });
+
+  it("counts a nested step's brewer that commits, such as a session's fallback (review of #230)", () => {
+    assert.deepEqual(
+      problemsOf(
+        withCellarman([{ id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' }]),
+      ),
+      [
+        'recipes/stout.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
+        'recipes/stout.jsonc: step "refine" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+      ],
+    );
+  });
+
+  it('refuses the action before another step by its place only: it does open the pull request (review of #230)', () => {
+    assert.deepEqual(
+      problemsOf(
+        withCellarman([
+          { id: 'brew', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
+          { id: 'plan', brewer: 'maltster' },
+        ]),
+      ),
+      [
+        'recipes/stout.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe (ADR 0071)',
+      ],
+    );
+  });
+
+  it('refuses a recipe whose brewer commits and that does not end by opening the pull request', () => {
+    assert.deepEqual(problemsOf(withCellarman([{ id: 'brew', brewer: 'cellarman' }])), [
+      'recipes/stout.jsonc: step "brew" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+    ]);
+  });
+
+  it('names every step that commits', () => {
+    assert.deepEqual(
+      problemsOf(
+        withCellarman([
+          { id: 'brew', brewer: 'cellarman' },
+          { id: 'plan', brewer: 'maltster' },
+          { id: 'polish', brewer: 'cellarman' },
+        ]),
+      ),
+      ['brew', 'polish'].map(
+        (id) =>
+          `recipes/stout.jsonc: step "${id}" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
+      ),
+    );
+  });
+
+  it('loads it when it ends with the openPullRequest action', () => {
+    const stout = loaded(
+      loadRecipes(
+        withCellarman([{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }]),
+      ),
+    ).find('stout');
+    assert.deepEqual(stout?.steps, ['brew', 'open-pull-request']);
+  });
+
+  it('still puts a recipe that commits nothing on tap without a pull request', () => {
+    const pale = loaded(loadRecipes(brewery())).find('pale');
+    assert.deepEqual(pale?.after(batch({ maltster: 1, plan: 1 }), 'plan'), {
       kind: 'done',
       pullRequests: [],
     });

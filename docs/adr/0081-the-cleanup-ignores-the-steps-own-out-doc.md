@@ -1,6 +1,6 @@
 # 0081. The cleanup ignores the step's own out doc
 
-Date: 2026-10-18 · Status: Accepted · Amends [0029](0029-attempt-worktrees-layout-claims-and-repair.md) (what keeps a worktree with changes) and [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) (what a cleanup is given)
+Date: 2026-10-18 · Status: Accepted · Amends [0029](0029-attempt-worktrees-layout-claims-and-repair.md) (what keeps a worktree with changes) and [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) (what a cleanup is given) · Amended by [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) (the branch of an unpushed task tree stays)
 
 ## Context
 [ADR 0029](0029-attempt-worktrees-layout-claims-and-repair.md) keeps every attempt worktree with uncommitted or untracked changes: they may be someone's work. The out doc contract tells every brewer to write its out doc (`output.doc`, such as `brew.md`) in its worktree, and nothing commits it. So every attempt that finished leaves one untracked file, and the first live run of `foedrum serve` kept every worktree of a batch on tap (#197): `kept worktree 2-1/brew/2: it has uncommitted or untracked changes`. The work root grows with each batch.

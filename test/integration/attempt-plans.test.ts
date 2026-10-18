@@ -38,12 +38,13 @@ const git = (cwd: string, args: string[]): string =>
   });
 
 // The Brewery's files: a one-step recipe whose brewer commits without a red proof, so it says
-// testFirst: false (ADR 0064).
+// testFirst: false (ADR 0064), then opens its pull request (ADR 0084). This driver has no code
+// host, so the batch goes Stuck at that step.
 const recipe = `// One brewer step that writes code.
 {
   "name": "stout",
   "description": "Brews an order in one step.",
-  "steps": [{ "id": "brew", "brewer": "cellarman" }],
+  "steps": [{ "id": "brew", "brewer": "cellarman" }, { "action": "openPullRequest" }],
   // It commits with no red proof before it, which only a recipe without test-first may (ADR 0064).
   "testFirst": false
 }
@@ -223,7 +224,11 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         'step.scheduled',
         'step.started',
         'step.finished',
-        'batch.on_tap',
+        // The openPullRequest action, blocked: the driver has no code host (ADR 0084).
+        'step.scheduled',
+        'step.started',
+        'step.finished',
+        'batch.stuck',
       ],
     );
     const [, , , started, finished] = events;
