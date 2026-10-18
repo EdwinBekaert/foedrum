@@ -8,12 +8,15 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { resolveExecutable } from '../../src/platform/executables.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 import { cannedGhLogin, doctorHere, MADE_UP_CONFIG, MADE_UP_HOST } from './canned-gh-login.ts';
 
 const VERSION = String.raw`\d+(?:\.\d+)+`;
+/** The version the canned `gh --version` answers: no real gh's, so the row shows it was used. */
+const GH_VERSION = '2.99.0';
 
 describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
@@ -29,13 +32,15 @@ describe('foedrum doctor on this machine', () => {
     const row = (name: string): string | undefined =>
       lines.find((line) => line.startsWith(`  ${name} `));
     assert.match(row('node') ?? '', new RegExp(`^  node +${VERSION}$`));
-    // CI has npm, git and gh everywhere; npm is npm.cmd on Windows.
+    // CI has npm and git everywhere; npm is npm.cmd on Windows.
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
-    const inCi = process.env.CI !== undefined && process.env.CI !== '';
-    assert.match(
-      row('gh') ?? '',
-      new RegExp(`^  gh +(?:${inCi ? '' : 'missing|'}${VERSION} +\\S.*)$`),
+    // gh's version is canned like its login, so no test reads how fast the real gh starts: the row
+    // shows that version at the path PATH gives, or that gh is missing.
+    const gh = resolveExecutable('gh');
+    assert.equal(
+      row('gh')?.replace(/ +/g, ' '),
+      gh === undefined ? '  gh missing'.replace(/ +/g, ' ') : ` gh ${GH_VERSION} ${gh}`,
     );
     // foedrum.jsonc names the made-up host, whose canned answer is logged in: doctor names no
     // login to make where gh is there.
