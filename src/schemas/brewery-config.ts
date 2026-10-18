@@ -28,6 +28,7 @@ const TestReport = z.discriminatedUnion('format', [
   }),
   z.strictObject({ format: z.literal('junit'), path: RelativePath }),
 ]);
+export type TestReportConfig = z.infer<typeof TestReport>;
 
 /** Which open issues of a repository the intake claims: those with all the labels (ADR 0043). */
 export const IntakeFilter = z
