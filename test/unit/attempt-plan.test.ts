@@ -311,10 +311,26 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     assert.match(contract, /Never ask questions any other way\. Do not push\.$/);
   });
 
+  it('says to copy the one example for how the run ended, with only its keys', () => {
+    const contract = outDocContract('brew.md');
+    assert.match(
+      contract,
+      /copy the example\nbelow for how the run ended and fill it in, with only its keys/,
+    );
+    assert.match(
+      contract,
+      /"questions" goes only with needs_input, "blockerKind" only with blocked\./,
+    );
+  });
+
   it('names every blockerKind with what it means, outside the examples', () => {
     for (const kind of ['findings', 'environment', 'divergence']) {
       assert.match(outDocContract('brew.md'), new RegExp(`"${kind}" \\(`));
     }
+  });
+
+  it('stays around the 300 tokens ADR 0005 gives it: at most 1,200 characters', () => {
+    assert.ok(outDocContract('brew.md').length <= 1200, `${outDocContract('brew.md').length}`);
   });
 
   // Every `---` … `---` block of the contract, as the out doc a brewer that copies it writes (#195).
@@ -341,6 +357,14 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
       ['status', 'summary', 'assumptions', 'blockerKind'],
       ['status', 'summary', 'assumptions'],
     ]);
+  });
+
+  it('fills the blocked example in with findings, whose route keeps the batch moving', () => {
+    const blocked = examples(outDocContract('brew.md'))
+      .map((doc) => readOutDoc(doc, OutDocFrontmatter))
+      .find((read) => read.valid && read.frontmatter.status === 'blocked');
+    assert.ok(blocked?.valid && blocked.frontmatter.status === 'blocked');
+    assert.equal(blocked.frontmatter.blockerKind, 'findings');
   });
 });
 
