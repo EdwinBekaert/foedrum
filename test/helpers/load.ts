@@ -28,6 +28,15 @@ export const waitUntil = async (what: string, done: () => boolean): Promise<void
 };
 
 /**
+ * Timers that give every deadline `hangGuardMs`, whatever the caller asked for: a runner given
+ * these kills only what hangs, never a process a loaded machine started late (ADR 0070).
+ */
+export const hangGuardTimers: Timers = {
+  set: (callback) => setTimeout(callback, hangGuardMs),
+  clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
+};
+
+/**
  * Timers whose callbacks run when the test calls `fire`, never by the clock: a process runner
  * given these reaches its deadline when the test is ready, not when a loaded machine has started
  * its processes late (ADR 0070).

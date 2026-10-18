@@ -33,9 +33,10 @@ export const resolveWithMadeUpGh = (name: string): string | undefined =>
 // release has, so a row that shows it proves the canned answer was used. The login answers are
 // what gh 2.102.0 printed for a host it was logged in to (the token line left out), and with no
 // login at all.
-const VERSION = `gh version ${CANNED_GH_VERSION} (9999-01-01)\nhttps://github.com/cli/cli/releases/tag/v${CANNED_GH_VERSION}\n`;
-const LOGGED_IN = `${MADE_UP_HOST}\n  ✓ Logged in to ${MADE_UP_HOST} account brewer (keyring)\n  - Active account: true\n  - Git operations protocol: https\n`;
-const NO_LOGIN = 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n';
+export const GH_VERSION_ANSWER = `gh version ${CANNED_GH_VERSION} (9999-01-01)\nhttps://github.com/cli/cli/releases/tag/v${CANNED_GH_VERSION}\n`;
+export const GH_LOGGED_IN_ANSWER = `${MADE_UP_HOST}\n  ✓ Logged in to ${MADE_UP_HOST} account brewer (keyring)\n  - Active account: true\n  - Git operations protocol: https\n`;
+export const GH_NO_LOGIN_ANSWER =
+  'You are not logged into any GitHub hosts. To log in, run: gh auth login\n';
 
 // gh by its name, whatever the extension PATHEXT gave it (gh.exe, gh.cmd, gh.bat).
 const isGh = (file: string): boolean => parse(file).name.toLowerCase() === 'gh';
@@ -50,12 +51,12 @@ export const cannedGhLogin =
   async (file, args, options) => {
     if (!isGh(file)) return exec(file, args, options);
     if (args.join(' ') === '--version') {
-      return { exitCode: 0, stdout: VERSION, stderr: '', output: VERSION };
+      return { exitCode: 0, stdout: GH_VERSION_ANSWER, stderr: '', output: GH_VERSION_ANSWER };
     }
     if (args[0] === 'auth' && args[1] === 'status') {
       return args.join(' ') === `auth status --hostname ${MADE_UP_HOST}`
-        ? { exitCode: 0, stdout: LOGGED_IN, stderr: '', output: LOGGED_IN }
-        : { exitCode: 1, stdout: '', stderr: NO_LOGIN, output: NO_LOGIN };
+        ? { exitCode: 0, stdout: GH_LOGGED_IN_ANSWER, stderr: '', output: GH_LOGGED_IN_ANSWER }
+        : { exitCode: 1, stdout: '', stderr: GH_NO_LOGIN_ANSWER, output: GH_NO_LOGIN_ANSWER };
     }
     throw new Error(`gh ${args.join(' ')} has no canned answer`);
   };
@@ -66,13 +67,17 @@ const notForDoctor = (what: string) => () => {
 
 /**
  * `foedrum doctor` in `cwd` through the command layer (`runCli`), with the facts main.ts gathers
- * (`doctorFromCheckout`) through `exec`, default the real runner with canned gh, and gh at
- * `MADE_UP_GH`.
+ * (`doctorFromCheckout`) through `exec`, default the real runner with canned gh, and the tools
+ * `resolve` finds, default gh at `MADE_UP_GH`.
  */
-export const doctorHere = async (cwd: string, exec: ExecProcess = cannedGhLogin()) =>
+export const doctorHere = async (
+  cwd: string,
+  exec: ExecProcess = cannedGhLogin(),
+  resolve: (name: string) => string | undefined = resolveWithMadeUpGh,
+) =>
   runCli(['doctor'], {
     cwd,
-    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec, resolve: resolveWithMadeUpGh }),
+    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec, resolve }),
     openStore: notForDoctor('store'),
     openWritableStore: notForDoctor('store'),
     recipes: notForDoctor('recipes'),
