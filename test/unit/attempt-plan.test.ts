@@ -311,6 +311,12 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     assert.match(contract, /Never ask questions any other way\. Do not push\.$/);
   });
 
+  it('names every blockerKind with what it means, outside the examples', () => {
+    for (const kind of ['findings', 'environment', 'divergence']) {
+      assert.match(outDocContract('brew.md'), new RegExp(`"${kind}" \\(`));
+    }
+  });
+
   // Every `---` … `---` block of the contract, as the out doc a brewer that copies it writes (#195).
   const examples = (contract: string): string[] =>
     [...contract.matchAll(/^---\n[\s\S]*?\n---$/gm)].map(([block]) => `${block}\n`);
