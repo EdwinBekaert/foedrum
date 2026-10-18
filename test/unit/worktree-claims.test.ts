@@ -108,7 +108,13 @@ describe('worktreeClaims', () => {
 describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
   const BASE = 'b'.repeat(40);
   const TIP = 'c'.repeat(40);
-  const finished = (stepId: string, attempt: number, commit: string): Attempt => ({
+  type Outcome = Extract<Attempt, { phase: 'finished' }>['outcome'];
+  const finished = (
+    stepId: string,
+    attempt: number,
+    commit: string,
+    outcome: Outcome = { kind: 'succeeded', output: {} },
+  ): Attempt => ({
     phase: 'finished',
     attempt,
     deadlineAt: '2026-10-15T00:00:00.000Z',
@@ -118,7 +124,7 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
       branch: `foedrum/12-1/${stepId}/${attempt}`,
       commit,
     },
-    outcome: { kind: 'succeeded', output: {} },
+    outcome,
   });
   const step = (id: string, attempts: [number, Attempt][]) => ({
     id,
@@ -180,5 +186,30 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
 
   it('names nothing of a live batch, which keeps its branches anyway', () => {
     assert.deepEqual(worktreeClaims(brewed(lanes.brewing as Lane), []).unpushed, new Map());
+  });
+
+  it('starts the batch at its first attempt that succeeded, not at a failed one before the base moved (review of #230)', () => {
+    const OLD = 'a'.repeat(40);
+    const failed = finished('plan', 1, OLD, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the run broke',
+    });
+    const state = brewed(lanes['on-tap'] as Lane);
+    const found = state.batches.get('12-1');
+    assert.ok(found !== undefined);
+    const steps = new Map(found.steps);
+    steps.set(
+      'plan',
+      step('plan', [
+        [1, failed],
+        [2, finished('plan', 2, BASE)],
+      ]),
+    );
+    const retried = { ...state, batches: new Map([['12-1', { ...found, steps }]]) };
+    assert.deepEqual(
+      worktreeClaims(retried, []).unpushed,
+      new Map([['foedrum/12-1/brew/2', BASE]]),
+    );
   });
 });
