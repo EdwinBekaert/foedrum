@@ -152,20 +152,37 @@ export function answersOf(batch: Batch, stepId: string): PromptInput | undefined
   return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
 }
 
-/** The out doc contract every prompt ends its instructions with (brewers-and-recipes §2). */
+/** One example out doc of the contract: the keys every status shares, then the status's own key. */
+function example(status: string, ownKey?: string): string[] {
+  const shared = `{ "status": "${status}", "summary": "<one line>", "assumptions": ["<decided without asking>"]`;
+  return ['---', ownKey === undefined ? `${shared} }` : `${shared},\n  ${ownKey} }`, '---'];
+}
+
+/**
+ * The out doc contract every prompt ends its instructions with (brewers-and-recipes §2): one
+ * example per status, so a brewer that copies one as it is writes a valid out doc (#195).
+ */
 export function outDocContract(file: string): string {
   return [
-    `When you finish, write ${file}. It must start with JSON frontmatter:`,
+    `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
+    'below for how the run ended and fill it in, with only its keys and any your instructions',
+    'add. "questions" goes only with needs_input, "blockerKind" only with blocked.',
     '',
-    '---',
-    '{',
-    '  "status": "done | needs_input | blocked | failed",',
-    '  "summary": "<one line>",',
-    '  "assumptions": ["<decisions you took without asking>"],',
-    '  "questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }],',
-    '  "blockerKind": "findings | environment | divergence"',
-    '}',
-    '---',
+    'The work is done:',
+    ...example('done'),
+    '',
+    "You need a human's answer to go on:",
+    ...example(
+      'needs_input',
+      '"questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }]',
+    ),
+    '',
+    'Something stops the work. "blockerKind" is "findings" (problems to fix),',
+    '"environment" (a wall you cannot fix) or "divergence" (the plan does not match reality):',
+    ...example('blocked', '"blockerKind": "findings"'),
+    '',
+    'You could not finish:',
+    ...example('failed'),
     '',
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',
     'guess would likely waste this run. Never ask questions any other way. Do not push.',
