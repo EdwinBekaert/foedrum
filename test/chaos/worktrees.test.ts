@@ -1,12 +1,13 @@
 // The attempt worktrees across kills (#144, ADR 0037): the driver makes each attempt's worktree in
 // an in-memory clone, records it, and cleans an ended batch's, killed while it makes, records and
 // cleans them. No attempt runs without its worktree, nothing a live batch or a running attempt
-// claims is removed, and nothing of an ended batch is left once the run is at rest. The run count
-// is FOEDRUM_RUNS, as for restarts.test.ts.
+// claims is removed, and nothing of an ended batch but its task tree's branch is left once the run
+// is at rest. The run count is FOEDRUM_RUNS, as for restarts.test.ts.
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
+import { attemptBranch } from '../../src/workspace/attempt-worktrees.ts';
 import type { ChaosChecks, ChaosEngine, ChaosRun } from '../helpers/chaos.ts';
 import { restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
 import { holdsAcrossKills, trialChaos } from '../helpers/chaos-shrink.ts';
@@ -67,18 +68,29 @@ const keptItsClaims = ({ engine }: ChaosRun): void => {
   assert.deepStrictEqual(cloneOf(engine).violations, [], 'the worktrees kept their claims');
 };
 
-/** Nothing is left in the clone of a batch that has ended, or that the state does not know. */
+/**
+ * Nothing is left in the clone of a batch that has ended, or that the state does not know, but
+ * the branch of its task tree: no push recorded it, since the runs open no pull request, and every
+ * fake brewer commits, so that branch is the only ref to its commits (ADR 0084).
+ */
 const nothingLeftOfEnded = ({ engine }: ChaosRun): void => {
   const clone = cloneOf(engine);
   const { batches } = engine.state();
   for (const batchId of clone.batches()) {
-    const batch = batches.get(batchId);
-    assert.ok(batch, `the clone has worktrees of ${batchId}, which the state does not know`);
+    assert.ok(
+      batches.has(batchId),
+      `the clone has worktrees of ${batchId}, which the state does not know`,
+    );
+  }
+  // Every ended batch, also one the clone has nothing of: its task tree's branch must be there.
+  for (const [batchId, batch] of batches) {
     if (!hasEnded(batch)) continue;
+    const { taskTree } = batch;
+    const kept = taskTree?.kind === 'attempt' ? [attemptBranch({ batchId, ...taskTree })] : [];
     assert.deepStrictEqual(
       clone.leftovers(batchId),
-      { records: [], folders: [], branches: [] },
-      `nothing is left of the ended batch ${batchId}`,
+      { records: [], folders: [], branches: kept },
+      `nothing is left of the ended batch ${batchId} but its task tree's branch`,
     );
   }
 };

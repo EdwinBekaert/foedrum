@@ -1,7 +1,6 @@
 // A throwaway Brewery's files for `foedrum serve`'s tests (ADR 0063): one target repository, a
 // recipe whose brewer reads the order and commits, the same with a test check after it, each
-// opening its pull request,
-// and the inputs `serveSetup` reads them from.
+// opening its pull request, and the inputs `serveSetup` reads them from.
 
 import { resolve } from 'node:path';
 import { diagnose } from '../../src/cli/doctor.ts';
