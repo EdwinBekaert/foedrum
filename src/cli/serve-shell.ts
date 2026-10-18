@@ -88,5 +88,6 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     push: (repository) => openBranchPush({ git, clone: worktreeClonePath(workRoot, repository) }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     exec: execProcess,
+    git,
   };
 };

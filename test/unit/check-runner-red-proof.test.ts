@@ -1,0 +1,365 @@
+// The red proof in the check runner (ADR 0017, ADR 0078): it runs the repository's test check in
+// the attempt's worktree, reads the structured test report, never the exit code, and the tests the
+// proven step committed from git, through an injected process runner and git (ADR 0021).
+
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
+import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runner.ts';
+import type { RepositoryChecks } from '../../src/checks/gravity.ts';
+import { fold } from '../../src/engine/fold.ts';
+import type { StepChecks } from '../../src/engine/recipe-files.ts';
+import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import type { TestReportConfig } from '../../src/schemas/brewery-config.ts';
+import type { Event } from '../../src/schemas/events.ts';
+import type { Git, GitResult } from '../../src/workspace/git.ts';
+
+const root = join('/work', 'acme.api', 'attempts', '12-1');
+const gaugeTree = join(root, 'gauge', '1');
+const redTree = join(root, 'red', '1');
+const ref = { batchId: '12-1', stepId: 'red', attempt: 1 };
+const now = new Date('2026-10-18T12:00:00.000Z');
+const deadlineAt = '2026-10-18T12:30:00.000Z';
+const gaugeStart = 'a'.repeat(40);
+
+const ordered: Event[] = [
+  { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: deadlineAt },
+  { type: 'batch.recipe_chosen', batchId: '12-1', recipe: 'nip', reason: 'l', source: 'label' },
+];
+const gauged: Event[] = [
+  { type: 'step.scheduled', batchId: '12-1', stepId: 'gauge', attempt: 1, deadlineAt },
+  {
+    type: 'step.started',
+    batchId: '12-1',
+    stepId: 'gauge',
+    attempt: 1,
+    worktree: {
+      repo: 'acme/api',
+      path: gaugeTree,
+      branch: 'foedrum/12-1/gauge/1',
+      commit: gaugeStart,
+    },
+  },
+  {
+    type: 'step.finished',
+    batchId: '12-1',
+    stepId: 'gauge',
+    attempt: 1,
+    outcome: { kind: 'succeeded', output: null },
+  },
+];
+const redStarted: Event[] = [
+  { type: 'step.scheduled', ...ref, deadlineAt },
+  {
+    type: 'step.started',
+    ...ref,
+    worktree: {
+      repo: 'acme/api',
+      path: redTree,
+      branch: 'foedrum/12-1/red/1',
+      commit: 'b'.repeat(40),
+    },
+  },
+];
+
+const repository: RepositoryChecks = {
+  build: null,
+  typecheck: null,
+  lint: null,
+  format: null,
+  test: 'npm test',
+};
+
+// The Gauger's commit: a test and a stub that throws.
+const gaugeDiff = [
+  'diff --git a/test/add.test.mjs b/test/add.test.mjs',
+  '--- /dev/null',
+  '+++ b/test/add.test.mjs',
+  '@@ -0,0 +1,3 @@',
+  "+test('adds two numbers', () => {",
+  '+  assert.equal(add(1, 2), 3);',
+  '+});',
+  '',
+].join('\n');
+
+const stubFails = [
+  'TAP version 13',
+  'not ok 1 - adds two numbers',
+  '  ---',
+  "  error: 'not implemented'",
+  '  ...',
+  'ok 2 - subtracts',
+  '1..2',
+].join('\n');
+
+const compileError = [
+  'TAP version 13',
+  "# SyntaxError: The requested module '../src/add.mjs' does not provide an export named 'add'",
+  'not ok 1 - test/add.test.mjs',
+  '  ---',
+  "  error: 'test failed'",
+  '  ...',
+  '1..1',
+].join('\n');
+
+const setup = ({
+  events = [...ordered, ...gauged, ...redStarted],
+  /** `null`: foedrum.jsonc gives the repository none. */
+  report = { format: 'tap' } as TestReportConfig | null,
+  test = { exitCode: 1, stdout: stubFails } as Partial<ExecResult>,
+  diff = { code: 0, stdout: gaugeDiff, stderr: '' } as GitResult,
+  files = {} as Record<string, OutDocRead>,
+  checks: repositoryChecks = repository,
+  /** Why clearing the report fails, when it does. */
+  clearFails = undefined as string | undefined,
+} = {}) => {
+  const order: string[] = [];
+  const execOptions: ExecOptions[] = [];
+  const exec: ExecProcess = (file, _args, options) => {
+    execOptions.push(options);
+    order.push(`exec ${file} in ${options.cwd}`);
+    const stdout = test.stdout ?? '';
+    return Promise.resolve({ exitCode: 0, stdout, stderr: '', output: stdout, ...test });
+  };
+  const git: Git = (cwd, args) => {
+    order.push(`git ${args.join(' ')} in ${cwd}`);
+    return Promise.resolve(diff);
+  };
+  const reports: ReportFiles = {
+    clear: (file) => {
+      order.push(`clear ${file}`);
+      if (clearFails !== undefined) throw new Error(clearFails);
+    },
+    read: (file, inside) => {
+      order.push(`read ${file} inside ${inside}`);
+      return files[file] ?? { kind: 'missing' };
+    },
+  };
+  const checks: StepChecks = {
+    find: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? ['test'] : undefined),
+    any: () => true,
+    proves: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? 'gauge' : undefined),
+    redProof: (recipe) => (recipe === 'nip' ? { id: 'red', of: 'gauge' } : undefined),
+  };
+  const runner = createCheckRunner({
+    state: () => fold(events),
+    checks,
+    repositoryChecks: () => repositoryChecks,
+    testReport: () => report ?? undefined,
+    exec,
+    git,
+    reports,
+    env: { base: {}, forced: {} },
+    clock: () => now,
+    platform: 'linux',
+  });
+  const run = () =>
+    runner.start({ ref, limits: { outDoc: { file: 'out.md', schema: undefined as never } } }).ended;
+  return { order, run, execOptions };
+};
+
+const failedWith = (reason: string) => ({ kind: 'failed', retryable: false, reason });
+
+describe('createCheckRunner: the red proof (ADR 0078)', () => {
+  it("proves red the proven step's tests from TAP on stdout, with the step's commits from git", async () => {
+    const { order, run, execOptions } = setup();
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    // TAP on stdout may be as large as a report file: 16 MiB, past the runner's default 4 MiB.
+    assert.equal(execOptions[0]?.maxOutputBytes, 16 * 1024 * 1024);
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.result, 'exitCode' in reading && reading.exitCode]),
+      [['exited', 1]],
+    );
+    assert.deepEqual(order, [
+      `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${redTree}`,
+      `exec npm test in ${redTree}`,
+    ]);
+  });
+
+  it("reads the proven step's commits from its first attempt's start, after a route sent it back", async () => {
+    // The second attempt starts at the first's commits: its own diff would miss the first's tests.
+    const again: Event[] = [
+      { type: 'step.scheduled', batchId: '12-1', stepId: 'gauge', attempt: 2, deadlineAt },
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'gauge',
+        attempt: 2,
+        worktree: {
+          repo: 'acme/api',
+          path: join(root, 'gauge', '2'),
+          branch: 'foedrum/12-1/gauge/2',
+          commit: 'd'.repeat(40),
+        },
+      },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'gauge',
+        attempt: 2,
+        outcome: { kind: 'succeeded', output: null },
+      },
+    ];
+    const { order, run } = setup({ events: [...ordered, ...gauged, ...again, ...redStarted] });
+    await run();
+    assert.match(
+      order[0] ?? '',
+      new RegExp(` ${gaugeStart} refs/heads/foedrum/12-1/gauge/2 -- in `),
+    );
+  });
+
+  it('rejects a red run that fails on a compile error (done when, #176)', async () => {
+    const { run } = setup({ test: { exitCode: 1, stdout: compileError } });
+    const end = await run();
+    // The test check's reading is kept on a failed red proof too.
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.result, 'exitCode' in reading && reading.exitCode]),
+      [['exited', 1]],
+    );
+    assert.deepEqual(
+      end.ending,
+      failedWith(
+        "the red proof of step gauge failed: the run has a load, compile, import or collection error: SyntaxError: The requested module '../src/add.mjs' does not provide an export named 'add'",
+      ),
+    );
+  });
+
+  it('reads the report, never the exit code: a passing exit proves nothing, a failing one decides nothing', async () => {
+    const passing = await setup({ test: { exitCode: 0, stdout: stubFails } }).run();
+    assert.deepEqual(passing.ending, { kind: 'succeeded', output: null });
+    const green = 'ok 1 - adds two numbers\n1..1\n';
+    const failing = await setup({ test: { exitCode: 1, stdout: green } }).run();
+    assert.deepEqual(
+      failing.ending,
+      failedWith(
+        'the red proof of step gauge failed: test "adds two numbers" passes before the implementation: a stub must throw, not return a value',
+      ),
+    );
+  });
+
+  it('reads a JUnit report from its file, cleared before the test command runs', async () => {
+    const results = join(redTree, 'build', 'results.xml');
+    const xml =
+      '<testsuite><testcase name="adds two numbers"><failure message="not implemented"/></testcase></testsuite>';
+    const { order, run } = setup({
+      report: { format: 'junit', path: 'build/results.xml' },
+      files: { [results]: { kind: 'text', text: xml } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(order.slice(1), [
+      `clear ${results}`,
+      `exec npm test in ${redTree}`,
+      `read ${results} inside ${redTree}`,
+    ]);
+  });
+
+  it('fails when the test command wrote no report, or one that cannot be read', async () => {
+    const tapFile = { format: 'tap', path: 'tap.txt' } as const;
+    const missing = await setup({ report: tapFile }).run();
+    assert.deepEqual(
+      missing.ending,
+      failedWith(
+        'the red proof of step gauge failed: the test command wrote no test report at tap.txt',
+      ),
+    );
+    const linked = await setup({
+      report: tapFile,
+      files: {
+        [join(redTree, 'tap.txt')]: { kind: 'unread', reason: 'it is outside the worktree' },
+      },
+    }).run();
+    assert.deepEqual(
+      linked.ending,
+      failedWith(
+        'the red proof of step gauge failed: the test report tap.txt cannot be read: it is outside the worktree',
+      ),
+    );
+    const garbage = await setup({ test: { exitCode: 1, stdout: 'Error: npm not found' } }).run();
+    assert.deepEqual(
+      garbage.ending,
+      failedWith(
+        'the red proof of step gauge failed: the test report on stdout is not TAP: it has no TAP test point',
+      ),
+    );
+  });
+
+  it('is blocked on the environment, running nothing, when the old report cannot be cleared', async () => {
+    const { order, run } = setup({
+      report: { format: 'junit', path: 'build/results.xml' },
+      clearFails: "EISDIR: illegal operation on a directory, rm 'build/results.xml'",
+    });
+    // The attempt ends with an outcome; it never rejects.
+    const end = await run().catch((error: Error) => ({ ending: { rejected: error.message } }));
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        "the test report build/results.xml cannot be cleared: EISDIR: illegal operation on a directory, rm 'build/results.xml'",
+    });
+    assert.ok(
+      order.every((line) => !line.startsWith('exec')),
+      order.join('\n'),
+    );
+  });
+
+  it('settles a test command that did not exit as any check does (ADR 0069)', async () => {
+    const end = await setup({ test: { exitCode: null, killed: 'timed-out', stdout: '' } }).run();
+    assert.deepEqual(
+      end.ending,
+      failedWith('the check "test" (npm test) did not finish by the step\'s deadline'),
+    );
+  });
+
+  it('is blocked on the environment, running nothing, when the repository has no test report', async () => {
+    const { order, run } = setup({ report: null });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'recipe nip proves its tests red, which needs the test report of acme/api: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)',
+    });
+    assert.deepEqual(order, []);
+  });
+
+  it('is blocked on the environment, running nothing, when the repository has no test check', async () => {
+    const { order, run } = setup({ checks: { ...repository, test: null } });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'foedrum.jsonc gives acme/api no test check',
+    });
+    assert.ok(
+      order.every((line) => !line.startsWith('exec')),
+      order.join('\n'),
+    );
+  });
+
+  it('is blocked on a divergence when the proven step has no attempt that succeeded', async () => {
+    const { order, run } = setup({ events: [...ordered, ...redStarted] });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'divergence',
+      summary: 'step red proves the tests of step gauge, which has no attempt that succeeded',
+    });
+    assert.deepEqual(order, []);
+  });
+
+  it("is blocked on the environment when git cannot read the proven step's commits", async () => {
+    const { order, run } = setup({
+      diff: { code: 128, stdout: '', stderr: 'fatal: bad revision\n' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the commits of step gauge cannot be read: fatal: bad revision',
+    });
+    assert.equal(order.length, 1);
+  });
+});

@@ -46,6 +46,16 @@ export interface StepChecks {
   find(recipe: string, stepId: string): readonly CheckRef[] | undefined;
   /** Whether any recipe has a check step. */
   any(): boolean;
+  /** The step whose tests step `stepId` of recipe `recipe` proves red, when it is a red proof. */
+  proves(recipe: string, stepId: string): string | undefined;
+  /** The first red proof of recipe `recipe` and the step it proves, when it has one (ADR 0078). */
+  redProof(recipe: string): { id: string; of: string } | undefined;
+}
+
+/** A check step's checks, and for a red proof the step whose tests it proves. */
+interface StepCheck {
+  checks: readonly CheckRef[];
+  of?: string;
 }
 
 export type LoadedRecipes =
@@ -190,14 +200,7 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
-  if ('action' in step) return step;
-  if ('check' in step) {
-    // A red proof reads the test report against the commits of the step it proves.
-    if ('of' in step) {
-      return `step "${id}" is a red proof ("expect": "fail"), which the engine does not run yet (#176) (ADR 0069)`;
-    }
-    return step;
-  }
+  if ('action' in step || 'check' in step) return step;
   // A Taster's lens and Brett's blocking flag would load and change nothing.
   if (step.lens !== undefined) {
     return `step "${id}" has a "lens", which the engine does not follow yet (ADR 0053)`;
@@ -209,12 +212,17 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
 }
 
 /**
- * The guards every attempt has anyway: the runner requires the out doc, and a commit after the
- * start for a `done` of a brewer that produces commits (ADR 0074). Not `noPush`: no allow rule
- * reaches a push (ADR 0062), but a script or hook an allowed command runs can, and nothing checks
- * the remote after the attempt yet.
+ * The guards the engine follows: the out doc, which the runner requires of every attempt anyway; a
+ * commit after the start for a `done` of a brewer that produces commits (ADR 0074); and
+ * testsUnchanged, which the tests guard checks after the attempt (ADR 0078). Not `noPush`: no
+ * allow rule reaches a push (ADR 0062), but a script or hook an allowed command runs can, and
+ * nothing checks the remote after the attempt yet.
  */
-const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc', 'requiresCommits']);
+const ENFORCED_GUARDS: ReadonlySet<string> = new Set([
+  'requiresOutDoc',
+  'requiresCommits',
+  'testsUnchanged',
+]);
 
 /** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
 function unplannable(brewer: BrewerFrontmatter): string[] {
@@ -322,7 +330,8 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
-  const stepChecks = new Map<string, ReadonlyMap<string, readonly CheckRef[]>>();
+  const stepChecks = new Map<string, ReadonlyMap<string, StepCheck>>();
+  const redProofs = new Map<string, { id: string; of: string }>();
   for (const { path, value } of readAll(
     files.recipes,
     'recipe',
@@ -337,7 +346,7 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       return true;
     };
     const steps = value.steps.flatMap(
-      (step, index): { line: LineStep; brewer?: StepBrewer; checks?: readonly CheckRef[] }[] => {
+      (step, index): { line: LineStep; brewer?: StepBrewer; check?: StepCheck }[] => {
         const runnable = runnableStep(step);
         if (typeof runnable === 'string') {
           problems.push(`${path}: ${runnable}`);
@@ -377,7 +386,7 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
             route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
           };
           const checks = Array.isArray(runnable.check) ? runnable.check : [runnable.check];
-          return [{ line, checks }];
+          return [{ line, check: { checks, ...('of' in runnable ? { of: runnable.of } : {}) } }];
         }
         const found = brewers.get(runnable.brewer);
         if (found === undefined) {
@@ -412,8 +421,8 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       },
     );
     // resolveRecipe (ADR 0028) needs every brewer the recipe names; a missing one is reported
-    // above. The red proof is checked even when a step did not load: it is a red proof, which
-    // the engine does not run yet (#176).
+    // above. The red proofs are checked even when a step did not load, so every problem is named
+    // at once.
     const brewerOf = (name: string) => brewers.get(name)?.brewer;
     const named = [...walk(value.steps, ['steps'])].map(({ step }) => stepBrewerName(step));
     if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
@@ -422,9 +431,26 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
       const name = stepBrewerName(step);
       return name !== undefined && brewerOf(name)?.produces === 'commits';
     };
+    const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
+    // A red proof finds the tests in what its step committed (ADR 0078).
+    const proofs = order.flatMap((step) =>
+      'of' in step ? [{ id: stepId(step), of: step.of }] : [],
+    );
+    const ofNothing = proofs.filter(({ of }) => {
+      const proven = order.find((step) => stepId(step) === of);
+      return proven === undefined || !commits(proven);
+    });
+    for (const { id, of } of ofNothing) {
+      problems.push(
+        `${path}: step "${id}" proves the tests of step "${of}", whose brewer commits nothing (ADR 0078)`,
+      );
+    }
     const unprovenLines = testFirst ? unproven(value, commits) : [];
     for (const line of unprovenLines) problems.push(`${path}: ${line}`);
-    if (steps.length < value.steps.length || unprovenLines.length > 0) continue;
+    const refused = ofNothing.length + unprovenLines.length > 0;
+    if (steps.length < value.steps.length || refused) continue;
+    const [proof] = proofs;
+    if (proof !== undefined) redProofs.set(value.name, proof);
     recipes.set(
       value.name,
       lineRecipe(
@@ -441,9 +467,7 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     );
     stepChecks.set(
       value.name,
-      new Map(
-        steps.flatMap(({ line, checks }) => (checks === undefined ? [] : [[line.id, checks]])),
-      ),
+      new Map(steps.flatMap(({ line, check }) => (check === undefined ? [] : [[line.id, check]]))),
     );
   }
   if (problems.length > 0) return { valid: false, problems };
@@ -452,8 +476,10 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     recipes: { find: (name) => recipes.get(name) },
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
     checks: {
-      find: (recipe, id) => stepChecks.get(recipe)?.get(id),
+      find: (recipe, id) => stepChecks.get(recipe)?.get(id)?.checks,
       any: () => [...stepChecks.values()].some((steps) => steps.size > 0),
+      proves: (recipe, id) => stepChecks.get(recipe)?.get(id)?.of,
+      redProof: (recipe) => redProofs.get(recipe),
     },
   };
 }
