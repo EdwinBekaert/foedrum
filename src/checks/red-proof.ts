@@ -49,7 +49,7 @@ function loadError(text: string): string | undefined {
   return line === undefined ? undefined : cut(line.replace(/^\s*#?\s*/, '').trim());
 }
 
-const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * The forms of a test's name its declaration may have: the name, without the parameters a runner
@@ -77,7 +77,7 @@ function namesOf(name: string): string[] {
  */
 function declares(name: string, lines: readonly string[]): boolean {
   const patterns = namesOf(name).map(
-    (each) => new RegExp(`(?<![\\p{L}\\p{N}_])${escape(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
+    (each) => new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
   );
   return lines.some((line) => patterns.some((pattern) => pattern.test(line)));
 }
