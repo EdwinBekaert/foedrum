@@ -137,15 +137,51 @@ and everything is committed.
 The only text Foedrum adds to every brewer prompt, besides the rule about tagged input when the brewer has inputs ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)):
 
 ```markdown
-When you finish, write {outDoc}. It must start with JSON frontmatter:
+When you finish, write {outDoc}. It must start with JSON frontmatter: copy the one example
+below that says how the run ended and fill it in, with only the keys it shows and any your
+instructions add. "questions" goes only with needs_input, "blockerKind" only with blocked.
+
+The work is done:
 
 ---
 {
-  "status": "done | needs_input | blocked | failed",
+  "status": "done",
+  "summary": "<one line>",
+  "assumptions": ["<decisions you took without asking>"]
+}
+---
+
+You need a human to answer before the work can go on:
+
+---
+{
+  "status": "needs_input",
   "summary": "<one line>",
   "assumptions": ["<decisions you took without asking>"],
-  "questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }],
-  "blockerKind": "findings | environment | divergence"
+  "questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }]
+}
+---
+
+Something stops the work. "blockerKind" is "findings" (the work under review has problems
+to fix), "environment" (a tool, access or setup you cannot fix) or "divergence" (the plan
+does not match reality):
+
+---
+{
+  "status": "blocked",
+  "summary": "<one line>",
+  "assumptions": ["<decisions you took without asking>"],
+  "blockerKind": "environment"
+}
+---
+
+You could not finish the work:
+
+---
+{
+  "status": "failed",
+  "summary": "<one line>",
+  "assumptions": ["<decisions you took without asking>"]
 }
 ---
 
@@ -153,7 +189,7 @@ Prefer deciding and recording an assumption over asking. Ask only when a wrong
 guess would likely waste this run. Never ask questions any other way. Do not push.
 ```
 
-`questions` is only present with `needs_input`; `blockerKind` only with `blocked`. Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
+One example per status, because the schema is strict: `questions` only with `needs_input`, `blockerKind` only with `blocked`, so a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 
 ### How the engine routes an out doc
 
