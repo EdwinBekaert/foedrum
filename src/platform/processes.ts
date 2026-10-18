@@ -276,6 +276,7 @@ export const execProcessWith =
       maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
       jobObject = false,
       shell = false,
+      stdin,
     },
   ) =>
     new Promise((done) => {
@@ -309,7 +310,13 @@ export const execProcessWith =
       }
       let child: ChildHandle;
       try {
-        child = spawn(program, [...args], { cwd, env, jobObject, ...(shell ? { shell } : {}) });
+        child = spawn(program, [...args], {
+          cwd,
+          env,
+          jobObject,
+          ...(shell ? { shell } : {}),
+          ...(stdin === undefined ? {} : { stdin: true }),
+        });
       } catch (error) {
         done(failed(error));
         return;
@@ -352,6 +359,19 @@ export const execProcessWith =
         output += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
+      // A program that exits before reading its input makes the write fail (EPIPE); how it ended
+      // says more than that. Without a pipe it would run without its input (#128).
+      if (stdin !== undefined) {
+        if (!child.stdin) {
+          if (child.pid !== undefined) killTree(child.pid);
+          child.stdout.destroy();
+          child.stderr.destroy();
+          finish(failed(`${file}: no pipe to its stdin`));
+          return;
+        }
+        child.stdin.on('error', () => {});
+        child.stdin.end(stdin);
+      }
       child.on('close', (code, endedBy) => {
         // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
         const refused =
