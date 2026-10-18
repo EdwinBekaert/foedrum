@@ -120,6 +120,25 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
     ]);
   });
 
+  // A report is pasted into issues: gh's token line, masked or not, never goes into it.
+  it("never quotes gh's token line, or a line that holds a token, as what gh said", () => {
+    const facts = linux();
+    facts.github = {
+      ...loggedIn(),
+      login: ran(
+        '',
+        'github.com\n  - Token: gho_************************************\n  - see ghp_abcdefghijklmnopqrstuvwxyz0123456789\n  X Failed to log in to github.com account brewer (keyring)\n',
+        1,
+      ),
+    };
+    assert.deepEqual(
+      problems(facts).map(({ what }) => what),
+      [
+        'gh is not logged in to github.com (X Failed to log in to github.com account brewer (keyring))',
+      ],
+    );
+  });
+
   it('reports a gh auth status that did not answer apart, with what the runner said', () => {
     const facts = linux();
     facts.github = { ...loggedIn(), login: ran('', 'timed out after 10 s\n', null) };
@@ -168,6 +187,24 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
       },
     ]);
     assert.equal(diagnose(facts).ok, true);
+  });
+
+  // Only git's exit 1 means that no setting matched; anything else is git failing to say.
+  it('says git config did not answer, instead of no helper, when it failed or was killed', () => {
+    for (const [output, code, because] of [
+      ['timed out after 10 s\n', null, ' (timed out after 10 s)'],
+      ['', 128, ''],
+    ] as const) {
+      const facts = linux();
+      facts.github = { ...loggedIn(), credentials: ran('', output, code) };
+      assert.deepEqual(problems(facts), [
+        {
+          required: false,
+          what: `git config did not list its credential helpers${because}`,
+          fix: 'check that git config --get-regexp ^credential\\. works in this folder',
+        },
+      ]);
+    }
   });
 
   it('advises gh auth setup-git when git has no credential helper for the host', () => {
