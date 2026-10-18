@@ -23,12 +23,17 @@ export interface TestsGuardOptions {
    */
   protects: (ref: AttemptRef) => string | undefined;
   git: Git;
+  /**
+   * The clone a repository's attempt worktrees are added to, where git reads the commits: never
+   * the attempt's worktree, whose `.git` file its brewer can rewrite.
+   */
+  clone: (repo: string) => string;
   /** Default the system clock. */
   clock?: () => Date;
 }
 
 export function guardTests(options: TestsGuardOptions): BrewerRunner {
-  const { runner, state, protects, git, clock = () => new Date() } = options;
+  const { runner, state, protects, git, clone, clock = () => new Date() } = options;
   // The attempts whose commits it is reading: it reports their progress, so their leases hold.
   const checking = new Map<string, AttemptProgress>();
 
@@ -51,15 +56,17 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
     if (proven === undefined) return end;
     const key = attemptKey.encode(ref);
     checking.set(key, { lastProgressAt: clock(), turnsWithoutProgress: 0 });
-    // What the proven step committed, then what this attempt committed on top of where it started.
+    // What the proven step committed, then what this attempt committed on top of where it started,
+    // in the clone: never by discovery in the worktree, whose .git file the brewer can rewrite.
     const read = async () => {
-      const tests = await readDiff(git, worktree.path, proven, { signal });
+      const cwd = clone(worktree.repo);
+      const tests = await readDiff(git, cwd, proven, { signal });
       if ('error' in tests) return tests;
       // Up to its branch, which the task tree carries on whatever HEAD is (ADR 0066), and only in
       // the files whose lines the guard keeps.
       const own = { from: worktree.commit, to: `refs/heads/${attemptBranch(ref)}` };
       const paths = tests.files.flatMap(({ newPath }) => (newPath === undefined ? [] : [newPath]));
-      const changes = await readDiff(git, worktree.path, own, { signal, paths });
+      const changes = await readDiff(git, cwd, own, { signal, paths });
       return 'error' in changes ? changes : { tests: tests.files, changes: changes.files };
     };
     try {

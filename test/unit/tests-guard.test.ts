@@ -15,7 +15,7 @@ import { defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 
 const root = join('/work', 'acme.api', 'attempts', '12-1');
-const implementTree = join(root, 'implement', '1');
+const clone = join('/work', 'acme.api', 'clone.git');
 const deadlineAt = '2026-10-18T12:30:00.000Z';
 const gaugeStart = 'a'.repeat(40);
 const implementStart = 'c'.repeat(40);
@@ -127,6 +127,7 @@ const setup = ({
       return protects ?? undefined;
     },
     git,
+    clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
   });
   return { calls, asked, runner };
 };
@@ -146,11 +147,12 @@ describe('guardTests (ADR 0078)', () => {
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, args.join(' ')]),
       [
-        [implementTree, `${flags} ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`],
+        // In the clone, never the attempt's worktree, whose .git file its brewer can rewrite.
+        [clone, `${flags} ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`],
         // Its own commits end at its branch, which the task tree carries on, whatever HEAD is,
         // and only in the files the proven step committed, each read as a literal path.
         [
-          implementTree,
+          clone,
           `${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 -- :(literal)test/add.test.mjs`,
         ],
       ],

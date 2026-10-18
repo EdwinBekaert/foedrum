@@ -233,24 +233,27 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       if (opened === undefined) throw new Error('the driver is not open yet');
       return opened.state();
     };
+    const repositoryNamed = (repo: string) =>
+      setup.repositories.find((repository) => sameRepo(repository.repo, repo));
+    // The clone a repository's worktrees are added to: where git reads an attempt's commits, never
+    // its worktree (ADR 0074, ADR 0078).
+    const clone = (repo: string) => {
+      const repository = repositoryNamed(repo);
+      if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
+      return worktreeClonePath(setup.workRoot, repository);
+    };
     const plans = createAttemptPlans({
       state,
       brewers: setup.brewers,
       models: setup.models,
       repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
       // Where a commit-producing attempt's commits are counted (ADR 0074).
-      clone: (repo) => {
-        const repository = setup.repositories.find((each) => sameRepo(each.repo, repo));
-        if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
-        return worktreeClonePath(setup.workRoot, repository);
-      },
+      clone,
       sandbox: setup.sandbox,
       workRoot: setup.workRoot,
       env: setup.brewerEnv,
       orderText: githubOrderText(reads, setup.brewery),
     });
-    const repositoryNamed = (repo: string) =>
-      setup.repositories.find((repository) => sameRepo(repository.repo, repo));
     // A check step's commands run in the brewers' environment, without a token variable (ADR 0069);
     // as the same OS user they can still start gh, which answers from its login (ADR 0073, #204).
     const checks = createCheckRunner({
@@ -260,6 +263,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       testReport: (repo) => repositoryNamed(repo)?.testReport,
       exec: shell.exec,
       git: shell.git,
+      clone,
       env: setup.brewerEnv,
       clock,
     });
@@ -274,6 +278,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         return guards.includes('testsUnchanged') ? setup.checks.redProof(recipe)?.of : undefined;
       },
       git: shell.git,
+      clone,
       clock,
     });
     const runner = stepRunner({

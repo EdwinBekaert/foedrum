@@ -18,6 +18,7 @@ import type { Git, GitResult } from '../../src/workspace/git.ts';
 const root = join('/work', 'acme.api', 'attempts', '12-1');
 const gaugeTree = join(root, 'gauge', '1');
 const redTree = join(root, 'red', '1');
+const clone = join('/work', 'acme.api', 'clone.git');
 const ref = { batchId: '12-1', stepId: 'red', attempt: 1 };
 const now = new Date('2026-10-18T12:00:00.000Z');
 const deadlineAt = '2026-10-18T12:30:00.000Z';
@@ -149,6 +150,7 @@ const setup = ({
     testReport: () => report ?? undefined,
     exec,
     git,
+    clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
     reports,
     env: { base: {}, forced: {} },
     clock: () => now,
@@ -173,7 +175,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       [['exited', 1]],
     );
     assert.deepEqual(order, [
-      `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${redTree}`,
+      `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${clone}`,
       `exec npm test in ${redTree}`,
     ]);
   });
