@@ -507,6 +507,7 @@ describe('the driver and attempt worktrees with real git', () => {
       testReport: () => undefined,
       exec: execProcess,
       git: runGit,
+      clone: () => user,
       env: { base: brewerBaseEnv(process.env, process.platform), forced: {} },
       clock,
     });

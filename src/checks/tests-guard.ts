@@ -23,6 +23,11 @@ export interface TestsGuardOptions {
    */
   protects: (ref: AttemptRef) => string | undefined;
   git: Git;
+  /**
+   * The clone a repository's attempt worktrees are added to, where git reads the commits: never
+   * the attempt's worktree, whose `.git` file its brewer can rewrite.
+   */
+  clone: (repo: string) => string;
   /** Default the system clock. */
   clock?: () => Date;
 }

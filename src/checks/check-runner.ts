@@ -54,6 +54,11 @@ export interface CheckRunnerOptions {
   exec: ExecProcess;
   /** git, for the commits of the step a red proof proves (ADR 0078). */
   git: Git;
+  /**
+   * The clone a repository's attempt worktrees are added to, where git reads the proven step's
+   * commits: never the attempt's worktree, which git would find by its `.git` file.
+   */
+  clone: (repo: string) => string;
   /** Default the file system's. */
   reports?: ReportFiles;
   /** The brewers' environment: its minimal base and the runner's forced variables (ADR 0063). */

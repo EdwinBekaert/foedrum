@@ -100,6 +100,9 @@ const setup = ({
     testReport: () => undefined,
     exec,
     git: () => Promise.reject(new Error('a check step reads no commits')),
+    clone: () => {
+      throw new Error('a check step reads no commits');
+    },
     env: layers,
     clock,
     platform,

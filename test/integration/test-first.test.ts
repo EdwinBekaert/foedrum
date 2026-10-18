@@ -163,6 +163,7 @@ describe('a test-first recipe with real git and a real test run', () => {
       testReport: () => ({ format: 'tap' }),
       exec: execProcess,
       git: runGit,
+      clone: () => user,
       env: { base: brewerBaseEnv(process.env, process.platform), forced: {} },
       clock,
     });
@@ -175,6 +176,7 @@ describe('a test-first recipe with real git and a real test run', () => {
         return guards.includes('testsUnchanged') ? loaded.checks.redProof(recipe)?.of : undefined;
       },
       git: runGit,
+      clone: () => user,
     });
     const workRoot = join(dir.path, 'work');
     driver = await openDriver({
