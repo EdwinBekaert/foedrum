@@ -497,7 +497,8 @@ describe('runServe', () => {
       const brewed: string[] = [];
       const succeeding: BrewerRunner = {
         start: ({ ref }) => {
-          brewed.push(ref.stepId);
+          // Batch 12-1 of beforeEach brews too.
+          if (ref.batchId === '14-1') brewed.push(ref.stepId);
           const output = { status: 'done', summary: 'Brewed' };
           return {
             ended: Promise.resolve({ ending: { kind: 'succeeded', output } }),
