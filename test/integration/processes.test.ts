@@ -311,7 +311,12 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     await waitUntil('three levels to start', () => pidsIn(pidFile).length === 3);
     stop.abort();
     assert.equal((await done).killed, 'stopped');
-    await assertAllEnd(pidsIn(pidFile));
+    // The levels end by themselves after 30 s, so only a bound below that can tell the job's
+    // kill from their own end: the bound is the property, as for the orphans of #92 (ADR 0070).
+    const pids = pidsIn(pidFile);
+    const until = Date.now() + 10_000;
+    while (alive(pids).length > 0 && Date.now() < until) await delay(100);
+    assert.deepEqual(alive(pids), [], 'levels of the tree still running');
   });
 
   // Fail closed: nothing runs outside a job when the helper cannot make one. The reason is the
