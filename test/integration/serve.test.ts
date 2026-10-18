@@ -38,7 +38,7 @@ describe('foedrum serve', () => {
   beforeEach(() => {
     dir = makeTempDir('serve');
   });
-  afterEach(() => dir.remove());
+  afterEach(() => removeTree(dir.path));
 
   it('refuses a folder that is no Brewery, with one line per problem', async () => {
     // serve's own start, with a canned answer for gh's login check (ADR 0073).

@@ -9,6 +9,7 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
+import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 import { cannedGhLogin, doctorHere, MADE_UP_CONFIG, MADE_UP_HOST } from './canned-gh-login.ts';
 
@@ -18,7 +19,11 @@ describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
     const dir = makeTempDir('doctor-machine');
     writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
-    const { exitCode, stdout } = await doctorHere(dir.path).finally(() => dir.remove());
+    // A tool the runner killed at its deadline may hold the folder a moment longer on Windows.
+    const { exitCode, stdout, stderr } = await doctorHere(dir.path).finally(() =>
+      removeTree(dir.path),
+    );
+    assert.equal(stderr, '');
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
     const row = (name: string): string | undefined =>
@@ -91,7 +96,7 @@ describe('foedrum doctor in a Brewery', () => {
         /^ {2}foedrum\.jsonc is not valid \(required\): .*The alias app is already the alias of acme\/web/m,
       );
     } finally {
-      dir.remove();
+      await removeTree(dir.path);
     }
   });
 });
@@ -125,7 +130,7 @@ describe("foedrum doctor and git's credential helper", () => {
         .split('\n')
         .filter((line) => /credential helper|credentials, not gh/.test(line));
     } finally {
-      dir.remove();
+      await removeTree(dir.path);
     }
   };
 

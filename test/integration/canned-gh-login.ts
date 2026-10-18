@@ -3,8 +3,8 @@
 // `gh auth status` works is gh's business. So the real runner starts every other tool, and no
 // test asks the real gh for a login, reaches github.com or touches the keyring.
 
-import { diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
 import { doctorFromCheckout } from '../../src/cli/doctor-main.ts';
+import { runCli } from '../../src/cli/run.ts';
 import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
 
 /** A host no real account logs in to: the only one the canned answer is logged in to. */
@@ -40,14 +40,23 @@ export const cannedGhLogin =
     return exec(file, args, options);
   };
 
-/**
- * `foedrum doctor` in `cwd`: the facts main.ts gathers (`doctorFromCheckout`), through `exec`
- * (default the real runner with the canned login), then the command's diagnosis and report.
- */
-export const doctorHere = async (
-  cwd: string,
-  exec: ExecProcess = cannedGhLogin(),
-): Promise<{ exitCode: number; stdout: string }> => {
-  const diagnosis = diagnose(await doctorFromCheckout(cwd, { exec }));
-  return { exitCode: diagnosis.ok ? 0 : 1, stdout: formatDiagnosis(diagnosis) };
+const notForDoctor = (what: string) => () => {
+  throw new Error(`foedrum doctor uses no ${what}`);
 };
+
+/**
+ * `foedrum doctor` in `cwd` through the command layer (`runCli`), with the facts main.ts gathers
+ * (`doctorFromCheckout`) through `exec`: default the real runner with the canned login.
+ */
+export const doctorHere = async (cwd: string, exec: ExecProcess = cannedGhLogin()) =>
+  runCli(['doctor'], {
+    cwd,
+    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec }),
+    openStore: notForDoctor('store'),
+    openWritableStore: notForDoctor('store'),
+    recipes: notForDoctor('recipes'),
+    user: () => 'doctor-test',
+    surface: 'terminal',
+    now: () => new Date(),
+    serve: notForDoctor('serve'),
+  });

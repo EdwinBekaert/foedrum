@@ -55,6 +55,7 @@ describe('serveFromCheckout', () => {
       exec,
       resolve: (name) => `/usr/bin/${name}`,
     });
+    assert.equal(result.exitCode, 1);
     assert.ok(
       result.stderr
         .split('\n')
