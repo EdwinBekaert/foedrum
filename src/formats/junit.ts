@@ -34,6 +34,8 @@ function decode(text: string): string {
 }
 
 const NAME = /^[A-Za-z_:][\w.:-]*/;
+/** Deeper reports are refused before the readers that recurse over them can overflow the stack. */
+const MAX_DEPTH = 256;
 const ATTRIBUTE = /^\s+([A-Za-z_:][\w.:-]*)\s*=\s*("([^"<]*)"|'([^'<]*)')/;
 
 /** The root element of `text`; throws NotXml when it is not well-formed. */
@@ -100,7 +102,10 @@ function readXml(text: string): Element {
       } else {
         parent.children.push(element);
       }
-      if (end[1] !== '/') stack.push(element);
+      if (end[1] !== '/') {
+        if (stack.length >= MAX_DEPTH) throw new NotXml(`nested deeper than ${MAX_DEPTH} elements`);
+        stack.push(element);
+      }
     }
   }
   if (stack.length > 0) throw new NotXml(`an unclosed <${stack.at(-1)?.name}>`);

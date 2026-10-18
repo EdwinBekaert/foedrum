@@ -38,6 +38,10 @@ const IMPORT =
 const any = (patterns: readonly RegExp[], line: string): boolean =>
   patterns.some((pattern) => pattern.test(line));
 
+/** Whether `line` asserts without declaring a test: a call of what it tests, not a declaration. */
+export const assertsOnly = (line: string): boolean =>
+  any(ASSERTIONS, line) && !any(DECLARATIONS, line);
+
 /** The declarations and assertions in each file of `proven` that declares a test, by path. */
 function testLines(proven: readonly DiffFile[]): Map<string, string[]> {
   const found = new Map<string, string[]>();

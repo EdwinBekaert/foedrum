@@ -57,6 +57,8 @@ export async function readDiff(
     '--no-color',
     '--no-ext-diff',
     '--no-textconv',
+    // A committed .gitattributes (`-diff`, `binary`) must not turn the tests into binary files.
+    '--text',
     '--no-renames',
     '--unified=0',
     '--src-prefix=a/',

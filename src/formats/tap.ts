@@ -36,7 +36,7 @@ interface Point {
 
 /** The tests of a TAP stream, or why it is not one. */
 export function parseTap(text: string): ReadReport {
-  const lines = text.replace(/^﻿/, '').split(/\r?\n/);
+  const lines = text.replace(/^﻿/, '').split(/\r\n|\r|\n/);
   const points: Point[] = [];
   const other: string[] = [];
   let bailedOut: string | undefined;
@@ -45,12 +45,17 @@ export function parseTap(text: string): ReadReport {
   for (const line of lines) {
     if (block !== undefined) {
       const trimmed = line.trim();
-      if (trimmed === '...' && line.indexOf('...') === block.indent) {
+      const indent = line.length - line.trimStart().length;
+      if (trimmed === '...' && indent === block.indent) {
         block = undefined;
-      } else {
-        block.point.detail.push(line);
+        continue;
       }
-      continue;
+      // A block that never closed ends at a line shallower than its `---`.
+      if (trimmed === '' || indent >= block.indent) {
+        block.point.detail.push(line);
+        continue;
+      }
+      block = undefined;
     }
     const point = TEST_POINT.exec(line);
     if (point !== null) {

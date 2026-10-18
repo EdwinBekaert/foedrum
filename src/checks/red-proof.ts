@@ -4,6 +4,7 @@
 
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
+import { assertsOnly } from './tests-unchanged.ts';
 
 export type RedVerdict =
   /** `tests`: the names of the proven step's tests, all failing. */
@@ -36,6 +37,12 @@ const LOAD_ERRORS: readonly RegExp[] = [
   /\bcompil(?:e|ation) (?:error|failed|failure)\b/i,
   /\b(?:failed to|could not) compile\b/i,
 ];
+
+/**
+ * A reported name longer than this is no declaration: the names come from code a brewer wrote,
+ * and each is matched against every line the step added.
+ */
+const MAX_NAME = 1000;
 
 /** Longer quotes of a run are cut to this, for the reason that reaches the event log. */
 const MAX_QUOTE = 200;
@@ -72,17 +79,18 @@ function namesOf(name: string): string[] {
 
 /**
  * Whether a line the step added declares the test `name`: the name stands as a whole, after
- * something that is no letter, digit or underscore, and before something that is none of those
- * nor a space, or the line's end, as a declaration writes it (`test('adds two numbers'`,
- * `def test_adds(`, `void adds(`). A line keeps no carriage return of a CRLF file.
+ * something that is no letter, digit, underscore or dot, and before something that is none of
+ * those nor a space, or the line's end, as a declaration writes it (`test('adds two numbers'`,
+ * `def test_adds(`, `void adds(`). A call (`calc.add(`) is none, and neither is a line that only
+ * asserts (`assert.equal(add(1, 2), 3)`). A line keeps no carriage return of a CRLF file.
  */
 function declares(name: string, lines: readonly string[]): boolean {
   const patterns = namesOf(name).map(
-    (each) => new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
+    (each) => new RegExp(`(?<![\\p{L}\\p{N}_.])${escapeRegExp(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
   );
   return lines.some((line) => {
     const text = line.replace(/\r$/, '');
-    return patterns.some((pattern) => pattern.test(text));
+    return !assertsOnly(text) && patterns.some((pattern) => pattern.test(text));
   });
 }
 
@@ -102,7 +110,8 @@ export function judgeRed(report: TestReport, diff: readonly DiffFile[]): RedVerd
   const lines = diff.flatMap(({ added }) => added);
   // A suite's own result follows its tests'; its tests are judged.
   const proven = report.tests.filter(
-    ({ name, leaf }) => leaf && name.trim() !== '' && declares(name, lines),
+    ({ name, leaf }) =>
+      leaf && name.trim() !== '' && name.length <= MAX_NAME && declares(name, lines),
   );
   if (proven.length === 0) {
     return refused(`none of the ${report.tests.length} tests in the report is one the step added`);

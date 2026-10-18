@@ -5,8 +5,7 @@
 // A red proof runs the test check and judges the structured test report against the tests the
 // proven step committed, never the exit code (ADR 0078).
 
-import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { type OutDocRead, readOutDocFile } from '../brewers/claude-runner.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
@@ -17,7 +16,10 @@ import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
 import { envNameKey } from '../platform/env.ts';
+import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
+import { realPath } from '../platform/real-path.ts';
+import { removeTree } from '../platform/remove.ts';
 import type { TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
 import type { Git } from '../workspace/git.ts';
@@ -70,9 +72,19 @@ const KILL_MARGIN_MS = 10_000;
 /** A test report file's largest size: a report of a large suite, read once per red proof. */
 const MAX_REPORT_BYTES = 16 * 1024 * 1024;
 
-/** The test report files of the real file system: removed when there, read as an out doc is. */
+/**
+ * The test report files of the real file system: removed, a folder included, through the platform's
+ * removal, which retries a file another process holds open; read as an out doc is.
+ */
 export const fileReports: ReportFiles = {
-  clear: (file) => rmSync(file, { force: true }),
+  clear: async (file, root) => {
+    // Resolved through links first: a linked folder on the path could point the removal anywhere.
+    const resolved = join(realPath(dirname(file)), basename(file));
+    if (pathInside(realPath(root), resolved) === undefined) {
+      throw new Error('it is outside the worktree');
+    }
+    await removeTree(resolved);
+  },
   read: (file, root) => readOutDocFile(file, MAX_REPORT_BYTES, root),
 };
 
@@ -117,6 +129,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     worktree: WorktreeRef,
     deadlineAt: string,
     signal: AbortSignal,
+    maxOutputBytes?: number,
   ): Promise<ExecResult> => {
     // The process runner kills the tree before the step's deadline, also when no tick comes:
     // early enough that the kill's grace ends and the reading is recorded before a tick expires
@@ -130,6 +143,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       signal,
       shell: true,
       jobObject: true,
+      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
     });
   };
 
@@ -173,14 +187,16 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       report.path === undefined ? undefined : join(worktree.path, ...report.path.split('/'));
     if (file !== undefined) {
       try {
-        reports.clear(file, worktree.path);
+        await reports.clear(file, worktree.path);
       } catch (error) {
         // A folder at the path, or on Windows a file another process holds open.
         const why = error instanceof Error ? error.message : String(error);
         return blocked('environment', `the test report ${report.path} cannot be cleared: ${why}`);
       }
     }
-    const result = await runCheck(check, worktree, deadlineAt, signal);
+    // TAP on stdout may be as large as a report file.
+    const limit = file === undefined ? MAX_REPORT_BYTES : undefined;
+    const result = await runCheck(check, worktree, deadlineAt, signal, limit);
     const reading = readingOf(check, result);
     const readings = [reading];
     // A check that did not exit read no report: it ends as any check does (ADR 0069).
