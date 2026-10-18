@@ -374,14 +374,6 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /**
-   * Whether another attempt of `ref`'s step holds one of the live `leases`: one Stuck abandoned,
-   * whose stopped run has not ended. `ref` starts once that lease is released or expired, which
-   * the heartbeat no longer renews, and never beside it (I2, #150). The wait lasts one lease at
-   * most, and `ref`'s deadline runs through it: a step whose deadline is shorter than what is left
-   * of that lease goes Stuck with its deadline passed before `ref` started, as a step does whose
-   * deadline passes while no driver runs. That is intended: the step could not start in time.
-   */
-  /**
    * Records the start of an action attempt, which the driver runs itself through its effects
    * (ADR 0071): no lease, since no process runs it and the holder of the batch's lease applies the
    * effects, and no worktree, since the push reads the task tree in the clone (ADR 0066). Without
@@ -400,6 +392,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return true;
   };
 
+  /**
+   * Whether another attempt of `ref`'s step holds one of the live `leases`: one Stuck abandoned,
+   * whose stopped run has not ended. `ref` starts once that lease is released or expired, which
+   * the heartbeat no longer renews, and never beside it (I2, #150). The wait lasts one lease at
+   * most, and `ref`'s deadline runs through it: a step whose deadline is shorter than what is left
+   * of that lease goes Stuck with its deadline passed before `ref` started, as a step does whose
+   * deadline passes while no driver runs. That is intended: the step could not start in time.
+   */
   const stepLeased = (leases: readonly AttemptRef[], ref: AttemptRef): boolean =>
     leases.some(
       (other) =>

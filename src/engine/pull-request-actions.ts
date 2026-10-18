@@ -78,7 +78,6 @@ type ActionEffect =
       repo: string;
       request: Omit<PullRequestRequest, 'title' | 'body'>;
       order: OrderIssue;
-      closes: { repo: string; issue: number };
       reports: readonly StepReport[];
     };
 
@@ -146,7 +145,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         };
       }
       case 'open': {
-        const { repo, request, order, closes, reports } = effect;
+        const { repo, request, order, reports } = effect;
         return {
           find: async (_key, signal) => {
             const url = await host.find(repo, request.head, signal);
@@ -155,7 +154,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
           apply: async (_key, signal) => {
             const text = pullRequestText({
               title: await orderTitle(order, signal),
-              closes,
+              closes: { repo: order.repo ?? brewery, issue: order.issue },
               reports,
             });
             return pullRequestUrl(await host.open(repo, { ...request, ...text }, signal));
@@ -190,7 +189,6 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         repo,
         request: { head: branch, base: repository.base },
         order,
-        closes: { repo: batch.repo ?? brewery, issue: batch.issue },
         reports: stepReports(batch),
       });
       return [pushKey(batchId), pullRequestKey(batchId)];
