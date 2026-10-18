@@ -107,7 +107,14 @@ const doctorWithStubs = async (
   };
 };
 
-// The lines that differ by platform: the sandbox's tools, the isolation level and its problem.
+// What the OS keyring leaves open at each level, and what closes it (ADR 0082).
+const keyring = (closedBy: string) =>
+  `  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; ${closedBy} closes that for brewers, and check steps keep it until #190.`;
+const checkStepKeyring =
+  "  Until #190, check steps run outside the sandbox, so they can still ask the OS keyring for gh's login.";
+
+// The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
+// problem.
 const sandbox = (at: (name: string) => string, bwrap: boolean) => {
   switch (process.platform) {
     case 'linux':
@@ -116,11 +123,12 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
           bwrap ? `  bwrap   0.9.0     ${at('bwrap')}` : '  bwrap   missing',
           `  socat   1.7.4.4   ${at('socat')}`,
         ],
-        isolation: [
-          bwrap
-            ? 'Isolation: sandboxed (bubblewrap and socat)'
-            : 'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
-        ],
+        isolation: bwrap
+          ? ['Isolation: sandboxed (bubblewrap and socat)', checkStepKeyring]
+          : [
+              'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
+              keyring('the sandboxed level (bubblewrap and socat) or the container level'),
+            ],
         problems: bwrap
           ? []
           : ['  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level'],
@@ -131,11 +139,16 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
         isolation: [
           'Isolation: permissions only (native Windows has no sandbox for shell commands)',
           '  For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.',
+          keyring('WSL2 or the container level'),
         ],
         problems: [],
       };
     default:
-      return { rows: [], isolation: ['Isolation: sandboxed (macOS Seatbelt)'], problems: [] };
+      return {
+        rows: [],
+        isolation: ['Isolation: sandboxed (macOS Seatbelt)', checkStepKeyring],
+        problems: [],
+      };
   }
 };
 
