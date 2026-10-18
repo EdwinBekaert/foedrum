@@ -8,18 +8,24 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { describe, it } from 'node:test';
-import { execProcess } from '../../src/platform/processes.ts';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+import { resolveExecutable } from '../../src/platform/executables.ts';
+import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { makeTempDir } from '../helpers/temp-dir.ts';
+import { descheduled } from '../helpers/load.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import {
   CANNED_GH_VERSION,
   cannedGhLogin,
   doctorHere,
+  GH_LOGGED_IN_ANSWER,
+  GH_NO_LOGIN_ANSWER,
+  GH_VERSION_ANSWER,
   MADE_UP_CONFIG,
   MADE_UP_GH,
   MADE_UP_HOST,
 } from './canned-gh-login.ts';
+import { type CapturedAnswer, stubPath, writeStubTools } from './stub-tools.ts';
 
 const VERSION = String.raw`\d+(?:\.\d+)+`;
 
@@ -77,6 +83,220 @@ describe('foedrum doctor on this machine', () => {
     assert.ok(lines.some((line) => line.startsWith('Container: ')));
     const required = lines.some((line) => / \(required\): /.test(line));
     assert.equal(exitCode, required ? 1 : 0);
+  });
+});
+
+// doctor's real shell (#212): every tool but node and git is a stub on a PATH of its own that prints
+// what the real tool printed, so the report is exact on every machine. git stays real, with a
+// global configuration of the test's own and no system one; its row is checked against its own
+// path and then taken as it is.
+describe('foedrum doctor with stub tools', () => {
+  const realGit = resolveExecutable('git') ?? '';
+  const answers = (started: string): Record<string, CapturedAnswer> => ({
+    'npm --version': { stdout: '11.6.2\n' },
+    'gh --version': { stdout: GH_VERSION_ANSWER },
+    [`gh auth status --hostname ${MADE_UP_HOST}`]: { stdout: GH_LOGGED_IN_ANSWER },
+    'claude --version': { stdout: '2.1.301 (Claude Code)\n' },
+    'bwrap --version': { stdout: 'bubblewrap 0.9.0\n' },
+    'socat -V': {
+      stdout:
+        'socat by Gerhard Rieger and contributors - see www.dest-unreach.org\nsocat version 1.7.4.4 on 06 Nov 2022 08:15:51\n',
+    },
+    'podman --version': started === '' ? { stdout: 'podman version 5.2.0\n' } : { hang: started },
+    'docker --version': { stdout: 'Docker version 27.3.1, build ce12230\n' },
+  });
+  const ghHelper = `[credential "https://${MADE_UP_HOST}"]\n\thelper =\n\thelper = !gh auth git-credential\n`;
+
+  // A loaded machine (#212): right after doctor has started its probes, the test process loses
+  // 3.1 s, more than a container runtime's 3 s, without using the CPU (ADR 0070).
+  const loaded = (exec: ExecProcess): ExecProcess => {
+    let first = true;
+    return (file, args, options) => {
+      if (first) {
+        first = false;
+        setImmediate(() => descheduled(3_100));
+      }
+      return exec(file, args, options);
+    };
+  };
+
+  const doctorWithStubs = async (
+    dir: string,
+    stubs: Record<string, CapturedAnswer>,
+    gitconfig: string,
+    exec: ExecProcess,
+  ) => {
+    const bin = join(dir, 'bin');
+    writeStubTools(bin, stubs);
+    const global = join(dir, 'gitconfig');
+    writeFileSync(global, gitconfig);
+    writeFileSync(join(dir, 'foedrum.jsonc'), MADE_UP_CONFIG);
+    const ours = {
+      PATH: bin,
+      GIT_CONFIG_GLOBAL: global,
+      GIT_CONFIG_NOSYSTEM: '1',
+      // The folder is inside Foedrum's own checkout: git must not read its local settings.
+      GIT_CEILING_DIRECTORIES: dirname(dir),
+    };
+    // Every process gets the stubs' PATH, also gh, whose environment doctor strips of tokens.
+    const withEnv: ExecProcess = (file, args, options) => {
+      const base = Object.entries(options.env ?? process.env).filter(
+        ([key]) => !/^path$/i.test(key),
+      );
+      return exec(file, args, { ...options, env: { ...Object.fromEntries(base), ...ours } });
+    };
+    const resolve = (name: string) =>
+      name === 'git' ? realGit : resolveExecutable(name, { env: ours });
+    const { exitCode, stdout, stderr } = await doctorHere(dir, loaded(withEnv), resolve);
+    const lines = stdout.split('\n');
+    const git = lines.findIndex((line) => line.startsWith('  git '));
+    const gitRow = lines[git] ?? '';
+    assert.ok(gitRow.endsWith(`  ${realGit}`), gitRow);
+    assert.match(gitRow.slice(0, -realGit.length), /^ {2}git +\d+(?:\.\d+)+ +$/);
+    lines[git] = '  git     <real git>';
+    return {
+      exitCode,
+      report: lines.join('\n'),
+      stderr,
+      at: (name: string) => stubPath(bin, name),
+    };
+  };
+
+  // The lines that differ by platform: the sandbox's tools, the isolation level and its problem.
+  const sandbox = (at: (name: string) => string, bwrap: boolean) => {
+    switch (process.platform) {
+      case 'linux':
+        return {
+          rows: [
+            bwrap ? `  bwrap   0.9.0     ${at('bwrap')}` : '  bwrap   missing',
+            `  socat   1.7.4.4   ${at('socat')}`,
+          ],
+          isolation: [
+            bwrap
+              ? 'Isolation: sandboxed (bubblewrap and socat)'
+              : 'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
+          ],
+          problems: bwrap
+            ? []
+            : ['  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level'],
+        };
+      case 'win32':
+        return {
+          rows: [],
+          isolation: [
+            'Isolation: permissions only (native Windows has no sandbox for shell commands)',
+            '  For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.',
+          ],
+          problems: [],
+        };
+      default:
+        return { rows: [], isolation: ['Isolation: sandboxed (macOS Seatbelt)'], problems: [] };
+    }
+  };
+
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('doctor-stubs');
+  });
+  // A stub the runner killed at its deadline may hold the folder a moment longer on Windows.
+  afterEach(() => removeTree(dir.path));
+
+  it('reports every tool, its version and its path, and exits 0', async () => {
+    const run = await doctorWithStubs(dir.path, answers(''), ghHelper, execProcess);
+    const { at } = run;
+    const platform = sandbox(at, true);
+    assert.equal(run.stderr, '');
+    assert.equal(
+      run.report,
+      [
+        'Foedrum doctor',
+        '',
+        `  node    ${process.versions.node}`,
+        `  npm     11.6.2    ${at('npm')}`,
+        '  git     <real git>',
+        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
+        `  claude  2.1.301   ${at('claude')}`,
+        ...platform.rows,
+        '',
+        ...platform.isolation,
+        `Container: podman 5.2.0 at ${at('podman')}; the container level is available`,
+        '',
+        'Foedrum has everything it needs.',
+        '',
+      ].join('\n'),
+    );
+    assert.equal(run.exitCode, 0);
+  });
+
+  it('reports the tools that are missing, a missing login and credential helper, and exits 1', async () => {
+    const all = answers('');
+    const stubs = Object.fromEntries(
+      Object.entries(all).filter(([line]) => !/^(?:npm|claude|bwrap|podman) /.test(line)),
+    );
+    stubs[`gh auth status --hostname ${MADE_UP_HOST}`] = {
+      exitCode: 1,
+      stderr: GH_NO_LOGIN_ANSWER,
+    };
+    const run = await doctorWithStubs(dir.path, stubs, '', execProcess);
+    const { at } = run;
+    const platform = sandbox(at, false);
+    const host = MADE_UP_HOST;
+    assert.equal(run.stderr, '');
+    assert.equal(
+      run.report,
+      [
+        'Foedrum doctor',
+        '',
+        `  node    ${process.versions.node}`,
+        '  npm     missing',
+        '  git     <real git>',
+        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
+        '  claude  missing',
+        ...platform.rows,
+        '',
+        ...platform.isolation,
+        `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
+        '',
+        'Problems:',
+        '  npm not found: Foedrum is installed and updated with npm, which comes with Node',
+        `  gh is not logged in to ${host} (required): run gh auth login --hostname ${host}`,
+        `  git has no credential helper for https://${host}: run gh auth setup-git --hostname ${host}, so git pushes with gh's login`,
+        '  claude not found (required): install Claude Code, https://code.claude.com/docs/en/setup',
+        ...platform.problems,
+        '',
+        'Foedrum cannot run brewers until the required problems are fixed.',
+        '',
+      ].join('\n'),
+    );
+    assert.equal(run.exitCode, 1);
+  });
+
+  it('passes over a container runtime that hangs for the next one', async () => {
+    const started = join(dir.path, 'started');
+    const run = await doctorWithStubs(dir.path, answers(started), ghHelper, execProcess);
+    const { at } = run;
+    const platform = sandbox(at, true);
+    assert.equal(run.stderr, '');
+    assert.equal(
+      run.report,
+      [
+        'Foedrum doctor',
+        '',
+        `  node    ${process.versions.node}`,
+        `  npm     11.6.2    ${at('npm')}`,
+        '  git     <real git>',
+        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
+        `  claude  2.1.301   ${at('claude')}`,
+        ...platform.rows,
+        '',
+        ...platform.isolation,
+        `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
+        '',
+        'Foedrum has everything it needs.',
+        '',
+      ].join('\n'),
+    );
+    assert.equal(run.exitCode, 0);
   });
 });
 
