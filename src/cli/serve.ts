@@ -237,7 +237,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       env: setup.brewerEnv,
       orderText: githubOrderText(reads, setup.brewery),
     });
-    // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069, ADR 0073).
+    // A check step's commands run in the brewers' environment, without a token variable (ADR 0069);
+    // as the same OS user they can still start gh, which answers from its login (ADR 0073, #204).
     const checks = createCheckRunner({
       state,
       checks: setup.checks,
