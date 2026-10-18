@@ -44,4 +44,4 @@ The contract of a brewer with `git.commit: true` ends its last line before `Do n
 - **Rules for every git subcommand a brewer might want** (`diff`, `log`, `show`): `diff --no-index` and `log --output` reach any file, and each one more is one more to check against ADR 0062.
 - **PowerShell rules too, on Windows:** the PowerShell tool is off in the runner's sessions, and two shells double the rules ADR 0062 has to hold.
 - **A retryable failure for a `done` with no commit:** a brewer that found nothing to change would spend every attempt finding it again before the batch went Stuck.
-- **Count commits from the stream** (the commits the runner saw, ADR 0047): a commit that failed after the tool call reported success, or one made by a script, would count wrong; git in the worktree is what the next step starts from.
+- **Count commits from the stream** (the commits the runner saw, ADR 0047): a commit that failed after the tool call reported success, or one made by a script, would count wrong; the attempt's branch in the clone is what the next step starts from and what the push takes.
