@@ -17,6 +17,7 @@ import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
+import { openedPullRequest } from './pull-request.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
@@ -605,9 +606,23 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
     case 'step':
       enter(draft, batchId, next.stepId);
       return;
-    case 'done':
-      draft.push({ type: 'batch.on_tap', batchId, pullRequests: [...next.pullRequests] });
+    case 'done': {
+      const pullRequests = [...next.pullRequests];
+      // A recipe with the openPullRequest action goes on tap only with its pull request, unless
+      // its when skipped it (ADR 0071).
+      const { opens } = next;
+      if (opens !== undefined && batch.skipped?.has(opens) !== true) {
+        const opened = openedPullRequest(draft.state, batchId);
+        if (opened === undefined) {
+          throw new Refusal(
+            `batch ${batchId} goes on tap only with the pull request of its step ${opens}, and the ledger has none`,
+          );
+        }
+        pullRequests.push(opened);
+      }
+      draft.push({ type: 'batch.on_tap', batchId, pullRequests });
       return;
+    }
     default: {
       const unhandled: never = next;
       throw new Error(`Unhandled continuation ${JSON.stringify(unhandled)}`);

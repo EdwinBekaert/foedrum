@@ -48,6 +48,15 @@ export const GitHubPullRequest = z.object({
   merged_at: z.string().nullable().optional(),
 });
 
+/** One item of `GET /repos/{owner}/{repo}/pulls`, or the answer to `POST` there (ADR 0071). */
+export const GitHubOpenedPullRequest = z.object({
+  html_url: z.string(),
+  /** null for an account that was deleted since. */
+  user: Account.nullable(),
+  /** `repo` is null when the head's repository was deleted. */
+  head: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }),
+});
+
 /** One item of `GET .../issues/{n}/comments`, or the answer to `POST` there. */
 export const GitHubComment = z.object({
   id: z.number().int().positive(),

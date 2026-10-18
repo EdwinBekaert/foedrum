@@ -20,7 +20,7 @@ import { effectKey } from './effect-key.ts';
 import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
 import type { State } from './fold.ts';
-import type { Recipes } from './recipes.ts';
+import type { RecipeAction, Recipes } from './recipes.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
@@ -131,11 +131,11 @@ export interface Driver {
  * The repository an attempt of `batchId` writes in (ADR 0063): a claimed issue's, a sub-order's,
  * or the only one of the Brewery for a Brewery order. Throws with the reason when there is none.
  */
-export const repositoryOf = (
+export const repositoryOf = <R extends { readonly repo: string }>(
   state: State,
   batchId: string,
-  repositories: readonly RepositoryWorktrees[],
-): RepositoryWorktrees => {
+  repositories: readonly R[],
+): R => {
   const batch = state.batches.get(batchId);
   // A Brewery issue that is a sub-order writes in its repository, with a parent batch or not.
   const repo =
@@ -162,6 +162,28 @@ const attemptOf = (state: State, ref: AttemptRef) =>
 const isOver = (attempt: ReturnType<typeof attemptOf>): boolean =>
   attempt?.phase === 'finished' || attempt?.abandoned === true;
 
+/** The action `ref`'s step is in its batch's recipe, or `undefined` for any other step. */
+const actionOf = (state: State, recipes: Recipes, ref: AttemptRef) => {
+  const name = state.batches.get(ref.batchId)?.recipe?.name;
+  const recipe = name === undefined ? undefined : recipes.find(name);
+  return recipe?.has(ref.stepId) === true ? recipe.action(ref.stepId) : undefined;
+};
+
+/**
+ * The action attempts of `batchId` that run: started, the latest of their step, not abandoned,
+ * in a brewing batch (ADR 0071).
+ */
+const runningActions = (state: State, recipes: Recipes, batchId: string): AttemptRef[] => {
+  const batch = state.batches.get(batchId);
+  if (batch?.lane.kind !== 'brewing') return [];
+  return [...batch.steps.values()].flatMap((step) => {
+    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
+    if (latest?.phase !== 'started' || latest.abandoned === true) return [];
+    const ref = { batchId, stepId: step.id, attempt: latest.attempt };
+    return actionOf(state, recipes, ref) === undefined ? [] : [ref];
+  });
+};
+
 /**
  * Takes the driver's lock and starts it on the store (`startDriver`), then returns it. Rejects,
  * letting the lock go, when the start fails; nothing is driven before it.
@@ -178,6 +200,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     worktrees = [],
     alsoCleans = [],
     effects,
+    actions,
     leaseMs = defaultLeaseMs,
     reminderMs = defaultReminderMs,
     routingMs = defaultRoutingMs,
@@ -358,6 +381,25 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * of that lease goes Stuck with its deadline passed before `ref` started, as a step does whose
    * deadline passes while no driver runs. That is intended: the step could not start in time.
    */
+  /**
+   * Records the start of an action attempt, which the driver runs itself through its effects
+   * (ADR 0071): no lease, since no process runs it and the holder of the batch's lease applies the
+   * effects, and no worktree, since the push reads the task tree in the clone (ADR 0066). Without
+   * actions to run it, the attempt is blocked on its environment at once.
+   */
+  const startAction = (ref: AttemptRef, action: RecipeAction): boolean => {
+    if (!issue({ kind: 'record', event: { type: 'step.started', ...ref } })) return false;
+    if (actions === undefined) {
+      const summary = `the driver has no code host to run the ${action} action of step ${ref.stepId} on`;
+      issue({
+        kind: 'finish',
+        ...ref,
+        ending: { kind: 'blocked', blockerKind: 'environment', summary },
+      });
+    }
+    return true;
+  };
+
   const stepLeased = (leases: readonly AttemptRef[], ref: AttemptRef): boolean =>
     leases.some(
       (other) =>
@@ -386,6 +428,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           const key = attemptKey.encode(ref);
           if (refused.has(key) || stepLeased(leases, ref)) continue;
           moved = true;
+          const action = actionOf(log.state(), recipes, ref);
+          if (action !== undefined) {
+            if (!startAction(ref, action)) refused.add(key);
+            continue;
+          }
           if (!(await startAttempt(ref, key))) {
             refused.add(key);
             continue;
@@ -445,11 +492,35 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return next;
   };
 
-  /** The effects of `batchId` due and not in the ledger. */
-  const pending = (state: State, batchId: string): EffectKey[] =>
-    effects === undefined
-      ? []
-      : effects.due(state, batchId).filter((key) => store.findEffect(key) === undefined);
+  /** The effects of `batchId` due and not in the ledger, its actions' after the others, with their target. */
+  const pending = (state: State, batchId: string): { key: EffectKey; target: EffectTarget }[] => {
+    const due = [
+      ...(effects === undefined
+        ? []
+        : effects.due(state, batchId).map((key) => ({ key, target: effects.target }))),
+      ...(actions === undefined
+        ? []
+        : runningActions(state, recipes, batchId).flatMap((ref) =>
+            actions.due(state, ref).map((key) => ({ key, target: actions.target })),
+          )),
+    ];
+    return due.filter(({ key }) => store.findEffect(key) === undefined);
+  };
+
+  /**
+   * Ends the running action attempts of `batchId` whose effects are all in the ledger: the step
+   * boundary, under the batch's lease. A driver killed after the last effect and before the end
+   * leaves it to the next pass of whichever driver holds the batch (ADR 0071).
+   */
+  const finishActions = (batchId: string): void => {
+    if (actions === undefined) return;
+    const state = log.state();
+    for (const ref of runningActions(state, recipes, batchId)) {
+      if (actions.due(state, ref).some((key) => store.findEffect(key) === undefined)) continue;
+      if (!claim(batchId)) return;
+      issue({ kind: 'finish', ...ref, ending: actions.ending(state, ref) });
+    }
+  };
 
   const ledger: Ledger = {
     find: (key) => store.findEffect(key),
@@ -491,19 +562,25 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
   // and passes of this driver run one after another (ADR 0033).
   const applyPass = async (): Promise<void> => {
-    if (effects === undefined) return;
+    if (effects === undefined && actions === undefined) return;
     const state = log.state();
     for (const batch of state.batches.values()) {
-      for (const key of pending(state, batch.id)) {
+      let stopped = false;
+      for (const { key, target } of pending(state, batch.id)) {
         heartbeat();
-        if (!claim(batch.id)) break;
+        if (!claim(batch.id)) {
+          stopped = true;
+          break;
+        }
         try {
-          await withinDeadline(key, (signal) => applyEffect(ledger, key, effects.target, signal));
+          await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
         } catch (error) {
           report({ kind: 'effect_failed', key, error });
+          stopped = true;
           break;
         }
       }
+      if (!stopped) finishActions(batch.id);
     }
   };
   let pass: Promise<unknown> = Promise.resolve();

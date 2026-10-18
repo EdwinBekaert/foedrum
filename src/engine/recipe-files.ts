@@ -14,7 +14,7 @@ import {
   stepKind,
   walk,
 } from '../schemas/recipe.ts';
-import type { Recipe, Recipes } from './recipes.ts';
+import type { Recipe, RecipeAction, Recipes } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
 /** A file of the Brewery, by its path from the Brewery's root with `/`: its text, or why not. */
@@ -91,6 +91,20 @@ function readAll<T extends { name: string }>(
 }
 
 type BrewerStep = Extract<Step, { brewer: string }>;
+type ActionStep = Extract<Step, { action: string }>;
+
+/** A step of a recipe in a line: a brewer's with its brewer, or an action the engine runs. */
+type LineStep =
+  | ({ id: string; step: BrewerStep } & StepBrewer)
+  | { id: string; step: ActionStep; action: RecipeAction };
+
+/**
+ * The deadline of the openPullRequest action (ADR 0071): its effects are retried on every pass of
+ * the driver until then, through a GitHub rate-limit pause, which lasts an hour at most (ADR 0052).
+ */
+const ACTION_DEADLINE = '2h';
+/** How many attempts the action gets: one fails only when it has nothing to push. */
+const ACTION_ATTEMPTS = 3;
 
 /** The recipe's settings after routing, which a `when` may read (ADR 0064). */
 interface Settings {
@@ -127,14 +141,19 @@ function holds(when: string, settings: Settings): boolean {
   return (String(value) === compare.value) === (compare.op === '==');
 }
 
-/** The step, when the engine brews it, else why it does not yet, naming the ADR that says so. */
-function brewerStep(step: Step): BrewerStep | string {
+/**
+ * The step, when the engine brews it or runs it itself (the openPullRequest action), else why it
+ * does not yet, naming the ADR that says so.
+ */
+function runnableStep(step: Step): BrewerStep | ActionStep | string {
   const id = stepId(step);
-  if (!('brewer' in step)) {
+  const opens = 'action' in step && step.action === 'openPullRequest';
+  if (!('brewer' in step) && !opens) {
     return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
+  if (!('brewer' in step)) return step;
   // A Taster's lens and Brett's blocking flag would load and change nothing.
   if (step.lens !== undefined) {
     return `step "${id}" has a "lens", which the engine does not follow yet (ADR 0053)`;
@@ -194,13 +213,10 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
     );
 }
 
-/** A recipe of brewer steps in a line, each with its brewer, and its settings. */
-function brewingRecipe(
-  name: string,
-  steps: readonly { id: string; step: BrewerStep; brewer: BrewerFrontmatter }[],
-  settings: Settings,
-): Recipe {
+/** A recipe of brewer steps in a line, each with its brewer, maybe ending in its action. */
+function brewingRecipe(name: string, steps: readonly LineStep[], settings: Settings): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
+  const opens = steps.find((entry) => 'action' in entry && entry.action === 'openPullRequest')?.id;
   const at = (id: string) => {
     const found = byId.get(id);
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
@@ -210,29 +226,41 @@ function brewingRecipe(
     // A recipe has at least one step (its schema).
     firstStep: steps[0]?.id ?? '',
     has: (id) => byId.has(id),
-    action: () => {
-      throw new Error('not implemented');
+    action: (id) => {
+      const entry = at(id);
+      return 'action' in entry ? entry.action : undefined;
     },
     deadlineMs: (id) => {
-      const { step, brewer } = at(id);
-      return durationMs(step.deadline ?? brewer.deadline);
+      const entry = at(id);
+      if ('action' in entry) return durationMs(ACTION_DEADLINE);
+      return durationMs(entry.step.deadline ?? entry.brewer.deadline);
     },
-    stall: (id) => at(id).brewer.stall,
+    // An action makes no progress the runner could see; its deadline covers it.
+    stall: (id) => {
+      const entry = at(id);
+      return 'action' in entry ? undefined : entry.brewer.stall;
+    },
     skip: (_batch, id) => {
       const { when } = at(id).step;
       return when === undefined || holds(when, settings) ? undefined : when;
     },
     after: (_batch, id) => {
       const next = steps[at(id).index + 1];
-      // The pull requests come with the openPullRequest action, which the engine does not run yet.
-      return next === undefined
+      if (next !== undefined) return { kind: 'step', stepId: next.id };
+      // The batch goes on tap with the pull request of its action, which is the last step.
+      return opens === undefined
         ? { kind: 'done', pullRequests: [] }
-        : { kind: 'step', stepId: next.id };
+        : { kind: 'done', pullRequests: [], opens };
     },
-    mayRetry: (batch, id) => (batch.steps.get(id)?.attempts.size ?? 0) < at(id).brewer.maxAttempts,
+    mayRetry: (batch, id) => {
+      const entry = at(id);
+      const most = 'action' in entry ? ACTION_ATTEMPTS : entry.brewer.maxAttempts;
+      return (batch.steps.get(id)?.attempts.size ?? 0) < most;
+    },
     // A brewer step has no onFail; its onBlocked route counts the attempts it scheduled.
     loopBack: (batch, id, why) => {
-      const route = at(id).step.onBlocked?.findings;
+      const entry = at(id);
+      const route = 'action' in entry ? undefined : entry.step.onBlocked?.findings;
       if (why !== 'findings' || route === undefined) return undefined;
       const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
       const rounds = [...attempts].filter(
@@ -270,11 +298,22 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     (text) => readJsonc(text, RecipeFile),
     problems,
   )) {
-    const steps = value.steps.flatMap((step) => {
-      const brewing = brewerStep(step);
+    const steps = value.steps.flatMap((step, index): LineStep[] => {
+      const brewing = runnableStep(step);
       if (typeof brewing === 'string') {
         problems.push(`${path}: ${brewing}`);
         return [];
+      }
+      if ('action' in brewing) {
+        const id = stepId(step);
+        // The pull request holds the commits of the steps before it; none may come after it.
+        if (index < value.steps.length - 1) {
+          problems.push(
+            `${path}: step "${id}" opens the pull request, so it must be the last step of the recipe (ADR 0071)`,
+          );
+          return [];
+        }
+        return [{ id, step: brewing, action: 'openPullRequest' }];
       }
       const found = brewers.get(brewing.brewer);
       if (found === undefined) {
@@ -320,7 +359,13 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     recipes.set(value.name, brewingRecipe(value.name, steps, { testFirst }));
     stepBrewers.set(
       value.name,
-      new Map(steps.map(({ id, brewer, instructions }) => [id, { brewer, instructions }])),
+      new Map(
+        steps.flatMap((entry) =>
+          'action' in entry
+            ? []
+            : [[entry.id, { brewer: entry.brewer, instructions: entry.instructions }]],
+        ),
+      ),
     );
   }
   if (problems.length > 0) return { valid: false, problems };

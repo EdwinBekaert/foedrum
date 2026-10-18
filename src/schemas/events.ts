@@ -18,7 +18,7 @@ const IssueNumber = z.int().positive();
 export const Repo = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[\w.][\w.-]*$/, 'Must be owner/name');
-const PullRequestUrl = z
+export const PullRequestUrl = z
   .url({ protocol: /^https$/ })
   // Checked on the parsed URL: the parser also finds credentials in `HTTPS://`, `https:\\` or `https:/`.
   .refine((url) => {
