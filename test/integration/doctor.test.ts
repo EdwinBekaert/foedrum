@@ -6,13 +6,24 @@
 // reads how fast it starts (ADR 0070, ADR 0073).
 
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, writeFileSync } from 'node:fs';
+import { dirname, join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { resolveExecutable } from '../../src/platform/executables.ts';
-import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
+import {
+  type ExecProcess,
+  execProcess,
+  execProcessWith,
+  processSpawner,
+} from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { descheduled } from '../helpers/load.ts';
+import {
+  cuedTimers,
+  descheduled,
+  hangGuardMs,
+  hangGuardTimers,
+  waitUntil,
+} from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import {
   CANNED_GH_VERSION,
@@ -194,6 +205,9 @@ describe('foedrum doctor with stub tools', () => {
     }
   };
 
+  // The probes' deadlines only guard against a hang: a loaded machine may start a stub late.
+  const guarded = execProcessWith(processSpawner, hangGuardTimers);
+
   let dir: TempDir;
   beforeEach(() => {
     dir = makeTempDir('doctor-stubs');
@@ -202,7 +216,7 @@ describe('foedrum doctor with stub tools', () => {
   afterEach(() => removeTree(dir.path));
 
   it('reports every tool, its version and its path, and exits 0', async () => {
-    const run = await doctorWithStubs(dir.path, answers(''), ghHelper, execProcess);
+    const run = await doctorWithStubs(dir.path, answers(''), ghHelper, guarded);
     const { at } = run;
     const platform = sandbox(at, true);
     assert.equal(run.stderr, '');
@@ -237,7 +251,7 @@ describe('foedrum doctor with stub tools', () => {
       exitCode: 1,
       stderr: GH_NO_LOGIN_ANSWER,
     };
-    const run = await doctorWithStubs(dir.path, stubs, '', execProcess);
+    const run = await doctorWithStubs(dir.path, stubs, '', guarded);
     const { at } = run;
     const platform = sandbox(at, false);
     const host = MADE_UP_HOST;
@@ -271,9 +285,19 @@ describe('foedrum doctor with stub tools', () => {
     assert.equal(run.exitCode, 1);
   });
 
-  it('passes over a container runtime that hangs for the next one', async () => {
+  it('passes over a container runtime that hangs for the next one', {
+    timeout: hangGuardMs,
+  }, async () => {
     const started = join(dir.path, 'started');
-    const run = await doctorWithStubs(dir.path, answers(started), ghHelper, execProcess);
+    // podman's deadline comes once its stub runs, however late a loaded machine starts it.
+    const deadline = cuedTimers();
+    const cued = execProcessWith(processSpawner, deadline);
+    const exec: ExecProcess = (file, args, options) =>
+      (parse(file).name === 'podman' ? cued : guarded)(file, args, options);
+    const running = doctorWithStubs(dir.path, answers(started), ghHelper, exec);
+    await waitUntil('podman to start', () => existsSync(started));
+    deadline.fire();
+    const run = await running;
     const { at } = run;
     const platform = sandbox(at, true);
     assert.equal(run.stderr, '');
