@@ -2,14 +2,114 @@
 // step committed failing because the behaviour is missing. Pure; check-runner.ts runs the tests
 // and reads the report and the step's diff.
 
-import type { TestReport } from '../formats/test-report.ts';
+import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
 
 export type RedVerdict =
   /** `tests`: the names of the proven step's tests, all failing. */
   { proven: true; tests: readonly string[] } | { proven: false; why: string };
 
+/**
+ * What a run says when a test did not load, compile, import or get collected, in the languages
+ * and runners a Brewery is likely to use. A test that fails with one of these never reached the
+ * behaviour it tests, so it does not prove the behaviour is missing, even when the code under test
+ * threw it: a Gauger that tests such an error asserts on it instead.
+ */
+const LOAD_ERRORS: readonly RegExp[] = [
+  /\bSyntaxError\b/,
+  /\bReferenceError\b/,
+  /\bCannot find module\b/i,
+  /\bERR_MODULE_NOT_FOUND\b/,
+  /\bdoes not provide an export named\b/,
+  /\bTest suite failed to run\b/,
+  /\bModuleNotFoundError\b/,
+  /\bImportError\b/,
+  /\bNameError\b/,
+  /\bERROR collecting\b/,
+  /\berrors? during collection\b/i,
+  /\bcollection (?:failure|error)\b/i,
+  /\berror TS\d+\b/,
+  /\berror CS\d+\b/,
+  /\bcannot find symbol\b/,
+  /\bNoClassDefFoundError\b/,
+  /\bClassNotFoundException\b/,
+  /\bcompil(?:e|ation) (?:error|failed|failure)\b/i,
+  /\b(?:failed to|could not) compile\b/i,
+];
+
+/** Longer quotes of a run are cut to this, for the reason that reaches the event log. */
+const MAX_QUOTE = 200;
+
+const cut = (line: string): string =>
+  line.length <= MAX_QUOTE ? line : `${line.slice(0, MAX_QUOTE - 1)}…`;
+
+/** The first line of `text` that names a load error, trimmed. */
+function loadError(text: string): string | undefined {
+  const line = text.split('\n').find((each) => LOAD_ERRORS.some((error) => error.test(each)));
+  return line === undefined ? undefined : cut(line.replace(/^\s*#?\s*/, '').trim());
+}
+
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The forms of a test's name its declaration may have: the name, without the parameters a runner
+ * adds (`(int, int)`, `[1]`), and its last part after a class or module (`AddTest.adds`).
+ */
+function namesOf(name: string): string[] {
+  let bare = name.trim();
+  for (let shorter = bare; ; bare = shorter) {
+    shorter = bare.replace(/\s*(?:\([^()]*\)|\[[^[\]]*\])$/, '');
+    if (shorter === bare) break;
+  }
+  const last =
+    bare
+      .split(/::|\s>\s|[.#/\\]/)
+      .at(-1)
+      ?.trim() ?? '';
+  const names = [name.trim(), bare, ...(last.length >= 3 ? [last] : [])];
+  return [...new Set(names)].filter((each) => each !== '');
+}
+
+/**
+ * Whether a line the step added declares the test `name`: the name stands as a whole, after
+ * something that is no letter or digit, and before a quote, a bracket or the line's end, as a
+ * declaration writes it (`test('adds two numbers'`, `def test_adds(`, `void adds(`).
+ */
+function declares(name: string, lines: readonly string[]): boolean {
+  const patterns = namesOf(name).map(
+    (each) => new RegExp(`(?<![\\p{L}\\p{N}_])${escape(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
+  );
+  return lines.some((line) => patterns.some((pattern) => pattern.test(line)));
+}
+
+/** "test "a"", or "test "a" (and 2 more)". */
+const named = (tests: readonly ReportedTest[]): string =>
+  `test "${tests[0]?.name}"${tests.length > 1 ? ` (and ${tests.length - 1} more)` : ''}`;
+
 /** Whether `report` proves red the tests that `diff`, the proven step's commits, added. */
-export function judgeRed(_report: TestReport, _diff: readonly DiffFile[]): RedVerdict {
-  throw new Error('not implemented');
+export function judgeRed(report: TestReport, diff: readonly DiffFile[]): RedVerdict {
+  const refused = (why: string): RedVerdict => ({ proven: false, why });
+  if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
+  const failures = report.tests.filter(({ result }) => result === 'failed');
+  const error = loadError([report.other, ...failures.map(({ detail }) => detail)].join('\n'));
+  if (error !== undefined) {
+    return refused(`the run has a load, compile, import or collection error: ${error}`);
+  }
+  const lines = diff.flatMap(({ added }) => added);
+  // A suite's own result follows its tests'; its tests are judged.
+  const proven = report.tests.filter(
+    ({ name, leaf }) => leaf && name.trim() !== '' && declares(name, lines),
+  );
+  if (proven.length === 0) {
+    return refused(`none of the ${report.tests.length} tests in the report is one the step added`);
+  }
+  const passed = proven.filter(({ result }) => result === 'passed');
+  if (passed.length > 0) {
+    return refused(
+      `${named(passed)} passes before the implementation: a stub must throw, not return a value`,
+    );
+  }
+  const skipped = proven.filter(({ result }) => result === 'skipped');
+  if (skipped.length > 0) return refused(`${named(skipped)} is skipped, so it proves nothing`);
+  return { proven: true, tests: proven.map(({ name }) => name) };
 }
