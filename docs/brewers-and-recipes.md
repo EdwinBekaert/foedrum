@@ -189,7 +189,7 @@ Prefer deciding and recording an assumption over asking. Ask only when a wrong
 guess would likely waste this run. Never ask questions any other way. Do not push.
 ```
 
-One example per status, because the schema is strict: `questions` only with `needs_input`, `blockerKind` only with `blocked`, so a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
+One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 
 ### How the engine routes an out doc
 
