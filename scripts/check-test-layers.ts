@@ -243,7 +243,13 @@ const GH_PROGRAM = /^gh(?:\.exe|\.cmd)?$/i;
 const FROM_CHECKOUT = /\b(?<name>doctorFromCheckout|serveFromCheckout|cliFromCheckout)\s*\(/g;
 // `exec` as a key or a shorthand property of an options object.
 const INJECTED_RUNNER = /[{,]\s*exec\s*[:,}]/;
-const MAIN_PROGRAM = /^(?:main\.ts|(?:.*[/\\])?cli[/\\]main\.ts)$/;
+// …unless it is the real runner itself.
+const REAL_RUNNER = /[{,]\s*exec\s*:\s*(?:execProcess|spawnProcess|streamProcess)\s*[,}]/;
+// GH_CONFIG_DIR named in the call, unless it gets the machine's own value or none.
+const OWN_CONFIG = /\bGH_CONFIG_DIR\b/;
+const MACHINE_CONFIG = /\bGH_CONFIG_DIR\s*:\s*(?:process\.env\b|undefined\b)/;
+// Read on a string's raw text, where an escaped Windows separator is two backslashes.
+const MAIN_PROGRAM = /^(?:main\.ts|(?:.*[/\\])?cli[/\\]+main\.ts)$/;
 
 const GH_SPAWN =
   'starts gh, which answers with whatever login the machine has: give the call a configuration of the test’s own (GH_CONFIG_DIR in its env, as fake-github-over-gh.ts does), or answer gh from captured output (canned-gh-login.ts, ADR 0086)';
@@ -269,13 +275,15 @@ export const realGhFindings = (source: string): RealGhFinding[] => {
       (GH_PROGRAM.test(value) && (SPAWNERS.has(callee) || /^\s*,\s*\[/.test(afterLiteral))) ||
       (/^gh\s/i.test(value) && SPAWNERS.has(callee));
     const open = code.indexOf('(', match.index);
-    if (spawn && !/\bGH_CONFIG_DIR\b/.test(code.slice(open, closing(code, open)))) {
+    const call = code.slice(open, closing(code, open));
+    if (spawn && (!OWN_CONFIG.test(call) || MACHINE_CONFIG.test(call))) {
       found.push({ offset: match.index, problem: GH_SPAWN });
     }
   }
   for (const match of code.matchAll(FROM_CHECKOUT)) {
     const open = match.index + match[0].length - 1;
-    if (!INJECTED_RUNNER.test(code.slice(open, closing(code, open)))) {
+    const call = code.slice(open, closing(code, open));
+    if (!INJECTED_RUNNER.test(call) || REAL_RUNNER.test(call)) {
       found.push({ offset: match.index, problem: NO_RUNNER(match.groups?.name ?? '') });
     }
   }
