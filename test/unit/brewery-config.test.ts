@@ -182,6 +182,11 @@ describe('BreweryConfig', () => {
       config({}, { permissionCeiling: ['Bash(env gh pr list)'] }),
       ['permissionCeiling', 0],
     ],
+    [
+      'gh by path after a wrapper in the ceiling',
+      config({}, { permissionCeiling: ['Bash(env /usr/bin/gh pr list)'] }),
+      ['permissionCeiling', 0],
+    ],
     // A star right after the name still names gh (review of #225).
     [
       'gh with a star in the ceiling',

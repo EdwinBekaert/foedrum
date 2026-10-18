@@ -546,7 +546,8 @@ describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () 
   });
 
   it('names the sandboxed level and the container level on Linux without bubblewrap', () => {
-    const [line] = keyring(linux({ bwrap: undefined }));
+    const [line, ...more] = keyring(linux({ bwrap: undefined }));
+    assert.deepEqual(more, []);
     assert.match(line ?? '', /gh's login/);
     assert.match(line ?? '', /sandboxed level .*or the container level/);
   });
@@ -555,6 +556,7 @@ describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () 
     const [line] = keyring({ ...macos, platform: 'freebsd' });
     assert.match(line ?? '', /gh's login/);
     assert.match(line ?? '', /the container level/);
+    assert.doesNotMatch(line ?? '', /WSL2/);
   });
 
   // Check steps run outside the OS sandbox at every level until #190 (ADR 0069, review of #225).
@@ -577,6 +579,7 @@ describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () 
     for (const facts of [macos, linux(), wsl2]) {
       const [line, ...more] = keyring(facts);
       assert.deepEqual(more, []);
+      assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
       assert.match(line ?? '', /check steps/);
       assert.match(line ?? '', /gh's login/);
       assert.match(line ?? '', /#190/);

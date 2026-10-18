@@ -214,6 +214,10 @@ describe('attemptSettings and gh', () => {
       `${shell}(git c*)`,
       `${shell}(/usr/bin/git credential *)`,
       `${shell}(git-credential-manager get)`,
+      // gh by path or with a Windows extension after a wrapper (second review of #225).
+      `${shell}(env /usr/bin/gh api user)`,
+      `${shell}(env gh.exe api user)`,
+      `${shell}(xargs c:/tools/gh.cmd pr merge 1)`,
     ]) {
       it(`refuses to allow ${rule}, which starts gh`, () => {
         assert.throws(
@@ -232,6 +236,9 @@ describe('attemptSettings and gh', () => {
       `${shell}(cat gh.txt)`,
       `${shell}(npm run gh)`,
       `${shell}(git-lfs install)`,
+      // A wrapper followed by plain words (second review of #225).
+      `${shell}(env NODE_ENV=test npm test)`,
+      `${shell}(timeout 60 npm test)`,
     ]) {
       it(`allows ${rule}, which starts no gh`, () => {
         const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
