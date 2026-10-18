@@ -933,6 +933,18 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       brewers: [maltster, cellarman],
     });
 
+  it("counts a nested step's brewer that commits, such as a session's fallback (review of #230)", () => {
+    assert.deepEqual(
+      problemsOf(
+        withCellarman([{ id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' }]),
+      ),
+      [
+        'recipes/stout.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
+        'recipes/stout.jsonc: step "refine" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+      ],
+    );
+  });
+
   it('refuses the action before another step: the recipe must end with it (review of #230)', () => {
     assert.deepEqual(
       problemsOf(

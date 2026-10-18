@@ -379,6 +379,21 @@ describe('runServe', () => {
     );
   });
 
+  it("lets the cleanup delete the task tree's branch once the action's push recorded it (ADR 0084)", async () => {
+    const managers: FakeWorktrees[] = [];
+    const worktrees: ServeShell['worktrees'] = async () => {
+      const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
+      managers.push(manager);
+      return manager;
+    };
+    assert.equal(await runServe(setup, shell({ worktrees })), 0);
+    assert.equal(pushes.length, 1);
+    assert.deepStrictEqual(
+      managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.unpushed,
+      new Map(),
+    );
+  });
+
   it("gives each brewer its repository's toolchain rules", async () => {
     assert.equal(await runServe(setup, shell()), 0);
     assert.ok(plans[0]?.permissions.allow.includes('Bash(npm test*)'));
