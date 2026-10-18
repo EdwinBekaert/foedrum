@@ -243,7 +243,7 @@ const recorded = (state: State, batchId: string, revision: number): StatusRevisi
 };
 
 /** A revision of a status comment that is due. */
-export interface DueRevision {
+interface DueRevision {
   key: BatchEffectKey;
   issue: number;
   text: string;
@@ -257,7 +257,7 @@ export interface DueRevision {
  * when the batch's text is not the one the latest revision showed, else none. A batch of a claimed
  * target issue has none (ADR 0072).
  */
-export const statusDue = (
+const statusDue = (
   state: State,
   batchId: string,
   steps?: readonly string[],
@@ -284,10 +284,6 @@ export interface StatusEffectsOptions {
   comments: StatusComments;
   recipes: Recipes;
   clock: () => Date;
-  /** The least time between two edits of one batch's comment; default a minute. */
-  everyMs?: number;
-  /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
-  deadlineMs?: number;
 }
 
 const minuteMs = 60_000;
@@ -303,11 +299,11 @@ const revisionOf = (comment: number, digest: string): StatusRevision => {
 
 /**
  * The status comment of every batch of a Brewery issue, for the driver: a revision whenever its
- * text changed, at most one every `everyMs` per batch, except its first and the one that shows it
+ * text changed, at most one a minute per batch, except its first and the one that shows it
  * ended, which are due at once (ADR 0072).
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
-  const { brewery, comments, recipes, clock, everyMs = minuteMs, deadlineMs } = options;
+  const { brewery, comments, recipes, clock } = options;
   // The revision behind each key `due` gave; the driver asks `due` before it applies a key.
   const revisions = new Map<string, DueRevision>();
   // When this driver last applied or found a revision of each batch.
@@ -364,12 +360,11 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
       const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled';
       const last = lastAt.get(batchId);
       if (due.previous !== undefined && !ended && last !== undefined) {
-        if (clock().getTime() - last < everyMs) return [];
+        if (clock().getTime() - last < minuteMs) return [];
       }
       revisions.set(effectKey.encode(due.key), due);
       return [due.key];
     },
     target,
-    ...(deadlineMs === undefined ? {} : { deadlineMs }),
   };
 };
