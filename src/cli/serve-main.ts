@@ -10,7 +10,7 @@ import { readBreweryFiles } from '../engine/brewery-files.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { execProcess } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
-import { diagnose } from './doctor.ts';
+import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { gatherDoctorFacts } from './doctor-facts.ts';
 import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
@@ -22,7 +22,9 @@ const readIfThere = (path: string): string | undefined =>
 
 /** Runs the Cellar in the Brewery checkout `cwd` until Ctrl+C. */
 export const serveFromCheckout = async (cwd: string): Promise<CliResult> => {
-  // Doctor's tools and isolation only: serve reads and checks the Brewery's files itself.
+  const config = readIfThere(join(cwd, 'foedrum.jsonc'));
+  // Doctor's tools, isolation and gh's login only: serve reads and checks the Brewery's files
+  // itself, and refuses on a required problem, such as no gh login for its host (ADR 0073).
   const facts = await gatherDoctorFacts({
     exec: execProcess,
     resolve: resolveExecutable,
@@ -31,6 +33,7 @@ export const serveFromCheckout = async (cwd: string): Promise<CliResult> => {
     node: process.versions.node,
     execPath: process.execPath,
     cwd,
+    githubHost: githubHostOfConfig(config),
   });
   const ready = serveSetup({
     root: cwd,
@@ -38,7 +41,7 @@ export const serveFromCheckout = async (cwd: string): Promise<CliResult> => {
     platform: process.platform,
     env: process.env,
     files: {
-      config: readIfThere(join(cwd, 'foedrum.jsonc')),
+      config,
       local: readIfThere(join(cwd, '.foedrum', 'local.jsonc')),
       models: readIfThere(join(cwd, 'models.jsonc')),
       brewery: readBreweryFiles(cwd),

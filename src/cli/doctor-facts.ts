@@ -1,10 +1,18 @@
 // `foedrum doctor`, the shell (ADR 0021): finds each tool through PATH and asks it for its
-// version through the process runner. doctor.ts decides what the answers mean.
+// version through the process runner, and asks gh for its login and git for its credential
+// helpers (ADR 0073). doctor.ts decides what the answers mean.
 
 import { join } from 'node:path';
 import type { BreweryFiles } from '../engine/recipe-files.ts';
+import { withoutGitHubTokens } from '../platform/env.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
-import type { DoctorFacts, ToolName, ToolRun } from './doctor.ts';
+import {
+  type CommandRun,
+  type DoctorFacts,
+  githubHostOfConfig,
+  type ToolName,
+  type ToolRun,
+} from './doctor.ts';
 
 // How each tool reports its version; socat has no --version.
 const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
@@ -70,10 +78,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     const why = whyKilled(killed, timeoutMs);
     return { exitCode, output: why === undefined ? output : `${why}\n${output}` };
   };
-  const [jobObject, npm, git, claude, bwrap, socat, podman, docker] = await Promise.all([
-    shell.platform === 'win32' ? holdInJob() : undefined,
-    ...(['npm', 'git', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
-  ]);
   // A foedrum.jsonc that cannot be read (a folder, no permission) is a problem doctor reports.
   let config: string | undefined;
   let configUnreadable: string | undefined;
@@ -82,11 +86,43 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   } catch (error) {
     configUnreadable = error instanceof Error ? error.message : String(error);
   }
+  const host = shell.githubHost ?? githubHostOfConfig(config);
+  // A command doctor runs besides a version command: its exit code and what it printed, why the
+  // runner killed it first. `undefined` when its program is not on PATH.
+  const run = async (
+    name: 'gh' | 'git',
+    args: readonly string[],
+    env?: NodeJS.ProcessEnv,
+  ): Promise<CommandRun | undefined> => {
+    const path = resolve(name);
+    if (path === undefined) return undefined;
+    const timeoutMs = VERSION_TIMEOUT_MS;
+    const ran = await exec(path, args, { cwd, timeoutMs, ...(env === undefined ? {} : { env }) });
+    const why = whyKilled(ran.killed, timeoutMs);
+    // gh auth status prints to stderr when there is no login; git config prints to stdout.
+    const output = name === 'git' ? ran.stdout : ran.output;
+    return { exitCode: ran.exitCode, output: why === undefined ? output : `${why}\n${output}` };
+  };
+  // As Foedrum's own calls are made: without a token variable, which gh would take instead.
+  const asking = Promise.all([
+    run(
+      'gh',
+      ['auth', 'status', '--hostname', host],
+      withoutGitHubTokens(shell.env ?? process.env, shell.platform),
+    ),
+    run('git', ['config', '--null', '--get-regexp', '^credential\\.']),
+  ]);
+  const [jobObject, npm, git, gh, claude, bwrap, socat, podman, docker] = await Promise.all([
+    shell.platform === 'win32' ? holdInJob() : undefined,
+    ...(['npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
+  ]);
+  const [login, credentials] = await asking;
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
-    tools: { npm, git, gh: undefined, claude, bwrap, socat, podman, docker },
+    tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
+    github: { host, login, credentials },
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
