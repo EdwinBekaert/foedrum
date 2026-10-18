@@ -147,12 +147,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   // Without the file, every default applies.
   const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
   const models = read('models.jsonc', files.models, ModelsConfig, notFound, problems);
-  const token = env.GH_TOKEN || env.GITHUB_TOKEN;
-  if (token === undefined || token === '') {
-    problems.push(
-      "set GH_TOKEN or GITHUB_TOKEN to a GitHub token that can read the Brewery's issues",
-    );
-  }
 
   if (config !== undefined && Object.keys(config.repositories).length === 0) {
     problems.push(
@@ -215,7 +209,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     problems.length > 0 ||
     config?.brewery === undefined ||
     models === undefined ||
-    token === undefined ||
     !loaded.valid ||
     claude === undefined
   ) {

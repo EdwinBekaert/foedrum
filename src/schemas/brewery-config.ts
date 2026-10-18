@@ -55,21 +55,28 @@ export type RepositorySource = z.infer<typeof RepositorySource>;
  * Enterprise host for https://<host>/api/v3, `github.localhost` for http://api.github.localhost;
  * `undefined` for any other URL.
  */
-export const githubHostOf = (_api: string): string | undefined => {
-  throw new Error('not implemented');
+export const githubHostOf = (api: string): string | undefined => {
+  const parsed = URL.parse(api);
+  if (parsed === null || parsed.username !== '' || parsed.password !== '') return undefined;
+  if (parsed.search !== '' || parsed.hash !== '' || parsed.port !== '') return undefined;
+  const { protocol, hostname } = parsed;
+  const path = parsed.pathname.replace(/\/$/, '');
+  if (protocol === 'http:') {
+    return hostname === 'api.github.localhost' && path === '' ? 'github.localhost' : undefined;
+  }
+  if (protocol !== 'https:') return undefined;
+  if (hostname === 'api.github.com') return path === '' ? 'github.com' : undefined;
+  if (hostname.endsWith('github.localhost')) return undefined;
+  return path === '/api/v3' ? hostname : undefined;
 };
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
-/** Where the GitHub REST API is: the token goes with every request (ADR 0063). */
-const GitHubApi = z.url().refine((url) => {
-  const parsed = URL.parse(url);
-  if (parsed === null || parsed.username !== '' || parsed.password !== '') return false;
-  if (parsed.search !== '' || parsed.hash !== '') return false;
-  return (
-    parsed.protocol === 'https:' || (parsed.protocol === 'http:' && LOOPBACK.has(parsed.hostname))
+/** Where the GitHub REST API is: an API root gh reaches by its host (ADR 0073). */
+const GitHubApi = z
+  .url()
+  .refine(
+    (url) => githubHostOf(url) !== undefined,
+    'Must be https://api.github.com, https://<host>/api/v3 for GitHub Enterprise, or http://api.github.localhost',
   );
-}, 'Must be an https URL without credentials, a query or a fragment, or http on a loopback address');
 
 /** A GitHub login: letters, digits and single hyphens, never at either end, at most 39. */
 const GitHubLogin = z
