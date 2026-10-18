@@ -147,8 +147,18 @@ describe('guardTests (ADR 0078)', () => {
       calls.map(({ cwd, args }) => [cwd, args.join(' ')]),
       [
         [implementTree, `${flags} ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`],
-        [implementTree, `${flags} ${implementStart} HEAD --`],
+        // Its own commits end at its branch, which the task tree carries on, whatever HEAD is,
+        // and only in the files the proven step committed, each read as a literal path.
+        [
+          implementTree,
+          `${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 -- :(literal)test/add.test.mjs`,
+        ],
       ],
+    );
+    // A large but ordinary change still reads: past the runner's default 4 MiB.
+    assert.deepEqual(
+      calls.map(({ options }) => options?.maxOutputBytes),
+      [16 * 1024 * 1024, 16 * 1024 * 1024],
     );
   });
 

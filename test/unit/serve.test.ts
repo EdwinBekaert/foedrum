@@ -587,9 +587,12 @@ describe('runServe', () => {
           runner: () => succeeding,
           exec,
           git: async (_cwd, args) => {
-            const range = args.slice(-3, -1).join(' ');
+            // The two revisions before the `--` that ends the options.
+            const end = args.indexOf('--');
+            const range = args.slice(end - 2, end).join(' ');
             diffs.push(range);
-            return { code: 0, stdout: range.endsWith('HEAD') ? '' : gaugeDiff, stderr: '' };
+            const own = range.endsWith('/implement/1');
+            return { code: 0, stdout: own ? '' : gaugeDiff, stderr: '' };
           },
           wait: async () => {
             calls.push('wait');
@@ -625,7 +628,8 @@ describe('runServe', () => {
       assert.equal(diffs.length, 3);
       assert.match(diffs[0] ?? '', gaugeRange);
       assert.match(diffs[1] ?? '', gaugeRange);
-      assert.match(diffs[2] ?? '', /^[0-9a-f]{40} HEAD$/);
+      // The cellarman's own commits end at its attempt branch, which the task tree carries on.
+      assert.match(diffs[2] ?? '', /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/implement\/1$/);
     });
 
     it('lets a batch whose red proof it skips brew in a repository without a test report', async () => {

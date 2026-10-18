@@ -207,6 +207,29 @@ describe('judgeRed', () => {
     });
   });
 
+  it("does not take a test's name for a load error: node names each test in a comment", () => {
+    const report = tap(
+      '# Subtest: throws a SyntaxError on bad JSON',
+      'ok 1 - throws a SyntaxError on bad JSON',
+      '# Subtest: adds two numbers',
+      ...failing(2, 'adds two numbers', 'not implemented'),
+      '# Subtest: adds a negative number',
+      ...failing(3, 'adds a negative number', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it('finds a name at the end of a line the step added with CRLF line endings', () => {
+    const feature = [
+      { newPath: 'features/add.feature', added: ['  Scenario: adds two numbers\r'], removed: [] },
+    ];
+    const report = tap(...failing(1, 'adds two numbers', 'not implemented'));
+    assert.deepEqual(judgeRed(report, feature), { proven: true, tests: ['adds two numbers'] });
+  });
+
   it('never takes an unnamed test, or a name that is only part of a word, for one the step added', () => {
     const report = tap('ok 1', 'ok 2 - adds two', ...failing(3, 'adds two numbers', 'x'));
     assert.deepEqual(judgeRed(report, gauged), { proven: true, tests: ['adds two numbers'] });

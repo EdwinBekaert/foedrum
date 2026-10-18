@@ -111,6 +111,8 @@ const setup = ({
   diff = { code: 0, stdout: gaugeDiff, stderr: '' } as GitResult,
   files = {} as Record<string, OutDocRead>,
   checks: repositoryChecks = repository,
+  /** Why clearing the report fails, when it does. */
+  clearFails = undefined as string | undefined,
 } = {}) => {
   const order: string[] = [];
   const exec: ExecProcess = (file, _args, options) => {
@@ -125,6 +127,7 @@ const setup = ({
   const reports: ReportFiles = {
     clear: (file) => {
       order.push(`clear ${file}`);
+      if (clearFails !== undefined) throw new Error(clearFails);
     },
     read: (file, inside) => {
       order.push(`read ${file} inside ${inside}`);
@@ -276,6 +279,25 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       failedWith(
         'the red proof of step gauge failed: the test report on stdout is not TAP: it has no TAP test point',
       ),
+    );
+  });
+
+  it('is blocked on the environment, running nothing, when the old report cannot be cleared', async () => {
+    const { order, run } = setup({
+      report: { format: 'junit', path: 'build/results.xml' },
+      clearFails: "EISDIR: illegal operation on a directory, rm 'build/results.xml'",
+    });
+    // The attempt ends with an outcome; it never rejects.
+    const end = await run().catch((error: Error) => ({ ending: { rejected: error.message } }));
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        "the test report build/results.xml cannot be cleared: EISDIR: illegal operation on a directory, rm 'build/results.xml'",
+    });
+    assert.ok(
+      order.every((line) => !line.startsWith('exec')),
+      order.join('\n'),
     );
   });
 
