@@ -933,6 +933,22 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       brewers: [maltster, cellarman],
     });
 
+  it('refuses the action before another step: the recipe must end with it (review of #230)', () => {
+    assert.deepEqual(
+      problemsOf(
+        withCellarman([
+          { id: 'brew', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
+          { id: 'plan', brewer: 'maltster' },
+        ]),
+      ),
+      [
+        'recipes/stout.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe (ADR 0071)',
+        'recipes/stout.jsonc: step "brew" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+      ],
+    );
+  });
+
   it('refuses a recipe whose brewer commits and that does not end by opening the pull request', () => {
     assert.deepEqual(problemsOf(withCellarman([{ id: 'brew', brewer: 'cellarman' }])), [
       'recipes/stout.jsonc: step "brew" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',

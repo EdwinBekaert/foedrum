@@ -212,4 +212,40 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
       new Map([['foedrum/12-1/brew/2', BASE]]),
     );
   });
+
+  /** The on-tap batch of `brewed`, changed by `change`. */
+  const changed = (change: (found: Batch) => Batch): State => {
+    const state = brewed(lanes['on-tap'] as Lane);
+    const found = state.batches.get('12-1');
+    assert.ok(found !== undefined);
+    return { ...state, batches: new Map([['12-1', change(found)]]) };
+  };
+
+  it("takes the start in the task tree's repository, not another's (review of #230)", () => {
+    const LIB = 'd'.repeat(40);
+    const elsewhere = finished('plan', 1, LIB);
+    assert.ok(elsewhere.phase === 'finished' && elsewhere.worktree !== undefined);
+    const inLib = { ...elsewhere, worktree: { ...elsewhere.worktree, repo: 'acme/lib' } };
+    const state = changed((found) => {
+      const steps = new Map(found.steps);
+      steps.set('plan', step('plan', [[1, inLib]]));
+      steps.set(
+        'brew',
+        step('brew', [
+          [1, finished('brew', 1, BASE)],
+          [2, finished('brew', 2, TIP)],
+        ]),
+      );
+      return { ...found, steps };
+    });
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', BASE]]));
+  });
+
+  it('names nothing of a rewound task tree, which is a commit, not a branch (review of #230)', () => {
+    const state = changed((found) => ({
+      ...found,
+      taskTree: { kind: 'rewound', shas: { 'acme/app': BASE } },
+    }));
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
+  });
 });
