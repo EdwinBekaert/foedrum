@@ -309,6 +309,18 @@ describe('createAttemptPlans: limits', () => {
     assert.deepEqual(plans.limits(ref), { outDoc: { file: 'out.md', schema: OutDocFrontmatter } });
   });
 
+  it("names the out doc of the brewer of a step in the batch's recipe, for the cleanup (ADR 0081)", () => {
+    const { plans } = setup();
+    assert.equal(plans.outDoc({ batchId: '12-1', stepId: 'brew' }), 'brew.md');
+  });
+
+  it('names no out doc for a step without a brewer, or a batch without a recipe (ADR 0081)', () => {
+    assert.equal(setup().plans.outDoc({ batchId: '12-1', stepId: 'taste' }), undefined);
+    assert.equal(setup().plans.outDoc({ batchId: '13-1', stepId: 'brew' }), undefined);
+    const unrouted = setup([ordered[0] as Event]).plans;
+    assert.equal(unrouted.outDoc({ batchId: '12-1', stepId: 'brew' }), undefined);
+  });
+
   it('gives an attempt whose step has no brewer the out doc of the contract alone: its plan fails', () => {
     const { plans } = setup();
     assert.deepEqual(plans.limits({ ...ref, stepId: 'taste' }), {

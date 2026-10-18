@@ -22,9 +22,10 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import {
   brewer,
   clone,
@@ -114,7 +115,11 @@ describe('runServe', () => {
     return runner;
   };
 
-  const shell = (overrides: Partial<ServeShell> = {}): ServeShell => ({
+  // GitHub through a fake gh over a fake fetch (ADR 0073).
+  const shell = ({
+    fetch = api.fetch,
+    ...overrides
+  }: Partial<ServeShell> & { fetch?: typeof globalThis.fetch } = {}): ServeShell => ({
     out: (line) => lines.push(line),
     signal: controller.signal,
     clock: () => t0,
@@ -159,8 +164,8 @@ describe('runServe', () => {
     },
     // The stout recipe has no check step.
     exec: () => Promise.reject(new Error('no check step runs here')),
+    gh: ghOver(fetch).exec,
     git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
-    fetch: api.fetch,
     ...overrides,
   });
 
@@ -344,6 +349,20 @@ describe('runServe', () => {
     assert.equal(existsSync(join(dir.path, 'attempt-settings', '12-1')), false);
   });
 
+  it("lets the cleanup of an ended batch know each step's out doc, from its brewer (ADR 0081)", async () => {
+    const managers: FakeWorktrees[] = [];
+    const worktrees: ServeShell['worktrees'] = async () => {
+      const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
+      managers.push(manager);
+      return manager;
+    };
+    assert.equal(await runServe(setup, shell({ worktrees })), 0);
+    assert.deepStrictEqual(
+      managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.outDocs,
+      new Map([['12-1/brew', 'brew.md']]),
+    );
+  });
+
   it("gives each brewer its repository's toolchain rules", async () => {
     assert.equal(await runServe(setup, shell()), 0);
     assert.ok(plans[0]?.permissions.allow.includes('Bash(npm test*)'));
@@ -491,7 +510,6 @@ describe('runServe', () => {
         HOME: home,
         npm_config_ignore_scripts: 'true',
       });
-      assert.ok(!Object.values(env).includes(setup.github.token));
       const finished = events.filter(
         (event) => event.type === 'step.finished' && event.stepId === 'green',
       );
@@ -709,6 +727,38 @@ describe('runServe', () => {
     assert.equal(await runServe(setup, shell()), 0);
     assert.deepStrictEqual(types().slice(-1), ['step.scheduled']);
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
+  });
+
+  // gh reads the login at the start, with the stop signal; a stop then ends that call (ADR 0073).
+  it('stops with 0, and says so, when it is stopped while it reads its login', async () => {
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/user') {
+        controller.abort(new Error('stopped by a signal'));
+        return new Promise<Response>((_, reject) => {
+          if (init?.signal?.aborted === true) reject(init.signal.reason);
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        });
+      }
+      return api.fetch(input, init);
+    }) as typeof globalThis.fetch;
+    assert.equal(await runServe(setup, shell({ fetch })), 0);
+    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+  });
+
+  it('still fails with the reason when its login read fails for another reason after a stop', async () => {
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/user') {
+        controller.abort(new Error('stopped by a signal'));
+        return new Response(JSON.stringify({ message: 'Bad credentials' }), { status: 401 });
+      }
+      return api.fetch(input, init);
+    }) as typeof globalThis.fetch;
+    assert.equal(await runServe(setup, shell({ fetch })), 1);
+    assert.equal(
+      lines.at(-1),
+      'foedrum serve: GitHub answered 401 to the login gh uses: Bad credentials',
+    );
   });
 
   describe('the intake in its loop (ADR 0068)', () => {
@@ -1011,7 +1061,7 @@ describe('runServe', () => {
       assert.equal(await runServe(setup, shell({ fetch: github.fetch })), 1);
       assert.equal(
         lines.at(-1),
-        'foedrum serve: GitHub answered 401 to the login of the token: Bad credentials',
+        'foedrum serve: GitHub answered 401 to the login gh uses: Bad credentials',
       );
       assert.deepStrictEqual([lock.held, closed], [false, 1]);
     });

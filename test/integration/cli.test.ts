@@ -11,8 +11,10 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { execProcess } from '../../src/platform/processes.ts';
+import { removeTree } from '../../src/platform/remove.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { doctorHere } from './canned-gh-login.ts';
 
 const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
 
@@ -23,7 +25,7 @@ describe('foedrum status and replay on store files', () => {
     brewery = makeTempDir('cli');
     store = join(brewery.path, '.foedrum', 'index.db');
   });
-  afterEach(() => brewery.remove());
+  afterEach(() => removeTree(brewery.path));
 
   const foedrum = (...args: string[]) =>
     execProcess(process.execPath, [main, ...args], { cwd: brewery.path, timeoutMs: 60_000 });
@@ -153,7 +155,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     });
     writer.close();
   });
-  afterEach(() => brewery.remove());
+  afterEach(() => removeTree(brewery.path));
 
   const foedrum = (...args: string[]) =>
     execProcess(process.execPath, [main, ...args], { cwd: brewery.path, timeoutMs: 60_000 });
@@ -189,7 +191,8 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     const reader = openSqliteEventStore(store, { readOnly: true });
     assert.equal(reader.lastEventId(), 3);
     reader.close();
-    const doctor = await foedrum('doctor');
+    // doctor's own shell, with a canned answer for gh's login check (ADR 0073).
+    const doctor = await doctorHere(brewery.path);
     assert.equal(doctor.exitCode, 1);
     assert.ok(
       doctor.stdout.split('\n').includes(`  ${line.replace(': ', ' (required): ')}`),

@@ -1,6 +1,6 @@
 // What every GitHub caller does with a repository it names and an answer it gets: the repository
 // checked before it becomes part of a URL, an answer checked against the fields it uses, and a
-// refusal named by its status and GitHub's message, never by the token.
+// refusal named by its status and GitHub's message, never by a credential.
 
 import { Repo } from '../schemas/events.ts';
 import { GitHubError, type GitHubIssue } from '../schemas/github.ts';

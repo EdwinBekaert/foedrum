@@ -1,23 +1,26 @@
-// `foedrum serve` as the real program (ADR 0063). It refuses a folder that is no Brewery, and,
+// `foedrum serve` (ADR 0063). Its own start refuses a folder that is no Brewery, with a canned
+// answer for gh's login check (canned-gh-login.ts); and, as the real program,
 // opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057), it brews one real step end to end on a throwaway
-// Brewery: a labelled issue the intake orders and routes from a fake GitHub (ADR 0068), the order's
-// text from there too, the real claude runner against the fake Messages API (no login, no tokens), real attempt worktrees
+// Brewery: a labelled issue the intake orders and routes from a fake GitHub (ADR 0068) that the
+// real gh reaches with a synthetic login of the test's own (ADR 0073), the order's text from there
+// too, the real claude runner against the fake Messages API (no login, no tokens), real attempt worktrees
 // of the user's clone, and the state branch pushed back. It tests Foedrum's wiring, not claude.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { serveFromCheckout } from '../../src/cli/serve-main.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { brewer, recipe } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
+import { cannedGhLogin, resolveWithMadeUpGh } from './canned-gh-login.ts';
+import { type Route, SYNTHETIC_LOGIN, startFakeGitHubOverGh } from './fake-github-over-gh.ts';
 import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
 
 const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
@@ -35,13 +38,13 @@ describe('foedrum serve', () => {
   beforeEach(() => {
     dir = makeTempDir('serve');
   });
-  afterEach(() => dir.remove());
+  afterEach(() => removeTree(dir.path));
 
   it('refuses a folder that is no Brewery, with one line per problem', async () => {
-    const result = await execProcess(process.execPath, [main, 'serve'], {
-      cwd: dir.path,
-      env: { ...process.env, GH_TOKEN: 'ghp_test' },
-      timeoutMs: 60_000,
+    // serve's own start, with a canned answer for gh's login check (ADR 0073).
+    const result = await serveFromCheckout(dir.path, {
+      exec: cannedGhLogin(),
+      resolve: resolveWithMadeUpGh,
     });
     assert.equal(result.exitCode, 1, result.stderr);
     assert.match(result.stderr, /^foedrum serve: foedrum\.jsonc: not found in /m);
@@ -49,72 +52,58 @@ describe('foedrum serve', () => {
   });
 });
 
-/** A fake GitHub REST API on 127.0.0.1 that lists one labelled issue of the Brewery. */
-const startFakeGitHub = async (body: string) => {
-  const requests: { url: string; authorization: string | undefined }[] = [];
-  // The status comments serve makes on the order's issue (ADR 0072), by the token's login.
+/**
+ * The Brewery's one labelled issue and its listing, the login serve reads at its start, the
+ * status comments it makes on the order's issue (ADR 0072), and a 404 for anything else.
+ */
+const brewerysIssue = (body: string): Route => {
   const login = 'cellar-bot';
   const comments = new Map<number, string>();
   const commentOf = (id: number) => ({ id, user: { login }, body: comments.get(id) });
-  const server: Server = createServer((request, response) => {
-    requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
-    let text = '';
-    request.setEncoding('utf8').on('data', (chunk: string) => {
-      text += chunk;
-    });
-    request.on('end', () => {
-      const answer = (status: number, value: unknown): void => {
-        response.writeHead(status, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(value));
-      };
-      const issue = {
-        number: 12,
-        state: 'open',
-        user: { login: 'ann' },
-        labels: ['recipe:stout'],
-        body,
-      };
-      const path = request.url?.split('?')[0] ?? '';
-      const comment = /^\/repos\/acme\/brewery\/issues\/comments\/(\d+)$/.exec(path);
-      const id = Number(comment?.[1]);
-      const sent = (): string => (JSON.parse(text) as { body: string }).body;
-      if (request.method === 'GET' && path === '/user') return answer(200, { login });
-      if (request.method === 'GET' && path === '/repos/acme/brewery/issues') {
-        return answer(200, [issue]);
+  return ({ method, path, body: text }, response) => {
+    const answer = (status: number, value: unknown): true => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(value));
+      return true;
+    };
+    const issue = {
+      number: 12,
+      state: 'open',
+      user: { login: 'ann' },
+      labels: ['recipe:stout'],
+      body,
+    };
+    const bare = path.split('?')[0] ?? '';
+    // gh's own questions for its login: the API root and the viewer, which the fake answers.
+    if (bare === '/' || bare === '/graphql') return undefined;
+    const comment = /^\/repos\/acme\/brewery\/issues\/comments\/(\d+)$/.exec(bare);
+    const id = Number(comment?.[1]);
+    const sent = (): string => (JSON.parse(text) as { body: string }).body;
+    if (method === 'GET' && bare === '/user') return answer(200, { login });
+    if (method === 'GET' && bare === '/repos/acme/brewery/issues') return answer(200, [issue]);
+    if (method === 'GET' && bare === '/repos/acme/brewery/issues/12') return answer(200, issue);
+    if (bare === '/repos/acme/brewery/issues/12/comments') {
+      if (method === 'GET') return answer(200, [...comments.keys()].map(commentOf));
+      if (method === 'POST') {
+        comments.set(comments.size + 1, sent());
+        return answer(201, commentOf(comments.size));
       }
-      if (request.method === 'GET' && path === '/repos/acme/brewery/issues/12') {
-        return answer(200, issue);
+    }
+    if (comment !== null && comments.has(id)) {
+      if (method === 'GET') return answer(200, commentOf(id));
+      if (method === 'PATCH') {
+        comments.set(id, sent());
+        return answer(200, commentOf(id));
       }
-      if (path === '/repos/acme/brewery/issues/12/comments') {
-        if (request.method === 'GET') return answer(200, [...comments.keys()].map(commentOf));
-        if (request.method === 'POST') {
-          comments.set(comments.size + 1, sent());
-          return answer(201, commentOf(comments.size));
-        }
-      }
-      if (comment !== null && comments.has(id)) {
-        if (request.method === 'GET') return answer(200, commentOf(id));
-        if (request.method === 'PATCH') {
-          comments.set(id, sent());
-          return answer(200, commentOf(id));
-        }
-      }
-      return answer(404, { message: 'Not Found' });
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${port}`,
-    requests,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    }
+    return answer(404, { message: 'Not Found' });
   };
 };
 
 describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && real.reason }, () => {
   let dir: TempDir;
   let api: FakeMessagesApi | undefined;
-  let github: Awaited<ReturnType<typeof startFakeGitHub>> | undefined;
+  let github: Awaited<ReturnType<typeof startFakeGitHubOverGh>> | undefined;
   beforeEach(() => {
     dir = makeTempDir('serve-real');
   });
@@ -138,13 +127,15 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     // The Brewery: its files on main, pushed to its origin, and the checkout serve runs in.
     const work = join(dir.path, 'work');
     mkdirSync(work);
-    github = await startFakeGitHub('Add a --json flag.');
+    const ghConfig = join(dir.path, 'gh');
+    mkdirSync(ghConfig);
+    github = await startFakeGitHubOverGh(ghConfig, brewerysIssue('Add a --json flag.'));
     const files = join(dir.path, 'brewery-seed');
     git(dir.path, ['init', '-q', '-b', 'main', files]);
     const config = {
       brewery: 'acme/brewery',
       users: ['ann'],
-      githubApi: github.url,
+      githubApi: 'http://api.github.localhost',
       repositories: {
         'acme/web': {
           checks: { build: null, typecheck: null, lint: null, format: null, test: null },
@@ -203,7 +194,11 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       ANTHROPIC_API_KEY: 'sk-ant-test-not-a-key',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       DISABLE_TELEMETRY: '1',
-      GH_TOKEN: 'ghp_test_not_a_token',
+      // gh's way to the fake and its synthetic login; a token variable it must not use.
+      HTTP_PROXY: github.env.HTTP_PROXY,
+      HTTPS_PROXY: github.env.HTTPS_PROXY,
+      GH_CONFIG_DIR: ghConfig,
+      GH_TOKEN: 'from-the-environment-never-used',
     };
 
     // The batch's events on the Brewery's origin.
@@ -259,21 +254,19 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     assert.match(result.stdout, /^foedrum serve: brewing for acme\/brewery in /m);
     assert.match(result.stdout, /^foedrum serve: ordered acme\/brewery#12 as batch 12-1$/m);
     assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
-    // The listing and the order's text came from GitHub, with the token, and the text reached the
-    // model in nonce tags.
-    // The token's login came first, at serve's start (ADR 0072).
-    const read = github.requests.map(({ url, authorization }) => [
-      url.split('?')[0],
-      authorization,
-    ]);
-    assert.deepStrictEqual(read[0], ['/user', 'Bearer ghp_test_not_a_token']);
+    // The login came first, at serve's start (ADR 0072), then the listing and the order's text, all
+    // through gh's own login, never the token variable; the text reached the model in nonce tags.
+    const read = (github.requests ?? [])
+      .filter(({ path }) => path !== '/' && path !== '/graphql')
+      .map(({ path, authorization }) => [path.split('?')[0], authorization]);
+    assert.deepStrictEqual(read[0], ['/user', `token ${SYNTHETIC_LOGIN}`]);
     assert.deepStrictEqual(
       read
-        .filter(([url]) => /^\/repos\/acme\/brewery\/issues(?:\/12)?$/.test(url ?? ''))
+        .filter(([path]) => /^\/repos\/acme\/brewery\/issues(?:\/12)?$/.test(path ?? ''))
         .slice(0, 2),
       [
-        ['/repos/acme/brewery/issues', 'Bearer ghp_test_not_a_token'],
-        ['/repos/acme/brewery/issues/12', 'Bearer ghp_test_not_a_token'],
+        ['/repos/acme/brewery/issues', `token ${SYNTHETIC_LOGIN}`],
+        ['/repos/acme/brewery/issues/12', `token ${SYNTHETIC_LOGIN}`],
       ],
     );
     assert.match(

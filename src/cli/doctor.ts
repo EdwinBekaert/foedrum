@@ -3,12 +3,12 @@
 // is missing. doctor-facts.ts gathers the facts.
 
 import { type BreweryFiles, INVALID_RECIPES, loadRecipes } from '../engine/recipe-files.ts';
-import { BreweryConfig } from '../schemas/brewery-config.ts';
+import { BreweryConfig, githubHostOf } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
-export type ToolName = 'npm' | 'git' | 'claude' | 'bwrap' | 'socat' | 'podman' | 'docker';
+export type ToolName = 'npm' | 'git' | 'gh' | 'claude' | 'bwrap' | 'socat' | 'podman' | 'docker';
 
 /** A tool found on PATH, and what its version command answered. */
 export interface ToolRun {
@@ -37,6 +37,24 @@ export interface DoctorFacts {
   configUnreadable?: string | undefined;
   /** The Brewery's recipe and brewer files in the working directory (ADR 0053). */
   brewery?: BreweryFiles | undefined;
+  /** gh's login and git's credential helpers for the Brewery's GitHub host (ADR 0073). */
+  github?: GitHubFacts | undefined;
+}
+
+/** How a command answered: its exit code (`null` when it could not start or was killed) and output. */
+export interface CommandRun {
+  exitCode: number | null;
+  output: string;
+}
+
+/** What doctor asks about the GitHub host Foedrum reaches through gh's own login (ADR 0073). */
+export interface GitHubFacts {
+  /** gh's `--hostname`: `github.com`, a GitHub Enterprise host or `github.localhost`. */
+  host: string;
+  /** `gh auth status --hostname <host>`, without the token variables; undefined without gh. */
+  login: CommandRun | undefined;
+  /** What `git config --null --get-regexp ^credential\.` printed; undefined without git. */
+  credentials: CommandRun | undefined;
 }
 
 /** The isolation levels Foedrum can reach without configuration (ADR 0010). */
@@ -84,6 +102,14 @@ export interface Diagnosis {
 
 // package.json's engines.
 const MIN_NODE = [24, 15] as const;
+// gh keeps its login in the OS keyring by default since 2.26.0 (ADR 0073).
+const MIN_GH = [2, 26, 0] as const;
+const GH_INSTALL =
+  'install the GitHub CLI 2.26.0 or later, https://cli.github.com, then run gh auth login';
+// The helper `gh auth setup-git` writes: `!gh auth git-credential`, with gh's path.
+// gh's token line, masked or not, and anything that looks like a token: never quoted in a report.
+const TOKEN_LINE = /token:|\b(?:gh[opsu]_|github_pat_)/i;
+const GH_HELPER = /(?:^|[\s!'"\\/])gh(?:\.exe)?['"]?\s+auth\s+git-credential(?:\s|$)/i;
 
 const SANDBOX_TOOLS = 'bubblewrap and socat';
 const WSL2_ADVICE =
@@ -106,13 +132,120 @@ const toolLine = (name: ToolName, run: ToolRun | undefined): ToolLine => ({
   path: run?.path,
 });
 
-const isTooOld = (node: string): boolean => {
-  const [major = 0, minor = 0] = node.split('.').map(Number);
-  return major < MIN_NODE[0] || (major === MIN_NODE[0] && minor < MIN_NODE[1]);
+/** Whether the dotted version `version` comes before `least`. */
+const isBefore = (version: string, least: readonly number[]): boolean => {
+  const parts = version.split('.').map(Number);
+  for (const [i, want] of least.entries()) {
+    const have = parts[i] ?? 0;
+    if (have !== want) return have < want;
+  }
+  return false;
 };
 
-// git and claude: Foedrum cannot run brewers without them.
-const requiredProblems = (name: 'git' | 'claude', run: ToolRun | undefined, fix: string) => {
+const isTooOld = (node: string): boolean => isBefore(node, MIN_NODE);
+
+/**
+ * The host gh reaches the Brewery's GitHub on: the one foedrum.jsonc's `githubApi` names, else
+ * `github.com` (ADR 0073), also when the file is missing or not valid.
+ */
+export const githubHostOfConfig = (config: string | undefined): string => {
+  const read = config === undefined ? undefined : readJsonc(config, BreweryConfig);
+  const api = read?.valid === true ? read.value.githubApi : undefined;
+  return (api === undefined ? undefined : githubHostOf(api)) ?? 'github.com';
+};
+
+// Whether a credential URL from git's configuration covers every https URL of `host`: the same
+// scheme and host, no user, port or path that would narrow it.
+const coversHost = (pattern: string, host: string): boolean => {
+  const url = URL.parse(pattern);
+  if (url === null || url.protocol !== 'https:' || url.username !== '' || url.port !== '') {
+    return false;
+  }
+  return url.hostname === host.toLowerCase() && (url.pathname === '' || url.pathname === '/');
+};
+
+/**
+ * The credential helpers git asks for `https://<host>`, in order, from what
+ * `git config --null --get-regexp ^credential\.` printed: `credential.helper` and
+ * `credential.<url>.helper` of a URL that covers the host, where an empty value clears the list
+ * before it, as git does.
+ */
+export const credentialHelpersFor = (host: string, listed: string): string[] => {
+  const helpers: string[] = [];
+  for (const entry of listed.split('\0')) {
+    const newline = entry.indexOf('\n');
+    const key = newline === -1 ? entry : entry.slice(0, newline);
+    const value = newline === -1 ? '' : entry.slice(newline + 1);
+    const helper = /^credential\.(?:(.+)\.)?helper$/i.exec(key);
+    if (helper === null) continue;
+    if (helper[1] !== undefined && !coversHost(helper[1], host)) continue;
+    if (value === '') helpers.length = 0;
+    else helpers.push(value);
+  }
+  return helpers;
+};
+
+// gh, its login and git's credential helper (ADR 0073): Foedrum reaches GitHub only through gh's
+// own login, for the API and, as git's credential helper, for pushes.
+const githubProblems = ({ tools, github }: DoctorFacts): Problem[] => {
+  const host = github?.host ?? 'github.com';
+  const version = versionOf(tools.gh);
+  if (version === undefined) return requiredProblems('gh', tools.gh, GH_INSTALL);
+  if (isBefore(version, MIN_GH)) {
+    return [{ required: true, what: `gh ${version} is too old`, fix: GH_INSTALL }];
+  }
+  const problems: Problem[] = [];
+  const login = github?.login;
+  // What gh said after the host's own line, unless it only says what the problem says already.
+  const said = login?.output
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line !== '' && line !== host && !TOKEN_LINE.test(line));
+  const because = said === undefined || /not logged in/i.test(said) ? '' : ` (${said})`;
+  if (login !== undefined && login.exitCode === null) {
+    problems.push({
+      required: true,
+      what: `gh auth status --hostname ${host} did not answer${because}`,
+      fix: `check that gh auth status --hostname ${host} works`,
+    });
+  } else if (login !== undefined && login.exitCode !== 0) {
+    problems.push({
+      required: true,
+      what: `gh is not logged in to ${host}${because}`,
+      fix: `run gh auth login --hostname ${host}`,
+    });
+  }
+  const credentials = github?.credentials;
+  // git exits 1 when nothing matches: no helper at all. Any other failure says nothing of them.
+  if (credentials !== undefined && credentials.exitCode !== 0 && credentials.exitCode !== 1) {
+    const first = credentials.output
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '');
+    problems.push({
+      required: false,
+      what: `git config did not list its credential helpers${first === undefined ? '' : ` (${first})`}`,
+      fix: 'check that git config --get-regexp ^credential\\. works in this folder',
+    });
+  } else if (credentials !== undefined) {
+    const { exitCode, output } = credentials;
+    const [first] = credentialHelpersFor(host, exitCode === 0 ? output : '');
+    if (first === undefined || !GH_HELPER.test(first)) {
+      problems.push({
+        required: false,
+        what:
+          first === undefined
+            ? `git has no credential helper for https://${host}`
+            : `git asks ${first} for https://${host} credentials, not gh`,
+        fix: `run gh auth setup-git --hostname ${host}, so git pushes with gh's login`,
+      });
+    }
+  }
+  return problems;
+};
+
+// git, gh and claude: Foedrum cannot run brewers without them.
+const requiredProblems = (name: 'git' | 'gh' | 'claude', run: ToolRun | undefined, fix: string) => {
   if (run === undefined) return [{ required: true, what: `${name} not found`, fix }];
   if (versionOf(run) === undefined) {
     const said = firstLine(run);
@@ -250,6 +383,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
         ]
       : []),
     ...requiredProblems('git', tools.git, 'install git, https://git-scm.com/downloads'),
+    ...githubProblems(facts),
     ...requiredProblems(
       'claude',
       tools.claude,
@@ -281,6 +415,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       { name: 'node', version: facts.node, path: undefined },
       toolLine('npm', tools.npm),
       toolLine('git', tools.git),
+      toolLine('gh', tools.gh),
       toolLine('claude', tools.claude),
       // The sandbox's own tools matter on Linux only.
       ...(facts.platform === 'linux'

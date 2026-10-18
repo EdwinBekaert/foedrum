@@ -117,6 +117,8 @@ export interface ListedFact {
   /** `unchecked` outside the attempts root. */
   state: FolderState;
   record: string | undefined;
+  /** A clean worktree's untracked out doc, its only change: deleted before it (ADR 0081). */
+  outDoc?: string;
 }
 
 /** A local branch under `refs/heads/foedrum/`. */
@@ -148,7 +150,27 @@ export interface Facts {
 export interface Claims {
   batches: ReadonlyMap<string, 'live' | 'ended'>;
   leased: readonly AttemptRef[];
+  /**
+   * The out doc of each step of an ended batch whose brewer is known, by `<batchId>/<stepId>`:
+   * the one untracked file a worktree of that step may have and still go (ADR 0081).
+   */
+  outDocs?: ReadonlyMap<string, string>;
 }
+
+/**
+ * Whether a worktree is clean, from its `git status --porcelain`: nothing, or nothing but its
+ * untracked out doc, which is then named (ADR 0081).
+ */
+export const worktreeStatus = (
+  porcelain: string,
+  outDoc: string | undefined,
+): { state: 'clean' | 'dirty'; outDoc?: string } => {
+  const changes = porcelain.split(/\r?\n/).filter((line) => line !== '');
+  if (changes.length === 0) return { state: 'clean' };
+  // The out doc is one path segment (`PathSafeId`), so git names it as it is, unquoted.
+  const onlyOutDoc = outDoc !== undefined && changes.length === 1 && changes[0] === `?? ${outDoc}`;
+  return onlyOutDoc ? { state: 'clean', outDoc } : { state: 'dirty' };
+};
 
 export type Action =
   /** `branch` is deleted once the worktree is gone. */
@@ -247,7 +269,11 @@ export const planClean = (
       if (!known && worktree.branch !== undefined) branchesDone.delete(worktree.branch);
       const branch =
         worktree.branch === undefined || !known ? undefined : tips.get(worktree.branch);
-      actions.push({ ...removal, label: inside, branch });
+      const outDoc =
+        removal.kind === 'remove' && worktree.outDoc !== undefined
+          ? { outDoc: worktree.outDoc }
+          : {};
+      actions.push({ ...removal, ...outDoc, label: inside, branch });
       removed.add(inside);
       continue;
     }

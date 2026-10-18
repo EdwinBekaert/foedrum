@@ -1,24 +1,36 @@
-// `foedrum doctor` on the real machine (ADR 0021): the program starts, finds the tools through
-// PATH and reads their versions through the process runner (npm.cmd through cmd.exe on Windows).
-// What a machine has differs, so this checks the report's structure only; the report itself is
-// in test/unit/cli.test.ts.
+// `foedrum doctor` on the real machine (ADR 0021): the facts main.ts gathers (doctorFromCheckout)
+// find the tools through PATH and read their versions through the process runner (npm.cmd through
+// cmd.exe on Windows). What a machine has differs, so this checks the report's structure only; the
+// report itself is in test/unit/cli.test.ts. gh's version and login check get canned answers, the
+// login for a made-up host only (canned-gh-login.ts): no test asks the real gh for a login, or
+// reads how fast it starts (ADR 0070, ADR 0073).
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
+import { removeTree } from '../../src/platform/remove.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
+import {
+  CANNED_GH_VERSION,
+  cannedGhLogin,
+  doctorHere,
+  MADE_UP_CONFIG,
+  MADE_UP_GH,
+  MADE_UP_HOST,
+} from './canned-gh-login.ts';
 
-const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
 const VERSION = String.raw`\d+(?:\.\d+)+`;
 
 describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
-    const { exitCode, stdout, stderr } = await execProcess(process.execPath, [main, 'doctor'], {
-      cwd: import.meta.dirname,
-      timeoutMs: 60_000,
-    });
+    const dir = makeTempDir('doctor-machine');
+    writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
+    // A tool the runner killed at its deadline may hold the folder a moment longer on Windows.
+    const { exitCode, stdout, stderr } = await doctorHere(dir.path).finally(() =>
+      removeTree(dir.path),
+    );
     assert.equal(stderr, '');
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
@@ -28,6 +40,11 @@ describe('foedrum doctor on this machine', () => {
     // CI has npm and git everywhere; npm is npm.cmd on Windows.
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
+    // gh is found at a made-up path and answers its canned version, on every machine.
+    assert.equal(row('gh')?.replace(/ +/g, ' '), ` gh ${CANNED_GH_VERSION} ${MADE_UP_GH}`);
+    // foedrum.jsonc names the made-up host, whose canned answer is logged in: doctor names no
+    // login to make.
+    assert.ok(!lines.some((line) => line.includes('gh auth login')), stdout);
     assert.match(row('claude') ?? '', new RegExp(`^  claude +(?:missing|${VERSION} +\\S.*)$`));
     const linux = process.platform === 'linux';
     assert.equal(row('bwrap') !== undefined, linux);
@@ -75,17 +92,59 @@ describe('foedrum doctor in a Brewery', () => {
         },
       };
       writeFileSync(join(dir.path, 'foedrum.jsonc'), JSON.stringify(config));
-      const { exitCode, stdout } = await execProcess(process.execPath, [main, 'doctor'], {
-        cwd: dir.path,
-        timeoutMs: 60_000,
-      });
+      const { exitCode, stdout } = await doctorHere(dir.path);
       assert.equal(exitCode, 1);
       assert.match(
         stdout,
         /^ {2}foedrum\.jsonc is not valid \(required\): .*The alias app is already the alias of acme\/web/m,
       );
     } finally {
-      dir.remove();
+      await removeTree(dir.path);
     }
+  });
+});
+
+// doctor reads git's own credential settings (ADR 0073): the format the unit tests' fixtures stand
+// in for, from the real git, with a global configuration of the test's own and no system one.
+// gh answers from captured output here too.
+describe("foedrum doctor and git's credential helper", () => {
+  const advice = async (helpers: string[]): Promise<string[]> => {
+    const dir = makeTempDir('doctor-credentials');
+    try {
+      const global = join(dir.path, 'gitconfig');
+      const lines = helpers.map((helper) => `\thelper = ${helper}\n`).join('');
+      writeFileSync(global, `[credential "https://${MADE_UP_HOST}"]\n${lines}`);
+      writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
+      const env = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: global,
+        GIT_CONFIG_NOSYSTEM: '1',
+        // The folder is inside Foedrum's own checkout: git must not read its local settings.
+        GIT_CEILING_DIRECTORIES: dirname(dir.path),
+      };
+      const { stdout } = await doctorHere(
+        dir.path,
+        cannedGhLogin((file, args, options) => execProcess(file, args, { ...options, env })),
+      );
+      return stdout
+        .split('\n')
+        .filter((line) => /credential helper|credentials, not gh/.test(line));
+    } finally {
+      await removeTree(dir.path);
+    }
+  };
+
+  it('is content with the helper gh auth setup-git writes', async () => {
+    assert.deepEqual(await advice(['', '!gh auth git-credential']), []);
+  });
+
+  it('names the helper git asks first when it is not gh, and when there is none', async () => {
+    const fix = `run gh auth setup-git --hostname ${MADE_UP_HOST}, so git pushes with gh's login`;
+    assert.deepEqual(await advice(['store', '!gh auth git-credential']), [
+      `  git asks store for https://${MADE_UP_HOST} credentials, not gh: ${fix}`,
+    ]);
+    assert.deepEqual(await advice([]), [
+      `  git has no credential helper for https://${MADE_UP_HOST}: ${fix}`,
+    ]);
   });
 });

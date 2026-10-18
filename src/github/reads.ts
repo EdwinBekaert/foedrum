@@ -104,7 +104,7 @@ export const createGitHubReads = (
         if (bytes > maxListBytes) throw new Error(`${what} is longer than ${maxListBytes} bytes`);
         items.push(...checked(GitHubPage, answer.body, what));
         const url = nextPage(answer.headers.get('link'));
-        // The token goes with every request: never to a page off the API.
+        // gh's login goes with every request: never to a page off the API.
         if (url !== undefined && !url.startsWith(`${client.baseUrl}/`)) {
           throw new Error(`The next page of ${what} is not on ${client.baseUrl}: ${url}`);
         }

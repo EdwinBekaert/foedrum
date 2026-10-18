@@ -7,8 +7,9 @@
 export type FolderState = 'clean' | 'dirty' | 'no-git' | 'gone' | 'foreign' | 'unchecked';
 
 export type Removal =
-  // git worktree remove, then whatever a busy file left behind.
-  | { kind: 'remove'; path: string; record: string | undefined }
+  // git worktree remove, then whatever a busy file left behind; `outDoc`, the worktree's only
+  // change, is deleted first (ADR 0081).
+  | { kind: 'remove'; path: string; record: string | undefined; outDoc?: string }
   // A removal that stopped after deleting the .git file: the folder and the record go.
   | { kind: 'finish'; path: string; record: string }
   // Only the record is left.

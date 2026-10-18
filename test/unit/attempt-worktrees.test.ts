@@ -16,6 +16,7 @@ import {
   planWorktree,
   remoteBranch,
   repoFolder,
+  worktreeStatus,
 } from '../../src/workspace/attempt-worktrees.ts';
 
 const ref = (batchId: string, stepId = 'implement', attempt = 1): AttemptRef => ({
@@ -513,6 +514,22 @@ describe('planClean', () => {
     );
   });
 
+  it('removes a worktree whose only change is its out doc, deleting the out doc first (ADR 0081)', () => {
+    const worktree = listed(ended, { outDoc: 'brew.md' });
+
+    const plan = planClean(facts([worktree]), claims({ '12-1': 'ended' }), root);
+
+    assert.deepEqual(plan.actions[0], {
+      kind: 'remove',
+      label: '12-1/implement/1',
+      path: worktree.path,
+      record: worktree.record,
+      outDoc: 'brew.md',
+      branch: branchOf(ended),
+    });
+    assert.deepEqual(plan.kept, []);
+  });
+
   it('keeps the empty folder of a live batch', () => {
     const plan = planClean(
       { worktrees: [], branches: [], folders: [{ batchId: '13-1', attempts: [] }] },
@@ -521,6 +538,58 @@ describe('planClean', () => {
     );
 
     assert.deepEqual(plan, { actions: [], kept: [] });
+  });
+});
+
+describe('worktreeStatus (ADR 0081)', () => {
+  it('is clean with no change', () => {
+    assert.deepEqual(worktreeStatus('', 'brew.md'), { state: 'clean' });
+    assert.deepEqual(worktreeStatus('', undefined), { state: 'clean' });
+  });
+
+  it('is clean, naming the out doc, when the untracked out doc is the only change', () => {
+    assert.deepEqual(worktreeStatus('?? brew.md\n', 'brew.md'), {
+      state: 'clean',
+      outDoc: 'brew.md',
+    });
+  });
+
+  it('is dirty with the out doc and any other change: a brewer or a human left it', () => {
+    for (const porcelain of [
+      '?? brew.md\n?? notes.txt\n',
+      '?? notes.txt\n?? brew.md\n',
+      '?? brew.md\n M src/app.ts\n',
+      '?? brew.md\n?? docs/\n',
+    ]) {
+      assert.deepEqual(worktreeStatus(porcelain, 'brew.md'), { state: 'dirty' }, porcelain);
+    }
+  });
+
+  it('is dirty with any untracked file when the step has no known out doc', () => {
+    assert.deepEqual(worktreeStatus('?? brew.md\n', undefined), { state: 'dirty' });
+  });
+
+  it('is dirty when the change is not exactly the untracked out doc', () => {
+    for (const porcelain of [
+      // A tracked file of the out doc's name that the brewer changed or deleted.
+      ' M brew.md\n',
+      'M  brew.md\n',
+      ' D brew.md\n',
+      // Another name, another case, or a folder of that name.
+      '?? out.md\n',
+      '?? Brew.md\n',
+      '?? brew.md/\n',
+      '?? sub/brew.md\n',
+    ]) {
+      assert.deepEqual(worktreeStatus(porcelain, 'brew.md'), { state: 'dirty' }, porcelain);
+    }
+  });
+
+  it('reads CRLF line ends as git for Windows may print them', () => {
+    assert.deepEqual(worktreeStatus('?? brew.md\r\n', 'brew.md'), {
+      state: 'clean',
+      outDoc: 'brew.md',
+    });
   });
 });
 

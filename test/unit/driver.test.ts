@@ -641,6 +641,29 @@ describe('openDriver', () => {
       );
     });
 
+    it('gives the cleanup the out doc of each step of the ended batch (ADR 0081)', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await open({
+        runner,
+        ...worktreesOf(manager),
+        outDoc: ({ stepId }) => `${stepId}.md`,
+      });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      end({ batchId: 'b1', stepId: 'implement', attempt: 1 });
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.cleans().at(-1)?.claims.outDocs,
+        new Map([
+          ['b1/plan', 'plan.md'],
+          ['b1/implement', 'implement.md'],
+        ]),
+      );
+    });
+
     it("starts each attempt's worktree at the task tree: the base, then the latest success's branch (ADR 0066)", async () => {
       const { runner, end } = handRunner();
       const manager = fakeWorktrees();

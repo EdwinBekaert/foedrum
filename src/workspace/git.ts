@@ -1,6 +1,7 @@
 // Runs git for Foedrum: non-interactive, with a timeout, through an argument array (architecture
 // §13). Code that drives git takes a `Git` so unit tests can pass a fake one (ADR 0021).
 
+import { withoutGitHubTokens } from '../platform/env.ts';
 import { type ExecProcess, execProcess, type Killed, whyKilled } from '../platform/processes.ts';
 
 export interface GitResult {
@@ -30,11 +31,13 @@ export type Git = (
 /**
  * The environment git runs in: it never prompts, in the terminal or through Git Credential
  * Manager's window; a missing credential makes the command fail instead. The user's ssh choice
- * (GIT_SSH, core.sshCommand) stays: without a terminal, ssh cannot prompt either.
+ * (GIT_SSH, core.sshCommand) stays: without a terminal, ssh cannot prompt either. The GitHub token
+ * variables go, so gh as git's credential helper answers with its own login (ADR 0073).
  */
 export const gitEnv = (
   env: NodeJS.ProcessEnv,
   config: Readonly<Record<string, string>> = {},
+  platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv => {
   // core.longpaths, then the call's own configuration, after any configuration the environment
   // already gives git: out docs on the state branch can be deeper than Windows' 260 characters
@@ -47,7 +50,7 @@ export const gitEnv = (
     added[`GIT_CONFIG_VALUE_${count + i}`] = value;
   });
   return {
-    ...env,
+    ...withoutGitHubTokens(env, platform),
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'never',
     GIT_CONFIG_COUNT: String(count + entries.length),

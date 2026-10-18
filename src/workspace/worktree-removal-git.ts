@@ -2,8 +2,9 @@
 // Shared by the worktree cleanup and the attempt worktree manager (ADR 0021).
 
 import { existsSync } from 'node:fs';
+import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { clearReadOnly, removeTree } from '../platform/remove.ts';
+import { clearReadOnly, errorCode, removeTree } from '../platform/remove.ts';
 import type { Git as WorkspaceGit } from './git.ts';
 import type { FolderState, Removal } from './worktree-removal.ts';
 
@@ -42,10 +43,21 @@ export const folderState = async (git: OkGit, path: string): Promise<FolderState
   return status.ok && status.stdout.trim() === '' ? 'clean' : 'dirty';
 };
 
+// A worktree's untracked out doc, its only change when git listed it (ADR 0081). A folder that
+// took its place since stays, and git worktree remove refuses it as any other change.
+const removeOutDoc = async (file: string): Promise<void> => {
+  const found = await lstat(file).catch((error: unknown) => {
+    if (errorCode(error) === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (found !== undefined && !found.isDirectory()) await removeTree(file);
+};
+
 /** Removes a worktree of the repository at `main`; throws, with git's reason, when it cannot. */
 export const removeWorktree = async (git: OkGit, main: string, removal: Removal) => {
   switch (removal.kind) {
     case 'remove': {
+      if (removal.outDoc !== undefined) await removeOutDoc(join(removal.path, removal.outDoc));
       for (const path of [removal.path, removal.record]) {
         if (path !== undefined) await clearReadOnly(path).catch(() => undefined);
       }

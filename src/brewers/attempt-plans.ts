@@ -61,6 +61,8 @@ export interface AttemptPlans {
   plan(attempt: AttemptStart): Promise<ClaudeAttemptPlan>;
   /** The limits of an attempt, from the brewer of its step in its batch's recipe. */
   limits(ref: AttemptRef): AttemptLimits;
+  /** The out doc of the brewer of a step in its batch's recipe; undefined without one (ADR 0081). */
+  outDoc(step: { batchId: string; stepId: string }): string | undefined;
 }
 
 /** An input's text reaches the prompt on stdin, and the event log through the out doc. */
@@ -91,6 +93,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     files = realFiles,
     sessionId = randomUUID,
   } = options;
+
+  // The brewer of a step in the recipe its batch brews; undefined without one.
+  const brewerOf = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
+    const recipe = state().batches.get(batchId)?.recipe?.name;
+    return recipe === undefined ? undefined : brewers.find(recipe, stepId);
+  };
 
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
@@ -164,12 +172,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       return { ...plan, commits };
     },
     limits: (ref) => {
-      const batch = state().batches.get(ref.batchId);
-      const recipe = batch?.recipe?.name;
-      const found = recipe === undefined ? undefined : brewers.find(recipe, ref.stepId);
+      const found = brewerOf(ref);
       if (found === undefined) return noBrewer;
       // The commit its worktree started at, which a done of a brewer that commits needs one after.
+      const batch = state().batches.get(ref.batchId);
       return attemptLimits(found.brewer, worktreeOf(batch, ref)?.commit);
     },
+    outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };
 }
