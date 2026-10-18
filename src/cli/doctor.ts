@@ -114,9 +114,14 @@ const GH_HELPER = /(?:^|[\s!'"\\/])gh(?:\.exe)?['"]?\s+auth\s+git-credential(?:\
 const SANDBOX_TOOLS = 'bubblewrap and socat';
 const WSL2_ADVICE =
   'For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.';
-/** What the permissions-only level leaves open, and what closes it (ADR 0082). */
+/**
+ * What the permissions-only level leaves open, and what closes it for brewers: check steps run
+ * outside the OS sandbox at every level until #190 (ADR 0069, ADR 0082).
+ */
 const keyringAdvice = (closedBy: string) =>
-  `A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; ${closedBy} closes that.`;
+  `A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; ${closedBy} closes that for brewers, and check steps keep it until #190.`;
+const CHECK_STEP_KEYRING =
+  "Until #190, check steps run outside the sandbox, so they can still ask the OS keyring for gh's login.";
 const WSL2_OR_CONTAINER = keyringAdvice('WSL2 or the container level');
 
 /** The first dotted number a version command printed; `undefined` when it failed. */
@@ -320,7 +325,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
   });
   switch (platform) {
     case 'darwin':
-      return level({ level: 'sandboxed', why: 'macOS Seatbelt' });
+      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [CHECK_STEP_KEYRING]);
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
@@ -359,7 +364,9 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
           missing,
         );
       }
-      return level({ level: 'sandboxed', why: wsl ? `WSL2, ${SANDBOX_TOOLS}` : SANDBOX_TOOLS });
+      return level({ level: 'sandboxed', why: wsl ? `WSL2, ${SANDBOX_TOOLS}` : SANDBOX_TOOLS }, [
+        CHECK_STEP_KEYRING,
+      ]);
     }
     default:
       return level({ level: 'permissions only', why: `no sandbox on ${platform}` }, [
