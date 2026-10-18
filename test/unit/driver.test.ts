@@ -1580,6 +1580,41 @@ describe('openDriver', () => {
       assert.deepStrictEqual(applied, [comment, push, pullRequest]);
     });
 
+    it('opens no pull request in the pass whose push found nothing to push', async () => {
+      const brewer = handRunner();
+      const applied: string[] = [];
+      const emptied = (state: State): boolean =>
+        (state.effects.get(push) as { empty?: boolean } | undefined)?.empty === true;
+      const actions: DriverActions = {
+        // As the pull request actions do: nothing more is due once the push recorded nothing.
+        due: (state, ref) =>
+          emptied(state)
+            ? []
+            : [
+                { batchId: ref.batchId, effect: 'push' },
+                { batchId: ref.batchId, effect: 'pull_request' },
+              ],
+        target: {
+          find: async () => undefined,
+          apply: async (key) => {
+            applied.push(key);
+            return key === push ? { empty: true } : url;
+          },
+        },
+        ending: (state) =>
+          emptied(state)
+            ? { kind: 'failed', retryable: false, reason: 'nothing to push' }
+            : { kind: 'succeeded', output: { pullRequest: url } },
+      };
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(applied, [push]);
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+    });
+
     it('blocks the action on its environment when the driver has no actions to run it with', async () => {
       const brewer = handRunner();
       orderAle('b1');

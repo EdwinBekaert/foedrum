@@ -111,6 +111,10 @@ describe('openBranchPush: isAncestor (review of #198)', () => {
       openBranchPush({ git, clone }).isAncestor('HEAD', TIP),
       /HEAD is no full commit sha/,
     );
+    await assert.rejects(
+      openBranchPush({ git, clone }).isAncestor(TIP, 'HEAD'),
+      /HEAD is no full commit sha/,
+    );
     assert.deepEqual(calls, []);
   });
 });
