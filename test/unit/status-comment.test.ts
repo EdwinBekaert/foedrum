@@ -1,0 +1,498 @@
+// The status comment of a batch of a Brewery issue (architecture §8, ADR 0072): its text rendered
+// from plain folded batches, and its revisions applied through the ledger by a driver, with a fake
+// of the comments host. Nothing reaches GitHub (ADR 0021).
+
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+import { effectMarker } from '../../src/engine/claim-effects.ts';
+import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
+import type { Ending } from '../../src/engine/decide.ts';
+import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import type { EventStore } from '../../src/engine/event-store.ts';
+import type { Attempt, Batch, Lane, Step } from '../../src/engine/fold.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import {
+  renderStatus,
+  type StatusComments,
+  statusEffects,
+} from '../../src/engine/status-comment.ts';
+import type { StuckReason } from '../../src/schemas/events.ts';
+import { defaultLimits } from '../helpers/brewing.ts';
+import { fakeLock } from '../helpers/fake-lock.ts';
+import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+
+const at = '2026-10-18T09:00:00.000Z';
+const pr = 'https://github.com/alice/web/pull/12';
+
+const done = (attempt: number, assumptions: string[] = []): Attempt => ({
+  phase: 'finished',
+  attempt,
+  deadlineAt: at,
+  outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions } },
+});
+const failed = (attempt: number, reason: string): Attempt => ({
+  phase: 'finished',
+  attempt,
+  deadlineAt: at,
+  outcome: { kind: 'failed', retryable: true, reason },
+});
+const running = (attempt: number): Attempt => ({ phase: 'started', attempt, deadlineAt: at });
+const step = (id: string, ...attempts: Attempt[]): [string, Step] => [
+  id,
+  { id, attempts: new Map(attempts.map((each) => [each.attempt, each])), inputs: [] },
+];
+const batch = (fields: Partial<Batch> = {}): Batch => ({
+  id: '7-1',
+  issue: 7,
+  recipe: { name: 'nip', reason: 'label', source: 'label' },
+  lane: { kind: 'brewing' },
+  steps: new Map(),
+  rewinds: [],
+  ...fields,
+}); /** An Ordered batch, which no recipe brews yet. */
+const ordered = (): Batch => {
+  const { recipe: _, ...rest } = batch({ lane: { kind: 'ordered', routeBy: at } });
+  return rest;
+};
+const stuck = (reason: StuckReason, remindAt = at): Lane => ({
+  kind: 'stuck',
+  reason,
+  options: ['retry', 'cancel'],
+  remindAt,
+});
+const steps = ['plan', 'brew', 'taste'];
+/** The line of `text` that names the step `id`. */
+const lineOf = (text: string, id: string): string =>
+  text.split('\n').find((line) => line.includes(`\`${id}\``)) ?? '';
+
+describe('renderStatus', () => {
+  it('names the batch, and says an Ordered batch has no recipe chosen yet', () => {
+    const text = renderStatus(ordered(), undefined);
+    assert.match(text, /`7-1`/);
+    assert.match(text, /Ordered/);
+    assert.match(text, /no recipe is chosen yet/i);
+  });
+
+  it("lists the recipe's steps in order, marking the done, the current and the unreached", () => {
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('plan', done(1)), step('brew', failed(1, 'crash'), running(2))]),
+      }),
+      steps,
+    );
+    assert.match(text, /\*\*nip\*\*/);
+    assert.match(lineOf(text, 'plan'), /✅/);
+    assert.match(lineOf(text, 'brew'), /▶️.*attempt 2/);
+    assert.match(lineOf(text, 'taste'), /⬜/);
+    const order = steps.map((id) => text.indexOf(`\`${id}\``));
+    assert.deepEqual(
+      order,
+      [...order].sort((a, b) => a - b),
+    );
+  });
+
+  it('marks a skipped step and a failed one', () => {
+    const text = renderStatus(
+      batch({
+        lane: stuck({
+          kind: 'attempts_exhausted',
+          stepId: 'brew',
+          attempts: 2,
+          lastReason: 'crash',
+        }),
+        steps: new Map([step('brew', failed(1, 'crash'), failed(2, 'crash'))]),
+        skipped: new Set(['plan']),
+      }),
+      steps,
+    );
+    assert.match(lineOf(text, 'plan'), /skipped/);
+    assert.match(lineOf(text, 'brew'), /🔔/);
+  });
+
+  it('lists the steps the batch has when its recipe is unknown', () => {
+    const text = renderStatus(batch({ steps: new Map([step('mash', done(1))]) }), undefined);
+    assert.match(lineOf(text, 'mash'), /✅/);
+  });
+
+  it('says why a Stuck batch is stuck, at which step, and what gets it moving', () => {
+    const text = renderStatus(
+      batch({
+        lane: stuck({
+          kind: 'blocked',
+          stepId: 'brew',
+          blockerKind: 'environment',
+          summary: 'npm is missing',
+        }),
+        steps: new Map([step('plan', done(1)), step('brew', failed(1, 'npm is missing'))]),
+      }),
+      steps,
+    );
+    assert.match(text, /Stuck/);
+    assert.match(text, /environment/);
+    assert.match(text, /npm is missing/);
+    assert.match(lineOf(text, 'brew'), /🔔/);
+    assert.match(text, /`retry`.*`cancel`/);
+  });
+
+  it('lists the questions of a batch Stuck for input', () => {
+    const question = {
+      q: 'Which port?',
+      options: ['80', '8080'],
+      recommended: '8080',
+      whyBlocking: 'Both are in use',
+    };
+    const text = renderStatus(
+      batch({ lane: stuck({ kind: 'needs_input', stepId: 'plan', questions: [question] }) }),
+      steps,
+    );
+    assert.match(text, /Which port\?/);
+    assert.match(text, /8080/);
+  });
+
+  it('renders every reason a batch can be Stuck for', () => {
+    const reasons: StuckReason[] = [
+      { kind: 'deadline_passed', stepId: 'brew', deadlineAt: at },
+      { kind: 'waiting_for_session', stepId: 'brew' },
+      { kind: 'stalled', stepId: 'brew', lastProgressAt: at, turnsWithoutProgress: 30 },
+      { kind: 'routing', deadlineAt: at },
+    ];
+    for (const reason of reasons) {
+      const text = renderStatus(batch({ lane: stuck(reason) }), steps);
+      assert.match(text, /Stuck/, reason.kind);
+    }
+  });
+
+  it('leaves the reminder out, so a repeated reminder changes nothing', () => {
+    const reason: StuckReason = { kind: 'waiting_for_session', stepId: 'brew' };
+    assert.equal(
+      renderStatus(batch({ lane: stuck(reason, at) }), steps),
+      renderStatus(batch({ lane: stuck(reason, '2026-10-20T09:00:00.000Z') }), steps),
+    );
+  });
+
+  it('says what a Conditioning batch waits for', () => {
+    const text = renderStatus(
+      batch({
+        lane: { kind: 'conditioning', on: { kind: 'merge', pullRequest: pr }, remindAt: at },
+      }),
+      steps,
+    );
+    assert.match(text, /Conditioning/);
+    assert.ok(text.includes(pr));
+  });
+
+  it('lists the pull requests of a batch on tap', () => {
+    const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [pr] } }), steps);
+    assert.match(text, /On tap/);
+    assert.ok(text.includes(pr));
+  });
+
+  it('says who cancelled a cancelled batch', () => {
+    const text = renderStatus(
+      batch({ lane: { kind: 'cancelled', by: 'bob', via: 'terminal' } }),
+      steps,
+    );
+    assert.match(text, /Cancelled/);
+    assert.match(text, /bob/);
+  });
+
+  it("shows the assumptions of each step's latest out doc that succeeded", () => {
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('plan', done(1, ['old guess']), done(2, ['Port 8080 is free'])),
+          step('brew', {
+            phase: 'finished',
+            attempt: 1,
+            deadlineAt: at,
+            outcome: { kind: 'succeeded', output: 'no out doc' },
+          }),
+        ]),
+      }),
+      steps,
+    );
+    assert.match(text, /Port 8080 is free/);
+    assert.doesNotMatch(text, /old guess/);
+  });
+
+  it('shows at most 10 assumptions a step and counts the rest', () => {
+    const many = Array.from({ length: 12 }, (_, i) => `guess ${i + 1}`);
+    const text = renderStatus(batch({ steps: new Map([step('plan', done(1, many))]) }), steps);
+    assert.match(text, /guess 10\b/);
+    assert.doesNotMatch(text, /guess 11\b/);
+    assert.match(text, /2 more/);
+  });
+
+  it('writes what a brewer wrote as one escaped line: no mention, no marker, no Markdown', () => {
+    const planted = `@alice see ${effectMarker('["7-1","status.9"]')} **bold**\n# heading ${'x'.repeat(400)}`;
+    const text = renderStatus(batch({ steps: new Map([step('plan', done(1, [planted]))]) }), steps);
+    assert.doesNotMatch(text, /@alice/);
+    assert.doesNotMatch(text, /<!--/);
+    assert.doesNotMatch(text, /\*\*bold\*\*/);
+    assert.doesNotMatch(text, /^# heading/m);
+    const line = text.split('\n').find((each) => each.includes('alice')) ?? '';
+    assert.ok(line.includes('heading'), 'the text stays on one line');
+    assert.ok(!line.includes('x'.repeat(250)), 'and is cut short');
+  });
+});
+
+/** A fake of the comments host: the comments of every issue, ids from 1, as `login` sees them. */
+const fakeComments = (login: string) => {
+  const comments: { id: number; repo: string; issue: number; author: string; body: string }[] = [];
+  const calls: string[] = [];
+  let ids = 0;
+  const byId = (repo: string, id: number) =>
+    comments.find((comment) => comment.repo === repo && comment.id === id);
+  const host: StatusComments = {
+    find: async (repo, issue, marker) => {
+      calls.push('find');
+      const found = comments.find(
+        (comment) =>
+          comment.repo === repo &&
+          comment.issue === issue &&
+          comment.author === login &&
+          comment.body.endsWith(marker),
+      );
+      return found === undefined ? undefined : { id: found.id, body: found.body };
+    },
+    read: async (repo, id) => {
+      calls.push('read');
+      const found = byId(repo, id);
+      return found?.author === login ? found.body : undefined;
+    },
+    create: async (repo, issue, body) => {
+      calls.push('create');
+      ids += 1;
+      comments.push({ id: ids, repo, issue, author: login, body });
+      return ids;
+    },
+    edit: async (repo, id, body) => {
+      calls.push('edit');
+      const found = byId(repo, id);
+      if (found === undefined) return 'gone';
+      found.body = body;
+      return 'edited';
+    },
+  };
+  /** Someone else comments, or a run that was killed did; ids go on from the fake's. */
+  const add = (author: string, body: string, issue = 7): number => {
+    ids += 1;
+    comments.push({ id: ids, repo: brewery, issue, author, body });
+    return ids;
+  };
+  return { host, comments, calls, add };
+};
+
+const brewery = 'alice/brewery';
+const minute = 60_000;
+const succeeded: Ending = {
+  kind: 'succeeded',
+  output: { status: 'done', summary: 'Done', assumptions: ['Port 8080 is free'] },
+};
+const digest = (text: string): string =>
+  createHash('sha256').update(text).digest('hex').slice(0, 16);
+const marker = (revision: number): string =>
+  effectMarker(effectKey.encode({ batchId: '7-1', effect: `status.${revision}` }));
+
+describe('statusEffects', () => {
+  const recipes = fakeRecipes({ nip: fakeRecipe({ steps: ['plan', 'brew'], pullRequests: [pr] }) });
+  let store: EventStore;
+  let log: CommandLog;
+  let comments: ReturnType<typeof fakeComments>;
+  let now: Date;
+  let notices: DriverNotice[];
+  const drivers: Driver[] = [];
+
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+    log = createCommandLog({ store, recipes });
+    comments = fakeComments('alice');
+    now = new Date(at);
+    notices = [];
+  });
+  afterEach(() => {
+    for (const driver of drivers.splice(0)) driver.close();
+    store.close();
+  });
+
+  const open = async (): Promise<Driver> => {
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => now,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: statusEffects({ brewery, comments: comments.host, recipes, clock: () => now }),
+      report: (notice) => notices.push(notice),
+    });
+    drivers.push(driver);
+    return driver;
+  };
+  const issue = (command: Parameters<CommandLog['issue']>[0]): void => {
+    const decision = log.issue(command, now);
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+  };
+  const order = (): void => issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+  /** Routes 7-1 to nip and starts its first step, as another driver would. */
+  const brew = (): void => {
+    issue({ kind: 'route', batchId: '7-1', recipe: 'nip', reason: 'label', source: 'label' });
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', batchId: '7-1', stepId: 'plan', attempt: 1 },
+    });
+  };
+  /** Finishes both steps of 7-1, so it goes on tap. */
+  const finish = (): void => {
+    issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending: succeeded });
+    const brewing = { batchId: '7-1', stepId: 'brew', attempt: 1 };
+    issue({ kind: 'record', event: { type: 'step.started', ...brewing } });
+    issue({ kind: 'finish', ...brewing, ending: succeeded });
+  };
+  const later = (ms: number): void => {
+    now = new Date(now.getTime() + ms);
+  };
+  const revision = (n: number) => store.findEffect({ batchId: '7-1', effect: `status.${n}` });
+  const only = () => {
+    assert.equal(comments.comments.length, 1, 'one status comment');
+    return comments.comments[0] ?? assert.fail();
+  };
+
+  it("comments on the order's issue in the Brewery's repository at once, ending with its revision's marker", async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    const comment = only();
+    assert.equal(comment.repo, brewery);
+    assert.equal(comment.issue, 7);
+    assert.match(comment.body, /Ordered/);
+    assert.ok(comment.body.endsWith(marker(1)), comment.body);
+    assert.deepEqual(notices, []);
+  });
+
+  it('records each revision: the comment, and the digest of the text it shows', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    const text = only().body.slice(0, -marker(1).length).trimEnd();
+    assert.deepEqual(revision(1), { result: { comment: 1, digest: digest(text) } });
+  });
+
+  it('edits the same comment as the batch moves, at most once a minute', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    await driver.tick();
+    later(minute - 1);
+    await driver.tick();
+    assert.match(only().body, /Ordered/, 'not edited within the minute');
+    assert.equal(revision(2), undefined);
+    later(1);
+    await driver.tick();
+    assert.match(only().body, /Brewing/);
+    assert.match(only().body, /`plan`/);
+    assert.ok(only().body.endsWith(marker(2)));
+    assert.equal(comments.calls.filter((call) => call === 'create').length, 1);
+  });
+
+  it('shows the batch on tap at once, with its pull request, and lets the batch go', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    finish();
+    await driver.tick();
+    assert.match(only().body, /On tap/);
+    assert.ok(only().body.includes(pr));
+    assert.match(only().body, /Port 8080 is free/);
+    assert.deepEqual(driver.held(), []);
+    assert.deepEqual(notices, []);
+  });
+
+  it('edits nothing while the text stays the same', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    const calls = [...comments.calls];
+    later(5 * minute);
+    await driver.tick();
+    await driver.tick();
+    assert.deepEqual(comments.calls, calls);
+    assert.equal(revision(2), undefined);
+  });
+
+  it('makes the comment again at the next edit when it was deleted by hand', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    comments.comments.splice(0);
+    brew();
+    later(minute);
+    await driver.tick();
+    const comment = only();
+    assert.equal(comment.id, 2);
+    assert.match(comment.body, /Brewing/);
+    assert.deepEqual(revision(2)?.result, {
+      comment: 2,
+      digest: digest(comment.body.slice(0, -marker(2).length).trimEnd()),
+    });
+    finish();
+    await driver.tick();
+    assert.match(only().body, /On tap/, 'the next revision edits the new comment');
+  });
+
+  it('finds a first comment a run before made and was killed before it recorded', async () => {
+    order();
+    comments.add('alice', `Earlier\n\n${marker(1)}`);
+    const driver = await open();
+    await driver.tick();
+    assert.equal(comments.calls.includes('create'), false);
+    assert.deepEqual(revision(1), { result: { comment: 1, digest: digest('Earlier') } });
+    later(minute);
+    await driver.tick();
+    assert.match(only().body, /Ordered/, 'its stale text is replaced');
+  });
+
+  it('finds an edit a run before made, and records the digest of what the comment shows', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    // A run that was killed had edited the comment to revision 2 and recorded nothing.
+    const comment = only();
+    comment.body = `Earlier\n\n${marker(2)}`;
+    later(minute);
+    await driver.tick();
+    assert.deepEqual(revision(2), { result: { comment: 1, digest: digest('Earlier') } });
+    later(minute);
+    await driver.tick();
+    assert.match(only().body, /Brewing/);
+    assert.ok(only().body.endsWith(marker(3)));
+  });
+
+  it('counts only its own comment, not one someone else planted with the marker', async () => {
+    order();
+    comments.add('mallory', `Planted\n\n${marker(1)}`);
+    const driver = await open();
+    await driver.tick();
+    assert.equal(comments.comments.length, 2);
+    assert.equal(comments.comments[1]?.author, 'alice');
+    assert.deepEqual(revision(1)?.result, {
+      comment: 2,
+      digest: digest(comments.comments[1]?.body.slice(0, -marker(1).length).trimEnd() ?? ''),
+    });
+  });
+
+  it('has no status comment for a claimed target-repository issue', async () => {
+    issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'alice/web' } });
+    const driver = await open();
+    await driver.tick();
+    assert.deepEqual(comments.comments, []);
+    assert.deepEqual(comments.calls, []);
+  });
+});

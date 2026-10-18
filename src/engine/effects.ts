@@ -1,5 +1,6 @@
 // Applying an external side effect through the idempotency ledger (invariant I4, ADR 0033).
 
+import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectKey } from './event-store.ts';
 
@@ -57,4 +58,13 @@ export const applyEffect = async (
   signal?.throwIfAborted();
   ledger.record(key, applied.result);
   return applied;
+};
+
+/**
+ * The effects of every source together (ADR 0072): the keys each gives, and each key applied by
+ * the source that gave it. The shortest deadline of theirs holds for all, the driver's when none
+ * sets one.
+ */
+export const combineEffects = (..._sources: readonly DriverEffects[]): DriverEffects => {
+  throw new Error('not implemented');
 };
