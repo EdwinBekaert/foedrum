@@ -154,13 +154,8 @@ export function answersOf(batch: Batch, stepId: string): PromptInput | undefined
 
 /** One example out doc of the contract: the keys every status shares, then the status's own key. */
 function example(status: string, ownKey?: string): string[] {
-  const keys = [
-    `"status": "${status}"`,
-    '"summary": "<one line>"',
-    '"assumptions": ["<decisions you took without asking>"]',
-    ...(ownKey === undefined ? [] : [ownKey]),
-  ];
-  return ['---', '{', keys.map((key) => `  ${key}`).join(',\n'), '}', '---'];
+  const shared = `{ "status": "${status}", "summary": "<one line>", "assumptions": ["<decided without asking>"]`;
+  return ['---', ownKey === undefined ? `${shared} }` : `${shared},\n  ${ownKey} }`, '---'];
 }
 
 /**
@@ -169,29 +164,24 @@ function example(status: string, ownKey?: string): string[] {
  */
 export function outDocContract(file: string): string {
   return [
-    `When you finish, write ${file}. It must start with JSON frontmatter: copy the one example`,
-    'below that says how the run ended and fill it in, with only the keys it shows and any your',
-    'instructions add. "questions" goes only with needs_input, "blockerKind" only with blocked.',
+    `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
+    'below for how the run ended and fill it in, with only its keys and any your instructions',
+    'add. "questions" goes only with needs_input, "blockerKind" only with blocked.',
     '',
     'The work is done:',
-    '',
     ...example('done'),
     '',
-    'You need a human to answer before the work can go on:',
-    '',
+    "You need a human's answer to go on:",
     ...example(
       'needs_input',
       '"questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }]',
     ),
     '',
-    'Something stops the work. "blockerKind" is "findings" (the work under review has problems',
-    'to fix), "environment" (a tool, access or setup you cannot fix) or "divergence" (the plan',
-    'does not match reality):',
+    'Something stops the work. "blockerKind" is "findings" (problems to fix),',
+    '"environment" (a wall you cannot fix) or "divergence" (the plan does not match reality):',
+    ...example('blocked', '"blockerKind": "findings"'),
     '',
-    ...example('blocked', '"blockerKind": "environment"'),
-    '',
-    'You could not finish the work:',
-    '',
+    'You could not finish:',
     ...example('failed'),
     '',
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',

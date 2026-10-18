@@ -137,59 +137,38 @@ and everything is committed.
 The only text Foedrum adds to every brewer prompt, besides the rule about tagged input when the brewer has inputs ([ADR 0041](adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)):
 
 ```markdown
-When you finish, write {outDoc}. It must start with JSON frontmatter: copy the one example
-below that says how the run ended and fill it in, with only the keys it shows and any your
-instructions add. "questions" goes only with needs_input, "blockerKind" only with blocked.
+When you finish, write {outDoc}. It must start with JSON frontmatter: copy the example
+below for how the run ended and fill it in, with only its keys and any your instructions
+add. "questions" goes only with needs_input, "blockerKind" only with blocked.
 
 The work is done:
-
 ---
-{
-  "status": "done",
-  "summary": "<one line>",
-  "assumptions": ["<decisions you took without asking>"]
-}
+{ "status": "done", "summary": "<one line>", "assumptions": ["<decided without asking>"] }
 ---
 
-You need a human to answer before the work can go on:
-
+You need a human's answer to go on:
 ---
-{
-  "status": "needs_input",
-  "summary": "<one line>",
-  "assumptions": ["<decisions you took without asking>"],
-  "questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }]
-}
+{ "status": "needs_input", "summary": "<one line>", "assumptions": ["<decided without asking>"],
+  "questions": [{ "q": "...", "options": ["a", "b"], "recommended": "a", "whyBlocking": "..." }] }
 ---
 
-Something stops the work. "blockerKind" is "findings" (the work under review has problems
-to fix), "environment" (a tool, access or setup you cannot fix) or "divergence" (the plan
-does not match reality):
-
+Something stops the work. "blockerKind" is "findings" (problems to fix),
+"environment" (a wall you cannot fix) or "divergence" (the plan does not match reality):
 ---
-{
-  "status": "blocked",
-  "summary": "<one line>",
-  "assumptions": ["<decisions you took without asking>"],
-  "blockerKind": "environment"
-}
+{ "status": "blocked", "summary": "<one line>", "assumptions": ["<decided without asking>"],
+  "blockerKind": "findings" }
 ---
 
-You could not finish the work:
-
+You could not finish:
 ---
-{
-  "status": "failed",
-  "summary": "<one line>",
-  "assumptions": ["<decisions you took without asking>"]
-}
+{ "status": "failed", "summary": "<one line>", "assumptions": ["<decided without asking>"] }
 ---
 
 Prefer deciding and recording an assumption over asking. Ask only when a wrong
 guess would likely waste this run. Never ask questions any other way. Do not push.
 ```
 
-One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
+One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). The blocked example says `findings`, whose route keeps the batch moving. The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters. Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 
 ### How the engine routes an out doc
 
