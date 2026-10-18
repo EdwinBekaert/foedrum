@@ -217,7 +217,6 @@ describe('loadRecipes: fails closed', () => {
   it('refuses a step the engine does not brew yet, naming its kind', () => {
     const steps = [
       { brewer: 'maltster' },
-      { id: 'green', check: 'test' },
       {
         id: 'review',
         loop: {
@@ -232,8 +231,8 @@ describe('loadRecipes: fails closed', () => {
       { action: 'openPullRequest' },
       { id: 'split', fanOut: {} },
     ];
-    const kinds = ['check', 'loop', 'parallel', 'session', 'gate', 'action', 'fanOut'];
-    const ids = ['green', 'review', 'panel', 'refine', 'approve', 'open-pull-request', 'split'];
+    const kinds = ['loop', 'parallel', 'session', 'gate', 'action', 'fanOut'];
+    const ids = ['review', 'panel', 'refine', 'approve', 'open-pull-request', 'split'];
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
@@ -446,7 +445,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
   const noProof = (name: string) =>
     `recipes/${name}.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)`;
   const unbrewedCheck =
-    'recipes/pale.jsonc: step "red" is a check step, which the engine does not brew yet (ADR 0053)';
+    'recipes/pale.jsonc: step "red" is a red proof ("expect": "fail"), which the engine does not run yet (#176) (ADR 0069)';
 
   it('refuses a test-first recipe without a red proof, naming the fix', () => {
     const files = withWriters(
@@ -522,7 +521,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ]);
   });
 
-  it('refuses a test-first recipe for no more than its check steps, which the engine does not brew yet', () => {
+  it('refuses a test-first recipe for no more than its red proof, which the engine does not run yet', () => {
     const steps = [
       { id: 'plan', brewer: 'maltster' },
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
@@ -530,6 +529,142 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'implement', brewer: 'cellarman' },
     ];
     assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [unbrewedCheck]);
+  });
+});
+
+describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {
+  const e2e = { run: 'make e2e', windows: 'nmake e2e' };
+  const ale = recipe('ale', [
+    { id: 'brew', brewer: 'maltster' },
+    { id: 'green', check: ['typecheck', 'test'] },
+    { id: 'e2e', check: e2e, deadline: '2h', onFail: { goto: 'brew', maxRounds: 2 } },
+  ]);
+  const aleLoaded = () => {
+    const result = loadRecipes(brewery({ recipes: [ale] }));
+    assert.equal(result.valid, true, result.valid ? '' : result.problems.join('\n'));
+    return result as Extract<LoadedRecipes, { valid: true }>;
+  };
+  const aleRecipe = (): Recipe => {
+    const found = aleLoaded().recipes.find('ale');
+    assert.ok(found !== undefined);
+    return found;
+  };
+
+  type Finished = Omit<Extract<Attempt, { phase: 'finished' }>, 'attempt'>;
+  /** A brewing batch whose step `stepId` has an attempt for each of `attempts`. */
+  const withAttempts = (stepId: string, attempts: readonly Finished[]): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        stepId,
+        {
+          id: stepId,
+          inputs: [],
+          attempts: new Map(
+            attempts.map((attempt, i): [number, Attempt] => [
+              i + 1,
+              { ...attempt, attempt: i + 1 },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  });
+  const finished = (outcome: Finished['outcome'], route?: Finished['route']): Finished => ({
+    phase: 'finished',
+    deadlineAt: D,
+    outcome,
+    ...(route === undefined ? {} : { route }),
+  });
+  const failedCheck = finished({ kind: 'failed', retryable: false, reason: 'exit code 1' });
+  const lost = finished({ kind: 'failed', retryable: true, reason: 'the attempt was lost' });
+  const cancelled = finished({ kind: 'cancelled' });
+
+  it('loads a brewer step followed by check steps, in a line', () => {
+    const ale = aleRecipe();
+    assert.equal(ale.firstStep, 'brew');
+    assert.deepEqual(ale.after(batch({}), 'brew'), { kind: 'step', stepId: 'green' });
+    assert.deepEqual(ale.after(batch({}), 'green'), { kind: 'step', stepId: 'e2e' });
+    assert.deepEqual(ale.after(batch({}), 'e2e'), { kind: 'done', pullRequests: [] });
+    assert.equal(ale.has('green'), true);
+  });
+
+  it("finds each check step's checks, and no brewer for it", () => {
+    const { checks, brewers } = aleLoaded();
+    assert.deepEqual(checks.find('ale', 'green'), ['typecheck', 'test']);
+    assert.deepEqual(checks.find('ale', 'e2e'), [e2e]);
+    assert.equal(checks.find('ale', 'brew'), undefined);
+    assert.equal(checks.find('stout', 'green'), undefined);
+    assert.equal(brewers.find('ale', 'green'), undefined);
+  });
+
+  it('says whether any recipe has a check step', () => {
+    assert.equal(aleLoaded().checks.any(), true);
+    const result = loadRecipes(brewery());
+    assert.ok(result.valid);
+    assert.equal(result.checks.any(), false);
+  });
+
+  it('gives a check step its own deadline, else 30 minutes, and no stall limit', () => {
+    const ale = aleRecipe();
+    assert.equal(ale.deadlineMs('green'), 30 * 60_000);
+    assert.equal(ale.deadlineMs('e2e'), 2 * 3_600_000);
+    assert.equal(ale.stall('green'), undefined);
+  });
+
+  it('tries a check step again after an attempt that read nothing, three times over the batch', () => {
+    const ale = aleRecipe();
+    assert.equal(ale.mayRetry(withAttempts('green', [lost]), 'green'), true);
+    assert.equal(ale.mayRetry(withAttempts('green', [lost, cancelled]), 'green'), true);
+    assert.equal(ale.mayRetry(withAttempts('green', [lost, cancelled, lost]), 'green'), false);
+    // A check that failed read the tree: those attempts do not count, rounds of a route among them.
+    const rounds = withAttempts('green', [failedCheck, failedCheck, failedCheck, lost, cancelled]);
+    assert.equal(ale.mayRetry(rounds, 'green'), true);
+  });
+
+  it('goes back along its onFail route while it has rounds left, then has none (ADR 0064)', () => {
+    const ale = aleRecipe();
+    const route = { from: 'e2e', why: 'failed' } as const;
+    const brewed = finished({ kind: 'succeeded', output: null });
+    assert.equal(ale.loopBack(withAttempts('brew', [brewed]), 'e2e', 'failed'), 'brew');
+    const once = withAttempts('brew', [brewed, finished(brewed.outcome, route)]);
+    assert.equal(ale.loopBack(once, 'e2e', 'failed'), 'brew');
+    const twice = withAttempts('brew', [
+      brewed,
+      finished(brewed.outcome, route),
+      finished(brewed.outcome, route),
+    ]);
+    assert.equal(ale.loopBack(twice, 'e2e', 'failed'), undefined);
+    // Only a failed check takes the route, and a check without onFail has none.
+    assert.equal(ale.loopBack(withAttempts('brew', [brewed]), 'e2e', 'findings'), undefined);
+    assert.equal(ale.loopBack(withAttempts('brew', [brewed]), 'green', 'failed'), undefined);
+  });
+
+  it("skips a check step whose when is false for the recipe's settings", () => {
+    const steps = [
+      { brewer: 'maltster' },
+      { id: 'green', check: 'test', when: "recipe.testFirst == 'true'" },
+    ];
+    const files = brewery({ recipes: [recipe('pale', steps, { testFirst: false })] });
+    const found = loaded(loadRecipes(files)).find('pale');
+    assert.equal(found?.skip(batch({}), 'green'), "recipe.testFirst == 'true'");
+  });
+
+  it('refuses a check step the engine cannot follow yet, one line each', () => {
+    const steps = [
+      { brewer: 'maltster' },
+      { id: 'green', check: 'test', when: 'maltster.status' },
+      { id: 'slow', check: 'build', deadline: '366d' },
+      { id: 'red', check: 'test', expect: 'fail', of: 'maltster' },
+    ];
+    assert.deepEqual(
+      problemsOf(brewery({ recipes: [recipe('pale', steps, { testFirst: false })] })),
+      [
+        'recipes/pale.jsonc: step "green" has a "when" that reads step "maltster", which the engine does not follow yet (ADR 0064)',
+        'recipes/pale.jsonc: step "slow" has a deadline of 366d, longer than 365 days',
+        'recipes/pale.jsonc: step "red" is a red proof ("expect": "fail"), which the engine does not run yet (#176) (ADR 0069)',
+      ],
+    );
   });
 });
 

@@ -6,6 +6,7 @@ import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
+  type CheckRef,
   Recipe as RecipeFile,
   readExpression,
   type Step,
@@ -14,7 +15,8 @@ import {
   stepKind,
   walk,
 } from '../schemas/recipe.ts';
-import type { Recipe, Recipes } from './recipes.ts';
+import type { Attempt } from './fold.ts';
+import type { Recipe, Recipes, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
 /** A file of the Brewery, by its path from the Brewery's root with `/`: its text, or why not. */
@@ -38,8 +40,16 @@ export interface StepBrewers {
   find(recipe: string, stepId: string): StepBrewer | undefined;
 }
 
+/** The checks of the loaded recipes' check steps (ADR 0069). */
+export interface StepChecks {
+  /** The checks of step `stepId` of recipe `recipe`, or `undefined` when it is no check step. */
+  find(recipe: string, stepId: string): readonly CheckRef[] | undefined;
+  /** Whether any recipe has a check step. */
+  any(): boolean;
+}
+
 export type LoadedRecipes =
-  | { valid: true; recipes: Recipes; brewers: StepBrewers }
+  | { valid: true; recipes: Recipes; brewers: StepBrewers; checks: StepChecks }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
 
@@ -91,6 +101,36 @@ function readAll<T extends { name: string }>(
 }
 
 type BrewerStep = Extract<Step, { brewer: string }>;
+type CheckStep = Extract<Step, { check: unknown }>;
+
+/** A step the engine runs, as its recipe answers about it. */
+interface LineStep {
+  id: string;
+  when: string | undefined;
+  /** A `Duration`. */
+  deadline: string;
+  stall: Stall | undefined;
+  /** Whether it gets another attempt after `attempts`, the last of which failed retryably. */
+  mayRetry: (attempts: readonly Attempt[]) => boolean;
+  /** Where its onFail (a check) or onBlocked findings (a brewer) route goes, and how often. */
+  route: { why: 'failed' | 'findings'; goto: string; maxRounds: number } | undefined;
+}
+
+/** The deadline of a check step without one of its own (ADR 0069). */
+const CHECK_DEADLINE = '30m';
+
+/**
+ * How often a check step is tried again after an attempt that read nothing: cancelled, lost, or
+ * one whose worktree the driver could not make. A check that read the tree is not tried again: it
+ * would read the same.
+ */
+const CHECK_RETRIES = 3;
+
+/** Whether an attempt ended without a reading of its own: cancelled, or retryably failed. */
+const readNothing = (attempt: Attempt): boolean =>
+  attempt.phase === 'finished' &&
+  (attempt.outcome.kind === 'cancelled' ||
+    (attempt.outcome.kind === 'failed' && attempt.outcome.retryable));
 
 /** The recipe's settings after routing, which a `when` may read (ADR 0064). */
 interface Settings {
@@ -127,14 +167,24 @@ function holds(when: string, settings: Settings): boolean {
   return (String(value) === compare.value) === (compare.op === '==');
 }
 
-/** The step, when the engine brews it, else why it does not yet, naming the ADR that says so. */
-function brewerStep(step: Step): BrewerStep | string {
+/**
+ * The step, when the engine runs it (a brewer or a check), else why it does not yet, naming the
+ * ADR that says so.
+ */
+function runnableStep(step: Step): BrewerStep | CheckStep | string {
   const id = stepId(step);
-  if (!('brewer' in step)) {
+  if (!('brewer' in step) && !('check' in step)) {
     return `step "${id}" is a ${stepKind(step)} step, which the engine does not brew yet (ADR 0053)`;
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
+  if ('check' in step) {
+    // A red proof reads the test report against the commits of the step it proves.
+    if ('of' in step) {
+      return `step "${id}" is a red proof ("expect": "fail"), which the engine does not run yet (#176) (ADR 0069)`;
+    }
+    return step;
+  }
   // A Taster's lens and Brett's blocking flag would load and change nothing.
   if (step.lens !== undefined) {
     return `step "${id}" has a "lens", which the engine does not follow yet (ADR 0053)`;
@@ -194,12 +244,8 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
     );
 }
 
-/** A recipe of brewer steps in a line, each with its brewer, and its settings. */
-function brewingRecipe(
-  name: string,
-  steps: readonly { id: string; step: BrewerStep; brewer: BrewerFrontmatter }[],
-  settings: Settings,
-): Recipe {
+/** A recipe of brewer and check steps in a line, and its settings. */
+function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
   const at = (id: string) => {
     const found = byId.get(id);
@@ -211,13 +257,10 @@ function brewingRecipe(
     firstStep: steps[0]?.id ?? '',
     steps: steps.map(({ id }) => id),
     has: (id) => byId.has(id),
-    deadlineMs: (id) => {
-      const { step, brewer } = at(id);
-      return durationMs(step.deadline ?? brewer.deadline);
-    },
-    stall: (id) => at(id).brewer.stall,
+    deadlineMs: (id) => durationMs(at(id).deadline),
+    stall: (id) => at(id).stall,
     skip: (_batch, id) => {
-      const { when } = at(id).step;
+      const { when } = at(id);
       return when === undefined || holds(when, settings) ? undefined : when;
     },
     after: (_batch, id) => {
@@ -227,11 +270,11 @@ function brewingRecipe(
         ? { kind: 'done', pullRequests: [] }
         : { kind: 'step', stepId: next.id };
     },
-    mayRetry: (batch, id) => (batch.steps.get(id)?.attempts.size ?? 0) < at(id).brewer.maxAttempts,
-    // A brewer step has no onFail; its onBlocked route counts the attempts it scheduled.
+    mayRetry: (batch, id) => at(id).mayRetry([...(batch.steps.get(id)?.attempts.values() ?? [])]),
+    // A route counts the attempts of its goto step it scheduled (ADR 0064).
     loopBack: (batch, id, why) => {
-      const route = at(id).step.onBlocked?.findings;
-      if (why !== 'findings' || route === undefined) return undefined;
+      const { route } = at(id);
+      if (route === undefined || route.why !== why) return undefined;
       const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
       const rounds = [...attempts].filter(
         (attempt) => attempt.route?.from === id && attempt.route.why === why,
@@ -262,48 +305,78 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
+  const stepChecks = new Map<string, ReadonlyMap<string, readonly CheckRef[]>>();
   for (const { path, value } of readAll(
     files.recipes,
     'recipe',
     (text) => readJsonc(text, RecipeFile),
     problems,
   )) {
-    const steps = value.steps.flatMap((step) => {
-      const brewing = brewerStep(step);
-      if (typeof brewing === 'string') {
-        problems.push(`${path}: ${brewing}`);
-        return [];
-      }
-      const found = brewers.get(brewing.brewer);
-      if (found === undefined) {
-        if (!brewerFiles.has(brewing.brewer)) {
-          problems.push(`${path}: it names no brewer "${brewing.brewer}" the Brewery has`);
+    // The Duration schema has no upper bound; a deadline past what a time can hold would throw
+    // when the step is scheduled, naming no file.
+    const tooLong = (id: string, deadline: string): boolean => {
+      if (durationMs(deadline) <= MAX_DEADLINE_MS) return false;
+      problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
+      return true;
+    };
+    const steps = value.steps.flatMap(
+      (step): { line: LineStep; brewer?: StepBrewer; checks?: readonly CheckRef[] }[] => {
+        const runnable = runnableStep(step);
+        if (typeof runnable === 'string') {
+          problems.push(`${path}: ${runnable}`);
+          return [];
         }
-        return [];
-      }
-      const { brewer } = found;
-      const id = stepId(step);
-      const refused = unplannable(brewer);
-      if (refused.length > 0) {
-        for (const what of refused) {
-          problems.push(
-            `${path}: step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
-          );
+        const id = stepId(step);
+        if ('check' in runnable) {
+          const deadline = runnable.deadline ?? CHECK_DEADLINE;
+          if (tooLong(id, deadline)) return [];
+          const { onFail } = runnable;
+          const line: LineStep = {
+            id,
+            when: runnable.when,
+            deadline,
+            stall: undefined,
+            mayRetry: (attempts) => attempts.filter(readNothing).length < CHECK_RETRIES,
+            route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
+          };
+          const checks = Array.isArray(runnable.check) ? runnable.check : [runnable.check];
+          return [{ line, checks }];
         }
-        return [];
-      }
-      const deadline = brewing.deadline ?? brewer.deadline;
-      // The Duration schema has no upper bound; a deadline past what a time can hold would throw
-      // when the step is scheduled, naming no file.
-      if (durationMs(deadline) > MAX_DEADLINE_MS) {
-        problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
-        return [];
-      }
-      return [{ id, step: brewing, ...found }];
-    });
+        const found = brewers.get(runnable.brewer);
+        if (found === undefined) {
+          if (!brewerFiles.has(runnable.brewer)) {
+            problems.push(`${path}: it names no brewer "${runnable.brewer}" the Brewery has`);
+          }
+          return [];
+        }
+        const { brewer } = found;
+        const refused = unplannable(brewer);
+        if (refused.length > 0) {
+          for (const what of refused) {
+            problems.push(
+              `${path}: step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
+            );
+          }
+          return [];
+        }
+        const deadline = runnable.deadline ?? brewer.deadline;
+        if (tooLong(id, deadline)) return [];
+        const findings = runnable.onBlocked?.findings;
+        const line: LineStep = {
+          id,
+          when: runnable.when,
+          deadline,
+          stall: brewer.stall,
+          // Attempts are counted over the batch's whole life (ADR 0053).
+          mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
+          route: findings === undefined ? undefined : { why: 'findings', ...findings },
+        };
+        return [{ line, brewer: found }];
+      },
+    );
     // resolveRecipe (ADR 0028) needs every brewer the recipe names; a missing one is reported
-    // above. The red proof is checked even when a step did not load: it is a check step, which
-    // the engine does not brew yet (ADR 0064).
+    // above. The red proof is checked even when a step did not load: it is a red proof, which
+    // the engine does not run yet (#176).
     const brewerOf = (name: string) => brewers.get(name)?.brewer;
     const named = [...walk(value.steps, ['steps'])].map(({ step }) => stepBrewerName(step));
     if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
@@ -315,10 +388,25 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     const unprovenLines = testFirst ? unproven(value, commits) : [];
     for (const line of unprovenLines) problems.push(`${path}: ${line}`);
     if (steps.length < value.steps.length || unprovenLines.length > 0) continue;
-    recipes.set(value.name, brewingRecipe(value.name, steps, { testFirst }));
+    recipes.set(
+      value.name,
+      lineRecipe(
+        value.name,
+        steps.map(({ line }) => line),
+        { testFirst },
+      ),
+    );
     stepBrewers.set(
       value.name,
-      new Map(steps.map(({ id, brewer, instructions }) => [id, { brewer, instructions }])),
+      new Map(
+        steps.flatMap(({ line, brewer }) => (brewer === undefined ? [] : [[line.id, brewer]])),
+      ),
+    );
+    stepChecks.set(
+      value.name,
+      new Map(
+        steps.flatMap(({ line, checks }) => (checks === undefined ? [] : [[line.id, checks]])),
+      ),
     );
   }
   if (problems.length > 0) return { valid: false, problems };
@@ -326,6 +414,10 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     valid: true,
     recipes: { find: (name) => recipes.get(name) },
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
+    checks: {
+      find: (recipe, id) => stepChecks.get(recipe)?.get(id),
+      any: () => [...stepChecks.values()].some((steps) => steps.size > 0),
+    },
   };
 }
 

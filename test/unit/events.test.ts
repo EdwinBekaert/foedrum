@@ -196,6 +196,54 @@ describe('Event', () => {
     accepts(Event, { ...valid['batch.on_tap'], pullRequests: [] });
   });
 
+  it("accepts a check step's finish with its gravity readings (ADR 0069)", () => {
+    const tail = `${'x'.repeat(3990)}\nnot ok 3\n`.slice(-4000);
+    accepts(Event, {
+      ...valid['step.finished'],
+      outcome: { kind: 'failed', retryable: false, reason: 'the check "test" failed' },
+      readings: [
+        { result: 'skipped', check: 'typecheck' },
+        { result: 'exited', check: 'lint', command: 'npm run lint', exitCode: 0, tail: '' },
+        { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail },
+      ],
+    });
+    // A Brewery's literal command has no check name; Windows exit codes are unsigned.
+    accepts(Event, {
+      ...valid['step.finished'],
+      readings: [{ result: 'exited', command: 'make e2e', exitCode: 3221225477, tail: 'boom' }],
+    });
+    for (const killed of ['timed-out', 'stopped', 'too-much-output'] as const) {
+      accepts(Event, {
+        ...valid['step.finished'],
+        readings: [{ result: 'killed', check: 'test', command: 'npm test', killed, tail: '' }],
+      });
+    }
+    accepts(Event, {
+      ...valid['step.finished'],
+      readings: [{ result: 'unstarted', check: 'build', command: 'cargo build', tail: 'ENOENT' }],
+    });
+  });
+
+  it('accepts the reading of a check that a signal ended, and only with the signal', () => {
+    const signaled = { result: 'signaled', check: 'test', command: 'node --test', tail: 'ok 1\n' };
+    accepts(Event, { ...valid['step.finished'], readings: [{ ...signaled, signal: 'SIGSEGV' }] });
+    rejects(Event, { ...valid['step.finished'], readings: [signaled] });
+    rejects(Event, { ...valid['step.finished'], readings: [{ ...signaled, signal: '' }] });
+  });
+
+  it('rejects gravity readings that are empty, unbounded or not of a check', () => {
+    const finished = (readings: unknown) => ({ ...valid['step.finished'], readings });
+    const exited = { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' };
+    rejects(Event, finished([]));
+    rejects(Event, finished([{ ...exited, tail: 'x'.repeat(4001) }]));
+    rejects(Event, finished([{ ...exited, check: 'e2e' }]));
+    rejects(Event, finished([{ ...exited, command: '' }]));
+    rejects(Event, finished([{ ...exited, exitCode: 1.5 }]));
+    rejects(Event, finished([{ result: 'skipped' }]));
+    rejects(Event, finished([{ result: 'passed', check: 'test' }]));
+    rejects(Event, finished([{ ...exited, result: 'killed', killed: 'crashed' }]));
+  });
+
   it('accepts an attempt scheduled by an onFail or onBlocked route (ADR 0064)', () => {
     for (const why of ['failed', 'findings'] as const) {
       accepts(Event, { ...valid['step.scheduled'], route: { from: 'implement', why } });

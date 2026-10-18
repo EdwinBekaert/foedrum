@@ -64,9 +64,9 @@ const SessionStep = z.strictObject({
 
 /** A named check, or in a Brewery's own recipe a literal command (ADR 0023). */
 const CheckRef = z.union([CheckName, CommandObject]);
+export type CheckRef = z.infer<typeof CheckRef>;
 
-const checkLabel = (check: z.infer<typeof CheckRef>): string =>
-  typeof check === 'string' ? check : check.run;
+const checkLabel = (check: CheckRef): string => (typeof check === 'string' ? check : check.run);
 
 const CheckStep = z.strictObject({
   id: StepId,

@@ -54,17 +54,39 @@ export const spawnCommand = (
   env: NodeJS.ProcessEnv = process.env,
 ): SpawnCommand =>
   platform === 'win32' && /\.(?:cmd|bat)$/i.test(file)
-    ? {
-        file: windowsCommandLine(file, args),
-        args: [],
-        shell: win32.join(
-          environmentVariable(env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows',
-          'System32',
-          'cmd.exe',
-        ),
-        env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
-      }
+    ? throughCmd(windowsCommandLine(file, args), env)
     : { file, args: [...args], shell: false, env };
+
+/** A command line for cmd.exe, by its full path and without the working directory's programs. */
+const throughCmd = (line: string, env: NodeJS.ProcessEnv): SpawnCommand => ({
+  file: line,
+  args: [],
+  shell: win32.join(
+    environmentVariable(env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows',
+    'System32',
+    'cmd.exe',
+  ),
+  env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
+});
+
+/**
+ * How to start a command line through the platform shell (architecture §13): a check's command,
+ * from foedrum.jsonc or a Brewery's recipe (ADR 0069). `/bin/sh -c` outside Windows; on Windows
+ * cmd.exe by its full path with `/d /s /c`, and NoDefaultCurrentDirectoryInExePath set, so a bare
+ * name is never a file in the working directory. Throws on a line break.
+ */
+export const shellCommand = (
+  line: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): SpawnCommand => {
+  if (/[\r\n]/.test(line)) {
+    throw new Error(`the command ${JSON.stringify(line)} must be one line`);
+  }
+  return platform === 'win32'
+    ? throughCmd(line, env)
+    : { file: line, args: [], shell: '/bin/sh', env };
+};
 
 // Between SIGTERM and SIGKILL: long enough for a script such as npm run check to kill its own
 // children's groups on SIGTERM, short enough that a stop still feels immediate.
@@ -150,6 +172,11 @@ export interface ExecOptions {
    * process group.
    */
   jobObject?: boolean | undefined;
+  /**
+   * Runs `file` as a command line through the platform shell (`shellCommand`), without looking it
+   * up; `args` must be empty.
+   */
+  shell?: boolean | undefined;
 }
 
 export interface ExecResult {
@@ -161,6 +188,8 @@ export interface ExecResult {
   output: string;
   /** Set when the runner killed the process and every process it started. */
   killed?: Killed;
+  /** The signal that ended the process when the runner did not send it: a crash, the OOM killer. */
+  signal?: string;
 }
 
 export type ExecProcess = (
@@ -199,7 +228,14 @@ export interface Spawner {
   spawn: (
     file: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; jobObject?: boolean; stdin?: boolean },
+    options: {
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      jobObject?: boolean;
+      stdin?: boolean;
+      /** `file` is a command line for the platform shell. */
+      shell?: boolean;
+    },
   ) => ChildHandle;
   killTree: (pid: number) => void;
   /** Whether `spawn` holds a process in a Job Object when asked to (the real one on Windows). */
@@ -237,6 +273,7 @@ export const execProcessWith =
       signal,
       maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
       jobObject = false,
+      shell = false,
     },
   ) =>
     new Promise((done) => {
@@ -258,14 +295,19 @@ export const execProcessWith =
         done(ended(null, 'stopped'));
         return;
       }
-      const program = resolve === undefined ? file : resolve(file, env);
+      if (shell && args.length > 0) {
+        done(failed(`${file}: a command line for the shell takes no arguments`));
+        return;
+      }
+      // The shell finds the programs of a command line itself.
+      const program = shell || resolve === undefined ? file : resolve(file, env);
       if (program === undefined) {
         done(failed(`${file}: not found on PATH (ENOENT)`));
         return;
       }
       let child: ChildHandle;
       try {
-        child = spawn(program, [...args], { cwd, env, jobObject });
+        child = spawn(program, [...args], { cwd, env, jobObject, ...(shell ? { shell } : {}) });
       } catch (error) {
         done(failed(error));
         return;
@@ -308,12 +350,12 @@ export const execProcessWith =
         output += chunk;
       });
       child.on('error', (error) => finish(failed(error)));
-      child.on('close', (code) => {
+      child.on('close', (code, endedBy) => {
         // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
         const refused =
           jobObject && jobObjects ? jobObjectRefusal(code, stdout, stderr) : undefined;
         if (refused === undefined) {
-          finish(ended(code));
+          finish(endedBy === null ? ended(code) : { ...ended(code), signal: endedBy });
           return;
         }
         const reason = `${program}: cannot run in a Job Object: ${refused}`;
@@ -538,8 +580,10 @@ const jobObjectsHere = process.platform === 'win32';
 
 /** The real spawner. Unit tests use a fake one instead (ADR 0021). */
 export const processSpawner: Spawner = {
-  spawn: (file, args, { cwd, env, jobObject = false, stdin = false }) => {
-    const command = spawnCommand(file, args, process.platform, env);
+  spawn: (file, args, { cwd, env, jobObject = false, stdin = false, shell = false }) => {
+    const command = shell
+      ? shellCommand(file, process.platform, env)
+      : spawnCommand(file, args, process.platform, env);
     const start =
       jobObjectsHere && jobObject ? jobObjectCommand(command, cwd) : { ...command, cwd };
     const options = {
