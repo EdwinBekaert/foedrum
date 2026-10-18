@@ -1,9 +1,9 @@
 // One real step, end to end (#148): a driver brews an order's one-step recipe from the Brewery's
 // files, with the real claude runner, the attempt plans and real attempt worktrees. A fake
-// Messages API stands in for the model (no login, no tokens): its "model" makes and commits a change
-// as the brewer of a commit-producing step (ADR 0074), writes the out doc, then
-// answers. Opt-in: it runs only with FOEDRUM_REAL_CLAUDE=1 (ADR 0057). It tests Foedrum's wiring,
-// not whether claude works.
+// Messages API stands in for the model (no login, no tokens): its "model" makes and commits a
+// change, as a brewer that produces commits must (ADR 0074), writes the out doc, then answers.
+// Opt-in: it runs only with FOEDRUM_REAL_CLAUDE=1 (ADR 0057). It tests Foedrum's wiring, not
+// whether claude works.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';

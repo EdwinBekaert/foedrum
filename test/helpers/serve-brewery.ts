@@ -1,6 +1,6 @@
 // A throwaway Brewery's files for `foedrum serve`'s tests (ADR 0063): one target repository, a
-// one-step recipe whose brewer reads the order, the same with a test check after it, and the
-// inputs `serveSetup` reads them from.
+// one-step recipe whose brewer reads the order and commits, the same with a test check after it,
+// and the inputs `serveSetup` reads them from.
 
 import { resolve } from 'node:path';
 import { diagnose } from '../../src/cli/doctor.ts';
@@ -48,6 +48,8 @@ export const porter = JSON.stringify({
   ],
   testFirst: false,
 });
+// As the docs' example brewer: it produces commits with Read, Write and git.commit, which gives it
+// git status, add and commit (ADR 0074).
 export const brewer = `---
 {
   "name": "cellarman",
