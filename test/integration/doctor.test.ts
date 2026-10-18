@@ -104,3 +104,44 @@ describe('foedrum doctor in a Brewery', () => {
     }
   });
 });
+
+// doctor reads git's own credential settings (ADR 0073): the format the unit tests' fixtures stand
+// in for, from the real git, with a global configuration of the test's own and no system one.
+describe("foedrum doctor and git's credential helper", () => {
+  const advice = async (helpers: string[]): Promise<string[]> => {
+    const dir = makeTempDir('doctor-credentials');
+    try {
+      const global = join(dir.path, 'gitconfig');
+      const lines = helpers.map((helper) => `\thelper = ${helper}\n`).join('');
+      writeFileSync(global, `[credential "https://github.com"]\n${lines}`);
+      const { stdout } = await execProcess(process.execPath, [main, 'doctor'], {
+        cwd: dir.path,
+        env: {
+          ...envWithoutGhLogin(dir.path),
+          GIT_CONFIG_GLOBAL: global,
+          GIT_CONFIG_NOSYSTEM: '1',
+        },
+        timeoutMs: 60_000,
+      });
+      return stdout
+        .split('\n')
+        .filter((line) => /credential helper|credentials, not gh/.test(line));
+    } finally {
+      dir.remove();
+    }
+  };
+
+  it('is content with the helper gh auth setup-git writes', async () => {
+    assert.deepEqual(await advice(['', '!gh auth git-credential']), []);
+  });
+
+  it('names the helper git asks first when it is not gh, and when there is none', async () => {
+    const fix = "run gh auth setup-git --hostname github.com, so git pushes with gh's login";
+    assert.deepEqual(await advice(['store', '!gh auth git-credential']), [
+      `  git asks store for https://github.com credentials, not gh: ${fix}`,
+    ]);
+    assert.deepEqual(await advice([]), [
+      `  git has no credential helper for https://github.com: ${fix}`,
+    ]);
+  });
+});
