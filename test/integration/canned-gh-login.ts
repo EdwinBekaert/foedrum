@@ -29,9 +29,11 @@ export const CANNED_GH_VERSION = '9999.0.0';
 export const resolveWithMadeUpGh = (name: string): string | undefined =>
   name === 'gh' ? MADE_UP_GH : resolveExecutable(name);
 
-// What gh 2.102.0 printed for its version and for a host it was logged in to (the token line left
-// out), and with no login at all.
-const VERSION = `gh version ${CANNED_GH_VERSION} (2026-01-01)\nhttps://github.com/cli/cli/releases/latest\n`;
+// gh's version answer is made up on purpose: gh 2.102.0's two lines with a version and date no
+// release has, so a row that shows it proves the canned answer was used. The login answers are
+// what gh 2.102.0 printed for a host it was logged in to (the token line left out), and with no
+// login at all.
+const VERSION = `gh version ${CANNED_GH_VERSION} (9999-01-01)\nhttps://github.com/cli/cli/releases/tag/v${CANNED_GH_VERSION}\n`;
 const LOGGED_IN = `${MADE_UP_HOST}\n  ✓ Logged in to ${MADE_UP_HOST} account brewer (keyring)\n  - Active account: true\n  - Git operations protocol: https\n`;
 const NO_LOGIN = 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n';
 
