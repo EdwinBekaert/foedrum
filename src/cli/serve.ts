@@ -24,6 +24,11 @@ import { combineEffects } from '../engine/effects.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import type { Claimant } from '../engine/issue-claims.ts';
+import {
+  type BranchPush,
+  type PullRequestRepository,
+  pullRequestActions,
+} from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { statusEffects } from '../engine/status-comment.ts';
@@ -33,7 +38,8 @@ import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient, GitHubRateLimited } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
-import { githubOrderText } from '../github/order-text.ts';
+import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
+import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads } from '../github/reads.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
@@ -59,6 +65,11 @@ export interface ServeShell {
   worktrees: (
     repository: ServeRepository,
   ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>>;
+  /**
+   * The pushes of the openPullRequest action (ADR 0071), from the clone the repository's
+   * worktrees are added to: the user's, or the managed one.
+   */
+  push: (repository: ServeRepository) => BranchPush;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,
@@ -166,9 +177,13 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     const stateBranch = shell.stateBranch(store);
     await stateBranch.start();
     const worktrees: RepositoryWorktrees[] = [];
+    const pushes: PullRequestRepository[] = [];
     for (const repository of setup.repositories) {
       const { repo, base } = repository;
       worktrees.push({ repo, base, manager: await shell.worktrees(repository) });
+      // The pull request goes into the branch the attempts start from (ADR 0071).
+      const into = base.slice(base.indexOf('/') + 1);
+      pushes.push({ repo, base: into, push: shell.push(repository) });
     }
     const client = createGitHubClient({
       token: setup.github.token,
@@ -200,6 +215,13 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
             claimEffects({ claimant, marks: githubIssueMarks({ client, reads, login }), claims }),
           )
         : status;
+    // The login was read at the start, for the status comments (ADR 0072).
+    const actions = pullRequestActions({
+      brewery: setup.brewery,
+      repositories: pushes,
+      host: githubPullRequests({ client, reads, login: async () => login }),
+      orderTitle: githubOrderTitle(reads, setup.brewery),
+    });
     const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
     let opened: Driver | undefined;
     const state = () => {
@@ -247,6 +269,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       worktrees,
       alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
       effects,
+      actions,
       report: (notice) => say(formatNotice(notice)),
     });
     opened = driver;

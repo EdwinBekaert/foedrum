@@ -24,8 +24,8 @@ import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { config, home, local, serveInputs } from '../helpers/serve-brewery.ts';
+import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { brewer, config, home, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-17T12:00:00.000Z');
@@ -42,8 +42,11 @@ describe('runServe', () => {
   let plans: ClaudeAttemptPlan[];
   /** The Brewery's issue 12 with its text, where the status comment goes too (ADR 0072). */
   let api: FakeGitHubApi;
+  // What the shell's pushes pushed, as `<repo> <commit> <branch>`.
+  let pushes: string[];
 
   beforeEach(() => {
+    pushes = [];
     dir = makeTempDir('serve');
     const result = serveSetup(
       serveInputs({ files: { ...serveInputs().files, local: local({ workRoot: dir.path }) } }),
@@ -133,6 +136,15 @@ describe('runServe', () => {
       calls.push(`worktrees ${repository.repo} ${repository.base}`);
       return fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
     },
+    push: (repository) => ({
+      // The task tree is at FAKE_COMMIT, the base elsewhere.
+      commit: async (revision) => (revision === 'origin/main' ? 'b'.repeat(40) : FAKE_COMMIT),
+      isAncestor: async (commit, of) => commit === of,
+      remoteTip: async () => undefined,
+      push: async (commit, branch) => {
+        pushes.push(`${repository.repo} ${commit} ${branch}`);
+      },
+    }),
     runner: (claude, plan) => {
       calls.push(`runner ${claude}`);
       return planningRunner(plan);
@@ -148,6 +160,61 @@ describe('runServe', () => {
       .eventsAfter(0)
       .map(({ event }) => event.type)
       .filter((type) => type !== 'effect.applied');
+
+  it('pushes the bottle branch and opens one pull request for a recipe that ends with openPullRequest (ADR 0071)', async () => {
+    const porter = JSON.stringify({
+      name: 'porter',
+      description: 'Brews an order in one step and opens its pull request.',
+      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [
+              { path: 'recipes/stout.jsonc', text: recipe },
+              { path: 'recipes/porter.jsonc', text: porter },
+            ],
+            brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    // Serve closes its store at the end; the test reads it after.
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      t0,
+    );
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [
+          { number: 12, labels: [], author: 'ann', title: 'Add a --json flag', body: 'Please.' },
+        ],
+      },
+    });
+    assert.equal(await runServe(setup, shell({ fetch: github.fetch })), 0);
+    const branch = 'foedrum/acme.brewery/12-1/acme.web';
+    assert.deepStrictEqual(pushes, [`acme/web ${FAKE_COMMIT} ${branch}`]);
+    assert.deepStrictEqual(
+      github.pulls.map(({ repo, head, base, title }) => ({ repo, head, base, title })),
+      [{ repo: 'acme/web', head: branch, base: 'main', title: 'Add a --json flag' }],
+    );
+    assert.match(github.pulls[0]?.body ?? '', /brew: Brewed[\s\S]*\nCloses Acme\/Brewery#12$/);
+    const [pull] = github.pulls;
+    assert.deepStrictEqual(
+      createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane,
+      { kind: 'on_tap', pullRequests: [`https://github.com/acme/web/pull/${pull?.number}`] },
+    );
+  });
 
   it('sets the Cellar up in order, brews the order with its text, and stops on Ctrl+C', async () => {
     assert.equal(await runServe(setup, shell()), 0);

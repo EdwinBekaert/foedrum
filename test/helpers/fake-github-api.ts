@@ -8,7 +8,19 @@ export interface FakeApiIssue {
   author: string;
   assignees?: string[];
   body?: string;
+  title?: string;
   state?: 'open' | 'closed';
+}
+
+/** A pull request the fake opened, as `POST /repos/{owner}/{repo}/pulls` asked for it. */
+export interface FakeApiPull {
+  repo: string;
+  number: number;
+  author: string;
+  head: string;
+  base: string;
+  title: string;
+  body: string;
 }
 
 /** An answer to send instead of the fake's own; `hang` never answers until its signal aborts. */
@@ -31,6 +43,8 @@ export interface FakeGitHubApi {
   readonly refs: Map<string, string>;
   /** Every claim ref ever created, as `<repo> <ref>`. */
   readonly created: string[];
+  /** Every pull request opened, in order. */
+  readonly pulls: FakeApiPull[];
   /** The comments on each issue, by `<repo>#<n>` in lower case. */
   readonly comments: Map<string, { id: number; author: string; body: string }[]>;
   issue(repo: string, number: number): FakeApiIssue | undefined;
@@ -64,6 +78,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     labels: found.labels.map((name) => ({ name })),
     assignees: (found.assignees ?? []).map((assignee) => ({ login: assignee })),
     body: found.body ?? null,
+    ...(found.title === undefined ? {} : { title: found.title }),
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
 
@@ -137,6 +152,32 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     return json(200, { id, user: { login: found.author }, body: found.body });
   };
 
+  const pulls: FakeApiPull[] = [];
+  const asPull = (pull: FakeApiPull) => ({
+    number: pull.number,
+    html_url: `https://github.com/${pull.repo}/pull/${pull.number}`,
+    user: { login: pull.author },
+    head: { ref: pull.head, repo: { full_name: pull.repo } },
+  });
+  // The pull requests of a repository: listed by head (`owner:branch`), and opened.
+  const onPulls = (method: string, repo: string, url: URL, body: unknown): Response => {
+    const ofRepo = pulls.filter((pull) => pull.repo === repo.toLowerCase());
+    if (method === 'GET') {
+      const head = url.searchParams.get('head')?.split(':').slice(1).join(':');
+      return json(
+        200,
+        ofRepo.filter((pull) => head === undefined || pull.head === head).map(asPull),
+      );
+    }
+    const fields = body as { head: string; base: string; title: string; body: string };
+    if (ofRepo.some((pull) => pull.head === fields.head)) {
+      return json(422, { message: 'A pull request already exists' });
+    }
+    const pull = { repo: repo.toLowerCase(), number: ++ids, author: login, ...fields };
+    pulls.push(pull);
+    return json(201, asPull(pull));
+  };
+
   const onGit = (method: string, repo: string, rest: string, body: unknown): Response => {
     if (method === 'POST' && rest === 'git/commits') {
       const sha = String(++commits).padStart(40, '0');
@@ -180,6 +221,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (id !== undefined) return onComment(method, repo, Number(id), body);
     if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
+    if (rest === 'pulls') return onPulls(method, repo, url, body);
     return notFound();
   };
 
@@ -198,5 +240,13 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
     return answer(method, url, body);
   };
-  return { fetch: fetch as typeof globalThis.fetch, requests, refs, created, comments, issue };
+  return {
+    fetch: fetch as typeof globalThis.fetch,
+    requests,
+    refs,
+    created,
+    pulls,
+    comments,
+    issue,
+  };
 };

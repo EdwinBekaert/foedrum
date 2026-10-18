@@ -228,11 +228,11 @@ describe('loadRecipes: fails closed', () => {
       { id: 'panel', parallel: [{ brewer: 'brewmaster' }] },
       { id: 'refine', session: 'refine', deadline: '1d' },
       { id: 'approve', gate: 'human', deadline: '1d' },
-      { action: 'openPullRequest' },
+      { action: 'comment' },
       { id: 'split', fanOut: {} },
     ];
     const kinds = ['loop', 'parallel', 'session', 'gate', 'action', 'fanOut'];
-    const ids = ['review', 'panel', 'refine', 'approve', 'open-pull-request', 'split'];
+    const ids = ['review', 'panel', 'refine', 'approve', 'comment', 'split'];
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
@@ -756,5 +756,86 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       brewers: [brewer('maltster', { guards: ['requiresOutDoc'], retryMode: 'fresh' }), brewmaster],
     });
     assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
+  });
+});
+
+describe('loadRecipes: the openPullRequest action (ADR 0071)', () => {
+  const opening = (
+    steps: readonly unknown[] = [{ brewer: 'maltster' }, { action: 'openPullRequest' }],
+  ) => loadRecipes(brewery({ recipes: [recipe('pale', steps)] }));
+  const openingRecipe = (): Recipe => {
+    const found = loaded(opening()).find('pale');
+    assert.ok(found !== undefined);
+    return found;
+  };
+
+  it('loads, named after the action in kebab case, as an action the engine runs itself', () => {
+    const pale = openingRecipe();
+    assert.equal(pale.has('open-pull-request'), true);
+    assert.deepEqual(
+      ['maltster', 'open-pull-request'].map((id) => pale.action(id)),
+      [undefined, 'openPullRequest'],
+    );
+  });
+
+  it('is done after it, naming the step whose pull request the batch goes on tap with', () => {
+    const pale = openingRecipe();
+    assert.deepEqual(pale.after(batch({ maltster: 1 }), 'maltster'), {
+      kind: 'step',
+      stepId: 'open-pull-request',
+    });
+    assert.deepEqual(
+      pale.after(batch({ maltster: 1, 'open-pull-request': 1 }), 'open-pull-request'),
+      {
+        kind: 'done',
+        pullRequests: [],
+        opens: 'open-pull-request',
+      },
+    );
+  });
+
+  it('gives it a deadline of two hours, no stall limit, and three attempts', () => {
+    const pale = openingRecipe();
+    assert.equal(pale.deadlineMs('open-pull-request'), 2 * 3_600_000);
+    assert.equal(pale.stall('open-pull-request'), undefined);
+    assert.deepEqual(
+      [2, 3].map((count) =>
+        pale.mayRetry(batch({ 'open-pull-request': count }), 'open-pull-request'),
+      ),
+      [true, false],
+    );
+    assert.equal(
+      pale.loopBack(batch({ 'open-pull-request': 1 }), 'open-pull-request', 'failed'),
+      undefined,
+    );
+  });
+
+  it("skips it by a when that reads the recipe's settings, as any step", () => {
+    const pale = loaded(
+      opening([{ brewer: 'maltster' }, { action: 'openPullRequest', when: 'recipe.testFirst' }]),
+    ).find('pale');
+    assert.equal(pale?.skip(batch({}), 'open-pull-request'), 'recipe.testFirst');
+  });
+
+  it('refuses it anywhere but last: the pull request holds the commits of every step', () => {
+    assert.deepEqual(
+      problemsOf(
+        brewery({
+          recipes: [recipe('pale', [{ action: 'openPullRequest' }, { brewer: 'maltster' }])],
+        }),
+      ),
+      [
+        'recipes/pale.jsonc: step "open-pull-request" opens the pull request, so it must be the last step of the recipe (ADR 0071)',
+      ],
+    );
+  });
+
+  it('gives a recipe without it no action and nothing it opens', () => {
+    const pale = paleRecipe();
+    assert.equal(pale.action('maltster'), undefined);
+    assert.deepEqual(pale.after(batch({ maltster: 1, plan: 1 }), 'plan'), {
+      kind: 'done',
+      pullRequests: [],
+    });
   });
 });

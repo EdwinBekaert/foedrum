@@ -35,6 +35,8 @@ export const GitHubIssue = z.object({
   assignees: z.array(Account).nullable().optional(),
   /** Present when the item is a pull request: GitHub lists them among the issues. */
   pull_request: z.unknown().optional(),
+  /** The order's title, which a pull request takes (ADR 0071). */
+  title: z.string().optional(),
   /** The order's text; null when the issue has none. */
   body: z.string().nullable().optional(),
 });
@@ -44,6 +46,15 @@ export const GitHubPullRequest = z.object({
   state: z.enum(['open', 'closed']),
   merged: z.boolean().optional(),
   merged_at: z.string().nullable().optional(),
+});
+
+/** One item of `GET /repos/{owner}/{repo}/pulls`, or the answer to `POST` there (ADR 0071). */
+export const GitHubOpenedPullRequest = z.object({
+  html_url: z.string(),
+  /** null for an account that was deleted since. */
+  user: Account.nullable(),
+  /** `repo` is null when the head's repository was deleted. */
+  head: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }),
 });
 
 /** One item of `GET .../issues/{n}/comments`, or the answer to `POST` there. */
