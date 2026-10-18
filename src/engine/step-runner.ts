@@ -10,9 +10,12 @@ export interface StepRunnerOptions {
   check: BrewerRunner;
   /** Whether `ref` is an attempt of a check step. */
   isCheck: (ref: AttemptRef) => boolean;
+  /** Why `ref` may not run, blocking it on the environment, or undefined when it may. */
+  refuse?: (ref: AttemptRef) => string | undefined;
 }
 
-export function stepRunner({ brewer, check, isCheck }: StepRunnerOptions): BrewerRunner {
+export function stepRunner({ brewer, check, isCheck, refuse }: StepRunnerOptions): BrewerRunner {
+  if (refuse !== undefined) throw new Error('not implemented');
   return {
     start: (attempt) => (isCheck(attempt.ref) ? check : brewer).start(attempt),
     // Each runner knows only the attempts it runs.

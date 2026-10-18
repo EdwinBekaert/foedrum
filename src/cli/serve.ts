@@ -36,6 +36,7 @@ import { createGitHubReads } from '../github/reads.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
+import type { Git } from '../workspace/git.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
@@ -63,6 +64,8 @@ export interface ServeShell {
   ) => BrewerRunner;
   /** The process runner the check steps' commands run through (ADR 0069). */
   exec: ExecProcess;
+  /** git, for the commits red proofs and the testsUnchanged guard read (ADR 0078). */
+  git: Git;
   /** Default the global `fetch`. */
   fetch?: typeof globalThis.fetch;
   /** How long an intake pass may take; default half the batch lease (ADR 0050). */
@@ -215,7 +218,11 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       checks: setup.checks,
       repositoryChecks: (repo) =>
         setup.repositories.find((repository) => sameRepo(repository.repo, repo))?.checks,
+      testReport: () => {
+        throw new Error('not implemented');
+      },
       exec: shell.exec,
+      git: shell.git,
       env: setup.brewerEnv,
       clock,
     });

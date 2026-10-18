@@ -81,5 +81,6 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     },
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     exec: execProcess,
+    git,
   };
 };

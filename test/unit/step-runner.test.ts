@@ -53,6 +53,28 @@ describe('stepRunner', () => {
     assert.deepEqual([check.started, brewer.started], [['green'], ['brew']]);
   });
 
+  it('blocks an attempt it refuses on the environment, starting neither runner (ADR 0078)', async () => {
+    const brewer = named('brewer', []);
+    const check = named('check', []);
+    const runner = stepRunner({
+      brewer: brewer.runner,
+      check: check.runner,
+      isCheck: (attempt) => attempt.stepId === 'green',
+      refuse: (attempt) => (attempt.stepId === 'gauge' ? 'no test report' : undefined),
+    });
+    const gauge = runner.start({ ref: ref('gauge'), limits: defaultLimits });
+    gauge.stop();
+    assert.deepEqual((await gauge.ended).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'no test report',
+    });
+    assert.equal(runner.progress(ref('gauge')), undefined);
+    const brew = await runner.start({ ref: ref('brew'), limits: defaultLimits }).ended;
+    assert.deepEqual(brew.ending, { kind: 'succeeded', output: 'brewer' });
+    assert.deepEqual([check.started, brewer.started], [[], ['brew']]);
+  });
+
   it('reports the progress of whichever runner runs the attempt', () => {
     const { runner } = setup();
     assert.equal(runner.progress(ref('green'))?.turnsWithoutProgress, 5);

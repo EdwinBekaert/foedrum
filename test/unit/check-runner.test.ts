@@ -97,7 +97,9 @@ const setup = ({
       repos.push(name);
       return repo ?? undefined;
     },
+    testReport: () => undefined,
     exec,
+    git: () => Promise.reject(new Error('a check step reads no commits')),
     env: layers,
     clock,
     platform,

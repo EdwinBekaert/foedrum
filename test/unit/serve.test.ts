@@ -135,6 +135,7 @@ describe('runServe', () => {
     },
     // The stout recipe has no check step.
     exec: () => Promise.reject(new Error('no check step runs here')),
+    git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
     fetch: fakeFetch([{ status: 200, body: { ...issue, number: 12, body: 'Add a --json flag.' } }])
       .fetch,
     ...overrides,

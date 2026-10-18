@@ -3,6 +3,7 @@
 // the platform shell and the process runner, which kills the whole tree at the step's deadline or
 // when the engine stops the attempt; the first check that does not pass ends the step. No model.
 
+import type { OutDocRead } from '../brewers/claude-runner.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
@@ -11,8 +12,17 @@ import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { envNameKey } from '../platform/env.ts';
 import type { ExecProcess } from '../platform/processes.ts';
+import type { TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading } from '../schemas/events.ts';
+import type { Git } from '../workspace/git.ts';
 import { passed, planChecks, type RepositoryChecks, readingOf, settleReadings } from './gravity.ts';
+
+/** A test report's file in a worktree: cleared before the test check runs, read after it. */
+export interface ReportFiles {
+  clear: (file: string) => void;
+  /** Reads the report only inside `root`, the worktree. */
+  read: (file: string, root: string) => OutDocRead;
+}
 
 export interface CheckRunnerOptions {
   /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
@@ -21,7 +31,13 @@ export interface CheckRunnerOptions {
   checks: StepChecks;
   /** The commands of a repository's checks (`foedrum.jsonc`), or undefined when it lists none. */
   repositoryChecks: (repo: string) => RepositoryChecks | undefined;
+  /** The test report a repository's test check writes (`foedrum.jsonc`), for red proofs. */
+  testReport: (repo: string) => TestReportConfig | undefined;
   exec: ExecProcess;
+  /** git, for the commits of the step a red proof proves (ADR 0078). */
+  git: Git;
+  /** Default the file system's. */
+  reports?: ReportFiles;
   /** The brewers' environment: its minimal base and the runner's forced variables (ADR 0063). */
   env: { base: Env; forced: Env };
   clock: () => Date;
@@ -81,6 +97,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       );
     }
     const recipe = batch.recipe?.name ?? '';
+    if (checks.proves(recipe, stepId) !== undefined) throw new Error('not implemented');
     const refs = checks.find(recipe, stepId);
     if (refs === undefined)
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
