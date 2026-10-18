@@ -197,10 +197,11 @@ describe('readingOf', () => {
     // In CPU time, which a loaded machine leaves alone (ADR 0070).
     const t0 = cpuTimeMs();
     // A loaded machine takes the CPU away for a while (#147, ADR 0070).
-    descheduled(1_000);
+    descheduled(250);
     const reading = readingOf(test, { exitCode: 1, output });
     const used = cpuTimeMs() - t0;
-    assert.ok(used < 1_000, `used ${Math.round(used)} ms of CPU time`);
+    // The filter takes a few ms; one that reads a long line in full takes seconds.
+    assert.ok(used < 200, `used ${Math.round(used)} ms of CPU time`);
     assert.ok(reading.result === 'exited');
     assert.equal(
       reading.tail,
