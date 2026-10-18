@@ -470,7 +470,9 @@ describe('the driver and attempt worktrees with real git', () => {
         format: null,
         test: 'node check.mjs',
       }),
+      testReport: () => undefined,
       exec: execProcess,
+      git: runGit,
       env: { base: brewerBaseEnv(process.env, process.platform), forced: {} },
       clock,
     });

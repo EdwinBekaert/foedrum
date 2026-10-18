@@ -444,8 +444,8 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
   const red = { id: 'red', check: 'test', expect: 'fail', of: 'gauge' };
   const noProof = (name: string) =>
     `recipes/${name}.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)`;
-  const unbrewedCheck =
-    'recipes/pale.jsonc: step "red" is a red proof ("expect": "fail"), which the engine does not run yet (#176) (ADR 0069)';
+  const proofOfNothing =
+    'recipes/pale.jsonc: step "red" proves the tests of step "plan", whose brewer commits nothing (ADR 0078)';
 
   it('refuses a test-first recipe without a red proof, naming the fix', () => {
     const files = withWriters(
@@ -468,7 +468,7 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'gauge', brewer: 'gauger' },
     ];
     assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
-      unbrewedCheck,
+      proofOfNothing,
       noProof('pale'),
     ]);
   });
@@ -481,7 +481,6 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       { id: 'tidy', brewer: 'cellarman' },
     ];
     assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
-      unbrewedCheck,
       'recipes/pale.jsonc: step "implement" commits before the red proof "red" of step "gauge" (ADR 0064)',
     ]);
   });
@@ -501,7 +500,6 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
       'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
-      unbrewedCheck,
       before('fix'),
       before('refine'),
     ]);
@@ -521,14 +519,66 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ]);
   });
 
-  it('refuses a test-first recipe for no more than its red proof, which the engine does not run yet', () => {
+  // The steps of a test-first recipe: plan, the Gauger, its red proof, Cellarman, the green check.
+  const testFirst = [
+    { id: 'plan', brewer: 'maltster' },
+    { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+    { ...red, when: 'recipe.testFirst', onFail: { goto: 'gauge', maxRounds: 1 } },
+    { id: 'implement', brewer: 'cellarman' },
+    { id: 'green', check: 'test', onFail: { goto: 'implement', maxRounds: 1 } },
+  ];
+
+  it('loads a test-first recipe with a red proof, which runs the test check (ADR 0078)', () => {
+    const result = loadRecipes(withWriters(recipe('pale', testFirst)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.equal(pale?.firstStep, 'plan');
+    assert.deepEqual(pale?.after(batch({ gauge: 1 }), 'gauge'), { kind: 'step', stepId: 'red' });
+    assert.deepEqual(result.checks.find('pale', 'red'), ['test']);
+    // The red proof names the step whose tests it proves; another check step proves none.
+    assert.equal(result.checks.proves('pale', 'red'), 'gauge');
+    assert.equal(result.checks.proves('pale', 'green'), undefined);
+    assert.equal(result.checks.proves('pale', 'gauge'), undefined);
+    assert.deepEqual(result.checks.redProof('pale'), { id: 'red', of: 'gauge' });
+    assert.equal(result.checks.redProof('elsewhere'), undefined);
+  });
+
+  it('runs a step whose when is a bare recipe.testFirst in a test-first recipe (review of #184)', () => {
+    const result = loadRecipes(withWriters(recipe('pale', testFirst)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.equal(pale?.skip(batch({}), 'gauge'), undefined);
+    assert.equal(pale?.skip(batch({}), 'red'), undefined);
+  });
+
+  it('routes a failed red proof back to the step it proves, once (ADR 0064, ADR 0069)', () => {
+    const result = loadRecipes(withWriters(recipe('pale', testFirst)));
+    assert.ok(result.valid);
+    const pale = result.recipes.find('pale');
+    assert.equal(pale?.loopBack(batch({ gauge: 1 }), 'red', 'failed'), 'gauge');
+  });
+
+  it("keeps a recipe's first red proof when it has two", () => {
     const steps = [
-      { id: 'plan', brewer: 'maltster' },
-      { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
-      { ...red, when: 'recipe.testFirst' },
+      { id: 'gauge', brewer: 'gauger' },
+      { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
       { id: 'implement', brewer: 'cellarman' },
+      { id: 'again', check: 'test', expect: 'fail', of: 'implement' },
     ];
-    assert.deepEqual(problemsOf(withWriters(recipe('pale', steps))), [unbrewedCheck]);
+    const result = loadRecipes(withWriters(recipe('pale', steps)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.deepEqual(result.checks.redProof('pale'), { id: 'red', of: 'gauge' });
+    assert.equal(result.checks.proves('pale', 'again'), 'implement');
+  });
+
+  it('has no red proof in a recipe without one', () => {
+    const steps = [
+      { id: 'brew', brewer: 'cellarman' },
+      { id: 'green', check: 'test' },
+    ];
+    const result = loadRecipes(withWriters(recipe('stout', steps, { testFirst: false })));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.equal(result.checks.redProof('stout'), undefined);
   });
 });
 
@@ -662,7 +712,7 @@ describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {
       [
         'recipes/pale.jsonc: step "green" has a "when" that reads step "maltster", which the engine does not follow yet (ADR 0064)',
         'recipes/pale.jsonc: step "slow" has a deadline of 366d, longer than 365 days',
-        'recipes/pale.jsonc: step "red" is a red proof ("expect": "fail"), which the engine does not run yet (#176) (ADR 0069)',
+        'recipes/pale.jsonc: step "red" proves the tests of step "maltster", whose brewer commits nothing (ADR 0078)',
       ],
     );
   });
@@ -749,6 +799,21 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
           `recipes/stout.jsonc: step "${name}" has the brewer "${name}", with "tree": "${tree}", which the engine does not follow yet (ADR 0059)`,
       ),
     );
+  });
+
+  it('loads a brewer with the testsUnchanged guard, which the engine follows (ADR 0078)', () => {
+    const cellarman = brewer('cellarman', {
+      access: 'write',
+      tree: 'task',
+      git: { commit: true },
+      produces: 'commits',
+      guards: ['requiresOutDoc', 'testsUnchanged'],
+    });
+    const files = brewery({
+      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      brewers: [maltster, brewmaster, cellarman],
+    });
+    assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
   });
 
   it('loads a brewer that asks only for what the plan follows, the out doc among its guards', () => {

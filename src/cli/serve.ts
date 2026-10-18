@@ -8,6 +8,8 @@ import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import type { ClaudeAttemptPlan } from '../brewers/claude-runner.ts';
 import { createCheckRunner } from '../checks/check-runner.ts';
+import { needsTestReport } from '../checks/red-proof.ts';
+import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -17,6 +19,7 @@ import {
   type DriverNotice,
   openDriver,
   type RepositoryWorktrees,
+  repositoryOf,
 } from '../engine/driver.ts';
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
@@ -45,6 +48,7 @@ import { githubStatusComments } from '../github/status-comments.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
+import type { Git } from '../workspace/git.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
@@ -77,6 +81,8 @@ export interface ServeShell {
   ) => BrewerRunner;
   /** The process runner the check steps' commands run through (ADR 0069). */
   exec: ExecProcess;
+  /** git, for the commits red proofs and the testsUnchanged guard read (ADR 0078). */
+  git: Git;
   /** Default the global `fetch`. */
   fetch?: typeof globalThis.fetch;
   /** How long an intake pass may take; default half the batch lease (ADR 0050). */
@@ -238,22 +244,58 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       env: setup.brewerEnv,
       orderText: githubOrderText(reads, setup.brewery),
     });
+    const repositoryNamed = (repo: string) =>
+      setup.repositories.find((repository) => sameRepo(repository.repo, repo));
     // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069).
     const checks = createCheckRunner({
       state,
       checks: setup.checks,
-      repositoryChecks: (repo) =>
-        setup.repositories.find((repository) => sameRepo(repository.repo, repo))?.checks,
+      repositoryChecks: (repo) => repositoryNamed(repo)?.checks,
+      testReport: (repo) => repositoryNamed(repo)?.testReport,
       exec: shell.exec,
+      git: shell.git,
       env: setup.brewerEnv,
       clock,
     });
+    const recipeOf = (batchId: string) => state().batches.get(batchId)?.recipe?.name;
+    // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078).
+    const brewer = guardTests({
+      runner: shell.runner(setup.claude, plans.plan),
+      state,
+      protects: ({ batchId, stepId }) => {
+        const recipe = recipeOf(batchId) ?? '';
+        const guards = setup.brewers.find(recipe, stepId)?.brewer.guards ?? [];
+        return guards.includes('testsUnchanged') ? setup.checks.redProof(recipe)?.of : undefined;
+      },
+      git: shell.git,
+      clock,
+    });
     const runner = stepRunner({
-      brewer: shell.runner(setup.claude, plans.plan),
+      brewer,
       check: checks,
       isCheck: ({ batchId, stepId }) => {
-        const recipe = state().batches.get(batchId)?.recipe?.name;
+        const recipe = recipeOf(batchId);
         return recipe !== undefined && setup.checks.find(recipe, stepId) !== undefined;
+      },
+      // A batch whose red proof would run needs its repository's test report from the start, so
+      // no brewer spends tokens on a batch that cannot prove its tests red (ADR 0017).
+      refuse: ({ batchId }) => {
+        const current = state();
+        const batch = current.batches.get(batchId);
+        const name = batch?.recipe?.name;
+        const proof = name === undefined ? undefined : setup.checks.redProof(name);
+        if (batch === undefined || name === undefined || proof === undefined) return undefined;
+        if (setup.recipes.find(name)?.skip(batch, proof.id) !== undefined) return undefined;
+        let repo: string;
+        try {
+          repo = repositoryOf(current, batchId, worktrees).repo;
+        } catch {
+          // The driver fails the attempt with the reason when it makes its worktree.
+          return undefined;
+        }
+        return repositoryNamed(repo)?.testReport === undefined
+          ? needsTestReport(name, repo)
+          : undefined;
       },
     });
     driver = await openDriver({
