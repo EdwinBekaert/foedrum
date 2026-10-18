@@ -221,8 +221,11 @@ describe("gatherDoctorFacts: gh's login and git's credential helpers", () => {
         1,
         'You are not logged into any GitHub hosts. To log in, run: gh auth login\n',
       ),
+      // A warning on stderr stays out of the listing, which is NUL-separated stdout only.
       '/usr/bin/git config --null --get-regexp ^credential\\.': out(
         'credential.https://ghe.example.helper\n!/usr/bin/gh auth git-credential\0',
+        0,
+        'warning: unable to access /home/brewer/.config/git/attributes\n',
       ),
     },
   };

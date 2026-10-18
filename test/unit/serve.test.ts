@@ -551,6 +551,21 @@ describe('runServe', () => {
     assert.deepStrictEqual([lock.held, closed], [false, 1]);
   });
 
+  it('still fails with the reason when its login read fails for another reason after a stop', async () => {
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/user') {
+        controller.abort(new Error('stopped by a signal'));
+        return new Response(JSON.stringify({ message: 'Bad credentials' }), { status: 401 });
+      }
+      return api.fetch(input, init);
+    }) as typeof globalThis.fetch;
+    assert.equal(await runServe(setup, shell({ fetch })), 1);
+    assert.equal(
+      lines.at(-1),
+      'foedrum serve: GitHub answered 401 to the login gh uses: Bad credentials',
+    );
+  });
+
   describe('the intake in its loop (ADR 0068)', () => {
     const target = { alias: 'web', intake: { labels: ['foedrum'] } };
     const intakeSetup = (

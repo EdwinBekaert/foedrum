@@ -156,6 +156,7 @@ describe('createGitHubClient', () => {
           GH_ENTERPRISE_TOKEN: 'c',
           GITHUB_ENTERPRISE_TOKEN: 'd',
           GH_DEBUG: 'api',
+          DEBUG: '1',
           GH_CONFIG_DIR: '/home/me/.config/gh',
         },
         platform: 'linux',
