@@ -176,7 +176,9 @@ describe('runServe', () => {
       }),
     );
     setup = result.kind === 'ready' ? result.setup : assert.fail();
-    store = openSqliteEventStore(':memory:');
+    // Serve closes its store at the end; the test reads it after.
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
     const log = createCommandLog({ store, recipes: setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
