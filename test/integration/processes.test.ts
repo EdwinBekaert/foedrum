@@ -136,8 +136,9 @@ describe('execProcess with a real tree of processes', () => {
     // Run outside dir.path: on Windows a surviving orphan's working directory could not be
     // removed after the test.
     const cwd = import.meta.dirname;
+    // A loaded machine (#147): the two levels start later than the deadline expects.
     const done = spawnProcess(process.execPath, [tree, pidFile, '1', 'exit-parent'], cwd, {
-      timeoutMs: 6000,
+      timeoutMs: 10,
       jobObject: true,
     });
     await waitUntil('the grandchild to start and its parent to exit', () => {
