@@ -284,3 +284,29 @@ describe('realGhProblems', () => {
     assert.match(REAL_GH_EXCEPTIONS.get('integration/serve.test.ts') ?? '', /fake GitHub/);
   });
 });
+
+describe('realGhFindings reads templates and regular expressions as code does', () => {
+  it('reports a call inside a template’s ${…}, but not one in its text', () => {
+    const source = [
+      'const a = `${await doctorFromCheckout(cwd)}`;',
+      "const b = `doctorFromCheckout(cwd) and execProcess('gh', [])`;",
+      'const c = `${x} ${`${serveFromCheckout(cwd)}`}`;',
+    ].join('\n');
+    assert.deepEqual(
+      realGhFindings(source).map(({ line }) => line),
+      [1, 3],
+    );
+  });
+
+  it('reads a regular expression with a quote in it as one, so a call after it on the line counts', () => {
+    const source = [
+      "const quote = /['\"]/; await execProcess('gh', ['auth', 'status']);",
+      'const slash = /[/]/.test(x); await doctorFromCheckout(cwd);',
+      'const half = total / 2; const ratio = a / b; await serveFromCheckout(dir);',
+    ].join('\n');
+    assert.deepEqual(
+      realGhFindings(source).map(({ line }) => line),
+      [1, 2, 3],
+    );
+  });
+});
