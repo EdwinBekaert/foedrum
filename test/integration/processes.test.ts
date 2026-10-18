@@ -272,7 +272,9 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
   // Windows CI). A module there that exports a name the helper could call would run if it did.
   it('loads no PowerShell module from the module path, so none can run in the helper', async () => {
     const modules = join(dir.path, 'modules');
-    const marker = join(dir.path, 'imported');
+    // The module finds its marker beside itself, so no path of the checkout, which may hold a quote
+    // or a character the ANSI code page lacks, goes into PowerShell's text.
+    const marker = join(modules, 'Planted', 'imported');
     mkdirSync(join(modules, 'Planted'), { recursive: true });
     const exported = ['New-Object', 'Write-Output'].map(
       (name) => `function ${name} { throw 'planted' }`,
@@ -280,7 +282,7 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     writeFileSync(
       join(modules, 'Planted', 'Planted.psm1'),
       [
-        `[IO.File]::WriteAllText('${marker}', '1')`,
+        "[IO.File]::WriteAllText([IO.Path]::Combine($PSScriptRoot, 'imported'), '1')",
         ...exported,
         'Export-ModuleMember -Function *',
       ].join('\n'),
