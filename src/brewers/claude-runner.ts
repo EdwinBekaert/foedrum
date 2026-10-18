@@ -367,8 +367,13 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       const commits = stopped
         ? undefined
         : await commitsOf(plan, limits.commitsSince, stopping.signal);
+      // What the stream reported stays with the attempt however it ends from here.
+      const reported = {
+        ...(seen.usage === undefined ? {} : { usage: seen.usage }),
+        ...(seen.session === undefined ? {} : { session: seen.session }),
+      };
       // A stop while counting kills git: the attempt was stopped, git did not fail.
-      if (!stopped && stopping.signal.aborted) return cancelled();
+      if (!stopped && stopping.signal.aborted) return { ...cancelled(), ...reported };
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         exit,
@@ -381,11 +386,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         turns: seen.turns,
         ...(commits === undefined ? {} : { commits }),
       };
-      return {
-        ending: settleAttempt(facts, limits),
-        ...(seen.usage === undefined ? {} : { usage: seen.usage }),
-        ...(seen.session === undefined ? {} : { session: seen.session }),
-      };
+      return { ending: settleAttempt(facts, limits), ...reported };
     };
 
     const ended = run().finally(() => running.delete(key));
