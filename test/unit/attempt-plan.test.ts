@@ -581,17 +581,25 @@ describe('planAttempt', () => {
   });
 
   it("names the shell commands of the plan's own rules, the repository's too, in their order (#222)", () => {
-    const tools = { allow: ['Read', 'Bash(git diff*)', 'PowerShell(Get-ChildItem *)'], deny: [] };
+    const tools = { allow: ['Read', 'Bash(git diff*)', 'Bash(ls *)'], deny: [] };
     const plan = planAttempt({ ...facts({ tools }), repoTools: ['Bash(npm test)'] });
     assert.match(
       plan.prompt,
-      /\nYour shell runs only: git diff, Get-ChildItem, npm test\. A denial stops that command only\.\n/,
+      /\nYour shell runs only: git diff, ls, npm test\. A denial stops that command only\.\n/,
     );
+  });
+
+  it("leaves out PowerShell rules, since the runner's sessions have no PowerShell tool (ADR 0074)", () => {
+    const tools = { allow: ['Read', 'PowerShell(Get-ChildItem *)'], deny: [] };
+    const plan = planAttempt({ ...facts({ tools }), repoTools: ['Bash(npm test)'] });
+    assert.match(plan.prompt, /\nYour shell runs only: npm test\. A denial stops/);
+    const alone = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.doesNotMatch(alone.prompt, /Your shell/);
   });
 
   it('names no shell commands when one rule allows any command, so it never says "only" wrongly', () => {
     // A repository's tools may hold `Bash(*)`; the attempt settings refuse it later (ADR 0082).
-    for (const rule of ['Bash(*)', 'PowerShell', 'Bash(:*)']) {
+    for (const rule of ['Bash(*)', 'Bash', 'Bash(:*)']) {
       const { prompt } = planAttempt({ ...facts(), repoTools: [rule] });
       assert.doesNotMatch(prompt, /Your shell/, rule);
     }
@@ -599,7 +607,7 @@ describe('planAttempt', () => {
 
   it('names no shell commands when a rule starts with a star, which allows any program', () => {
     // A star stripped from the end leaves one where the program would be (review of #231).
-    for (const rule of ['Bash(**)', 'Bash(*:*)', 'Bash(*foo)', 'PowerShell(* -x)']) {
+    for (const rule of ['Bash(**)', 'Bash(*:*)', 'Bash(*foo)']) {
       const { prompt } = planAttempt({ ...facts(), repoTools: [rule] });
       assert.doesNotMatch(prompt, /Your shell/, rule);
     }
