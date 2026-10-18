@@ -1,8 +1,9 @@
 // `foedrum doctor` on the real machine (ADR 0021): the facts main.ts gathers (doctorFromCheckout)
 // find the tools through PATH and read their versions through the process runner (npm.cmd through
 // cmd.exe on Windows). What a machine has differs, so this checks the report's structure only; the
-// report itself is in test/unit/cli.test.ts. gh's login check gets a canned answer, logged in to a
-// made-up host only (canned-gh-login.ts): no test asks the real gh for a login (ADR 0073).
+// report itself is in test/unit/cli.test.ts. gh's version and login check get canned answers, the
+// login for a made-up host only (canned-gh-login.ts): no test asks the real gh for a login, or
+// reads how fast it starts (ADR 0070, ADR 0073).
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -23,9 +24,10 @@ describe('foedrum doctor on this machine', () => {
     const dir = makeTempDir('doctor-machine');
     writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
     // A tool the runner killed at its deadline may hold the folder a moment longer on Windows.
-    const { exitCode, stdout, stderr } = await doctorHere(dir.path).finally(() =>
-      removeTree(dir.path),
-    );
+    const { exitCode, stdout, stderr } = await doctorHere(
+      dir.path,
+      cannedGhLogin(execProcess, `gh version ${GH_VERSION} (2026-01-01)\n`),
+    ).finally(() => removeTree(dir.path));
     assert.equal(stderr, '');
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
