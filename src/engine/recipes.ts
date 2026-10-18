@@ -22,6 +22,8 @@ export interface Stall {
 export interface Recipe {
   /** The step a batch starts with. */
   readonly firstStep: string;
+  /** Its step ids in the order the recipe lists them: what the status comment shows (ADR 0072). */
+  readonly steps: readonly string[];
   /** Whether the recipe has a step `stepId`. */
   has(stepId: string): boolean;
   /** How long an attempt at `stepId` may take, in milliseconds. */
