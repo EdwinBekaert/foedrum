@@ -101,13 +101,14 @@ const setup = ({
   events = [...ordered, ...gauged, ...implementing],
   behaviour = behave.succeed(),
   changes = ok(weakened),
-  protects = 'gauge' as string | undefined,
+  protects = 'gauge' as string | null,
   git: gitOverride,
 }: {
   events?: Event[];
   behaviour?: Behaviour;
   changes?: GitResult;
-  protects?: string | undefined;
+  /** `null`: the step has no testsUnchanged guard. */
+  protects?: string | null;
   git?: Git;
 } = {}) => {
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
@@ -123,7 +124,7 @@ const setup = ({
     state: () => fold(events),
     protects: (attempt) => {
       asked.push(attempt);
-      return protects;
+      return protects ?? undefined;
     },
     git,
   });
@@ -172,7 +173,7 @@ describe('guardTests (ADR 0078)', () => {
   });
 
   it('reads nothing for a step without the guard, or an attempt that did not succeed', async () => {
-    const unguarded = setup({ protects: undefined });
+    const unguarded = setup({ protects: null });
     const end = await unguarded.runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
     assert.deepEqual(unguarded.asked, [ref]);

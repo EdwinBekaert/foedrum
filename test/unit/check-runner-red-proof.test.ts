@@ -105,7 +105,8 @@ const compileError = [
 
 const setup = ({
   events = [...ordered, ...gauged, ...redStarted],
-  report = { format: 'tap' } as TestReportConfig | undefined,
+  /** `null`: foedrum.jsonc gives the repository none. */
+  report = { format: 'tap' } as TestReportConfig | null,
   test = { exitCode: 1, stdout: stubFails } as Partial<ExecResult>,
   diff = { code: 0, stdout: gaugeDiff, stderr: '' } as GitResult,
   files = {} as Record<string, OutDocRead>,
@@ -139,7 +140,7 @@ const setup = ({
     state: () => fold(events),
     checks,
     repositoryChecks: () => repository,
-    testReport: () => report,
+    testReport: () => report ?? undefined,
     exec,
     git,
     reports,
@@ -281,7 +282,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('is blocked on the environment, running nothing, when the repository has no test report', async () => {
-    const { order, run } = setup({ report: undefined });
+    const { order, run } = setup({ report: null });
     const end = await run();
     assert.deepEqual(end.ending, {
       kind: 'blocked',
