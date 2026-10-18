@@ -11,6 +11,7 @@ import {
   tailOf,
 } from '../../src/checks/gravity.ts';
 import { GravityReading, MAX_TAIL_LENGTH } from '../../src/schemas/events.ts';
+import { descheduled } from '../helpers/load.ts';
 
 const repository: RepositoryChecks = {
   build: null,
@@ -194,6 +195,8 @@ describe('readingOf', () => {
   it('reads output that matches the secret patterns thousands of times on one line at once', () => {
     const output = 'token=a '.repeat(40_000);
     const started = performance.now();
+    // A loaded machine takes the CPU away for a while (#147, ADR 0070).
+    descheduled(1_000);
     const reading = readingOf(test, { exitCode: 1, output });
     const took = performance.now() - started;
     assert.ok(took < 1_000, `took ${Math.round(took)} ms`);
