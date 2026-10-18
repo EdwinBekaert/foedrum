@@ -49,8 +49,9 @@ const outDocsOf = (state: State, outDoc: OutDocOf): Map<string, string> => {
 };
 
 // The branch of every ended batch's task tree that no push recorded, with the commit the batch
-// started from: the first worktree of the batch was made there (ADR 0066). A rewound task tree is
-// a commit, not a branch, so it names none (ADR 0084).
+// started from: the worktree of its first attempt that succeeded was made there (ADR 0066). An
+// attempt that failed before it may have started at a base that moved since. A rewound task tree
+// is a commit, not a branch, so it names none (ADR 0084).
 const unpushedOf = (state: State): Map<string, string> => {
   const unpushed = new Map<string, string>();
   for (const batch of state.batches.values()) {
@@ -61,7 +62,11 @@ const unpushedOf = (state: State): Map<string, string> => {
     if (pushed.success && pushed.data.from === `refs/heads/${branch}`) continue;
     const worktrees = [...batch.steps.values()].flatMap((step) =>
       [...step.attempts.values()].flatMap((attempt) =>
-        attempt.phase !== 'scheduled' && attempt.worktree !== undefined ? [attempt.worktree] : [],
+        attempt.phase === 'finished' &&
+        attempt.outcome.kind === 'succeeded' &&
+        attempt.worktree !== undefined
+          ? [attempt.worktree]
+          : [],
       ),
     );
     // A batch whose start cannot be found keeps its branch: no tip is ''.
