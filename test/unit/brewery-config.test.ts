@@ -243,6 +243,8 @@ describe('BreweryConfig for foedrum serve (ADR 0063)', () => {
       'https://ghe.example/api',
       'https://ghe.example:8443/api/v3',
       'https://api.github.localhost',
+      'https://github.localhost/api/v3',
+      'https://x.github.localhost/api/v3',
       'ftp://api.github.com',
       'https://user:secret@api.github.com',
       'https://api.github.com/?x=1',

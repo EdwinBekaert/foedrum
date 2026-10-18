@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
 import { envWithoutGhLogin } from '../helpers/gh-config.ts';
@@ -33,7 +33,11 @@ describe('foedrum doctor on this machine', () => {
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
     // CI has gh everywhere too; here it has no login, which is a required problem.
-    assert.match(row('gh') ?? '', new RegExp(`^  gh +(?:missing|${VERSION} +\\S.*)$`));
+    const inCi = process.env.CI !== undefined && process.env.CI !== '';
+    assert.match(
+      row('gh') ?? '',
+      new RegExp(`^  gh +(?:${inCi ? '' : 'missing|'}${VERSION} +\\S.*)$`),
+    );
     if (!/ missing$/.test(row('gh') ?? '')) {
       assert.ok(
         lines.includes(
@@ -120,6 +124,8 @@ describe("foedrum doctor and git's credential helper", () => {
           ...envWithoutGhLogin(dir.path),
           GIT_CONFIG_GLOBAL: global,
           GIT_CONFIG_NOSYSTEM: '1',
+          // The folder is inside Foedrum's own checkout: git must not read its local settings.
+          GIT_CEILING_DIRECTORIES: dirname(dir.path),
         },
         timeoutMs: 60_000,
       });

@@ -189,6 +189,21 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
     assert.equal(diagnose(facts).ok, true);
   });
 
+  it('does not take a helper whose name only ends or starts like gh for gh', () => {
+    for (const helper of ['!/usr/bin/sigh auth git-credential', '!gh auth git-credential-store']) {
+      const facts = linux();
+      facts.github = {
+        ...loggedIn(),
+        credentials: ran('', `credential.https://github.com.helper\n${helper}\0`),
+      };
+      assert.deepEqual(
+        problems(facts).map(({ what }) => what),
+        [`git asks ${helper} for https://github.com credentials, not gh`],
+        helper,
+      );
+    }
+  });
+
   // Only git's exit 1 means that no setting matched; anything else is git failing to say.
   it('says git config did not answer, instead of no helper, when it failed or was killed', () => {
     for (const [output, code, because] of [
