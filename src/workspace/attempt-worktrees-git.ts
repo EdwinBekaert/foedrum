@@ -9,6 +9,7 @@ import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
 import { errorCode, removeTree } from '../platform/remove.ts';
 import { type Rename, replaceFile } from '../platform/replace-file.ts';
+import type { RepositorySource } from '../schemas/brewery-config.ts';
 import {
   type Action,
   type AttemptRef,
@@ -371,6 +372,16 @@ const withoutCredentials = (url: string): string => {
 /** Where the managed clone of `repo` is in the work root (ADR 0012). */
 export const managedClonePath = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'clone.git');
+
+/** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
+export const worktreeClonePath = (
+  workRoot: string,
+  repository: { repo: string; source: RepositorySource; clone?: string },
+): string =>
+  // A local repository without its clone is refused before anything opens (serveSetup).
+  repository.source === 'local'
+    ? (repository.clone ?? '')
+    : managedClonePath(workRoot, repository.repo);
 
 /**
  * The repository's managed clone (`source: managed`, ADR 0012): a bare partial clone in the work

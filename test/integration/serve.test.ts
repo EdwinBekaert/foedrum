@@ -52,26 +52,55 @@ describe('foedrum serve', () => {
 /** A fake GitHub REST API on 127.0.0.1 that lists one labelled issue of the Brewery. */
 const startFakeGitHub = async (body: string) => {
   const requests: { url: string; authorization: string | undefined }[] = [];
+  // The status comments serve makes on the order's issue (ADR 0072), by the token's login.
+  const login = 'cellar-bot';
+  const comments = new Map<number, string>();
+  const commentOf = (id: number) => ({ id, user: { login }, body: comments.get(id) });
   const server: Server = createServer((request, response) => {
     requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
-    const issue = {
-      number: 12,
-      state: 'open',
-      user: { login: 'ann' },
-      labels: ['recipe:stout'],
-      body,
-    };
-    const path = request.url?.split('?')[0];
-    if (
-      request.method === 'GET' &&
-      (path === '/repos/acme/brewery/issues/12' || path === '/repos/acme/brewery/issues')
-    ) {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(path.endsWith('/12') ? issue : [issue]));
-      return;
-    }
-    response.writeHead(404, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ message: 'Not Found' }));
+    let text = '';
+    request.setEncoding('utf8').on('data', (chunk: string) => {
+      text += chunk;
+    });
+    request.on('end', () => {
+      const answer = (status: number, value: unknown): void => {
+        response.writeHead(status, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(value));
+      };
+      const issue = {
+        number: 12,
+        state: 'open',
+        user: { login: 'ann' },
+        labels: ['recipe:stout'],
+        body,
+      };
+      const path = request.url?.split('?')[0] ?? '';
+      const comment = /^\/repos\/acme\/brewery\/issues\/comments\/(\d+)$/.exec(path);
+      const id = Number(comment?.[1]);
+      const sent = (): string => (JSON.parse(text) as { body: string }).body;
+      if (request.method === 'GET' && path === '/user') return answer(200, { login });
+      if (request.method === 'GET' && path === '/repos/acme/brewery/issues') {
+        return answer(200, [issue]);
+      }
+      if (request.method === 'GET' && path === '/repos/acme/brewery/issues/12') {
+        return answer(200, issue);
+      }
+      if (path === '/repos/acme/brewery/issues/12/comments') {
+        if (request.method === 'GET') return answer(200, [...comments.keys()].map(commentOf));
+        if (request.method === 'POST') {
+          comments.set(comments.size + 1, sent());
+          return answer(201, commentOf(comments.size));
+        }
+      }
+      if (comment !== null && comments.has(id)) {
+        if (request.method === 'GET') return answer(200, commentOf(id));
+        if (request.method === 'PATCH') {
+          comments.set(id, sent());
+          return answer(200, commentOf(id));
+        }
+      }
+      return answer(404, { message: 'Not Found' });
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -141,15 +170,26 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       JSON.stringify({ workRoot: work, clones: { 'acme/web': clone } }),
     );
 
-    // The fake model writes the out doc in the attempt's worktree.
+    // The fake model commits a change in the attempt's worktree, as a brewer that produces commits
+    // must (ADR 0074), with the clone's identity, then writes the out doc.
+    git(clone, ['config', 'user.name', 'Brewer']);
+    git(clone, ['config', 'user.email', 'brewer@example.com']);
     const worktree = join(realpathSync(work), 'acme.web', 'attempts', '12-1', 'brew', '1');
-    api = await startFakeMessagesApi({
-      name: 'Write',
-      input: {
-        file_path: join(worktree, 'brew.md'),
-        content: outDoc({ status: 'done', summary: 'Brewed' }),
+    api = await startFakeMessagesApi([
+      { name: 'Write', input: { file_path: join(worktree, 'flag.txt'), content: '--json\n' } },
+      { name: 'Bash', input: { command: 'git add flag.txt', description: 'Stage the flag' } },
+      {
+        name: 'Bash',
+        input: { command: 'git commit -q -m "Add a --json flag"', description: 'Commit it' },
       },
-    });
+      {
+        name: 'Write',
+        input: {
+          file_path: join(worktree, 'brew.md'),
+          content: outDoc({ status: 'done', summary: 'Brewed' }),
+        },
+      },
+    ]);
     const needed =
       /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i;
     const inherited = Object.fromEntries(
@@ -202,8 +242,10 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       .split('\n')
       .filter((line) => line !== '')
       .map((line) => (JSON.parse(line) as { event: { type: string } }).event.type);
+    // The status comment's revisions are effects whose place depends on the ticks (ADR 0072).
+    assert.ok(types.includes('effect.applied'), types.join(', '));
     assert.deepStrictEqual(
-      types,
+      types.filter((type) => type !== 'effect.applied'),
       [
         'batch.ordered',
         'batch.recipe_chosen',
@@ -219,10 +261,16 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
     // The listing and the order's text came from GitHub, with the token, and the text reached the
     // model in nonce tags.
+    // The token's login came first, at serve's start (ADR 0072).
+    const read = github.requests.map(({ url, authorization }) => [
+      url.split('?')[0],
+      authorization,
+    ]);
+    assert.deepStrictEqual(read[0], ['/user', 'Bearer ghp_test_not_a_token']);
     assert.deepStrictEqual(
-      github.requests
-        .slice(0, 2)
-        .map(({ url, authorization }) => [url.split('?')[0], authorization]),
+      read
+        .filter(([url]) => /^\/repos\/acme\/brewery\/issues(?:\/12)?$/.test(url ?? ''))
+        .slice(0, 2),
       [
         ['/repos/acme/brewery/issues', 'Bearer ghp_test_not_a_token'],
         ['/repos/acme/brewery/issues/12', 'Bearer ghp_test_not_a_token'],

@@ -17,6 +17,11 @@ export interface AttemptLimits {
   maxTurns?: number;
   /** Permission denials before the runner stops the brewer: it is blocked by its environment. */
   maxDenials?: number;
+  /**
+   * For a brewer that produces commits: the commit its worktree started at. A `done` out doc then
+   * needs a commit after it (ADR 0074).
+   */
+  commitsSince?: string;
 }
 
 export interface AttemptStart {
@@ -61,6 +66,14 @@ export type ProcessExit =
   /** The runner stopped it because its output passed a limit: a stream line, or stderr. */
   | { kind: 'overflowed'; what: string };
 
+/** What git said of the commits an attempt made after its worktree's start (ADR 0074). */
+export type CommitsSeen =
+  | { kind: 'counted'; count: number }
+  /** The start commit is no ancestor of HEAD: the brewer rewrote it. */
+  | { kind: 'rewritten' }
+  /** git could not answer. */
+  | { kind: 'uncounted'; reason: string };
+
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
   /**
@@ -84,6 +97,8 @@ export interface AttemptFacts {
   deniedTools: readonly string[];
   /** Turns the brewer took. */
   turns: number;
+  /** The commits since the limits' `commitsSince`, when they name one. */
+  commits?: CommitsSeen;
 }
 
 /** The permission denials of an attempt so far. */
@@ -106,6 +121,38 @@ const failed = (retryable: boolean, reason: string): Ending => ({
   retryable,
   reason,
 });
+
+/**
+ * A `done` of a brewer that produces commits, by what git said of its commits after `since`
+ * (ADR 0074): without one its work never reached the task tree, so a human sees why.
+ */
+function doneWithCommits(
+  seen: CommitsSeen = { kind: 'uncounted', reason: 'the runner did not count them' },
+  since: string,
+  output: OutDocFrontmatter,
+): Ending {
+  const start = since.slice(0, 7);
+  switch (seen.kind) {
+    case 'counted':
+      if (seen.count > 0) return { kind: 'succeeded', output };
+      // Not retried: a brewer that found nothing to change would find it again.
+      return {
+        kind: 'blocked',
+        blockerKind: 'divergence',
+        summary: `the out doc says done, but the brewer made no commit since ${start}: ${output.summary}`,
+      };
+    case 'rewritten':
+      return failed(true, `the brewer rewrote ${start}, the commit its worktree started at`);
+    case 'uncounted': {
+      const summary = `the commits since ${start} were not counted: ${seen.reason}`;
+      return { kind: 'blocked', blockerKind: 'environment', summary };
+    }
+    default: {
+      const unhandled: never = seen;
+      throw new Error(`Unhandled commits ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
 
 /**
  * The outcome of an attempt from what the runner saw, the first rule that applies winning: a
@@ -166,7 +213,8 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   const frontmatter = read.frontmatter;
   switch (frontmatter.status) {
     case 'done':
-      return { kind: 'succeeded', output: frontmatter };
+      if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
+      return doneWithCommits(facts.commits, limits.commitsSince, frontmatter);
     case 'needs_input':
       return { kind: 'needs_input', questions: frontmatter.questions };
     case 'blocked':
