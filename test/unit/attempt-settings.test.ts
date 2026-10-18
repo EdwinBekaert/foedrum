@@ -122,6 +122,8 @@ describe('attemptSettings and git with options before the subcommand', () => {
       // git spelt another way after a wrapper (review of #225).
       `${shell}(env g''it -C . push)`,
       ...(shell === 'Bash' ? ['Bash(env g\\it -C . push)'] : []),
+      `${shell}(env /usr/bin/gi? -C . push)`,
+      `${shell}(cmd /c g^it -C . push)`,
     ]) {
       it(`refuses to allow ${rule}, which reaches a push`, () => {
         assert.throws(
@@ -218,6 +220,13 @@ describe('attemptSettings and gh', () => {
       `${shell}(env /usr/bin/gh api user)`,
       `${shell}(env gh.exe api user)`,
       `${shell}(xargs c:/tools/gh.cmd pr merge 1)`,
+      // A glob, a brace, cmd's escapes, or a backslash a POSIX shell reads (second review of #225).
+      `${shell}(env /usr/bin/g? auth token)`,
+      `${shell}(env /usr/bin/g[h] api user)`,
+      `${shell}(env {gh,} auth token)`,
+      `${shell}(cmd /c g^h auth token)`,
+      `${shell}(cmd /c g%pathext:~0,0%h api user)`,
+      ...(shell === 'PowerShell' ? ['PowerShell(bash -c g\\h api user)'] : []),
     ]) {
       it(`refuses to allow ${rule}, which starts gh`, () => {
         assert.throws(
