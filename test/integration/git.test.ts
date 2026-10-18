@@ -34,9 +34,10 @@ describe('runGit with real git', () => {
   });
 
   it('ends git and the processes it started at the timeout', async () => {
-    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
+    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps until
+    // it is killed, longer than waitUntil waits, so only the kill of the tree can end it.
     const node = process.execPath.replaceAll('\\', '/');
-    const script = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
+    const script = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setInterval(() => {}, 1 << 30)`;
     const hang = `alias.hang=!"${node}" -e "${script}"`;
     // A loaded machine (#147): git's processes start later than the deadline expects, and the
     // kill takes effect late. So the test reaches the deadline once git's child is up, and waits

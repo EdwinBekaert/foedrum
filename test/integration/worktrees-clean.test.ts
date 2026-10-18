@@ -235,9 +235,10 @@ describe('worktrees-clean runGit with real git', () => {
   });
 
   it('ends git and the processes it started at the deadline, and fails saying so', async () => {
-    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps.
+    // A shell alias: git starts a shell, which starts node; node writes its pid and sleeps until
+    // it is killed, longer than waitUntil waits, so only the kill of the tree can end it.
     const node = process.execPath.replaceAll('\\', '/');
-    const sleeper = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)`;
+    const sleeper = `require('fs').writeFileSync('${pidFile}', String(process.pid)); setInterval(() => {}, 1 << 30)`;
     // A loaded machine (#147): git's processes start later than the deadline expects, and the
     // kill takes effect late. So the test reaches the deadline once git's child is up, and waits
     // for the child to end instead of giving it a fixed time (ADR 0070).
