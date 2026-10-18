@@ -268,7 +268,7 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
   });
 
   // The helper loads no module: a lookup of the module path costs a scan of every module on it at
-  // each start, about 15 s on a runner image with many installed (#177's checks timed out on
+  // each start, seconds where many are installed (#177's check step timed out on
   // Windows CI). A module there that exports a name the helper could call would run if it did.
   it('loads no PowerShell module from the module path, so none can run in the helper', async () => {
     const modules = join(dir.path, 'modules');
