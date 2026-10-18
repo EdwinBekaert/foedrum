@@ -119,6 +119,9 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(env git.cmd -C . push)`,
       // A backslash quotes in Bash: g\it runs git.
       ...(shell === 'Bash' ? ['Bash(g\\it *)', 'Bash(C:/Program\\ Files/Git/cmd/git.exe *)'] : []),
+      // git spelt another way after a wrapper (review of #225).
+      `${shell}(env g''it -C . push)`,
+      ...(shell === 'Bash' ? ['Bash(env g\\it -C . push)'] : []),
     ]) {
       it(`refuses to allow ${rule}, which reaches a push`, () => {
         assert.throws(
@@ -200,6 +203,17 @@ describe('attemptSettings and gh', () => {
       `${shell}(xargs gh)`,
       `${shell}(xargs *)`,
       ...(shell === 'Bash' ? ['Bash(g\\h *)'] : []),
+      // gh spelt another way after a wrapper, and git asking gh, its credential helper, for the
+      // login (review of #225).
+      `${shell}(env g""h auth token)`,
+      `${shell}(bash -c "g"h pr merge 1)`,
+      `${shell}(env $(echo gh) api user)`,
+      ...(shell === 'Bash' ? ['Bash(env g\\h api user)'] : ['PowerShell(env g`h api user)']),
+      `${shell}(git credential fill)`,
+      `${shell}(git credential-store get)`,
+      `${shell}(git c*)`,
+      `${shell}(/usr/bin/git credential *)`,
+      `${shell}(git-credential-manager get)`,
     ]) {
       it(`refuses to allow ${rule}, which starts gh`, () => {
         assert.throws(

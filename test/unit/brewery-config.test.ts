@@ -182,6 +182,17 @@ describe('BreweryConfig', () => {
       config({}, { permissionCeiling: ['Bash(env gh pr list)'] }),
       ['permissionCeiling', 0],
     ],
+    // A star right after the name still names gh (review of #225).
+    [
+      'gh with a star in the ceiling',
+      config({}, { permissionCeiling: ['Bash(gh*)'] }),
+      ['permissionCeiling', 0],
+    ],
+    [
+      'gh by path with a star in the repository tools',
+      config({ tools: ['Bash(/usr/bin/gh*)'] }, { permissionCeiling: ['Bash(*)'] }),
+      ['repositories', 'acme/web', 'tools', 0],
+    ],
     [
       'gh in the repository tools, under a ceiling of every command',
       config({ tools: ['Bash(npm test)', 'Bash(gh pr list)'] }, { permissionCeiling: ['Bash(*)'] }),

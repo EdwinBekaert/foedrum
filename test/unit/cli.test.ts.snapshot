@@ -10,6 +10,7 @@ Foedrum doctor
   socat   1.7.4.4  /usr/bin/socat
 
 Isolation: sandboxed (bubblewrap and socat)
+  Until #190, check steps run outside the sandbox, so they can still ask the OS keyring for gh's login.
 Container: podman 5.2.0 at /usr/bin/podman; the container level is available
 
 Foedrum has everything it needs.
@@ -27,7 +28,7 @@ Foedrum doctor
 
 Isolation: permissions only (native Windows has no sandbox for shell commands)
   For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.
-  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; WSL2 or the container level closes that.
+  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; WSL2 or the container level closes that for brewers, and check steps keep it until #190.
 Container: no Podman or Docker (optional)
 
 Foedrum has everything it needs.
@@ -46,7 +47,7 @@ Foedrum doctor
   socat   1.7.4.4  /usr/bin/socat
 
 Isolation: permissions only (the sandbox needs bubblewrap and socat)
-  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; the sandboxed level (bubblewrap and socat) or the container level closes that.
+  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; the sandboxed level (bubblewrap and socat) or the container level closes that for brewers, and check steps keep it until #190.
 Container: no Podman or Docker (optional)
 
 Problems:

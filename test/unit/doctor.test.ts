@@ -398,13 +398,19 @@ describe('diagnose: isolation (ADR 0010)', () => {
   it('is sandboxed on WSL2 with bubblewrap and socat', () => {
     const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
     assert.equal(diagnose(wsl2).isolation.level, 'sandboxed');
-    assert.deepEqual(diagnose(wsl2).advice, []);
+    assert.deepEqual(
+      diagnose(wsl2).advice.filter((line) => /WSL2/.test(line)),
+      [],
+    );
   });
 
   it('is sandboxed on a WSL 2 kernel from before the WSL2 suffix', () => {
     const wsl2 = { ...linux(), kernelRelease: '4.19.128-microsoft-standard' };
     assert.equal(diagnose(wsl2).isolation.level, 'sandboxed');
-    assert.deepEqual(diagnose(wsl2).advice, []);
+    assert.deepEqual(
+      diagnose(wsl2).advice.filter((line) => /WSL2/.test(line)),
+      [],
+    );
   });
 
   it('is permissions only on Linux without bubblewrap or socat, which it reports as missing', () => {
@@ -551,9 +557,31 @@ describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () 
     assert.match(line ?? '', /the container level/);
   });
 
-  it('says nothing about the keyring on the sandboxed level', () => {
+  // Check steps run outside the OS sandbox at every level until #190 (ADR 0069, review of #225).
+  it('says what closes it for brewers only, since check steps keep it until #190', () => {
+    const permissionsOnly = [
+      windows,
+      { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' },
+      linux({ bwrap: undefined }),
+      { ...macos, platform: 'freebsd' as const },
+    ];
+    for (const facts of permissionsOnly) {
+      const [line] = keyring(facts);
+      assert.match(line ?? '', /closes that for brewers/);
+      assert.match(line ?? '', /check steps .*until #190/);
+    }
+  });
+
+  it('says on the sandboxed level that check steps can still ask the keyring until #190', () => {
     const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
-    for (const facts of [macos, linux(), wsl2]) assert.deepEqual(keyring(facts), []);
+    for (const facts of [macos, linux(), wsl2]) {
+      const [line, ...more] = keyring(facts);
+      assert.deepEqual(more, []);
+      assert.match(line ?? '', /check steps/);
+      assert.match(line ?? '', /gh's login/);
+      assert.match(line ?? '', /#190/);
+      assert.doesNotMatch(line ?? '', /brewer/);
+    }
   });
 });
 
