@@ -225,8 +225,9 @@ export const planClean = (
   // The task tree of an ended batch that no push recorded: its branch is the only ref to its
   // commits while it holds any past the batch's start (ADR 0084).
   const holdsTaskTree = (name: string | undefined): boolean => {
-    const start = name === undefined ? undefined : claims.unpushed?.get(name);
-    return start !== undefined && tips.get(name ?? '')?.tip !== start;
+    if (name === undefined) return false;
+    const start = claims.unpushed?.get(name);
+    return start !== undefined && tips.get(name)?.tip !== start;
   };
   const inRoot = facts.worktrees.filter(
     (worktree): worktree is ListedFact & { inside: string } => worktree.inside !== undefined,
