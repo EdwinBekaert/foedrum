@@ -1,6 +1,7 @@
-// `foedrum status`, `replay`, `cancel` and `retry` as the real program, against real store files
-// and recipe files (ADR 0021): what main.ts wires in that the unit tests replace. The output
-// itself is in test/unit/cli.test.ts.
+// `foedrum status`, `replay`, `cancel` and `retry` through the wiring main.ts runs
+// (cliFromCheckout), against real store files and recipe files (ADR 0021): what the unit tests
+// replace. In process, with gh answered from captured output, so no command here can start the
+// real gh. The output itself is in test/unit/cli.test.ts.
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -8,15 +9,46 @@ import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { cliFromCheckout } from '../../src/cli/cli-main.ts';
 import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { execProcess } from '../../src/platform/processes.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { doctorHere } from './canned-gh-login.ts';
+import { cannedGhLogin, doctorHere, MADE_UP_GH, resolveWithMadeUpGh } from './canned-gh-login.ts';
 
-const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
+const foedrumIn = (cwd: string, args: string[]) =>
+  cliFromCheckout(args, cwd, { exec: cannedGhLogin(), resolve: resolveWithMadeUpGh });
+
+describe('foedrum doctor and serve through cliFromCheckout', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('cli-runner');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  // The programs the injected runner was asked to start: gh among them means its login check went
+  // through the runner and the PATH lookup the test gave, never the real ones (ADR 0086).
+  const started = async (args: string[]): Promise<string[]> => {
+    const files: string[] = [];
+    const canned = cannedGhLogin();
+    const exec: ExecProcess = (file, execArgs, options) => {
+      files.push(file);
+      return canned(file, execArgs, options);
+    };
+    await cliFromCheckout(args, dir.path, { exec, resolve: resolveWithMadeUpGh });
+    return files;
+  };
+
+  it('asks doctor’s gh through the injected runner', async () => {
+    assert.ok((await started(['doctor'])).includes(MADE_UP_GH));
+  });
+
+  it('asks serve’s gh through the injected runner, before it refuses a folder that is no Brewery', async () => {
+    assert.ok((await started(['serve'])).includes(MADE_UP_GH));
+  });
+});
 
 describe('foedrum status and replay on store files', () => {
   let brewery: TempDir;
@@ -27,8 +59,7 @@ describe('foedrum status and replay on store files', () => {
   });
   afterEach(() => removeTree(brewery.path));
 
-  const foedrum = (...args: string[]) =>
-    execProcess(process.execPath, [main, ...args], { cwd: brewery.path, timeoutMs: 60_000 });
+  const foedrum = (...args: string[]) => foedrumIn(brewery.path, args);
 
   it('says there is no store, and creates none, in a folder without one', async () => {
     for (const args of [['status'], ['replay', '12-1']]) {
@@ -157,8 +188,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
   });
   afterEach(() => removeTree(brewery.path));
 
-  const foedrum = (...args: string[]) =>
-    execProcess(process.execPath, [main, ...args], { cwd: brewery.path, timeoutMs: 60_000 });
+  const foedrum = (...args: string[]) => foedrumIn(brewery.path, args);
   const writeRecipe = (steps: unknown[]): void =>
     writeFileSync(join(brewery.path, 'recipes', 'pale.jsonc'), recipeText('pale', steps));
 

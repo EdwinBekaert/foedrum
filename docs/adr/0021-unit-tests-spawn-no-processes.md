@@ -1,6 +1,6 @@
 # 0021. Unit tests start no processes
 
-Date: 2026-10-15 · Status: Accepted · Amended by [0036](0036-test-budget-in-cpu-time.md) and [0038](0038-npm-test-processes-refuse-process-starts.md)
+Date: 2026-10-15 · Status: Accepted · Amended by [0036](0036-test-budget-in-cpu-time.md), [0038](0038-npm-test-processes-refuse-process-starts.md) and [0086](0086-the-test-layer-guard-refuses-integration-tests-that-can-start-the-real-gh.md)
 
 ## Context
 `npm run check` took 65–85 s on Windows by the end of M0's second wave, and every push runs it again. Most of that time is tests that start real processes: git repositories built per test, the gate hook run through bash and npm, scripts run as CLIs. Starting a process costs tens to hundreds of milliseconds on Windows, git commands are several processes each, and the engine will grow many more such tests (worktrees, the state branch, the brewer runner). At that rate the suite reaches tens of minutes, and slow tests are skipped, batched or made flaky by timeouts.
