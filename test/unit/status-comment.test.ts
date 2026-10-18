@@ -277,6 +277,38 @@ describe('renderStatus', () => {
     assert.match(text, /and 20 more options/);
   });
 
+  it('escapes every Markdown character a brewer wrote, exactly', () => {
+    const text = renderStatus(
+      batch({ steps: new Map([step('plan', done(1, ['[a](b) `c` #d |e ~f !g _h']))]) }),
+      steps,
+    );
+    const line = text.split('\n').find((each) => each.startsWith('- `plan`: '));
+    assert.equal(line, '- `plan`: \\[a\\](b) \\`c\\` \\#d \\|e \\~f \\!g \\_h');
+  });
+
+  it("shows a step's assumptions from its latest attempt that succeeded, though a later one failed", () => {
+    const text = renderStatus(
+      batch({ steps: new Map([step('plan', done(1, ['Port 8080 is free']), failed(2, 'crash'))]) }),
+      steps,
+    );
+    assert.match(text, /- `plan`: Port 8080 is free/);
+  });
+
+  it('cuts a text past 60,000 characters at a line, with a note', () => {
+    const many = Array.from({ length: 400 }, (_, i) => `s${i}`);
+    const text = renderStatus(
+      batch({ steps: new Map(many.map((id) => step(id, failed(1, '@'.repeat(300))))) }),
+      many,
+    );
+    assert.ok(text.length <= 60_000, `${text.length} characters`);
+    assert.match(text, /\n\n… the rest is cut: GitHub keeps comments shorter\.$/);
+    assert.match(
+      text,
+      /^- ❌ `s\d+`: attempt 1 failed: (&#64;)+…\n\n…/m,
+      'the last line kept is whole',
+    );
+  });
+
   it('says so when a batch on tap has no pull request', () => {
     const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [] } }), steps);
     assert.match(text, /No pull request/);
@@ -577,6 +609,20 @@ describe('statusEffects', () => {
     finish();
     await driver.tick();
     assert.match(only().body, /On tap/, 'the next revision edits the new comment');
+  });
+
+  it('finds a comment a run before made again for a deleted one, by its marker, and makes no other', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    // Revision 1's comment was deleted by hand; a run that was killed made revision 2's again.
+    comments.comments.splice(0);
+    const id = comments.add('alice', `Earlier\n\n${marker(2)}`);
+    brew();
+    later(minute);
+    await driver.tick();
+    assert.equal(comments.calls.filter((call) => call === 'create').length, 1);
+    assert.deepEqual(revision(2), { result: { comment: id, digest: digest('Earlier') } });
   });
 
   it('finds a first comment a run before made and was killed before it recorded', async () => {
