@@ -107,6 +107,8 @@ const MIN_GH = [2, 26, 0] as const;
 const GH_INSTALL =
   'install the GitHub CLI 2.26.0 or later, https://cli.github.com, then run gh auth login';
 // The helper `gh auth setup-git` writes: `!gh auth git-credential`, with gh's path.
+// gh's token line, masked or not, and anything that looks like a token: never quoted in a report.
+const TOKEN_LINE = /token:|\b(?:gh[opsu]_|github_pat_)/i;
 const GH_HELPER = /(?:^|[\s!'"\\/])gh(?:\.exe)?['"]?\s+auth\s+git-credential(?:\s|$)/i;
 
 const SANDBOX_TOOLS = 'bubblewrap and socat';
@@ -198,7 +200,7 @@ const githubProblems = ({ tools, github }: DoctorFacts): Problem[] => {
   const said = login?.output
     .split('\n')
     .map((line) => line.trim())
-    .find((line) => line !== '' && line !== host);
+    .find((line) => line !== '' && line !== host && !TOKEN_LINE.test(line));
   const because = said === undefined || /not logged in/i.test(said) ? '' : ` (${said})`;
   if (login !== undefined && login.exitCode === null) {
     problems.push({
@@ -213,9 +215,20 @@ const githubProblems = ({ tools, github }: DoctorFacts): Problem[] => {
       fix: `run gh auth login --hostname ${host}`,
     });
   }
-  if (github?.credentials !== undefined) {
-    // git exits 1 when nothing matches: no helper at all.
-    const { exitCode, output } = github.credentials;
+  const credentials = github?.credentials;
+  // git exits 1 when nothing matches: no helper at all. Any other failure says nothing of them.
+  if (credentials !== undefined && credentials.exitCode !== 0 && credentials.exitCode !== 1) {
+    const first = credentials.output
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '');
+    problems.push({
+      required: false,
+      what: `git config did not list its credential helpers${first === undefined ? '' : ` (${first})`}`,
+      fix: 'check that git config --get-regexp ^credential\\. works in this folder',
+    });
+  } else if (credentials !== undefined) {
+    const { exitCode, output } = credentials;
     const [first] = credentialHelpersFor(host, exitCode === 0 ? output : '');
     if (first === undefined || !GH_HELPER.test(first)) {
       problems.push({
