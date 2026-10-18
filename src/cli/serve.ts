@@ -331,6 +331,11 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     say('stopped');
     return 0;
   } catch (error) {
+    // A call the stop itself ended, such as gh reading the login at the start, is a stop.
+    if (signal.aborted && error === signal.reason) {
+      say('stopped');
+      return 0;
+    }
     say(messageOf(error));
     return 1;
   } finally {
