@@ -17,6 +17,7 @@ import { type CommandLog, createCommandLog } from '../../src/engine/command-log.
 import type { Ending } from '../../src/engine/decide.ts';
 import {
   type Driver,
+  type DriverActions,
   type DriverNotice,
   type DriverOptions,
   openDriver,
@@ -38,6 +39,11 @@ const at = (minutes: number): Date => new Date(t0.getTime() + minutes * minute);
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'] }),
   half: fakeRecipe({ steps: ['plan'] }),
+  ale: fakeRecipe({
+    steps: ['plan', 'open'],
+    actions: { open: 'openPullRequest' },
+    pullRequests: [],
+  }),
 });
 const succeeded: Ending = {
   kind: 'succeeded',
@@ -1348,6 +1354,148 @@ describe('openDriver', () => {
       await driver.drive();
       assert.equal(creates, 1);
       assert.equal(driver.state().batches.get('b1')?.lane.kind, 'brewing');
+    });
+  });
+
+  describe('an action step (ADR 0071)', () => {
+    const url = 'https://github.com/acme/api/pull/12';
+    /** Orders `batchId` and routes it to the ale recipe: plan, then the action. */
+    const orderAle = (batchId: string): void => {
+      const issue = Number(batchId.slice(1));
+      assert.equal(
+        intake.issue({ kind: 'order', batchId, order: { issue } }, now).kind,
+        'accepted',
+      );
+      const route = {
+        kind: 'route',
+        batchId,
+        recipe: 'ale',
+        reason: 'label',
+        source: 'label',
+      } as const;
+      assert.equal(intake.issue(route, now).kind, 'accepted');
+    };
+
+    /** Actions whose effects are a push and a pull request, applied on a host the test can fail. */
+    const fakeActions = (failing: string[] = []) => {
+      const applied: string[] = [];
+      const asked: string[] = [];
+      const actions: DriverActions = {
+        due: (_state, ref) => {
+          asked.push(attemptKey.encode(ref));
+          return [
+            { batchId: ref.batchId, effect: 'push' },
+            { batchId: ref.batchId, effect: 'pull_request' },
+          ];
+        },
+        target: {
+          find: async () => undefined,
+          apply: async (key) => {
+            if (failing.includes(key)) {
+              failing.splice(failing.indexOf(key), 1);
+              throw new Error('the code host is down');
+            }
+            applied.push(key);
+            return key.includes('pull_request') ? url : { commit: 'c'.repeat(40) };
+          },
+        },
+        ending: () => ({ kind: 'succeeded', output: { pullRequest: url } }),
+      };
+      return { actions, applied, asked };
+    };
+    const push = JSON.stringify(['b1', 'push']);
+    const pullRequest = JSON.stringify(['b1', 'pull_request']);
+
+    it('starts the action itself, never on the runner, applies its effects and ends it', async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions();
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(brewer.started, [plan('b1')]);
+      assert.deepStrictEqual(applied, [push, pullRequest]);
+      assert.deepStrictEqual(types(store, 'b1').slice(-4), [
+        'step.scheduled open#1',
+        'step.started open#1',
+        'step.finished open#1',
+        'batch.on_tap',
+      ]);
+      const finished = driver.state().batches.get('b1')?.steps.get('open')?.attempts.get(1);
+      assert.deepStrictEqual(finished?.phase === 'finished' && finished.outcome, {
+        kind: 'succeeded',
+        output: { pullRequest: url },
+      });
+      assert.deepStrictEqual(driver.state().batches.get('b1')?.lane, {
+        kind: 'on_tap',
+        pullRequests: [url],
+      });
+    });
+
+    it('takes no lease for the action, so no supervisor loses it while its effects fail', async () => {
+      const brewer = handRunner();
+      const reported: DriverNotice[] = [];
+      const { actions, applied } = fakeActions([push, push]);
+      orderAle('b1');
+      const driver = await open({
+        runner: brewer.runner,
+        actions,
+        report: (n) => reported.push(n),
+      });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(store.currentLeases(now), []);
+      now = at(30);
+      await driver.tick();
+      assert.deepStrictEqual(applied, []);
+      assert.equal(reported.filter((notice) => notice.kind === 'effect_failed').length, 2);
+      assert.equal(
+        driver.state().batches.get('b1')?.steps.get('open')?.attempts.get(1)?.phase,
+        'started',
+      );
+      await driver.tick();
+      assert.deepStrictEqual(applied, [push, pullRequest]);
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'on_tap');
+    });
+
+    it('ends the attempt from the ledger when a driver before it applied both and died', async () => {
+      const { actions, applied } = fakeActions();
+      orderAle('b1');
+      const brewer = handRunner();
+      const first = await open({ runner: brewer.runner, actions: fakeActions().actions });
+      await first.drive();
+      brewer.end(plan('b1'));
+      await first.drive();
+      first.close();
+      // The action's start and both effects were recorded; its end was not.
+      for (const key of [push, pullRequest]) {
+        const event = { type: 'effect.applied', key, result: key === push ? {} : url } as const;
+        assert.equal(intake.issue({ kind: 'record', event }, now).kind, 'accepted');
+      }
+      const second = await open({ actions });
+      await second.tick();
+      assert.deepStrictEqual(applied, []);
+      assert.equal(second.state().batches.get('b1')?.lane.kind, 'on_tap');
+    });
+
+    it('blocks the action on its environment when the driver has no actions to run it with', async () => {
+      const brewer = handRunner();
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.drive();
+      assert.deepStrictEqual(brewer.started, [plan('b1')]);
+      const attempt = driver.state().batches.get('b1')?.steps.get('open')?.attempts.get(1);
+      assert.deepStrictEqual(attempt?.phase === 'finished' && attempt.outcome, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'blocked (environment): the driver has no code host to run the openPullRequest action of step open on',
+      });
+      assert.deepStrictEqual(driver.state().batches.get('b1')?.lane.kind, 'stuck');
     });
   });
 });

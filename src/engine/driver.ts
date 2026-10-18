@@ -13,7 +13,7 @@ import { type AttemptRef, attemptKey } from './attempt-key.ts';
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
-import type { EngineCommand } from './decide.ts';
+import type { Ending, EngineCommand } from './decide.ts';
 import type { DriverLock } from './driver-lock.ts';
 import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
@@ -37,6 +37,18 @@ export interface DriverEffects {
    * one, so a slower effect could let a second driver start it too (ADR 0044, #130).
    */
   deadlineMs?: number;
+}
+
+/**
+ * The actions the engine runs itself, never a brewer (ADR 0071): an attempt of an action step is
+ * started by the driver, applies its effects through the ledger, and ends once none is left.
+ */
+export interface DriverActions {
+  /** The effects the started action attempt `ref` calls for, in the order they apply. */
+  due(state: State, ref: AttemptRef): EffectKey[];
+  target: EffectTarget;
+  /** How `ref` ends, once every effect it called for is in the ledger. */
+  ending(state: State, ref: AttemptRef): Ending;
 }
 
 /**
@@ -79,6 +91,11 @@ export interface DriverOptions {
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
   alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;
+  /**
+   * The actions it runs itself (ADR 0071). Without them, an attempt of an action step is blocked
+   * on its environment at its start.
+   */
+  actions?: DriverActions;
   /** How long a batch's or an attempt's lease lasts between renewals; default 5 minutes. */
   leaseMs?: number;
   /** Default 2 days. */

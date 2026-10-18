@@ -4,11 +4,18 @@
 
 import type { Batch } from './fold.ts';
 
+/** An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071). */
+export type RecipeAction = 'openPullRequest';
+
 /** What follows a step that succeeded or was skipped. */
 export type Continuation =
   | { kind: 'step'; stepId: string }
-  /** The recipe is done: the batch goes on tap with these pull requests. */
-  | { kind: 'done'; pullRequests: readonly string[] };
+  /**
+   * The recipe is done: the batch goes on tap with these pull requests, and with the one its step
+   * `opens` opened, when the recipe has an openPullRequest step that the batch did not skip by its
+   * `when` (ADR 0071).
+   */
+  | { kind: 'done'; pullRequests: readonly string[]; opens?: string };
 
 /**
  * When a running attempt counts as stalled: no file write or commit for `turns` turns or for
@@ -24,6 +31,8 @@ export interface Recipe {
   readonly firstStep: string;
   /** Whether the recipe has a step `stepId`. */
   has(stepId: string): boolean;
+  /** The action `stepId` is, which the engine runs itself; `undefined` for any other step. */
+  action(stepId: string): RecipeAction | undefined;
   /** How long an attempt at `stepId` may take, in milliseconds. */
   deadlineMs(stepId: string): number;
   /** When an attempt at `stepId` stalls, or `undefined` when it has no stall limit. */

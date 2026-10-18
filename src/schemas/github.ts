@@ -35,6 +35,8 @@ export const GitHubIssue = z.object({
   assignees: z.array(Account).nullable().optional(),
   /** Present when the item is a pull request: GitHub lists them among the issues. */
   pull_request: z.unknown().optional(),
+  /** The order's title, which a pull request takes (ADR 0071). */
+  title: z.string().optional(),
   /** The order's text; null when the issue has none. */
   body: z.string().nullable().optional(),
 });

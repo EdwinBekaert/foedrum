@@ -1618,3 +1618,65 @@ describe('decide: a when that is false skips its step (ADR 0064)', () => {
     });
   });
 });
+
+describe('decide: on tap with the pull request of the openPullRequest step (ADR 0071)', () => {
+  const opened = 'https://github.com/acme/api/pull/12';
+  const open = 'open-pull-request';
+  const ale = (skips: Record<string, string> = {}) => ({
+    ...context,
+    recipes: fakeRecipes({
+      ale: fakeRecipe({
+        steps: ['plan', open],
+        actions: { [open]: 'openPullRequest' },
+        skips,
+        pullRequests: [],
+      }),
+    }),
+  });
+  const recorded: Event = {
+    type: 'effect.applied',
+    key: JSON.stringify(['b1', 'pull_request']),
+    result: opened,
+  };
+  const finish = {
+    kind: 'finish',
+    batchId: 'b1',
+    stepId: open,
+    attempt: 1,
+    ending: { kind: 'succeeded', output: { pullRequest: opened } },
+  } as const;
+  const finished: Event = {
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: open,
+    attempt: 1,
+    outcome: { kind: 'succeeded', output: { pullRequest: opened } },
+  };
+
+  it('goes on tap with the pull request the ledger recorded for the batch', () => {
+    assert.deepStrictEqual(decide(fold([...brewing(open, 1, 'ale'), recorded]), finish, ale()), {
+      kind: 'accepted',
+      events: [finished, { type: 'batch.on_tap', batchId: 'b1', pullRequests: [opened] }],
+    });
+  });
+
+  it('refuses to go on tap without it', () => {
+    assert.deepStrictEqual(decide(fold(brewing(open, 1, 'ale')), finish, ale()), {
+      kind: 'refused',
+      reason: `batch b1 goes on tap only with the pull request of its step ${open}, and the ledger has none`,
+    });
+  });
+
+  it('refuses a skip of the step, which would put the batch on tap without it', () => {
+    const blocked: StuckReason = {
+      kind: 'deadline_passed',
+      stepId: open,
+      deadlineAt: '2026-10-15T11:00:00.000Z',
+    };
+    const events = [...brewing(open, 1, 'ale'), stuckEvent(blocked, withoutAnswer)];
+    assert.deepStrictEqual(decide(fold(events), { kind: 'skip', batchId: 'b1', ...by }, ale()), {
+      kind: 'refused',
+      reason: `batch b1 goes on tap only with the pull request of its step ${open}, and the ledger has none`,
+    });
+  });
+});

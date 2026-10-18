@@ -11,6 +11,13 @@ export interface OrderIssue {
   repo?: string;
 }
 
+/** Reads the title of an order's issue in its repository, or in `brewery` for a Brewery issue. */
+export const githubOrderTitle =
+  (_reads: GitHubReads, _brewery: string) =>
+  async (_order: OrderIssue, _signal?: AbortSignal): Promise<string> => {
+    throw new Error('not implemented');
+  };
+
 /** Reads the body of an order's issue in its repository, or in `brewery` for a Brewery issue. */
 export const githubOrderText =
   (reads: GitHubReads, brewery: string) =>

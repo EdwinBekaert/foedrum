@@ -1,0 +1,188 @@
+// The openPullRequest action's pure core (ADR 0071): the bottle branch, the pull request the ledger
+// recorded, what each step reported, and the pull request's text from the order and those reports.
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { fold } from '../../src/engine/fold.ts';
+import {
+  bottleBranch,
+  openedPullRequest,
+  pullRequestText,
+  stepReports,
+} from '../../src/engine/pull-request.ts';
+import type { Event } from '../../src/schemas/events.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
+
+type Output = Extract<StepOutcome, { kind: 'succeeded' }>['output'];
+
+const ordered: Event = {
+  type: 'batch.ordered',
+  batchId: '12-1',
+  order: { issue: 12 },
+  routeBy: '2026-12-31T00:00:00.000Z',
+};
+const chosen: Event = {
+  type: 'batch.recipe_chosen',
+  batchId: '12-1',
+  recipe: 'ale',
+  reason: 'label',
+  source: 'label',
+};
+/** Attempt `attempt` of `stepId`, scheduled, started and finished with `output` or a failure. */
+const ran = (stepId: string, attempt: number, output?: Output): Event[] => [
+  {
+    type: 'step.scheduled',
+    batchId: '12-1',
+    stepId,
+    attempt,
+    deadlineAt: '2026-10-15T13:00:00.000Z',
+  },
+  { type: 'step.started', batchId: '12-1', stepId, attempt },
+  {
+    type: 'step.finished',
+    batchId: '12-1',
+    stepId,
+    attempt,
+    outcome:
+      output === undefined
+        ? { kind: 'failed', retryable: true, reason: 'crashed' }
+        : { kind: 'succeeded', output },
+  },
+];
+const outDoc = (summary: string, assumptions: string[] = []) => ({
+  status: 'done',
+  summary,
+  assumptions,
+});
+
+describe('bottleBranch', () => {
+  it("is the batch's branch for the repository, outside the attempts' branches", () => {
+    assert.equal(bottleBranch('12-1', 'Acme/API'), 'foedrum/12-1/acme.api');
+  });
+});
+
+describe('openedPullRequest', () => {
+  it("is the URL the ledger recorded under the batch's pull_request key", () => {
+    const url = 'https://github.com/acme/api/pull/9';
+    const applied: Event = {
+      type: 'effect.applied',
+      key: JSON.stringify(['12-1', 'pull_request']),
+      result: url,
+    };
+    assert.equal(openedPullRequest(fold([ordered, applied]), '12-1'), url);
+  });
+
+  it('is undefined before it is recorded, and for another batch or effect', () => {
+    const applied: Event = {
+      type: 'effect.applied',
+      key: JSON.stringify(['12-1', 'push']),
+      result: { commit: 'a'.repeat(40) },
+    };
+    assert.equal(openedPullRequest(fold([ordered]), '12-1'), undefined);
+    assert.equal(openedPullRequest(fold([ordered, applied]), '12-1'), undefined);
+    assert.equal(openedPullRequest(fold([ordered, applied]), '13-1'), undefined);
+  });
+});
+
+describe('stepReports', () => {
+  it("gives each step's latest succeeded out doc, in the order the steps were first scheduled", () => {
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('plan', 1, outDoc('Planned the flag', ['No config file'])),
+      ...ran('implement', 1, outDoc('First try')),
+      ...ran('implement', 2),
+      ...ran('implement', 3, outDoc('Added --json')),
+      ...ran('plan', 2, outDoc('Planned again')),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      { stepId: 'plan', summary: 'Planned again', assumptions: [] },
+      { stepId: 'implement', summary: 'Added --json', assumptions: [] },
+    ]);
+  });
+
+  it('leaves out a step without an out doc: a check, or one that never succeeded', () => {
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('plan', 1, outDoc('Planned', ['Keep v1'])),
+      ...ran('green', 1, null),
+      ...ran('review', 1),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      { stepId: 'plan', summary: 'Planned', assumptions: ['Keep v1'] },
+    ]);
+  });
+});
+
+describe('pullRequestText', () => {
+  const closes = { repo: 'acme/brewery', issue: 12 };
+
+  it("takes the order's title, and closes the order's issue", () => {
+    const text = pullRequestText({ title: 'Add a --json flag', closes, reports: [] });
+    assert.equal(text.title, 'Add a --json flag');
+    assert.equal(text.body.split('\n').at(-1), 'Closes acme/brewery#12');
+  });
+
+  it('quotes what each step reported as text, where nothing in it links, mentions or closes', () => {
+    const reports = [
+      { stepId: 'plan', summary: 'Fixes #3 for @octocat', assumptions: ['No config file'] },
+      { stepId: 'implement', summary: 'Added --json', assumptions: [] },
+    ];
+    const { body } = pullRequestText({ title: 'Add a --json flag', closes, reports });
+    assert.equal(
+      body,
+      [
+        'Brewed by Foedrum from acme/brewery#12. What each step reported:',
+        '',
+        '```text',
+        'plan: Fixes #3 for @octocat',
+        '  assumed: No config file',
+        'implement: Added --json',
+        '```',
+        '',
+        'Closes acme/brewery#12',
+      ].join('\n'),
+    );
+  });
+
+  it('uses a fence longer than any run of backticks in the reports', () => {
+    const reports = [{ stepId: 'plan', summary: 'Ran ```` and ``` here', assumptions: [] }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const lines = body.split('\n');
+    assert.equal(lines[2], '`````text');
+    assert.equal(lines[4], '`````');
+  });
+
+  it('says so when no step reported anything', () => {
+    const { body } = pullRequestText({ title: 'T', closes, reports: [] });
+    assert.equal(body, 'Brewed by Foedrum from acme/brewery#12.\n\nCloses acme/brewery#12');
+  });
+
+  it('keeps the title on one line of at most 256 characters, else names the order', () => {
+    assert.equal(
+      pullRequestText({ title: ' Fix\r\nit\t now ', closes, reports: [] }).title,
+      'Fix it now',
+    );
+    assert.equal(
+      pullRequestText({ title: 'x'.repeat(300), closes, reports: [] }).title.length,
+      256,
+    );
+    assert.equal(pullRequestText({ title: ' \n ', closes, reports: [] }).title, 'acme/brewery#12');
+  });
+
+  it("cuts the reports short within GitHub's limit of a body, saying so", () => {
+    const reports = Array.from({ length: 100 }, (_, i) => ({
+      stepId: `s${i}`,
+      summary: 'y'.repeat(1_000),
+      assumptions: [],
+    }));
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.ok(body.length <= 65_536, `${body.length}`);
+    assert.match(body, /\n\(cut short\)\n```\n\nCloses acme\/brewery#12$/);
+  });
+});

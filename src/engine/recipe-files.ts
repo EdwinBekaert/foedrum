@@ -210,6 +210,9 @@ function brewingRecipe(
     // A recipe has at least one step (its schema).
     firstStep: steps[0]?.id ?? '',
     has: (id) => byId.has(id),
+    action: () => {
+      throw new Error('not implemented');
+    },
     deadlineMs: (id) => {
       const { step, brewer } = at(id);
       return durationMs(step.deadline ?? brewer.deadline);
