@@ -100,6 +100,38 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
     ]);
   });
 
+  // gh auth status fails for more than a missing login: a token gh can no longer use, no network.
+  it("says what gh said when its login check failed, after the host's own line", () => {
+    const facts = linux();
+    facts.github = {
+      ...loggedIn(),
+      login: ran(
+        '',
+        'github.com\n  X Timeout trying to log in to github.com account brewer (keyring)\n  - Active account: true\n',
+        1,
+      ),
+    };
+    assert.deepEqual(problems(facts), [
+      {
+        required: true,
+        what: 'gh is not logged in to github.com (X Timeout trying to log in to github.com account brewer (keyring))',
+        fix: 'run gh auth login --hostname github.com',
+      },
+    ]);
+  });
+
+  it('reports a gh auth status that did not answer apart, with what the runner said', () => {
+    const facts = linux();
+    facts.github = { ...loggedIn(), login: ran('', 'timed out after 10 s\n', null) };
+    assert.deepEqual(problems(facts), [
+      {
+        required: true,
+        what: 'gh auth status --hostname github.com did not answer (timed out after 10 s)',
+        fix: 'check that gh auth status --hostname github.com works',
+      },
+    ]);
+  });
+
   it("is not ok when gh has no login for the Brewery's host, and names the login to make", () => {
     const facts = linux();
     facts.github = {
