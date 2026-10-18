@@ -119,7 +119,7 @@ Everything a session or a test creates stays inside the checkout, so it is visib
 ## Engine rules
 
 - The engine is deterministic code; it never asks a model to decide what to do next.
-- State changes only by appending events; current state is a pure fold. No mutable state outside the event store, except leases, the state branch's pushed-through marker (ADR 0024), and the work root's Brewery marker and driver locks (ADR 0037).
+- State changes only by appending events; current state is a pure fold. No mutable state outside the event store, except leases, the state branch's pushed-through marker (ADR 0024), the work root's Brewery marker and driver locks (ADR 0037), and the time of each status comment's last edit, which a driver keeps to edit an order at most once a minute (ADR 0072).
 - Every external side effect (git push, pull request, comment, label) goes through the idempotency ledger, except the state-branch push itself, which is idempotent through the pushed-through marker (ADR 0024), and the claim ref of a target-repository issue, which only one Brewery can create and the claimant finds by its record (ADR 0043).
 - Every wait has a deadline. A batch must never be able to sit silently.
 - Brewers never ask questions mid-run; `AskUserQuestion` is always denied. Questions are a `needs_input` outcome.

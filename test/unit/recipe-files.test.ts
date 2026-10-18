@@ -89,6 +89,10 @@ describe('loadRecipes: a recipe of brewer steps in a line', () => {
     );
   });
 
+  it('lists its steps in the order the recipe gives them, for the status comment (ADR 0072)', () => {
+    assert.deepEqual(paleRecipe().steps, ['maltster', 'plan']);
+  });
+
   it('goes from step to step, and is done with no pull request after the last', () => {
     const pale = paleRecipe();
     assert.deepEqual(pale.after(batch({ maltster: 1 }), 'maltster'), {

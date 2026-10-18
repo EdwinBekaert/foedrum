@@ -34,6 +34,7 @@ export const fakeRecipe = ({
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
   return {
     firstStep,
+    steps,
     has: (stepId) => steps.includes(stepId),
     action: (stepId) => actions[stepId],
     deadlineMs: () => hour,
