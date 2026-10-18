@@ -589,6 +589,12 @@ describe('planAttempt', () => {
     );
   });
 
+  it('names a command once when two rules differ only in their star (review of #231)', () => {
+    const tools = { allow: ['Bash(git diff*)', 'Bash(git diff *)', 'Bash(git diff:*)'], deny: [] };
+    const { prompt } = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.match(prompt, /\nYour shell runs only: git diff\. A denial stops/);
+  });
+
   it("leaves out PowerShell rules, since the runner's sessions have no PowerShell tool (ADR 0074)", () => {
     const tools = { allow: ['Read', 'PowerShell(Get-ChildItem *)'], deny: [] };
     const plan = planAttempt({ ...facts({ tools }), repoTools: ['Bash(npm test)'] });
