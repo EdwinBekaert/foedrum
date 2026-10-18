@@ -168,7 +168,7 @@ Prefer deciding and recording an assumption over asking. Ask only when a wrong
 guess would likely waste this run. Never ask questions any other way. Do not push.
 ```
 
-One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). The blocked example says `findings`, whose route keeps the batch moving. The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters. Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
+One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, else Stuck (the table below), bounded by `maxRounds`. The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters. Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 
 ### How the engine routes an out doc
 
