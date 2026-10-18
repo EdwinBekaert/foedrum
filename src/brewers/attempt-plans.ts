@@ -84,6 +84,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     sessionId = randomUUID,
   } = options;
 
+  // The brewer of a step in the recipe its batch brews; undefined without one.
+  const brewerOf = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
+    const recipe = state().batches.get(batchId)?.recipe?.name;
+    return recipe === undefined ? undefined : brewers.find(recipe, stepId);
+  };
+
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
     if (read.kind === 'order') {
@@ -151,14 +157,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(options.random === undefined ? {} : { random: options.random }),
       });
     },
-    limits: ({ batchId, stepId }) => {
-      const recipe = state().batches.get(batchId)?.recipe?.name;
-      const found = recipe === undefined ? undefined : brewers.find(recipe, stepId);
+    limits: (ref) => {
+      const found = brewerOf(ref);
       return found === undefined ? noBrewer : attemptLimits(found.brewer);
     },
-    outDoc: ({ batchId, stepId }) => {
-      const recipe = state().batches.get(batchId)?.recipe?.name;
-      return recipe === undefined ? undefined : brewers.find(recipe, stepId)?.brewer.output.doc;
-    },
+    outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };
 }
