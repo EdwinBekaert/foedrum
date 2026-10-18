@@ -72,7 +72,7 @@ export interface PullRequestActionsOptions {
 
 /** What one of the action's effects does, as `due` worked it out. */
 type ActionEffect =
-  | { kind: 'push'; push: BranchPush; revision: string; branch: string }
+  | { kind: 'push'; push: BranchPush; revision: string; base: string; branch: string }
   | {
       kind: 'open';
       repo: string;
@@ -85,6 +85,14 @@ type ActionEffect =
 type Plan =
   | { kind: 'run'; repository: PullRequestRepository; revision: string }
   | { kind: 'fail'; reason: string };
+
+/** What the recorded push says against pushing again: nothing to push, or what it pushed. */
+const unpushable = (recorded: unknown): 'empty' | { from: string } | undefined => {
+  if (typeof recorded !== 'object' || recorded === null) return undefined;
+  const { empty, from } = recorded as { empty?: unknown; from?: unknown };
+  if (empty === true) return 'empty';
+  return typeof from === 'string' ? { from } : undefined;
+};
 
 // The URL the code host answered, which the ledger keeps for good and `batch.on_tap` carries.
 const pullRequestUrl = (url: string): string => {
@@ -112,6 +120,20 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       }
       // The base is never the start here: the task tree has moved (ADR 0066).
       const revision = taskTreeStart(batch, { repo: repository.repo, base: repository.base });
+      const why = unpushable(state.effects.get(effectKey.encode(pushKey(batchId))));
+      if (why === 'empty') {
+        return {
+          kind: 'fail',
+          reason: `batch ${batchId} has no commits beyond ${repository.base} to open a pull request with`,
+        };
+      }
+      // The ledger keeps the push of the batch's life: a rewind after it cannot reach its branch.
+      if (why !== undefined && why.from !== revision) {
+        return {
+          kind: 'fail',
+          reason: `batch ${batchId} pushed ${why.from} for its pull request, and its task tree has moved to ${revision} since: updating an open bottle is not supported yet (ADR 0071)`,
+        };
+      }
       return { kind: 'run', repository, revision };
     } catch (error) {
       return { kind: 'fail', reason: (error as Error).message };
@@ -129,18 +151,26 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   const targetOf = (effect: ActionEffect): EffectTarget => {
     switch (effect.kind) {
       case 'push': {
-        const { push, revision, branch } = effect;
+        const { push, revision, base, branch } = effect;
+        // The commit to push, and whether it is the base's: a pull request with no commits, which
+        // the code host refuses, is recorded as nothing to push instead.
+        const resolve = async (signal?: AbortSignal) => {
+          const commit = await push.commit(revision, signal);
+          const empty = commit === (await push.commit(base, signal));
+          return { branch, commit, from: revision, ...(empty ? { empty } : {}) };
+        };
         return {
           // Pushed by a run before that was killed before it recorded the push.
           find: async (_key, signal) => {
-            const commit = await push.commit(revision, signal);
+            const result = await resolve(signal);
+            if (result.empty === true) return { result };
             const tip = await push.remoteTip(branch, signal);
-            return tip === commit ? { result: { branch, commit } } : undefined;
+            return tip === result.commit ? { result } : undefined;
           },
           apply: async (_key, signal) => {
-            const commit = await push.commit(revision, signal);
-            await push.push(commit, branch, signal);
-            return { branch, commit };
+            const result = await resolve(signal);
+            if (result.empty !== true) await push.push(result.commit, branch, signal);
+            return result;
           },
         };
       }
@@ -182,6 +212,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         kind: 'push',
         push: repository.push,
         revision,
+        base: `origin/${repository.base}`,
         branch,
       });
       effects.set(effectKey.encode(pullRequestKey(batchId)), {

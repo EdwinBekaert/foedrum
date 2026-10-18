@@ -2,6 +2,7 @@
 // never in an attempt's worktree (ADR 0066). Git runs only through the injected `Git`, so unit
 // tests pass a fake one (ADR 0021).
 
+import { devNull } from 'node:os';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
@@ -67,10 +68,12 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     push: async (commit, branch, signal) => {
       if (!SHA.test(commit)) throw new Error(`${commit} is no full commit sha`);
       const refspec = `${commit}:refs/heads/${foedrumBranch(branch)}`;
-      // Never by force; the user's hooks stay out, as for the state branch (ADR 0024).
+      // Never by force, and no hook of the clone runs: not the user's, and not one a brewer's code
+      // wrote into the clone its worktree shares (`--no-verify` alone skips only pre-push).
       await must(['push', '--no-verify', remote, refspec], {
         ...aborts(signal),
         timeoutMs: PUSH_TIMEOUT_MS,
+        config: { 'core.hooksPath': devNull },
       });
     },
   };

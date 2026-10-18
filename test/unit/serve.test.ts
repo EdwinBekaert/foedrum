@@ -132,7 +132,8 @@ describe('runServe', () => {
       return fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
     },
     push: (repository) => ({
-      commit: async () => FAKE_COMMIT,
+      // The task tree is at FAKE_COMMIT, the base elsewhere.
+      commit: async (revision) => (revision === 'origin/main' ? 'b'.repeat(40) : FAKE_COMMIT),
       remoteTip: async () => undefined,
       push: async (commit, branch) => {
         pushes.push(`${repository.repo} ${commit} ${branch}`);

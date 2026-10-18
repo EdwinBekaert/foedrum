@@ -82,7 +82,9 @@ export const pullRequestText = ({
     `${stepId}: ${summary}`,
     ...assumptions.map((assumption) => `  assumed: ${assumption.replace(/\s+/g, ' ')}`),
   ]);
-  let quoted = lines.join('\n');
+  // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
+  // output could otherwise make the fence, which comes twice, as long as the reports.
+  let quoted = lines.join('\n').replace(/`{17,}/g, '`'.repeat(16));
   if (quoted.length > MAX_REPORTS) quoted = `${quoted.slice(0, MAX_REPORTS)}\n${CUT}`;
   const longest = Math.max(0, ...[...quoted.matchAll(/`+/g)].map(([run]) => run.length));
   const fence = '`'.repeat(Math.max(3, longest + 1));
