@@ -1,8 +1,8 @@
 // `foedrum serve`, the Cellar (ADR 0063): takes the driver lock `cellar`, opens the event store and
 // the state branch, each repository's attempt worktrees and the driver with the real runner, the
-// attempt plans, the status comments and the claim effects, ticks the driver until Ctrl+C with the intake polling beside
-// the ticks (ADR 0068), and closes it all again. The machine comes in through `ServeShell`;
-// serve-main.ts gives it the real one.
+// attempt plans, the status comments (ADR 0072) and the claim effects, ticks the driver until
+// Ctrl+C with the intake polling beside the ticks (ADR 0068), and closes it all again. The machine
+// comes in through `ServeShell`; serve-main.ts gives it the real one.
 
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
