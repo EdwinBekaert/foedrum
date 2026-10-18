@@ -28,6 +28,7 @@ describe('serveShell', () => {
     base: 'origin/main',
     clone,
     tools: [],
+    checks: { build: null, typecheck: null, lint: null, format: null, test: null },
     ...fields,
   });
   const listening = () => {

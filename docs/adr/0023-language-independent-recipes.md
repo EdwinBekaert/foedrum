@@ -1,6 +1,6 @@
 # 0023. Default recipes are language-independent
 
-Date: 2026-10-15 · Status: Accepted
+Date: 2026-10-15 · Status: Accepted, amended by [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (how check steps run and record a skipped check)
 
 ## Context
 Foedrum brews in the repositories an organisation already has: TypeScript, C#, Kotlin, Rust, Go, Python, often several of them in one order ([ADR 0013](0013-single-repo-sub-orders-bottles-and-releases.md)). Parts of the design already assume this. Red proof reads a TAP or JUnit XML report that each repository declares ([ADR 0017](0017-test-first-recipes-and-tasting-lenses.md)), Brett needs no mutation library because "a brewer works in any language", and house yeast rules can be scoped by language ([ADR 0015](0015-house-yeast.md), [ADR 0018](0018-house-yeast-layers.md)).

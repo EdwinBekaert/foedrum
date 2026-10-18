@@ -43,25 +43,29 @@ Full list: [glossary](glossary.md).
 
 ## 3. System overview
 
-```
-             GitHub: Brewery repo                         GitHub: target repos
-       issues · labels · comments · PRs                   branches · pull requests
-              ▲              │                                    ▲
-   projection │              │ poll                               │ push / PR
-              │              ▼                                    │
-┌──────────────────────────── foedrum serve ─────────────────────────────────────┐
-│  Intake ──► Router ──► Scheduler ──► Executor ──► BrewerRunner (claude CLI)    │
-│                           ▲   │          │             │                       │
-│                           │   ▼          ▼             ▼                       │
-│                       Supervisor     Workspace       Checks                    │
-│                   (leases, deadlines) (git worktrees) (gravity readings)       │
-│                           │                                                    │
-│              ┌────────────┴─────────────┐                                      │
-│              │ EventStore (node:sqlite) │ ◄── single source of truth           │
-│              └────────────┬─────────────┘                                      │
-│                           ▼                                                    │
-│      Projections: status comment · labels · CLI · (later) live dashboard       │
-└────────────────────────────────────────────────────────────────────────────────┘
+The Cellar (`foedrum serve`, `src/cli/serve.ts`) polls GitHub for orders and writes everything it learns as events through one command log into one event store, the single source of truth; the driver runs brewers in attempt worktrees, and the store's events reach GitHub as the state branch. Dotted lines are designed but not built yet.
+
+```mermaid
+flowchart LR
+  subgraph GH["GitHub"]
+    BI["Brewery issues"]
+    TI["target-repository issues"]
+    SB["branch foedrum/state"]
+    PR["branches and pull requests"]
+  end
+  subgraph Cellar["foedrum serve: the Cellar"]
+    IN["Intake<br/>every pollEvery"] --> CL["Command log<br/>decide, then append"]
+    DR["Driver<br/>a tick every 5 s"] --> CL
+    SU["Supervisor<br/>leases, deadlines"] --> CL
+    CL --> ES[("Event store<br/>node:sqlite")]
+    DR --> BR["Brewer runner<br/>claude CLI"]
+    BR -->|"works in"| WT["Attempt worktrees"]
+  end
+  BI -->|"poll, order"| IN
+  TI -->|"poll, claim"| IN
+  ES -->|"flush at step boundaries"| SB
+  WT -.->|"push, open the pull request"| PR
+  ES -.->|"status comment, labels"| BI
 ```
 
 - **One event store per Brewery**, which the Cellar (`foedrum serve`) and interactive sessions drive batches on; every writer appends through the command log, one write transaction at a time ([ADR 0044](adr/0044-batch-leases-held-by-the-driver-and-one-command-log.md)).
@@ -103,21 +107,41 @@ Enterprise changes usually span several repositories. Cross-repository work is a
 
 - **Release signals** are configured per repository: **GitHub release or tag** first; package registries (NuGet, npm, Maven, …) later through the same interface. Developing against a pre-release build is a later option.
 
-```
-Order #100
- ├─ #101  lib-core  add field X
- ├─ #102  lib-core  validate X
- ├─ #103  api       use X          blocked by #101, #102  (release of lib-core)
- └─ #104  web       show X         blocked by #103        (code)
+An example: order 100 splits into four sub-orders, one repository each, bottled per repository. The api sub-order needs a published lib-core, so it conditions until the release signal reports it.
 
-Bottle A  lib-core  #101 + #102 → PR → CI → lib-core 2.4.0
-Bottle B  api       #103 → waits for lib-core ≥ 2.4.0 → bump → PR
-Bottle C  web       #104 → PR
+```mermaid
+flowchart TD
+  O["order 100"] --> S1["101 lib-core<br/>add field X"]
+  O --> S2["102 lib-core<br/>validate X"]
+  O --> S3["103 api<br/>use X"]
+  O --> S4["104 web<br/>show X"]
+  S1 -->|"code: stacked on its branch"| S2
+  S1 & S2 --> BA["Bottle A: lib-core pull request"]
+  BA -->|"merged, CI publishes"| R(["release lib-core 2.4.0"])
+  R -->|"release: conditioning until then"| S3
+  S3 --> BB["Bottle B: api pull request<br/>bumps lib-core first"]
+  S4 --> BC["Bottle C: web pull request"]
 ```
 
 ### 3.3 Target-repository issues: a work queue, and triage
 
-A team often shares a target repository while every member has a private Brewery, so several Breweries pick issues from one repository ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
+A team often shares a target repository while every member has a private Brewery, so several Breweries pick issues from one repository ([ADR 0043](adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)). GitHub refuses to create a ref that exists, so the claim ref decides which Brewery takes an issue (`githubClaimHost`, `src/github/claims.ts`):
+
+```mermaid
+sequenceDiagram
+  participant A as Brewery A intake
+  participant G as target repository on GitHub
+  participant B as Brewery B intake
+  A->>G: list open issues that pass the intake filter
+  B->>G: list open issues that pass the intake filter
+  A->>G: create refs/foedrum/claims/issues/42
+  G-->>A: 201, A holds the claim
+  B->>G: create refs/foedrum/claims/issues/42
+  G-->>B: 422 Reference already exists
+  Note over B: skips issue 42, it is taken
+  Note over A: batch.ordered records the claim
+  A->>G: marks through the ledger, assignee, label, claim comment
+```
 
 - **A work queue where a Brewery asks for it.** A repository with an **intake filter** (labels, optionally a milestone) has its open issues polled. The intake picks an issue that passes the filter, has no assignee or only this Brewery's own GitHub user (assign an issue to yourself and your Brewery picks it up), was opened by one of the Brewery's allow-listed users (§10), and has no batch in this Brewery in any lane (`isCandidate`, `src/engine/issue-claims.ts`). A pass claims candidates oldest first, only up to the Brewery's free capacity (`claimCandidates`'s `limit`: the capacity less its Ordered and Brewing batches), and leaves the rest for the next pass and for the other Breweries. Such a repository names a short **alias** in `foedrum.jsonc` (a lower-case letter, then letters and digits, at most 20, unique; `foedrum doctor` refuses a duplicate), and the batch of a claimed issue is `<alias>-<issue>`, which never collides with a Brewery issue's `<issue>-<n>`. Its `OrderRef` names the repository; the issue is an order, but its batch is kept apart from the Brewery's own orders and sub-orders, whose numbers it would collide with (`createIntake`, `src/engine/intake.ts`; [ADR 0050](adr/0050-the-intake-of-target-repository-issues.md)).
 - **The claim** is the ref `refs/foedrum/claims/issues/<n>` in the target repository, created through the API: creating a ref that exists fails, so exactly one Brewery wins. It points at a commit whose message names the Brewery (`{"brewery","issue","claimedAt"}`, no host or user names). A ref that names this Brewery is its own claim, left by a run killed before it ordered the batch; any other ref, or one that cannot be read, skips the issue. The claim comes before the order, and is the second effect outside the idempotency ledger next to the state branch's push: it is idempotent by its own atomic creation, and `batch.ordered` records it.
@@ -129,7 +153,25 @@ A team often shares a target repository while every member has a private Brewery
 
 ### 3.4 State in the Brewery repository
 
-The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 0011](adr/0011-state-in-the-brewery-repository.md)):
+The Brewery is a git repository, so it also holds Foedrum's durable state ([ADR 0011](adr/0011-state-in-the-brewery-repository.md)). SQLite is written first; the supervisor's next tick flushes the new events to the state branch, and a rejected push stops the engine instead of merging (`StateBranchStopError`, `src/engine/state-branch-git.ts`):
+
+```mermaid
+sequenceDiagram
+  participant C as command log
+  participant S as SQLite store
+  participant T as supervisor tick
+  participant W as state worktree
+  participant R as foedrum/state on GitHub
+  C->>S: append the events, one transaction
+  T->>S: read the events after the pushed-through marker
+  T->>W: write them to each batch's events.jsonl, commit without the user's hooks
+  W->>R: push
+  alt push accepted
+    T->>S: move the marker to the last pushed event
+  else rejected, another engine wrote
+    T->>C: stop the engine, never merge
+  end
+```
 
 - On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history. Events without a batch (bottles, releases) go to a top-level `events.jsonl`. Every line carries the store's event id, so a rebuild merges the files by id and gets the same ids and state ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)). Batch and step ids are path segments: lower case, a letter or digit at both ends, at most 64 characters, no Windows device names (`src/schemas/ids.ts`). A remote branch with a symbolic link or submodule is refused before checkout.
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed. SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
@@ -166,7 +208,18 @@ The engine runs in a terminal or as a service the user sets up (documented for s
 
 ### 4.1 Events
 
-State is derived from an append-only event log ([ADR 0002](adr/0002-event-sourced-engine-on-node-sqlite.md)).
+State is derived from an append-only event log ([ADR 0002](adr/0002-event-sourced-engine-on-node-sqlite.md)). Every change takes one path: `decide` turns a command and the folded state into events or a refusal, the guard checks each event against the state the ones before it lead to, the command log appends them in the transaction it decided in, and the pure fold turns the log back into state (`createCommandLog`, `src/engine/command-log.ts`):
+
+```mermaid
+flowchart LR
+  C["command<br/>human or engine"] --> D["decide<br/>src/engine/decide.ts"]
+  S["state"] --> D
+  D -->|"refused"| X["refusal<br/>nothing appended"]
+  D -->|"events"| A["guard per event<br/>src/engine/admit.ts"]
+  A -->|"admitted"| T[("append<br/>one transaction")]
+  T --> F["fold, pure<br/>src/engine/fold.ts"]
+  F --> S
+```
 
 ```ts
 type Event =
@@ -178,7 +231,8 @@ type Event =
   | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef; worktree?: WorktreeRef }  // session required for brewer and session steps
   // SessionRef = { id: string; resumes?: string; worktree: string; claudeVersion: string }
   // WorktreeRef = { repo: string; path: string; branch: string; commit: string }  // the worktree the attempt was given; none for a resumed session's attempt (ADR 0037)
-  | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage }
+  | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage; readings?: GravityReading[] }  // readings: a check step's (ADR 0069)
+  // GravityReading = { result: 'skipped'; check } | { result: 'exited'; check?; command; exitCode; tail } | { result: 'killed'; check?; command; killed: 'timed-out' | 'stopped' | 'too-much-output'; tail } | { result: 'signaled'; check?; command; signal; tail } | { result: 'unstarted'; check?; command; tail }  // tail: the last 4,000 characters of the output, lines that look like secrets left out
   | { type: 'input.received';      batchId: string; stepId: string; by: string; via: Surface; answers: Answer[] }
   | { type: 'batch.stuck';         batchId: string; reason: StuckReason; options: StuckOption[]; remindAt: string }
   | { type: 'batch.resumed';       batchId: string; by: string; via: Surface; action: 'retry' | 'skip' | 'recipe' | 'answer'; routeBy?: string }  // routeBy: a retry back to ordered
@@ -257,22 +311,29 @@ A brewer attempt runs through the `BrewerRunner` interface (`src/engine/brewer-r
 
 ### 4.3 Batch lifecycle
 
-```
-   ┌──── wait ──────────► conditioning   (waiting for a merge, a release or a sibling)
-   │                         │   ▲
-   │          route · recipe │   │ wait ¹
-   │                         ▼   │
-ordered ─ route · recipe ─► brewing ──── done ────► on_tap
- │  ▲                        │   ▲
- │  │ retry ²                │   │ retry · answer · skip
- │  │                        ▼   │ recipe · rewind
- └──┴──── unrouted ²  ────► stuck
+A batch's lane is the state of its state machine: each event moves it, and the guard allows each event only from the lanes it may come from (`rule`, `src/engine/admit.ts`; the lane it leads to, `src/engine/fold.ts`).
 
-ordered · brewing · conditioning · stuck ──► cancelled
-conditioning and stuck repeat their reminder (remind)
-¹ between steps, once a recipe step needs it (ADR 0025); until then a batch enters conditioning only from ordered
-² past its routing deadline an ordered batch is stuck on routing; retry sends it back to ordered with a new deadline, recipe brews it (ADR 0032)
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "On tap" as OnTap
+  [*] --> Ordered: batch.ordered
+  Ordered --> Brewing: routed, step.scheduled
+  Ordered --> Conditioning: batch.waiting
+  Conditioning --> Conditioning: reminder
+  Conditioning --> Brewing: step.scheduled
+  Brewing --> OnTap: batch.on_tap
+  Ordered --> Stuck: past the routing deadline
+  Brewing --> Stuck: batch.stuck
+  Stuck --> Stuck: reminder
+  Stuck --> Brewing: retry, answer, skip, recipe, rewind
+  Stuck --> Ordered: retry, when stuck on routing
+  OnTap --> [*]
+  Cancelled --> [*]
+  note right of Stuck: Ordered, Brewing, Conditioning and Stuck can each be cancelled
 ```
+
+Brewing → Conditioning between steps comes once a recipe step needs it (ADR 0025); until then a batch enters Conditioning only from Ordered. A retry of a batch Stuck on routing sends it back to Ordered with a new routing deadline; `recipe` brews it (ADR 0032).
 
 The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)). It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`). On tap and cancelled are terminal. A blocked out doc is recorded as a final failure and routed by its blocker kind (brewers-and-recipes §2). Rewind is allowed only from Stuck.
 
@@ -316,7 +377,7 @@ Brewers are defined first, then composed into recipes. Full specification: [brew
 - A **recipe** is a JSONC file: an ordered list of steps — brewers, gravity readings, human gates, actions (open PR, comment, blend) and fan-out — with loops (`max_rounds`, `until`).
 - **Test-first by structure:** recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md)).
 - **Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](adr/0022-five-default-lenses.md)) in a parallel group. Brett proposes mutants as one-line structured edits ([ADR 0034](adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
-- **Loading:** the Brewery's `recipes/*.jsonc` and `brewers/*.md` load all or nothing into the engine's `Recipes` (`loadRecipes`, `src/engine/recipe-files.ts`): any file that does not pass its schema, is not named after what it holds, names a brewer the Brewery lacks, or has a step the engine does not brew yet stops every command that needs recipes with one line per problem, the line `foedrum doctor` gives. For now the engine brews recipes of brewer steps in a line, without `lens` or `blocking`; the other step kinds join as the engine learns to run them ([ADR 0053](adr/0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)). A brewer step's `when` may read the recipe's settings (`recipe.testFirst`): when the batch reaches a step whose `when` is false, it records `step.skipped` and goes on, and an input from a skipped step is left out. A brewer step's `onBlocked` findings route goes back at most `maxRounds` times, counted from the `route` each scheduled attempt records; a route back to a skipped step makes the batch Stuck on a divergence. Each recipe goes through `resolveRecipe` (ADR 0028), and one that resolves to test-first needs a red proof whose `of` is its first writing step, before any other writing step ([ADR 0064](adr/0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md)); the red proof is a check step, so test-first recipes brew once check steps run (#176). A step's brewer may not yet ask for what the attempt plan does not carry: a resumed session, house yeast, skills, MCP servers, `context: repo`, a toolbox, a `doneWhen`, or a guard beyond `requiresOutDoc`. A batch whose step left its recipe file goes Stuck on a divergence when that step's attempt ends, and a recipe done with no pull request puts its batch on tap without one ([ADR 0059](adr/0059-attempt-plans-from-the-brewer-of-the-step.md)).
+- **Loading:** the Brewery's `recipes/*.jsonc` and `brewers/*.md` load all or nothing into the engine's `Recipes` (`loadRecipes`, `src/engine/recipe-files.ts`): any file that does not pass its schema, is not named after what it holds, names a brewer the Brewery lacks, or has a step the engine does not brew yet stops every command that needs recipes with one line per problem, the line `foedrum doctor` gives. For now the engine brews recipes of brewer steps, without `lens` or `blocking`, and check steps in a line; the other step kinds join as the engine learns to run them ([ADR 0053](adr/0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)). A **check step** (a gravity reading) is an attempt like a brewer's, with a worktree of its own at the task tree, that `stepRunner` (`src/engine/step-runner.ts`) starts on the check runner (`src/checks/check-runner.ts`) instead of claude: it runs each check's command line from `foedrum.jsonc` (its platform override, else `run`), or a Brewery's literal `{ "run": … }`, through the platform shell and the process runner, in order, until the first that does not pass, with the step's deadline (its own, else 30 minutes) as the timeout and the brewers' minimal environment (`buildBrewerEnv`, no GitHub token, none of claude's credentials). A `null` check is skipped. `step.finished` records a reading per check, with the exit code, or the signal that ended it, and the last 4,000 characters of the output, each line that looks like a secret left out (`findSecrets`, `src/formats/secrets.ts`); a check ended by a signal fails as an exit code does; a failed check fails the step without a retry and follows its `onFail` route, whose rounds are counted from the `route` its attempts record, else the batch is Stuck; a check that wrote too much or could not start blocks it on its environment; an attempt that read nothing is tried again, at most 3 times. Checks run outside the OS sandbox until #190, and `foedrum serve` says so at start when the isolation level is sandboxed and a recipe has a check step ([ADR 0069](adr/0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)). A brewer step's `when` may read the recipe's settings (`recipe.testFirst`): when the batch reaches a step whose `when` is false, it records `step.skipped` and goes on, and an input from a skipped step is left out. A brewer step's `onBlocked` findings route goes back at most `maxRounds` times, counted from the `route` each scheduled attempt records; a route back to a skipped step makes the batch Stuck on a divergence. Each recipe goes through `resolveRecipe` (ADR 0028), and one that resolves to test-first needs a red proof whose `of` is its first writing step, before any other writing step ([ADR 0064](adr/0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md)); the red proof (`"expect": "fail"`) is refused by name until the engine runs it, so test-first recipes brew once it does (#176). A step's brewer may not yet ask for what the attempt plan does not carry: a resumed session, house yeast, skills, MCP servers, `context: repo`, a toolbox, a `doneWhen`, or a guard beyond `requiresOutDoc`. A batch whose step left its recipe file goes Stuck on a divergence when that step's attempt ends, and a recipe done with no pull request puts its batch on tap without one ([ADR 0059](adr/0059-attempt-plans-from-the-brewer-of-the-step.md)).
 - **The openPullRequest action** ([ADR 0071](adr/0071-the-openpullrequest-action-two-effects-of-the-batch.md)) loads as a recipe's last step. The driver runs its attempt itself, never on the runner, with no lease and no worktree: two effects of the batch through the ledger, the push of the task tree, resolved in the clone, to `foedrum/<brewery>/<batch>/<owner>.<name>` (never by force), then the pull request from that branch into the base, each found on the code host before it is applied (the remote branch at that commit; a pull request from that branch by the Brewery's own login), so a kill on either side of either never pushes twice or opens two pull requests (I4). The attempt ends once both are recorded, and `decide` puts the batch on tap only with the pull request the ledger recorded, unless the action's `when` skipped it. The title is the order's, and the body quotes what each step reported in a fenced block, where nothing links, mentions or closes, then `Closes <owner/name>#<n>` (`src/engine/pull-request.ts`, `pull-request-actions.ts`, `src/workspace/branch-push-git.ts`, `src/github/pull-requests.ts`).
 - **Routing:** a `recipe:<name>` label wins; otherwise a lean router call picks one and explains why; a human can override before work starts. In M1 the intake orders a Brewery issue only when an allow-listed user opened it with a `recipe:<name>` label, and each pass routes every Ordered batch whose issue it read by its one such label, whoever ordered it (this pass, a pass killed before it routed, a retry from Stuck on routing). Two labels or a recipe the Brewery lacks is reported once; no label waits for the routing deadline, then Stuck on routing. Labels count only while a batch is Ordered: a relabel after routing changes nothing ([ADR 0068](adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
 
@@ -348,7 +409,21 @@ Orchestration should cost (almost) nothing:
 
 ## 8. Humans in the loop
 
-Foedrum has two **drivers** that share one deterministic engine library and one event store ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)):
+Foedrum has two **drivers** that share one deterministic engine library and one event store ([ADR 0019](adr/0019-interactive-sessions-and-one-command-layer.md)). The autonomous one, the Cellar, runs this loop (`runServe`, `src/cli/serve.ts`); a slow GitHub never holds up a tick, because the intake pass is not awaited:
+
+```mermaid
+flowchart TD
+  L["take the driver lock cellar"] --> S["catch up the store<br/>from the state branch"]
+  S --> W["open each repository's attempt worktrees"]
+  W --> D["open the driver with the real runner"]
+  D --> P{"pollEvery passed, no pass underway,<br/>no rate-limit pause?"}
+  P -->|"yes"| I["start an intake pass, not awaited<br/>order, claim, route"]
+  P -->|"no"| T
+  I --> T["driver tick: leases, supervisor,<br/>attempts, effects"]
+  T --> Z{"stop signal?"}
+  Z -->|"no, wait 5 s"| P
+  Z -->|"yes"| E["wait for the pass underway,<br/>stop the runs, let the lock go"]
+```
 
 - **Interactive:** an engineer opens Claude Code and types a plugin command, for example `/foedrum:brew 21`. The session drives the batch, without `foedrum serve` running: it asks the engine for the next step, runs it, shows progress live, and asks the engineer right away when a brewer returns `needs_input`. Judgement-heavy steps (refine, triage, review) run in the session itself.
 - **Autonomous:** the Cellar (`foedrum serve`) picks up orders and commands from GitHub, and later from the Brewhouse dashboard. Run in the Brewery's checkout, it reads `foedrum.jsonc` (with the Brewery's `brewery` name), `.foedrum/local.jsonc`, `models.jsonc`, the recipe files and a token (`GH_TOKEN` or `GITHUB_TOKEN`), and refuses to start with one line per problem; then it takes the driver lock `cellar`, rebuilds or catches up its store from the state branch, opens each repository's attempt worktrees (making a managed clone first) and the driver with the real runner and the attempt plans, and ticks the driver every 5 seconds until a stop signal (Ctrl+C, a kill, a closed terminal, Ctrl+Break), which stops its runs and lets the lock go (`foedrum serve`, `src/cli/serve.ts` over the pure `serveSetup`; [ADR 0063](adr/0063-foedrum-serve-its-configuration-and-wiring.md)). Beside the ticks, never inside one, it runs the intake every `pollEvery` (default a minute, ADR 0052): a pass orders labelled Brewery issues, then claims target-repository issues, within `concurrency` and to its deadline of half a batch lease, and routes the Ordered batches by label; it starts no pass during GitHub's rate-limit pause, and a stop waits for the pass underway. With a target intake, or a claimed batch in its store, it reads the token's login at its start and gives the driver the claim marks and releases as its effects ([ADR 0068](adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
@@ -385,6 +460,27 @@ Browser testing *in target repositories* is a recipe concern, not a Foedrum test
 Published metrics: chaos runs passed, stuck-without-transition count (target 0), orchestration overhead, evaluation scores per model.
 
 ## 10. Security model
+
+A brewer is a model that reads untrusted text, so it runs as the least trusted part: the engine holds the GitHub credentials and decides, and the brewer gets a worktree, a minimal environment without a GitHub token (`brewerBaseEnv`) and only the runner's own settings.
+
+```mermaid
+flowchart LR
+  subgraph U["untrusted"]
+    IS["issue and pull request text"]
+    RF["target repository files"]
+  end
+  subgraph E["engine: holds the GitHub credentials"]
+    AL["allow-listed authors only"] --> NT["input in nonce tags, as data"]
+    OD["out doc read against its schema"]
+  end
+  subgraph B["brewer: worktree, minimal environment, no GitHub token"]
+    CC["claude, the runner's settings only<br/>tool allowlist, sandbox if any"]
+  end
+  IS --> AL
+  NT --> CC
+  RF --> CC
+  CC -->|"out doc, commits"| OD
+```
 
 | Threat | Mitigation |
 |---|---|
@@ -452,6 +548,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 
 - `foedrum doctor` reports Node, npm, git and `claude` (resolved path and version), the effective isolation level, a container runtime (Podman or Docker) when there is one (one that does not report a version, because it fails or does not answer within 3 s, is not usable, and the next is tried), and missing prerequisites (for example `bubblewrap`). It exits 1 when a required one is missing: git, `claude`, Node 24.15, or on Windows a Job Object to run brewers in ([ADR 0039](adr/0039-windows-job-objects-through-a-powershell-helper.md)). It also reads `foedrum.jsonc` in the working directory, when there is one, and reports a config that does not pass its schema (two repositories with one alias, for example) as a required problem, and so do recipe and brewer files that do not load ([ADR 0053](adr/0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)). A pure core (`src/cli/doctor.ts`) turns the facts its shell gathers through the process runner into the report.
 - A Brewery can require a minimum level (`"isolation": { "minimum": "sandboxed" }`); writing brewers then refuse to run below it. Read-only brewers may run at a lower level.
+- Check steps (gravity readings) run outside the OS sandbox at every level until #190, in the brewers' minimal environment without claude's credentials; `foedrum serve` says so at start when the level is `sandboxed` ([ADR 0069](adr/0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)).
 - Recommended setup on Windows for untrusted repositories: run Foedrum inside WSL2.
 
 ### Cross-platform rules for the code
@@ -462,8 +559,8 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 | Paths | Only `node:path`, `os.homedir()`, `os.tmpdir()`; never string-built paths or `~`. Comparisons respect case-insensitive file systems (Windows, macOS) |
 | Path length | Short batch ids and worktree paths; `core.longpaths=true` in Foedrum-managed clones on Windows |
 | Spawning `claude` | The native installer's `claude.exe` starts directly, without a shell; on Windows, inside a Job Object (ADR 0039). Only npm's `claude.cmd` needs one ([ADR 0042](adr/0042-the-claude-command-line-and-stream-contract.md)): every part validated against a strict pattern and put in double quotes (`windowsCommandLine` in `src/platform/shell.ts`); prompts and settings via stdin and files. The process runner does this for every `.cmd` and `.bat` file on Windows (npm's `claude.cmd`, `npm.cmd`), through `%SystemRoot%\System32\cmd.exe` by its full path and with `NoDefaultCurrentDirectoryInExePath` set, and starts everything else without a shell ([ADR 0031](adr/0031-cmd-and-bat-files-through-cmd-exe.md)) |
-| Spawning git and checks | Argument arrays and no shell for git, through the one process runner in `src/platform/processes.ts` (`execProcess`; `spawn`, not `execFile`, which answers only once every output pipe closes); check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`) |
-| Killing process trees | POSIX: process groups (`detached` + negative pid), SIGTERM first so a process in the group can end its own children's groups, SIGKILL 2.5 s later; Windows: `taskkill /T /F /PID`. The runner kills the tree at the call's deadline, when its signal aborts, or when stdout and stderr together pass the call's `maxOutputBytes` (4 MiB by default), answers at once, and reports `timed-out`, `stopped` or `too-much-output` apart from an exit code ([ADR 0035](adr/0035-the-process-runner-kills-at-an-output-limit.md)). A long stream such as `claude`'s goes through `streamProcess` instead: it writes the call's `stdin` to the program, hands each stdout line to the caller and keeps none of it, and kills the tree at a line longer than `maxLineBytes` (`line-too-long`) or past its stderr limit ([ADR 0046](adr/0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)). On Windows it starts nothing without `jobObject: true`, and it answers as not started, with the tree killed, when it was given stdin and the program has no pipe for it ([ADR 0047](adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)). **Windows limit (#92):** taskkill finds the tree only through a parent that is still alive, so a grandchild whose parent has exited (one started detached, or by a parent such as cmd.exe that, unlike node, does not hold its children in a job) keeps running. A call with `jobObject: true` therefore starts its program through a helper (`src/platform/job-object.ps1`, Windows PowerShell by its full path) that starts it suspended, with exactly the caller's environment, assigns it to a kill-on-close Job Object that nothing can break away from, and resumes it; killing the helper, or its exit with the program, closes the job and Windows ends the whole tree. It costs about 0.4 s per call, so the brewer runner uses it and git calls do not. A program that cannot be held in a job (PowerShell in Constrained Language Mode) does not start, and `foedrum doctor` reports it with the WSL2 advice ([ADR 0039](adr/0039-windows-job-objects-through-a-powershell-helper.md)) |
+| Spawning git and checks | Argument arrays and no shell for git, through the one process runner in `src/platform/processes.ts` (`execProcess`; `spawn`, not `execFile`, which answers only once every output pipe closes); check commands run through the platform shell with optional per-OS overrides (`{ "run": "…", "windows": "…" }`): `execProcess` with `shell: true` starts the line with `/bin/sh -c`, or on Windows with cmd.exe by its full path, `/d /s /c` and `NoDefaultCurrentDirectoryInExePath` set, without looking the line up; the check runner also passes `jobObject: true`, so on Windows the line runs inside a Job Object ([ADR 0069](adr/0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)) |
+| Killing process trees | POSIX: process groups (`detached` + negative pid), SIGTERM first so a process in the group can end its own children's groups, SIGKILL 2.5 s later; Windows: `taskkill /T /F /PID`. The runner kills the tree at the call's deadline, when its signal aborts, or when stdout and stderr together pass the call's `maxOutputBytes` (4 MiB by default), answers at once, and reports `timed-out`, `stopped` or `too-much-output` apart from an exit code, and the signal that ended a process when it did not send one (`signal`, a crash or the OOM killer; ADR 0069) ([ADR 0035](adr/0035-the-process-runner-kills-at-an-output-limit.md)). A long stream such as `claude`'s goes through `streamProcess` instead: it writes the call's `stdin` to the program, hands each stdout line to the caller and keeps none of it, and kills the tree at a line longer than `maxLineBytes` (`line-too-long`) or past its stderr limit ([ADR 0046](adr/0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)). On Windows it starts nothing without `jobObject: true`, and it answers as not started, with the tree killed, when it was given stdin and the program has no pipe for it ([ADR 0047](adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)). **Windows limit (#92):** taskkill finds the tree only through a parent that is still alive, so a grandchild whose parent has exited (one started detached, or by a parent such as cmd.exe that, unlike node, does not hold its children in a job) keeps running. A call with `jobObject: true` therefore starts its program through a helper (`src/platform/job-object.ps1`, Windows PowerShell by its full path) that starts it suspended, with exactly the caller's environment, assigns it to a kill-on-close Job Object that nothing can break away from, and resumes it; killing the helper, or its exit with the program, closes the job and Windows ends the whole tree. It costs about 0.4 s per call, so the brewer and check runners use it and git calls do not. A program that cannot be held in a job (PowerShell in Constrained Language Mode) does not start, and `foedrum doctor` reports it with the WSL2 advice ([ADR 0039](adr/0039-windows-job-objects-through-a-powershell-helper.md)) |
 | Signals | No reliance on `SIGTERM` on Windows; graceful shutdown on `SIGINT` and an explicit stop command |
 | Line endings | `.gitattributes` with `eol=lf` in Foedrum; frontmatter parsing tolerates CRLF; a guard fails attempts whose diff is mostly line-ending churn |
 | File locks | File and folder removal through `src/platform/remove.ts`: read-only bits (the Windows ReadOnly attribute) cleared first, `EBUSY`/`EPERM`/`ENOTEMPTY` retried with a short backoff; stale `index.lock` cleanup after interrupted git commands (`src/platform/index-lock.ts`: a lock older than a minute, in a worktree no Foedrum git command is running in) |

@@ -383,6 +383,18 @@ describe('decide finish', () => {
     });
   });
 
+  it('records the gravity readings of a check attempt (ADR 0069)', () => {
+    const readings = [
+      { result: 'skipped', check: 'lint' },
+      { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: 'not ok 1' },
+    ] as const;
+    const decision = decide(fold(brewing()), { ...finish(final), readings } as Command, context);
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events[0], {
+      ...finished(final),
+      readings,
+    });
+  });
+
   it('puts the batch on tap when the last step succeeded', () => {
     accepts(brewing('patch', 1, 'nip'), finish(succeeded, 'patch'), [
       finished(succeeded, 'patch'),

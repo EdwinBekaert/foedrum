@@ -9,7 +9,7 @@ import { claudeBrewerRunner } from '../brewers/claude-runner.ts';
 import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
-import { type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
+import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
 import {
   ensureManagedClone,
   managedClonePath,
@@ -91,5 +91,6 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: source === 'local' ? (clone ?? '') : managedClonePath(workRoot, repo),
       }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
+    exec: execProcess,
   };
 };

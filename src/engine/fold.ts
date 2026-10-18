@@ -5,6 +5,7 @@ import type {
   Answer,
   Dependency,
   Event,
+  GravityReading,
   ScheduleRoute,
   SessionRef,
   StuckOption,
@@ -57,6 +58,8 @@ export type Attempt =
       worktree?: WorktreeRef;
       outcome: StepOutcome;
       usage?: Usage;
+      /** A check step's gravity readings (ADR 0069). */
+      readings?: readonly GravityReading[];
     };
 
 export interface Input {
@@ -309,6 +312,7 @@ function apply(state: State, event: Event): State {
           phase: 'finished',
           outcome: event.outcome,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
+          ...(event.readings === undefined ? {} : { readings: event.readings }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || worktree === undefined) return next;

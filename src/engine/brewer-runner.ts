@@ -2,7 +2,7 @@
 // it with a typed outcome (ADR 0005). The real runner drives the `claude` CLI; tests use a fake.
 // Both turn what the process did into the outcome through settleAttempt, so the rules are shared.
 
-import type { Usage } from '../schemas/events.ts';
+import type { GravityReading, Usage } from '../schemas/events.ts';
 import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -28,6 +28,8 @@ export interface AttemptStart {
 export interface AttemptEnd {
   ending: Ending;
   usage?: Usage;
+  /** What a check step read, one per check (ADR 0069); a brewer's attempt has none. */
+  readings?: readonly GravityReading[];
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };
 }
