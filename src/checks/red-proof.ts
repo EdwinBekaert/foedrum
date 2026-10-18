@@ -113,3 +113,7 @@ export function judgeRed(report: TestReport, diff: readonly DiffFile[]): RedVerd
   if (skipped.length > 0) return refused(`${named(skipped)} is skipped, so it proves nothing`);
   return { proven: true, tests: proven.map(({ name }) => name) };
 }
+
+/** Why a recipe that proves its tests red cannot brew in `repo`: it has no test report. */
+export const needsTestReport = (recipe: string, repo: string): string =>
+  `recipe ${recipe} proves its tests red, which needs the test report of ${repo}: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)`;

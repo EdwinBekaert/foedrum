@@ -3,7 +3,7 @@
 // runner. The driver stays the same for both.
 
 import type { AttemptRef } from './attempt-key.ts';
-import type { BrewerRunner } from './brewer-runner.ts';
+import type { AttemptEnd, BrewerRunner } from './brewer-runner.ts';
 
 export interface StepRunnerOptions {
   brewer: BrewerRunner;
@@ -15,9 +15,17 @@ export interface StepRunnerOptions {
 }
 
 export function stepRunner({ brewer, check, isCheck, refuse }: StepRunnerOptions): BrewerRunner {
-  if (refuse !== undefined) throw new Error('not implemented');
   return {
-    start: (attempt) => (isCheck(attempt.ref) ? check : brewer).start(attempt),
+    start: (attempt) => {
+      const refused = refuse?.(attempt.ref);
+      if (refused !== undefined) {
+        const end: AttemptEnd = {
+          ending: { kind: 'blocked', blockerKind: 'environment', summary: refused },
+        };
+        return { ended: Promise.resolve(end), stop: () => {} };
+      }
+      return (isCheck(attempt.ref) ? check : brewer).start(attempt);
+    },
     // Each runner knows only the attempts it runs.
     progress: (ref) => check.progress(ref) ?? brewer.progress(ref),
   };
