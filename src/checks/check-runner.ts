@@ -112,7 +112,7 @@ const NO_CHECKS: RepositoryChecks = {
 };
 
 export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
-  const { state, checks, exec, git, clock, platform = process.platform } = options;
+  const { state, checks, exec, git, clone, clock, platform = process.platform } = options;
   const reports = options.reports ?? fileReports;
   // Nothing a brewer does not get, and not claude's login either: by key, so a forced PATH
   // replaces Path on Windows (ADR 0063, ADR 0069).
@@ -174,7 +174,8 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
         `step ${ref.stepId} proves the tests of step ${of}, which has no attempt that succeeded`,
       );
     }
-    const diff = await readDiff(git, worktree.path, commits, { signal });
+    // In the clone, never by discovery in the worktree (#210).
+    const diff = await readDiff(git, clone(worktree.repo), commits, { signal });
     if ('error' in diff) {
       return blocked('environment', `the commits of step ${of} cannot be read: ${diff.error}`);
     }

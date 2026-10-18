@@ -234,17 +234,20 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       if (opened === undefined) throw new Error('the driver is not open yet');
       return opened.state();
     };
+    // The clone a repository's worktrees are added to: where git reads an attempt's commits, never
+    // its worktree (ADR 0074, ADR 0078).
+    const clone = (repo: string) => {
+      const repository = setup.repositories.find((each) => sameRepo(each.repo, repo));
+      if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
+      return worktreeClonePath(setup.workRoot, repository);
+    };
     const plans = createAttemptPlans({
       state,
       brewers: setup.brewers,
       models: setup.models,
       repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
       // Where a commit-producing attempt's commits are counted (ADR 0074).
-      clone: (repo) => {
-        const repository = setup.repositories.find((each) => sameRepo(each.repo, repo));
-        if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
-        return worktreeClonePath(setup.workRoot, repository);
-      },
+      clone,
       sandbox: setup.sandbox,
       workRoot: setup.workRoot,
       env: setup.brewerEnv,
@@ -260,6 +263,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       testReport: (repo) => repositoryNamed(repo)?.testReport,
       exec: shell.exec,
       git: shell.git,
+      clone,
       env: setup.brewerEnv,
       clock,
     });
@@ -274,6 +278,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         return guards.includes('testsUnchanged') ? setup.checks.redProof(recipe)?.of : undefined;
       },
       git: shell.git,
+      clone,
       clock,
     });
     const runner = stepRunner({

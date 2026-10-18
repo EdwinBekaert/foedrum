@@ -40,7 +40,7 @@ const lastLine = (text: string): string | undefined =>
 const MAX_DIFF_BYTES = 16 * 1024 * 1024;
 
 /**
- * The files changed from `from` to `to`, read in `cwd`, whatever the user's diff settings, in
+ * The files changed from `from` to `to`, read in `cwd`, the repository's clone, whatever the user's diff settings, in
  * `paths` only when given; or why git could not read them.
  */
 export async function readDiff(
