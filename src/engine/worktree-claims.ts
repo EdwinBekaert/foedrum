@@ -8,7 +8,7 @@ import { effectKey } from './effect-key.ts';
 import type { Lease } from './event-store.ts';
 import type { Lane, State } from './fold.ts';
 import { pushKey } from './pull-request.ts';
-import { sameRepo } from './task-tree.ts';
+import { sameRepo, taskTreeStart } from './task-tree.ts';
 
 /**
  * Whether a batch in this lane may still brew. A Stuck batch stays live: a human may take over or
@@ -59,7 +59,9 @@ const unpushedOf = (state: State): Map<string, string> => {
     if (laneStatus(batch.lane) !== 'ended' || taskTree?.kind !== 'attempt') continue;
     const branch = attemptBranch({ batchId: batch.id, ...taskTree });
     const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
-    if (pushed.success && pushed.data.from === `refs/heads/${branch}`) continue;
+    // The revision the push of the openPullRequest action records (ADR 0071).
+    const revision = taskTreeStart(batch, { repo: taskTree.repo, base: '' });
+    if (pushed.success && pushed.data.from === revision) continue;
     const worktrees = [...batch.steps.values()].flatMap((step) =>
       [...step.attempts.values()].flatMap((attempt) =>
         attempt.phase === 'finished' &&
