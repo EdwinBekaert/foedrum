@@ -167,6 +167,59 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.ok(calls.some(([, ...args]) => args[0] === 'worktree' && args[2] === review));
     });
 
+    describe("the step's own out doc (ADR 0081)", () => {
+      const withOutDoc = { ...ended, outDocs: new Map([['12-1/implement', 'brew.md']]) };
+      // git status lists `status`; git worktree remove refuses while anything is untracked.
+      const gitWith = (status: string) =>
+        fakeGit((_cwd, args) => {
+          if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+          if (args[0] === 'worktree' && args[1] === 'list') {
+            return ok(porcelain([{ path, branch }]));
+          }
+          if (args.includes('status')) return ok(status);
+          if (args[0] === 'for-each-ref') return ok(`${branch}\0${TIP}\n`);
+          if (args[0] === 'worktree' && args[1] === 'remove') {
+            if (existsSync(join(path, 'brew.md')) || existsSync(join(path, 'notes.txt'))) {
+              return failed(`fatal: '${path}' contains modified or untracked files\n`);
+            }
+            rmSync(args[2] ?? '', { recursive: true });
+            rmSync(join(clone, '.git', 'worktrees', 'implement1'), { recursive: true });
+          }
+          return undefined;
+        });
+
+      it('keeps a worktree with its out doc and another untracked file, and both files', async () => {
+        worktreeOnDisk(path, 'implement1');
+        writeFileSync(join(path, 'brew.md'), '---\n{ "status": "done" }\n---\n');
+        writeFileSync(join(path, 'notes.txt'), 'work a brewer left\n');
+        const { calls, git } = gitWith('?? brew.md\n?? notes.txt\n');
+
+        const report = await open(git).clean(withOutDoc);
+
+        assert.deepEqual(report.kept, [
+          'kept worktree 12-1/implement/1: it has uncommitted or untracked changes',
+        ]);
+        assert.deepEqual(report.done, []);
+        assert.ok(!calls.some(([, ...args]) => args[0] === 'worktree' && args[1] === 'remove'));
+        assert.ok(existsSync(join(path, 'brew.md')));
+        assert.ok(existsSync(join(path, 'notes.txt')));
+      });
+
+      it("keeps a worktree with an untracked file named as another step's out doc", async () => {
+        worktreeOnDisk(path, 'implement1');
+        writeFileSync(join(path, 'brew.md'), "another step's out doc\n");
+        const { git } = gitWith('?? brew.md\n');
+        const otherStep = { ...ended, outDocs: new Map([['12-1/review', 'brew.md']]) };
+
+        const report = await open(git).clean(otherStep);
+
+        assert.deepEqual(report.kept, [
+          'kept worktree 12-1/implement/1: it has uncommitted or untracked changes',
+        ]);
+        assert.ok(existsSync(join(path, 'brew.md')));
+      });
+    });
+
     it('removes a folder git does not know in an ended batch', async () => {
       mkdirSync(join(path, 'leftover'), { recursive: true });
       const { git } = fakeGit((_cwd, args) => {
