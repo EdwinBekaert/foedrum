@@ -97,6 +97,20 @@ export function gitRulesOf(brewer: BrewerFrontmatter): string[] {
 const commits = (brewer: BrewerFrontmatter): boolean =>
   brewer.access === 'write' && brewer.git.commit;
 
+/**
+ * The shell commands `rules` allow, once each, in the order first named: each Bash rule's command
+ * without its trailing star (#222); none when one of them allows any program. PowerShell rules
+ * are left out: the runner's sessions have no PowerShell tool (ADR 0074).
+ */
+function shellCommandsOf(rules: readonly string[]): string[] {
+  const commands = rules.flatMap((rule) => {
+    const { tool, specifier } = parseRule(rule);
+    return tool === 'Bash' ? [(specifier ?? '').replace(/:?\*$/, '').trim()] : [];
+  });
+  const anyProgram = commands.some((command) => command === '' || command.startsWith('*'));
+  return anyProgram ? [] : [...new Set(commands)];
+}
+
 /** The tool of each rule, once each, in the order first named. */
 export function toolsOf(rules: readonly string[]): string[] {
   return [...new Set(rules.map((rule) => parseRule(rule).tool))];
@@ -178,8 +192,14 @@ function example(status: string, ownKey?: string): string[] {
  * The out doc contract every prompt ends its instructions with (brewers-and-recipes §2): one
  * example per status, so a brewer that copies one as it is writes a valid out doc (#195). A brewer
  * that commits is told to commit before it writes the out doc, and never the out doc (ADR 0074).
+ * A brewer with shell rules is told their commands, so it does not read one denied command as the
+ * whole shell denied (#222).
  */
-export function outDocContract(file: string, commits = false): string {
+export function outDocContract(
+  file: string,
+  commits = false,
+  commands: readonly string[] = [],
+): string {
   const asking = 'guess would likely waste this run. Never ask questions any other way.';
   return [
     `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
@@ -202,6 +222,9 @@ export function outDocContract(file: string, commits = false): string {
     'You could not finish:',
     ...example('failed'),
     '',
+    ...(commands.length === 0
+      ? []
+      : [`Your shell runs only: ${commands.join(', ')}. A denial stops that command only.`, '']),
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',
     ...(commits
       ? [
@@ -223,7 +246,9 @@ export function settingsFileOf(workRoot: string, ref: AttemptRef): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId } = facts;
-  const contract = outDocContract(brewer.output.doc, commits(brewer));
+  // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
+  const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...facts.repoTools])];
+  const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
   const instructions = `${facts.instructions.trimEnd()}\n\n${contract}`;
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
@@ -232,8 +257,6 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
       `the input "${name ?? ''}" (${source}) holds the prompt's nonce, a likely injection`,
     );
   }
-  // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
-  const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...facts.repoTools])];
   const { maxTurns } = brewer;
   return {
     cwd: worktree,

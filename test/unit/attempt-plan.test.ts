@@ -456,6 +456,9 @@ describe('planAttempt', () => {
     },
     random: fixed,
   });
+  // The shell commands of the default facts' rules, and those git.commit grants (#222).
+  const shellOfFacts = ['git diff', 'npm test'];
+  const gitCommands = ['git status', 'git add', 'git commit'];
 
   it("runs the brewer's call in the attempt's worktree, with its permissions and the settings file", () => {
     const plan = planAttempt(facts());
@@ -511,9 +514,48 @@ describe('planAttempt', () => {
     it('tells it to commit in the out doc contract', () => {
       const { prompt } = planAttempt(committing(['Read', 'Write']));
       assert.ok(
-        prompt.startsWith(`Brew the plan in {malt}.\n\n${outDocContract('brew.md', true)}`),
+        prompt.startsWith(
+          `Brew the plan in {malt}.\n\n${outDocContract('brew.md', true, [...gitCommands, 'npm test'])}`,
+        ),
       );
       assert.match(prompt, /Commit your changes with git add and git commit before you write/);
+    });
+
+    it('names git status, git add and git commit as its only shell commands (#222)', () => {
+      const { prompt } = planAttempt({ ...committing(['Read', 'Write']), repoTools: [] });
+      assert.match(
+        prompt,
+        /\nYour shell runs only: git status, git add, git commit\. A denial stops that command only\.\n/,
+      );
+    });
+
+    it("names its own commands, then git.commit's, then the repository's, before the asking paragraph", () => {
+      const plan = planAttempt({
+        ...committing(['Read', 'Bash(ls *)']),
+        repoTools: ['Bash(npm test)'],
+      });
+      // In the order of the plan's allow rules, each without its star (review of #231).
+      const bash = plan.permissions.allow
+        .filter((rule) => rule.startsWith('Bash('))
+        .map((rule) => rule.slice('Bash('.length, -1).replace(/ \*$/, ''));
+      assert.deepEqual(bash, ['ls', 'git status', 'git add', 'git commit', 'npm test']);
+      assert.ok(
+        plan.prompt.includes(
+          `\n\nYour shell runs only: ${bash.join(', ')}. A denial stops that command only.\n\nPrefer deciding and recording an assumption over asking.`,
+        ),
+      );
+    });
+
+    it('keeps the contract with the commit lines and its commands within 1,400 characters', () => {
+      // Without the repository's rules, which differ per repository: the limit holds the fixed text.
+      const { prompt } = planAttempt({
+        ...committing(['Read', 'Write']),
+        inputs: [],
+        repoTools: [],
+      });
+      const contract = prompt.slice('Brew the plan in {malt}.\n\n'.length);
+      assert.match(contract, /Your shell runs only: /);
+      assert.ok(contract.length <= 1400, `${contract.length}`);
     });
 
     it('writes settings the attempt settings schema accepts, with the git rules in them', () => {
@@ -545,7 +587,7 @@ describe('planAttempt', () => {
     const { prompt } = planAttempt(facts());
     assert.ok(
       prompt.startsWith(
-        `Brew the plan in {malt}.\n\n${outDocContract('brew.md')}\n\n## Untrusted input`,
+        `Brew the plan in {malt}.\n\n${outDocContract('brew.md', false, shellOfFacts)}\n\n## Untrusted input`,
       ),
     );
     assert.ok(
@@ -555,9 +597,57 @@ describe('planAttempt', () => {
     );
   });
 
+  it("names the shell commands of the plan's own rules, the repository's too, in their order (#222)", () => {
+    const tools = { allow: ['Read', 'Bash(git diff*)', 'Bash(ls *)'], deny: [] };
+    const plan = planAttempt({ ...facts({ tools }), repoTools: ['Bash(npm test)'] });
+    assert.match(
+      plan.prompt,
+      /\nYour shell runs only: git diff, ls, npm test\. A denial stops that command only\.\n/,
+    );
+  });
+
+  it('names a command once when two rules differ only in their star (review of #231)', () => {
+    const tools = { allow: ['Bash(git diff*)', 'Bash(git diff *)', 'Bash(git diff:*)'], deny: [] };
+    const { prompt } = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.match(prompt, /\nYour shell runs only: git diff\. A denial stops/);
+  });
+
+  it("leaves out PowerShell rules, since the runner's sessions have no PowerShell tool (ADR 0074)", () => {
+    const tools = { allow: ['Read', 'PowerShell(Get-ChildItem *)'], deny: [] };
+    const plan = planAttempt({ ...facts({ tools }), repoTools: ['Bash(npm test)'] });
+    assert.match(plan.prompt, /\nYour shell runs only: npm test\. A denial stops/);
+    const alone = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.doesNotMatch(alone.prompt, /Your shell/);
+  });
+
+  it('names no shell commands when one rule allows any command, so it never says "only" wrongly', () => {
+    // A repository's tools may hold `Bash(*)`; the attempt settings refuse it later (ADR 0082).
+    for (const rule of ['Bash(*)', 'Bash', 'Bash(:*)']) {
+      const { prompt } = planAttempt({ ...facts(), repoTools: [rule] });
+      assert.doesNotMatch(prompt, /Your shell/, rule);
+    }
+  });
+
+  it('names no shell commands when a rule starts with a star, which allows any program', () => {
+    // A star stripped from the end leaves one where the program would be (review of #231).
+    for (const rule of ['Bash(**)', 'Bash(*:*)', 'Bash(*foo)']) {
+      const { prompt } = planAttempt({ ...facts(), repoTools: [rule] });
+      assert.doesNotMatch(prompt, /Your shell/, rule);
+    }
+  });
+
+  it('names no shell commands when the plan has no shell rules', () => {
+    const tools = { allow: ['Read', 'Write(brew.md)'], deny: [] };
+    const { prompt } = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.doesNotMatch(prompt, /Your shell/);
+  });
+
   it('prompts with the instructions and the contract alone when the brewer has no inputs', () => {
     const { prompt } = planAttempt({ ...facts(), inputs: [] });
-    assert.equal(prompt, `Brew the plan in {malt}.\n\n${outDocContract('brew.md')}`);
+    assert.equal(
+      prompt,
+      `Brew the plan in {malt}.\n\n${outDocContract('brew.md', false, shellOfFacts)}`,
+    );
   });
 
   it('has no turn limit in the call when the brewer sets none', () => {

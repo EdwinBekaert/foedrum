@@ -77,12 +77,13 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted |
 | [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) | The status comment: edits as revisions in the ledger, one a minute per order (amends 0033, 0052 and 0068) | Accepted |
 | [0073](0073-github-only-through-gh-s-own-login.md) | GitHub only through `gh`'s own login: Foedrum never holds a token (supersedes part of 0008 and 0063, amends 0052) | Accepted, amended by 0075 and 0082 |
-| [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) | `git.commit` grants fixed git rules, and a commit-producing brewer's `done` needs a commit (amends 0028 and 0059) | Accepted |
+| [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) | `git.commit` grants fixed git rules, and a commit-producing brewer's `done` needs a commit (amends 0028 and 0059) | Accepted, amended by 0085 |
 | [0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md) | Only a lower bound reads the wall clock, and doctor's tests run against stub tools (amends 0070 and 0073) | Accepted |
 | [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) | The red proof reads the test report, and testsUnchanged compares the lines of the tests (amends 0017, 0059, 0064, 0066 and 0069) | Accepted |
 | [0081](0081-the-cleanup-ignores-the-steps-own-out-doc.md) | The cleanup ignores the step's own out doc (amends 0029 and 0037) | Accepted, amended by 0084 |
 | [0082](0082-brewers-never-allow-gh.md) | Brewers never allow `gh`, and doctor says what can still reach its login (amends 0062 and 0073) | Accepted |
 | [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) | A batch's commits end in a pull request or on a kept branch (amends 0029, 0053, 0059 and 0081) | Accepted |
+| [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) | The out doc contract names the attempt's shell commands (amends 0074) | Accepted |
 | [0086](0086-the-test-layer-guard-refuses-integration-tests-that-can-start-the-real-gh.md) | The test-layer guard refuses integration tests that can start the real `gh` (amends 0021) | Accepted |
 
 ## Template
