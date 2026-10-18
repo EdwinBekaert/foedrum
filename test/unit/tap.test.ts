@@ -150,7 +150,7 @@ describe('parseTap', () => {
     ]);
   });
 
-  it('ends a diagnostic block that never closes at a line no deeper than its start', () => {
+  it('ends a diagnostic block that never closes at a line shallower than its start', () => {
     const report = read(
       [
         'not ok 1 - first',
