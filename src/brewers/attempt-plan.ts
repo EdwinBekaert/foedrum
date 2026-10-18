@@ -58,13 +58,15 @@ export interface PlanFacts {
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
  * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074).
  */
-export function attemptLimits(brewer: BrewerFrontmatter, _start?: string): AttemptLimits {
+export function attemptLimits(brewer: BrewerFrontmatter, start?: string): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
+  const commits = brewer.produces === 'commits' && start !== undefined;
   // Brewer-specific schemas are not built yet: every out doc is read against the contract's.
   return {
     outDoc: { file: brewer.output.doc, schema: OutDocFrontmatter },
     ...(maxTurns === undefined ? {} : { maxTurns }),
     ...(maxDenials === undefined ? {} : { maxDenials }),
+    ...(commits ? { commitsSince: start } : {}),
   };
 }
 
@@ -88,9 +90,13 @@ export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string
  * The git rules `git.commit: true` grants (ADR 0074): fixed subcommands that never push (ADR 0062),
  * in Bash; none for any other brewer.
  */
-export function gitRulesOf(_brewer: BrewerFrontmatter): string[] {
-  throw new Error('not implemented');
+export function gitRulesOf(brewer: BrewerFrontmatter): string[] {
+  // `git diff --no-index` and `git log --output` reach any file: a brewer names them itself.
+  return commits(brewer) ? ['Bash(git status *)', 'Bash(git add *)', 'Bash(git commit *)'] : [];
 }
+
+const commits = (brewer: BrewerFrontmatter): boolean =>
+  brewer.access === 'write' && brewer.git.commit;
 
 /** The tool of each rule, once each, in the order first named. */
 export function toolsOf(rules: readonly string[]): string[] {
@@ -174,7 +180,8 @@ function example(status: string, ownKey?: string): string[] {
  * example per status, so a brewer that copies one as it is writes a valid out doc (#195). A brewer
  * that commits is told to commit before it writes the out doc, and never the out doc (ADR 0074).
  */
-export function outDocContract(file: string, _commits = false): string {
+export function outDocContract(file: string, commits = false): string {
+  const asking = 'guess would likely waste this run. Never ask questions any other way.';
   return [
     `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
     'below for how the run ended and fill it in, with only its keys and any your instructions',
@@ -197,7 +204,13 @@ export function outDocContract(file: string, _commits = false): string {
     ...example('failed'),
     '',
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',
-    'guess would likely waste this run. Never ask questions any other way. Do not push.',
+    ...(commits
+      ? [
+          asking,
+          `Commit your changes with git add and git commit before you write ${file}, and leave`,
+          `${file} out of every commit. Do not push.`,
+        ]
+      : [`${asking} Do not push.`]),
   ].join('\n');
 }
 
@@ -211,7 +224,8 @@ export function settingsFileOf(workRoot: string, ref: AttemptRef): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId } = facts;
-  const instructions = `${facts.instructions.trimEnd()}\n\n${outDocContract(brewer.output.doc)}`;
+  const contract = outDocContract(brewer.output.doc, commits(brewer));
+  const instructions = `${facts.instructions.trimEnd()}\n\n${contract}`;
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
     const { name, source } = assembled.input;
@@ -219,7 +233,8 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
       `the input "${name ?? ''}" (${source}) holds the prompt's nonce, a likely injection`,
     );
   }
-  const allow = [...brewer.tools.allow, ...facts.repoTools];
+  // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
+  const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...facts.repoTools])];
   const { maxTurns } = brewer;
   return {
     cwd: worktree,

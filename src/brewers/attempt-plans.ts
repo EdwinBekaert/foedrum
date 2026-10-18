@@ -8,8 +8,9 @@ import { dirname } from 'node:path';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import type { State } from '../engine/fold.ts';
+import type { Batch, State } from '../engine/fold.ts';
 import type { StepBrewers } from '../engine/recipe-files.ts';
+import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import {
@@ -69,6 +70,12 @@ const realFiles = {
   },
 };
 
+/** The worktree the driver recorded when it started the attempt; none before. */
+const worktreeOf = (batch: Batch | undefined, ref: AttemptRef): WorktreeRef | undefined => {
+  const started = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+  return started?.phase === 'started' ? started.worktree : undefined;
+};
+
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
 const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontmatter } };
 
@@ -113,8 +120,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     plan: async ({ ref }) => {
       const { batchId, stepId, attempt } = ref;
       const batch = state().batches.get(batchId);
-      const started = batch?.steps.get(stepId)?.attempts.get(attempt);
-      const worktree = started?.phase === 'started' ? started.worktree : undefined;
+      const worktree = worktreeOf(batch, ref);
       if (batch === undefined || worktree === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
@@ -149,10 +155,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(options.random === undefined ? {} : { random: options.random }),
       });
     },
-    limits: ({ batchId, stepId }) => {
-      const recipe = state().batches.get(batchId)?.recipe?.name;
-      const found = recipe === undefined ? undefined : brewers.find(recipe, stepId);
-      return found === undefined ? noBrewer : attemptLimits(found.brewer);
+    limits: (ref) => {
+      const batch = state().batches.get(ref.batchId);
+      const recipe = batch?.recipe?.name;
+      const found = recipe === undefined ? undefined : brewers.find(recipe, ref.stepId);
+      if (found === undefined) return noBrewer;
+      // The commit its worktree started at, which a done of a brewer that commits needs one after.
+      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.commit);
     },
   };
 }

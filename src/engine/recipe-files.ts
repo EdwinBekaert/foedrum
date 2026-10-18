@@ -209,11 +209,12 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
 }
 
 /**
- * The guard every attempt has anyway: the runner requires the out doc. Not `noPush`: no allow rule
+ * The guards every attempt has anyway: the runner requires the out doc, and a commit after the
+ * start for a `done` of a brewer that produces commits (ADR 0074). Not `noPush`: no allow rule
  * reaches a push (ADR 0062), but a script or hook an allowed command runs can, and nothing checks
  * the remote after the attempt yet.
  */
-const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc']);
+const ENFORCED_GUARDS: ReadonlySet<string> = new Set(['requiresOutDoc', 'requiresCommits']);
 
 /** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
 function unplannable(brewer: BrewerFrontmatter): string[] {

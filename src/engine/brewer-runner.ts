@@ -123,6 +123,42 @@ const failed = (retryable: boolean, reason: string): Ending => ({
 });
 
 /**
+ * A `done` of a brewer that produces commits, by what git said of its commits after `since`
+ * (ADR 0074): without one its work never reached the task tree, so a human sees why.
+ */
+function doneWithCommits(
+  seen: CommitsSeen | undefined,
+  since: string,
+  output: OutDocFrontmatter,
+): Ending {
+  const start = since.slice(0, 7);
+  if (seen === undefined) {
+    const summary = `the commits since ${start} were not counted: the runner did not count them`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
+  switch (seen.kind) {
+    case 'counted':
+      if (seen.count > 0) return { kind: 'succeeded', output };
+      // Not retried: a brewer that found nothing to change would find it again.
+      return {
+        kind: 'blocked',
+        blockerKind: 'divergence',
+        summary: `the out doc says done, but the brewer made no commit since ${start}: ${output.summary}`,
+      };
+    case 'rewritten':
+      return failed(true, `the brewer rewrote ${start}, the commit its worktree started at`);
+    case 'uncounted': {
+      const summary = `the commits since ${start} were not counted: ${seen.reason}`;
+      return { kind: 'blocked', blockerKind: 'environment', summary };
+    }
+    default: {
+      const unhandled: never = seen;
+      throw new Error(`Unhandled commits ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
+/**
  * The outcome of an attempt from what the runner saw, the first rule that applies winning: a
  * limit the runner enforced, then how the process ended, then the stream, then the out doc
  * (ADR 0005: a missing or invalid out doc is a failure, never success).
@@ -181,7 +217,8 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   const frontmatter = read.frontmatter;
   switch (frontmatter.status) {
     case 'done':
-      return { kind: 'succeeded', output: frontmatter };
+      if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
+      return doneWithCommits(facts.commits, limits.commitsSince, frontmatter);
     case 'needs_input':
       return { kind: 'needs_input', questions: frontmatter.questions };
     case 'blocked':

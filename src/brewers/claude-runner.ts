@@ -20,6 +20,7 @@ import {
   type AttemptFacts,
   type AttemptStart,
   type BrewerRunner,
+  type CommitsSeen,
   type ProcessExit,
   settleAttempt,
 } from '../engine/brewer-runner.ts';
@@ -341,6 +342,16 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         MAX_OUT_DOC_BYTES,
         plan.cwd,
       );
+      // What the next step starts from is in git, not in the stream (ADR 0074).
+      const since = limits.commitsSince;
+      const commits =
+        since === undefined
+          ? undefined
+          : await deps
+              .commits(plan.cwd, since, stopping.signal)
+              .catch(
+                (error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }),
+              );
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         exit,
@@ -351,6 +362,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         denials: seen.denials,
         deniedTools: seen.deniedTools,
         turns: seen.turns,
+        ...(commits === undefined ? {} : { commits }),
       };
       return {
         ending: settleAttempt(facts, limits),
