@@ -589,6 +589,20 @@ describe('planAttempt', () => {
     );
   });
 
+  it('names no shell commands when one rule allows any command, so it never says "only" wrongly', () => {
+    // A repository's tools may hold `Bash(*)`; the attempt settings refuse it later (ADR 0082).
+    for (const rule of ['Bash(*)', 'PowerShell', 'Bash(:*)']) {
+      const { prompt } = planAttempt({ ...facts(), repoTools: [rule] });
+      assert.doesNotMatch(prompt, /Your shell/, rule);
+    }
+  });
+
+  it('names no shell commands when the plan has no shell rules', () => {
+    const tools = { allow: ['Read', 'Write(brew.md)'], deny: [] };
+    const { prompt } = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.doesNotMatch(prompt, /Your shell/);
+  });
+
   it('prompts with the instructions and the contract alone when the brewer has no inputs', () => {
     const { prompt } = planAttempt({ ...facts(), inputs: [] });
     assert.equal(
