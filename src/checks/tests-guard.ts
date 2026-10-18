@@ -8,6 +8,7 @@ import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-ru
 import type { State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import type { Git } from '../workspace/git.ts';
+import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
 import { changedTests } from './tests-unchanged.ts';
 
@@ -24,12 +25,6 @@ export interface TestsGuardOptions {
   /** Default the system clock. */
   clock?: () => Date;
 }
-
-/** Longer lines of a test are cut to this in the reason, which reaches the event log. */
-const MAX_LINE = 200;
-
-const cut = (line: string): string =>
-  line.length <= MAX_LINE ? line : `${line.slice(0, MAX_LINE - 1)}…`;
 
 export function guardTests(options: TestsGuardOptions): BrewerRunner {
   const { runner, state, protects, git, clock = () => new Date() } = options;

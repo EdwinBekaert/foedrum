@@ -40,7 +40,7 @@ const LOAD_ERRORS: readonly RegExp[] = [
 /** Longer quotes of a run are cut to this, for the reason that reaches the event log. */
 const MAX_QUOTE = 200;
 
-const cut = (line: string): string =>
+export const cut = (line: string): string =>
   line.length <= MAX_QUOTE ? line : `${line.slice(0, MAX_QUOTE - 1)}…`;
 
 /** The first line of `text` that names a load error, trimmed. */

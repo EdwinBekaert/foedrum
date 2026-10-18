@@ -16,13 +16,13 @@ export function stepCommits(
   stepId: string,
 ): { from: string; to: string } | undefined {
   const attempts = [...(batch.steps.get(stepId)?.attempts.values() ?? [])];
-  const first = attempts.find((attempt) => attempt.phase !== 'scheduled' && attempt.worktree);
+  const from = attempts
+    .map((attempt) => (attempt.phase === 'scheduled' ? undefined : attempt.worktree?.commit))
+    .find((commit) => commit !== undefined);
   const done = attempts.findLast(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
-  if (first === undefined || first.phase === 'scheduled' || done === undefined) return undefined;
-  const from = first.worktree?.commit;
-  if (from === undefined) return undefined;
+  if (from === undefined || done === undefined) return undefined;
   // Built from the attempt, never the recorded branch (ADR 0037).
   const branch = attemptBranch({ batchId: batch.id, stepId, attempt: done.attempt });
   return { from, to: `refs/heads/${branch}` };
