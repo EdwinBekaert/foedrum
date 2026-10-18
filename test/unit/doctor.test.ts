@@ -150,6 +150,28 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
       },
     ]);
   });
+
+  it("is content with the helper gh auth setup-git writes, Windows' path included", () => {
+    for (const facts of [linux(), windows, macos]) {
+      assert.deepEqual(problems(facts), [], facts.platform);
+    }
+    const facts = linux();
+    facts.github = {
+      ...github(facts),
+      // Git for Windows' system configuration, then the user's, as git 2.56.0 printed it.
+      credentials: ran(
+        '',
+        "credential.helper\nmanager\0credential.https://github.com.helper\n\0credential.https://github.com.helper\n!'C:\\Program Files\\GitHub CLI\\gh.exe' auth git-credential\0credential.https://gist.github.com.helper\n\0",
+      ),
+    };
+    assert.deepEqual(problems(facts), []);
+  });
+
+  it('asks nothing of the login and the helpers when it has no facts about them', () => {
+    const facts = linux();
+    facts.github = { host: 'github.com', login: undefined, credentials: undefined };
+    assert.deepEqual(problems(facts), []);
+  });
 });
 
 describe('credentialHelpersFor', () => {
