@@ -60,10 +60,16 @@ const plain = (text: string): string => {
 
 const code = (id: string): string => `\`${id}\``;
 
+/**
+ * A URL as an autolink of its normalized form: the schema keeps the text it was given, and `new URL`
+ * encodes the spaces and angle brackets that would let the rest of it render as Markdown.
+ */
+const link = (url: string): string => `<${new URL(url).href}>`;
+
 const waitText = (on: WaitCondition): string => {
   switch (on.kind) {
     case 'merge':
-      return `the merge of ${on.pullRequest}`;
+      return `the merge of ${link(on.pullRequest)}`;
     case 'release':
       return `a release of ${plain(on.package)} ${plain(on.minVersion)} or later in ${plain(on.repo)}`;
     case 'sibling':
@@ -215,7 +221,7 @@ export const renderStatus = (batch: Batch, steps?: readonly string[]): string =>
     sections.push(
       pullRequests.length === 0
         ? ['No pull request.']
-        : ['**Pull requests**', ...pullRequests.map((url) => `- ${url}`)],
+        : ['**Pull requests**', ...pullRequests.map((url) => `- ${link(url)}`)],
     );
   }
   return sections.map((lines) => lines.join('\n')).join('\n\n');

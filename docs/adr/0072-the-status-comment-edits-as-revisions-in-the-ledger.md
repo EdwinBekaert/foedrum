@@ -37,7 +37,7 @@ What exists: the driver asks a source of effects which keys the recorded events 
 - The assumptions from each step's latest out doc that succeeded.
 - The pull requests once the batch is on tap.
 - Not yet: the Mermaid diagram (M2) and the cost.
-- Everything a brewer or an issue wrote (summaries, questions, assumptions, reasons) is untrusted: each is one line of at most 200 characters, with Markdown and HTML characters escaped and `@` written as an entity, so it mentions no one and cannot fake a marker. At most 10 assumptions a step are shown, and the rest are counted, so the text stays far below GitHub's 65,536 characters.
+- Everything a brewer or an issue wrote (summaries, questions, assumptions, reasons) is untrusted: each is one line of at most 200 characters, with Markdown and HTML characters escaped and `@` written as an entity, so it mentions no one and cannot fake a marker. A pull request URL is written as an autolink of its normalized form (`<${new URL(url).href}>`), since its schema keeps the text it was given. At most 10 assumptions a step are shown, and the rest are counted, so the text stays far below GitHub's 65,536 characters.
 
 ## Consequences
 - An order's issue shows one comment that follows its batch from Ordered to on tap, made and edited only by the driver that holds the batch.
