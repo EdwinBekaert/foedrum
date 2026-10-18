@@ -1,8 +1,8 @@
-// `foedrum doctor` on the real machine (ADR 0021): its shell finds the tools through PATH and
-// reads their versions through the process runner (npm.cmd through cmd.exe on Windows). What a
-// machine has differs, so this checks the report's structure only; the report itself is in
-// test/unit/cli.test.ts. gh's login check gets a canned answer for a made-up host
-// (canned-gh-login.ts): no test asks the real gh for a login (ADR 0073).
+// `foedrum doctor` on the real machine (ADR 0021): the facts main.ts gathers (doctorFromCheckout)
+// find the tools through PATH and read their versions through the process runner (npm.cmd through
+// cmd.exe on Windows). What a machine has differs, so this checks the report's structure only; the
+// report itself is in test/unit/cli.test.ts. gh's login check gets a canned answer, logged in to a
+// made-up host only (canned-gh-login.ts): no test asks the real gh for a login (ADR 0073).
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -10,13 +10,15 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
-import { cannedGhLogin, doctorHere, MADE_UP_HOST } from './canned-gh-login.ts';
+import { cannedGhLogin, doctorHere, MADE_UP_CONFIG, MADE_UP_HOST } from './canned-gh-login.ts';
 
 const VERSION = String.raw`\d+(?:\.\d+)+`;
 
 describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
-    const { exitCode, stdout } = await doctorHere(import.meta.dirname);
+    const dir = makeTempDir('doctor-machine');
+    writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
+    const { exitCode, stdout } = await doctorHere(dir.path).finally(() => dir.remove());
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
     const row = (name: string): string | undefined =>
@@ -30,7 +32,8 @@ describe('foedrum doctor on this machine', () => {
       row('gh') ?? '',
       new RegExp(`^  gh +(?:${inCi ? '' : 'missing|'}${VERSION} +\\S.*)$`),
     );
-    // The canned answer is logged in, so doctor names no login to make where gh is there.
+    // foedrum.jsonc names the made-up host, whose canned answer is logged in: doctor names no
+    // login to make where gh is there.
     if (!/ missing$/.test(row('gh') ?? '')) {
       assert.ok(!lines.some((line) => line.includes('gh auth login')), stdout);
     }
@@ -103,6 +106,7 @@ describe("foedrum doctor and git's credential helper", () => {
       const global = join(dir.path, 'gitconfig');
       const lines = helpers.map((helper) => `\thelper = ${helper}\n`).join('');
       writeFileSync(global, `[credential "https://${MADE_UP_HOST}"]\n${lines}`);
+      writeFileSync(join(dir.path, 'foedrum.jsonc'), MADE_UP_CONFIG);
       const env = {
         ...process.env,
         GIT_CONFIG_GLOBAL: global,
@@ -110,12 +114,13 @@ describe("foedrum doctor and git's credential helper", () => {
         // The folder is inside Foedrum's own checkout: git must not read its local settings.
         GIT_CEILING_DIRECTORIES: dirname(dir.path),
       };
-      const { stdout } = await doctorHere(dir.path, {
-        exec: cannedGhLogin(
+      const { stdout } = await doctorHere(
+        dir.path,
+        cannedGhLogin(
           (file, args, options) => execProcess(file, args, { ...options, env }),
           'gh version 2.102.0 (2026-09-30)\n',
         ),
-      });
+      );
       return stdout
         .split('\n')
         .filter((line) => /credential helper|credentials, not gh/.test(line));
