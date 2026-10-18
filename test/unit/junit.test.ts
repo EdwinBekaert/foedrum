@@ -79,6 +79,21 @@ describe('parseJunit', () => {
     assert.deepEqual(brief(report.tests), [['a', 'passed', true]]);
   });
 
+  it("keeps a testcase's own system output in its detail, and reads a plain DOCTYPE", () => {
+    const report = read(`<!DOCTYPE testsuites>
+<testsuites><testcase name="adds"><failure message="boom"/><system-err>ImportError: no add</system-err></testcase></testsuites>`);
+    assert.match(report.tests[0]?.detail ?? '', /ImportError: no add/);
+    assert.equal(report.other, '');
+  });
+
+  it('refuses a DOCTYPE with an internal subset, which could define entities', () => {
+    const parsed = parseJunit(
+      '<!DOCTYPE x [<!ENTITY a "b">]><testsuites><testcase name="&a;"/></testsuites>',
+    );
+    assert.equal(parsed.readable, false);
+    assert.match(parsed.readable ? '' : parsed.reason, /DOCTYPE/);
+  });
+
   it('refuses what is not a JUnit report', () => {
     const refuses = (text: string, reason: RegExp) => {
       const parsed = parseJunit(text);

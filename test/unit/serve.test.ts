@@ -529,7 +529,7 @@ describe('runServe', () => {
       '"maxAttempts": 1,\n  "guards": ["testsUnchanged"]',
     );
     const gauger = brewer.replace('"name": "cellarman"', '"name": "gauger"');
-    const testFirstSetup = (web: Record<string, unknown>) => {
+    const testFirstSetup = (web: Record<string, unknown>, recipeText = nip) => {
       const files = serveInputs().files;
       const result = serveSetup(
         serveInputs({
@@ -538,7 +538,7 @@ describe('runServe', () => {
             config: config({}, web),
             local: local({ workRoot: dir.path }),
             brewery: {
-              recipes: [{ path: 'recipes/nip.jsonc', text: nip }],
+              recipes: [{ path: 'recipes/nip.jsonc', text: recipeText }],
               brewers: [
                 { path: 'brewers/cellarman.md', text: guarded },
                 { path: 'brewers/gauger.md', text: gauger },
@@ -556,7 +556,7 @@ describe('runServe', () => {
       "diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1 @@\n+test('adds two numbers', () => assert.equal(add(1, 2), 3));\n";
 
     /** Serve brewing batch 14-1 with the nip recipe: what the brewers, the checks and git saw. */
-    const brewTestFirst = async (testFirst: ServeSetup) => {
+    const brewTestFirst = async (testFirst: ServeSetup, taps: string[] = []) => {
       const log = createCommandLog({ store, recipes: testFirst.recipes });
       log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
       const route = { kind: 'route', batchId: '14-1', recipe: 'nip', reason: 'label' } as const;
@@ -577,7 +577,8 @@ describe('runServe', () => {
       const checks: string[] = [];
       const exec: ExecProcess = async (file) => {
         checks.push(file);
-        return { exitCode: 1, stdout: tap, stderr: '', output: tap };
+        const stdout = taps.shift() ?? tap;
+        return { exitCode: 1, stdout, stderr: '', output: stdout };
       };
       const diffs: string[] = [];
       const code = await runServe(
@@ -625,6 +626,51 @@ describe('runServe', () => {
       assert.match(diffs[0] ?? '', gaugeRange);
       assert.match(diffs[1] ?? '', gaugeRange);
       assert.match(diffs[2] ?? '', /^[0-9a-f]{40} HEAD$/);
+    });
+
+    it('lets a batch whose red proof it skips brew in a repository without a test report', async () => {
+      const off = JSON.stringify({
+        name: 'nip',
+        description: 'Proves the tests red only when test-first.',
+        steps: [
+          { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+          { id: 'red', check: 'test', expect: 'fail', of: 'gauge', when: 'recipe.testFirst' },
+          { id: 'implement', brewer: 'cellarman' },
+        ],
+        testFirst: false,
+      });
+      const { brewed, checks, diffs, batch } = await brewTestFirst(testFirstSetup({}, off));
+      assert.equal(batch?.lane.kind, 'on_tap');
+      // The skipped Gauger committed no tests, so the guard has none to read either.
+      assert.deepStrictEqual([brewed, checks, diffs], [['implement'], [], []]);
+    });
+
+    it('guards only the brewer with testsUnchanged, not the Gauger a failed red proof sent back', async () => {
+      const routed = JSON.stringify({
+        name: 'nip',
+        description: 'Proves the tests red, once more after a failure, then brews.',
+        steps: [
+          { id: 'gauge', brewer: 'gauger' },
+          {
+            id: 'red',
+            check: 'test',
+            expect: 'fail',
+            of: 'gauge',
+            onFail: { goto: 'gauge', maxRounds: 1 },
+          },
+          { id: 'implement', brewer: 'cellarman' },
+        ],
+      });
+      const passing = 'TAP version 13\nok 1 - adds two numbers\n1..1\n';
+      const { brewed, diffs, batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }, routed),
+        [passing],
+      );
+      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.deepStrictEqual(brewed, ['gauge', 'gauge', 'implement']);
+      // Two red proofs, then the guard of the cellarman: nothing for the Gauger's second attempt.
+      assert.equal(diffs.length, 4, diffs.join('\n'));
+      assert.match(diffs[1] ?? '', /refs\/heads\/foedrum\/14-1\/gauge\/2$/);
     });
   });
 

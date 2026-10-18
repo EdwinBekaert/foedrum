@@ -110,6 +110,7 @@ const setup = ({
   test = { exitCode: 1, stdout: stubFails } as Partial<ExecResult>,
   diff = { code: 0, stdout: gaugeDiff, stderr: '' } as GitResult,
   files = {} as Record<string, OutDocRead>,
+  checks: repositoryChecks = repository,
 } = {}) => {
   const order: string[] = [];
   const exec: ExecProcess = (file, _args, options) => {
@@ -139,7 +140,7 @@ const setup = ({
   const runner = createCheckRunner({
     state: () => fold(events),
     checks,
-    repositoryChecks: () => repository,
+    repositoryChecks: () => repositoryChecks,
     testReport: () => report ?? undefined,
     exec,
     git,
@@ -205,6 +206,11 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   it('rejects a red run that fails on a compile error (done when, #176)', async () => {
     const { run } = setup({ test: { exitCode: 1, stdout: compileError } });
     const end = await run();
+    // The test check's reading is kept on a failed red proof too.
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.result, 'exitCode' in reading && reading.exitCode]),
+      [['exited', 1]],
+    );
     assert.deepEqual(
       end.ending,
       failedWith(
@@ -291,6 +297,20 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
         'recipe nip proves its tests red, which needs the test report of acme/api: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)',
     });
     assert.deepEqual(order, []);
+  });
+
+  it('is blocked on the environment, running nothing, when the repository has no test check', async () => {
+    const { order, run } = setup({ checks: { ...repository, test: null } });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'foedrum.jsonc gives acme/api no test check',
+    });
+    assert.ok(
+      order.every((line) => !line.startsWith('exec')),
+      order.join('\n'),
+    );
   });
 
   it('is blocked on a divergence when the proven step has no attempt that succeeded', async () => {

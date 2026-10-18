@@ -94,6 +94,16 @@ describe('judgeRed', () => {
       'Test suite failed to run',
       'ERROR collecting tests/test_add.py',
       'error: could not compile `app` due to previous error',
+      'ReferenceError: add is not defined',
+      "ModuleNotFoundError: No module named 'app'",
+      "Error: the module './add.mjs' does not provide an export named 'add'",
+      'Interrupted: 2 errors during collection',
+      'pytest: collection error in tests/test_add.py',
+      'java.lang.NoClassDefFoundError: Add',
+      'java.lang.ClassNotFoundException: AddTest',
+      'add.c:3: compile error',
+      'AddTest.java: compilation failed',
+      'error: failed to compile add.c',
     ];
     for (const line of loadErrors) {
       const report = tap(
