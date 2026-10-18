@@ -248,6 +248,46 @@ describe('renderStatus', () => {
     assert.match(text, /No pull request/);
   });
 
+  it('says the reason of every kind of Stuck on its line', () => {
+    const cases: [StuckReason, RegExp][] = [
+      [
+        { kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: 'crash' },
+        /`brew` used its 2 attempts; the last: crash/,
+      ],
+      [
+        { kind: 'deadline_passed', stepId: 'brew', deadlineAt: at },
+        /`brew` passed its deadline of 2026-10-18T09:00:00\.000Z/,
+      ],
+      [{ kind: 'waiting_for_session', stepId: 'brew' }, /`brew` waits for its session/],
+      [
+        { kind: 'stalled', stepId: 'brew', lastProgressAt: at, turnsWithoutProgress: 30 },
+        /`brew` stalled: .* since 2026-10-18T09:00:00\.000Z, for 30 turns/,
+      ],
+      [
+        { kind: 'routing', deadlineAt: at },
+        /no recipe was chosen by its routing deadline, 2026-10-18T09:00:00\.000Z/,
+      ],
+    ];
+    for (const [reason, said] of cases) {
+      const text = renderStatus(batch({ lane: stuck(reason) }), steps);
+      const line = text.split('\n').find((each) => each.includes('**Stuck**')) ?? '';
+      assert.match(line, said, reason.kind);
+    }
+  });
+
+  it('shows what a brewer wrote escaped as GitHub renders it, cut to 200 characters', () => {
+    const shown = (assumption: string): string =>
+      renderStatus(batch({ steps: new Map([step('plan', done(1, [assumption]))]) }), steps)
+        .split('\n')
+        .find((line) => line.startsWith('- `plan`: ')) ?? '';
+    assert.equal(
+      shown('@alice <b>x</b> **bold** a\\b & c'),
+      '- `plan`: &#64;alice &lt;b&gt;x&lt;/b&gt; \\*\\*bold\\*\\* a\\\\b &amp; c',
+    );
+    assert.equal(shown('x'.repeat(400)), `- \`plan\`: ${'x'.repeat(199)}…`);
+    assert.equal(shown('x'.repeat(200)), `- \`plan\`: ${'x'.repeat(200)}`);
+  });
+
   it('says who cancelled a cancelled batch', () => {
     const text = renderStatus(
       batch({ lane: { kind: 'cancelled', by: 'bob', via: 'terminal' } }),
@@ -558,6 +598,44 @@ describe('statusEffects', () => {
       notices[0]?.kind === 'effect_failed' ? String(notices[0].error) : '',
       /comment id that is no positive integer: 0/,
     );
+  });
+
+  it('shows a cancelled batch at once, within the minute, and lets the batch go', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    issue({ kind: 'cancel', batchId: '7-1', by: 'bob', via: 'terminal' });
+    await driver.tick();
+    assert.match(only().body, /Cancelled/);
+    assert.deepEqual(driver.held(), []);
+  });
+
+  it("lists the recipe's steps the batch has not reached yet", async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    later(minute);
+    await driver.tick();
+    assert.match(lineOf(only().body, 'brew'), /⬜/);
+  });
+
+  it('counts the minute from a revision it found on the code host too', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    // A run that was killed had edited the comment to revision 2 and recorded nothing.
+    only().body = `Earlier\n\n${marker(2)}`;
+    later(minute);
+    await driver.tick();
+    assert.notEqual(revision(2), undefined);
+    later(minute - 1);
+    await driver.tick();
+    assert.equal(revision(3), undefined, 'not within a minute of the revision it found');
+    later(1);
+    await driver.tick();
+    assert.ok(only().body.endsWith(marker(3)));
   });
 
   it('has no status comment for a claimed target-repository issue', async () => {
