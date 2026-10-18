@@ -54,7 +54,10 @@ describe('the driver lock between processes', () => {
 
   it('waits a little for a lock that is let go of soon, as Windows may free a dead process’s lock late', async () => {
     const workRoot = join(dir.path, 'work');
-    const holding = child(workRoot, 'setTimeout(() => process.exit(0), 200);');
+    // A loaded machine (#212): the child lets go 5 s after it took the lock, not 200 ms, more
+    // than the driver lock waits by default (2 s, which SQLite's busy wait stretches to about 3 s
+    // on Windows).
+    const holding = child(workRoot, 'setTimeout(() => process.exit(0), 5_000);');
     // The child writes its holder file once it holds the lock.
     const holderFile = join(workRoot, 'drivers', 'cellar.holder.json');
     const deadline = Date.now() + 20_000;
