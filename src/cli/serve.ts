@@ -234,10 +234,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       if (opened === undefined) throw new Error('the driver is not open yet');
       return opened.state();
     };
+    const repositoryNamed = (repo: string) =>
+      setup.repositories.find((repository) => sameRepo(repository.repo, repo));
     // The clone a repository's worktrees are added to: where git reads an attempt's commits, never
     // its worktree (ADR 0074, ADR 0078).
     const clone = (repo: string) => {
-      const repository = setup.repositories.find((each) => sameRepo(each.repo, repo));
+      const repository = repositoryNamed(repo);
       if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
       return worktreeClonePath(setup.workRoot, repository);
     };
@@ -253,8 +255,6 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       env: setup.brewerEnv,
       orderText: githubOrderText(reads, setup.brewery),
     });
-    const repositoryNamed = (repo: string) =>
-      setup.repositories.find((repository) => sameRepo(repository.repo, repo));
     // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069).
     const checks = createCheckRunner({
       state,
