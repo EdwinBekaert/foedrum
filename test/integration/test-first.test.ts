@@ -141,6 +141,8 @@ describe('a test-first recipe with real git and a real test run', () => {
             },
             { id: 'implement', brewer: 'cellarman' },
             { id: 'green', check: 'test', onFail: { goto: 'implement', maxRounds: 1 } },
+            // This driver has no code host, so the batch goes Stuck here (ADR 0084).
+            { action: 'openPullRequest' },
           ]),
         },
       ],
@@ -211,7 +213,12 @@ describe('a test-first recipe with real git and a real test run', () => {
         await driver.drive();
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      assert.equal(state().batches.get('12-1')?.lane.kind, 'on_tap');
+      // Every step ran; the pull request has no code host to open on.
+      const lane = state().batches.get('12-1')?.lane;
+      assert.equal(
+        lane?.kind === 'stuck' && lane.reason.kind === 'blocked' && lane.reason.stepId,
+        'open-pull-request',
+      );
     } finally {
       driver.close();
     }
@@ -229,7 +236,16 @@ describe('a test-first recipe with real git and a real test run', () => {
     );
     assert.deepEqual(
       ends.map(([attempt]) => attempt),
-      ['gauge#1', 'red#1', 'gauge#2', 'red#2', 'implement#1', 'implement#2', 'green#1'],
+      [
+        'gauge#1',
+        'red#1',
+        'gauge#2',
+        'red#2',
+        'implement#1',
+        'implement#2',
+        'green#1',
+        'open-pull-request#1',
+      ],
     );
     assert.match(
       String(ends[1]?.[1]),

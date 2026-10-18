@@ -259,7 +259,13 @@ describe('createAttemptPlans: limits', () => {
       recipes: [
         {
           path: 'recipes/pale.jsonc',
-          text: recipeText('pale', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false }),
+          text: recipeText(
+            'pale',
+            [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+            {
+              testFirst: false,
+            },
+          ),
         },
       ],
       brewers: [

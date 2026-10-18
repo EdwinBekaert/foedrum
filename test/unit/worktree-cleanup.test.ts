@@ -80,6 +80,8 @@ describe('createWorktreeCleanup', () => {
         ['b-off', 'ended'],
       ]),
       leased: [ref],
+      // No ended batch here has a task tree (ADR 0084).
+      unpushed: new Map(),
     };
     assert.deepStrictEqual(app.cleans(), [{ claims, scope: {} }]);
     assert.deepStrictEqual(lib.cleans(), [{ claims, scope: {} }]);

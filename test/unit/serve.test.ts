@@ -53,9 +53,12 @@ describe('runServe', () => {
   let api: FakeGitHubApi;
   // What the shell's pushes pushed, as `<repo> <commit> <branch>`.
   let pushes: string[];
+  // The waits that saw the batch on tap.
+  let onTapWaits: number;
 
   beforeEach(() => {
     pushes = [];
+    onTapWaits = 0;
     dir = makeTempDir('serve');
     const result = serveSetup(
       serveInputs({ files: { ...serveInputs().files, local: local({ workRoot: dir.path }) } }),
@@ -79,7 +82,14 @@ describe('runServe', () => {
     api = fakeGitHubApi({
       login: 'ann',
       issues: {
-        'acme/brewery': [{ number: 12, labels: [], author: 'ann', body: 'Add a --json flag.' }],
+        // Each batch opens its pull request with its order's title (ADR 0071).
+        'acme/brewery': [12, 13, 14].map((number) => ({
+          number,
+          labels: [],
+          author: 'ann',
+          title: 'Add a --json flag',
+          body: 'Add a --json flag.',
+        })),
       },
     });
     // An order routed to the one-step recipe, as the state branch would have it.
@@ -123,12 +133,14 @@ describe('runServe', () => {
     out: (line) => lines.push(line),
     signal: controller.signal,
     clock: () => t0,
-    // Stops serve once the batch is on tap, or after 20 ticks.
+    // Stops serve one tick after the batch went on tap, or after 20 ticks: the openPullRequest
+    // action ends it after the drive, and the next tick's drive cleans it (ADR 0037).
     wait: async (ms) => {
       calls.push(`wait ${ms}`);
       const lane = createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')
         ?.lane.kind;
-      if (lane === 'on_tap' || calls.length > 40) controller.abort();
+      if (lane === 'on_tap') onTapWaits++;
+      if (onTapWaits > 1 || calls.length > 40) controller.abort();
     },
     lock: (workRoot, options) => {
       calls.push(`lock ${options.owner} ${options.brewery} ${workRoot === dir.path}`);
@@ -246,6 +258,10 @@ describe('runServe', () => {
       'step.scheduled',
       'step.started',
       'step.finished',
+      // The openPullRequest action (ADR 0071, ADR 0084).
+      'step.scheduled',
+      'step.started',
+      'step.finished',
       'batch.on_tap',
     ]);
     const [plan] = plans;
@@ -360,6 +376,21 @@ describe('runServe', () => {
     assert.deepStrictEqual(
       managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.outDocs,
       new Map([['12-1/brew', 'brew.md']]),
+    );
+  });
+
+  it("lets the cleanup delete the task tree's branch once the action's push recorded it (ADR 0084)", async () => {
+    const managers: FakeWorktrees[] = [];
+    const worktrees: ServeShell['worktrees'] = async () => {
+      const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
+      managers.push(manager);
+      return manager;
+    };
+    assert.equal(await runServe(setup, shell({ worktrees })), 0);
+    assert.equal(pushes.length, 1);
+    assert.deepStrictEqual(
+      managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.unpushed,
+      new Map(),
     );
   });
 
@@ -562,6 +593,7 @@ describe('runServe', () => {
         { id: 'gauge', brewer: 'gauger' },
         { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
         { id: 'implement', brewer: 'cellarman' },
+        { action: 'openPullRequest' },
       ],
     });
     const guarded = brewer.replace(
@@ -684,6 +716,7 @@ describe('runServe', () => {
           { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
           { id: 'red', check: 'test', expect: 'fail', of: 'gauge', when: 'recipe.testFirst' },
           { id: 'implement', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
         ],
         testFirst: false,
       });
@@ -707,6 +740,7 @@ describe('runServe', () => {
             onFail: { goto: 'gauge', maxRounds: 1 },
           },
           { id: 'implement', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
         ],
       });
       const passing = 'TAP version 13\nok 1 - adds two numbers\n1..1\n';
@@ -836,6 +870,11 @@ describe('runServe', () => {
             },
           ],
         },
+        // Each batch's pull request merges at once, so its claim is released (ADR 0084).
+        instead: (method, url) =>
+          method === 'GET' && /\/pulls\/\d+$/.test(url.pathname)
+            ? { status: 200, body: { state: 'closed', merged: true } }
+            : undefined,
       });
       const done = () =>
         lane('12-1') === 'on_tap' &&

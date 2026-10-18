@@ -480,7 +480,11 @@ describe('the driver and attempt worktrees with real git', () => {
     assert.notEqual(planTip, base);
     // The retry starts where the failed attempt started, at plan's commit.
     assert.deepEqual(starts, [base, planTip, planTip]);
-    assert.deepEqual(leftovers(), { branches: [], records: [] });
+    // No push recorded the task tree, so its branch stays with plan's commit; the failed
+    // attempt's junk goes (ADR 0084).
+    const taskTree = 'foedrum/12-1/implement/2';
+    assert.deepEqual(leftovers(), { branches: [taskTree], records: [] });
+    assert.equal(git(user, ['log', '--format=%s', `${base}..${taskTree}`]), 'plan.txt\n');
   });
 
   it("runs a check step's command in a worktree of its own at the brewer's commits, and its failure sends the batch back (ADR 0069)", async () => {
@@ -602,7 +606,12 @@ describe('the driver and attempt worktrees with real git', () => {
       ['brew', 2, 'failed'],
       ['green', 2, undefined],
     ]);
-    assert.deepEqual(leftovers(), { branches: [], records: [] });
+    // The task tree is the passing check's branch, at the brewer's second commit, which no push
+    // recorded: it stays (ADR 0084).
+    assert.deepEqual(leftovers(), { branches: ['foedrum/12-1/green/2'], records: [] });
+    const base = git(user, ['rev-parse', 'origin/main']).trim();
+    assert.equal(git(user, ['log', '-1', '--format=%s', 'foedrum/12-1/green/2']), 'Test 2\n');
+    assert.notEqual(git(user, ['rev-parse', 'foedrum/12-1/green/2']).trim(), base);
   });
 
   it('removes at its start what a driver that died before cleaning up left of an ended batch', async () => {
