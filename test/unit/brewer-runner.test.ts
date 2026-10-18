@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   type AttemptFacts,
   type AttemptLimits,
+  type CommitsSeen,
   noteDenial,
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
@@ -222,5 +223,41 @@ describe('settleAttempt', () => {
       output: { status: 'done', summary: 'Looks right', assumptions: [], verdict: 'approve' },
     });
     assert.equal(settleAttempt(facts({ outDoc: review }), limits).kind, 'failed');
+  });
+});
+
+describe('settleAttempt: a brewer that produces commits (ADR 0074)', () => {
+  const start = 'c0ffee0'.padEnd(40, '1');
+  const committing: AttemptLimits = { ...limits, commitsSince: start };
+  const counted = (count: number): CommitsSeen => ({ kind: 'counted', count });
+
+  it('blocks on a divergence when the out doc says done but nothing was committed (#196)', () => {
+    assert.deepStrictEqual(settleAttempt(facts({ commits: counted(0) }), committing), {
+      kind: 'blocked',
+      blockerKind: 'divergence',
+      summary: 'the out doc says done, but the brewer made no commit since c0ffee0: Planned',
+    });
+  });
+
+  it('fails, retryably, when the brewer rewrote the commit its worktree started at', () => {
+    assert.deepStrictEqual(settleAttempt(facts({ commits: { kind: 'rewritten' } }), committing), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer rewrote c0ffee0, the commit its worktree started at',
+    });
+  });
+
+  it('blocks on the environment when git could not count the commits, or nothing counted them', () => {
+    const uncounted = { kind: 'uncounted', reason: 'git exited with 128' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ commits: uncounted }), committing), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the commits since c0ffee0 were not counted: git exited with 128',
+    });
+    assert.deepStrictEqual(settleAttempt(facts(), committing), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the commits since c0ffee0 were not counted: the runner did not count them',
+    });
   });
 });

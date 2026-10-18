@@ -54,8 +54,11 @@ export interface PlanFacts {
   random?: RandomBytes;
 }
 
-/** The limits the runner enforces for an attempt of `brewer`. */
-export function attemptLimits(brewer: BrewerFrontmatter): AttemptLimits {
+/**
+ * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
+ * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074).
+ */
+export function attemptLimits(brewer: BrewerFrontmatter, _start?: string): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // Brewer-specific schemas are not built yet: every out doc is read against the contract's.
   return {
@@ -79,6 +82,14 @@ export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string
     );
   }
   return model;
+}
+
+/**
+ * The git rules `git.commit: true` grants (ADR 0074): fixed subcommands that never push (ADR 0062),
+ * in Bash; none for any other brewer.
+ */
+export function gitRulesOf(_brewer: BrewerFrontmatter): string[] {
+  throw new Error('not implemented');
 }
 
 /** The tool of each rule, once each, in the order first named. */
@@ -160,9 +171,10 @@ function example(status: string, ownKey?: string): string[] {
 
 /**
  * The out doc contract every prompt ends its instructions with (brewers-and-recipes §2): one
- * example per status, so a brewer that copies one as it is writes a valid out doc (#195).
+ * example per status, so a brewer that copies one as it is writes a valid out doc (#195). A brewer
+ * that commits is told to commit before it writes the out doc, and never the out doc (ADR 0074).
  */
-export function outDocContract(file: string): string {
+export function outDocContract(file: string, _commits = false): string {
   return [
     `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
     'below for how the run ended and fill it in, with only its keys and any your instructions',

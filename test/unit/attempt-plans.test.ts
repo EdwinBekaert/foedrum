@@ -252,6 +252,48 @@ describe('createAttemptPlans: limits', () => {
     assert.deepEqual([turns('12-1'), turns('13-1')], [5, 50]);
   });
 
+  it('gives an attempt of a brewer that produces commits the commit its worktree started at (ADR 0074)', () => {
+    const committing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false }),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/cellarman.md',
+          text: brewerText('cellarman', {
+            produces: 'commits',
+            access: 'write',
+            git: { commit: true },
+            tools: { allow: ['Read', 'Write'] },
+          }),
+        },
+      ],
+    });
+    assert.ok(committing.valid, committing.valid ? '' : committing.problems.join('\n'));
+    const plans = (events: Event[]) =>
+      createAttemptPlans({
+        state: () => fold(events),
+        brewers: committing.brewers,
+        models: { models: {}, brewers: {} },
+        repoTools: () => [],
+        sandbox: false,
+        workRoot,
+        env: { base: {}, forced: {} },
+        orderText: async () => '',
+      });
+    assert.deepEqual(plans([...ordered, started]).limits(ref), {
+      outDoc: { file: 'out.md', schema: OutDocFrontmatter },
+      commitsSince: 'c'.repeat(40),
+    });
+    // Not started yet: no worktree, so nothing to count from; its plan fails before it runs.
+    assert.deepEqual(plans(ordered).limits(ref), {
+      outDoc: { file: 'out.md', schema: OutDocFrontmatter },
+    });
+  });
+
   it('gives an attempt of a batch without a recipe the out doc of the contract alone', () => {
     const { plans } = setup([ordered[0] as Event]);
     assert.deepEqual(plans.limits(ref), { outDoc: { file: 'out.md', schema: OutDocFrontmatter } });

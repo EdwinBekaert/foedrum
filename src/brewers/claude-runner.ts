@@ -33,6 +33,8 @@ import {
   type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
+import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
+import { runGit } from '../workspace/git.ts';
 import {
   type AttemptPermissions,
   attemptSettings,
@@ -75,6 +77,8 @@ export interface ClaudeRunnerDeps {
   now: () => Date;
   /** Resolves after `ms`, or at once when `signal` aborts. */
   wait: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** The commits in the worktree after the limits' `commitsSince` (ADR 0074). */
+  commits: CountCommits;
 }
 
 /**
@@ -375,5 +379,6 @@ export function claudeBrewerRunner(
     files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
     now: () => new Date(),
     wait: waitFor,
+    commits: countCommits(runGit),
   });
 }

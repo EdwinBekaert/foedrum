@@ -17,6 +17,11 @@ export interface AttemptLimits {
   maxTurns?: number;
   /** Permission denials before the runner stops the brewer: it is blocked by its environment. */
   maxDenials?: number;
+  /**
+   * For a brewer that produces commits: the commit its worktree started at. A `done` out doc then
+   * needs a commit after it (ADR 0074).
+   */
+  commitsSince?: string;
 }
 
 export interface AttemptStart {
@@ -61,6 +66,14 @@ export type ProcessExit =
   /** The runner stopped it because its output passed a limit: a stream line, or stderr. */
   | { kind: 'overflowed'; what: string };
 
+/** What git said of the commits an attempt made after its worktree's start (ADR 0074). */
+export type CommitsSeen =
+  | { kind: 'counted'; count: number }
+  /** The start commit is no ancestor of HEAD: the brewer rewrote it. */
+  | { kind: 'rewritten' }
+  /** git could not answer. */
+  | { kind: 'uncounted'; reason: string };
+
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
   /**
@@ -84,6 +97,8 @@ export interface AttemptFacts {
   deniedTools: readonly string[];
   /** Turns the brewer took. */
   turns: number;
+  /** The commits since the limits' `commitsSince`, when they name one. */
+  commits?: CommitsSeen;
 }
 
 /** The permission denials of an attempt so far. */

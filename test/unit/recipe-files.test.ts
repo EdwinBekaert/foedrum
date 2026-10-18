@@ -722,7 +722,6 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       refused('"toolbox"'),
       refused('"doneWhen"'),
       refused('the guard "noPush"'),
-      refused('the guard "requiresCommits"'),
       refused('the guard "scope"'),
     ]);
   });
@@ -756,6 +755,20 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       brewers: [brewer('maltster', { guards: ['requiresOutDoc'], retryMode: 'fresh' }), brewmaster],
     });
     assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
+  });
+
+  it('loads requiresCommits: a done of every brewer that produces commits needs a commit (ADR 0074)', () => {
+    const cellarman = brewer('cellarman', {
+      access: 'write',
+      git: { commit: true },
+      produces: 'commits',
+      guards: ['requiresOutDoc', 'requiresCommits'],
+    });
+    const files = brewery({
+      recipes: [recipe('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      brewers: [maltster, brewmaster, cellarman],
+    });
+    assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
   });
 });
 

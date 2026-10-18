@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   attemptLimits,
+  gitRulesOf,
   inputsOf,
   modelOf,
   outDocContract,
@@ -14,12 +15,14 @@ import {
   settingsFileOf,
   toolsOf,
 } from '../../src/brewers/attempt-plan.ts';
+import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { ModelsConfig } from '../../src/schemas/models.ts';
 import { OutDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
+import { BrewerAllowedTool } from '../../src/schemas/primitives.ts';
 
 const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
   BrewerFrontmatter.parse({
@@ -133,6 +136,40 @@ describe('attemptLimits', () => {
     assert.deepEqual(attemptLimits(brewer()), {
       outDoc: { file: 'brew.md', schema: OutDocFrontmatter },
     });
+  });
+
+  it('needs a commit after the start for a brewer that produces commits (ADR 0074)', () => {
+    const committing = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
+    assert.deepEqual(attemptLimits(committing, sha), {
+      outDoc: { file: 'brew.md', schema: OutDocFrontmatter },
+      commitsSince: sha,
+    });
+    assert.deepEqual(attemptLimits(brewer(), sha), {
+      outDoc: { file: 'brew.md', schema: OutDocFrontmatter },
+    });
+  });
+});
+
+describe('gitRulesOf (ADR 0074)', () => {
+  it('grants git status, add and commit in Bash to a brewer with git.commit', () => {
+    const committing = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
+    assert.deepEqual(gitRulesOf(committing), [
+      'Bash(git status *)',
+      'Bash(git add *)',
+      'Bash(git commit *)',
+    ]);
+  });
+
+  it('grants nothing to a brewer without it', () => {
+    assert.deepEqual(gitRulesOf(brewer()), []);
+    assert.deepEqual(gitRulesOf(brewer({ access: 'write', git: { commit: false } })), []);
+  });
+
+  it('grants only rules ADR 0062 lets a brewer have', () => {
+    const committing = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
+    for (const rule of gitRulesOf(committing)) {
+      assert.ok(BrewerAllowedTool.safeParse(rule).success, rule);
+    }
   });
 });
 
@@ -333,6 +370,17 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     assert.ok(outDocContract('brew.md').length <= 1200, `${outDocContract('brew.md').length}`);
   });
 
+  it('tells a brewer that commits to commit before the out doc, and never the out doc (ADR 0074)', () => {
+    const contract = outDocContract('brew.md', true);
+    assert.match(
+      contract,
+      /Commit your changes with git add and git commit before you write brew\.md, and leave\nbrew\.md out of every commit\. Do not push\.$/,
+    );
+    assert.equal(contract.replace(/\nCommit [\s\S]* commit\./, ''), outDocContract('brew.md'));
+    assert.doesNotMatch(outDocContract('brew.md'), /git commit/);
+    assert.ok(contract.length <= 1400, `${contract.length}`);
+  });
+
   // Every `---` … `---` block of the contract, as the out doc a brewer that copies it writes (#195).
   const examples = (contract: string): string[] =>
     [...contract.matchAll(/^---\n[\s\S]*?\n---$/gm)].map(([block]) => `${block}\n`);
@@ -425,6 +473,57 @@ describe('planAttempt', () => {
       sandbox: true,
     });
     assert.equal(plan.settingsFile, join('/root', 'attempt-settings', '12-1', 'brew', '1.json'));
+  });
+
+  describe('a brewer with git.commit (ADR 0074)', () => {
+    const committing = (allow: string[]) =>
+      facts({
+        access: 'write',
+        produces: 'commits',
+        git: { commit: true },
+        tools: { allow, deny: [] },
+      });
+
+    it("allows the fixed git rules after its own and before the repository's, with the Bash tool", () => {
+      const plan = planAttempt(committing(['Read', 'Write']));
+      assert.deepEqual(plan.permissions.allow, [
+        'Read',
+        'Write',
+        'Bash(git status *)',
+        'Bash(git add *)',
+        'Bash(git commit *)',
+        'Bash(npm test)',
+      ]);
+      assert.deepEqual(plan.call.tools, ['Read', 'Write', 'Bash']);
+    });
+
+    it('allows each rule once when the brewer lists one itself', () => {
+      const plan = planAttempt(committing(['Read', 'Bash(git add *)']));
+      assert.deepEqual(plan.permissions.allow, [
+        'Read',
+        'Bash(git add *)',
+        'Bash(git status *)',
+        'Bash(git commit *)',
+        'Bash(npm test)',
+      ]);
+    });
+
+    it('tells it to commit in the out doc contract', () => {
+      const { prompt } = planAttempt(committing(['Read', 'Write']));
+      assert.ok(
+        prompt.startsWith(`Brew the plan in {malt}.\n\n${outDocContract('brew.md', true)}`),
+      );
+      assert.match(prompt, /Commit your changes with git add and git commit before you write/);
+    });
+
+    it('writes settings the attempt settings schema accepts, with the git rules in them', () => {
+      const plan = planAttempt(committing(['Read', 'Write']));
+      const settings = attemptSettings(plan.permissions);
+      assert.ok(
+        settings.permissions.allow.includes('Bash(git commit *)'),
+        settings.permissions.allow.join(', '),
+      );
+    });
   });
 
   it("builds the environment from the base, the brewer's env, then the forced variables", () => {

@@ -141,15 +141,26 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       JSON.stringify({ workRoot: work, clones: { 'acme/web': clone } }),
     );
 
-    // The fake model writes the out doc in the attempt's worktree.
+    // The fake model commits a change in the attempt's worktree, as a brewer that produces commits
+    // must (ADR 0074), with the clone's identity, then writes the out doc.
+    git(clone, ['config', 'user.name', 'Brewer']);
+    git(clone, ['config', 'user.email', 'brewer@example.com']);
     const worktree = join(realpathSync(work), 'acme.web', 'attempts', '12-1', 'brew', '1');
-    api = await startFakeMessagesApi({
-      name: 'Write',
-      input: {
-        file_path: join(worktree, 'brew.md'),
-        content: outDoc({ status: 'done', summary: 'Brewed' }),
+    api = await startFakeMessagesApi([
+      { name: 'Write', input: { file_path: join(worktree, 'flag.txt'), content: '--json\n' } },
+      { name: 'Bash', input: { command: 'git add flag.txt', description: 'Stage the flag' } },
+      {
+        name: 'Bash',
+        input: { command: 'git commit -q -m "Add a --json flag"', description: 'Commit it' },
       },
-    });
+      {
+        name: 'Write',
+        input: {
+          file_path: join(worktree, 'brew.md'),
+          content: outDoc({ status: 'done', summary: 'Brewed' }),
+        },
+      },
+    ]);
     const needed =
       /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i;
     const inherited = Object.fromEntries(

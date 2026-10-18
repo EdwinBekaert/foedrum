@@ -401,6 +401,28 @@ describe('brewing with the fake brewer runner', () => {
     assert.equal(brewing.batch('b1').lane.kind, 'on_tap');
   });
 
+  it('says done without a commit, as a brewer that produces commits: Stuck on a divergence (#196)', async () => {
+    const { brewing, runner } = await brew(
+      // Scripted on, so a done taken at its word goes on to the next step instead.
+      { plan: [behave.succeedWithoutCommit('Changed brew.ts')], implement: [behave.succeed()] },
+      { limits: { commitsSince: FAKE_COMMIT } },
+    );
+    assert.deepStrictEqual(trail(brewing.events()), [
+      ...head,
+      'finished plan#1 failed',
+      'stuck blocked',
+    ]);
+    // One attempt: a brewer that found nothing to change would find it again.
+    assert.equal(runner.started.length, 1);
+    const { lane } = brewing.batch('b1');
+    assert.deepStrictEqual(lane.kind === 'stuck' && lane.reason, {
+      kind: 'blocked',
+      stepId: 'plan',
+      blockerKind: 'divergence',
+      summary: `the out doc says done, but the brewer made no commit since ${FAKE_COMMIT.slice(0, 7)}: Changed brew.ts`,
+    });
+  });
+
   it('meets a storm of permission denials: Stuck at once, naming the denied tools', async () => {
     const npmTest = 'Bash(npm test)';
     const { brewing } = await brew(
