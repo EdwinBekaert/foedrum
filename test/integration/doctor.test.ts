@@ -37,8 +37,7 @@ describe('foedrum doctor on this machine', () => {
     // CI has npm and git everywhere; npm is npm.cmd on Windows.
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
-    // gh's version is canned like its login, so no test reads how fast the real gh starts: the row
-    // shows that version at the path PATH gives, or that gh is missing.
+    // The row shows the canned version at the path PATH gives, or that gh is missing.
     const gh = resolveExecutable('gh');
     assert.equal(
       row('gh')?.replace(/ +/g, ' '),
