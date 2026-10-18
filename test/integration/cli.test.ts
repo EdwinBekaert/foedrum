@@ -12,6 +12,7 @@ import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
+import { envWithoutGhLogin } from '../helpers/gh-config.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
@@ -26,7 +27,12 @@ describe('foedrum status and replay on store files', () => {
   afterEach(() => brewery.remove());
 
   const foedrum = (...args: string[]) =>
-    execProcess(process.execPath, [main, ...args], { cwd: brewery.path, timeoutMs: 60_000 });
+    execProcess(process.execPath, [main, ...args], {
+      cwd: brewery.path,
+      // doctor asks gh for its login: none here, so nothing reaches github.com (ADR 0073).
+      env: envWithoutGhLogin(brewery.path),
+      timeoutMs: 60_000,
+    });
 
   it('says there is no store, and creates none, in a folder without one', async () => {
     for (const args of [['status'], ['replay', '12-1']]) {
@@ -156,7 +162,12 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
   afterEach(() => brewery.remove());
 
   const foedrum = (...args: string[]) =>
-    execProcess(process.execPath, [main, ...args], { cwd: brewery.path, timeoutMs: 60_000 });
+    execProcess(process.execPath, [main, ...args], {
+      cwd: brewery.path,
+      // doctor asks gh for its login: none here, so nothing reaches github.com (ADR 0073).
+      env: envWithoutGhLogin(brewery.path),
+      timeoutMs: 60_000,
+    });
   const writeRecipe = (steps: unknown[]): void =>
     writeFileSync(join(brewery.path, 'recipes', 'pale.jsonc'), recipeText('pale', steps));
 

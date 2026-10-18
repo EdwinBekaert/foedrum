@@ -1,13 +1,15 @@
 // `foedrum doctor` on the real machine (ADR 0021): the program starts, finds the tools through
 // PATH and reads their versions through the process runner (npm.cmd through cmd.exe on Windows).
 // What a machine has differs, so this checks the report's structure only; the report itself is
-// in test/unit/cli.test.ts.
+// in test/unit/cli.test.ts. gh runs with an empty configuration of its own, so it has no login
+// to check against github.com (ADR 0073).
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execProcess } from '../../src/platform/processes.ts';
+import { envWithoutGhLogin } from '../helpers/gh-config.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');
@@ -15,10 +17,12 @@ const VERSION = String.raw`\d+(?:\.\d+)+`;
 
 describe('foedrum doctor on this machine', () => {
   it('reports each tool, the isolation level and an exit code that matches', async () => {
+    const config = makeTempDir('doctor-gh');
     const { exitCode, stdout, stderr } = await execProcess(process.execPath, [main, 'doctor'], {
       cwd: import.meta.dirname,
+      env: envWithoutGhLogin(config.path),
       timeoutMs: 60_000,
-    });
+    }).finally(() => config.remove());
     assert.equal(stderr, '');
     const lines = stdout.split('\n');
     assert.equal(lines[0], 'Foedrum doctor');
@@ -28,6 +32,16 @@ describe('foedrum doctor on this machine', () => {
     // CI has npm and git everywhere; npm is npm.cmd on Windows.
     assert.match(row('npm') ?? '', new RegExp(`^  npm +${VERSION} +\\S`));
     assert.match(row('git') ?? '', new RegExp(`^  git +${VERSION} +\\S`));
+    // CI has gh everywhere too; here it has no login, which is a required problem.
+    assert.match(row('gh') ?? '', new RegExp(`^  gh +(?:missing|${VERSION} +\\S.*)$`));
+    if (!/ missing$/.test(row('gh') ?? '')) {
+      assert.ok(
+        lines.includes(
+          '  gh is not logged in to github.com (required): run gh auth login --hostname github.com',
+        ),
+        stdout,
+      );
+    }
     assert.match(row('claude') ?? '', new RegExp(`^  claude +(?:missing|${VERSION} +\\S.*)$`));
     const linux = process.platform === 'linux';
     assert.equal(row('bwrap') !== undefined, linux);
@@ -77,6 +91,7 @@ describe('foedrum doctor in a Brewery', () => {
       writeFileSync(join(dir.path, 'foedrum.jsonc'), JSON.stringify(config));
       const { exitCode, stdout } = await execProcess(process.execPath, [main, 'doctor'], {
         cwd: dir.path,
+        env: envWithoutGhLogin(dir.path),
         timeoutMs: 60_000,
       });
       assert.equal(exitCode, 1);
