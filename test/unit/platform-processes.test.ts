@@ -193,11 +193,19 @@ const fakeSpawner = (child: FakeChild | Error = new FakeChild()) => {
     cwd: string;
     env: NodeJS.ProcessEnv;
     shell?: boolean;
+    stdin?: boolean;
   }[] = [];
   const killed: number[] = [];
   const spawner: Spawner = {
-    spawn: (file, args, { cwd, env, shell }) => {
-      spawned.push({ file, args, cwd, env, ...(shell === undefined ? {} : { shell }) });
+    spawn: (file, args, { cwd, env, shell, stdin }) => {
+      spawned.push({
+        file,
+        args,
+        cwd,
+        env,
+        ...(shell === undefined ? {} : { shell }),
+        ...(stdin === undefined ? {} : { stdin }),
+      });
       if (child instanceof Error) throw child;
       return child;
     },
@@ -249,6 +257,68 @@ describe('execProcessWith', () => {
       stderr: 'two\n',
       output: 'one\ntwo\nthree\n',
     });
+  });
+
+  it('writes its input to stdin and closes it, asking for a pipe only then', async () => {
+    const child = new FakeChild();
+    const { spawned, exec } = fakeSpawner(child);
+    let input = '';
+    child.stdin.setEncoding('utf8').on('data', (chunk: string) => {
+      input += chunk;
+    });
+    let ended = false;
+    child.stdin.on('finish', () => {
+      ended = true;
+    });
+    const done = exec('gh', ['api', '--input', '-'], { cwd: '/work', stdin: '{"body":"✓"}' });
+    await settle();
+    child.close(0);
+    await done;
+    await settle();
+    assert.equal(input, '{"body":"✓"}');
+    assert.equal(ended, true);
+    const plain = new FakeChild();
+    const second = fakeSpawner(plain);
+    const without = second.exec('git', [], { cwd: '/work' });
+    plain.close(0);
+    await without;
+    assert.deepEqual(
+      [spawned[0]?.stdin === true, second.spawned[0]?.stdin === true],
+      [true, false],
+    );
+  });
+
+  // gh may exit before reading its stdin (a refused argument); the write then fails with EPIPE,
+  // which must not crash the engine.
+  it('answers from how the process ended when its stdin cannot be written', async () => {
+    const child = new FakeChild();
+    const { exec } = fakeSpawner(child);
+    const done = exec('gh', [], { cwd: '/work', stdin: 'body' });
+    child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    child.stderr.write('unknown flag');
+    child.close(1);
+    assert.deepEqual(await done, {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'unknown flag',
+      output: 'unknown flag',
+    });
+  });
+
+  // A program that runs without its input would answer something else (#128).
+  it('answers as not started, and ends the tree, when stdin was given but has no pipe', async () => {
+    const child = new FakeChild(77);
+    Object.assign(child, { stdin: null });
+    const { killed, exec } = fakeSpawner(child);
+    const done = exec('gh', [], { cwd: '/work', stdin: 'body' });
+    child.stdout.write('HTTP/1.1 200 OK\n');
+    await settle();
+    child.close(0);
+    const result = await done;
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.stderr, /^gh: no pipe to its stdin/);
+    assert.deepEqual(killed, [77]);
   });
 
   it('keeps a character whose bytes arrive in two chunks', async () => {

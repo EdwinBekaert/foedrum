@@ -177,6 +177,8 @@ export interface ExecOptions {
    * up; `args` must be empty.
    */
   shell?: boolean | undefined;
+  /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
+  stdin?: string | undefined;
 }
 
 export interface ExecResult {
