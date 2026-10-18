@@ -222,6 +222,12 @@ export const planClean = (
   // A batch the state does not know has no claim on the attempts root, which is Foedrum's.
   const live = (batchId: string): boolean => claims.batches.get(batchId) === 'live';
   const tips = new Map(facts.branches.map((branch) => [branch.name, branch]));
+  // The task tree of an ended batch that no push recorded: its branch is the only ref to its
+  // commits while it holds any past the batch's start (ADR 0084).
+  const holdsTaskTree = (name: string | undefined): boolean => {
+    const start = name === undefined ? undefined : claims.unpushed?.get(name);
+    return start !== undefined && tips.get(name ?? '')?.tip !== start;
+  };
   const inRoot = facts.worktrees.filter(
     (worktree): worktree is ListedFact & { inside: string } => worktree.inside !== undefined,
   );
@@ -269,11 +275,11 @@ export const planClean = (
     if (removal !== undefined && removal.kind !== 'keep') {
       // The branch goes too only when its batch has ended. A batch the state does not know may
       // have committed work nobody pushed (a store rebuilt without its last events, two
-      // Breweries on one work root): its branch stays for the branch pass to report.
-      const known = claims.batches.has(batchId);
-      if (!known && worktree.branch !== undefined) branchesDone.delete(worktree.branch);
-      const branch =
-        worktree.branch === undefined || !known ? undefined : tips.get(worktree.branch);
+      // Breweries on one work root): its branch stays for the branch pass to report, as does
+      // an unpushed task tree's.
+      const goes = claims.batches.has(batchId) && !holdsTaskTree(worktree.branch);
+      if (!goes && worktree.branch !== undefined) branchesDone.delete(worktree.branch);
+      const branch = worktree.branch === undefined || !goes ? undefined : tips.get(worktree.branch);
       const outDoc =
         removal.kind === 'remove' && worktree.outDoc !== undefined
           ? { outDoc: worktree.outDoc }
@@ -342,9 +348,11 @@ export const planClean = (
         ? LEASED
         : !claims.batches.has(batchId)
           ? `no batch ${batchId} in this Brewery`
-          : at === undefined
-            ? undefined
-            : `checked out in ${at}`;
+          : holdsTaskTree(branch.name)
+            ? `it holds the task tree of batch ${batchId}, which no push recorded (ADR 0084)`
+            : at === undefined
+              ? undefined
+              : `checked out in ${at}`;
     if (reason === undefined) {
       actions.push({ kind: 'delete-branch', branch: branch.name, tip: branch.tip });
     } else kept.push(`kept branch ${branch.name}: ${reason}`);

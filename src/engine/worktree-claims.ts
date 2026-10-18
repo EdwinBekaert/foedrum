@@ -1,10 +1,14 @@
 // What the engine's state claims of the attempt worktrees (ADR 0029): which batches may still
 // brew, and which attempts hold a live lease. The worktree manager removes nothing they claim.
 
-import type { AttemptRef, Claims } from '../workspace/attempt-worktrees.ts';
+import { PushResult } from '../schemas/store.ts';
+import { type AttemptRef, attemptBranch, type Claims } from '../workspace/attempt-worktrees.ts';
 import { attemptKey } from './attempt-key.ts';
+import { effectKey } from './effect-key.ts';
 import type { Lease } from './event-store.ts';
 import type { Lane, State } from './fold.ts';
+import { pushKey } from './pull-request.ts';
+import { sameRepo } from './task-tree.ts';
 
 /**
  * Whether a batch in this lane may still brew. A Stuck batch stays live: a human may take over or
@@ -44,6 +48,31 @@ const outDocsOf = (state: State, outDoc: OutDocOf): Map<string, string> => {
   return outDocs;
 };
 
+// The branch of every ended batch's task tree that no push recorded, with the commit the batch
+// started from: the first worktree of the batch was made there (ADR 0066). A rewound task tree is
+// a commit, not a branch, so it names none (ADR 0084).
+const unpushedOf = (state: State): Map<string, string> => {
+  const unpushed = new Map<string, string>();
+  for (const batch of state.batches.values()) {
+    const { taskTree } = batch;
+    if (laneStatus(batch.lane) !== 'ended' || taskTree?.kind !== 'attempt') continue;
+    const branch = attemptBranch({ batchId: batch.id, ...taskTree });
+    const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
+    if (pushed.success && pushed.data.from === `refs/heads/${branch}`) continue;
+    const worktrees = [...batch.steps.values()].flatMap((step) =>
+      [...step.attempts.values()].flatMap((attempt) =>
+        attempt.phase !== 'scheduled' && attempt.worktree !== undefined ? [attempt.worktree] : [],
+      ),
+    );
+    // A batch whose start cannot be found keeps its branch: no tip is ''.
+    unpushed.set(
+      branch,
+      worktrees.find((worktree) => sameRepo(worktree.repo, taskTree.repo))?.commit ?? '',
+    );
+  }
+  return unpushed;
+};
+
 /** The claims of the folded state and the leases alive now (`EventStore.currentLeases`). */
 export const worktreeClaims = (
   state: State,
@@ -57,4 +86,5 @@ export const worktreeClaims = (
     return ref === undefined ? [] : [ref];
   }),
   ...(outDoc === undefined ? {} : { outDocs: outDocsOf(state, outDoc) }),
+  unpushed: unpushedOf(state),
 });
