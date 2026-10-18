@@ -238,7 +238,10 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       .filter((line) => line !== '')
       .map((line) => (JSON.parse(line) as { event: { type: string } }).event.type);
     // The status comment's revisions are effects whose place depends on the ticks (ADR 0072).
-    assert.ok(types.includes('effect.applied'), types.join(', '));
+    assert.ok(
+      types.includes('effect.applied'),
+      `${types.join(', ')}\n${result.stdout}\n${result.stderr}`,
+    );
     assert.deepStrictEqual(
       types.filter((type) => type !== 'effect.applied'),
       [
