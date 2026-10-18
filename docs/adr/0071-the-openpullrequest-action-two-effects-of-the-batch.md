@@ -40,6 +40,8 @@ This is #178. Bottles of several sub-orders (`bottling`), the update of an open 
 
 ## Consequences
 - A recipe that ends with `openPullRequest` brews to a pull request in `foedrum serve`. `test/chaos/pull-requests.test.ts` kills the driver before and after the push and the open, once and twice in a run, and every run goes on tap with one pull request from one push; `test/integration/pull-request-push.test.ts` pushes a brewer's commit through `openDriver` and real git to a local bare origin, and shows a bottle branch at another commit is never forced. No test reaches GitHub.
+- The pull request of a batch is recorded in the ledger, not as `bottle.opened`: that event stays for bottles of sub-orders (§3.2), which bundle several batches. The branch is still named for the bottle it will be (`foedrum/<batch>/<repo>`, §3.4).
+- The ledger's push result has a schema (`PushResult`, `src/schemas/store.ts`); a recorded push of another shape fails the action for good.
 - `Recipe` has `action(stepId)`, and `Continuation`'s `done` may name the step that `opens` the pull request. No event changes.
 - A push from a `local` clone uses the user's remote and credentials, as a fetch already does (ADR 0012); a `managed` clone pushes to `https://github.com/<repo>.git` through the user's credential helper. A push that needs a prompt fails, since git never prompts, and the batch goes Stuck at the action's deadline with the reason in the reported effect.
 - The pull request opens ready for review, not as a draft; the status comment and the bottle's merge order (§3.2) come later.
