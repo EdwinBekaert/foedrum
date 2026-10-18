@@ -119,6 +119,11 @@ describe('attemptSettings and git with options before the subcommand', () => {
       `${shell}(env git.cmd -C . push)`,
       // A backslash quotes in Bash: g\it runs git.
       ...(shell === 'Bash' ? ['Bash(g\\it *)', 'Bash(C:/Program\\ Files/Git/cmd/git.exe *)'] : []),
+      // git spelt another way after a wrapper (review of #225).
+      `${shell}(env g''it -C . push)`,
+      ...(shell === 'Bash' ? ['Bash(env g\\it -C . push)'] : []),
+      `${shell}(env /usr/bin/gi? -C . push)`,
+      `${shell}(cmd /c g^it -C . push)`,
     ]) {
       it(`refuses to allow ${rule}, which reaches a push`, () => {
         assert.throws(
@@ -164,6 +169,90 @@ describe('attemptSettings and git with options before the subcommand', () => {
         const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
         for (const push of pushes) {
           assert.equal(withinCeiling(`${shell}(${push})`, settings.permissions.allow), false, push);
+        }
+      });
+    }
+  }
+});
+
+// #204: gh answers from the maintainer's login in the OS keyring, and a brewer runs as the same
+// OS user, so no rule a brewer may have starts gh: only the engine talks to GitHub (ADR 0082).
+describe('attemptSettings and gh', () => {
+  const ghCalls = ['gh api user', 'gh pr merge 1', 'gh auth token'];
+
+  for (const shell of ['Bash', 'PowerShell']) {
+    for (const rule of [
+      shell,
+      `${shell}(*)`,
+      `${shell}(g*)`,
+      `${shell}(gh)`,
+      `${shell}(gh *)`,
+      `${shell}(gh:*)`,
+      `${shell}(GH *)`,
+      `${shell}( gh *)`,
+      `${shell}(gh api user)`,
+      `${shell}(gh pr view *)`,
+      `${shell}(gh --version)`,
+      `${shell}(gh.exe *)`,
+      `${shell}(gh.cmd api user)`,
+      `${shell}(/usr/bin/gh *)`,
+      `${shell}(C:\\Tools\\gh.exe api user)`,
+      `${shell}('gh' *)`,
+      `${shell}(& gh *)`,
+      `${shell}(GH_HOST=github.com gh *)`,
+      `${shell}(env gh api user)`,
+      `${shell}(command /usr/bin/gh *)`,
+      `${shell}(xargs gh)`,
+      `${shell}(xargs *)`,
+      ...(shell === 'Bash' ? ['Bash(g\\h *)'] : []),
+      // gh spelt another way after a wrapper, and git asking gh, its credential helper, for the
+      // login (review of #225).
+      `${shell}(env g""h auth token)`,
+      `${shell}(bash -c "g"h pr merge 1)`,
+      `${shell}(env $(echo gh) api user)`,
+      ...(shell === 'Bash' ? ['Bash(env g\\h api user)'] : ['PowerShell(env g`h api user)']),
+      `${shell}(git credential fill)`,
+      `${shell}(git credential-store get)`,
+      `${shell}(git c*)`,
+      `${shell}(/usr/bin/git credential *)`,
+      `${shell}(git-credential-manager get)`,
+      // gh by path or with a Windows extension after a wrapper (second review of #225).
+      `${shell}(env /usr/bin/gh api user)`,
+      `${shell}(env gh.exe api user)`,
+      `${shell}(xargs c:/tools/gh.cmd pr merge 1)`,
+      // A glob, a brace, cmd's escapes, or a backslash a POSIX shell reads (second review of #225).
+      `${shell}(env /usr/bin/g? auth token)`,
+      `${shell}(env /usr/bin/g[h] api user)`,
+      `${shell}(env {gh,} auth token)`,
+      `${shell}(cmd /c g^h auth token)`,
+      `${shell}(cmd /c g%pathext:~0,0%h api user)`,
+      ...(shell === 'PowerShell' ? ['PowerShell(bash -c g\\h api user)'] : []),
+    ]) {
+      it(`refuses to allow ${rule}, which starts gh`, () => {
+        assert.throws(
+          () => attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false }),
+          /only the engine talks to GitHub/,
+        );
+      });
+    }
+
+    for (const rule of [
+      `${shell}(git status *)`,
+      `${shell}(npm test)`,
+      `${shell}(npm run *)`,
+      `${shell}(npx tsc)`,
+      `${shell}(ghc --make Main)`,
+      `${shell}(cat gh.txt)`,
+      `${shell}(npm run gh)`,
+      `${shell}(git-lfs install)`,
+      // A wrapper followed by plain words (second review of #225).
+      `${shell}(env NODE_ENV=test npm test)`,
+      `${shell}(timeout 60 npm test)`,
+    ]) {
+      it(`allows ${rule}, which starts no gh`, () => {
+        const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
+        for (const call of ghCalls) {
+          assert.equal(withinCeiling(`${shell}(${call})`, settings.permissions.allow), false, call);
         }
       });
     }
