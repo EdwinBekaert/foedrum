@@ -72,14 +72,18 @@ function namesOf(name: string): string[] {
 
 /**
  * Whether a line the step added declares the test `name`: the name stands as a whole, after
- * something that is no letter or digit, and before a quote, a bracket or the line's end, as a
- * declaration writes it (`test('adds two numbers'`, `def test_adds(`, `void adds(`).
+ * something that is no letter, digit or underscore, and before something that is none of those
+ * nor a space, or the line's end, as a declaration writes it (`test('adds two numbers'`,
+ * `def test_adds(`, `void adds(`). A line keeps no carriage return of a CRLF file.
  */
 function declares(name: string, lines: readonly string[]): boolean {
   const patterns = namesOf(name).map(
     (each) => new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
   );
-  return lines.some((line) => patterns.some((pattern) => pattern.test(line)));
+  return lines.some((line) => {
+    const text = line.replace(/\r$/, '');
+    return patterns.some((pattern) => pattern.test(text));
+  });
 }
 
 /** "test "a"", or "test "a" (and 2 more)". */

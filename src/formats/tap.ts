@@ -6,6 +6,8 @@ import type { ReadReport, ReportedTest, TestResult } from './test-report.ts';
 // `ok`, `not ok`, an optional number, then the description and directive, at any indent.
 const TEST_POINT = /^( *)(not )?ok\b(?: +\d+)?(?: +-)?(?: +(.*))?$/;
 const BAIL_OUT = /^ *Bail out!(?: +(.*))?$/;
+// The comment node (and TAP 14) writes before each test, naming it: no text outside the tests.
+const SUBTEST = /^ *# Subtest: /;
 // A directive follows the first `#` that is not escaped.
 const DIRECTIVE = /^(skip|todo)\b/i;
 
@@ -67,6 +69,7 @@ export function parseTap(text: string): ReadReport {
       block = { point: last, indent: line.indexOf('---') };
       continue;
     }
+    if (SUBTEST.test(line)) continue;
     const bail = BAIL_OUT.exec(line);
     if (bail !== null) {
       bailedOut = (bail[1] ?? '').trim();

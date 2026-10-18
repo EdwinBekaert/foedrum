@@ -7,6 +7,7 @@ import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
 import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
@@ -52,10 +53,13 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
     checking.set(key, { lastProgressAt: clock(), turnsWithoutProgress: 0 });
     // What the proven step committed, then what this attempt committed on top of where it started.
     const read = async () => {
-      const tests = await readDiff(git, worktree.path, proven, signal);
+      const tests = await readDiff(git, worktree.path, proven, { signal });
       if ('error' in tests) return tests;
-      const own = { from: worktree.commit, to: 'HEAD' };
-      const changes = await readDiff(git, worktree.path, own, signal);
+      // Up to its branch, which the task tree carries on whatever HEAD is (ADR 0066), and only in
+      // the files whose lines the guard keeps.
+      const own = { from: worktree.commit, to: `refs/heads/${attemptBranch(ref)}` };
+      const paths = tests.files.flatMap(({ newPath }) => (newPath === undefined ? [] : [newPath]));
+      const changes = await readDiff(git, worktree.path, own, { signal, paths });
       return 'error' in changes ? changes : { tests: tests.files, changes: changes.files };
     };
     try {

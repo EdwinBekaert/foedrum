@@ -36,16 +36,20 @@ const lastLine = (text: string): string | undefined =>
     .filter((line) => line !== '')
     .at(-1);
 
+/** More than the runner's default 4 MiB: a large but ordinary change (fixtures, a lock file). */
+const MAX_DIFF_BYTES = 16 * 1024 * 1024;
+
 /**
- * The files changed from `from` to `to`, read in `cwd`, whatever the user's diff settings; or why
- * git could not read them.
+ * The files changed from `from` to `to`, read in `cwd`, whatever the user's diff settings, in
+ * `paths` only when given; or why git could not read them.
  */
 export async function readDiff(
   git: Git,
   cwd: string,
   range: { from: string; to: string },
-  signal?: AbortSignal,
+  options: { signal?: AbortSignal; paths?: readonly string[] } = {},
 ): Promise<{ files: DiffFile[] } | { error: string }> {
+  const { signal, paths = [] } = options;
   const args = [
     '-c',
     'core.quotePath=false',
@@ -60,8 +64,13 @@ export async function readDiff(
     range.from,
     range.to,
     '--',
+    // A brewer names the files: a name that starts with ":" is no pathspec magic.
+    ...paths.map((path) => `:(literal)${path}`),
   ];
-  const result = await git(cwd, args, signal === undefined ? {} : { signal });
+  const result = await git(cwd, args, {
+    maxOutputBytes: MAX_DIFF_BYTES,
+    ...(signal === undefined ? {} : { signal }),
+  });
   if (result.code !== 0) {
     return { error: lastLine(result.stderr) ?? `git exited with ${result.code ?? 'no code'}` };
   }

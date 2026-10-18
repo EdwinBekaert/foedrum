@@ -154,7 +154,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
         `step ${ref.stepId} proves the tests of step ${of}, which has no attempt that succeeded`,
       );
     }
-    const diff = await readDiff(git, worktree.path, commits, signal);
+    const diff = await readDiff(git, worktree.path, commits, { signal });
     if ('error' in diff) {
       return blocked('environment', `the commits of step ${of} cannot be read: ${diff.error}`);
     }
@@ -170,7 +170,15 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     // A report the tree holds, committed or left over, must not stand for this run's.
     const file =
       report.path === undefined ? undefined : join(worktree.path, ...report.path.split('/'));
-    if (file !== undefined) reports.clear(file);
+    if (file !== undefined) {
+      try {
+        reports.clear(file);
+      } catch (error) {
+        // A folder at the path, or on Windows a file another process holds open.
+        const why = error instanceof Error ? error.message : String(error);
+        return blocked('environment', `the test report ${report.path} cannot be cleared: ${why}`);
+      }
+    }
     const result = await runCheck(check, worktree, deadlineAt, signal);
     const reading = readingOf(check, result);
     const readings = [reading];
