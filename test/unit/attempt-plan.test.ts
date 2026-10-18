@@ -597,6 +597,14 @@ describe('planAttempt', () => {
     }
   });
 
+  it('names no shell commands when a rule starts with a star, which allows any program', () => {
+    // A star stripped from the end leaves one where the program would be (review of #231).
+    for (const rule of ['Bash(**)', 'Bash(*:*)', 'Bash(*foo)', 'PowerShell(* -x)']) {
+      const { prompt } = planAttempt({ ...facts(), repoTools: [rule] });
+      assert.doesNotMatch(prompt, /Your shell/, rule);
+    }
+  });
+
   it('names no shell commands when the plan has no shell rules', () => {
     const tools = { allow: ['Read', 'Write(brew.md)'], deny: [] };
     const { prompt } = planAttempt({ ...facts({ tools }), repoTools: [] });
