@@ -27,6 +27,7 @@ Foedrum doctor
 
 Isolation: permissions only (native Windows has no sandbox for shell commands)
   For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.
+  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; WSL2 or the container level closes that.
 Container: no Podman or Docker (optional)
 
 Foedrum has everything it needs.
@@ -45,6 +46,7 @@ Foedrum doctor
   socat   1.7.4.4  /usr/bin/socat
 
 Isolation: permissions only (the sandbox needs bubblewrap and socat)
+  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; the sandboxed level (bubblewrap and socat) or the container level closes that.
 Container: no Podman or Docker (optional)
 
 Problems:

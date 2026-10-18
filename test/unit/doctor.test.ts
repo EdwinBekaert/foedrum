@@ -422,7 +422,7 @@ describe('diagnose: isolation (ADR 0010)', () => {
     const diagnosis = diagnose(windows);
     assert.equal(diagnosis.isolation.level, 'permissions only');
     assert.equal(diagnosis.ok, true);
-    assert.equal(diagnosis.advice.length, 1);
+    assert.equal(diagnosis.advice.length, 2, 'WSL2, and what the level leaves open (ADR 0082)');
     assert.match(diagnosis.advice[0] ?? '', /WSL2/);
   });
 
@@ -527,6 +527,29 @@ describe('diagnose: isolation (ADR 0010)', () => {
 describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () => {
   const keyring = (facts: DoctorFacts) =>
     diagnose(facts).advice.filter((line) => /keyring/.test(line));
+
+  it('says on native Windows and WSL 1 that a brewer can still ask the keyring, which WSL2 or the container level closes', () => {
+    for (const facts of [windows, { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' }]) {
+      const [line, ...more] = keyring(facts);
+      assert.deepEqual(more, []);
+      assert.match(line ?? '', /brewer/);
+      assert.match(line ?? '', /check step/);
+      assert.match(line ?? '', /gh's login/);
+      assert.match(line ?? '', /WSL2 or the container level/);
+    }
+  });
+
+  it('names the sandboxed level and the container level on Linux without bubblewrap', () => {
+    const [line] = keyring(linux({ bwrap: undefined }));
+    assert.match(line ?? '', /gh's login/);
+    assert.match(line ?? '', /sandboxed level .*or the container level/);
+  });
+
+  it('names the container level on an operating system without a sandbox', () => {
+    const [line] = keyring({ ...macos, platform: 'freebsd' });
+    assert.match(line ?? '', /gh's login/);
+    assert.match(line ?? '', /the container level/);
+  });
 
   it('says nothing about the keyring on the sandboxed level', () => {
     const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };

@@ -177,6 +177,39 @@ describe('attemptSettings and gh', () => {
 
   for (const shell of ['Bash', 'PowerShell']) {
     for (const rule of [
+      shell,
+      `${shell}(*)`,
+      `${shell}(g*)`,
+      `${shell}(gh)`,
+      `${shell}(gh *)`,
+      `${shell}(gh:*)`,
+      `${shell}(GH *)`,
+      `${shell}( gh *)`,
+      `${shell}(gh api user)`,
+      `${shell}(gh pr view *)`,
+      `${shell}(gh --version)`,
+      `${shell}(gh.exe *)`,
+      `${shell}(gh.cmd api user)`,
+      `${shell}(/usr/bin/gh *)`,
+      `${shell}(C:\\Tools\\gh.exe api user)`,
+      `${shell}('gh' *)`,
+      `${shell}(& gh *)`,
+      `${shell}(GH_HOST=github.com gh *)`,
+      `${shell}(env gh api user)`,
+      `${shell}(command /usr/bin/gh *)`,
+      `${shell}(xargs gh)`,
+      `${shell}(xargs *)`,
+      ...(shell === 'Bash' ? ['Bash(g\\h *)'] : []),
+    ]) {
+      it(`refuses to allow ${rule}, which starts gh`, () => {
+        assert.throws(
+          () => attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false }),
+          /only the engine talks to GitHub/,
+        );
+      });
+    }
+
+    for (const rule of [
       `${shell}(git status *)`,
       `${shell}(npm test)`,
       `${shell}(npm run *)`,

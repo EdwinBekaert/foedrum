@@ -157,6 +157,42 @@ describe('BreweryConfig', () => {
     });
   }
 
+  // #204: gh answers from the maintainer's login in the OS keyring, so neither the ceiling nor a
+  // repository's tools name it, even under a ceiling of every command (ADR 0082).
+  const gh: [string, unknown, (string | number)[]][] = [
+    [
+      'gh in the ceiling',
+      config({}, { permissionCeiling: ['Bash(gh *)'] }),
+      ['permissionCeiling', 0],
+    ],
+    [
+      'gh by path in the ceiling',
+      config({}, { permissionCeiling: ['Read', 'PowerShell(C:\\Tools\\gh.exe api *)'] }),
+      ['permissionCeiling', 1],
+    ],
+    [
+      'gh after a wrapper in the ceiling',
+      config({}, { permissionCeiling: ['Bash(env gh pr list)'] }),
+      ['permissionCeiling', 0],
+    ],
+    [
+      'gh in the repository tools, under a ceiling of every command',
+      config({ tools: ['Bash(npm test)', 'Bash(gh pr list)'] }, { permissionCeiling: ['Bash(*)'] }),
+      ['repositories', 'acme/web', 'tools', 1],
+    ],
+  ];
+  for (const [what, value, path] of gh) {
+    it(`rejects ${what}, pointing at the rule`, () => {
+      const result = BreweryConfig.safeParse(value);
+      assert.equal(result.success, false);
+      assert.deepEqual(
+        result.error?.issues.map((issue) => issue.path),
+        [path],
+      );
+      assert.match(result.error?.message ?? '', /only the engine talks to GitHub/);
+    });
+  }
+
   const beyond: [string, unknown, (string | number)[]][] = [
     [
       'a tool broader than the ceiling',
