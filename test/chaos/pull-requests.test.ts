@@ -173,11 +173,16 @@ const brew = async (kills: readonly KillPoint[]) => {
 };
 
 describe('chaos: the openPullRequest action killed around the push and the open (ADR 0071)', () => {
+  // Every kill point once, and every two in the order a run reaches them: a later point, or a
+  // point before an effect again, which the next driver reaches once more. A point after an
+  // effect is not reached twice: the next driver finds the effect there.
   const runsOf: (readonly KillPoint[])[] = [
     [],
     ...killPoints.map((point) => [point]),
-    ...killPoints.flatMap((first) =>
-      killPoints.filter((second) => second !== first).map((second) => [first, second]),
+    ...killPoints.flatMap((first, i) =>
+      killPoints
+        .filter((second, j) => j > i || (j === i && second.startsWith('before')))
+        .map((second) => [first, second]),
     ),
   ];
 

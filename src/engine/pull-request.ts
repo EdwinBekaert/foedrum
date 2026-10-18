@@ -7,14 +7,13 @@ import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import type { Batch, State } from './fold.ts';
 
 /** The effect that pushes the batch's task tree to its bottle branch, once per batch. */
-export const pushKey = (_batchId: string): BatchEffectKey => {
-  throw new Error('not implemented');
-};
+export const pushKey = (batchId: string): BatchEffectKey => ({ batchId, effect: 'push' });
 
 /** The effect that opens the batch's pull request, once per batch. */
-export const pullRequestKey = (_batchId: string): BatchEffectKey => {
-  throw new Error('not implemented');
-};
+export const pullRequestKey = (batchId: string): BatchEffectKey => ({
+  batchId,
+  effect: 'pull_request',
+});
 
 /** The local name of the batch's bottle branch in `repo`: `foedrum/<batch>/<owner>.<name>`. */
 export const bottleBranch = (_batchId: string, _repo: string): string => {
