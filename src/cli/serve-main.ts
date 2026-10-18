@@ -1,6 +1,7 @@
 // `foedrum serve` on the real machine (ADR 0063): reads the Brewery's files in the working
 // directory, asks doctor for claude and the isolation level, and runs the Cellar (serve.ts) on
-// the real machine (serve-shell.ts) with the real git until a stop signal. Only main.ts loads it;
+// the real machine (serve-shell.ts) with the real git until a stop signal. main.ts runs it; the
+// tests call it with a fake or canned runner and PATH lookup, and the opt-in end-to-end test of
 // test/integration/serve.test.ts runs it as the real program.
 
 import { existsSync, readFileSync } from 'node:fs';
