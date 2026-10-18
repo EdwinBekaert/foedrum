@@ -56,8 +56,15 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       }
       return commit;
     },
-    isAncestor: async () => {
-      throw new Error('not implemented');
+    isAncestor: async (commit, of, signal) => {
+      for (const sha of [commit, of]) {
+        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+      }
+      const args = ['merge-base', '--is-ancestor', commit, of];
+      const result = await git(clone, args, aborts(signal));
+      // 0: an ancestor, 1: not one; anything else is git failing.
+      if (result.code === 0 || result.code === 1) return result.code === 0;
+      throw new Error(`git merge-base failed: ${firstLine(result)}`);
     },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;

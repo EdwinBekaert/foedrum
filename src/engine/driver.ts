@@ -566,7 +566,17 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     const state = log.state();
     for (const batch of state.batches.values()) {
       let stopped = false;
-      for (const { key, target } of pending(state, batch.id)) {
+      // The next effect due from the state as the one before it left it: an effect may change
+      // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
+      // once a pass.
+      const tried = new Set<string>();
+      for (;;) {
+        const next = pending(log.state(), batch.id).find(
+          ({ key }) => !tried.has(effectKey.encode(key)),
+        );
+        if (next === undefined) break;
+        const { key, target } = next;
+        tried.add(effectKey.encode(key));
         heartbeat();
         if (!claim(batch.id)) {
           stopped = true;

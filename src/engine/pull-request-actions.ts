@@ -155,11 +155,12 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
     switch (effect.kind) {
       case 'push': {
         const { push, revision, base, branch } = effect;
-        // The commit to push, and whether it is the base's: a pull request with no commits, which
-        // the code host refuses, is recorded as nothing to push instead.
+        // The commit to push, and whether the base holds all of it: a pull request with no commits,
+        // which the code host refuses, is recorded as nothing to push instead.
         const resolve = async (signal?: AbortSignal): Promise<PushResult> => {
           const commit = await push.commit(revision, signal);
-          const empty = commit === (await push.commit(base, signal));
+          // Every commit of the task tree is in the base already, also when the base moved past it.
+          const empty = await push.isAncestor(commit, await push.commit(base, signal), signal);
           return { branch, commit, from: revision, ...(empty ? { empty } : {}) };
         };
         return {
