@@ -13,6 +13,7 @@ import {
   killProcessTree,
   runProcessThrough,
   type Spawner,
+  shellCommand,
   spawnCommand,
   stopOnSignals,
   streamProcessWith,
@@ -186,11 +187,17 @@ class FakeChild extends EventEmitter implements ChildHandle {
 }
 
 const fakeSpawner = (child: FakeChild | Error = new FakeChild()) => {
-  const spawned: { file: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }[] = [];
+  const spawned: {
+    file: string;
+    args: string[];
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    shell?: boolean;
+  }[] = [];
   const killed: number[] = [];
   const spawner: Spawner = {
-    spawn: (file, args, { cwd, env }) => {
-      spawned.push({ file, args, cwd, env });
+    spawn: (file, args, { cwd, env, shell }) => {
+      spawned.push({ file, args, cwd, env, ...(shell === undefined ? {} : { shell }) });
       if (child instanceof Error) throw child;
       return child;
     },
@@ -256,6 +263,23 @@ describe('execProcessWith', () => {
     assert.equal((await done).stdout, 'café');
   });
 
+  // A crash or the OOM killer: the process ran, and something other than the runner ended it.
+  it('answers with the signal that ended the process when the runner did not send it', async () => {
+    const child = new FakeChild();
+    const { exec } = fakeSpawner(child);
+    const done = exec('/bin/sh', ['-c', 'node --test'], { cwd: '/work/tree' });
+    child.stdout.write('ok 1\n');
+    await settle();
+    child.close(null, 'SIGSEGV');
+    assert.deepEqual(await done, {
+      exitCode: null,
+      stdout: 'ok 1\n',
+      stderr: '',
+      output: 'ok 1\n',
+      signal: 'SIGSEGV',
+    });
+  });
+
   it('answers without an exit code, with the reason, when the program cannot start', async () => {
     const child = new FakeChild('none');
     const { exec } = fakeSpawner(child);
@@ -307,6 +331,40 @@ describe('execProcessWith', () => {
     await done;
     assert.deepEqual(resolved, [['git', env]]);
     assert.equal(spawned[0]?.file, 'C:\\Program Files\\Git\\cmd\\git.exe');
+  });
+
+  // A check's command is a line for the platform shell, not a program to look up (ADR 0069).
+  it('starts a command line through the shell as it is, without resolving it', async () => {
+    const child = new FakeChild();
+    const { spawned, spawner } = fakeSpawner(child);
+    const resolved: string[] = [];
+    const exec = execProcessWith({
+      ...spawner,
+      resolve: (file) => {
+        resolved.push(file);
+        return file;
+      },
+    });
+    const done = exec('npm test', [], { cwd: '/work/tree', env: { PATH: '/bin' }, shell: true });
+    child.close(0);
+    await done;
+    assert.deepEqual(resolved, []);
+    assert.deepEqual(spawned, [
+      { file: 'npm test', args: [], cwd: '/work/tree', env: { PATH: '/bin' }, shell: true },
+    ]);
+  });
+
+  it('starts nothing, and says so, when a command line comes with arguments', async () => {
+    const child = new FakeChild();
+    const { spawned, exec } = fakeSpawner(child);
+    const done = exec('npm test', ['--watch'], { cwd: '/work/tree', shell: true });
+    // Ends a child that was started all the same, so the test fails instead of waiting.
+    await settle();
+    child.close(0);
+    const result = await done;
+    assert.deepEqual(spawned, []);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /a command line for the shell takes no arguments/);
   });
 
   it('starts nothing, and says so, when the name resolves to no file', async () => {
@@ -1310,5 +1368,38 @@ describe('spawnCommand', () => {
       () => spawnCommand('C:\\nodejs\\npm.cmd', ['a & calc'], 'win32'),
       /argument 1 "a & calc" cannot go through the Windows shell/,
     );
+  });
+});
+
+describe('shellCommand', () => {
+  const env = { PATH: 'C:\\nodejs', SystemRoot: 'D:\\WINDOWS' };
+
+  it('runs a command line through /bin/sh outside Windows', () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+      assert.deepEqual(shellCommand('npm test -- --reporter tap', platform, env), {
+        file: 'npm test -- --reporter tap',
+        args: [],
+        shell: '/bin/sh',
+        env,
+      });
+    }
+  });
+
+  it('runs a command line through cmd.exe by its full path on Windows, never from the working directory', () => {
+    assert.deepEqual(shellCommand('gradlew.bat test', 'win32', env), {
+      file: 'gradlew.bat test',
+      args: [],
+      shell: 'D:\\WINDOWS\\System32\\cmd.exe',
+      env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
+    });
+    assert.equal(
+      shellCommand('npm test', 'win32', { PATH: 'C:\\nodejs' }).shell,
+      'C:\\Windows\\System32\\cmd.exe',
+    );
+  });
+
+  it('refuses a line break, which would end the command early', () => {
+    assert.throws(() => shellCommand('npm test\nrm -rf /', 'linux', env), /one line/);
+    assert.throws(() => shellCommand('npm test\r\ncalc', 'win32', env), /one line/);
   });
 });

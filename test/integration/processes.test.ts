@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -281,6 +281,38 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
     }
   });
 
+  // The helper loads no module: a lookup of the module path costs a scan of every module on it at
+  // each start, seconds where many are installed (#177's check step timed out on
+  // Windows CI). A module there that exports a name the helper could call would run if it did.
+  it('loads no PowerShell module from the module path, so none can run in the helper', async () => {
+    const modules = join(dir.path, 'modules');
+    // The module finds its marker beside itself, so no path of the checkout, which may hold a quote
+    // or a character the ANSI code page lacks, goes into PowerShell's text.
+    const marker = join(modules, 'Planted', 'imported');
+    mkdirSync(join(modules, 'Planted'), { recursive: true });
+    const exported = ['New-Object', 'Write-Output'].map(
+      (name) => `function ${name} { throw 'planted' }`,
+    );
+    writeFileSync(
+      join(modules, 'Planted', 'Planted.psm1'),
+      [
+        "[IO.File]::WriteAllText([IO.Path]::Combine($PSScriptRoot, 'imported'), '1')",
+        ...exported,
+        'Export-ModuleMember -Function *',
+      ].join('\n'),
+    );
+    const result = await execProcess(process.execPath, ['-e', 'process.exit(3)'], {
+      cwd: dir.path,
+      env: { ...process.env, PSModulePath: modules },
+      jobObject: true,
+    });
+    assert.deepEqual(
+      { exitCode: result.exitCode, imported: existsSync(marker) },
+      { exitCode: 3, imported: false },
+      result.output,
+    );
+  });
+
   it('passes on an exit code above 2^31, as Windows reports a crash', async () => {
     const result = await execProcess(process.execPath, ['-e', 'process.exit(3221225786)'], {
       cwd: dir.path,
@@ -370,6 +402,21 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
       result.stderr,
       /cannot run in a Job Object: PowerShell runs in ConstrainedLanguage mode/,
     );
+  });
+
+  // Module autoloading stays off for the whole script, not only for the cmdlets it calls today: a
+  // cmdlet added later would bring back the scan of the module path on every start (#177). One
+  // of Microsoft.PowerShell.Utility's, added before the job is made, cannot be found.
+  it('fails closed when its script calls a cmdlet, because module autoloading is off', async () => {
+    const withCmdlet = editedHelper((script) =>
+      script.replace('$module = [AppDomain]', '[void](Get-Date)\n$module = [AppDomain]'),
+    );
+    const result = await execProcessWith(withCmdlet)(process.execPath, ['-e', ''], {
+      cwd: dir.path,
+      jobObject: true,
+    });
+    assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /cannot run in a Job Object: .*Get-Date/);
   });
 
   // A failure after the program exists but before it runs: the suspended program would hold the

@@ -1,5 +1,6 @@
 // A throwaway Brewery's files for `foedrum serve`'s tests (ADR 0063): one target repository, a
-// one-step recipe whose brewer reads the order, and the inputs `serveSetup` reads them from.
+// one-step recipe whose brewer reads the order, the same with a test check after it, and the
+// inputs `serveSetup` reads them from.
 
 import { resolve } from 'node:path';
 import { diagnose } from '../../src/cli/doctor.ts';
@@ -36,6 +37,17 @@ export const recipe = JSON.stringify({
   steps: [{ id: 'brew', brewer: 'cellarman' }],
   testFirst: false,
 });
+// The cellarman brews, then the repository's test check reads the task tree; a failing test sends
+// the batch back to the cellarman once (ADR 0069).
+export const porter = JSON.stringify({
+  name: 'porter',
+  description: 'Brews an order and reads its tests.',
+  steps: [
+    { id: 'brew', brewer: 'cellarman' },
+    { id: 'green', check: 'test', onFail: { goto: 'brew', maxRounds: 1 } },
+  ],
+  testFirst: false,
+});
 export const brewer = `---
 {
   "name": "cellarman",
@@ -67,7 +79,10 @@ export const serveInputs = (overrides: Partial<ServeInputs> = {}): ServeInputs =
     local: local(),
     models: models(),
     brewery: {
-      recipes: [{ path: 'recipes/stout.jsonc', text: recipe }],
+      recipes: [
+        { path: 'recipes/stout.jsonc', text: recipe },
+        { path: 'recipes/porter.jsonc', text: porter },
+      ],
       brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
     },
   },

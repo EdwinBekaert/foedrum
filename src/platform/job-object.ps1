@@ -15,13 +15,19 @@
 # The runner reads that as a program that did not start (fail closed); once the program runs, the
 # helper never writes it. Constrained Language Mode
 # forbids the .NET calls below, and even writing to a stream directly, so the check comes first
-# and its line goes out through Write-Output.
+# and its line goes out as the script's output.
+#
+# It calls no cmdlet and loads no module (#177): with autoloading on, the first cmdlet of a module
+# such as New-Object looks through every module on the module path, which on a machine with many
+# installed and no analysis cache in the caller's environment (a brewer's or a check's minimal
+# one) takes seconds on every start, and a module there could run its own code in the helper.
 
+$PSModuleAutoLoadingPreference = 'None'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 function Fail($why) {
   $text = "foedrum job object: $why"
-  if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { Write-Output $text; exit 125 }
+  if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { $text; exit 125 }
   # UTF-8 without touching the console's code page, which the program shares.
   $bytes = [Text.Encoding]::UTF8.GetBytes("$text`n")
   $out = [Console]::OpenStandardOutput()
@@ -39,11 +45,11 @@ try {
   # kernel32 through P/Invoke methods emitted in memory: Add-Type would compile C# with csc.exe
   # into the temp folder on every start.
   $module = [AppDomain]::CurrentDomain.DefineDynamicAssembly(
-    (New-Object Reflection.AssemblyName 'FoedrumJobObject'), 'Run'
+    [Reflection.AssemblyName]::new('FoedrumJobObject'), 'Run'
   ).DefineDynamicModule('FoedrumJobObject')
   $type = $module.DefineType('Kernel32', 'Public,Class')
   $dllImport = [Runtime.InteropServices.DllImportAttribute]
-  $import = New-Object Reflection.Emit.CustomAttributeBuilder(
+  $import = [Reflection.Emit.CustomAttributeBuilder]::new(
     $dllImport.GetConstructor([string]), [object[]]@('kernel32.dll'),
     [Reflection.FieldInfo[]]@($dllImport.GetField('SetLastError'), $dllImport.GetField('CharSet')),
     [object[]]@($true, [Runtime.InteropServices.CharSet]::Unicode))
@@ -64,7 +70,7 @@ try {
   # anything PowerShell runs in between, even finding a function, can overwrite it.
   $marshal = [Runtime.InteropServices.Marshal]
   function Why($what, $code) {
-    "${what}: $((New-Object ComponentModel.Win32Exception $code).Message) ($code)"
+    "${what}: $([ComponentModel.Win32Exception]::new($code).Message) ($code)"
   }
   # The layouts below are 64-bit ones. Node 24 has no 32-bit Windows build, so the runner, and the
   # PowerShell in its System32, are 64-bit (x64 or arm64); anything else fails closed.
@@ -77,25 +83,25 @@ try {
   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION (class 9), LimitFlags at offset 16:
   # KILL_ON_JOB_CLOSE (0x2000) and DIE_ON_UNHANDLED_EXCEPTION (0x400), so a crash ends a process
   # instead of waiting on an error dialog no one sees. No BREAKAWAY_OK: nothing leaves the job.
-  $limits = New-Object byte[] 144
+  $limits = [byte[]]::new(144)
   [BitConverter]::GetBytes(0x2400).CopyTo($limits, 16)
   $ok = $k::SetInformationJobObject($job, 9, $limits, $limits.Length); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'SetInformationJobObject' $e) }
 
   # STARTUPINFOW (104 bytes) with STARTF_USESTDHANDLES (0x100) at 60, and at 80, 88 and 96 the
   # helper's own stdin, stdout and stderr.
-  $startup = New-Object byte[] 104
+  $startup = [byte[]]::new(104)
   [BitConverter]::GetBytes(104).CopyTo($startup, 0)
   [BitConverter]::GetBytes(0x100).CopyTo($startup, 60)
   foreach ($i in 0..2) {
     [BitConverter]::GetBytes($k::GetStdHandle(-10 - $i).ToInt64()).CopyTo($startup, 80 + 8 * $i)
   }
   # PROCESS_INFORMATION: hProcess, hThread, dwProcessId, dwThreadId.
-  $started = New-Object byte[] 24
+  $started = [byte[]]::new(24)
   # The caller's environment block, never the helper's, which Windows PowerShell has changed.
   $block = [Text.Encoding]::Unicode.GetBytes($environment)
   # CREATE_SUSPENDED (0x4) | CREATE_UNICODE_ENVIRONMENT (0x400); handles inherited.
-  $ok = $k::CreateProcessW($file, (New-Object Text.StringBuilder $line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x404, $block, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
+  $ok = $k::CreateProcessW($file, [Text.StringBuilder]::new($line), [IntPtr]::Zero, [IntPtr]::Zero, $true, 0x404, $block, $cwd, $startup, $started); $e = $marshal::GetLastWin32Error()
   if (-not $ok) { Fail (Why 'CreateProcess' $e) }
   $process = & $read $started 0
   $thread = & $read $started $size

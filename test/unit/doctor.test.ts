@@ -313,7 +313,10 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
   const brewer = { path: 'brewers/maltster.md', text: brewerText('maltster') };
   const pale = {
     path: 'recipes/pale.jsonc',
-    text: recipeText('pale', [{ brewer: 'maltster' }, { id: 'green', check: 'test' }]),
+    text: recipeText('pale', [
+      { brewer: 'maltster' },
+      { id: 'approve', gate: 'human', deadline: '1d' },
+    ]),
   };
 
   it('is not ok when a recipe file is not valid, with the line a refused command gives, and ok when they are valid', () => {
@@ -321,7 +324,7 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
     assert.equal(diagnosis.ok, false);
     const problem = diagnosis.problems.find(({ what }) => what === INVALID_RECIPES);
     const line =
-      'recipes/pale.jsonc: step "green" is a check step, which the engine does not brew yet (ADR 0053)';
+      'recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)';
     assert.deepEqual(problem, { required: true, what: INVALID_RECIPES, fix: line });
     assert.equal(`${problem?.what}: ${problem?.fix}`, invalidRecipes([line]));
     // Valid recipe files, none, or none read: no problem.
