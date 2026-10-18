@@ -17,7 +17,12 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { stepRunner } from '../../src/engine/step-runner.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import type { AttemptRef, Claims } from '../../src/workspace/attempt-worktrees.ts';
+import { countCommits } from '../../src/workspace/attempt-commits-git.ts';
+import {
+  type AttemptRef,
+  attemptBranch,
+  type Claims,
+} from '../../src/workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
   openAttemptWorktrees,
@@ -229,6 +234,35 @@ describe('attempt worktrees with real git', () => {
     assert.equal(existsSync(readOnly.path), false);
     assert.equal(existsSync(lock), false);
     assert.ok(existsSync(join(live.path, '.git')));
+  });
+
+  it("counts an attempt's commits on its branch in the user's clone and in a managed one (ADR 0074, review of #208)", async () => {
+    const managed = await ensureManagedClone({
+      git: runGit,
+      workRoot,
+      repo: 'acme/app',
+      url: origin,
+      reference: user,
+    });
+    const count = countCommits(runGit);
+    for (const clone of [user, managed]) {
+      const worktrees = open(clone);
+      const brewed = attempt('12-1');
+      const made = await worktrees.create(brewed, 'origin/main');
+      brew(made.path);
+      assert.deepEqual(await count(clone, attemptBranch(brewed), made.commit), {
+        kind: 'counted',
+        count: 1,
+      });
+      // A brewer that amends the commit its worktree started at rewrote it.
+      const amended = attempt('12-1', 'review');
+      const fresh = await worktrees.create(amended, 'origin/main');
+      git(fresh.path, ['commit', '-q', '--amend', '-m', 'Rewritten']);
+      assert.deepEqual(await count(clone, attemptBranch(amended), fresh.commit), {
+        kind: 'rewritten',
+      });
+      await worktrees.clean(claims({ '12-1': 'ended' }));
+    }
   });
 
   it('makes worktrees from a managed bare partial clone that borrows from the user clone', async () => {

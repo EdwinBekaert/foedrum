@@ -8,10 +8,12 @@ import { dirname } from 'node:path';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import type { State } from '../engine/fold.ts';
+import type { Batch, State } from '../engine/fold.ts';
 import type { StepBrewers } from '../engine/recipe-files.ts';
+import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import {
   answersOf,
   attemptLimits,
@@ -34,6 +36,8 @@ export interface AttemptPlansOptions {
   repoTools: (repo: string) => readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
+  clone: (repo: string) => string;
   /** The Brewery's work root (ADR 0037). */
   workRoot: string;
   /** The brewer's minimal base environment and the runner's forced variables (ADR 0028). */
@@ -67,6 +71,12 @@ const realFiles = {
   makeFolder: (path: string) => {
     mkdirSync(path, { recursive: true });
   },
+};
+
+/** The worktree the driver recorded when it started the attempt; none before. */
+const worktreeOf = (batch: Batch | undefined, ref: AttemptRef): WorktreeRef | undefined => {
+  const started = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+  return started?.phase === 'started' ? started.worktree : undefined;
 };
 
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
@@ -113,8 +123,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     plan: async ({ ref }) => {
       const { batchId, stepId, attempt } = ref;
       const batch = state().batches.get(batchId);
-      const started = batch?.steps.get(stepId)?.attempts.get(attempt);
-      const worktree = started?.phase === 'started' ? started.worktree : undefined;
+      const worktree = worktreeOf(batch, ref);
       if (batch === undefined || worktree === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
@@ -135,7 +144,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (answers !== undefined) inputs.push(answers);
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
-      return planAttempt({
+      const plan = planAttempt({
         brewer: found.brewer,
         instructions: found.instructions,
         worktree: worktree.path,
@@ -148,11 +157,19 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
+      if (found.brewer.produces !== 'commits') return plan;
+      // Its commits are counted on its branch in the clone, built from the attempt as the
+      // worktree's is, never from the recorded branch or the worktree's own git files (ADR 0037).
+      const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(ref) };
+      return { ...plan, commits };
     },
-    limits: ({ batchId, stepId }) => {
-      const recipe = state().batches.get(batchId)?.recipe?.name;
-      const found = recipe === undefined ? undefined : brewers.find(recipe, stepId);
-      return found === undefined ? noBrewer : attemptLimits(found.brewer);
+    limits: (ref) => {
+      const batch = state().batches.get(ref.batchId);
+      const recipe = batch?.recipe?.name;
+      const found = recipe === undefined ? undefined : brewers.find(recipe, ref.stepId);
+      if (found === undefined) return noBrewer;
+      // The commit its worktree started at, which a done of a brewer that commits needs one after.
+      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.commit);
     },
   };
 }

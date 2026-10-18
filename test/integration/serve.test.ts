@@ -49,10 +49,20 @@ describe('foedrum serve', () => {
   });
 });
 
-/** The Brewery's one labelled issue, its listing, and a 404 for anything else serve asks. */
-const brewerysIssue =
-  (body: string): Route =>
-  ({ method, path }, response) => {
+/**
+ * The Brewery's one labelled issue and its listing, the login serve reads at its start, the
+ * status comments it makes on the order's issue (ADR 0072), and a 404 for anything else.
+ */
+const brewerysIssue = (body: string): Route => {
+  const login = 'cellar-bot';
+  const comments = new Map<number, string>();
+  const commentOf = (id: number) => ({ id, user: { login }, body: comments.get(id) });
+  return ({ method, path, body: text }, response) => {
+    const answer = (status: number, value: unknown): true => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(value));
+      return true;
+    };
     const issue = {
       number: 12,
       state: 'open',
@@ -63,15 +73,29 @@ const brewerysIssue =
     const bare = path.split('?')[0] ?? '';
     // gh's own questions for its login: the API root and the viewer, which the fake answers.
     if (bare === '/' || bare === '/graphql') return undefined;
-    const found =
-      method === 'GET' &&
-      (bare === '/repos/acme/brewery/issues/12' || bare === '/repos/acme/brewery/issues');
-    response.writeHead(found ? 200 : 404, { 'content-type': 'application/json' });
-    response.end(
-      JSON.stringify(found ? (bare.endsWith('/12') ? issue : [issue]) : { message: 'Not Found' }),
-    );
-    return true;
+    const comment = /^\/repos\/acme\/brewery\/issues\/comments\/(\d+)$/.exec(bare);
+    const id = Number(comment?.[1]);
+    const sent = (): string => (JSON.parse(text) as { body: string }).body;
+    if (method === 'GET' && bare === '/user') return answer(200, { login });
+    if (method === 'GET' && bare === '/repos/acme/brewery/issues') return answer(200, [issue]);
+    if (method === 'GET' && bare === '/repos/acme/brewery/issues/12') return answer(200, issue);
+    if (bare === '/repos/acme/brewery/issues/12/comments') {
+      if (method === 'GET') return answer(200, [...comments.keys()].map(commentOf));
+      if (method === 'POST') {
+        comments.set(comments.size + 1, sent());
+        return answer(201, commentOf(comments.size));
+      }
+    }
+    if (comment !== null && comments.has(id)) {
+      if (method === 'GET') return answer(200, commentOf(id));
+      if (method === 'PATCH') {
+        comments.set(id, sent());
+        return answer(200, commentOf(id));
+      }
+    }
+    return answer(404, { message: 'Not Found' });
   };
+};
 
 describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && real.reason }, () => {
   let dir: TempDir;
@@ -134,15 +158,26 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       JSON.stringify({ workRoot: work, clones: { 'acme/web': clone } }),
     );
 
-    // The fake model writes the out doc in the attempt's worktree.
+    // The fake model commits a change in the attempt's worktree, as a brewer that produces commits
+    // must (ADR 0074), with the clone's identity, then writes the out doc.
+    git(clone, ['config', 'user.name', 'Brewer']);
+    git(clone, ['config', 'user.email', 'brewer@example.com']);
     const worktree = join(realpathSync(work), 'acme.web', 'attempts', '12-1', 'brew', '1');
-    api = await startFakeMessagesApi({
-      name: 'Write',
-      input: {
-        file_path: join(worktree, 'brew.md'),
-        content: outDoc({ status: 'done', summary: 'Brewed' }),
+    api = await startFakeMessagesApi([
+      { name: 'Write', input: { file_path: join(worktree, 'flag.txt'), content: '--json\n' } },
+      { name: 'Bash', input: { command: 'git add flag.txt', description: 'Stage the flag' } },
+      {
+        name: 'Bash',
+        input: { command: 'git commit -q -m "Add a --json flag"', description: 'Commit it' },
       },
-    });
+      {
+        name: 'Write',
+        input: {
+          file_path: join(worktree, 'brew.md'),
+          content: outDoc({ status: 'done', summary: 'Brewed' }),
+        },
+      },
+    ]);
     const needed =
       /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i;
     const inherited = Object.fromEntries(
@@ -199,8 +234,10 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       .split('\n')
       .filter((line) => line !== '')
       .map((line) => (JSON.parse(line) as { event: { type: string } }).event.type);
+    // The status comment's revisions are effects whose place depends on the ticks (ADR 0072).
+    assert.ok(types.includes('effect.applied'), types.join(', '));
     assert.deepStrictEqual(
-      types,
+      types.filter((type) => type !== 'effect.applied'),
       [
         'batch.ordered',
         'batch.recipe_chosen',
@@ -214,13 +251,16 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     assert.match(result.stdout, /^foedrum serve: brewing for acme\/brewery in /m);
     assert.match(result.stdout, /^foedrum serve: ordered acme\/brewery#12 as batch 12-1$/m);
     assert.match(result.stdout, /^foedrum serve: routed batch 12-1 to the recipe stout$/m);
-    // The listing and the order's text came from GitHub through gh's own login, never the token
-    // variable, and the text reached the model in nonce tags.
+    // The login came first, at serve's start (ADR 0072), then the listing and the order's text, all
+    // through gh's own login, never the token variable; the text reached the model in nonce tags.
+    const read = (github.requests ?? [])
+      .filter(({ path }) => path !== '/' && path !== '/graphql')
+      .map(({ path, authorization }) => [path.split('?')[0], authorization]);
+    assert.deepStrictEqual(read[0], ['/user', `token ${SYNTHETIC_LOGIN}`]);
     assert.deepStrictEqual(
-      github.requests
-        .filter(({ path }) => path.startsWith('/repos/'))
-        .slice(0, 2)
-        .map(({ path, authorization }) => [path.split('?')[0], authorization]),
+      read
+        .filter(([path]) => /^\/repos\/acme\/brewery\/issues(?:\/12)?$/.test(path ?? ''))
+        .slice(0, 2),
       [
         ['/repos/acme/brewery/issues', `token ${SYNTHETIC_LOGIN}`],
         ['/repos/acme/brewery/issues/12', `token ${SYNTHETIC_LOGIN}`],

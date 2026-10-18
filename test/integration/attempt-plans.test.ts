@@ -1,8 +1,9 @@
 // One real step, end to end (#148): a driver brews an order's one-step recipe from the Brewery's
 // files, with the real claude runner, the attempt plans and real attempt worktrees. A fake
-// Messages API stands in for the model (no login, no tokens): its "model" writes the out doc, then
-// answers. Opt-in: it runs only with FOEDRUM_REAL_CLAUDE=1 (ADR 0057). It tests Foedrum's wiring,
-// not whether claude works.
+// Messages API stands in for the model (no login, no tokens): its "model" makes and commits a
+// change, as a brewer that produces commits must (ADR 0074), writes the out doc, then answers.
+// Opt-in: it runs only with FOEDRUM_REAL_CLAUDE=1 (ADR 0057). It tests Foedrum's wiring, not
+// whether claude works.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -25,7 +26,7 @@ import { runGit } from '../../src/workspace/git.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { type FakeMessagesApi, startFakeMessagesApi } from './fake-messages-api.ts';
+import { type FakeMessagesApi, startFakeMessagesApi, type ToolCall } from './fake-messages-api.ts';
 
 const real = realClaude();
 
@@ -62,7 +63,7 @@ const brewer = `---
   "tree": "task",
   "git": { "commit": true },
   "deadline": "10m",
-  "maxTurns": 5,
+  "maxTurns": 10,
   "maxAttempts": 1
 }
 ---
@@ -86,6 +87,9 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
     git(dir.path, ['clone', '-q', '--bare', seed, join(dir.path, 'origin')]);
     clone = join(dir.path, 'clone');
     git(dir.path, ['clone', '-q', join(dir.path, 'origin'), clone]);
+    // The brewer's commits take the identity of the clone, which its worktrees share.
+    git(clone, ['config', 'user.name', 'Brewer']);
+    git(clone, ['config', 'user.email', 'brewer@example.com']);
     workRoot = join(dir.path, 'work');
     mkdirSync(workRoot);
     mkdirSync(join(dir.path, 'user'));
@@ -99,24 +103,15 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
     removeTree(dir.path);
   });
 
-  it('brews the step from scheduled through started and finished to on tap', async () => {
-    const batchId = 'api-12';
-    // The attempt's worktree, where the fake model writes the out doc.
-    const worktree = join(
-      realpathSync(workRoot),
-      repoFolder('acme/api'),
-      'attempts',
-      batchId,
-      'brew',
-      '1',
-    );
-    api = await startFakeMessagesApi({
-      name: 'Write',
-      input: {
-        file_path: join(worktree, 'brew.md'),
-        content: outDoc({ status: 'done', summary: 'Brewed' }),
-      },
-    });
+  const batchId = 'api-12';
+  // The attempt's worktree, where the fake model works.
+  const worktreeOf = () =>
+    join(realpathSync(workRoot), repoFolder('acme/api'), 'attempts', batchId, 'brew', '1');
+
+  /** Brews the order's one-step recipe while the fake model calls `tools`, until it leaves brewing. */
+  const brewWith = async (tools: (worktree: string) => ToolCall[]) => {
+    const worktree = worktreeOf();
+    api = await startFakeMessagesApi(tools(worktree));
     const loaded = loadRecipes({
       recipes: [{ path: 'recipes/stout.jsonc', text: recipe }],
       brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
@@ -140,6 +135,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       brewers: loaded.brewers,
       models: { models: { quick: 'claude-haiku-5-5' }, brewers: {} },
       repoTools: () => [],
+      clone: () => clone,
       sandbox: false,
       workRoot,
       env: {
@@ -187,17 +183,38 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         },
       ],
     });
-    const lane = () => driver?.state().batches.get(batchId)?.lane.kind;
+    const lane = () => driver?.state().batches.get(batchId)?.lane;
     const deadline = Date.now() + 120_000;
-    while (lane() === 'brewing' && Date.now() < deadline) {
+    while (lane()?.kind === 'brewing' && Date.now() < deadline) {
       await driver.tick();
       await sleep(100);
     }
-
     const events = store
       .eventsAfter(0)
       .map(({ event }) => event)
       .filter((event) => 'batchId' in event && event.batchId === batchId);
+    return { worktree, events, lane: lane(), bodies: api.bodies };
+  };
+
+  // As the docs' example brewer does (ADR 0074): the change, its commit, then the out doc.
+  const committing = (worktree: string): ToolCall[] => [
+    { name: 'Write', input: { file_path: join(worktree, 'flag.txt'), content: '--json\n' } },
+    { name: 'Bash', input: { command: 'git add flag.txt', description: 'Stage the flag' } },
+    {
+      name: 'Bash',
+      input: { command: 'git commit -q -m "Add a --json flag"', description: 'Commit it' },
+    },
+    {
+      name: 'Write',
+      input: {
+        file_path: join(worktree, 'brew.md'),
+        content: outDoc({ status: 'done', summary: 'Brewed' }),
+      },
+    },
+  ];
+
+  it('brews the step from scheduled through started and finished to on tap, its change committed', async () => {
+    const { worktree, events, bodies } = await brewWith(committing);
     assert.deepEqual(
       events.map((event) => event.type),
       [
@@ -215,12 +232,46 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       kind: 'succeeded',
       output: { status: 'done', summary: 'Brewed', assumptions: [] },
     });
-    // The prompt reached the model: the order's text in nonce tags, with the out doc contract.
-    const [first = ''] = api.bodies;
+    // The change is a commit on the attempt's branch, after the start; the out doc is not in it.
+    const branch = started?.type === 'step.started' ? started.worktree?.branch : undefined;
+    const start = started?.type === 'step.started' ? started.worktree?.commit : undefined;
+    assert.ok(branch !== undefined && start !== undefined);
+    assert.equal(git(clone, ['log', '--format=%s', `${start}..${branch}`]), 'Add a --json flag\n');
+    assert.equal(git(clone, ['show', '--name-only', '--format=', branch]), 'flag.txt\n');
+    // The prompt reached the model: the order's text in nonce tags, with the out doc contract that
+    // tells it to commit.
+    const [first = ''] = bodies;
     assert.match(
       first,
       /untrusted-input-[0-9a-f]{32} source=\\"issue #12 body\\" name=\\"order\\">\\nAdd a --json flag\./,
     );
     assert.match(first, /When you finish, write brew\.md\./);
+    assert.match(
+      first,
+      /Commit your changes with git add and git commit before you write brew\.md/,
+    );
+  });
+
+  it('goes Stuck on a divergence when the brewer says done but committed nothing (#196)', async () => {
+    const { events, lane } = await brewWith((worktree) => [
+      { name: 'Write', input: { file_path: join(worktree, 'flag.txt'), content: '--json\n' } },
+      ...committing(worktree).slice(-1),
+    ]);
+    assert.deepEqual(
+      events.map((event) => event.type),
+      [
+        'batch.ordered',
+        'batch.recipe_chosen',
+        'step.scheduled',
+        'step.started',
+        'step.finished',
+        'batch.stuck',
+      ],
+    );
+    assert.equal(lane?.kind === 'stuck' && lane.reason.kind, 'blocked');
+    assert.match(
+      lane?.kind === 'stuck' && lane.reason.kind === 'blocked' ? lane.reason.summary : '',
+      /^the out doc says done, but the brewer made no commit since [0-9a-f]{7}: Brewed$/,
+    );
   });
 });

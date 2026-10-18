@@ -28,7 +28,10 @@ export type Behaviour =
 export const outDoc = (frontmatter: Record<string, unknown>): string =>
   `---\n${JSON.stringify(frontmatter, null, 2)}\n---\nThe brewer's notes.\n`;
 
-/** A process that ends at once: a clean exit with `doc`, unless `more` says otherwise. */
+/**
+ * A process that ends at once: a clean exit with `doc` and one commit, which counts only for a
+ * brewer that produces commits (ADR 0074), unless `more` says otherwise.
+ */
 const settle = (doc: string | undefined, more: Partial<AttemptFacts> = {}): Behaviour => ({
   kind: 'settle',
   facts: {
@@ -37,6 +40,7 @@ const settle = (doc: string | undefined, more: Partial<AttemptFacts> = {}): Beha
     denials: 0,
     deniedTools: [],
     turns: 12,
+    commits: { kind: 'counted', count: 1 },
     ...more,
   },
 });
@@ -51,6 +55,9 @@ export const question: Question = {
 /** The behaviours a scripted attempt can have (#11). */
 export const behave = {
   succeed: (summary = 'Done'): Behaviour => settle(outDoc({ status: 'done', summary })),
+  /** The out doc says done, but the brewer committed nothing (#196). */
+  succeedWithoutCommit: (summary = 'Done'): Behaviour =>
+    settle(outDoc({ status: 'done', summary }), { commits: { kind: 'counted', count: 0 } }),
   /** A retryable failure is reported in the out doc; a non-retryable one never starts. */
   fail: (retryable: boolean): Behaviour =>
     retryable
