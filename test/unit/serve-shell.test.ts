@@ -68,6 +68,19 @@ describe('serveShell', () => {
     assert.deepStrictEqual(calls, []);
   });
 
+  it("pushes from the user's clone of a local repository, and from the managed clone (ADR 0071)", async () => {
+    const tip = 'c'.repeat(40);
+    const branch = 'foedrum/acme.brewery/12-1/acme.web';
+    const { calls, git } = fakeGit();
+    const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
+    await shell.push(web()).push(tip, branch);
+    await shell.push(web({ source: 'managed' })).push(tip, branch);
+    assert.deepStrictEqual(
+      calls.map(([cwd, command]) => `${cwd} ${command}`),
+      [`${clone} push`, `${join(workRoot, 'acme.web', 'clone.git')} push`],
+    );
+  });
+
   /** A git whose `clone` makes the folder it clones into, as git would. */
   const cloningGit = () =>
     fakeGit((_cwd, args) => {
