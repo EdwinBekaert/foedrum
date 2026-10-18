@@ -189,6 +189,65 @@ describe('renderStatus', () => {
     assert.ok(text.includes(pr));
   });
 
+  it('says what chose the recipe: its label, the router and why, or who', () => {
+    const chosen = (recipe: NonNullable<Batch['recipe']>) => renderStatus(batch({ recipe }), steps);
+    assert.match(chosen({ name: 'nip', reason: 'label', source: 'label' }), /chosen by its label/);
+    assert.match(
+      chosen({ name: 'nip', reason: 'a one-line fix', source: 'router' }),
+      /chosen by the router: a one-line fix/,
+    );
+    assert.match(
+      chosen({ name: 'nip', reason: 'override', source: 'human', by: 'bob', via: 'terminal' }),
+      /chosen by bob \(terminal\)/,
+    );
+  });
+
+  it('says what a Conditioning batch waits for: a release or a sibling batch', () => {
+    const waiting = (on: Extract<Lane, { kind: 'conditioning' }>['on']) =>
+      renderStatus(batch({ lane: { kind: 'conditioning', on, remindAt: at } }), steps);
+    const release = waiting({
+      kind: 'release',
+      repo: 'acme/core',
+      package: 'core',
+      minVersion: '2.4.0',
+    });
+    assert.match(release, /core 2\.4\.0 or later in acme\/core/);
+    assert.match(waiting({ kind: 'sibling', batchId: '8-1' }), /the batch `8-1`/);
+  });
+
+  it('marks a step whose latest attempt asked for input, was stopped, or was abandoned', () => {
+    const asked: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'needs_input',
+        questions: [{ q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' }],
+      },
+    };
+    const stopped: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'cancelled' },
+    };
+    const abandoned: Attempt = { phase: 'started', attempt: 2, deadlineAt: at, abandoned: true };
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('plan', asked), step('brew', stopped), step('taste', abandoned)]),
+      }),
+      steps,
+    );
+    assert.match(lineOf(text, 'plan'), /❓.*asked for input/);
+    assert.match(lineOf(text, 'brew'), /⏹️.*attempt 1 stopped/);
+    assert.match(lineOf(text, 'taste'), /⏹️.*attempt 2 stopped/);
+  });
+
+  it('says so when a batch on tap has no pull request', () => {
+    const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [] } }), steps);
+    assert.match(text, /No pull request/);
+  });
+
   it('says who cancelled a cancelled batch', () => {
     const text = renderStatus(
       batch({ lane: { kind: 'cancelled', by: 'bob', via: 'terminal' } }),
@@ -486,6 +545,19 @@ describe('statusEffects', () => {
       comment: 2,
       digest: digest(comments.comments[1]?.body.slice(0, -marker(1).length).trimEnd() ?? ''),
     });
+  });
+
+  it('records nothing when the code host answers a comment id that is no positive integer', async () => {
+    order();
+    comments.host.create = async () => 0;
+    const driver = await open();
+    await driver.tick();
+    assert.equal(revision(1), undefined);
+    assert.equal(notices[0]?.kind, 'effect_failed');
+    assert.match(
+      notices[0]?.kind === 'effect_failed' ? String(notices[0].error) : '',
+      /comment id that is no positive integer: 0/,
+    );
   });
 
   it('has no status comment for a claimed target-repository issue', async () => {
