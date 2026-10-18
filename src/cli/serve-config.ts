@@ -16,7 +16,11 @@ import {
 } from '../engine/recipe-files.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
-import { BreweryConfig, type RepositorySource } from '../schemas/brewery-config.ts';
+import {
+  BreweryConfig,
+  type RepositorySource,
+  type TestReportConfig,
+} from '../schemas/brewery-config.ts';
 import { LocalConfig } from '../schemas/local-config.ts';
 import { ModelsConfig } from '../schemas/models.ts';
 import { durationMs } from '../schemas/primitives.ts';
@@ -57,6 +61,8 @@ export interface ServeRepository {
   tools: readonly string[];
   /** The command behind each of its checks, or null where it has none (ADR 0023, ADR 0069). */
   checks: RepositoryChecks;
+  /** Where its test check writes the structured report red proofs read (ADR 0078). */
+  testReport?: TestReportConfig;
 }
 
 /** What the intake in serve's loop orders, and how often it polls (ADR 0068). */
@@ -185,6 +191,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         ...(clone === undefined ? {} : { clone }),
         tools: repository.tools,
         checks: repository.checks,
+        ...(repository.testReport === undefined ? {} : { testReport: repository.testReport }),
       };
     },
   );
