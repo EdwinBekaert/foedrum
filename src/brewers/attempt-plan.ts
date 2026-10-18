@@ -179,7 +179,11 @@ function example(status: string, ownKey?: string): string[] {
  * example per status, so a brewer that copies one as it is writes a valid out doc (#195). A brewer
  * that commits is told to commit before it writes the out doc, and never the out doc (ADR 0074).
  */
-export function outDocContract(file: string, commits = false): string {
+export function outDocContract(
+  file: string,
+  commits = false,
+  _commands: readonly string[] = [],
+): string {
   const asking = 'guess would likely waste this run. Never ask questions any other way.';
   return [
     `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
