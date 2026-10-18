@@ -63,4 +63,37 @@ describe('worktreeClaims', () => {
 
     assert.deepEqual(worktreeClaims(emptyState, leases).leased, [attempt]);
   });
+
+  it('names the out doc of every step of an ended batch whose brewer is known (ADR 0081)', () => {
+    const steps = new Map(
+      ['brew', 'check'].map((id) => [id, { id, attempts: new Map(), inputs: [] }]),
+    );
+    const state = {
+      ...emptyState,
+      batches: new Map(
+        (['brewing', 'stuck', 'on-tap', 'cancelled'] as const).map((id) => [
+          id,
+          { ...batch(id, lanes[id] as Lane), steps },
+        ]),
+      ),
+    };
+    const asked: string[] = [];
+    // A check step has no brewer, so no out doc.
+    const outDoc = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
+      asked.push(`${batchId}/${stepId}`);
+      return stepId === 'brew' ? 'brew.md' : undefined;
+    };
+
+    const claims = worktreeClaims(state, [], outDoc);
+
+    assert.deepEqual(
+      claims.outDocs,
+      new Map([
+        ['on-tap/brew', 'brew.md'],
+        ['cancelled/brew', 'brew.md'],
+      ]),
+    );
+    // A live batch keeps its worktrees anyway: its brewers are not looked up.
+    assert.deepEqual(asked, ['on-tap/brew', 'on-tap/check', 'cancelled/brew', 'cancelled/check']);
+  });
 });

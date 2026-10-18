@@ -188,6 +188,27 @@ describe('openAttemptWorktrees with a fake git', () => {
           return undefined;
         });
 
+      it('removes a worktree whose only change is its out doc', async () => {
+        worktreeOnDisk(path, 'implement1');
+        writeFileSync(join(path, 'brew.md'), '---\n{ "status": "done" }\n---\n');
+        const { calls, git } = gitWith('?? brew.md\n');
+
+        const report = await open(git).clean(withOutDoc);
+
+        assert.deepEqual(report, {
+          done: [
+            'removed worktree 12-1/implement/1',
+            `deleted branch ${branch}`,
+            'removed batch folder 12-1',
+          ],
+          kept: [],
+          failed: [],
+        });
+        // Plain git worktree remove, never --force: git still refuses any other change.
+        assert.ok(calls.some((call) => call.join(' ') === `${clone} worktree remove ${path}`));
+        assert.equal(existsSync(join(root, '12-1')), false);
+      });
+
       it('keeps a worktree with its out doc and another untracked file, and both files', async () => {
         worktreeOnDisk(path, 'implement1');
         writeFileSync(join(path, 'brew.md'), '---\n{ "status": "done" }\n---\n');
@@ -217,6 +238,20 @@ describe('openAttemptWorktrees with a fake git', () => {
           'kept worktree 12-1/implement/1: it has uncommitted or untracked changes',
         ]);
         assert.ok(existsSync(join(path, 'brew.md')));
+      });
+
+      it('leaves an out doc that became a folder to git, which refuses the removal', async () => {
+        worktreeOnDisk(path, 'implement1');
+        mkdirSync(join(path, 'brew.md', 'inside'), { recursive: true });
+        writeFileSync(join(path, 'brew.md', 'inside', 'work.txt'), 'kept\n');
+        // git listed a file there when it read the status; a folder took its place since.
+        const { git } = gitWith('?? brew.md\n');
+
+        const report = await open(git).clean(withOutDoc);
+
+        assert.equal(report.failed.length, 1);
+        assert.match(report.failed[0] ?? '', /could not clean 12-1\/implement\/1: fatal:/);
+        assert.ok(existsSync(join(path, 'brew.md', 'inside', 'work.txt')));
       });
     });
 

@@ -90,6 +90,28 @@ describe('createWorktreeCleanup', () => {
     });
   });
 
+  it("claims the out doc of each step of an ended batch, from the step's brewer (ADR 0081)", async () => {
+    const app = fakeWorktrees();
+    const withSteps = fold([
+      ordered('b-tap'),
+      { type: 'step.scheduled', batchId: 'b-tap', stepId: 'brew', attempt: 1, deadlineAt: routeBy },
+      onTap('b-tap'),
+    ]);
+    const cleanup = createWorktreeCleanup({
+      worktrees: [app],
+      state: () => withSteps,
+      leases: () => [],
+      outDoc: ({ stepId }) => `${stepId}.md`,
+    });
+
+    await cleanup.batchEnded('b-tap');
+
+    assert.deepStrictEqual(
+      app.cleans().map(({ claims }) => claims.outDocs),
+      [new Map([['b-tap/brew', 'brew.md']])],
+    );
+  });
+
   it('cleans an ended batch in every repository, and only that batch', async () => {
     const app = fakeWorktrees({ root: 'app' });
     const lib = fakeWorktrees({ root: 'lib' });

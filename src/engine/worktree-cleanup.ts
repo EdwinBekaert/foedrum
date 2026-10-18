@@ -5,7 +5,7 @@ import type { Event } from '../schemas/events.ts';
 import type { AttemptWorktrees, CleanReport } from '../workspace/attempt-worktrees-git.ts';
 import type { Lease } from './event-store.ts';
 import type { State } from './fold.ts';
-import { laneStatus, worktreeClaims } from './worktree-claims.ts';
+import { laneStatus, type OutDocOf, worktreeClaims } from './worktree-claims.ts';
 
 export interface WorktreeCleanupOptions {
   /** One manager per repository the Brewery's attempts write in. */
@@ -14,6 +14,8 @@ export interface WorktreeCleanupOptions {
   state: () => State;
   /** The leases alive now (`EventStore.currentLeases`). */
   leases: () => readonly Lease[];
+  /** The out doc of a step's brewer, which may be a worktree's only change (ADR 0081). */
+  outDoc?: OutDocOf;
 }
 
 export interface WorktreeCleanup {

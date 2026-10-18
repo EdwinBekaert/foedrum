@@ -117,6 +117,8 @@ export interface ListedFact {
   /** `unchecked` outside the attempts root. */
   state: FolderState;
   record: string | undefined;
+  /** A clean worktree's untracked out doc, its only change: deleted before it (ADR 0081). */
+  outDoc?: string;
 }
 
 /** A local branch under `refs/heads/foedrum/`. */
@@ -148,7 +150,23 @@ export interface Facts {
 export interface Claims {
   batches: ReadonlyMap<string, 'live' | 'ended'>;
   leased: readonly AttemptRef[];
+  /**
+   * The out doc of each step of an ended batch whose brewer is known, by `<batchId>/<stepId>`:
+   * the one untracked file a worktree of that step may have and still go (ADR 0081).
+   */
+  outDocs?: ReadonlyMap<string, string>;
 }
+
+/**
+ * Whether a worktree is clean, from its `git status --porcelain`: nothing, or nothing but its
+ * untracked out doc, which is then named (ADR 0081).
+ */
+export const worktreeStatus = (
+  _porcelain: string,
+  _outDoc: string | undefined,
+): { state: 'clean' | 'dirty'; outDoc?: string } => {
+  throw new Error('not implemented');
+};
 
 export type Action =
   /** `branch` is deleted once the worktree is gone. */

@@ -57,6 +57,8 @@ export interface AttemptPlans {
   plan(attempt: AttemptStart): Promise<ClaudeAttemptPlan>;
   /** The limits of an attempt, from the brewer of its step in its batch's recipe. */
   limits(ref: AttemptRef): AttemptLimits;
+  /** The out doc of the brewer of a step in its batch's recipe; undefined without one (ADR 0081). */
+  outDoc(step: { batchId: string; stepId: string }): string | undefined;
 }
 
 /** An input's text reaches the prompt on stdin, and the event log through the out doc. */
@@ -153,6 +155,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const recipe = state().batches.get(batchId)?.recipe?.name;
       const found = recipe === undefined ? undefined : brewers.find(recipe, stepId);
       return found === undefined ? noBrewer : attemptLimits(found.brewer);
+    },
+    outDoc: () => {
+      throw new Error('not implemented');
     },
   };
 }

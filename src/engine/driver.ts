@@ -24,6 +24,7 @@ import type { RecipeAction, Recipes } from './recipes.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
+import type { OutDocOf } from './worktree-claims.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
 /** The effects the driver applies, and where they land. */
@@ -86,6 +87,8 @@ export interface DriverOptions {
   stateBranch: Pick<StateBranch, 'flush'>;
   /** The limits of an attempt: its brewer's, from the recipe its batch brews. */
   limits: (attempt: AttemptRef) => AttemptLimits;
+  /** The out doc of a step's brewer, which the worktree cleanup lets go (ADR 0081). */
+  outDoc?: OutDocOf;
   /** The attempt worktrees of each repository the attempts write in, and their base. */
   worktrees?: readonly RepositoryWorktrees[];
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
