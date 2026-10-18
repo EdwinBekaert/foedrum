@@ -193,10 +193,23 @@ const githubProblems = ({ tools, github }: DoctorFacts): Problem[] => {
     return [{ required: true, what: `gh ${version} is too old`, fix: GH_INSTALL }];
   }
   const problems: Problem[] = [];
-  if (github?.login !== undefined && github.login.exitCode !== 0) {
+  const login = github?.login;
+  // What gh said after the host's own line, unless it only says what the problem says already.
+  const said = login?.output
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line !== '' && line !== host);
+  const because = said === undefined || /not logged in/i.test(said) ? '' : ` (${said})`;
+  if (login !== undefined && login.exitCode === null) {
     problems.push({
       required: true,
-      what: `gh is not logged in to ${host}`,
+      what: `gh auth status --hostname ${host} did not answer${because}`,
+      fix: `check that gh auth status --hostname ${host} works`,
+    });
+  } else if (login !== undefined && login.exitCode !== 0) {
+    problems.push({
+      required: true,
+      what: `gh is not logged in to ${host}${because}`,
       fix: `run gh auth login --hostname ${host}`,
     });
   }
