@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { lockDriver } from '../../src/engine/driver-lock.ts';
 import { execProcess } from '../../src/platform/processes.ts';
+import { hangGuardMs, waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const module = pathToFileURL(
@@ -30,7 +31,7 @@ const child = (workRoot: string, then: string) =>
        ${then}`,
       workRoot,
     ],
-    { cwd: import.meta.dirname, timeoutMs: 30_000 },
+    { cwd: import.meta.dirname, timeoutMs: hangGuardMs },
   );
 
 describe('the driver lock between processes', () => {
@@ -60,13 +61,11 @@ describe('the driver lock between processes', () => {
     const holding = child(workRoot, 'setTimeout(() => process.exit(0), 5_000);');
     // The child writes its holder file once it holds the lock.
     const holderFile = join(workRoot, 'drivers', 'cellar.holder.json');
-    const deadline = Date.now() + 20_000;
-    while (!existsSync(holderFile)) {
-      assert.ok(Date.now() < deadline, 'the child never took the lock');
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await waitUntil('the child to take the lock', () => existsSync(holderFile));
 
-    const lock = lockDriver(workRoot, cellar);
+    // The wait is what the test covers, not its length: given only a guard against a hang, it
+    // lasts until the child lets go, however late a loaded machine lets it (ADR 0070).
+    const lock = lockDriver(workRoot, { ...cellar, waitMs: hangGuardMs });
 
     assert.equal(lock.held, true);
     lock.release();
