@@ -20,18 +20,21 @@ import { listenWhileServing, serveShell } from './serve-shell.ts';
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
 
-/** Runs the Cellar in the Brewery checkout `cwd` until Ctrl+C. */
+/**
+ * Runs the Cellar in the Brewery checkout `cwd` until Ctrl+C. Its starting facts, gh's login among
+ * them, come through `exec` and `resolve`, default the real runner and PATH; a test gives fakes.
+ */
 export const serveFromCheckout = async (
   cwd: string,
   options?: Partial<Pick<DoctorShell, 'exec' | 'resolve'>>,
 ): Promise<CliResult> => {
-  if (options !== undefined) throw new Error('not implemented');
+  const { exec = execProcess, resolve = resolveExecutable } = options ?? {};
   const config = readIfThere(join(cwd, 'foedrum.jsonc'));
   // Doctor's tools, isolation and gh's login only: serve reads and checks the Brewery's files
   // itself, and refuses on a required problem, such as no gh login for its host (ADR 0073).
   const facts = await gatherDoctorFacts({
-    exec: execProcess,
-    resolve: resolveExecutable,
+    exec,
+    resolve,
     platform: process.platform,
     kernelRelease: release(),
     node: process.versions.node,
