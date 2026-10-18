@@ -191,7 +191,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     // One cache of conditional reads for the intake, the marks and the orders' text (ADR 0052).
     const reads = createGitHubReads(client);
     const claims = githubClaimHost(client);
-    // The claims and their marks need the token's login; a Brewery that claims nothing does not.
+    // The claims and their marks need gh's login; a Brewery that claims nothing does not.
     // A claimed batch the store has keeps its marks and release due, intake or not (ADR 0050).
     let claimant: Claimant = { brewery: setup.brewery, login: '' };
     let effects: ReturnType<typeof claimEffects> | undefined;
@@ -231,7 +231,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       env: setup.brewerEnv,
       orderText: githubOrderText(reads, setup.brewery),
     });
-    // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069).
+    // A check step's commands run in the brewers' environment: no GitHub token (ADR 0069, ADR 0073).
     const checks = createCheckRunner({
       state,
       checks: setup.checks,
