@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { createGitHubClient, GitHubRateLimited } from '../../src/github/client.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
+import { execProcessWith, processSpawner, type Timers } from '../../src/platform/processes.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 import {
   FAKE_HOST,
@@ -67,8 +68,15 @@ describe('the GitHub client through the real gh (ADR 0073)', {
 }, () => {
   const dir = makeTempDir('github-gh');
   let fake: Awaited<ReturnType<typeof startFakeGitHubOverGh>> | undefined;
+  // A loaded machine (#212): the test process loses 30.1 s right after gh starts, more than the
+  // client's 30 s deadline, so every deadline comes that much early.
+  const loaded: Timers = {
+    set: (callback, ms) => setTimeout(callback, Math.max(0, ms - 30_100)),
+    clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
+  };
   const client = (options: { env?: NodeJS.ProcessEnv; maxResponseBytes?: number } = {}) =>
     createGitHubClient({
+      exec: execProcessWith(processSpawner, loaded),
       hostname: FAKE_HOST,
       cwd: dir.path,
       env: options.env ?? fake?.env ?? {},
