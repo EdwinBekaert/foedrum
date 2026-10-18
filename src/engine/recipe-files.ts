@@ -46,6 +46,10 @@ export interface StepChecks {
   find(recipe: string, stepId: string): readonly CheckRef[] | undefined;
   /** Whether any recipe has a check step. */
   any(): boolean;
+  /** The step whose tests step `stepId` of recipe `recipe` proves red, when it is a red proof. */
+  proves(recipe: string, stepId: string): string | undefined;
+  /** The first red proof of recipe `recipe` and the step it proves, when it has one (ADR 0078). */
+  redProof(recipe: string): { id: string; of: string } | undefined;
 }
 
 export type LoadedRecipes =
@@ -416,6 +420,12 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
     checks: {
       find: (recipe, id) => stepChecks.get(recipe)?.get(id),
       any: () => [...stepChecks.values()].some((steps) => steps.size > 0),
+      proves: () => {
+        throw new Error('not implemented');
+      },
+      redProof: () => {
+        throw new Error('not implemented');
+      },
     },
   };
 }

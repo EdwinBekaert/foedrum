@@ -86,6 +86,8 @@ const setup = ({
   const stepChecks: StepChecks = {
     find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? checks : undefined),
     any: () => true,
+    proves: () => undefined,
+    redProof: () => undefined,
   };
   const repos: string[] = [];
   const runner = createCheckRunner({
