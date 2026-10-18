@@ -72,18 +72,21 @@ const findingsIn = (dir: string): LayerProblem[] =>
       ];
     });
 
+const byFileAndLine = (a: LayerProblem, b: LayerProblem): number =>
+  a.file < b.file ? -1 : a.file > b.file ? 1 : (a.line ?? 0) - (b.line ?? 0);
+
+// The findings not on the exception list and the entries that have none (`stale` says so), sorted.
 const problemsOf = (
   findings: LayerProblem[],
   exceptions: ReadonlyMap<string, string>,
-): LayerProblem[] => {
-  const problems = [
+  stale = STALE,
+): LayerProblem[] =>
+  [
     ...findings.filter(({ file }) => !exceptions.has(file)),
     ...[...exceptions.keys()]
       .filter((file) => !findings.some((finding) => finding.file === file))
-      .map((file) => ({ file, problem: STALE })),
-  ];
-  return problems.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
-};
+      .map((file) => ({ file, problem: stale })),
+  ].sort(byFileAndLine);
 
 // One folder; files and exceptions are relative to it.
 export const checkTestLayer = (
@@ -284,24 +287,18 @@ export const realGhFindings = (source: string): RealGhFinding[] => {
     .map(({ offset, problem }) => ({ line: lineAt(offset), problem }));
 };
 
-const byFileAndLine = (a: LayerProblem, b: LayerProblem): number =>
-  a.file < b.file ? -1 : a.file > b.file ? 1 : (a.line ?? 0) - (b.line ?? 0);
-
 // The findings of the sources, by file relative to test/, and the stale exceptions.
 export const realGhProblems = (
   sources: ReadonlyMap<string, string>,
   exceptions: ReadonlyMap<string, string>,
-): LayerProblem[] => {
-  const findings = [...sources].flatMap(([file, source]) =>
-    realGhFindings(source).map(({ line, problem }) => ({ file, line, problem })),
+): LayerProblem[] =>
+  problemsOf(
+    [...sources].flatMap(([file, source]) =>
+      realGhFindings(source).map(({ line, problem }) => ({ file, line, problem })),
+    ),
+    exceptions,
+    STALE_GH,
   );
-  return [
-    ...findings.filter(({ file }) => !exceptions.has(file)),
-    ...[...exceptions.keys()]
-      .filter((file) => !findings.some((finding) => finding.file === file))
-      .map((file) => ({ file, problem: STALE_GH })),
-  ].sort(byFileAndLine);
-};
 
 // Scans REAL_GH_FOLDERS under testDir, skipping one that does not exist; files and exceptions are
 // relative to testDir.
