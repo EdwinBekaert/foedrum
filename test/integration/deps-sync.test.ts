@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { outOfDate } from '../../scripts/deps-sync.ts';
@@ -24,11 +24,27 @@ const env = (npmExecpath: string): NodeJS.ProcessEnv => ({
 const runScript = (cwd: string) =>
   spawnSync(process.execPath, [script], { cwd, env: env(npmStub), encoding: 'utf8' });
 
-// The record a real npm ci wrote: CI installs with npm ci before these tests, so this checks the
-// core against what npm writes today, skipped optional and peer packages included.
-describe('outOfDate on this checkout', () => {
+// The record a real npm ci wrote (npm 11.19.0 on Windows, for this repository's lock file of
+// 2026-10-18), captured in test/fixtures/deps-sync, so this checks the core against what npm writes,
+// with the optional packages of other platforms skipped, whatever state this checkout's own
+// node_modules is in (#212).
+describe('outOfDate on a package tree npm ci installed', () => {
+  let project: TempDir;
+  beforeEach(() => {
+    project = makeTempDir('deps-sync-installed');
+  });
+  afterEach(() => project.remove());
+
   it('finds node_modules up to date after npm ci', async () => {
-    assert.equal(await outOfDate(root), undefined);
+    const captured = join(root, 'test', 'fixtures', 'deps-sync');
+    writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
+    copyFileSync(join(captured, 'package-lock.json'), join(project.path, 'package-lock.json'));
+    mkdirSync(join(project.path, 'node_modules'));
+    copyFileSync(
+      join(captured, 'installed.package-lock.json'),
+      join(project.path, 'node_modules', '.package-lock.json'),
+    );
+    assert.equal(await outOfDate(project.path), undefined);
   });
 });
 
