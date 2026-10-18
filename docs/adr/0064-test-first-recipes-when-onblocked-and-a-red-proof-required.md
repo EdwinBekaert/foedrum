@@ -1,6 +1,6 @@
 # 0064. Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required
 
-Date: 2026-10-17 · Status: Accepted, amended by [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (`onFail` rounds) · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md), [0032](0032-routing-deadline-for-ordered-batches.md) and [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)
+Date: 2026-10-17 · Status: Accepted, amended by [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (`onFail` rounds) and [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (test-first recipes brew) · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md), [0032](0032-routing-deadline-for-ordered-batches.md) and [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)
 
 ## Context
 [ADR 0017](0017-test-first-recipes-and-tasting-lenses.md) makes test-first a recipe structure: a Gauger step writes failing tests, a red proof (a check step with `"expect": "fail"`) shows they fail for the right reason, and Cellarman makes them pass. `testFirst` is recipe-level, decided by `resolveRecipe` when it is unset ([ADR 0028](0028-brewer-runner-outcomes-environment-and-test-first.md)), and the router may switch it off for an order whose change cannot be a failing test. Steps that only belong to test-first say `"when": "recipe.testFirst"`, and Cellarman's `"onBlocked": { "findings": … }` sends "this test is wrong" back to the Gauger.
