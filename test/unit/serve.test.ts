@@ -24,7 +24,7 @@ import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, config, home, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -331,6 +331,20 @@ describe('runServe', () => {
     assert.equal(await runServe(setup, shell()), 0);
     assert.equal(plans.length, 1);
     assert.equal(existsSync(join(dir.path, 'attempt-settings', '12-1')), false);
+  });
+
+  it("lets the cleanup of an ended batch know each step's out doc, from its brewer (ADR 0081)", async () => {
+    const managers: FakeWorktrees[] = [];
+    const worktrees: ServeShell['worktrees'] = async () => {
+      const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
+      managers.push(manager);
+      return manager;
+    };
+    assert.equal(await runServe(setup, shell({ worktrees })), 0);
+    assert.deepStrictEqual(
+      managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.outDocs,
+      new Map([['12-1/brew', 'brew.md']]),
+    );
   });
 
   it("gives each brewer its repository's toolchain rules", async () => {

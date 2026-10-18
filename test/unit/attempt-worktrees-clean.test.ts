@@ -240,6 +240,16 @@ describe('openAttemptWorktrees with a fake git', () => {
         assert.ok(existsSync(join(path, 'brew.md')));
       });
 
+      it('removes the worktree when its out doc went since git listed it', async () => {
+        worktreeOnDisk(path, 'implement1');
+        const { git } = gitWith('?? brew.md\n');
+
+        const report = await open(git).clean(withOutDoc);
+
+        assert.deepEqual(report.failed, []);
+        assert.ok(report.done.includes('removed worktree 12-1/implement/1'));
+      });
+
       it('leaves an out doc that became a folder to git, which refuses the removal', async () => {
         worktreeOnDisk(path, 'implement1');
         mkdirSync(join(path, 'brew.md', 'inside'), { recursive: true });
