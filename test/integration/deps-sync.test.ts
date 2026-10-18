@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { outOfDate } from '../../scripts/deps-sync.ts';
@@ -36,16 +36,24 @@ describe('outOfDate on a package tree npm ci installed', () => {
   });
   afterEach(() => project.remove());
 
-  it('finds node_modules up to date after npm ci', async () => {
+  // The captured lock file and record in the project, the record changed by `edit` first.
+  const install = (edit: (record: string) => string = (record) => record) => {
     const captured = join(root, 'test', 'fixtures', 'deps-sync');
     writeFileSync(join(project.path, 'package.json'), '{"private":true}\n');
     copyFileSync(join(captured, 'package-lock.json'), join(project.path, 'package-lock.json'));
     mkdirSync(join(project.path, 'node_modules'));
-    copyFileSync(
-      join(captured, 'installed', 'package-lock.json'),
-      join(project.path, 'node_modules', '.package-lock.json'),
-    );
+    const record = readFileSync(join(captured, 'installed', 'package-lock.json'), 'utf8');
+    writeFileSync(join(project.path, 'node_modules', '.package-lock.json'), edit(record));
+  };
+
+  it('finds node_modules up to date after npm ci', async () => {
+    install();
     assert.equal(await outOfDate(project.path), undefined);
+  });
+
+  it('finds it out of date when a package the record names has another integrity', async () => {
+    install((record) => record.replace('"integrity": "sha512-v5l/', '"integrity": "sha512-xxxx'));
+    assert.notEqual(await outOfDate(project.path), undefined);
   });
 });
 
