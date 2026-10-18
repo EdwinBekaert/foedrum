@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { countCommits } from '../../src/workspace/attempt-commits-git.ts';
+import { attemptBranch } from '../../src/workspace/attempt-worktrees.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 
 const START = 'c'.repeat(40);
@@ -96,6 +97,13 @@ describe('countCommits', () => {
       });
     }
     assert.deepEqual(calls, []);
+  });
+
+  it('counts on every branch attemptBranch makes, a target batch and a step id with a dot among them (review of #208)', async () => {
+    const other = attemptBranch({ batchId: 'web-12-2', stepId: 'red.proof', attempt: 3 });
+    const { git, calls } = recordingGit({ 'merge-base': ok(), 'rev-list': ok('1\n') });
+    assert.deepEqual(await countCommits(git)(clone, other, START), { kind: 'counted', count: 1 });
+    assert.equal(calls[0]?.args[3], `refs/heads/${other}`);
   });
 
   it('runs no git for a branch that is no attempt branch', async () => {
