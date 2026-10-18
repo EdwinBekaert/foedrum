@@ -5,7 +5,8 @@
 //
 // With `exit-parent` as a third argument, the top level exits as soon as every level below it has
 // written its pid, and the levels below end by themselves after 30 s: the orphans of #92, which
-// never outlive the test even when the runner's kill misses them.
+// never outlive the test even when the runner's kill misses them. An orphan that ends by itself
+// first adds its pid to `<pid-file>.ended`, so a test can tell that end from a kill (#212).
 
 import { spawn } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -32,7 +33,10 @@ if (mode === 'exit-parent') {
     if (pids.length >= levels) process.exit(0);
   }, 50);
 } else if (mode === 'orphan') {
-  setTimeout(() => process.exit(0), 30_000);
+  setTimeout(() => {
+    appendFileSync(`${pidFile}.ended`, `${process.pid}\n`);
+    process.exit(0);
+  }, 30_000);
 } else {
   setInterval(() => {}, 1000);
 }
