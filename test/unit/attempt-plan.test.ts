@@ -523,6 +523,12 @@ describe('planAttempt', () => {
         settings.permissions.allow.includes('Bash(git commit *)'),
         settings.permissions.allow.join(', '),
       );
+      // All three: without git add the brewer could not stage its change (review of #208).
+      const brewerOf = committing(['Read', 'Write']).brewer;
+      assert.deepEqual(
+        settings.permissions.allow.filter((rule) => gitRulesOf(brewerOf).includes(rule)),
+        gitRulesOf(brewerOf),
+      );
     });
   });
 

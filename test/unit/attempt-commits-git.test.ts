@@ -67,6 +67,11 @@ describe('countCommits', () => {
       kind: 'uncounted',
       reason: 'git merge-base failed: fatal: not a git repository',
     });
+    const silent = recordingGit({ 'merge-base': exited(128) });
+    assert.deepEqual(await countCommits(silent.git)(clone, branch, START), {
+      kind: 'uncounted',
+      reason: 'git merge-base failed: git exited with 128',
+    });
     const killed = recordingGit({ 'merge-base': ok(), 'rev-list': exited(null) });
     assert.deepEqual(await countCommits(killed.git)(clone, branch, START), {
       kind: 'uncounted',

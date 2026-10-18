@@ -273,6 +273,29 @@ describe('claudeBrewerRunner', () => {
       assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
     });
 
+    it('blocks on the environment with the reason when the count itself throws (review of #208)', async () => {
+      const { runner } = setup(clean, {
+        plan: counting,
+        whileCounting: () => {
+          throw new Error('boom');
+        },
+      });
+      assert.deepEqual((await runner.start(committing).ended).ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the commits since ccccccc were not counted: boom',
+      });
+    });
+
+    it("counts with the attempt's own stop signal, which a stop aborts (review of #208)", async () => {
+      let stop = (): void => {};
+      const { counts, runner } = setup(clean, { plan: counting, whileCounting: () => stop() });
+      const run = runner.start(committing);
+      stop = run.stop;
+      await run.ended;
+      assert.equal(counts[0]?.signal?.aborted, true);
+    });
+
     it('counts nothing for an attempt whose limits name no start', async () => {
       const { counts, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
       await runner.start(attempt).ended;
