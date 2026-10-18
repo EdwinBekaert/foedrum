@@ -25,7 +25,15 @@ import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { brewer, config, home, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
+import {
+  brewer,
+  clone,
+  config,
+  home,
+  local,
+  recipe,
+  serveInputs,
+} from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-17T12:00:00.000Z');
@@ -242,6 +250,9 @@ describe('runServe', () => {
     assert.equal(plan?.env.npm_config_ignore_scripts, 'true');
     assert.equal(plan?.env.GH_TOKEN, undefined);
     assert.equal(plan?.settingsFile, join(dir.path, 'attempt-settings', '12-1', 'brew', '1.json'));
+    // The cellarman produces commits: they are counted on its branch in the local clone its
+    // worktree was added to, which the push takes too (ADR 0074, review of #208).
+    assert.deepStrictEqual(plan?.commits, { clone, branch: 'foedrum/12-1/brew/1' });
     assert.deepStrictEqual(
       [lines[0], lines.at(-1)],
       [

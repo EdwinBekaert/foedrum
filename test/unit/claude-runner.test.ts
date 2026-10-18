@@ -24,7 +24,7 @@ import {
   waitFor,
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt, type BrewerPrompt } from '../../src/brewers/prompt.ts';
-import type { AttemptLimits, AttemptStart } from '../../src/engine/brewer-runner.ts';
+import type { AttemptLimits, AttemptStart, CommitsSeen } from '../../src/engine/brewer-runner.ts';
 import type { StreamOptions, StreamResult } from '../../src/platform/processes.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
@@ -94,8 +94,18 @@ const setup = (
     outDoc?: string | undefined | { unread: string };
     /** A wait that never ends, so the attempt can be stopped while it waits. */
     waitForever?: boolean;
+    /** What git says of the commits after the start (ADR 0074); default one. */
+    commits?: CommitsSeen;
+    /** Runs while the commits are counted, before the count answers. */
+    whileCounting?: () => void;
   } = {},
 ) => {
+  const counts: {
+    clone: string;
+    branch: string;
+    since: string;
+    signal: AbortSignal | undefined;
+  }[] = [];
   // One play per start of claude, the last one again for every start after it.
   const queue = Array.isArray(plays) ? [...plays] : [plays];
   const calls: Call[] = [];
@@ -143,8 +153,13 @@ const setup = (
       if (more.waitForever !== true) return Promise.resolve();
       return new Promise<void>((done) => signal.addEventListener('abort', () => done()));
     },
+    commits: async (clone, branch, since, signal) => {
+      counts.push({ clone, branch, since, signal });
+      more.whileCounting?.();
+      return more.commits ?? { kind: 'counted', count: 1 };
+    },
   };
-  return { calls, written, read, waits, runner: claudeBrewerRunnerWith(deps) };
+  return { calls, written, read, waits, counts, runner: claudeBrewerRunnerWith(deps) };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });
@@ -186,6 +201,118 @@ describe('claudeBrewerRunner', () => {
       read.map((r) => r.file),
       [resolve('/work/tree', 'plan.md')],
     );
+  });
+
+  describe('a brewer that produces commits (ADR 0074)', () => {
+    const start = 'c'.repeat(40);
+    const committing: AttemptStart = { ...attempt, limits: { ...limits, commitsSince: start } };
+    // Where the attempt's commits are: its branch in the clone, never what its worktree says.
+    const inClone = { clone: '/work/clone.git', branch: 'foedrum/21-1/plan/1' };
+    const counting = async (): Promise<ClaudeAttemptPlan> => ({ ...plan(), commits: inClone });
+    const clean = { lines: fixture('success.jsonl'), result: exited(0) };
+
+    it("counts the commits after the start on the attempt's branch in the clone once claude ended, and succeeds on one", async () => {
+      const { counts, runner } = setup(clean, { plan: counting });
+      const end = await runner.start(committing).ended;
+      assert.equal(end.ending.kind, 'succeeded');
+      assert.deepEqual(
+        counts.map(({ clone, branch, since }) => [clone, branch, since]),
+        [['/work/clone.git', 'foedrum/21-1/plan/1', start]],
+      );
+      assert.ok(counts[0]?.signal instanceof AbortSignal);
+    });
+
+    it('blocks on a divergence when the out doc says done but nothing was committed (#196)', async () => {
+      const { runner } = setup(
+        { lines: fixture('success.jsonl'), result: exited(0) },
+        { commits: { kind: 'counted', count: 0 }, plan: counting },
+      );
+      const end = await runner.start(committing).ended;
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'divergence',
+        summary: 'the out doc says done, but the brewer made no commit since ccccccc: Planned',
+      });
+    });
+
+    it('blocks on the environment when git could not count them', async () => {
+      const { runner } = setup(
+        { lines: fixture('success.jsonl'), result: exited(0) },
+        { commits: { kind: 'uncounted', reason: 'git exited with 128' }, plan: counting },
+      );
+      const end = await runner.start(committing).ended;
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the commits since ccccccc were not counted: git exited with 128',
+      });
+    });
+
+    it('blocks on the environment, counting nothing, when the plan names no clone to count in', async () => {
+      const { counts, runner } = setup(clean);
+      const end = await runner.start(committing).ended;
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary:
+          'the commits since ccccccc were not counted: the plan names no clone to count them in',
+      });
+      assert.deepEqual(counts, []);
+    });
+
+    it('cancels an attempt stopped while its commits are counted, not blaming git (review of #208)', async () => {
+      let stop = (): void => {};
+      const { runner } = setup(clean, {
+        plan: counting,
+        // A stop kills git: the count then says git did not finish.
+        whileCounting: () => stop(),
+        commits: { kind: 'uncounted', reason: 'git merge-base failed: git did not finish in time' },
+      });
+      const run = runner.start(committing);
+      stop = run.stop;
+      assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
+    });
+
+    it('keeps the usage and the session the stream reported when stopped while counting (review of #208)', async () => {
+      let stop = (): void => {};
+      const { runner } = setup(clean, { plan: counting, whileCounting: () => stop() });
+      const run = runner.start(committing);
+      stop = run.stop;
+      assert.deepEqual(await run.ended, {
+        ending: { kind: 'cancelled' },
+        usage: { inputTokens: 2, outputTokens: 4, cacheReadTokens: 1670, cacheWriteTokens: 2452 },
+        session: { sessionId: session(1), model: 'claude-haiku-5-5', claudeVersion: '2.1.301' },
+      });
+    });
+
+    it('blocks on the environment with the reason when the count itself throws (review of #208)', async () => {
+      const { runner } = setup(clean, {
+        plan: counting,
+        whileCounting: () => {
+          throw new Error('boom');
+        },
+      });
+      assert.deepEqual((await runner.start(committing).ended).ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the commits since ccccccc were not counted: boom',
+      });
+    });
+
+    it("counts with the attempt's own stop signal, which a stop aborts (review of #208)", async () => {
+      let stop = (): void => {};
+      const { counts, runner } = setup(clean, { plan: counting, whileCounting: () => stop() });
+      const run = runner.start(committing);
+      stop = run.stop;
+      await run.ended;
+      assert.equal(counts[0]?.signal?.aborted, true);
+    });
+
+    it('counts nothing for an attempt whose limits name no start', async () => {
+      const { counts, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+      await runner.start(attempt).ended;
+      assert.deepEqual(counts, []);
+    });
   });
 
   it('stops at an init that is not what was asked, and blocks on the environment', async () => {

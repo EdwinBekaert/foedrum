@@ -62,7 +62,7 @@ A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter. The bod
 |---|---|
 | `access` | `read` or `write` |
 | `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt. With `task`, each attempt gets a worktree of its own at the batch's task tree: the commits of the latest attempt that succeeded (uncommitted files do not carry over), or of the latest rewind, else the base. Only `task` loads for now ([ADR 0066](adr/0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md)) |
-| `git` | `commit: true/false`; pushing is always the engine's job |
+| `git` | `commit: true/false`. With `true` the attempt allows `Bash(git status *)`, `Bash(git add *)` and `Bash(git commit *)`, and the out doc contract tells the brewer to commit; a brewer that needs another git subcommand names it in `tools.allow` ([ADR 0074](adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)). Pushing is always the engine's job |
 | `env` | Extra environment variables on top of a minimal base. The runner builds the environment from a minimal base, then this `env`, then its own variables last, comparing names without case on Windows (`buildBrewerEnv`, [ADR 0028](adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); names it owns are rejected when the brewer is loaded, in any case: `NODE_*`, `npm_config_*`, `PATH`, `PATHEXT`, `COMSPEC`, `SYSTEMROOT`, `HOME`, `USERPROFILE`, `APPDATA`, `ANTHROPIC_*`, `CLAUDE_*`, `GIT_*`, `SSH_*`, `LD_*`, `DYLD_*`, `BASH_ENV`, `ENV` and `*_PROXY`, as are two names that differ only in case |
 
 Headless brewers always run in a permission mode where the allowlist decides and nothing waits for an approver.
@@ -83,7 +83,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | Guard | Fails when |
 |---|---|
 | `requiresOutDoc` | the out doc is missing or invalid |
-| `requiresCommits` | a writing brewer committed nothing (unless the out doc says no change was needed) |
+| `requiresCommits` | the out doc says `done`, but the brewer made no commit after its worktree's start: the batch goes Stuck on a `divergence`. Every brewer that produces commits has it, listed or not ([ADR 0074](adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)) |
 | `testsNotRemoved` | test declarations disappeared compared with the attempt's start commit |
 | `testsUnchanged` | test declarations or assertions committed by the step named in the red proof's `of` were changed or removed (helpers, fixtures, imports and new tests may change) |
 | `noPush` | the branch moved on the remote |
@@ -110,7 +110,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
   "produces": "commits",
   "context": "repo",
   "tools": {
-    "allow": ["Read", "Edit", "Write", "Grep", "Glob", "Bash(git add*)", "Bash(git commit*)", "Bash(git diff*)"],
+    "allow": ["Read", "Edit", "Write", "Grep", "Glob", "Bash(git diff*)"],
     "deny": ["AskUserQuestion", "Bash(git push*)", "WebFetch"]
   },
   "access": "write",
@@ -168,7 +168,14 @@ Prefer deciding and recording an assumption over asking. Ask only when a wrong
 guess would likely waste this run. Never ask questions any other way. Do not push.
 ```
 
-One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, else Stuck (the table below), bounded by `maxRounds`. The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters. Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
+For a brewer with `git.commit: true`, the last line ends before `Do not push.`, and two lines follow it ([ADR 0074](adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)):
+
+```markdown
+Commit your changes with git add and git commit before you write {outDoc}, and leave
+{outDoc} out of every commit. Do not push.
+```
+
+One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195). The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, else Stuck (the table below), bounded by `maxRounds`. The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters, and to 1,400 with the lines about committing. Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 
 ### How the engine routes an out doc
 

@@ -83,6 +83,7 @@ const setup = (
     brewers: loaded.brewers,
     models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
     repoTools: (repo) => (repo === 'acme/api' ? ['Bash(npm test)'] : []),
+    clone: (repo) => join('/clones', repo),
     sandbox: false,
     workRoot,
     env: { base: { PATH: '/usr/bin' }, forced: { npm_config_ignore_scripts: 'true' } },
@@ -242,6 +243,7 @@ describe('createAttemptPlans: limits', () => {
       brewers: two.brewers,
       models: { models: {}, brewers: {} },
       repoTools: () => [],
+      clone: () => join('/clones', 'acme/api'),
       sandbox: false,
       workRoot,
       env: { base: {}, forced: {} },
@@ -250,6 +252,56 @@ describe('createAttemptPlans: limits', () => {
     const turns = (batchId: string) =>
       plans.limits({ batchId, stepId: 'brew', attempt: 1 }).maxTurns;
     assert.deepEqual([turns('12-1'), turns('13-1')], [5, 50]);
+  });
+
+  it('gives an attempt of a brewer that produces commits the commit its worktree started at, and its plan where to count (ADR 0074)', async () => {
+    const committing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false }),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/cellarman.md',
+          text: brewerText('cellarman', {
+            produces: 'commits',
+            access: 'write',
+            git: { commit: true },
+            tools: { allow: ['Read', 'Write'] },
+          }),
+        },
+      ],
+    });
+    assert.ok(committing.valid, committing.valid ? '' : committing.problems.join('\n'));
+    const plans = (events: Event[]) =>
+      createAttemptPlans({
+        state: () => fold(events),
+        brewers: committing.brewers,
+        models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+        repoTools: () => [],
+        clone: (repo) => join('/clones', repo),
+        sandbox: false,
+        workRoot,
+        env: { base: {}, forced: {} },
+        orderText: async () => '',
+        files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
+      });
+    // The attempt's branch in the clone its worktree was added to: what the push takes, which
+    // nothing the brewer writes in its worktree can redirect (review of #208).
+    assert.deepEqual((await plans([...ordered, started]).plan(start)).commits, {
+      clone: join('/clones', 'acme/api'),
+      branch: 'foedrum/12-1/brew/1',
+    });
+    assert.deepEqual(plans([...ordered, started]).limits(ref), {
+      outDoc: { file: 'out.md', schema: OutDocFrontmatter },
+      commitsSince: 'c'.repeat(40),
+    });
+    // Not started yet: no worktree, so nothing to count from; its plan fails before it runs.
+    assert.deepEqual(plans(ordered).limits(ref), {
+      outDoc: { file: 'out.md', schema: OutDocFrontmatter },
+    });
   });
 
   it('gives an attempt of a batch without a recipe the out doc of the contract alone', () => {

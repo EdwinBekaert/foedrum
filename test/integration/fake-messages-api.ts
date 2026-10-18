@@ -1,6 +1,7 @@
 // A stand-in for the Anthropic Messages API on 127.0.0.1, for tests that run the real `claude`
 // CLI without a login and without spending tokens: `claude` talks to it through
-// ANTHROPIC_BASE_URL. Its "model" calls one tool, then answers `done` once a tool result came.
+// ANTHROPIC_BASE_URL. Its "model" calls its tools one by one, each once a result of the one before
+// came, then answers `done`.
 
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -13,7 +14,7 @@ export interface FakeMessagesApi {
   close: () => Promise<void>;
 }
 
-/** The one tool call the fake model makes. */
+/** A tool call the fake model makes. */
 export interface ToolCall {
   name: string;
   input: Record<string, unknown>;
@@ -54,7 +55,10 @@ const streamed = (message: Record<string, unknown>, content: Block[]): string =>
     event('message_stop', {}),
   ].join('');
 
-export const startFakeMessagesApi = async (tool: ToolCall): Promise<FakeMessagesApi> => {
+export const startFakeMessagesApi = async (
+  tools: ToolCall | readonly ToolCall[],
+): Promise<FakeMessagesApi> => {
+  const script: readonly ToolCall[] = Array.isArray(tools) ? tools : [tools];
   let calls = 0;
   const bodies: string[] = [];
   const server = createServer((request, response) => {
@@ -73,7 +77,10 @@ export const startFakeMessagesApi = async (tool: ToolCall): Promise<FakeMessages
       const parsed = JSON.parse(body) as { model: string; stream?: boolean; messages: unknown };
       calls += 1;
       bodies.push(body);
-      const answered = JSON.stringify(parsed.messages).includes('"tool_result"');
+      // The next tool is the one after as many as have a result.
+      const results = JSON.stringify(parsed.messages).split('"tool_result"').length - 1;
+      const tool = script[results];
+      const answered = tool === undefined;
       const content: Block[] = answered
         ? [{ type: 'text', text: 'done' }]
         : [{ type: 'tool_use', id: `toolu_fake${calls}`, name: tool.name, input: tool.input }];

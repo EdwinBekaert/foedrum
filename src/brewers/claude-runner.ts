@@ -20,6 +20,7 @@ import {
   type AttemptFacts,
   type AttemptStart,
   type BrewerRunner,
+  type CommitsSeen,
   type ProcessExit,
   settleAttempt,
 } from '../engine/brewer-runner.ts';
@@ -33,6 +34,8 @@ import {
   type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
+import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
+import { runGit } from '../workspace/git.ts';
 import {
   type AttemptPermissions,
   attemptSettings,
@@ -54,6 +57,11 @@ export interface ClaudeAttemptPlan {
   permissions: AttemptPermissions;
   /** Where the runner writes the attempt's settings file. */
   settingsFile: string;
+  /**
+   * For a brewer that produces commits: the clone its worktree was added to and the attempt's
+   * branch, where its commits are counted, never what its worktree says (ADR 0074).
+   */
+  commits?: { clone: string; branch: string };
 }
 
 /** An out doc as the runner found it. */
@@ -75,6 +83,8 @@ export interface ClaudeRunnerDeps {
   now: () => Date;
   /** Resolves after `ms`, or at once when `signal` aborts. */
   wait: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** The commits on the attempt's branch in its clone after the limits' `commitsSince` (ADR 0074). */
+  commits: CountCommits;
 }
 
 /**
@@ -254,6 +264,22 @@ const noFacts = (exit: ProcessExit): AttemptFacts => ({
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
 
+  /** The commits after `since` where the plan says to count them; none without a start. */
+  const commitsOf = async (
+    plan: ClaudeAttemptPlan,
+    since: string | undefined,
+    signal: AbortSignal,
+  ): Promise<CommitsSeen | undefined> => {
+    if (since === undefined) return undefined;
+    if (plan.commits === undefined) {
+      return { kind: 'uncounted', reason: 'the plan names no clone to count them in' };
+    }
+    const { clone, branch } = plan.commits;
+    return deps
+      .commits(clone, branch, since, signal)
+      .catch((error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }));
+  };
+
   const start = (attempt: AttemptStart) => {
     const key = attemptKey.encode(attempt.ref);
     const { limits } = attempt;
@@ -267,6 +293,9 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     const unstartable = (error: unknown): AttemptEnd => ({
       ending: settleAttempt(noFacts({ kind: 'unstartable', reason: messageOf(error) }), limits),
     });
+    const cancelled = (): AttemptEnd => ({
+      ending: settleAttempt(noFacts({ kind: 'stopped' }), limits),
+    });
 
     // A stop does not wait for a plan that may never come.
     const aborted = new Promise<undefined>((settle) => {
@@ -278,18 +307,14 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       let args: string[];
       try {
         const prepared = await Promise.race([deps.plan(attempt), aborted]);
-        if (prepared === undefined) {
-          return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-        }
+        if (prepared === undefined) return cancelled();
         plan = prepared;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         args = claudeArgs({ ...plan.call, settingsFile: plan.settingsFile });
       } catch (error) {
         return unstartable(error);
       }
-      if (stopping.signal.aborted) {
-        return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-      }
+      if (stopping.signal.aborted) return cancelled();
       const { session, tools } = plan.call;
       const { cwd, env, prompt } = plan;
       /** One start of claude, read by a reader of its own. */
@@ -322,9 +347,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         // claude once more, and call it the environment only when that fails too.
         if (passingPreStreamFailure(stream.facts(), result)) {
           await deps.wait(RETRY_MS, stopping.signal);
-          if (stopping.signal.aborted) {
-            return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-          }
+          if (stopping.signal.aborted) return cancelled();
           ({ stream, result } = await once());
         }
       } catch (error) {
@@ -337,6 +360,20 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         MAX_OUT_DOC_BYTES,
         plan.cwd,
       );
+      // What the next step starts from is the attempt's branch in the clone, not the stream, nor
+      // the worktree's own git files, which the brewer can write (ADR 0074).
+      // Not after a stop: the runner's own (a limit it saw in the stream) settles before any count.
+      const stopped = stopping.signal.aborted;
+      const commits = stopped
+        ? undefined
+        : await commitsOf(plan, limits.commitsSince, stopping.signal);
+      // What the stream reported stays with the attempt however it ends from here.
+      const reported = {
+        ...(seen.usage === undefined ? {} : { usage: seen.usage }),
+        ...(seen.session === undefined ? {} : { session: seen.session }),
+      };
+      // A stop while counting kills git: the attempt was stopped, git did not fail.
+      if (!stopped && stopping.signal.aborted) return { ...cancelled(), ...reported };
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         exit,
@@ -347,12 +384,9 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         denials: seen.denials,
         deniedTools: seen.deniedTools,
         turns: seen.turns,
+        ...(commits === undefined ? {} : { commits }),
       };
-      return {
-        ending: settleAttempt(facts, limits),
-        ...(seen.usage === undefined ? {} : { usage: seen.usage }),
-        ...(seen.session === undefined ? {} : { session: seen.session }),
-      };
+      return { ending: settleAttempt(facts, limits), ...reported };
     };
 
     const ended = run().finally(() => running.delete(key));
@@ -375,5 +409,6 @@ export function claudeBrewerRunner(
     files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
     now: () => new Date(),
     wait: waitFor,
+    commits: countCommits(runGit),
   });
 }
