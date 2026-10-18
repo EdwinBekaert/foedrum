@@ -14,8 +14,8 @@ const read = (text: string): TestReport => {
 const brief = (tests: readonly ReportedTest[]) =>
   tests.map(({ name, result, leaf }) => [name, result, leaf]);
 
-// As pytest writes it: a failed assertion, an error thrown by a stub, a skip, a pass, and a
-// collection error of a module that does not import.
+// Written by hand in the shape pytest gives: a failed assertion, an error thrown by a stub, a
+// skip, a pass, and a collection error of a module that does not import.
 const pytest = `<?xml version="1.0" encoding="utf-8"?>
 <testsuites>
   <testsuite name="pytest" errors="2" failures="1" skipped="1" tests="5">

@@ -64,6 +64,15 @@ describe('changedTests', () => {
     assert.deepEqual(changedTests(gauged, changes), []);
   });
 
+  it('lets an attempt change an import, even one that names assert', () => {
+    const imported = changed(
+      test,
+      ["import assert from 'node:assert/strict';"],
+      ["import assert from 'node:assert';"],
+    );
+    assert.deepEqual(changedTests(gauged, [imported]), []);
+  });
+
   it('lets an attempt move or reindent a line of the tests within its file', () => {
     const moved = changed(
       test,

@@ -230,6 +230,24 @@ describe('judgeRed', () => {
     assert.deepEqual(judgeRed(report, feature), { proven: true, tests: ['adds two numbers'] });
   });
 
+  it("takes a name's last part only when it has at least three characters", () => {
+    const java = [
+      {
+        newPath: 'src/test/java/AddTest.java',
+        added: ['  void addsTwoNumbers() {', '    ok(add(1, 2));'],
+        removed: [],
+      },
+    ];
+    const report = junit(`<testsuite>
+      <testcase classname="AddTest" name="AddTest.addsTwoNumbers"><failure/></testcase>
+      <testcase classname="AddTest" name="AddTest.ok"/>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, java), {
+      proven: true,
+      tests: ['AddTest.addsTwoNumbers'],
+    });
+  });
+
   it('never takes an unnamed test, or a name that is only part of a word, for one the step added', () => {
     const report = tap('ok 1', 'ok 2 - adds two', ...failing(3, 'adds two numbers', 'x'));
     assert.deepEqual(judgeRed(report, gauged), { proven: true, tests: ['adds two numbers'] });
