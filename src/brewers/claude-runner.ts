@@ -293,6 +293,9 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     const unstartable = (error: unknown): AttemptEnd => ({
       ending: settleAttempt(noFacts({ kind: 'unstartable', reason: messageOf(error) }), limits),
     });
+    const cancelled = (): AttemptEnd => ({
+      ending: settleAttempt(noFacts({ kind: 'stopped' }), limits),
+    });
 
     // A stop does not wait for a plan that may never come.
     const aborted = new Promise<undefined>((settle) => {
@@ -304,18 +307,14 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       let args: string[];
       try {
         const prepared = await Promise.race([deps.plan(attempt), aborted]);
-        if (prepared === undefined) {
-          return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-        }
+        if (prepared === undefined) return cancelled();
         plan = prepared;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         args = claudeArgs({ ...plan.call, settingsFile: plan.settingsFile });
       } catch (error) {
         return unstartable(error);
       }
-      if (stopping.signal.aborted) {
-        return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-      }
+      if (stopping.signal.aborted) return cancelled();
       const { session, tools } = plan.call;
       const { cwd, env, prompt } = plan;
       /** One start of claude, read by a reader of its own. */
@@ -348,9 +347,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         // claude once more, and call it the environment only when that fails too.
         if (passingPreStreamFailure(stream.facts(), result)) {
           await deps.wait(RETRY_MS, stopping.signal);
-          if (stopping.signal.aborted) {
-            return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-          }
+          if (stopping.signal.aborted) return cancelled();
           ({ stream, result } = await once());
         }
       } catch (error) {
@@ -371,9 +368,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         ? undefined
         : await commitsOf(plan, limits.commitsSince, stopping.signal);
       // A stop while counting kills git: the attempt was stopped, git did not fail.
-      if (!stopped && stopping.signal.aborted) {
-        return { ending: settleAttempt(noFacts({ kind: 'stopped' }), limits) };
-      }
+      if (!stopped && stopping.signal.aborted) return cancelled();
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         exit,
