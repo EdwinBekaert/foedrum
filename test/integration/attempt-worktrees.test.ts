@@ -140,6 +140,32 @@ describe('attempt worktrees with real git', () => {
     assert.deepEqual(readdirSync(worktrees.root), []);
   });
 
+  it("removes a worktree whose only change is its step's out doc, and keeps one with another (ADR 0081)", async () => {
+    const worktrees = open();
+    const done = await worktrees.create(attempt('12-1'), 'origin/main');
+    const left = await worktrees.create(attempt('12-1', 'review'), 'origin/main');
+    for (const { path } of [done, left]) {
+      brew(path);
+      writeFileSync(join(path, 'brew.md'), '---\n{ "status": "done" }\n---\n');
+    }
+    writeFileSync(join(left.path, 'notes.txt'), 'work a brewer left\n');
+    const outDocs = new Map([
+      ['12-1/implement', 'brew.md'],
+      ['12-1/review', 'brew.md'],
+    ]);
+
+    const report = await worktrees.clean({ ...claims({ '12-1': 'ended' }), outDocs });
+
+    assert.deepEqual(report.failed, []);
+    assert.equal(existsSync(done.path), false);
+    assert.deepEqual(report.kept, [
+      'kept worktree 12-1/review/1: it has uncommitted or untracked changes',
+    ]);
+    assert.ok(existsSync(join(left.path, 'brew.md')));
+    assert.ok(existsSync(join(left.path, 'notes.txt')));
+    assert.deepEqual(foedrumBranches(), [left.branch]);
+  });
+
   it('keeps the worktrees of a Stuck batch and of a leased attempt', async () => {
     const worktrees = open();
     const stuck = await worktrees.create(attempt('12-1'), 'origin/main');
