@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { checkTestLayer, checkTestLayers } from '../../scripts/check-test-layers.ts';
+import {
+  checkTestLayer,
+  checkTestLayers,
+  REAL_GH_EXCEPTIONS,
+  realGhFindings,
+  realGhProblems,
+} from '../../scripts/check-test-layers.ts';
 
 // Source files that are scanned, never run (see the README in the folder).
 const fixtures = join(import.meta.dirname, '..', 'fixtures', 'test-layers');
@@ -147,5 +153,134 @@ describe('checkTestLayer and the real process runner', () => {
       checkTestLayer(runner, exceptions).map(({ file }) => file),
       runnerFiles.filter((file) => file !== 'namespace.test.ts'),
     );
+  });
+});
+
+// An integration test that can start the real gh, with whatever login the machine has (#220).
+describe('realGhFindings', () => {
+  const lines = (source: string) => realGhFindings(source).map(({ line }) => line);
+  const problemOf = (source: string) => realGhFindings(source)[0]?.problem ?? '';
+
+  it('reports a spawn of gh in any form, by its line', () => {
+    const source = [
+      "await execProcess('gh', ['auth', 'status'], { timeoutMs: 1000 });",
+      'spawnSync("gh", ["--version"]);',
+      "execFileSync('gh', args);",
+      "execSync('gh auth status');",
+      "await guarded('gh', ['api', 'user']);",
+      "await spawnProcess('gh.exe', ['auth', 'token']);",
+      'const stream = streamProcess(`gh`, args);',
+    ].join('\n');
+    assert.deepEqual(lines(source), [1, 2, 3, 4, 5, 6, 7]);
+    assert.match(problemOf(source), /starts gh/);
+    assert.match(problemOf(source), /GH_CONFIG_DIR/);
+  });
+
+  it('accepts a spawn of gh with a configuration of its own in the call, and other uses of the name', () => {
+    const source = [
+      "await execProcess('gh', ['auth', 'login'], {",
+      '  env: { ...env, GH_CONFIG_DIR: configDir },',
+      '});',
+      "const found = resolveExecutable('gh');",
+      "const row = at('gh');",
+      "const isGh = name === 'gh';",
+    ].join('\n');
+    assert.deepEqual(realGhFindings(source), []);
+  });
+
+  it('reports doctorFromCheckout, serveFromCheckout and cliFromCheckout without an injected runner', () => {
+    const source = [
+      'await doctorFromCheckout(cwd);',
+      'await serveFromCheckout(dir.path, { resolve });',
+      "serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd),",
+      "await cliFromCheckout(['status'], cwd);",
+      'await doctorFromCheckout(',
+      '  cwd,',
+      ');',
+    ].join('\n');
+    assert.deepEqual(lines(source), [1, 2, 3, 4, 5]);
+    assert.match(problemOf(source), /doctorFromCheckout/);
+    assert.match(problemOf(source), /exec/);
+  });
+
+  it('accepts those calls with an injected runner, also over several lines', () => {
+    const source = [
+      'await doctorFromCheckout(cwd, { exec, resolve });',
+      'await serveFromCheckout(dir.path, {',
+      '  exec: cannedGhLogin(),',
+      '  resolve: resolveWithMadeUpGh,',
+      '});',
+      "await cliFromCheckout(['status'], cwd, { exec: cannedGhLogin(), resolve });",
+    ].join('\n');
+    assert.deepEqual(realGhFindings(source), []);
+  });
+
+  it('reports src/cli/main.ts run as a program or imported', () => {
+    const source = [
+      "const main = join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts');",
+      "await execProcess(process.execPath, ['src/cli/main.ts', 'doctor']);",
+      "await import('../../src/cli/main.ts');",
+    ].join('\n');
+    assert.deepEqual(lines(source), [1, 2, 3]);
+    assert.match(problemOf(source), /src\/cli\/main\.ts/);
+    assert.match(problemOf(source), /cliFromCheckout/);
+  });
+
+  it('ignores what comments say', () => {
+    const source = [
+      '// the facts main.ts gathers (doctorFromCheckout(cwd)) and',
+      "// execProcess('gh', ['auth', 'status']), never run.",
+      "/* spawnSync('gh', []); serveFromCheckout(cwd); 'src/cli/main.ts' */",
+      "const url = 'http://example.test/gh'; // execProcess('gh', [])",
+    ].join('\n');
+    assert.deepEqual(realGhFindings(source), []);
+  });
+});
+
+describe('realGhProblems', () => {
+  const sources = new Map([
+    ['integration/doctor.test.ts', "await doctorFromCheckout(cwd);\nawait execProcess('gh', []);"],
+    ['integration/fine.test.ts', 'await doctorFromCheckout(cwd, { exec, resolve });'],
+    ['helpers/brewery.ts', "\n\nconst main = 'src/cli/main.ts';"],
+    ['integration/serve.test.ts', "await execProcess(process.execPath, ['src/cli/main.ts']);"],
+  ]);
+
+  it('reports every finding by file and line, sorted', () => {
+    assert.deepEqual(
+      realGhProblems(sources, none).map(({ file, line }) => [file, line]),
+      [
+        ['helpers/brewery.ts', 3],
+        ['integration/doctor.test.ts', 1],
+        ['integration/doctor.test.ts', 2],
+        ['integration/serve.test.ts', 1],
+      ],
+    );
+  });
+
+  it('leaves out a file on the exception list, and reports an exception whose file has no finding', () => {
+    const exceptions = new Map([
+      ['integration/serve.test.ts', 'the opt-in end-to-end serve test'],
+      ['integration/fine.test.ts', 'no longer needed'],
+      ['integration/gone.test.ts', 'file was moved'],
+    ]);
+    const problems = realGhProblems(sources, exceptions);
+    assert.deepEqual(
+      problems.map(({ file, line }) => [file, line]),
+      [
+        ['helpers/brewery.ts', 3],
+        ['integration/doctor.test.ts', 1],
+        ['integration/doctor.test.ts', 2],
+        ['integration/fine.test.ts', undefined],
+        ['integration/gone.test.ts', undefined],
+      ],
+    );
+    for (const { problem } of problems.filter(({ line }) => line === undefined)) {
+      assert.match(problem, /exception list.*real gh/);
+    }
+  });
+
+  it('allows only the opt-in end-to-end serve test, with its reason', () => {
+    assert.deepEqual([...REAL_GH_EXCEPTIONS.keys()], ['integration/serve.test.ts']);
+    assert.match(REAL_GH_EXCEPTIONS.get('integration/serve.test.ts') ?? '', /fake GitHub/);
   });
 });

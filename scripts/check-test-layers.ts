@@ -13,6 +13,8 @@ import { join, sep } from 'node:path';
 export interface LayerProblem {
   // Relative to the scanned directory, with forward slashes.
   file: string;
+  // The line of the finding, from 1, when it is about one.
+  line?: number;
   problem: string;
 }
 
@@ -106,6 +108,28 @@ export const checkTestLayers = (
     ),
     exceptions,
   );
+
+// Integration tests and their helpers that may start the real gh anyway, by path relative to test/
+// with forward slashes, each with the reason (#220).
+export const REAL_GH_EXCEPTIONS: ReadonlyMap<string, string> = new Map();
+
+export interface RealGhFinding {
+  line: number;
+  problem: string;
+}
+
+// What in one source file can start the real gh, by line.
+export const realGhFindings = (_source: string): RealGhFinding[] => {
+  throw new Error('not implemented');
+};
+
+// The findings of the sources, by file relative to test/, and the stale exceptions.
+export const realGhProblems = (
+  _sources: ReadonlyMap<string, string>,
+  _exceptions: ReadonlyMap<string, string>,
+): LayerProblem[] => {
+  throw new Error('not implemented');
+};
 
 if (import.meta.main) {
   const problems = checkTestLayers(join(import.meta.dirname, '..', 'test'), EXCEPTIONS);
