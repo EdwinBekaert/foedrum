@@ -603,12 +603,14 @@ describe('runServe', () => {
         return { exitCode: 1, stdout, stderr: '', output: stdout };
       };
       const diffs: string[] = [];
+      const folders: string[] = [];
       const code = await runServe(
         testFirst,
         shell({
           runner: () => succeeding,
           exec,
-          git: async (_cwd, args) => {
+          git: async (cwd, args) => {
+            folders.push(cwd);
             // The two revisions before the `--` that ends the options.
             const end = args.indexOf('--');
             const range = args.slice(end - 2, end).join(' ');
@@ -624,7 +626,7 @@ describe('runServe', () => {
         }),
       );
       assert.equal(code, 0);
-      return { brewed, checks, diffs, batch: log.state().batches.get('14-1') };
+      return { brewed, checks, diffs, folders, batch: log.state().batches.get('14-1') };
     };
 
     it('makes a batch Stuck at its start, before any brewer runs, when the repository has no test report', async () => {
@@ -640,11 +642,13 @@ describe('runServe', () => {
     });
 
     it("proves the Gauger's tests red from the test report and guards them, through serve's git", async () => {
-      const { brewed, checks, diffs, batch } = await brewTestFirst(
+      const { brewed, checks, diffs, folders, batch } = await brewTestFirst(
         testFirstSetup({ testReport: { format: 'tap' } }),
       );
       assert.equal(batch?.lane.kind, 'on_tap');
       assert.deepStrictEqual([brewed, checks], [['gauge', 'implement'], ['npm test']]);
+      // All three in the local clone the worktrees were added to, never in a worktree (#210).
+      assert.deepStrictEqual(folders, [clone, clone, clone]);
       // The red proof reads the Gauger's commits; the guard reads them and the cellarman's own.
       const gaugeRange = /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/gauge\/1$/;
       assert.equal(diffs.length, 3);
