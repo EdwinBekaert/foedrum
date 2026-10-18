@@ -84,6 +84,14 @@ describe('tailOf', () => {
     assert.equal(tail, 'x'.repeat(MAX_TAIL_LENGTH - 1));
     assert.ok(GravityReading.safeParse({ result: 'unstarted', command: 'a', tail }).success);
   });
+
+  it('never starts with half a character at either end of the low surrogates', () => {
+    // U+10000 ends in 0xDC00, U+10FFFF in 0xDFFF: the first and last second halves of a pair.
+    for (const character of ['\u{10000}', '\u{10FFFF}']) {
+      const tail = tailOf(`${character}${'x'.repeat(MAX_TAIL_LENGTH - 1)}`);
+      assert.equal(tail, 'x'.repeat(MAX_TAIL_LENGTH - 1), character.codePointAt(0)?.toString(16));
+    }
+  });
 });
 
 describe('readingOf', () => {
