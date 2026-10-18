@@ -1553,6 +1553,33 @@ describe('openDriver', () => {
       assert.equal(driver.state().batches.get('b1')?.lane.kind, 'on_tap');
     });
 
+    it("applies the action's effects after the batch's other effects, and none after one fails", async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions();
+      const comment = JSON.stringify(['b1', 'comment']);
+      let failing = 1;
+      const effects = {
+        due: (_state: State, batchId: string) =>
+          batchId === 'b1' ? [{ batchId, effect: 'comment' }] : [],
+        target: {
+          find: async () => undefined,
+          apply: async (key: string) => {
+            if (failing-- > 0) throw new Error('the code host is down');
+            applied.push(key);
+            return null;
+          },
+        },
+      };
+      orderAle('b1');
+      const driver = await open({ runner: brewer.runner, actions, effects });
+      await driver.drive();
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(applied, []);
+      await driver.tick();
+      assert.deepStrictEqual(applied, [comment, push, pullRequest]);
+    });
+
     it('blocks the action on its environment when the driver has no actions to run it with', async () => {
       const brewer = handRunner();
       orderAle('b1');
