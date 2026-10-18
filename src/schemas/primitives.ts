@@ -71,6 +71,19 @@ export const AllowedTool = ToolRule.refine(
 export const BrewerAllowedTool = AllowedTool.refine(
   (rule) => !reachesAnyGitCommand(rule),
   'Must not allow git with no fixed subcommand, such as "Bash(git *)": a push with options before it gets past every deny rule (ADR 0062)',
+).refine(
+  (rule) => !reachesGh(rule),
+  'Must not allow gh, or a rule that may start it, such as "Bash(gh *)": only the engine talks to GitHub, with the maintainer\'s gh login (ADR 0082)',
+);
+
+/**
+ * A rule of the permission ceiling or of a repository's tools: never one that names gh. These are
+ * not allowlists, so a broad rule such as `Bash(*)` stays; what reaches an attempt is checked by
+ * `BrewerAllowedTool` (ADR 0082).
+ */
+export const CeilingTool = AllowedTool.refine(
+  (rule) => !namesGh(rule),
+  'Must not name gh, such as "Bash(gh *)": only the engine talks to GitHub, with the maintainer\'s gh login (ADR 0082)',
 );
 
 // git subcommands that update a remote, and `submodule` (`submodule foreach` runs a command). Not
@@ -89,20 +102,31 @@ const plainProgram = /^[a-z0-9._/\\:-]+$/;
 // The extensions Windows runs a program by (PATHEXT): `git.cmd` is git too.
 const windowsExtension = /\.(?:exe|com|bat|cmd)$/;
 const gitWord = /(?:^|[\s/\\'"])git(?:-[a-z0-9-]+)?(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
+const ghWord = /(?:^|[\s/\\'"])gh(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
+const gitSubcommand = /^\s+([a-z][a-z0-9-]*)(?=\s|$)/;
+// What follows a program can be read as written only in plain characters: anything else may be a
+// quote, an escape or an expansion of the shell a wrapper starts (`env g""h`, `env /usr/bin/g?`,
+// `cmd /c g^h`, `bash -c g\h` run gh), so it fails closed (review of #225).
+const plainRest = /^[\sa-z0-9._/:=@+,-]*$/;
 
 /**
- * Whether a shell rule may match git with no fixed subcommand, failing closed on the program word:
- * a whole shell; a star in or right after the program word (`*`, `/*`, `git*`); a program word
- * with a quote, `&`, `$` or an assignment, or in Bash a backslash, which quotes there; a wrapper
- * with a star, or with git after it; git's own `git-<name>` programs with a star, or one that
- * pushes; or git, by name or path, with an option, a quote or a star where the subcommand would
- * be, or with a subcommand that pushes or that a star could make into one. Lower case, since
- * PowerShell matches without case; `:*` is the older spelling of ` *`.
+ * What a rule lets a shell run, read from its program word: not a shell rule (`none`); any program
+ * (`any`: a whole shell, a star in or right after the program word, a program word with a quote,
+ * `&`, `$` or an assignment, or in Bash a backslash, which quotes there); or a program by its
+ * name, without its path and Windows extension, with what follows it up to the first star, and
+ * whether that can be read as written. `any` keeps the name of a plain program word with a star
+ * right after it (`gh*`). Lower case, since PowerShell matches without case; `:*` is the older
+ * spelling of ` *`.
  */
-function reachesAnyGitCommand(rule: string): boolean {
+type ShellProgram =
+  | { kind: 'none' }
+  | { kind: 'any'; name?: string }
+  | { kind: 'program'; name: string; rest: string; star: boolean; unreadable: boolean };
+
+function shellProgramOf(rule: string): ShellProgram {
   const { tool, specifier } = parseRule(rule);
-  if (!commandTools.has(tool)) return false;
-  if (specifier === undefined) return true;
+  if (!commandTools.has(tool)) return { kind: 'none' };
+  if (specifier === undefined) return { kind: 'any' };
   const command = (specifier.endsWith(':*') ? `${specifier.slice(0, -2)} *` : specifier)
     .trimStart()
     .toLowerCase();
@@ -110,20 +134,75 @@ function reachesAnyGitCommand(rule: string): boolean {
   const fixed = star === -1 ? command : command.slice(0, star);
   const program = /^\S*/.exec(fixed)?.[0] ?? '';
   const rest = fixed.slice(program.length);
-  if (star !== -1 && rest === '') return true;
-  if (!plainProgram.test(program)) return true;
-  if (tool === 'Bash' && program.includes('\\')) return true;
+  if (!plainProgram.test(program)) return { kind: 'any' };
+  if (tool === 'Bash' && program.includes('\\')) return { kind: 'any' };
   const name = (program.split(/[/\\]/).at(-1) ?? '').replace(windowsExtension, '');
-  if (wrappers.has(name)) return star !== -1 || gitWord.test(rest);
-  if (name.startsWith('git-')) return star !== -1 || pushingSubcommands.includes(name.slice(4));
+  if (star !== -1 && rest === '') return { kind: 'any', name };
+  const unreadable = !plainRest.test(rest);
+  return { kind: 'program', name, rest, star: star !== -1, unreadable };
+}
+
+/**
+ * Whether a shell rule may match git with no fixed subcommand, failing closed on the program word:
+ * any program (`shellProgramOf`); a wrapper with a star, with what follows it unreadable, or with
+ * git after it; git's own
+ * `git-<name>` programs with a star, or one that pushes; or git, by name or path, with an option,
+ * a quote or a star where the subcommand would be, or with a subcommand that pushes or that a
+ * star could make into one.
+ */
+function reachesAnyGitCommand(rule: string): boolean {
+  const program = shellProgramOf(rule);
+  if (program.kind !== 'program') return program.kind === 'any';
+  const { name, rest, star, unreadable } = program;
+  if (wrappers.has(name)) return star || unreadable || gitWord.test(rest);
+  if (name.startsWith('git-')) return star || pushingSubcommands.includes(name.slice(4));
   if (name !== 'git') return false;
-  const subcommand = /^\s+([a-z][a-z0-9-]*)(?=\s|$)/.exec(rest);
+  const subcommand = gitSubcommand.exec(rest);
   if (subcommand === null) return true;
   const [whole, word = ''] = subcommand;
-  const extendable = star !== -1 && whole.length === rest.length;
+  const extendable = star && whole.length === rest.length;
   return pushingSubcommands.some(
     (pushing) => pushing === word || (extendable && pushing.startsWith(word)),
   );
+}
+
+/** Whether a shell rule names gh: gh by name or path, or a wrapper with gh after it (ADR 0082). */
+function namesGh(rule: string): boolean {
+  const program = shellProgramOf(rule);
+  if (program.kind === 'none') return false;
+  if (program.name === 'gh') return true;
+  return program.kind === 'program' && wrappers.has(program.name) && ghWord.test(program.rest);
+}
+
+/**
+ * Whether a shell rule may start gh, failing closed as `reachesAnyGitCommand` does: any program,
+ * a rule that names gh with any arguments, a wrapper with a star or with what follows it
+ * unreadable, or git asking its credential helper for the login (ADR 0082).
+ */
+function reachesGh(rule: string): boolean {
+  const program = shellProgramOf(rule);
+  if (program.kind !== 'program') return program.kind === 'any';
+  if (namesGh(rule)) return true;
+  const { name, rest, star, unreadable } = program;
+  if (wrappers.has(name)) return star || unreadable;
+  return asksGitCredential(name, rest, star);
+}
+
+const credential = 'credential';
+
+/**
+ * Whether a git rule may ask git's credential helper, which on a Brewery is `gh auth
+ * git-credential` (ADR 0073), for the login: `git credential`, `git credential-<helper>`,
+ * `git-credential-<helper>`, or a star that could make the subcommand into one (`git c*`).
+ */
+function asksGitCredential(name: string, rest: string, star: boolean): boolean {
+  if (name.startsWith('git-')) return name.slice(4).startsWith(credential);
+  if (name !== 'git') return false;
+  const subcommand = gitSubcommand.exec(rest);
+  if (subcommand === null) return false;
+  const [whole, word = ''] = subcommand;
+  const extendable = star && whole.length === rest.length;
+  return word.startsWith(credential) || (extendable && credential.startsWith(word));
 }
 
 // Tools whose specifier is a command (Claude Code splits it on shell operators) or a path
