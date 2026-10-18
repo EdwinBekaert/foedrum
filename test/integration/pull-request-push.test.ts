@@ -70,8 +70,15 @@ describe('the openPullRequest push with real git', () => {
   });
   afterEach(() => store.close());
 
-  /** Brews batch 12-1 of the ale recipe, whose plan commits plan.txt, to the end of one tick. */
-  const brew = async () => {
+  /** The plan's work in its worktree, by default a commit of plan.txt. */
+  const commitPlan = (path: string): void => {
+    writeFileSync(join(path, 'plan.txt'), 'plan\n');
+    git(path, ['add', 'plan.txt']);
+    git(path, ['commit', '-q', '-m', 'Plan']);
+  };
+
+  /** Brews batch 12-1 of the ale recipe, whose plan does `work`, to the end of one tick. */
+  const brew = async (work: (path: string) => void = commitPlan) => {
     const clock = () => new Date('2026-10-18T12:00:00.000Z');
     const requests: PullRequestRequest[] = [];
     const host: PullRequestHost = {
@@ -93,10 +100,7 @@ describe('the openPullRequest push with real git', () => {
       return started.worktree.path;
     };
     const runner = fakeBrewerRunner(({ ref }) => {
-      const path = worktreeOf(ref);
-      writeFileSync(join(path, 'plan.txt'), 'plan\n');
-      git(path, ['add', 'plan.txt']);
-      git(path, ['commit', '-q', '-m', 'Plan']);
+      work(worktreeOf(ref));
       return behave.succeed();
     });
     driver = await openDriver({
@@ -178,5 +182,25 @@ describe('the openPullRequest push with real git', () => {
       failed?.kind === 'effect_failed' ? (failed.error as Error).message : '',
       /^git push failed: /,
     );
+  });
+
+  it('pushes nothing for a plan that committed nothing while main moved on (review of #198)', async () => {
+    const other = join(dir.path, `other-${runs}`);
+    git(dir.path, ['clone', '-q', origin, other]);
+    const { state, requests } = await brew(() => {
+      // Someone merges into main while the plan runs, and the clone fetches it.
+      git(other, ['commit', '-q', '--allow-empty', '-m', 'Merged meanwhile']);
+      git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/main']);
+      git(user, ['fetch', '-q', 'origin']);
+    });
+    assert.equal(git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]), '');
+    assert.deepEqual(requests, []);
+    assert.equal(state.batches.get('12-1')?.lane.kind, 'stuck');
+    const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
+    assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+    });
   });
 });

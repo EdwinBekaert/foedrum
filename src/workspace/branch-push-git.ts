@@ -56,6 +56,9 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       }
       return commit;
     },
+    isAncestor: async () => {
+      throw new Error('not implemented');
+    },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;
       const listed = await must(['ls-remote', '--refs', remote, ref], aborts(signal));

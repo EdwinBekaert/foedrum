@@ -29,7 +29,7 @@ const from = 'refs/heads/foedrum/12-1/implement/1';
  * A clone whose revisions name `tip`, but for `origin/main` at `main`, and a remote with the
  * branches it was pushed.
  */
-const fakePush = (remote: Record<string, string> = {}, main = base) => {
+const fakePush = (remote: Record<string, string> = {}, main = base, behind: string[] = []) => {
   const asked: string[] = [];
   const pushes: string[] = [];
   const target: BranchPush = {
@@ -37,6 +37,8 @@ const fakePush = (remote: Record<string, string> = {}, main = base) => {
       asked.push(revision);
       return revision === 'origin/main' ? main : tip;
     },
+    // A commit is an ancestor of itself, and of the base when the base moved past it.
+    isAncestor: async (commit, of) => commit === of || (of === main && behind.includes(commit)),
     remoteTip: async (name) => remote[name],
     push: async (commit, name) => {
       pushes.push(`${commit} ${name}`);
@@ -114,11 +116,12 @@ const actionsWith = (
   options: {
     remote?: Record<string, string>;
     main?: string;
+    behind?: string[];
     opened?: Record<string, string>;
     answer?: string;
   } = {},
 ) => {
-  const pushed = fakePush(options.remote, options.main);
+  const pushed = fakePush(options.remote, options.main, options.behind);
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
@@ -336,5 +339,16 @@ describe('pullRequestActions: the recorded push is read by its schema (review of
         reason: 'the ledger holds a push of batch 12-1 that is not one the engine records',
       });
     }
+  });
+});
+
+describe('pullRequestActions: a task tree the base has moved past (review of #198)', () => {
+  it('records it as nothing to push: the base already holds every commit of it', async () => {
+    const { actions, pushes } = actionsWith({ behind: [tip] });
+    keysOf(brewing(), actions);
+    const nothing = { branch, commit: tip, from, empty: true };
+    assert.deepEqual(await actions.target.apply(push), nothing);
+    assert.deepEqual(await actions.target.find(push), { result: nothing });
+    assert.deepEqual(pushes, []);
   });
 });

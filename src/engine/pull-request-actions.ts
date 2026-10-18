@@ -48,6 +48,8 @@ export interface PullRequestHost {
 export interface BranchPush {
   /** The commit `revision` names in the clone; throws when it names none. */
   commit(revision: string, signal?: AbortSignal): Promise<string>;
+  /** Whether the commit `commit` is the commit `of` or one of its ancestors: both full shas. */
+  isAncestor(commit: string, of: string, signal?: AbortSignal): Promise<boolean>;
   /** The commit the remote's branch `branch` points at, or `undefined` when it has no such branch. */
   remoteTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Pushes `commit` to the remote's branch `branch`, never by force. */

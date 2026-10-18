@@ -84,6 +84,37 @@ describe('openBranchPush: remoteTip', () => {
   });
 });
 
+describe('openBranchPush: isAncestor (review of #198)', () => {
+  it('asks merge-base in the clone, and reads its exit code', async () => {
+    const other = 'd'.repeat(40);
+    const yes = recordingGit(() => ok());
+    assert.equal(await openBranchPush({ git: yes.git, clone }).isAncestor(TIP, other), true);
+    assert.deepEqual(
+      yes.calls.map(({ cwd, args }) => [cwd, ...args]),
+      [[clone, 'merge-base', '--is-ancestor', TIP, other]],
+    );
+    const no = openBranchPush({ git: recordingGit(() => failed('')).git, clone });
+    assert.equal(await no.isAncestor(TIP, other), false);
+  });
+
+  it('fails when git does, and refuses a commit that is no full sha before git runs', async () => {
+    const broken = recordingGit(() => ({
+      code: 128,
+      stdout: '',
+      stderr: 'fatal: Not a valid commit name\n',
+    }));
+    await assert.rejects(openBranchPush({ git: broken.git, clone }).isAncestor(TIP, TIP), {
+      message: 'git merge-base failed: fatal: Not a valid commit name',
+    });
+    const { git, calls } = recordingGit();
+    await assert.rejects(
+      openBranchPush({ git, clone }).isAncestor('HEAD', TIP),
+      /HEAD is no full commit sha/,
+    );
+    assert.deepEqual(calls, []);
+  });
+});
+
 describe('openBranchPush: push', () => {
   it("pushes the commit to the remote's branch without force and without the user's hooks", async () => {
     const { git, calls } = recordingGit();

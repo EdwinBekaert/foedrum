@@ -81,6 +81,7 @@ const codeHost = (kills: readonly KillPoint[]) => {
       point('before the push reached the remote');
       return revision === 'origin/main' ? 'b'.repeat(40) : FAKE_COMMIT;
     },
+    isAncestor: async (commit, of) => commit === of,
     remoteTip: async (branch) => remote.get(branch),
     push: async (commit, branch) => {
       point('before the push reached the remote');
