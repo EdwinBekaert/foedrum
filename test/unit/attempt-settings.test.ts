@@ -34,10 +34,43 @@ describe('attemptSettings', () => {
   // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed.
   it('requires the sandbox to run when the isolation level relies on it', () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
-    assert.deepEqual(settings.sandbox, {
-      enabled: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
+    assert.equal(settings.sandbox?.enabled, true);
+    assert.equal(settings.sandbox?.failIfUnavailable, true);
+    assert.equal(settings.sandbox?.allowUnsandboxedCommands, false);
+  });
+
+  // #234: by default Claude Code runs every sandboxed Bash command without asking, whatever the
+  // allow rules say, dontAsk included (ADR 0087).
+  it('lets the allow rules decide for sandboxed commands too', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    assert.equal(settings.sandbox?.autoAllowBashIfSandboxed, false);
+  });
+
+  // A sandboxed command reads most of the machine and inherits Claude Code's environment, and
+  // Claude Code has no credential deny list of its own (ADR 0087).
+  it('hides the credential files and variables from sandboxed commands', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    assert.deepEqual(settings.sandbox?.credentials, {
+      files: [
+        '~/.config/gh',
+        '~/.git-credentials',
+        '~/.config/git/credentials',
+        '~/.ssh',
+        '~/.aws',
+        '~/.npmrc',
+        '~/.claude/.credentials.json',
+        '~/.config/anthropic',
+      ].map((path) => ({ path, mode: 'deny' })),
+      envVars: [
+        'GH_TOKEN',
+        'GITHUB_TOKEN',
+        'GH_ENTERPRISE_TOKEN',
+        'GITHUB_ENTERPRISE_TOKEN',
+        'NPM_TOKEN',
+        'ANTHROPIC_API_KEY',
+        'ANTHROPIC_AUTH_TOKEN',
+        'CLAUDE_CODE_OAUTH_TOKEN',
+      ].map((name) => ({ name, mode: 'deny' })),
     });
   });
 
@@ -296,6 +329,28 @@ describe('writeAttemptSettings', () => {
         permissions: { allow: [], deny: ['AskUserQuestion'] },
         sandbox: { enabled: true, failIfUnavailable: false, allowUnsandboxedCommands: false },
       },
+    ],
+    [
+      'a sandbox that runs every sandboxed command without the allow rules',
+      {
+        permissions: { allow: [], deny: ['AskUserQuestion'] },
+        sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      },
+      /autoAllowBashIfSandboxed/,
+    ],
+    [
+      'a sandbox that leaves a credential readable',
+      {
+        permissions: { allow: [], deny: ['AskUserQuestion'] },
+        sandbox: {
+          enabled: true,
+          failIfUnavailable: true,
+          allowUnsandboxedCommands: false,
+          autoAllowBashIfSandboxed: false,
+          credentials: { files: [{ path: '~/.ssh', mode: 'deny' }], envVars: [] },
+        },
+      },
+      /Must hide every credential/,
     ],
   ] as const) {
     it(`refuses ${what}, and writes nothing`, () => {
