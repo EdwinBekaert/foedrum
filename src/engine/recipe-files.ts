@@ -93,6 +93,12 @@ export type LoadedRecipes =
 /** What doctor and a refused command say when the files are not valid. */
 export const INVALID_RECIPES = "the Brewery's recipes are not valid";
 
+/**
+ * The most text one input of a brewer may hold: it reaches the prompt on stdin, and the event log
+ * through the out doc. A lens is held to it when the brewer loads (ADR 0098).
+ */
+export const MAX_INPUT_BYTES = 1024 * 1024;
+
 /** The longest deadline a step may have: a year. */
 const MAX_DEADLINE_MS = durationMs('365d');
 
@@ -381,13 +387,21 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const files = filesInUse(breweryFiles);
   // A lens has no frontmatter: its file's name is its name, and its text is all of it.
   const lenses = new Map<string, Lens>();
+  // A lens whose file has a problem of its own is reported once, as that file.
+  const brokenLenses = new Set<string>();
   for (const file of files.lenses) {
+    const name = nameOf(file.path);
     if ('unreadable' in file) {
       problems.push(`${file.path}: ${file.unreadable}`);
-      continue;
+      brokenLenses.add(name);
+    } else if (Buffer.byteLength(file.text, 'utf8') > MAX_INPUT_BYTES) {
+      problems.push(
+        `${file.path}: it is larger than ${MAX_INPUT_BYTES} bytes, the limit of a brewer's input (ADR 0098)`,
+      );
+      brokenLenses.add(name);
+    } else {
+      lenses.set(name, { name, path: file.path, text: file.text });
     }
-    const name = nameOf(file.path);
-    lenses.set(name, { name, path: file.path, text: file.text });
   }
   const brewers = new Map(
     readAll(
@@ -401,7 +415,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         const unknown: string[] = [];
         for (const input of brewer.inputs) {
           const lens = lensOf(input.from);
-          if (lens === undefined) continue;
+          if (lens === undefined || brokenLenses.has(lens)) continue;
           const found = lenses.get(lens);
           if (found !== undefined) named.set(lens, found);
           else {
@@ -485,7 +499,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         const found = brewers.get(runnable.brewer);
         if (found === undefined) {
           if (!brewerFiles.has(runnable.brewer)) {
-            problems.push(`${path}: it names no brewer "${runnable.brewer}" the Brewery has`);
+            problems.push(
+              `${path}: it names no brewer "${runnable.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
+            );
           }
           return [];
         }
