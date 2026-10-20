@@ -410,6 +410,35 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     assert.deepEqual(measured, [fileC]);
   });
 
+  // Other sessions' load outlasts the run, so one run alone can still be over (#248).
+  it('measures a file alone up to three times, stopping at the first reading within the budget', async () => {
+    const readings = [5900, 4100, 1000];
+    let calls = 0;
+    const remeasure = async () => readings[calls++];
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.equal(calls, 2);
+    assert.ok(
+      lines.some((line) =>
+        line.includes('6.00 s of CPU time in the run, over the 5 s budget, and 4.10 s alone'),
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it('fails a file over the budget in all three runs alone, with the lowest reading', async () => {
+    const readings = [5900, 5300, 5600];
+    let calls = 0;
+    const remeasure = async () => readings[calls++];
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, true);
+    assert.equal(calls, 3);
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /used 5\.30 s of CPU time alone \(6\.00 s in the run\)/,
+    );
+  });
+
   it('measures the files one at a time, once the run has ended', async () => {
     let ended = false;
     let running = 0;
