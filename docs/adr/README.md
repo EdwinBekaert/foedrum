@@ -52,7 +52,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057, 0062 and 0087 |
 | [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted, amended by 0048, 0057 and 0091 |
 | [0048](0048-retried-pre-stream-failures-commit-detection-and-out-doc-identity.md) | Retried failures before the stream, commit detection, and the out doc's identity (amends 0047) | Accepted |
-| [0049](0049-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted, amended by 0057 |
+| [0049](0049-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted, amended by 0057 and 0093 |
 | [0050](0050-the-intake-of-target-repository-issues.md) | The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines (amends 0008, 0043 and 0044) | Accepted, amended by 0052 and 0068 |
 | [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) | Chaos runs on the real driver, with two drivers and a terminal on one store (amends 0033 and 0044) | Accepted, amended by 0055 and 0061 |
 | [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) | GitHub reads: conditional requests, rate-limit pauses and the polling interval (amends 0008 and 0050) | Accepted, amended by 0068, 0072 and 0073 |
@@ -90,6 +90,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md) | Out doc text that looks like a secret is left out of the pull request and the status comment (amends 0071, 0072, 0079 and 0082) | Accepted |
 | [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) | A file over the test budget is measured again alone (amends 0036 and 0054) | Accepted |
 | [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
+| [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049) | Accepted |
 
 ## Template
 
