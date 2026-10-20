@@ -36,7 +36,7 @@ const recordingGit = (answer: (args: readonly string[]) => GitResult = () => ok(
 
 /** What every local git call in the clone runs with: no transport, hook or fsmonitor (ADR 0096). */
 const IN_CLONE = {
-  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none' },
+  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' },
   config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
 };
 /** What every call in Foedrum's own git directory runs with: no hook, gc or maintenance. */
@@ -645,7 +645,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         // A partial clone would fetch a missing object, so a key asked of cat-file would leave.
         GIT_NO_LAZY_FETCH: '1',
         // No transport, whatever protocol.<name>.allow the clone says (ADR 0096).
-        GIT_ALLOW_PROTOCOL: 'none',
+        GIT_ALLOW_PROTOCOL: '',
       });
       assert.deepEqual(options?.config, {
         'core.attributesFile': devNull,

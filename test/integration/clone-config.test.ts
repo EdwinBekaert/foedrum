@@ -166,6 +166,25 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
     });
   }
 
+  it('fetches past a branch the remote deleted and made again as a folder, which the clone still tracks (review of #266)', async () => {
+    git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/x']);
+    git(user, ['fetch', '-q', 'origin']);
+    git(other, ['push', '-q', 'origin', ':refs/heads/x']);
+    const main = commit(other, 'merged.txt');
+    git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/x/y', 'HEAD:refs/heads/main']);
+    const worktrees = openAttemptWorktrees({
+      git: runGit,
+      workRoot: join(run, 'work'),
+      repo: 'acme/app',
+      clone: user,
+      own: { url: origin, root: join(run, 'git') },
+    });
+    assert.equal((await worktrees.create(attempt, 'origin/main')).commit, main);
+    const tracked = git(user, ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin/']);
+    assert.match(tracked, /^refs\/remotes\/origin\/x\/y$/m);
+    assert.doesNotMatch(tracked, /^refs\/remotes\/origin\/x$/m);
+  });
+
   it("pushes and fetches for a managed repository's blobless clone, whose objects it shares, while main changes a file the clone has no copy of (review of #266)", async () => {
     // A file long enough that the server sends a change to it as a delta of the old one.
     const lines = Array.from({ length: 4000 }, (_, i) => `line ${i} of a long file`);

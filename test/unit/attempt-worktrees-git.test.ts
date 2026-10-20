@@ -89,6 +89,7 @@ describe('openAttemptWorktrees with a fake git', () => {
           '--no-write-fetch-head',
           '--no-recurse-submodules',
           '--no-auto-maintenance',
+          '--prune',
           '--end-of-options',
           url,
           '+refs/heads/*:refs/remotes/origin/*',
@@ -140,6 +141,34 @@ describe('openAttemptWorktrees with a fake git', () => {
         'maintenance.auto': 'false',
       });
       assert.equal(existsSync(join(own, 'f1.git')), false);
+    });
+
+    it('prunes the tracking refs the remote no longer has, before the updates, and keeps origin/HEAD (review of #266)', async () => {
+      const OLD = 'a'.repeat(40);
+      const { calls, options, git } = fakeGit((cwd, args) => {
+        if (args.includes('for-each-ref')) {
+          // The remote deleted x and made x/y: git cannot have both refs at once.
+          const before = `${BASE} refs/remotes/origin/HEAD\n${BASE} refs/remotes/origin/main\n${OLD} refs/remotes/origin/x\n`;
+          const after = `${BASE} refs/remotes/origin/main\n${TIP} refs/remotes/origin/x/y\n`;
+          return ok(cwd === clone ? before : after);
+        }
+        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse') return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+
+      await open(git).create(attempt, 'origin/main');
+
+      const fetch = calls.find((call) => call.includes('fetch'));
+      assert.ok(fetch?.includes('--prune'), fetch?.join(' '));
+      const written = calls.flatMap((call, i) =>
+        call[0] === clone && call.includes('update-ref') ? [options[i]?.stdin] : [],
+      );
+      assert.deepEqual(written, [
+        `delete refs/remotes/origin/x ${OLD}\n`,
+        `update refs/remotes/origin/x/y ${TIP}\n`,
+      ]);
     });
 
     it('fetches into a partial clone with its filter, from the URL Foedrum names as a promisor of its own git directory, so a delta of a file the clone lacks resolves (review of #266)', async () => {
@@ -202,7 +231,7 @@ describe('openAttemptWorktrees with a fake git', () => {
         assert.equal(config?.['protocol.allow'], 'never', call.join(' '));
         assert.equal(env?.GIT_NO_LAZY_FETCH, '1', call.join(' '));
         // Over any protocol.<name>.allow of the clone's configuration (review of #266).
-        assert.equal(env?.GIT_ALLOW_PROTOCOL, 'none', call.join(' '));
+        assert.equal(env?.GIT_ALLOW_PROTOCOL, '', call.join(' '));
       }
     });
 
