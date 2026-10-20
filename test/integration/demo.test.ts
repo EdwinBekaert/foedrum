@@ -32,9 +32,15 @@ describe('npm run demo', () => {
     // identity from the user and host names, which it would on a host whose name has a dot.
     const noIdentity = join(dir.path, 'gitconfig');
     writeFileSync(noIdentity, '[user]\n\tuseConfigOnly = true\n');
+    // Nor any identity or configuration the host's environment would give git.
+    const hostGit =
+      /^(?:GIT_AUTHOR_|GIT_COMMITTER_|EMAIL$|GIT_CONFIG_(?:COUNT|KEY_|VALUE_|PARAMETERS))/i;
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !hostGit.test(name)),
+    );
     const result = await execProcess(process.execPath, [demo, '--in', scratch], {
       cwd: root,
-      env: { ...process.env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
+      env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
       // Only a guard against a hang (ADR 0075).
       timeoutMs: hangGuardMs,
     });
