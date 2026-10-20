@@ -39,7 +39,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) | Chaos tests: effects found by their key, and a driver's leases at its start (amends 0024) | Accepted, amended by 0037, 0043, 0044, 0051 and 0072 |
 | [0034](0034-brett-mutants-as-structured-line-edits.md) | Brett’s mutants are one-line structured edits, not patches (amends 0017) | Accepted, amended by 0040 and 0054 |
 | [0035](0035-the-process-runner-kills-at-an-output-limit.md) | The process runner kills a process at an output limit | Accepted |
-| [0036](0036-test-budget-in-cpu-time.md) | The per-file test budget is CPU time (amends 0021) | Accepted, amended by 0038 and 0054 |
+| [0036](0036-test-budget-in-cpu-time.md) | The per-file test budget is CPU time (amends 0021) | Accepted, amended by 0038, 0054 and 0089 |
 | [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) | Attempt worktrees in the engine, the Brewery marker and driver locks (amends 0029 and 0033) | Accepted, amended by 0061, 0063, 0066 and 0081 |
 | [0038](0038-npm-test-processes-refuse-process-starts.md) | npm test's processes refuse to start processes (amends 0021 and 0036) | Accepted |
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
@@ -87,6 +87,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) | The out doc contract names the attempt's shell commands (amends 0074) | Accepted, amended by 0087 |
 | [0086](0086-the-test-layer-guard-refuses-integration-tests-that-can-start-the-real-gh.md) | The test-layer guard refuses integration tests that can start the real `gh` (amends 0021) | Accepted |
 | [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) | Sandboxed commands go through the allow rules, and never see the credentials Foedrum names (amends 0042, 0046 and 0085) | Accepted |
+| [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) | A file over the test budget is measured again alone (amends 0036) | Accepted |
 
 ## Template
 
