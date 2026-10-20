@@ -54,6 +54,8 @@ const succeeded: Ending = {
 const handRunner = () => {
   const running = new Map<string, (end: AttemptEnd) => void>();
   const failing = new Map<string, (error: Error) => void>();
+  // The attempts whose end rejected: a broken runner may report them on, also after their stop.
+  const broken = new Set<string>();
   const started: AttemptRef[] = [];
   const stopped: string[] = [];
   const runner: BrewerRunner = {
@@ -74,7 +76,7 @@ const handRunner = () => {
       };
     },
     progress: (ref) =>
-      running.has(attemptKey.encode(ref))
+      running.has(attemptKey.encode(ref)) || broken.has(attemptKey.encode(ref))
         ? { lastProgressAt: t0, turnsWithoutProgress: 0 }
         : undefined,
   };
@@ -88,12 +90,13 @@ const handRunner = () => {
   };
   /**
    * Rejects the end of the running attempt `ref` with `error`: the runner itself broke. It still
-   * reports the attempt's progress, as a broken runner may.
+   * reports the attempt's progress, also after its stop, as a broken runner may.
    */
   const reject = (ref: AttemptRef, error: Error): void => {
     const key = attemptKey.encode(ref);
     const fail = failing.get(key);
     assert.ok(fail && running.has(key), `${key} runs`);
+    broken.add(key);
     fail(error);
   };
   return { runner, started, stopped, end, reject };
@@ -1402,7 +1405,8 @@ describe('openDriver', () => {
       // b2 went on: its plan#1 is recorded, and its implement#1 started.
       assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
       assert.deepStrictEqual(started.at(-1), { batchId: 'b2', stepId: 'implement', attempt: 1 });
-      // The runner still reports b1's plan#1, but its lease went, and the tick renews none of it.
+      // The runner still reports b1's plan#1 after its stop, but its lease went, and the tick
+      // renews none of it.
       const b1 = attemptKey.encode(plan('b1'));
       assert.ok(!store.currentLeases(now).some((lease) => lease.attemptKey === b1));
       now = at(4);
@@ -1480,6 +1484,52 @@ describe('openDriver', () => {
         retryable: false,
         reason: 'blocked (environment): the brewer runner failed without a message',
       });
+    });
+
+    /** Opens a driver on a run that rejects with `error` and whose `stop` is `stop`, and drives on. */
+    const brokenRun = async (error: unknown, stop: () => void) => {
+      const notices: DriverNotice[] = [];
+      let fail: (reason: unknown) => void = () => {};
+      order('b1');
+      const driver = await open({
+        report: (notice) => notices.push(notice),
+        runner: {
+          ...handRunner().runner,
+          start: () => ({
+            ended: new Promise<AttemptEnd>((_, rejectWith) => {
+              fail = rejectWith;
+            }),
+            stop,
+          }),
+        },
+      });
+      await driver.drive();
+      fail(error);
+      await assert.doesNotReject(driver.drive());
+      assert.deepStrictEqual(store.currentLeases(now), []);
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'run_failed'),
+        [{ kind: 'run_failed', ref: plan('b1'), error }],
+      );
+      return driver;
+    };
+
+    it('records the end when the error of the broken run cannot be read', async () => {
+      const unreadable = Object.assign(new Error(), { message: 42 });
+      const driver = await brokenRun(unreadable, () => {});
+      assert.deepStrictEqual(outcomeOf(driver, plan('b1')), {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (environment): the brewer runner failed without a message',
+      });
+    });
+
+    it('records the end when the broken run cannot be stopped', async () => {
+      // A stop that throws: the driver must keep it from the test and record the end anyway.
+      const driver = await brokenRun(new Error('the stream reader broke'), () =>
+        assert.fail('the process is gone'),
+      );
+      assert.equal(outcomeOf(driver, plan('b1'))?.kind, 'failed');
     });
 
     it('stops the run whose end rejected, since its process may still run', async () => {
