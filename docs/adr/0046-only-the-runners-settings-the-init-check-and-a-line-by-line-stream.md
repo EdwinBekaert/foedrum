@@ -1,6 +1,6 @@
 # 0046. Only the runner's settings, the init check, and a stream read line by line
 
-Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) and [0042](0042-the-claude-command-line-and-stream-contract.md) · Amended by [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md), [0049](0049-reviewers-read-only-inside-the-checkout.md), [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) and [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) and [0042](0042-the-claude-command-line-and-stream-contract.md) · Amended by [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md), [0049](0049-reviewers-read-only-inside-the-checkout.md), [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) , [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) and [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md)
 
 ## Context
 [ADR 0042](0042-the-claude-command-line-and-stream-contract.md) fixed the `claude` command line and the stream the brewer runner reads, and left questions to the real runner (#11). The consultant's review of the spike ([#11, comment](https://github.com/EdwinBekaert/foedrum/issues/11#issuecomment-6215999983)) marked three of them as blocking: no real brewer may run before they are settled.

@@ -542,7 +542,7 @@ Claude Code's OS sandbox covers **shell commands only** and is available on macO
 
 | Level | Where | What Foedrum does |
 |---|---|---|
-| **Sandboxed** | macOS, Linux, WSL2 | Per-attempt settings enable `sandbox.enabled` with `allowUnsandboxedCommands: false`, writable paths limited to the worktree, network limited to an allowlist |
+| **Sandboxed** | macOS, Linux, WSL2 | Per-attempt settings enable `sandbox.enabled` with `allowUnsandboxedCommands: false` and `autoAllowBashIfSandboxed: false`, so the allow rules decide for sandboxed commands too, and hide the credential files and variables of ADR 0087 from them; writable paths limited to the worktree, network limited to an allowlist |
 | **Permissions only** | Native Windows | Strict tool allowlists, file-tool rules scoped to the worktree, minimal environment, `scope` guard. A warning is shown at start |
 | **Container** (optional, any OS with an OCI container runtime: Podman or Docker) | Anywhere | The brewer runner starts `claude` inside a container that mounts only the worktree |
 
