@@ -169,7 +169,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (common === undefined || format === undefined || common === '' || format === '') {
         throw new Error(`git rev-parse did not name the git directory of ${clone}`);
       }
-      // The clone's own origin/<base>, so the fetch brings only what the clone lacks.
+      // The clone's own origin/<base>: where the fetch starts.
       const known = await git(
         clone,
         [
@@ -182,7 +182,6 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         aborts(signal),
       );
       const have = known.stdout.trim();
-      const tip = known.code === 0 && SHA.test(have) ? [`--negotiation-tip=${have}`] : [];
       // Git in Foedrum's own directory reads that directory's configuration, never the clone's, which
       // a brewer can write (#200): no url.*.insteadOf, include, credential helper or hook of it.
       const own = [`--git-dir=${gitDir}`];
@@ -191,6 +190,16 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         aborts(signal),
       );
       const ref = `refs/heads/${name}`;
+      const objects = { GIT_OBJECT_DIRECTORY: join(common, 'objects') };
+      // The ref starts at the clone's base, never at what an earlier fetch left, which the clone may
+      // have pruned since: the fetch then brings only what the clone lacks, and git's check of what
+      // it brought stops there instead of walking a blobless clone's history to blobs it never had.
+      await must(
+        known.code === 0 && SHA.test(have)
+          ? [...own, 'update-ref', ref, have]
+          : [...own, 'update-ref', '-d', ref],
+        { ...aborts(signal), env: objects },
+      );
       await must(
         [
           ...own,
@@ -201,7 +210,6 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
           '--no-recurse-submodules',
           // A gc there would prune every object of the clone that its own refs do not reach.
           '--no-auto-maintenance',
-          ...tip,
           '--end-of-options',
           url,
           `+${ref}:${ref}`,
@@ -209,7 +217,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         {
           ...aborts(signal),
           timeoutMs: TRANSFER_TIMEOUT_MS,
-          env: { GIT_OBJECT_DIRECTORY: join(common, 'objects') },
+          env: objects,
           config: { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' },
         },
       );
