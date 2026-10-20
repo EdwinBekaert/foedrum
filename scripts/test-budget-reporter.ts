@@ -17,7 +17,7 @@
 // CPU time still grows with load: on a hybrid or hyper-threaded CPU the same work takes several
 // times the CPU time while other processes keep the cores busy (#248). So a file over the budget
 // or the ceiling in the run is run again alone, one at a time, once the run has ended and its own
-// files no longer load the machine, and the lower of the two readings counts (ADR 0089).
+// files no longer load the machine, up to three times, and the lowest reading counts (ADR 0089).
 //
 // The budget binds only files in test/unit/. Property and chaos files are costly by design:
 // their run count sets their time. They get a ceiling instead, so only a run count grown too
@@ -92,6 +92,9 @@ export interface BudgetOptions {
 
 // One file's run alone gets a minute: a unit file within the budget takes a few seconds.
 const REMEASURE_TIMEOUT_MS = 60_000;
+
+// How many times a file over the budget or the ceiling is run alone, at most.
+const REMEASURES = 3;
 
 export interface RemeasureOptions {
   // The node that runs the file, and the folder it runs in.
@@ -204,9 +207,15 @@ export const budgetReporter = ({
         cpuMs === undefined
           ? `took ${seconds(wallMs)} of wall time (no CPU time reported)`
           : `used ${seconds(cpuMs)} of CPU time`;
-      // Load only adds CPU time, so the lower of the two readings is the closer one (ADR 0089).
-      // One file at a time, once the run has ended, so they do not load each other.
-      const aloneMs = cpuMs === undefined ? undefined : await remeasure?.(path);
+      // Load only adds CPU time, so the lowest reading is the closest one (ADR 0089). One file at
+      // a time, once the run has ended, so they do not load each other; up to three runs, since
+      // other sessions' load can outlast the run.
+      let aloneMs: number | undefined;
+      for (let run = 0; cpuMs !== undefined && run < REMEASURES; run++) {
+        const reading = await remeasure?.(path);
+        if (reading !== undefined) aloneMs = Math.min(reading, aloneMs ?? reading);
+        if (aloneMs === undefined || aloneMs <= limit.ms) break;
+      }
       if (cpuMs !== undefined && aloneMs !== undefined) {
         if (aloneMs <= limit.ms) {
           yield `ℹ ${file} used ${seconds(cpuMs)} of CPU time in the run, ${overThe}, and ${seconds(aloneMs)} alone: the same work takes more CPU time on a loaded machine (ADR 0089)\n`;
