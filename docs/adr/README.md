@@ -94,6 +94,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
 | [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049 and 0057) | Accepted |
 | [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) | Reviewers show their evidence and mark pre-existing defects (amends 0017 and 0022) | Accepted |
+| [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) | `npm run demo` is a development script on serve's seams, with the tests' fakes | Accepted |
 
 ## Template
 
