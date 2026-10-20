@@ -53,13 +53,17 @@ const succeeded: Ending = {
 /** A runner whose attempts run until the test ends them. */
 const handRunner = () => {
   const running = new Map<string, (end: AttemptEnd) => void>();
+  const failing = new Map<string, (error: Error) => void>();
   const started: AttemptRef[] = [];
   const stopped: string[] = [];
   const runner: BrewerRunner = {
     start: ({ ref }: AttemptStart) => {
       started.push(ref);
       const key = attemptKey.encode(ref);
-      const ended = new Promise<AttemptEnd>((resolve) => running.set(key, resolve));
+      const ended = new Promise<AttemptEnd>((resolve, reject) => {
+        running.set(key, resolve);
+        failing.set(key, reject);
+      });
       return {
         ended,
         stop: () => {
@@ -82,7 +86,17 @@ const handRunner = () => {
     running.delete(key);
     resolve({ ending });
   };
-  return { runner, started, stopped, end };
+  /**
+   * Rejects the end of the running attempt `ref` with `error`: the runner itself broke. It still
+   * reports the attempt's progress, as a broken runner may.
+   */
+  const reject = (ref: AttemptRef, error: Error): void => {
+    const key = attemptKey.encode(ref);
+    const fail = failing.get(key);
+    assert.ok(fail && running.has(key), `${key} runs`);
+    fail(error);
+  };
+  return { runner, started, stopped, end, reject };
 };
 
 /** A code host that applies every effect it is asked to, counting each. */
@@ -1354,6 +1368,87 @@ describe('openDriver', () => {
         types(store, 'b1').filter((type) => type.startsWith('step.')),
         ['step.scheduled plan#1', 'step.started plan#1'],
       );
+    });
+  });
+
+  describe('a run whose end rejects (#130)', () => {
+    const outcomeOf = (driver: Driver, ref: AttemptRef) => {
+      const attempt = driver.state().batches.get(ref.batchId)?.steps.get(ref.stepId);
+      const found = attempt?.attempts.get(ref.attempt);
+      return found?.phase === 'finished' ? found.outcome : undefined;
+    };
+
+    it('blocks the attempt on its environment, lets its lease go and reports it, while the other runs end', async () => {
+      const { runner, started, reject, end } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      order('b2');
+      const driver = await open({ runner, report: (notice) => notices.push(notice) });
+      await driver.drive();
+      const broken = new Error('the stream reader broke');
+      reject(plan('b1'), broken);
+      end(plan('b2'));
+      await assert.doesNotReject(driver.drive());
+      assert.deepStrictEqual(outcomeOf(driver, plan('b1')), {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (environment): the stream reader broke',
+      });
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'run_failed'),
+        [{ kind: 'run_failed', ref: plan('b1'), error: broken }],
+      );
+      // b2 went on: its plan#1 is recorded, and its implement#1 started.
+      assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
+      assert.deepStrictEqual(started.at(-1), { batchId: 'b2', stepId: 'implement', attempt: 1 });
+      // The runner still reports b1's plan#1, but its lease went, and the tick renews none of it.
+      const b1 = attemptKey.encode(plan('b1'));
+      assert.ok(!store.currentLeases(now).some((lease) => lease.attemptKey === b1));
+      now = at(4);
+      await driver.tick();
+      assert.ok(!store.currentLeases(now).some((lease) => lease.attemptKey === b1));
+    });
+
+    it('lets its lease go when its finish is refused', async () => {
+      const { runner, reject } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      const driver = await open({ runner, report: (notice) => notices.push(notice) });
+      await driver.drive();
+      intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now);
+      reject(plan('b1'), new Error('gone'));
+      await assert.doesNotReject(driver.drive());
+      assert.deepStrictEqual(store.currentLeases(now), []);
+      assert.deepStrictEqual(
+        notices.map((notice) => notice.kind),
+        ['refused', 'run_failed'],
+      );
+    });
+
+    it('names something that is no Error by its text', async () => {
+      const { runner } = handRunner();
+      let fail: (reason: unknown) => void = () => {};
+      order('b1');
+      const driver = await open({
+        runner: {
+          ...runner,
+          start: () => ({
+            ended: new Promise<AttemptEnd>((_, rejectWith) => {
+              fail = rejectWith;
+            }),
+            stop: () => {},
+          }),
+        },
+      });
+      await driver.drive();
+      fail('a string');
+      await assert.doesNotReject(driver.drive());
+      assert.deepStrictEqual(outcomeOf(driver, plan('b1')), {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (environment): a string',
+      });
     });
   });
 

@@ -1127,6 +1127,11 @@ describe('formatNotice', () => {
         }),
         formatNotice({ kind: 'effect_failed', key, error: new Error('GitHub answered 502') }),
         formatNotice({
+          kind: 'run_failed',
+          ref: { batchId: '12-1', stepId: 'brew', attempt: 1 },
+          error: new Error('the stream reader broke'),
+        }),
+        formatNotice({
           kind: 'cleaned',
           batchId: '12-1',
           report: {
@@ -1149,6 +1154,7 @@ describe('formatNotice', () => {
         'a tick failed: boom',
         'batch 12-1 is driven by session-1 now',
         `the effect ${JSON.stringify(['12-1', 'brew', 1, 'comment'])} failed: GitHub answered 502`,
+        'the run of step brew#1 of batch 12-1 failed, so it is blocked on its environment: the stream reader broke',
         'cleaned batch 12-1: removed worktree 12-1/brew/1; could not clean x: busy',
         'cleaned batch 12-1: nothing to remove',
       ],

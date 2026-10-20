@@ -69,6 +69,11 @@ export type DriverNotice =
   | { kind: 'batch_lost'; batchId: string; holder: BatchLease }
   /** Applying an effect failed; the batch's other effects wait for the next pass. */
   | { kind: 'effect_failed'; key: EffectKey; error: unknown }
+  /**
+   * The runner's end of an attempt rejected: the attempt is blocked on its environment, and the
+   * other runs go on (ADR 0028).
+   */
+  | { kind: 'run_failed'; ref: AttemptRef; error: unknown }
   /** What a cleanup of an ended batch's worktrees did. */
   | { kind: 'cleaned'; batchId: string; report: CleanReport };
 
