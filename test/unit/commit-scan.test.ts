@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import {
   commitCandidates,
   MESSAGE,
+  scanHeaders,
   scanMessages,
   scanPatches,
 } from '../../src/formats/commit-scan.ts';
@@ -46,6 +47,80 @@ describe('scanMessages', () => {
     const log = `\0${C1}\nRevert ${'a'.repeat(40)}\n\nkey ${'b'.repeat(40)}\n`;
     const found = scanMessages(log, (sha) => sha === 'a'.repeat(40));
     assert.deepEqual(found, [{ commit: C1, place: MESSAGE, kind: 'long hexadecimal string' }]);
+  });
+});
+
+/** `git log --format=raw` output of one commit: its headers, then its message indented. */
+const raw = (commit: string, headers: string[], message = 'Plan'): string =>
+  [
+    `commit ${commit}`,
+    `tree ${'3'.repeat(40)}`,
+    `parent ${'4'.repeat(40)}`,
+    ...headers,
+    '',
+    ...message.split('\n').map((line) => `    ${line}`),
+    '',
+  ].join('\n');
+const person = (name: string, email = 'brewer@example.com') =>
+  `${name} <${email}> 1792484716 +0200`;
+
+describe('scanHeaders (review of #237)', () => {
+  it('names the author or the committer that holds a secret, never the text', () => {
+    const log = [
+      raw(C2, [`author ${person(token)}`, `committer ${person('Brewer')}`]),
+      raw(C1, [`author ${person('Brewer')}`, `committer ${person('Brewer', `${token}@x.y`)}`]),
+    ].join('\n');
+    const found = scanHeaders(log, none);
+    assert.deepEqual(found, [
+      { commit: C2, place: 'author', kind: 'GitHub token' },
+      { commit: C1, place: 'committer', kind: 'GitHub token' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(found), /A1b2/);
+  });
+
+  it('reads every other header the push carries: a signature, an encoding', () => {
+    const log = raw(C1, [
+      `author ${person('Brewer')}`,
+      `committer ${person('Brewer')}`,
+      `encoding ${token}`,
+      'gpgsig -----BEGIN PGP SIGNATURE-----',
+      ` ${token}`,
+      ' -----END PGP SIGNATURE-----',
+    ]);
+    assert.deepEqual(scanHeaders(log, none), [
+      { commit: C1, place: 'header encoding', kind: 'GitHub token' },
+      { commit: C1, place: 'header gpgsig', kind: 'GitHub token' },
+    ]);
+  });
+
+  it("does not take a real signature's armour for a key", () => {
+    const armour = 'iQIzBAABCAAdFiEE1a2B3c4D5e6F7g8H9i0J1k2L3m4FAmcUAbcACgkQ1a2B3c4D5e6F'.slice(
+      0,
+      64,
+    );
+    const log = raw(C1, [
+      `author ${person('Brewer')}`,
+      `committer ${person('Brewer')}`,
+      'gpgsig -----BEGIN PGP SIGNATURE-----',
+      ' ',
+      ` ${armour}`,
+      ` ${armour}`,
+      ' =Ab1c',
+      ' -----END PGP SIGNATURE-----',
+    ]);
+    assert.deepEqual(scanHeaders(log, none), []);
+  });
+
+  it('leaves the tree, the parents and the message to the other reads', () => {
+    const log = raw(C1, [`author ${person('Brewer')}`, `committer ${person('Brewer')}`], token);
+    assert.deepEqual(scanHeaders(log, none), []);
+  });
+
+  it('names a header whose name is no plain word without its name', () => {
+    const log = raw(C1, [`author ${person('Brewer')}`, `${token} ${token}`]);
+    assert.deepEqual(scanHeaders(log, none), [
+      { commit: C1, place: 'a header', kind: 'GitHub token' },
+    ]);
   });
 });
 

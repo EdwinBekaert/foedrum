@@ -46,6 +46,15 @@ export const scanMessages = (log: string, isCommit: IsCommit): ScanFinding[] => 
   return found.list();
 };
 
+/**
+ * The findings in the headers of each commit in the output of `git log --format=raw`: the author,
+ * the committer, and every other header the push carries and `%B` does not show (a signature, an
+ * encoding, a merged tag). The message, indented below them, is `scanMessages`' to read.
+ */
+export const scanHeaders = (_log: string, _isCommit: IsCommit): ScanFinding[] => {
+  throw new Error('not implemented');
+};
+
 // The path of `diff --git a/<path> b/<path>`, quoted as git quotes it: renames are off, so both
 // halves name the same file and the line splits in the middle, spaces in the path or not.
 const pathOf = (header: string): string => {

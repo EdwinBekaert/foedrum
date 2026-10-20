@@ -190,8 +190,18 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     '@@ -0,0 +1 @@',
     `+${token}`,
   ].join('\n');
+  const headers = [
+    `commit ${TIP}`,
+    `tree ${'f'.repeat(40)}`,
+    `author ${token} <brewer@example.com> 1792484716 +0200`,
+    'committer Brewer <brewer@example.com> 1792484716 +0200',
+    '',
+    '    Use the key',
+    '',
+  ].join('\n');
   const answers = (args: readonly string[]): GitResult => {
     if (args.includes('--patch')) return ok(patches);
+    if (args.includes('--format=raw')) return ok(headers);
     if (args[0] === 'log') return ok(messages);
     if (args[0] === 'cat-file') return ok(`${known} commit\n`);
     return failed('unexpected');
@@ -203,6 +213,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     const found = await openBranchPush({ git, clone }).secretScan(BASE, TIP);
     assert.deepEqual(found, [
       { commit: TIP, place: 'message', kind: 'GitHub token' },
+      { commit: TIP, place: 'author', kind: 'GitHub token' },
       { commit: TIP, place: 'keys.txt', kind: 'GitHub token' },
     ]);
     assert.deepEqual(
@@ -215,6 +226,17 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
           '--no-show-signature',
           '--encoding=UTF-8',
           '--format=%x00%H%n%B',
+          ...range,
+        ],
+        // Every header as stored: the author, the committer, a signature, an encoding (review of #237).
+        [
+          clone,
+          'log',
+          '--no-notes',
+          '--no-show-signature',
+          '--no-decorate',
+          '--no-mailmap',
+          '--format=raw',
           ...range,
         ],
         [
@@ -242,7 +264,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         [clone, 'cat-file', '--batch-check=%(objectname) %(objecttype)'],
       ],
     );
-    assert.equal(calls[2]?.options?.stdin, `${known}\n`);
+    assert.equal(calls[3]?.options?.stdin, `${known}\n`);
   });
 
   it('reads history as committed: no replace ref, graft or shallow file, attribute file or log setting of the clone changes it', async () => {
@@ -286,7 +308,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), []);
     assert.deepEqual(
       calls.map(({ args }) => args[0]),
-      ['log', 'log'],
+      ['log', 'log', 'log'],
     );
   });
 
@@ -336,7 +358,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     await openBranchPush({ git, clone }).secretScan(BASE, TIP, signal);
     assert.deepEqual(
       calls.map(({ options }) => options?.signal === signal),
-      [true, true, true],
+      [true, true, true, true],
     );
   });
 });

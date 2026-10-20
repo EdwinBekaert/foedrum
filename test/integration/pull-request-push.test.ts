@@ -250,6 +250,26 @@ describe('the openPullRequest push with real git', () => {
       assert.match(stopped(state, requests), new RegExp(`commit ${tip}, message: GitHub token`));
     });
 
+    // Review of #237: `git commit --author` matches a brewer's `Bash(git commit *)` rule.
+    it('stops the push of a commit whose author holds a credential', async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
+      });
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, author: GitHub token`));
+    });
+
+    it('stops the push of a commit whose encoding header holds a credential', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['-c', `i18n.commitEncoding=${token}`, 'commit', '-q', '-m', 'Plan']);
+      });
+      assert.match(stopped(state, requests), /, header encoding: GitHub token/);
+    });
+
     it("pushes a commit that names one of the clone's commits by its hash", async () => {
       const { state } = await brew((path) => {
         const start = git(path, ['rev-parse', 'HEAD']).trim();
