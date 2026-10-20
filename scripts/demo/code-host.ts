@@ -42,7 +42,7 @@ export const codeHost = async (journal: Journal): Promise<CodeHost> => {
     const { method, url, body } = JSON.parse(line) as Write;
     await api.fetch(url, { method, ...(body === undefined ? {} : { body }) });
   }
-  const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
+  const fetch: typeof globalThis.fetch = async (input, init = {}) => {
     const response = await api.fetch(input, init);
     const method = init.method ?? 'GET';
     // Only what changes something: the reads are answered again from the writes.
@@ -57,8 +57,8 @@ export const codeHost = async (journal: Journal): Promise<CodeHost> => {
     return response;
   };
   return {
-    exec: ghOver(fetch as typeof globalThis.fetch).exec,
-    fetch: fetch as typeof globalThis.fetch,
+    exec: ghOver(fetch).exec,
+    fetch,
     pulls: () => api.pulls,
     comments: (repo, issue) =>
       (api.comments.get(`${repo.toLowerCase()}#${issue}`) ?? []).map(({ author, body }) => ({
