@@ -15,6 +15,7 @@ import { readRecords } from '../src/workspace/worktree-records.ts';
 import {
   folderState,
   gitThrough,
+  noRepositoryCommands,
   type OkGitResult,
   removeWorktree,
 } from '../src/workspace/worktree-removal-git.ts';
@@ -133,7 +134,10 @@ export const cleanWorktrees = async (
 ): Promise<string[]> => {
   const main = await mainCheckoutOf(git, cwd);
   if (main === undefined) return ['skipped: not inside a git repository'];
-  const fetched = await git(main, ['fetch', '--prune', '--quiet', 'origin']);
+  // fetch reads the main checkout's index, and would run its core.fsmonitor command.
+  const fetched = await git(main, ['fetch', '--prune', '--quiet', 'origin'], {
+    config: noRepositoryCommands,
+  });
   if (!fetched.ok) return [`skipped: git fetch --prune origin failed: ${fetched.stderr.trim()}`];
   let facts: Gathered;
   try {
