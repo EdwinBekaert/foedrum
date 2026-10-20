@@ -1,6 +1,7 @@
 // What a batch's commits would publish that looks like a secret (ADR 0079), the pure core: the
-// messages and the added lines that `git log` shows for them, read with findSecrets. A finding
-// names the commit, the file (or the message) and the kind, never the text it matched.
+// messages, the headers and the added lines that `git log` shows for them, read with findSecrets.
+// A finding names the commit, the file (or the message, or the header) and the kind, never the
+// text it matched.
 
 import type { ScanFinding } from '../schemas/store.ts';
 import { findSecrets, type IsCommit } from './secrets.ts';
@@ -82,7 +83,9 @@ export const scanHeaders = (log: string, isCommit: IsCommit): ScanFinding[] => {
     }
     headers.length = 0;
   };
-  for (const line of log.split(/\r?\n/)) {
+  for (const stored of log.split('\n')) {
+    // git ends the headers only at an empty line, so a line that is only a CR is still a header.
+    const line = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
     const start = COMMIT_LINE.exec(line);
     if (start !== null) {
       flush();
@@ -90,7 +93,7 @@ export const scanHeaders = (log: string, isCommit: IsCommit): ScanFinding[] => {
       inHeaders = true;
     } else if (!inHeaders) {
       // The message, indented, is scanMessages' to read.
-    } else if (line === '') {
+    } else if (stored === '') {
       flush();
       inHeaders = false;
     } else if (line.startsWith(' ')) {
@@ -102,6 +105,17 @@ export const scanHeaders = (log: string, isCommit: IsCommit): ScanFinding[] => {
   flush();
   return found.list();
 };
+
+/** The commits of the output of `git log --format=%x00%H%n%B`, in order. */
+export const messageCommits = (log: string): string[] =>
+  log
+    .split('\0')
+    .slice(1)
+    .map((chunk) => chunk.split('\n', 1)[0] ?? '');
+
+/** The commits of the output of `git log --format=raw`, in order. */
+export const rawCommits = (log: string): string[] =>
+  log.split('\n').flatMap((line) => COMMIT_LINE.exec(line.replace(/\r$/, ''))?.[1] ?? []);
 
 // The path of `diff --git a/<path> b/<path>`, quoted as git quotes it: renames are off, so both
 // halves name the same file and the line splits in the middle, spaces in the path or not.

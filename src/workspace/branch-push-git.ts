@@ -6,6 +6,8 @@ import { devNull } from 'node:os';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
 import {
   commitCandidates,
+  messageCommits,
+  rawCommits,
   scanHeaders,
   scanMessages,
   scanPatches,
@@ -48,7 +50,20 @@ const AS_COMMITTED: GitOptions = {
 const SHOWN = ['--no-notes', '--no-show-signature'];
 const MESSAGES = ['log', ...SHOWN, '--encoding=UTF-8', '--format=%x00%H%n%B'];
 // Every header as stored, which %B leaves out: the author, the committer, a signature, an encoding.
-const HEADERS = ['log', ...SHOWN, '--no-decorate', '--no-mailmap', '--format=raw'];
+// Uncoloured, unabbreviated and not re-encoded, whatever the clone's color.ui, log.abbrevCommit or
+// i18n.logOutputEncoding say.
+const HEADERS = [
+  'log',
+  ...SHOWN,
+  '--no-decorate',
+  '--no-mailmap',
+  '--no-color',
+  '--no-abbrev-commit',
+  '--encoding=none',
+  '--format=raw',
+];
+/** When the headers read shows other commits than the messages read, something bent its output. */
+const UNREAD_HEADERS = 'headers git did not show as stored';
 const PATCHES = [
   'log',
   ...SHOWN,
@@ -159,6 +174,9 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const patches = headers === undefined ? undefined : await read([...PATCHES, ...range]);
       if (messages === undefined || headers === undefined || patches === undefined) {
         return [{ commit, place: `the commits from ${base}`, kind: TOO_LARGE }];
+      }
+      if (rawCommits(headers).join(' ') !== messageCommits(messages).join(' ')) {
+        return [{ commit, place: `the commits from ${base}`, kind: UNREAD_HEADERS }];
       }
       // A 40-character hexadecimal word is a key unless the clone has it as a commit; the commits'
       // own hashes, after each NUL, and their commit, tree and parent lines are not read.
