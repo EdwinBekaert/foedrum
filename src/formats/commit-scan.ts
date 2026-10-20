@@ -70,11 +70,9 @@ export const scanHeaders = (log: string, isCommit: IsCommit): ScanFinding[] => {
   const flush = (): void => {
     for (const { name, lines } of headers) {
       if (UNREAD_HEADERS.has(name)) continue;
-      const place = PEOPLE.has(name)
-        ? name
-        : HEADER_NAME.test(name)
-          ? `header ${name}`
-          : SECRET_HEADER;
+      // A name is published too: a finding never names one that looks like a secret.
+      const plain = HEADER_NAME.test(name) && findSecrets(name, isCommit).length === 0;
+      const place = PEOPLE.has(name) ? name : plain ? `header ${name}` : SECRET_HEADER;
       for (const { kind } of findSecrets(lines.join('\n'), isCommit)) {
         // A signature's armour is base64 by nature; a token in it is still found by its own kind.
         if (SIGNATURES.has(name) && kind === BASE64) continue;

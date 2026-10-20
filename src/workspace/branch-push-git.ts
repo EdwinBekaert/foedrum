@@ -179,10 +179,10 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         return [{ commit, place: `the commits from ${base}`, kind: UNREAD_HEADERS }];
       }
       // A 40-character hexadecimal word is a key unless the clone has it as a commit; the commits'
-      // own hashes, after each NUL, and their commit, tree and parent lines are not read.
-      const shown = `${messages}\n${headers}\n${patches}`
-        .replace(/\0[0-9a-f]{40}/g, '')
-        .replace(/^(?:commit|tree|parent) [0-9a-f]+$/gm, '');
+      // own hashes, after each NUL, and the headers read's commit, tree and parent lines are not
+      // read. A message's own `commit <sha>` line is asked as any other word.
+      const hashes = headers.replace(/^(?:commit|tree|parent) [0-9a-f]+$/gm, '');
+      const shown = `${messages}\n${hashes}\n${patches}`.replace(/\0[0-9a-f]{40}/g, '');
       const candidates = commitCandidates(shown);
       const commits = new Set<string>();
       if (candidates.length > 0) {
