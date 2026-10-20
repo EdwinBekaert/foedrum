@@ -75,15 +75,21 @@ export const scriptedBrewer = (options: ScriptedBrewerOptions): BrewerRunner => 
     progress: scripted.progress,
     start: (start) => {
       const run = scripted.start(start);
+      // A stop while git commits (a deadline, serve's own stop) ends the attempt; no crash after it.
+      let stopped = false;
+      const stop = (): void => {
+        stopped = true;
+        run.stop();
+      };
       const ended = commit(start).then((failure) => {
         if (failure !== undefined) {
           run.stop();
           return failed(failure);
         }
-        if (life === 'crash') crash();
+        if (life === 'crash' && !stopped) crash();
         return run.ended;
       });
-      return { ended, stop: run.stop };
+      return { ended, stop };
     },
   };
 };
