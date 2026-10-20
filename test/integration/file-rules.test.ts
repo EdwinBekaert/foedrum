@@ -134,6 +134,18 @@ describe('claude with the attempt settings of a brewer with bare file tools', {
     assert.equal(existsSync(join(outside, 'e.txt')), false);
   });
 
+  // Read(./**) keeps reads inside too: a brewer that read ~/.config/gh/hosts.yml could commit it
+  // (ADR 0049, ADR 0079).
+  it('denies Read outside the worktree and through a junction or link', async () => {
+    writeFileSync(join(outside, 'secret.txt'), 'the-secret-text');
+    symlinkSync(outside, join(worktree, 'link'), 'junction');
+    const denied = await run([
+      { name: 'Read', input: { file_path: join(outside, 'secret.txt') } },
+      { name: 'Read', input: { file_path: join(worktree, 'link', 'secret.txt') } },
+    ]);
+    assert.deepEqual(denied, ['Read', 'Read']);
+  });
+
   it('denies Write and Edit through a junction or link that leads outside', async () => {
     const link = join(worktree, 'link');
     symlinkSync(outside, link, 'junction');

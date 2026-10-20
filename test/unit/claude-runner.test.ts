@@ -637,6 +637,28 @@ describe('claudeBrewerRunner', () => {
     assert.deepEqual(calls, []);
   });
 
+  // A repository's toolchain rules reach the attempt unchecked by the brewer schema, and Claude
+  // Code never consults a Write path rule (ADR 0093).
+  it('fails, not retryably, and starts nothing, when a rule names a Write path', async () => {
+    const writing = plan();
+    const { calls, runner } = setup(
+      { lines: [], result: exited(0) },
+      {
+        plan: async () => ({
+          ...writing,
+          permissions: { ...writing.permissions, allow: ['Read', 'Write(brew.md)'] },
+        }),
+      },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(
+      end.ending.kind === 'failed' ? end.ending.reason : '',
+      /^the brewer could not start: .*write "Edit\(brew\.md\)"/s,
+    );
+    assert.deepEqual(calls, []);
+  });
+
   it('fails, not retryably, when the stream process itself throws', async () => {
     const { runner } = setup({ throws: new Error('spawn EMFILE') });
     const end = await runner.start(attempt).ended;
