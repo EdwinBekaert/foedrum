@@ -7,6 +7,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { execProcess } from '../src/platform/processes.ts';
 import { removeTree } from '../src/platform/remove.ts';
 import { runGit } from '../src/workspace/git.ts';
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
@@ -14,6 +15,7 @@ import { codeHost, fileJournal } from './demo/code-host.ts';
 import {
   BREWERY,
   breweryFiles,
+  gitConfig,
   type Life,
   localConfig,
   ORDER,
@@ -21,7 +23,6 @@ import {
   scratchFolder,
   TARGET,
 } from './demo/core.ts';
-import { spawnProcess } from './process-runner.ts';
 
 /** How long one life of the Cellar may take; it needs a few seconds. */
 const LIFE_MS = 120_000;
@@ -40,8 +41,12 @@ try {
   process.exit(2);
 }
 
+// Every git of the demo, its own and the Cellar's, reads only the demo's configuration: the
+// machine's global and system ones (an identity, signing, url rewrites, hooks) take no part.
+const ownGit = { GIT_CONFIG_GLOBAL: join(scratch, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+
 const git = async (cwd: string, args: string[]): Promise<void> => {
-  const result = await runGit(cwd, args, { config: DEMO_GIT_CONFIG });
+  const result = await runGit(cwd, args, { config: DEMO_GIT_CONFIG, env: ownGit });
   if (result.code !== 0) {
     throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${result.stderr.trim()}`);
   }
@@ -67,6 +72,7 @@ say(`demo: a scratch Brewery ${BREWERY} and its target ${TARGET} in ${scratch}`)
 // The last run's folder goes first: the demo always starts from nothing.
 await removeTree(scratch);
 mkdirSync(scratch, { recursive: true });
+write(ownGit.GIT_CONFIG_GLOBAL, gitConfig(join(scratch, 'web.git')));
 const web = await repository('web', { 'README.md': '# web\n' });
 const brewery = await repository('brewery', breweryFiles());
 write(join(brewery, '.foedrum', 'local.jsonc'), localConfig(join(scratch, 'work'), web));
@@ -77,7 +83,9 @@ say(
 const cellar = join(root, 'scripts', 'demo', 'cellar.ts');
 const live = async (life: Life, what: string) => {
   say(`demo: ${what}`);
-  const outcome = await spawnProcess(process.execPath, [cellar, scratch, life], root, {
+  const outcome = await execProcess(process.execPath, [cellar, scratch, life], {
+    cwd: root,
+    env: { ...process.env, ...ownGit },
     timeoutMs: LIFE_MS,
   });
   for (const line of outcome.output.trimEnd().split(/\r?\n/)) say(`  ${line}`);

@@ -42,8 +42,19 @@ export const IDENTITY = { name: 'Demo brewer', email: 'brewer@demo.invalid' };
  * demo's identity, no commit signing, and the target repository's URL on GitHub rewritten to the
  * scratch `remote`, so serve's own fetches and pushes reach it and never github.com.
  */
-export const gitConfig = (_remote: string): string => {
-  throw new Error('not implemented');
+export const gitConfig = (remote: string): string => {
+  // A subsection name is quoted: its backslashes and double quotes are escaped.
+  const subsection = remote.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  return [
+    '[user]',
+    `\tname = ${IDENTITY.name}`,
+    `\temail = ${IDENTITY.email}`,
+    '[commit]',
+    '\tgpgsign = false',
+    `[url "${subsection}"]`,
+    `\tinsteadOf = https://github.com/${TARGET}.git`,
+    '',
+  ].join('\n');
 };
 
 /** How a life of the Cellar ends: killed mid-attempt, or once the batch is on tap. */

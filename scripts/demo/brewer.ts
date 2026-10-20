@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { behave, fakeBrewerRunner } from '../../test/helpers/fake-brewer-runner.ts';
-import type { Life } from './core.ts';
+import { IDENTITY, type Life } from './core.ts';
 
 export interface ScriptedBrewerOptions {
   /** The attempt's plan, serve's own: where its worktree is. */
@@ -28,8 +28,8 @@ export const GREETING = { file: 'greeting.txt', text: 'Hello, and welcome to the
  * hooks folder) takes no part in the demo.
  */
 export const DEMO_GIT_CONFIG = {
-  'user.name': 'Demo brewer',
-  'user.email': 'brewer@demo.invalid',
+  'user.name': IDENTITY.name,
+  'user.email': IDENTITY.email,
   'commit.gpgsign': 'false',
   'core.hooksPath': devNull,
 };

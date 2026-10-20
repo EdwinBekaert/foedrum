@@ -1,12 +1,13 @@
 // One life of npm run demo's Cellar (ADR 0097): `foedrum serve`'s own runServe on the demo
-// Brewery, on serveShell's machine with four seams of its own: the scripted brewer for claude, the
-// in-process code host for gh, the base fetched from the local remote instead of GitHub, and a wait
-// that ends the life once the batch is on tap, or at once when it is Stuck or cancelled. To read
-// the store, the wait has openStore keep it, and to end the life, a signal of its own beside
-// serve's; ticks come every 100 ms. In the life that crashes, the process is killed with SIGKILL
-// once the brewer has committed: no finally block runs, and the lock, the lease and the attempt's
-// worktree are left as a crash leaves them. scripts/demo.ts starts it:
-// `node scripts/demo/cellar.ts <scratch> crash|finish`.
+// Brewery, on serveShell's machine with three seams of its own: the scripted brewer for claude, the
+// in-process code host for gh, and a wait that ends the life once the batch is on tap, or at once
+// when it is Stuck or cancelled. To read the store, the wait has openStore keep it, and to end the
+// life, a signal of its own beside serve's; ticks come every 100 ms. serve's own pushes and fetches
+// reach the scratch remote: scripts/demo.ts starts this process with a git configuration of the
+// demo's own, whose insteadOf sends the target's GitHub URL there. In the life that crashes, the
+// process is killed with SIGKILL once the brewer has committed: no finally block runs, and the
+// lock, the lease and the attempt's worktree are left as a crash leaves them. scripts/demo.ts
+// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish`.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,9 +17,6 @@ import { serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { baseFetchRoot } from '../../src/workspace/attempt-worktrees.ts';
-import { worktreeClonePath } from '../../src/workspace/attempt-worktrees-git.ts';
-import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { scriptedBrewer } from './brewer.ts';
 import { codeHost, fileJournal } from './code-host.ts';
@@ -99,13 +97,6 @@ const shell: ServeShell = {
     }
     ended.abort();
   },
-  // The base comes from the target's remote in the scratch folder, where serve would ask GitHub.
-  push: (repository) =>
-    openBranchPush({
-      git: runGit,
-      clone: worktreeClonePath(setup.workRoot, repository),
-      base: { url: join(scratch, 'web.git'), root: baseFetchRoot(setup.workRoot, repository.repo) },
-    }),
   runner: (_claude, plan) =>
     scriptedBrewer({
       plan,
