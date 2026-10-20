@@ -8,6 +8,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -90,6 +91,24 @@ describe('worktrees-clean with real git', () => {
       encoding: 'utf8',
       env: { ...process.env, CLAUDE_PROJECT_DIR: cwd },
     });
+
+  // A core.fsmonitor command, in node so it runs on Windows too, that writes down where git ran
+  // it; `ran()` is what it wrote, undefined when it never ran (#263).
+  const fsmonitor = () => {
+    const marker = join(dir.path, 'fsmonitor-ran');
+    const script = join(dir.path, 'monitor.mjs');
+    const line = 'process.cwd() + " GIT_DIR=" + process.env.GIT_DIR + "\\n"';
+    writeFileSync(
+      script,
+      `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(marker)}, ${line});\n`,
+    );
+    const slash = (path: string): string => path.replaceAll('\\', '/');
+    return {
+      command: `"${slash(process.execPath)}" "${slash(script)}"`,
+      ran: () => (existsSync(marker) ? readFileSync(marker, 'utf8') : undefined),
+      forget: () => rmSync(marker, { force: true }),
+    };
+  };
 
   it('removes merged worktrees whose remote branch is gone, at session start in the main checkout only', () => {
     const merged = worktree('7-merged');
@@ -205,31 +224,21 @@ describe('worktrees-clean with real git', () => {
     writeFileSync(join(dirty, 'notes.txt'), 'not committed\n');
     // What a brewer can write: a git folder inside its worktree, with an index so git status
     // reads it, a core.fsmonitor command, and the worktree's .git file pointing there (#263).
-    const marker = join(dir.path, 'fsmonitor-ran');
-    const monitor = join(dir.path, 'monitor.mjs');
-    writeFileSync(
-      monitor,
-      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\n`,
-    );
+    const monitor = fsmonitor();
     const forgedGit = join(forged, 'forged');
     git(dir.path, ['init', '-q', '--bare', forgedGit]);
     git(forgedGit, ['config', 'core.bare', 'false']);
-    const slash = (path: string): string => path.replaceAll('\\', '/');
-    git(forgedGit, [
-      'config',
-      'core.fsmonitor',
-      `"${slash(process.execPath)}" "${slash(monitor)}"`,
-    ]);
+    git(forgedGit, ['config', 'core.fsmonitor', monitor.command]);
     // Removed first: Windows refuses to overwrite a hidden file, and git hides the .git file.
     rmSync(join(forged, '.git'));
     writeFileSync(join(forged, '.git'), 'gitdir: ./forged\n');
     git(forged, ['add', '18-forged.txt']);
-    rmSync(marker, { force: true });
+    monitor.forget();
 
     const result = clean(main);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(existsSync(marker), false, 'the fsmonitor command of the forged git folder ran');
+    assert.equal(monitor.ran(), undefined, 'the fsmonitor command of the forged git folder ran');
     assert.equal(existsSync(clean16), false, result.stdout);
     assert.match(result.stdout, /removed worktree \.claude\/worktrees\/16-clean/);
     assert.ok(existsSync(dirty) && existsSync(forged), result.stdout);
@@ -245,20 +254,14 @@ describe('worktrees-clean with real git', () => {
     merge('19-merged');
     // git worktree remove runs git status in the worktree, which reads the repository's
     // configuration, core.fsmonitor included (#263).
-    const marker = join(dir.path, 'fsmonitor-ran');
-    const monitor = join(dir.path, 'monitor.mjs');
-    writeFileSync(
-      monitor,
-      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\n`,
-    );
-    const slash = (path: string): string => path.replaceAll('\\', '/');
-    git(main, ['config', 'core.fsmonitor', `"${slash(process.execPath)}" "${slash(monitor)}"`]);
+    const monitor = fsmonitor();
+    git(main, ['config', 'core.fsmonitor', monitor.command]);
 
     const result = clean(main);
 
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(merged), false, result.stdout);
-    assert.equal(existsSync(marker), false, 'the fsmonitor command of the repository ran');
+    assert.equal(monitor.ran(), undefined, 'the fsmonitor command of the repository ran');
   });
 
   it('removes read-only records git no longer lists, outside .claude/worktrees/ too', () => {
