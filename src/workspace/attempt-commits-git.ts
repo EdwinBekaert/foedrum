@@ -4,6 +4,7 @@
 // a fake one (ADR 0021).
 
 import type { CommitsSeen } from '../engine/brewer-runner.ts';
+import { inClone } from './clone-git.ts';
 import type { Git, GitResult } from './git.ts';
 
 /**
@@ -30,8 +31,10 @@ const firstLine = ({ code, stderr }: GitResult): string =>
   (code === null ? 'git did not finish in time' : `git exited with ${code}`);
 
 export const countCommits =
-  (git: Git): CountCommits =>
+  (shared: Git): CountCommits =>
   async (clone, branch, since, signal) => {
+    // The clone's configuration is a brewer's to write: no transport, hook or fsmonitor (ADR 0096).
+    const git = inClone(shared);
     if (!SHA.test(since)) return { kind: 'uncounted', reason: `${since} is no full commit sha` };
     if (!ATTEMPT_BRANCH.test(branch)) {
       return { kind: 'uncounted', reason: `${JSON.stringify(branch)} is no attempt branch` };

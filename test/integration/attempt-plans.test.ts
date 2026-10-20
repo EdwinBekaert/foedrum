@@ -180,7 +180,13 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         {
           repo: 'acme/api',
           base: 'origin/main',
-          manager: openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/api', clone }),
+          manager: openAttemptWorktrees({
+            git: runGit,
+            workRoot,
+            repo: 'acme/api',
+            clone,
+            own: { url: join(dir.path, 'origin'), root: join(workRoot, 'git-dirs') },
+          }),
         },
       ],
     });

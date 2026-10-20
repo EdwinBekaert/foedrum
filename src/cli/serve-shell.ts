@@ -10,13 +10,14 @@ import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
-import { baseFetchRoot } from '../workspace/attempt-worktrees.ts';
+import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
   openAttemptWorktrees,
   worktreeClonePath,
 } from '../workspace/attempt-worktrees-git.ts';
 import { openBranchPush } from '../workspace/branch-push-git.ts';
+import type { OwnRemote } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -57,6 +58,12 @@ export const listenWhileServing = (
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
   const { root, git, out, listen } = options;
   const { workRoot } = setup;
+  // The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
+  // it by this URL, never through the clone's configuration (ADR 0090, ADR 0096).
+  const ownRemote = (repo: string): OwnRemote => ({
+    url: `https://github.com/${repo}.git`,
+    root: ownGitDirsRoot(workRoot, repo),
+  });
   return {
     out,
     // Ctrl+C, a kill, a closed terminal, Ctrl+Break: each stops the runs through the driver, whose
@@ -79,6 +86,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
           workRoot,
           repo,
           clone: worktreeClonePath(workRoot, repository),
+          own: ownRemote(repo),
         });
       }
       const managed = await ensureManagedClone({
@@ -88,18 +96,14 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         url: `https://github.com/${repo}.git`,
         ...(clone === undefined ? {} : { reference: clone }),
       });
-      return openAttemptWorktrees({ git, workRoot, repo, clone: managed });
+      return openAttemptWorktrees({ git, workRoot, repo, clone: managed, own: ownRemote(repo) });
     },
-    // From the clone the worktrees are added to, with the base fetched from the repository on
-    // GitHub, where its pull request goes, never through the clone's configuration (ADR 0090).
+    // From the objects of the clone the worktrees are added to.
     push: (repository) =>
       openBranchPush({
         git,
         clone: worktreeClonePath(workRoot, repository),
-        base: {
-          url: `https://github.com/${repository.repo}.git`,
-          root: baseFetchRoot(workRoot, repository.repo),
-        },
+        own: ownRemote(repository.repo),
       }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     exec: execProcess,

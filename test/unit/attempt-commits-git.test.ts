@@ -4,6 +4,7 @@
 // never a throw.
 
 import assert from 'node:assert/strict';
+import { devNull } from 'node:os';
 import { describe, it } from 'node:test';
 import { countCommits } from '../../src/workspace/attempt-commits-git.ts';
 import { attemptBranch } from '../../src/workspace/attempt-worktrees.ts';
@@ -42,6 +43,20 @@ describe('countCommits', () => {
       ],
     );
     assert.ok(calls.every(({ options }) => options?.signal === signal));
+  });
+
+  it('runs git in the clone with no transport, hook or fsmonitor, which a brewer could plant there (ADR 0096)', async () => {
+    const { git, calls } = recordingGit({ 'merge-base': ok(), 'rev-list': ok('3\n') });
+    await countCommits(git)(clone, branch, START);
+    assert.equal(calls.length, 2);
+    for (const { options } of calls) {
+      assert.deepEqual(options?.env, { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' });
+      assert.deepEqual(options?.config, {
+        'protocol.allow': 'never',
+        'core.hooksPath': devNull,
+        'core.fsmonitor': 'false',
+      });
+    }
   });
 
   it('counts none when the branch is at the start', async () => {
