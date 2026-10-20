@@ -416,6 +416,19 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     );
   });
 
+  it('lets a property file pass that was over the ceiling in the run but is within it alone', async () => {
+    const { remeasure } = alone({ [fileC]: 1000 });
+    const { lines, failed } = await report(timed(fileC, 20_000, 15_100), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.deepEqual(overLines(lines), []);
+    assert.ok(
+      lines.some((line) =>
+        line.startsWith('ℹ test/property/c.test.ts used 15.10 s of CPU time in the run'),
+      ),
+      lines.join('\n'),
+    );
+  });
+
   // A run alone that reports nothing will not report anything the next time either.
   it('stops running a file alone once a run alone gives no reading', async () => {
     const { measured, remeasure } = alone({});
