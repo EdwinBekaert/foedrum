@@ -4,6 +4,7 @@
 
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
 
 /** The Brewery the demo makes, and its one target repository. */
@@ -110,6 +111,21 @@ export const breweryFiles = (): Record<string, string> => ({
 /** `.foedrum/local.jsonc`: the work root and the user's clone of the target repository. */
 export const localConfig = (workRoot: string, clone: string): string =>
   json({ workRoot, clones: { [TARGET]: clone } });
+
+/** How a life of the Cellar ends, read from its store. */
+export type LifeEnd =
+  | { kind: 'on_tap'; pullRequests: readonly string[] }
+  | { kind: 'stuck'; reason: string }
+  | { kind: 'cancelled' };
+
+/**
+ * How the life ends, from the store's events in order, or undefined while the batch still
+ * brews: on tap once the status comment's revision that shows it is applied after it (ADR
+ * 0072), and at once when the batch is Stuck or cancelled, which the demo cannot recover from.
+ */
+export const lifeEndOf = (_events: readonly { event: Event }[]): LifeEnd | undefined => {
+  throw new Error('not implemented');
+};
 
 /** What a run left, as the demo's shell gathered it. */
 export interface DemoRun {

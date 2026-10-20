@@ -7,6 +7,7 @@ import {
   CRASH_LINE,
   type DemoRun,
   DIAGNOSIS,
+  lifeEndOf,
   localConfig,
   ON_TAP_LINE,
   ORDER,
@@ -16,6 +17,7 @@ import {
 } from '../../scripts/demo/core.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import type { BreweryFile } from '../../src/engine/recipe-files.ts';
+import type { Event } from '../../src/schemas/events.ts';
 
 const root = resolve('/repo/.claude/worktrees/193-demo');
 const tmp = join(root, '.foedrum', 'tmp');
@@ -130,6 +132,14 @@ describe('problemsOf', () => {
     );
   });
 
+  it('says so when the runner killed the first life at its deadline, after the crash line', () => {
+    const timedOut = { exitCode: null, output: `${CRASH_LINE}\n`, killed: 'timed-out' as const };
+    assert.match(
+      problemsOf(run({ crash: timedOut })).join('\n'),
+      /not killed mid-attempt \(killed: timed-out\)/,
+    );
+  });
+
   it('says when the restart did not end with the batch on tap', () => {
     const problems = problemsOf(run({ restart: { exitCode: 1, output: 'the lock is held\n' } }));
     assert.match(problems.join('\n'), /not on tap.*the lock is held/s);
@@ -141,5 +151,50 @@ describe('problemsOf', () => {
     assert.match(problemsOf(run({ pulls: [] })).join('\n'), /0 pull requests, not 1/);
     assert.match(problemsOf(run({ pulls: [pull, pull] })).join('\n'), /2 pull requests, not 1/);
     assert.match(problemsOf(run({ comments: [] })).join('\n'), /0 status comments, not 1/);
+  });
+});
+
+describe('lifeEndOf', () => {
+  const url = 'https://github.com/demo/web/pull/2';
+  const ordered = { type: 'batch.ordered', batchId: '1-1' };
+  const onTap = { type: 'batch.on_tap', batchId: '1-1', pullRequests: [url] };
+  const applied = (effect: string) => ({
+    type: 'effect.applied',
+    key: JSON.stringify(['1-1', effect]),
+    result: null,
+  });
+  const stuck = {
+    type: 'batch.stuck',
+    batchId: '1-1',
+    reason: { kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: 'no commit' },
+    options: ['retry'],
+  };
+  const resumed = { type: 'batch.resumed', batchId: '1-1', by: 'ann', via: 'cli', action: 'retry' };
+  const cancelled = { type: 'batch.cancelled', batchId: '1-1', by: 'ann', via: 'cli' };
+  const of = (...events: object[]) => lifeEndOf(events.map((event) => ({ event: event as Event })));
+
+  it('goes on while the batch brews, and while the on-tap revision of its comment is not applied', () => {
+    assert.equal(of(), undefined);
+    assert.equal(of(ordered, applied('status.1')), undefined);
+    assert.equal(of(ordered, applied('status.1'), onTap), undefined);
+    assert.equal(of(ordered, onTap, applied('pull_request')), undefined);
+  });
+
+  it('ends on tap, with the pull requests, once a status revision is applied after it', () => {
+    assert.deepStrictEqual(of(ordered, applied('status.1'), onTap, applied('status.2')), {
+      kind: 'on_tap',
+      pullRequests: [url],
+    });
+  });
+
+  it('ends at once when the batch is Stuck, with the reason, unless it was resumed', () => {
+    const end = of(ordered, stuck);
+    assert.equal(end?.kind, 'stuck');
+    assert.match(end?.kind === 'stuck' ? end.reason : '', /attempts_exhausted.*brew.*no commit/);
+    assert.equal(of(ordered, stuck, resumed), undefined);
+  });
+
+  it('ends at once when the batch is cancelled', () => {
+    assert.deepStrictEqual(of(ordered, cancelled), { kind: 'cancelled' });
   });
 });
