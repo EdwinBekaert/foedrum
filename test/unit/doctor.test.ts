@@ -605,7 +605,8 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   // ADR 0087's credential entries are Linux `~/` paths, so on WSL2 the Windows user's copies of
   // the same logins under /mnt stay readable (review of #250).
   it("says wherever it advises or runs WSL2 that the sandbox leaves the Windows user's logins readable", () => {
-    for (const facts of [windows, wsl1, wsl2]) {
+    const wsl2WithoutBwrap = { ...linux({ bwrap: undefined }), kernelRelease: wsl2.kernelRelease };
+    for (const facts of [windows, wsl1, wsl2, wsl2WithoutBwrap]) {
       assert.match(
         keyring(facts)[0] ?? '',
         /Under WSL, it doesn't hide the Windows user's logins under \/mnt \(ADR 0087\)\./,
