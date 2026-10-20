@@ -1140,4 +1140,14 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     );
     valid({ recipes: [], brewers: [], lenses: [lens('security', atLimit)] });
   });
+
+  it('names a lens too large once, not also as a lens its brewer lacks', () => {
+    const tooLarge = lens('security', 'x'.repeat(1024 * 1024 + 1));
+    assert.deepEqual(
+      problemsOf({ recipes: [], brewers: [taster('lens:security')], lenses: [tooLarge] }),
+      [
+        "lenses/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
+      ],
+    );
+  });
 });

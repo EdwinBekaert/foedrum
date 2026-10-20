@@ -66,6 +66,21 @@ describe('readBreweryFiles', () => {
     );
   });
 
+  it('reads the defaults of the install, not of the working directory (ADR 0098)', () => {
+    // A working directory with defaults of its own, which must not be read.
+    write('defaults/lenses/test-design.md', "the working directory's lens");
+    const cwd = process.cwd();
+    process.chdir(brewery.path);
+    try {
+      const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
+      const found = lenses.find(({ path }) => path === 'defaults/lenses/test-design.md');
+      assert.ok(found !== undefined && 'text' in found);
+      assert.notEqual(found.text, "the working directory's lens");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   it('reads the recipe and brewer files directly in their folders, by name', () => {
     write('recipes/pale.jsonc', 'pale');
     write('recipes/amber.jsonc', 'amber');
