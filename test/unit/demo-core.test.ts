@@ -170,6 +170,14 @@ describe('lifeEndOf', () => {
     options: ['retry'],
   };
   const resumed = { type: 'batch.resumed', batchId: '1-1', by: 'ann', via: 'cli', action: 'retry' };
+  const rewound = {
+    type: 'batch.rewound',
+    batchId: '1-1',
+    toStepId: 'brew',
+    by: 'ann',
+    via: 'cli',
+    shas: {},
+  };
   const cancelled = { type: 'batch.cancelled', batchId: '1-1', by: 'ann', via: 'cli' };
   const of = (...events: object[]) => lifeEndOf(events.map((event) => ({ event: event as Event })));
 
@@ -192,6 +200,10 @@ describe('lifeEndOf', () => {
     assert.equal(end?.kind, 'stuck');
     assert.match(end?.kind === 'stuck' ? end.reason : '', /attempts_exhausted.*brew.*no commit/);
     assert.equal(of(ordered, stuck, resumed), undefined);
+  });
+
+  it('goes on again once a Stuck batch is rewound', () => {
+    assert.equal(of(ordered, stuck, rewound), undefined);
   });
 
   it('ends at once when the batch is cancelled', () => {

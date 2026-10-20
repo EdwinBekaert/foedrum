@@ -40,7 +40,11 @@ describe('npm run demo', () => {
     const pulls = host.pulls();
     assert.equal(pulls.length, 1, JSON.stringify(pulls));
     assert.equal(pulls[0]?.title, ORDER.title);
-    assert.equal(host.comments(BREWERY, ORDER.number).length, 1);
+    const comments = host.comments(BREWERY, ORDER.number);
+    assert.equal(comments.length, 1);
+    // Its last revision shows the batch on tap, with the pull request.
+    assert.match(comments[0]?.body ?? '', /On tap/);
+    assert.ok(comments[0]?.body.includes(`/demo/web/pull/${pulls[0]?.number}>`), comments[0]?.body);
 
     // The first attempt was lost with the Cellar, the second one brewed, and the batch is on tap.
     const store = openSqliteEventStore(join(scratch, 'brewery', '.foedrum', 'index.db'));
