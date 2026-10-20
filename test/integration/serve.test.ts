@@ -12,6 +12,7 @@ import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { serveFromCheckout } from '../../src/cli/serve-main.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -216,8 +217,22 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       Object.entries(process.env).filter(([name]) => needed.test(name)),
     );
     mkdirSync(join(dir.path, 'user'));
+    // git's own global configuration: an identity for the brewer's commit, and the repository on
+    // GitHub, which every fetch, ls-remote and push reaches by its URL (ADR 0096), at the local
+    // origin. Nothing of the user's global configuration takes part.
+    const gitConfig = join(dir.path, 'gitconfig');
+    writeFileSync(gitConfig, '');
+    const setGlobal = (key: string, value: string) =>
+      git(dir.path, ['config', '--file', gitConfig, key, value]);
+    setGlobal('user.name', 'Test');
+    setGlobal('user.email', 't@example.com');
+    setGlobal(
+      `url.${pathToFileURL(join(dir.path, 'web.git')).href}.insteadOf`,
+      'https://github.com/acme/web.git',
+    );
     const env = {
       ...inherited,
+      GIT_CONFIG_GLOBAL: gitConfig,
       CLAUDE_CONFIG_DIR: join(dir.path, 'user'),
       ANTHROPIC_BASE_URL: api.url,
       ANTHROPIC_API_KEY: 'sk-ant-test-not-a-key',
