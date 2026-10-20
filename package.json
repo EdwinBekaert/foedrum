@@ -30,6 +30,7 @@
     "test:integration": "node scripts/with-checkout-tmp.ts --import ./scripts/lower-priority.ts --test \"test/integration/**/*.test.ts\"",
     "check": "node scripts/check.ts",
     "check:deps": "node scripts/check-deps.ts",
+    "demo": "node scripts/demo.ts",
     "deps:sync": "node scripts/deps-sync.ts",
     "schemas": "node scripts/generate-schemas.ts",
     "worktrees:clean": "node scripts/worktrees-clean.ts"

@@ -2,6 +2,7 @@
 // there, the order on the fake code host, and whether a run ended as it should. The shell is
 // scripts/demo.ts; one life of the Cellar is scripts/demo/cellar.ts.
 
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
 
@@ -39,23 +40,76 @@ export const CRASH_LINE = 'demo: the brewer committed; the Cellar is killed mid-
 /** The start of the line the Cellar prints once the batch is on tap. */
 export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
 
+const tmpOf = (root: string): string => join(root, '.foedrum', 'tmp');
+
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against
- * the working directory, which must be inside the checkout's `.foedrum/tmp`.
+ * `cwd`, which must be inside the checkout's `.foedrum/tmp` (and not that folder itself): the
+ * folder is removed at the start of every run.
  */
-export const scratchFolder = (_root: string, _asked: string | undefined, _cwd: string): string => {
-  throw new Error('not implemented');
+export const scratchFolder = (root: string, asked: string | undefined, cwd: string): string => {
+  const tmp = tmpOf(root);
+  if (asked === undefined) return join(tmp, 'demo');
+  const path = resolve(cwd, asked);
+  const inside = relative(tmp, path);
+  if (inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+    throw new Error(`npm run demo works only in a folder inside ${tmp}, not in ${path}`);
+  }
+  return path;
 };
+
+// Its brewer commits with no red proof before it, so the recipe says testFirst: false (ADR 0064),
+// and the commits go into a pull request (ADR 0084).
+const RECIPE = {
+  name: 'stout',
+  description: 'Brews an order in one step and opens its pull request.',
+  steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+  testFirst: false,
+};
+
+// As the docs' example brewer, with a second attempt for the one the crash takes (ADR 0074).
+const BREWER = `---
+{
+  "name": "cellarman",
+  "description": "Brews the order.",
+  "version": 1,
+  "inputs": [{ "name": "order", "from": "order" }],
+  "output": { "doc": "brew.md", "schema": "outDoc" },
+  "produces": "commits",
+  "model": "quick",
+  "effort": "low",
+  "tools": { "allow": ["Read", "Write"] },
+  "access": "write",
+  "tree": "task",
+  "git": { "commit": true },
+  "deadline": "10m",
+  "maxAttempts": 2
+}
+---
+Brew the order in {order}.
+`;
+
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /** The Brewery's files, by path relative to its checkout. */
-export const breweryFiles = (): Record<string, string> => {
-  throw new Error('not implemented');
-};
+export const breweryFiles = (): Record<string, string> => ({
+  'foedrum.jsonc': json({
+    brewery: BREWERY,
+    users: [USER],
+    repositories: {
+      [TARGET]: { checks: { build: null, typecheck: null, lint: null, format: null, test: null } },
+    },
+  }),
+  // The model a brewer would get; the scripted one asks none.
+  'models.jsonc': json({ models: { quick: 'claude-haiku-5-5' } }),
+  '.gitignore': '.foedrum/\n',
+  'recipes/stout.jsonc': json(RECIPE),
+  'brewers/cellarman.md': BREWER,
+});
 
 /** `.foedrum/local.jsonc`: the work root and the user's clone of the target repository. */
-export const localConfig = (_workRoot: string, _clone: string): string => {
-  throw new Error('not implemented');
-};
+export const localConfig = (workRoot: string, clone: string): string =>
+  json({ workRoot, clones: { [TARGET]: clone } });
 
 /** What a run left, as the demo's shell gathered it. */
 export interface DemoRun {
@@ -69,7 +123,33 @@ export interface DemoRun {
   comments: readonly { author: string; body: string }[];
 }
 
+/** The last lines of a process's output, to say why. */
+const tail = (output: string): string => {
+  const lines = output.trimEnd().split(/\r?\n/).slice(-10);
+  return lines.length === 1 && lines[0] === '' ? '(no output)' : lines.join('\n');
+};
+
+/** How a process ended, in a few words. */
+const ending = ({ exitCode, killed }: ProcessOutcome): string =>
+  killed === undefined ? `exit code ${exitCode}` : `killed: ${killed}`;
+
 /** What went wrong in a run, one line each; none when it ended as it should. */
-export const problemsOf = (_run: DemoRun): string[] => {
-  throw new Error('not implemented');
+export const problemsOf = (run: DemoRun): string[] => {
+  const { crash, restart, pulls, comments } = run;
+  const problems: string[] = [];
+  if (crash.exitCode === 0 || !crash.output.includes(CRASH_LINE)) {
+    problems.push(
+      `the first Cellar was not killed mid-attempt (${ending(crash)}):\n${tail(crash.output)}`,
+    );
+  }
+  if (restart.exitCode !== 0 || !restart.output.includes(ON_TAP_LINE)) {
+    problems.push(
+      `the batch is not on tap after the restart (${ending(restart)}):\n${tail(restart.output)}`,
+    );
+  }
+  if (pulls.length !== 1) problems.push(`the code host has ${pulls.length} pull requests, not 1`);
+  if (comments.length !== 1) {
+    problems.push(`the order has ${comments.length} status comments, not 1`);
+  }
+  return problems;
 };
