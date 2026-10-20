@@ -36,6 +36,8 @@ const AS_COMMITTED: GitOptions = {
     'log.showRoot': 'true',
     // A graft file at /dev/null makes git print its deprecation hint ahead of every error.
     'advice.graftFileDeprecated': 'false',
+    // No transport at all, whatever the git version: a lazy fetch fails here instead.
+    'protocol.allow': 'never',
   },
 };
 const SHOWN = ['--no-notes', '--no-show-signature'];
@@ -54,6 +56,7 @@ const PATCHES = [
   '--no-renames',
   '--no-relative',
   '--ignore-submodules=none',
+  '--submodule=short',
   '--src-prefix=a/',
   '--dst-prefix=b/',
 ];

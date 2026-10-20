@@ -73,6 +73,7 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
   let added: string[] = [];
   let oldLeft = 0;
   let newLeft = 0;
+  let deleted = false;
   // A path is published too: it is read like a line, and a finding never names one that matches.
   const placeOf = (): string => (findSecrets(path, isCommit).length === 0 ? path : SECRET_PATH);
   const flush = (): void => {
@@ -107,8 +108,13 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
     } else if (line.startsWith('diff --git ')) {
       flush();
       path = pathOf(line);
+      deleted = false;
+    } else if (line.startsWith('deleted file mode ')) {
+      deleted = true;
     } else if (line.startsWith('Binary files ')) {
-      found.add({ commit, place: placeOf(), kind: BINARY });
+      // A binary file the commit deletes publishes nothing: the base has it. The header says so,
+      // never the path, which could end in ` and /dev/null`.
+      if (!deleted) found.add({ commit, place: placeOf(), kind: BINARY });
     } else {
       const hunk = HUNK.exec(line);
       if (hunk !== null) {
