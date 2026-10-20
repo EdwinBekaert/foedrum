@@ -62,6 +62,14 @@ export const gitConfig = (remote: string): string => {
   ].join('\n');
 };
 
+/**
+ * The environment every git of the demo gets on top of the process's: the demo's configuration in
+ * `<scratch>/gitconfig` as its global one, and no system one.
+ */
+export const gitEnvOf = (_scratch: string): Record<string, string> => {
+  throw new Error('not implemented');
+};
+
 /** How a life of the Cellar ends: killed mid-attempt, or once the batch is on tap. */
 export type Life = 'crash' | 'finish';
 

@@ -9,6 +9,7 @@ import {
   type DemoRun,
   DIAGNOSIS,
   gitConfig,
+  gitEnvOf,
   lifeEndOf,
   localConfig,
   ON_TAP_LINE,
@@ -237,6 +238,13 @@ describe('gitConfig', () => {
       { to: join('scratch', 'demo', 'web.git'), from: 'https://github.com/demo/web.git' },
       { to: join('scratch', 'demo', 'no-such-remote'), from: 'https://github.com/' },
     ]);
+  });
+
+  it('is the only configuration git reads: the global one is its file, and there is no system one', () => {
+    assert.deepStrictEqual(gitEnvOf(join('scratch', 'demo')), {
+      GIT_CONFIG_GLOBAL: join('scratch', 'demo', 'gitconfig'),
+      GIT_CONFIG_NOSYSTEM: '1',
+    });
   });
 
   it('escapes the backslashes and quotes of a Windows path in the URL section', () => {
