@@ -170,7 +170,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     return ok();
   };
 
-  it("fetches the remote's base into Foedrum's own git directory, which writes into the clone's objects", async () => {
+  it("fetches the remote's base into Foedrum's own git directory, from the clone's origin/<base>, writing into the clone's objects", async () => {
     const { git, calls } = recordingGit(answers);
     const push = openBranchPush({ git, clone, base });
     assert.equal(await push.baseTip('main'), TIP);
@@ -195,6 +195,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
           '--template=',
           '--object-format=sha1',
         ],
+        [clone, `--git-dir=${gitDir}`, 'update-ref', 'refs/heads/main', OLD],
         [
           clone,
           `--git-dir=${gitDir}`,
@@ -204,7 +205,6 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
           '--no-write-fetch-head',
           '--no-recurse-submodules',
           '--no-auto-maintenance',
-          `--negotiation-tip=${OLD}`,
           '--end-of-options',
           url,
           '+refs/heads/main:refs/heads/main',
@@ -220,28 +220,31 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
         ],
       ],
     );
-    const fetch = calls[3]?.options;
+    // The ref is the fetch's boundary: what it walks after the fetch stops at the clone's base.
+    assert.equal(calls[3]?.options?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
+    const fetch = calls[4]?.options;
     assert.equal(fetch?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
     assert.equal(fetch?.config?.['core.hooksPath'], devNull);
     assert.equal(fetch?.config?.['gc.auto'], '0');
     assert.equal(fetch?.timeoutMs, 300_000);
   });
 
-  it('fetches without a negotiation tip when the clone has no origin/<base>, and passes the signal to every call', async () => {
+  it('deletes a ref left from an earlier fetch when the clone has no origin/<base>, and passes the signal to every call', async () => {
     const { git, calls } = recordingGit((args) =>
       args.includes('refs/remotes/origin/main^{commit}') ? failed('') : answers(args),
     );
     const push = openBranchPush({ git, clone, base });
     const { signal } = new AbortController();
     assert.equal(await push.baseTip('main', signal), TIP);
-    const fetch = calls.find(({ args }) => args.includes('fetch'));
-    assert.equal(
-      fetch?.args.some((arg) => arg.startsWith('--negotiation-tip')),
-      false,
-    );
+    assert.deepEqual(calls.find(({ args }) => args.includes('update-ref'))?.args, [
+      `--git-dir=${gitDir}`,
+      'update-ref',
+      '-d',
+      'refs/heads/main',
+    ]);
     assert.deepEqual(
       calls.map(({ options }) => options?.signal === signal),
-      [true, true, true, true, true],
+      [true, true, true, true, true, true],
     );
   });
 

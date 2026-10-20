@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type DriverNotice, openDriver } from '../../src/engine/driver.ts';
@@ -283,6 +284,37 @@ describe('the openPullRequest push with real git', () => {
         reason: 'batch 12-1 has no commits beyond main to open a pull request with',
       });
       assert.equal(git(user, ['cat-file', '-t', tip]).trim(), 'commit');
+    });
+
+    it("fetches the base into a managed repository's blobless clone, every time, also past a ref of an object the clone lost (review of #254)", async () => {
+      const run = join(dir.path, `blobless-${runs}`);
+      const seed = join(run, 'seed');
+      const served = join(run, 'origin.git');
+      const managed = join(run, 'clone.git');
+      execFileSync('git', ['init', '-q', '-b', 'main', seed]);
+      const commitFile = (name: string) => {
+        writeFileSync(join(seed, name), `${name}\n`);
+        git(seed, ['add', name]);
+        git(seed, ['commit', '-q', '-m', name]);
+      };
+      for (const name of ['a.txt', 'b.txt']) commitFile(name);
+      git(run, ['clone', '-q', '--bare', seed, served]);
+      git(served, ['config', 'uploadpack.allowFilter', 'true']);
+      const url = pathToFileURL(served).href;
+      // As ensureManagedClone makes it: bare, blobless, fetching into origin/*.
+      git(run, ['clone', '-q', '--bare', '--filter=blob:none', url, managed]);
+      git(managed, ['config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']);
+      git(managed, ['fetch', '-q', 'origin']);
+      commitFile('c.txt');
+      git(seed, ['push', '-q', served, 'main']);
+      const tip = git(served, ['rev-parse', 'main']).trim();
+      const gitDir = join(run, 'base.git');
+      const push = openBranchPush({ git: runGit, clone: managed, base: { url, gitDir } });
+      assert.equal(await push.baseTip('main'), tip);
+      assert.equal(await push.baseTip('main'), tip);
+      // What the clone's gc leaves when it prunes the commit base.git's ref still names.
+      writeFileSync(join(gitDir, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`);
+      assert.equal(await push.baseTip('main'), tip);
     });
 
     it('scans from a main the clone lacks and pushes the plan beyond it (review of #254)', async () => {
