@@ -17,6 +17,13 @@ const filesUnder = (folder: string): string[] =>
 const SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*(['"])(\.{1,2}\/[^'"]+)\1/g;
 
 describe('the shipped package', () => {
+  it('lists the folders it ships, none of them test/ or scripts/', () => {
+    const { files } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      files?: string[];
+    };
+    assert.deepStrictEqual(files, ['src/', 'defaults/', 'schemas/']);
+  });
+
   it('has no module under src/ that imports from test/ or scripts/', () => {
     const outside: string[] = [];
     for (const file of filesUnder(join(root, 'src'))) {
