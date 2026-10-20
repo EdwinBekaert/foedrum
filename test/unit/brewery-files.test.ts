@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { breweryRecipes, readBreweryFiles } from '../../src/engine/brewery-files.ts';
-import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
+import { INVALID_RECIPES, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -112,6 +112,11 @@ describe('breweryRecipes', () => {
     write('brewers', 'maltster.md', brewerText('maltster'));
     write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'maltster' }]));
     assert.equal(breweryRecipes(brewery.path).find('pale')?.firstStep, 'maltster');
+  });
+
+  it("loads Foedrum's own defaults in a Brewery without files of its own (ADR 0098)", () => {
+    const loaded = loadRecipes(readBreweryFiles(brewery.path));
+    assert.equal(loaded.valid, true, loaded.valid ? '' : loaded.problems.join('\n'));
   });
 
   it("throws doctor's line when a file is not valid", () => {
