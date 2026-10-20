@@ -5,7 +5,8 @@
 
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
-import { PushResult } from '../schemas/store.ts';
+import type { ScanFinding } from '../schemas/store.ts';
+import { MAX_REFUSED, PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
 import type { Ending } from './decide.ts';
 import { type DriverActions, repositoryOf } from './driver.ts';
@@ -54,6 +55,11 @@ export interface BranchPush {
   remoteTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Pushes `commit` to the remote's branch `branch`, never by force. */
   push(commit: string, branch: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * What the commits from `base` to `commit` (both full shas) would publish that looks like a
+   * secret, or that the scan cannot read: nothing when they may go (ADR 0079).
+   */
+  secretScan(base: string, commit: string, signal?: AbortSignal): Promise<ScanFinding[]>;
 }
 
 /** A repository a batch writes in: its base branch, and the pushes of its clone. */
@@ -87,7 +93,24 @@ type ActionEffect =
 /** Where the action pushes from and opens into, or why it cannot run. */
 type Plan =
   | { kind: 'run'; repository: PullRequestRepository; revision: string }
-  | { kind: 'fail'; reason: string };
+  | { kind: 'fail'; reason: string }
+  /** The secret scan stopped the push: the batch waits on a human (ADR 0079). */
+  | { kind: 'blocked'; summary: string };
+
+/** The findings the blocked summary names; it counts the rest. */
+const NAMED_FINDINGS = 3;
+
+// Each commit, place and kind: never the matched text, nor findSecrets' excerpt of it.
+const refusal = (batchId: string, findings: readonly ScanFinding[]): string => {
+  const named = findings
+    .slice(0, NAMED_FINDINGS)
+    .map(({ commit, place, kind }) => `commit ${commit}, ${place}: ${kind}`);
+  const more = findings.length - named.length;
+  return `the push of batch ${batchId} stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079): ${[
+    ...named,
+    ...(more > 0 ? [`and ${more} more`] : []),
+  ].join('; ')}`;
+};
 
 // The URL the code host answered, which the ledger keeps for good and `batch.on_tap` carries.
 const pullRequestUrl = (url: string): string => {
@@ -124,6 +147,10 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         };
       }
       const why = pushed?.data;
+      // Recorded for good: a rewind after it does not scan again (ADR 0079).
+      if (why?.refused !== undefined) {
+        return { kind: 'blocked', summary: refusal(batchId, why.refused) };
+      }
       if (why?.empty === true) {
         return {
           kind: 'fail',
@@ -157,23 +184,34 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         const { push, revision, base, branch } = effect;
         // The commit to push, and whether the base holds all of it: a pull request with no commits,
         // which the code host refuses, is recorded as nothing to push instead.
-        const resolve = async (signal?: AbortSignal): Promise<PushResult> => {
+        const resolve = async (signal?: AbortSignal) => {
           const commit = await push.commit(revision, signal);
+          const from = await push.commit(base, signal);
           // Every commit of the task tree is in the base already, also when the base moved past it.
-          const empty = await push.isAncestor(commit, await push.commit(base, signal), signal);
-          return { branch, commit, from: revision, ...(empty ? { empty } : {}) };
+          const empty = await push.isAncestor(commit, from, signal);
+          const result: PushResult = {
+            branch,
+            commit,
+            from: revision,
+            ...(empty ? { empty } : {}),
+          };
+          return { result, base: from };
         };
         return {
           // Pushed by a run before that was killed before it recorded the push.
           find: async (_key, signal) => {
-            const result = await resolve(signal);
+            const { result } = await resolve(signal);
             if (result.empty === true) return { result };
             const tip = await push.remoteTip(branch, signal);
             return tip === result.commit ? { result } : undefined;
           },
-          apply: async (_key, signal) => {
-            const result = await resolve(signal);
-            if (result.empty !== true) await push.push(result.commit, branch, signal);
+          // Nothing leaves the machine before the scan of every commit it would carry (ADR 0079).
+          apply: async (_key, signal): Promise<PushResult> => {
+            const { result, base: start } = await resolve(signal);
+            if (result.empty === true) return result;
+            const found = await push.secretScan(start, result.commit, signal);
+            if (found.length > 0) return { ...result, refused: found.slice(0, MAX_REFUSED) };
+            await push.push(result.commit, branch, signal);
             return result;
           },
         };
@@ -204,7 +242,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
     due: (state, { batchId }) => {
       const planned = plan(state, batchId);
       const batch = state.batches.get(batchId);
-      if (planned.kind === 'fail' || batch === undefined) return [];
+      if (planned.kind !== 'run' || batch === undefined) return [];
       const { repository, revision } = planned;
       const { repo } = repository;
       const branch = remoteBranch(brewery, bottleBranch(batchId, repo));
@@ -236,6 +274,9 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       const planned = plan(state, batchId);
       if (planned.kind === 'fail')
         return { kind: 'failed', retryable: false, reason: planned.reason };
+      if (planned.kind === 'blocked') {
+        return { kind: 'blocked', blockerKind: 'environment', summary: planned.summary };
+      }
       const url = openedPullRequest(state, batchId);
       if (url === undefined) {
         return {

@@ -61,7 +61,10 @@ const unpushedOf = (state: State): Map<string, string> => {
     const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
     // The revision the push of the openPullRequest action records (ADR 0071).
     const revision = taskTreeStart(batch, { repo: taskTree.repo, base: '' });
-    if (pushed.success && pushed.data.from === revision) continue;
+    // A push the secret scan refused left nothing on the remote (ADR 0079).
+    if (pushed.success && pushed.data.from === revision && pushed.data.refused === undefined) {
+      continue;
+    }
     const worktrees = [...batch.steps.values()].flatMap((step) =>
       [...step.attempts.values()].flatMap((attempt) =>
         attempt.phase === 'finished' &&
