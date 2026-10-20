@@ -111,6 +111,25 @@ describe('scanHeaders (review of #237)', () => {
     assert.deepEqual(scanHeaders(log, none), []);
   });
 
+  // The control for the test above: the same armour anywhere but in a signature is read as a key.
+  it("spares only a signature's armour: a SHA-256 one too, but not a merged tag's", () => {
+    const armour = 'iQIzBAABCAAdFiEE1a2B3c4D5e6F7g8H9i0J1k2L3m4FAmcUAbcACgkQ1a2B3c4D5e6F'.slice(
+      0,
+      64,
+    );
+    const signed = (name: string) =>
+      raw(C1, [
+        `author ${person('Brewer')}`,
+        `${name} -----BEGIN PGP SIGNATURE-----`,
+        ` ${armour}`,
+        ' -----END PGP SIGNATURE-----',
+      ]);
+    assert.deepEqual(scanHeaders(signed('gpgsig-sha256'), none), []);
+    assert.deepEqual(scanHeaders(signed('mergetag'), none), [
+      { commit: C1, place: 'header mergetag', kind: 'long base64 string' },
+    ]);
+  });
+
   it('leaves the tree, the parents and the message to the other reads', () => {
     const log = raw(C1, [`author ${person('Brewer')}`, `committer ${person('Brewer')}`], token);
     assert.deepEqual(scanHeaders(log, none), []);

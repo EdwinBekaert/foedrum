@@ -335,6 +335,21 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     }
   });
 
+  it('refuses commits whose headers alone pass 4 MiB', async () => {
+    const { git } = recordingGit((args) =>
+      args.includes('--format=raw')
+        ? { code: null, stdout: 'commit', stderr: '', killed: 'too-much-output' }
+        : ok(args.includes('--patch') ? '' : `\0${TIP}\nClean\n`),
+    );
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+      {
+        commit: TIP,
+        place: `the commits from ${BASE}`,
+        kind: 'more than 4 MiB of messages or changes, past what the scan reads',
+      },
+    ]);
+  });
+
   it("fails with git's reason when git does, and refuses a commit that is no full sha before git runs", async () => {
     const broken = recordingGit(() => ({ code: 128, stdout: '', stderr: 'fatal: bad object\n' }));
     await assert.rejects(openBranchPush({ git: broken.git, clone }).secretScan(BASE, TIP), {
