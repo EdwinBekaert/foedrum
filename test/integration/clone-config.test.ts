@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -239,6 +239,10 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
     git(managed, ['config', 'remote.origin.url', 'ssh://git@foedrum.invalid/acme/app.git']);
     git(managed, ['config', 'core.sshCommand', `${mark} core.sshCommand`]);
     git(managed, ['config', 'protocol.ssh.allow', 'always']);
+    // The plant works: the same read without IN_CLONE runs the brewer's command.
+    await runGit(managed, ['cat-file', '-p', blob]);
+    assert.match(readFileSync(marks, 'utf8'), /core\.sshCommand/);
+    rmSync(marks);
     const read = await inClone(runGit)(managed, ['cat-file', '-p', blob]);
     assert.notEqual(read.code, 0);
     assert.equal(existsSync(marks) ? readFileSync(marks, 'utf8') : '', '');

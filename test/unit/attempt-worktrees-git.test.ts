@@ -210,6 +210,27 @@ describe('openAttemptWorktrees with a fake git', () => {
       });
     });
 
+    it('fetches a clone whose promisor setting is false as a full clone, by the URL, with no promisor (review of #266)', async () => {
+      const gitDir = `--git-dir=${join(workRoot, 'git', 'f1.git')}`;
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args.includes('--get-regexp')) return ok('remote.origin.promisor false\n');
+        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse') return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+
+      await open(git).create(attempt, 'origin/main');
+
+      assert.deepEqual(
+        calls.filter((call) => call[1] === gitDir && call[2] === 'config'),
+        [],
+      );
+      const fetch = calls.find((call) => call.includes('fetch'));
+      assert.equal(fetch?.at(-2), url);
+      assert.ok(!fetch?.some((arg) => arg.startsWith('--filter')), fetch?.join(' '));
+    });
+
     it('runs every git call in the clone with no transport, hook or fsmonitor, and the checkout with no hook or fsmonitor (ADR 0096)', async () => {
       const { calls, options, git } = fakeGit((_cwd, args) => {
         if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
