@@ -614,14 +614,21 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   });
 
   // Check steps run outside the OS sandbox at every level until #190 (ADR 0069, review of #225).
-  it('says on every level that check steps keep the login until #190', () => {
-    for (const facts of [...sandboxed, ...permissionsOnly]) {
-      const [line = ''] = keyring(facts);
-      assert.match(
-        line,
-        /Until #190, check steps run outside the (?:sandbox|container|sandbox and the container), so they can still read gh's login\.$/,
+  // Each level names only what it has (review of #250).
+  it('says on every level that check steps keep the login until #190, outside what that level has', () => {
+    const outside = (where: string) =>
+      new RegExp(
+        `Until #190, check steps run outside ${where}, so they can still read gh's login\\.$`,
       );
+    for (const facts of sandboxed) {
+      assert.match(keyring(facts)[0] ?? '', outside('the sandbox'));
     }
+    for (const facts of [windows, wsl1, linux({ bwrap: undefined })]) {
+      assert.match(keyring(facts)[0] ?? '', outside('the sandbox and the container'));
+    }
+    const [line = ''] = keyring(freebsd);
+    assert.match(line, outside('the container'));
+    assert.doesNotMatch(line, /sandbox/);
   });
 });
 
