@@ -158,10 +158,21 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
     });
   }
 
-  it("pushes and fetches for a managed repository's blobless clone, whose objects it shares", async () => {
+  it("pushes and fetches for a managed repository's blobless clone, whose objects it shares, while main changes a file the clone has no copy of (review of #266)", async () => {
+    // A file long enough that the server sends a change to it as a delta of the old one.
+    const lines = Array.from({ length: 4000 }, (_, i) => `line ${i} of a long file`);
+    const change = (line: number): string => {
+      lines[line] = `changed line ${line}`;
+      writeFileSync(join(other, 'long.txt'), `${lines.join('\n')}\n`);
+      git(other, ['add', 'long.txt']);
+      git(other, ['commit', '-q', '-m', `Change line ${line}`]);
+      git(other, ['push', '-q', served, 'HEAD:refs/heads/main']);
+      return git(other, ['rev-parse', 'HEAD']).trim();
+    };
     const served = join(run, 'served.git');
     git(run, ['clone', '-q', '--bare', origin, served]);
     git(served, ['config', 'uploadpack.allowFilter', 'true']);
+    change(0);
     const url = pathToFileURL(served).href;
     // As ensureManagedClone makes it: bare, blobless, fetching into origin/*.
     const managed = join(run, 'clone.git');
@@ -176,7 +187,13 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
       clone: managed,
       own,
     });
+    const moved = change(100);
     const made = await worktrees.create(attempt, 'origin/main');
+    assert.equal(made.commit, moved);
+    assert.equal(git(managed, ['rev-parse', 'refs/remotes/origin/main']).trim(), moved);
+    assert.match(readFileSync(join(made.path, 'long.txt'), 'utf8'), /changed line 100/);
+    const again = change(200);
+    assert.equal(await openBranchPush({ git: runGit, clone: managed, own }).baseTip('main'), again);
     const tip = commit(made.path, 'plan.txt');
     // A brewer redirects the clone's origin: the push goes where Foedrum says all the same.
     git(managed, ['config', `url.${nowhere()}.insteadOf`, url]);

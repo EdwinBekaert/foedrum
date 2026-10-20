@@ -50,7 +50,7 @@ describe('countCommits', () => {
     await countCommits(git)(clone, branch, START);
     assert.equal(calls.length, 2);
     for (const { options } of calls) {
-      assert.deepEqual(options?.env, { GIT_NO_LAZY_FETCH: '1' });
+      assert.deepEqual(options?.env, { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none' });
       assert.deepEqual(options?.config, {
         'protocol.allow': 'never',
         'core.hooksPath': devNull,

@@ -79,6 +79,7 @@ describe('openAttemptWorktrees with a fake git', () => {
         [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
         [own, gitDir, 'init', '--bare', '--quiet', '--template=', '--object-format=sha1'],
         [clone, ...refs],
+        [clone, 'config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'],
         [
           own,
           gitDir,
@@ -141,6 +142,45 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.equal(existsSync(join(own, 'f1.git')), false);
     });
 
+    it('fetches into a partial clone with its filter, from the URL Foedrum names as a promisor of its own git directory, so a delta of a file the clone lacks resolves (review of #266)', async () => {
+      const own = join(workRoot, 'git');
+      const gitDir = `--git-dir=${join(own, 'f1.git')}`;
+      const { calls, options, git } = fakeGit((_cwd, args) => {
+        // As git 2.56 makes a blobless clone: a promisor remote, no extensions.partialClone.
+        if (args.includes('--get-regexp')) return ok('remote.origin.promisor true\n');
+        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse') return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+
+      await open(git).create(attempt, 'origin/main');
+
+      const configs = calls.filter((call) => call[1] === gitDir && call[2] === 'config');
+      assert.deepEqual(
+        configs.map((call) => call.slice(2)),
+        [
+          ['config', 'core.repositoryformatversion', '1'],
+          ['config', 'extensions.partialClone', 'foedrum'],
+        ],
+      );
+      const fetch = calls.findIndex((call) => call.includes('fetch'));
+      assert.deepEqual(calls[fetch]?.slice(-4), [
+        '--filter=blob:none',
+        '--end-of-options',
+        'foedrum',
+        '+refs/heads/*:refs/remotes/origin/*',
+      ]);
+      assert.deepEqual(options[fetch]?.config, {
+        'remote.foedrum.url': url,
+        'remote.foedrum.promisor': 'true',
+        'remote.foedrum.partialclonefilter': 'blob:none',
+        'core.hooksPath': devNull,
+        'gc.auto': '0',
+        'maintenance.auto': 'false',
+      });
+    });
+
     it('runs every git call in the clone with no transport, hook or fsmonitor, and the checkout with no hook or fsmonitor (ADR 0096)', async () => {
       const { calls, options, git } = fakeGit((_cwd, args) => {
         if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
@@ -161,6 +201,8 @@ describe('openAttemptWorktrees with a fake git', () => {
         // The checkout of a partial clone downloads its files; nothing else in the clone may.
         assert.equal(config?.['protocol.allow'], 'never', call.join(' '));
         assert.equal(env?.GIT_NO_LAZY_FETCH, '1', call.join(' '));
+        // Over any protocol.<name>.allow of the clone's configuration (review of #266).
+        assert.equal(env?.GIT_ALLOW_PROTOCOL, 'none', call.join(' '));
       }
     });
 

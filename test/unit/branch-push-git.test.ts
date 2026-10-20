@@ -36,7 +36,7 @@ const recordingGit = (answer: (args: readonly string[]) => GitResult = () => ok(
 
 /** What every local git call in the clone runs with: no transport, hook or fsmonitor (ADR 0096). */
 const IN_CLONE = {
-  env: { GIT_NO_LAZY_FETCH: '1' },
+  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none' },
   config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
 };
 /** What every call in Foedrum's own git directory runs with: no hook, gc or maintenance. */
@@ -261,7 +261,9 @@ describe('openBranchPush: git in the clone (ADR 0096)', () => {
     const inClone = calls.filter(({ cwd }) => cwd === clone);
     assert.ok(inClone.length >= 9, String(inClone.length));
     for (const { args, options } of inClone) {
-      assert.equal(options?.env?.GIT_NO_LAZY_FETCH, '1', args.join(' '));
+      for (const [key, value] of Object.entries(IN_CLONE.env)) {
+        assert.equal(options?.env?.[key], value, `${key} of ${args.join(' ')}`);
+      }
       for (const [key, value] of Object.entries(IN_CLONE.config)) {
         assert.equal(options?.config?.[key], value, `${key} of ${args.join(' ')}`);
       }
@@ -321,6 +323,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
           'refs/remotes/origin/main^{commit}',
         ],
         [root, `--git-dir=${gitDir}`, 'update-ref', 'refs/heads/main', OLD],
+        [clone, 'config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'],
         [
           root,
           `--git-dir=${gitDir}`,
@@ -347,11 +350,46 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     );
     // The ref is the fetch's boundary: what it walks after the fetch stops at the clone's base.
     assert.equal(calls[3]?.options?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
-    const fetch = calls[4]?.options;
+    const fetch = calls[5]?.options;
     assert.equal(fetch?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
     assert.equal(fetch?.config?.['core.hooksPath'], devNull);
     assert.equal(fetch?.config?.['gc.auto'], '0');
     assert.equal(fetch?.timeoutMs, 300_000);
+  });
+
+  it('fetches the base of a partial clone with its filter, from the URL Foedrum names as a promisor of its own git directory (review of #266)', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args.includes('--get-regexp') ? ok('extensions.partialclone origin\n') : answers(args),
+    );
+    assert.equal(
+      await openBranchPush({ git, clone, own: { ...base, id: ids() } }).baseTip('main'),
+      TIP,
+    );
+    const configs = calls.filter(
+      ({ args }) => args[0] === `--git-dir=${gitDir}` && args[1] === 'config',
+    );
+    assert.deepEqual(
+      configs.map(({ args }) => args.slice(1)),
+      [
+        ['config', 'core.repositoryformatversion', '1'],
+        ['config', 'extensions.partialClone', 'foedrum'],
+      ],
+    );
+    const fetch = calls.find(({ args }) => args.includes('fetch'));
+    assert.deepEqual(fetch?.args.slice(-4), [
+      '--filter=blob:none',
+      '--end-of-options',
+      'foedrum',
+      '+refs/heads/main:refs/heads/main',
+    ]);
+    assert.deepEqual(fetch?.options?.config, {
+      'remote.foedrum.url': url,
+      'remote.foedrum.promisor': 'true',
+      'remote.foedrum.partialclonefilter': 'blob:none',
+      'core.hooksPath': devNull,
+      'gc.auto': '0',
+      'maintenance.auto': 'false',
+    });
   });
 
   it('sets no ref when the clone has no origin/<base>, or git names none, and passes the signal to every call', async () => {
@@ -368,7 +406,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
       );
       assert.deepEqual(
         calls.map(({ options }) => options?.signal === signal),
-        [true, true, true, true, true],
+        [true, true, true, true, true, true],
       );
     }
   });
@@ -606,6 +644,8 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         GIT_SHALLOW_FILE: devNull,
         // A partial clone would fetch a missing object, so a key asked of cat-file would leave.
         GIT_NO_LAZY_FETCH: '1',
+        // No transport, whatever protocol.<name>.allow the clone says (ADR 0096).
+        GIT_ALLOW_PROTOCOL: 'none',
       });
       assert.deepEqual(options?.config, {
         'core.attributesFile': devNull,
