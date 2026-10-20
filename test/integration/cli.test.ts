@@ -192,12 +192,14 @@ describe('foedrum status and replay on store files', () => {
 
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(
+    // The whole line, as text: the clone's path may hold regex characters.
+    assert.ok(
+      stdout
+        .split('\n')
+        .includes(
+          `  11-1  foedrum/11-1/brew/1  2 commits past the start  in ${clone}: git branch -D foedrum/11-1/brew/1`,
+        ),
       stdout,
-      new RegExp(
-        `^  11-1  foedrum/11-1/brew/1  2 commits past the start  in ${clone.replaceAll('\\', '\\\\')}: git branch -D foedrum/11-1/brew/1$`,
-        'm',
-      ),
     );
   });
 
