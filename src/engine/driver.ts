@@ -269,8 +269,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   });
 
   const runs = new Map<string, { ref: AttemptRef; run: RunningAttempt }>();
-  const ended: { ref: AttemptRef; end: AttemptEnd }[] = [];
-  const errors: unknown[] = [];
+  // The runs that ended, with the error of each whose end rejected.
+  const ended: { ref: AttemptRef; end: AttemptEnd; rejected?: { error: unknown } }[] = [];
   // Ended batches whose worktrees drive() cleans next.
   const toClean = new Set<string>();
   // Ended batches cleaned while an attempt of theirs held a live lease, which kept its worktree:
@@ -451,14 +451,18 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           runs.set(key, { ref, run });
           run.ended.then(
             (end) => ended.push({ ref, end }),
-            (error: unknown) => errors.push(error),
+            // The runner broke, not the attempt: it is blocked on its environment (ADR 0028).
+            (error: unknown) => {
+              const summary = error instanceof Error ? error.message : String(error);
+              const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
+              ended.push({ ref, end: { ending }, rejected: { error } });
+            },
           );
         }
       }
       // Let the runs that ended settle their promises.
       await new Promise((resolve) => setImmediate(resolve));
-      if (errors.length > 0) throw errors.splice(0)[0];
-      for (const { ref, end } of ended.splice(0)) {
+      for (const { ref, end, rejected } of ended.splice(0)) {
         const key = attemptKey.encode(ref);
         runs.delete(key);
         // The step boundary: an attempt that ended is recorded, also in a batch another driver
@@ -467,6 +471,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         if (!issue({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
           releaseAttempt(key);
         }
+        if (rejected !== undefined) report({ kind: 'run_failed', ref, error: rejected.error });
         // An attempt of an ended batch held its worktree until now.
         if (cleaners.length > 0 && batchIsOver(log.state(), ref.batchId)) {
           toClean.add(ref.batchId);
