@@ -12,8 +12,8 @@ import {
   type PullRequestRequest,
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
-import type { ScanFinding } from '../../src/formats/commit-scan.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { ScanFinding } from '../../src/schemas/store.ts';
 
 const tip = 'c'.repeat(40);
 const other = 'd'.repeat(40);

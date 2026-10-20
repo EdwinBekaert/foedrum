@@ -87,6 +87,13 @@ export const CommitSha = z
 export const MAX_REFUSED = 50;
 
 /**
+ * What the secret scan found in a batch's commits (ADR 0079): the commit, the place (the file's
+ * path as git shows it, `message`, or why neither can be named) and the kind, never the text.
+ */
+export const ScanFinding = z.strictObject({ commit: CommitSha, place: Filled, kind: Filled });
+export type ScanFinding = z.infer<typeof ScanFinding>;
+
+/**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
  * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
@@ -97,11 +104,7 @@ export const PushResult = z.strictObject({
   commit: CommitSha,
   from: Filled,
   empty: z.literal(true).optional(),
-  refused: z
-    .array(z.strictObject({ commit: CommitSha, place: Filled, kind: Filled }))
-    .min(1)
-    .max(MAX_REFUSED)
-    .optional(),
+  refused: z.array(ScanFinding).min(1).max(MAX_REFUSED).optional(),
 });
 export type PushResult = z.infer<typeof PushResult>;
 

@@ -2,14 +2,8 @@
 // messages and the added lines that `git log` shows for them, read with findSecrets. A finding
 // names the commit, the file (or the message) and the kind, never the text it matched.
 
+import type { ScanFinding } from '../schemas/store.ts';
 import { findSecrets, type IsCommit } from './secrets.ts';
-
-export interface ScanFinding {
-  commit: string;
-  /** The file's path as git shows it, `message`, or why neither can be named. */
-  place: string;
-  kind: string;
-}
 
 /** The place of a finding in a commit's message. */
 export const MESSAGE = 'message';

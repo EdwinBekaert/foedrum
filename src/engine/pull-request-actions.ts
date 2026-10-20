@@ -3,9 +3,9 @@
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
 // pushes twice or opens two pull requests (I4). The attempt ends once both are recorded.
 
-import type { ScanFinding } from '../formats/commit-scan.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
+import type { ScanFinding } from '../schemas/store.ts';
 import { MAX_REFUSED, PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
 import type { Ending } from './decide.ts';
