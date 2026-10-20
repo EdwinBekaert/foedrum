@@ -173,3 +173,150 @@ describe('openBranchPush: signals and time', () => {
     assert.equal(calls[2]?.options?.timeoutMs, 300_000);
   });
 });
+
+describe('openBranchPush: secretScan (ADR 0079)', () => {
+  const BASE = 'b'.repeat(40);
+  // Built at run time, so no scanner takes this file for one that holds a token.
+  const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+  const known = 'a'.repeat(40);
+  const messages = `\0${TIP}\nUse the key\n\nGH=${token}\nRevert ${known}\n`;
+  const patches = [
+    `\0${TIP}`,
+    '',
+    'diff --git a/keys.txt b/keys.txt',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/keys.txt',
+    '@@ -0,0 +1 @@',
+    `+${token}`,
+  ].join('\n');
+  const answers = (args: readonly string[]): GitResult => {
+    if (args.includes('--patch')) return ok(patches);
+    if (args[0] === 'log') return ok(messages);
+    if (args[0] === 'cat-file') return ok(`${known} commit\n`);
+    return failed('unexpected');
+  };
+  const range = ['--end-of-options', TIP, `^${BASE}`];
+
+  it('reads the messages and the added lines of every commit from the base, in the clone', async () => {
+    const { git, calls } = recordingGit(answers);
+    const found = await openBranchPush({ git, clone }).secretScan(BASE, TIP);
+    assert.deepEqual(found, [
+      { commit: TIP, place: 'message', kind: 'GitHub token' },
+      { commit: TIP, place: 'keys.txt', kind: 'GitHub token' },
+    ]);
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [
+          clone,
+          'log',
+          '--no-notes',
+          '--no-show-signature',
+          '--encoding=UTF-8',
+          '--format=%x00%H%n%B',
+          ...range,
+        ],
+        [
+          clone,
+          'log',
+          '--no-notes',
+          '--no-show-signature',
+          '--format=%x00%H',
+          '--patch',
+          '--diff-merges=first-parent',
+          '--unified=0',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-color',
+          '--no-renames',
+          '--no-relative',
+          '--ignore-submodules=none',
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          ...range,
+        ],
+        // Only the hexadecimal words, asked of the clone's objects as committed.
+        [clone, 'cat-file', '--batch-check=%(objectname) %(objecttype)'],
+      ],
+    );
+    assert.equal(calls[2]?.options?.stdin, `${known}\n`);
+  });
+
+  it('reads history as committed: no replace ref, graft or shallow file, attribute file or log setting of the clone changes it', async () => {
+    const { git, calls } = recordingGit(answers);
+    await openBranchPush({ git, clone }).secretScan(BASE, TIP);
+    for (const { options } of calls) {
+      assert.deepEqual(options?.env, {
+        GIT_NO_REPLACE_OBJECTS: '1',
+        GIT_GRAFT_FILE: devNull,
+        GIT_SHALLOW_FILE: devNull,
+      });
+      assert.deepEqual(options?.config, {
+        'core.attributesFile': devNull,
+        'log.showRoot': 'true',
+      });
+    }
+  });
+
+  it('asks nothing of the objects when no word may be a commit', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args[0] === 'log' ? ok(`\0${TIP}\nClean\n`) : failed('unexpected'),
+    );
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), []);
+    assert.deepEqual(
+      calls.map(({ args }) => args[0]),
+      ['log', 'log'],
+    );
+  });
+
+  it('refuses commits it cannot read whole: more than 4 MiB of messages or changes', async () => {
+    for (const large of ['messages', 'patches']) {
+      const { git } = recordingGit((args) => {
+        const killed = args.includes('--patch') === (large === 'patches');
+        return killed && args[0] === 'log'
+          ? {
+              code: null,
+              stdout: 'diff',
+              stderr: 'git wrote more than 4 MiB of output',
+              killed: 'too-much-output',
+            }
+          : ok(`\0${TIP}\nClean\n`);
+      });
+      assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+        {
+          commit: TIP,
+          place: `the commits from ${BASE}`,
+          kind: 'more than 4 MiB of messages or changes, past what the scan reads',
+        },
+      ]);
+    }
+  });
+
+  it("fails with git's reason when git does, and refuses a commit that is no full sha before git runs", async () => {
+    const broken = recordingGit(() => ({ code: 128, stdout: '', stderr: 'fatal: bad object\n' }));
+    await assert.rejects(openBranchPush({ git: broken.git, clone }).secretScan(BASE, TIP), {
+      message: 'git log failed: fatal: bad object',
+    });
+    const { git, calls } = recordingGit();
+    await assert.rejects(
+      openBranchPush({ git, clone }).secretScan('main', TIP),
+      /main is no full commit sha/,
+    );
+    await assert.rejects(
+      openBranchPush({ git, clone }).secretScan(BASE, 'HEAD'),
+      /HEAD is no full commit sha/,
+    );
+    assert.deepEqual(calls, []);
+  });
+
+  it('passes the signal to every git call', async () => {
+    const { git, calls } = recordingGit(answers);
+    const { signal } = new AbortController();
+    await openBranchPush({ git, clone }).secretScan(BASE, TIP, signal);
+    assert.deepEqual(
+      calls.map(({ options }) => options?.signal === signal),
+      [true, true, true],
+    );
+  });
+});

@@ -3,6 +3,7 @@
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
 // pushes twice or opens two pull requests (I4). The attempt ends once both are recorded.
 
+import type { ScanFinding } from '../formats/commit-scan.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
 import { PushResult } from '../schemas/store.ts';
@@ -54,6 +55,11 @@ export interface BranchPush {
   remoteTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Pushes `commit` to the remote's branch `branch`, never by force. */
   push(commit: string, branch: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * What the commits from `base` to `commit` (both full shas) would publish that looks like a
+   * secret, or that the scan cannot read: nothing when they may go (ADR 0079).
+   */
+  secretScan(base: string, commit: string, signal?: AbortSignal): Promise<ScanFinding[]>;
 }
 
 /** A repository a batch writes in: its base branch, and the pushes of its clone. */

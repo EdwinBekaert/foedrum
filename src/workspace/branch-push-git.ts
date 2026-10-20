@@ -86,5 +86,8 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         config: { 'core.hooksPath': devNull },
       });
     },
+    secretScan: async () => {
+      throw new Error('not implemented');
+    },
   };
 };

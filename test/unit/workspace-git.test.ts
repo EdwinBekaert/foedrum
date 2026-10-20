@@ -115,6 +115,22 @@ describe('runGitWith', () => {
     assert.equal(result.stderr, 'git wrote more than 256 MiB of output');
   });
 
+  // The secret scan reads history as committed, whatever the clone holds besides (ADR 0079).
+  it("adds the call's own environment after git's, and writes its input to git's stdin", async () => {
+    const { calls, git } = answering(exited(0));
+    await git('/work/repo', ['cat-file', '--batch-check'], {
+      env: { GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '1' },
+      stdin: 'abc\n',
+    });
+    const options = calls[0]?.[2];
+    assert.deepEqual(options?.env, {
+      ...gitEnv(process.env),
+      GIT_NO_REPLACE_OBJECTS: '1',
+      GIT_TERMINAL_PROMPT: '0',
+    });
+    assert.equal(options?.stdin, 'abc\n');
+  });
+
   it("passes the call's stop signal on", async () => {
     const { calls, git } = answering(exited(0));
     const stop = new AbortController();
@@ -143,6 +159,7 @@ describe('runGitWith', () => {
       code: null,
       stdout: '',
       stderr: 'remote: git timed out after 5 ms',
+      killed: 'timed-out',
     });
   });
 
@@ -159,6 +176,7 @@ describe('runGitWith', () => {
       code: null,
       stdout: 'diff --git',
       stderr: 'git wrote more than 4 MiB of output',
+      killed: 'too-much-output',
     });
   });
 });

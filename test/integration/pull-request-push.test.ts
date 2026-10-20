@@ -4,8 +4,8 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -201,6 +201,125 @@ describe('the openPullRequest push with real git', () => {
       kind: 'failed',
       retryable: false,
       reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+    });
+  });
+
+  describe('the secret scan before the push (ADR 0079)', () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+
+    /** Asserts that nothing reached the origin and the batch is Stuck on its environment, never quoting the secret. */
+    const stopped = (state: Awaited<ReturnType<typeof brew>>['state'], requests: unknown[]) => {
+      assert.equal(
+        git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]),
+        '',
+      );
+      assert.deepEqual(requests, []);
+      const lane = state.batches.get('12-1')?.lane;
+      assert.equal(lane?.kind, 'stuck');
+      const reason = lane?.kind === 'stuck' ? lane.reason : undefined;
+      assert.equal(reason?.kind, 'blocked');
+      assert.equal(reason?.kind === 'blocked' && reason.blockerKind, 'environment');
+      const summary = reason?.kind === 'blocked' ? reason.summary : '';
+      // Not in any event, so neither on the state branch nor in the status comment.
+      assert.doesNotMatch(JSON.stringify(store.eventsAfter(0)), /A1b2/);
+      return summary;
+    };
+
+    it('stops the push of a commit whose message holds a credential', async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', '-m', `GH=${token}`]);
+      });
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, message: GitHub token`));
+    });
+
+    it('stops the push of a credential in an added line of a file the base has', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(
+          join(path, 'readme.txt'),
+          `hello
+key ${token}
+`,
+        );
+        git(path, ['commit', '-q', '-am', 'Note the key']);
+      });
+      assert.match(stopped(state, requests), /, readme.txt: GitHub token/);
+    });
+
+    it('stops the push of a credential in a new file, in a commit before the tip', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(
+          join(path, 'aws.txt'),
+          `${token}
+`,
+        );
+        git(path, ['add', 'aws.txt']);
+        git(path, ['commit', '-q', '-m', 'Add notes']);
+        git(path, ['rm', '-q', 'aws.txt']);
+        git(path, ['commit', '-q', '-m', 'Remove notes']);
+      });
+      assert.match(stopped(state, requests), /, aws.txt: GitHub token/);
+    });
+
+    it('stops the push of a binary file, which it cannot read', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'logo.png'), Buffer.from([0, 1, 2, 3, 0, 255]));
+        git(path, ['add', 'logo.png']);
+        git(path, ['commit', '-q', '-m', 'Add a logo']);
+      });
+      assert.match(stopped(state, requests), /, logo.png: binary file/);
+    });
+
+    it('stops the push of more than 4 MiB of changes, past what it reads', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'big.txt'), 'all work and no play\n'.repeat(250_000));
+        git(path, ['add', 'big.txt']);
+        git(path, ['commit', '-q', '-m', 'Add a big file']);
+      });
+      assert.match(stopped(state, requests), /more than 4 MiB of messages or changes/);
+    });
+
+    it('sees the commits as they are, whatever a brewer configured in the clone it shares', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(
+          join(path, 'plan.txt'),
+          `${token}
+`,
+        );
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan']);
+        const secret = git(path, ['rev-parse', 'HEAD']).trim();
+        git(path, ['commit', '-q', '--allow-empty', '-m', 'Tidy']);
+        const tidy = git(path, ['rev-parse', 'HEAD']).trim();
+        const start = git(path, ['rev-parse', 'HEAD~2']).trim();
+        // Every place git would take a hiding diff from: a diff driver, a textconv, a binary
+        // attribute, a replace ref and a graft that skip the commit, and the clone's log settings.
+        const gitDir = git(path, ['rev-parse', '--git-common-dir']).trim();
+        const common = isAbsolute(gitDir) ? gitDir : join(path, gitDir);
+        mkdirSync(join(common, 'info'), { recursive: true });
+        writeFileSync(join(common, 'info', 'attributes'), '*.txt diff=hide\n');
+        git(path, ['config', 'diff.hide.textconv', 'node -e ""']);
+        git(path, ['config', 'diff.hide.command', 'node -e ""']);
+        git(path, ['config', 'diff.external', 'node -e ""']);
+        git(path, ['config', 'log.showRoot', 'false']);
+        git(path, ['config', 'diff.noprefix', 'true']);
+        git(path, ['config', 'log.showSignature', 'true']);
+        git(path, ['replace', '--graft', tidy, start]);
+        writeFileSync(
+          join(common, 'info', 'grafts'),
+          `${secret} ${start}
+`,
+        );
+        writeFileSync(
+          join(common, 'shallow'),
+          `${tidy}
+`,
+        );
+      });
+      assert.match(stopped(state, requests), /, plan.txt: GitHub token/);
     });
   });
 });

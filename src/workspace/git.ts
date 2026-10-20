@@ -9,6 +9,8 @@ export interface GitResult {
   code: number | null;
   stdout: string;
   stderr: string;
+  /** Why the runner killed git, when it did. */
+  killed?: Killed;
 }
 
 export interface GitOptions {
@@ -20,6 +22,10 @@ export interface GitOptions {
   signal?: AbortSignal;
   /** Kills git when its output passes this many bytes; default the runner's 4 MiB (ADR 0035). */
   maxOutputBytes?: number;
+  /** Environment for this call only, after git's own: it never turns a prompt back on. */
+  env?: Readonly<Record<string, string>>;
+  /** Written to git's stdin, which is then closed. */
+  stdin?: string;
 }
 
 export type Git = (
