@@ -313,6 +313,17 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     ]);
   });
 
+  // Review of #237: `git merge --squash` writes `commit <sha>` lines into the message.
+  it('asks the objects about a commit a message names on a line of its own', async () => {
+    const { git, calls } = recordingGit((args) => {
+      if (args.includes('--format=raw')) return ok(plainHeaders);
+      if (args[0] === 'cat-file') return ok(`${known} commit\n`);
+      return ok(args.includes('--patch') ? '' : `\0${TIP}\nSquashed\n\ncommit ${known}\n`);
+    });
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), []);
+    assert.equal(calls.at(-1)?.options?.stdin, `${known}\n`);
+  });
+
   it('asks nothing of the objects when no word may be a commit', async () => {
     const { git, calls } = recordingGit((args) => {
       if (args.includes('--format=raw')) return ok(plainHeaders);

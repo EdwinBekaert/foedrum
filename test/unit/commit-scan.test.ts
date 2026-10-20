@@ -143,6 +143,14 @@ describe('scanHeaders (review of #237)', () => {
     assert.deepEqual(scanHeaders(log, none), []);
   });
 
+  it('names a header whose plain-word name looks like a secret without its name', () => {
+    const name = `deadbeef${'0123456789abcdef'.repeat(2)}`;
+    const log = raw(C1, [`author ${person('Brewer')}`, `${name} x`]);
+    const found = scanHeaders(log, none);
+    assert.deepEqual(found, [{ commit: C1, place: 'a header', kind: 'long hexadecimal string' }]);
+    assert.doesNotMatch(JSON.stringify(found), /deadbeef/);
+  });
+
   it('names a header whose name is no plain word without its name', () => {
     const log = raw(C1, [`author ${person('Brewer')}`, `${token} ${token}`]);
     assert.deepEqual(scanHeaders(log, none), [
