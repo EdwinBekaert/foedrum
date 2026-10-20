@@ -41,6 +41,11 @@ export interface StatusComments {
 
 /** How long a text a brewer or an issue wrote may be in the comment. */
 const longest = 200;
+/**
+ * How much of such a text is read for secrets (ADR 0088): what can be shown, and room past it for
+ * a match that starts there, so a token cut at `longest` is still found whole.
+ */
+const scanned = 1_000;
 /** How many assumptions of one step the comment shows. */
 const mostAssumptions = 10;
 /** How many questions of a batch Stuck for input the comment shows, and options of each. */
@@ -245,7 +250,11 @@ export const renderStatus = (
   steps?: readonly string[],
   isCommit: IsCommit = () => false,
 ): string => {
-  const told: Told = (text, stepId) => plain(withoutSecrets(text, stepId, isCommit));
+  // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
+  const told: Told = (text, stepId) => {
+    const shown = text.replace(/\s+/g, ' ').trim().slice(0, scanned);
+    return plain(withoutSecrets(shown, stepId, isCommit));
+  };
   // The recipe's steps, then any the batch has that the recipe no longer lists.
   const stepIds = [...new Set([...(steps ?? []), ...batch.steps.keys(), ...(batch.skipped ?? [])])];
   const sections = [
