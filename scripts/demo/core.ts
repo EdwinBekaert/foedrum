@@ -225,6 +225,8 @@ export interface DemoRun {
   pulls: readonly { title: string; head: string; base: string }[];
   /** The comments on the order's issue there. */
   comments: readonly { author: string; body: string }[];
+  /** The foedrum commands the walkthrough ran, and how each ended. */
+  commands?: readonly { argv: readonly string[]; exitCode: number; stderr: string }[];
 }
 
 /** The last lines of a process's output, to say why. */
@@ -255,6 +257,13 @@ export const problemsOf = (run: DemoRun): string[] => {
   if (pulls.length !== 1) problems.push(`the code host has ${pulls.length} pull requests, not 1`);
   if (comments.length !== 1) {
     problems.push(`the order has ${comments.length} status comments, not 1`);
+  }
+  for (const { argv, exitCode, stderr } of run.commands ?? []) {
+    if (exitCode !== 0) {
+      problems.push(
+        `foedrum ${argv.join(' ')} failed (exit code ${exitCode}): ${stderr.trim() || '(no output)'}`,
+      );
+    }
   }
   return problems;
 };

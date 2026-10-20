@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { codeHost, fileJournal } from '../../scripts/demo/code-host.ts';
 import { BREWERY, CRASH_LINE, ON_TAP_LINE, ORDER } from '../../scripts/demo/core.ts';
+import { headingOf, STEPS } from '../../scripts/demo/walkthrough.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -38,7 +39,7 @@ describe('npm run demo', () => {
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !hostGit.test(name)),
     );
-    const result = await execProcess(process.execPath, [demo, '--in', scratch], {
+    const result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
       // Only a guard against a hang (ADR 0075).
@@ -47,6 +48,36 @@ describe('npm run demo', () => {
     assert.equal(result.exitCode, 0, result.output);
     assert.ok(result.stdout.includes(CRASH_LINE), result.output);
     assert.ok(result.stdout.includes(ON_TAP_LINE), result.output);
+
+    // The walkthrough's steps, in order, with no pause between them.
+    const at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));
+    assert.ok(
+      at.every((where, n) => where >= 0 && where > (at[n - 1] ?? -1)),
+      `headings at ${at.join(', ')}:\n${result.stdout}`,
+    );
+    // The first Cellar shows status as the batch moves, up to the attempt the kill takes.
+    assert.match(result.stdout.slice(at[2], at[3]), /brewing +brew #1 started/);
+    // The restart shows that it found the lost attempt: lost, and brewed again.
+    const restart = result.stdout.slice(at[3], at[4]);
+    assert.match(
+      restart,
+      /demo: the restart found brew #1 lost \(the attempt was lost[^\n]*\); brew #2 brews it again/,
+    );
+    assert.match(restart, /brewing +brew #2 started/);
+    // The status comment is shown as its Markdown, without the hidden revision marker.
+    const pullStep = result.stdout.slice(at[4], at[5]);
+    assert.match(pullStep, /On tap/);
+    assert.ok(!result.stdout.includes('<!--'), result.stdout);
+    // On tap: foedrum status shows the batch there, with its pull request.
+    assert.match(
+      result.stdout.slice(at[5], at[6]),
+      /\$ foedrum status\n.*on tap +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
+    );
+    // replay shows the batch's events and the state the fold makes of them.
+    const replay = result.stdout.slice(at[6]);
+    assert.match(replay, /Batch 1-1, issue/);
+    assert.match(replay, /batch\.on_tap/);
+    assert.match(replay, /lane +on tap/);
 
     // Exactly one pull request and one status comment, across both lives of the Cellar.
     const host = await codeHost(fileJournal(join(scratch, 'code-host.jsonl')));

@@ -86,6 +86,52 @@ describe('the demo brewer', () => {
     assert.deepStrictEqual(log, []);
   });
 
+  it('lets the Cellar look at the attempt once it has started, before the brewer writes', async () => {
+    const log: string[] = [];
+    let looked = (): void => {};
+    const runner = scriptedBrewer({
+      plan: async () => ({ cwd }),
+      git: async (_at, args) => {
+        log.push(`git ${args[0]}`);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+      write: () => log.push('write'),
+      life: 'finish',
+      crash: () => log.push('crash'),
+      started: async (ref) => {
+        log.push(`started ${ref.stepId}#${ref.attempt}`);
+        await new Promise<void>((done) => (looked = done));
+      },
+    });
+    const run = runner.start(start);
+    await settled();
+    assert.deepStrictEqual(log, ['started brew#1']);
+    looked();
+    const { ending } = await run.ended;
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    assert.deepStrictEqual(log, ['started brew#1', 'write', 'git add', 'git commit']);
+  });
+
+  it('brews on when the Cellar cannot show the attempt: showing it never fails it', async () => {
+    const log: string[] = [];
+    const runner = scriptedBrewer({
+      plan: async () => ({ cwd }),
+      git: async (_at, args) => {
+        log.push(`git ${args[0]}`);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+      write: () => log.push('write'),
+      life: 'finish',
+      crash: () => log.push('crash'),
+      started: async () => {
+        throw new Error('the store is locked');
+      },
+    });
+    const { ending } = await runner.start(start).ended;
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    assert.deepStrictEqual(log, ['write', 'git add', 'git commit']);
+  });
+
   it('fails the attempt, not the tick, when git cannot commit, and does not crash', async () => {
     const { runner, log } = brewer('crash', 128);
     const { ending } = await runner.start(start).ended;
