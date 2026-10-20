@@ -2,7 +2,7 @@
 // there, the order on the fake code host, and whether a run ended as it should. The shell is
 // scripts/demo.ts; one life of the Cellar is scripts/demo/cellar.ts.
 
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
@@ -40,19 +40,24 @@ export const IDENTITY = { name: 'Demo brewer', email: 'brewer@demo.invalid' };
 /**
  * The git configuration every git of the demo reads as its global one, with no system one: the
  * demo's identity, no commit signing, and the target repository's URL on GitHub rewritten to the
- * scratch `remote`, so serve's own fetches and pushes reach it and never github.com.
+ * scratch `remote`, so serve's own fetches and pushes reach it. Every other GitHub URL goes to a
+ * path next to it that does not exist (git takes the longest matching insteadOf), so a URL serve
+ * names some other way fails on the machine instead of reaching github.com.
  */
 export const gitConfig = (remote: string): string => {
   // A subsection name is quoted: its backslashes and double quotes are escaped.
-  const subsection = remote.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  const subsection = (path: string): string =>
+    `[url "${path.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"]`;
   return [
     '[user]',
     `\tname = ${IDENTITY.name}`,
     `\temail = ${IDENTITY.email}`,
     '[commit]',
     '\tgpgsign = false',
-    `[url "${subsection}"]`,
+    subsection(remote),
     `\tinsteadOf = https://github.com/${TARGET}.git`,
+    subsection(join(dirname(remote), 'no-such-remote')),
+    '\tinsteadOf = https://github.com/',
     '',
   ].join('\n');
 };
