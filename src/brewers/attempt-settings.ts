@@ -2,7 +2,12 @@
 // passed its schema, so the file is never one claude would drop.
 
 import { writeFileSync } from 'node:fs';
-import { AttemptSettings, alwaysDenied, sandboxCredentials } from '../schemas/attempt-settings.ts';
+import {
+  AttemptSettings,
+  alwaysDenied,
+  sandboxCredentials,
+  scopedRule,
+} from '../schemas/attempt-settings.ts';
 import { z } from '../schemas/zod.ts';
 
 export interface AttemptPermissions {
@@ -21,10 +26,16 @@ const valid = (settings: unknown): AttemptSettings => {
   throw new Error(`The attempt settings are not valid:\n${z.prettifyError(result.error)}`);
 };
 
-/** The settings of an attempt: its rules, the rules every attempt denies, and the sandbox. */
+/**
+ * The settings of an attempt: its rules, each bare file tool scoped to the worktree (ADR 0093),
+ * the rules every attempt denies, and the sandbox. `--tools` still decides which tools exist.
+ */
 export function attemptSettings({ allow, deny, sandbox }: AttemptPermissions): AttemptSettings {
   return valid({
-    permissions: { allow: [...allow], deny: [...new Set([...deny, ...alwaysDenied(allow)])] },
+    permissions: {
+      allow: [...new Set(allow.map(scopedRule))],
+      deny: [...new Set([...deny, ...alwaysDenied(allow)])],
+    },
     // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
     // default it runs every sandboxed command whatever the allow rules say, and lets it read the
     // machine's credentials.

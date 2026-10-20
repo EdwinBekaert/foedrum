@@ -16,7 +16,7 @@ describe('attemptSettings', () => {
     });
     assert.deepEqual(settings, {
       permissions: {
-        allow: ['Read', 'Bash(npm test)', 'PowerShell(npm test)'],
+        allow: ['Read(./**)', 'Bash(npm test)', 'PowerShell(npm test)'],
         deny: ['WebFetch', 'AskUserQuestion', 'Bash(git push *)', 'PowerShell(git push *)'],
       },
     });
@@ -84,6 +84,71 @@ describe('attemptSettings', () => {
       /AskUserQuestion/,
     );
   });
+});
+
+// #135: under dontAsk a bare file-tool rule allows its tool anywhere on disk. Claude Code checks
+// file permissions against Edit(path) and Read(path) rules only, and Edit rules apply to every
+// tool that edits files, so the worktree is Read(./**) and Edit(./**), never Write(./**) (ADR 0093).
+describe('attemptSettings and the file tools', () => {
+  for (const tool of ['Read', 'Grep', 'Glob']) {
+    it(`scopes a bare ${tool} to the worktree as Read(./**)`, () => {
+      const settings = attemptSettings({ allow: [tool], deny: [], sandbox: false });
+      assert.deepEqual(settings.permissions.allow, ['Read(./**)']);
+    });
+  }
+
+  for (const tool of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']) {
+    it(`scopes a bare ${tool} to the worktree as Edit(./**)`, () => {
+      const settings = attemptSettings({ allow: [tool], deny: [], sandbox: false });
+      assert.deepEqual(settings.permissions.allow, ['Edit(./**)']);
+    });
+  }
+
+  it('names each scoped rule once, where the first of its tools stood', () => {
+    const settings = attemptSettings({
+      allow: ['Bash(npm test)', 'Write', 'Read', 'Edit', 'Grep', 'Glob', 'Read(src/**)'],
+      deny: [],
+      sandbox: false,
+    });
+    assert.deepEqual(settings.permissions.allow, [
+      'Bash(npm test)',
+      'Edit(./**)',
+      'Read(./**)',
+      'Read(src/**)',
+    ]);
+  });
+
+  it('keeps Read and Edit path rules, and bare file tools in deny, as they are', () => {
+    const settings = attemptSettings({
+      allow: ['Read(src/**)', 'Edit(docs/**)'],
+      deny: ['Write', 'NotebookEdit', 'Read(.env)'],
+      sandbox: false,
+    });
+    assert.deepEqual(settings.permissions, {
+      allow: ['Read(src/**)', 'Edit(docs/**)'],
+      deny: ['Write', 'NotebookEdit', 'Read(.env)', 'AskUserQuestion'],
+    });
+  });
+
+  for (const [rule, instead] of [
+    ['Write(brew.md)', 'Edit(brew.md)'],
+    ['MultiEdit(src/**)', 'Edit(src/**)'],
+    ['NotebookEdit(./**)', 'Edit(./**)'],
+    ['Glob(src/**)', 'Read(src/**)'],
+  ] as const) {
+    it(`refuses ${rule}, which Claude Code never consults, naming ${instead}`, () => {
+      for (const permissions of [
+        { allow: [rule], deny: [] },
+        { allow: [], deny: [rule] },
+      ]) {
+        assert.throws(
+          () => attemptSettings({ ...permissions, sandbox: false }),
+          (error: Error) => error.message.includes(instead),
+          JSON.stringify(permissions),
+        );
+      }
+    });
+  }
 });
 
 // #167: claude matches a deny rule against the command as written, so `git -C . push` gets past
@@ -321,7 +386,7 @@ describe('writeAttemptSettings', () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
     writeAttemptSettings(file, settings);
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
-      permissions: { allow: ['Read'], deny: ['AskUserQuestion'] },
+      permissions: { allow: ['Read(./**)'], deny: ['AskUserQuestion'] },
     });
   });
 
@@ -335,7 +400,34 @@ describe('writeAttemptSettings', () => {
   for (const [what, settings, reason] of [
     ['an unknown key', { permissions: { allow: [], deny: ['AskUserQuestion'] }, model: 'x' }],
     ['a value of the wrong type', { permissions: { allow: 'Read', deny: ['AskUserQuestion'] } }],
-    ['a deny list without AskUserQuestion', { permissions: { allow: ['Read'], deny: [] } }],
+    ['a deny list without AskUserQuestion', { permissions: { allow: ['Read(./**)'], deny: [] } }],
+    // #135: a bare file-tool rule allows its tool anywhere on disk (ADR 0093).
+    ...(['Read', 'Grep', 'Glob'] as const).map(
+      (tool) =>
+        [
+          `a bare ${tool} rule`,
+          { permissions: { allow: [tool], deny: ['AskUserQuestion'] } },
+          /Read\(\.\/\*\*\)/,
+        ] as const,
+    ),
+    ...(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] as const).map(
+      (tool) =>
+        [
+          `a bare ${tool} rule`,
+          { permissions: { allow: [tool], deny: ['AskUserQuestion'] } },
+          /Edit\(\.\/\*\*\)/,
+        ] as const,
+    ),
+    [
+      'a Write path rule, which Claude Code never consults',
+      { permissions: { allow: ['Write(./**)'], deny: ['AskUserQuestion'] } },
+      /Edit\(\.\/\*\*\)/,
+    ],
+    [
+      'a Glob path rule in deny, which Claude Code never consults',
+      { permissions: { allow: [], deny: ['AskUserQuestion', 'Glob(secrets/**)'] } },
+      /Read\(secrets\/\*\*\)/,
+    ],
     [
       'a shell without its git push deny',
       { permissions: { allow: ['Bash(npm test)'], deny: ['AskUserQuestion'] } },
