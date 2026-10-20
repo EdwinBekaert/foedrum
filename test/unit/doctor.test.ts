@@ -618,12 +618,12 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   });
 
   // A login a brewer did read can still be written into a commit or an out doc (#229).
-  it('names #209 for a login in a commit and #235 for one in out doc text on every level', () => {
+  it('names ADR 0079 for a login in a commit and ADR 0088 for one in out doc text on every level', () => {
     for (const facts of [...sandboxed, ...permissionsOnly]) {
       const [line = ''] = keyring(facts);
       assert.match(
         line,
-        /A login a brewer did read is for #209 to catch at the push, and #235 in out doc text\./,
+        /A login a brewer did read is stopped at the push \(ADR 0079\) and left out of the pull request and the status comment \(ADR 0088\) when it looks like one\./,
       );
     }
   });

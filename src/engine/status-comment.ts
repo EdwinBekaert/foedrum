@@ -3,6 +3,7 @@
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
 import { createHash } from 'node:crypto';
+import type { IsCommit } from '../formats/secrets.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { OutDocAssumptions } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
@@ -12,6 +13,8 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
+import { withoutSecrets } from './out-doc-text.ts';
+import { knownCommits } from './pull-request.ts';
 import type { Recipes } from './recipes.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
@@ -38,6 +41,11 @@ export interface StatusComments {
 
 /** How long a text a brewer or an issue wrote may be in the comment. */
 const longest = 200;
+/**
+ * How much of such a text is read for secrets (ADR 0088): what can be shown, and room past it for
+ * a match that starts there, so a token cut at `longest` is still found whole.
+ */
+const scanned = 1_000;
 /** How many assumptions of one step the comment shows. */
 const mostAssumptions = 10;
 /** How many questions of a batch Stuck for input the comment shows, and options of each. */
@@ -82,6 +90,9 @@ const plain = (text: string): string => {
 
 const code = (id: string): string => `\`${id}\``;
 
+/** A text a brewer wrote at `stepId` as one plain line, or a fixed line when it looks like a secret. */
+type Told = (text: string, stepId: string) => string;
+
 /**
  * A URL as an autolink of its normalized form: the schema keeps the text it was given, and `new URL`
  * encodes the spaces and angle brackets that would let the rest of it render as Markdown.
@@ -101,14 +112,14 @@ const waitText = (on: WaitCondition): string => {
   }
 };
 
-const stuckText = (reason: StuckReason): string => {
+const stuckText = (reason: StuckReason, told: Told): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `${code(reason.stepId)} needs input`;
     case 'blocked':
-      return `${code(reason.stepId)} is blocked (${reason.blockerKind}): ${plain(reason.summary)}`;
+      return `${code(reason.stepId)} is blocked (${reason.blockerKind}): ${told(reason.summary, reason.stepId)}`;
     case 'attempts_exhausted':
-      return `${code(reason.stepId)} used its ${reason.attempts} attempts; the last: ${plain(reason.lastReason)}`;
+      return `${code(reason.stepId)} used its ${reason.attempts} attempts; the last: ${told(reason.lastReason, reason.stepId)}`;
     case 'deadline_passed':
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':
@@ -123,7 +134,7 @@ const stuckText = (reason: StuckReason): string => {
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
-const laneText = (lane: Lane): string[] => {
+const laneText = (lane: Lane, told: Told): string[] => {
   switch (lane.kind) {
     case 'ordered':
       return ['📥 **Ordered**: waiting for a recipe'];
@@ -134,17 +145,19 @@ const laneText = (lane: Lane): string[] => {
     case 'stuck': {
       const { reason, options } = lane;
       const asked = reason.kind === 'needs_input' ? reason.questions : [];
+      const tell = (text: string): string =>
+        told(text, reason.kind === 'needs_input' ? reason.stepId : '');
       const questions = asked.slice(0, mostQuestions).map((question) => {
-        const options = question.options.slice(0, mostOptions).map(plain);
+        const options = question.options.slice(0, mostOptions).map(tell);
         const more = question.options.length - options.length;
         if (more > 0) options.push(`and ${more} more options`);
-        return `- ${plain(question.q)} Options: ${options.join(', ')} (recommended: ${plain(question.recommended)})`;
+        return `- ${tell(question.q)} Options: ${options.join(', ')} (recommended: ${tell(question.recommended)})`;
       });
       if (asked.length > questions.length) {
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
       return [
-        `🔔 **Stuck**: ${stuckText(reason)}`,
+        `🔔 **Stuck**: ${stuckText(reason, told)}`,
         ...questions,
         `Get it moving with ${options.map(code).join(', ')}.`,
       ];
@@ -177,7 +190,7 @@ const recipeText = (recipe: Batch['recipe']): string => {
 const latestFirst = (batch: Batch, stepId: string): Attempt[] =>
   [...(batch.steps.get(stepId)?.attempts.values() ?? [])].sort((a, b) => b.attempt - a.attempt);
 
-const stepLine = (batch: Batch, stepId: string): string => {
+const stepLine = (batch: Batch, stepId: string, told: Told): string => {
   const id = code(stepId);
   if (batch.skipped?.has(stepId) === true) return `- ⏭️ ${id}: skipped`;
   const [latest] = latestFirst(batch, stepId);
@@ -197,7 +210,7 @@ const stepLine = (batch: Batch, stepId: string): string => {
     case 'succeeded':
       return `- ✅ ${id}`;
     case 'failed':
-      return `- ❌ ${id}: attempt ${n} failed: ${plain(outcome.reason)}`;
+      return `- ❌ ${id}: attempt ${n} failed: ${told(outcome.reason, stepId)}`;
     case 'needs_input':
       return `- ❓ ${id}: attempt ${n} asked for input`;
     case 'cancelled':
@@ -208,18 +221,19 @@ const stepLine = (batch: Batch, stepId: string): string => {
 };
 
 /** The assumptions of the latest out doc of `stepId` that succeeded. */
-const assumptionsOf = (batch: Batch, stepId: string): string[] => {
+const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   for (const attempt of latestFirst(batch, stepId)) {
     if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') continue;
     const parsed = OutDocAssumptions.safeParse(attempt.outcome.output);
-    return parsed.success ? parsed.data.assumptions.map(plain).filter((text) => text !== '') : [];
+    if (!parsed.success) return [];
+    return parsed.data.assumptions.map((text) => told(text, stepId)).filter((text) => text !== '');
   }
   return [];
 };
 
-const assumptionLines = (batch: Batch, stepIds: readonly string[]): string[] =>
+const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
   stepIds.flatMap((stepId) => {
-    const all = assumptionsOf(batch, stepId);
+    const all = assumptionsOf(batch, stepId, told);
     const shown = all.slice(0, mostAssumptions).map((text) => `- ${code(stepId)}: ${text}`);
     const more = all.length - shown.length;
     return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
@@ -231,15 +245,24 @@ const assumptionLines = (batch: Batch, stepIds: readonly string[]): string[] =>
  * its out docs and, on tap, its pull requests. Every text a brewer or an issue wrote is one
  * escaped line.
  */
-export const renderStatus = (batch: Batch, steps?: readonly string[]): string => {
+export const renderStatus = (
+  batch: Batch,
+  steps?: readonly string[],
+  isCommit: IsCommit = () => false,
+): string => {
+  // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
+  const told: Told = (text, stepId) => {
+    const shown = text.replace(/\s+/g, ' ').trim().slice(0, scanned);
+    return plain(withoutSecrets(shown, stepId, isCommit));
+  };
   // The recipe's steps, then any the batch has that the recipe no longer lists.
   const stepIds = [...new Set([...(steps ?? []), ...batch.steps.keys(), ...(batch.skipped ?? [])])];
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
-    laneText(batch.lane),
-    [recipeText(batch.recipe), ...stepIds.map((stepId) => stepLine(batch, stepId))],
+    laneText(batch.lane, told),
+    [recipeText(batch.recipe), ...stepIds.map((stepId) => stepLine(batch, stepId, told))],
   ];
-  const assumptions = assumptionLines(batch, stepIds);
+  const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   if (batch.lane.kind === 'on_tap') {
     const { pullRequests } = batch.lane;
@@ -304,7 +327,7 @@ const statusDue = (
     revision += 1;
     found = recorded(state, batchId, revision);
   }
-  const text = renderStatus(batch, steps);
+  const text = renderStatus(batch, steps, knownCommits(state, batchId));
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
   const due = { key: revisionKey(batchId, revision), issue: batch.issue, text, digest };

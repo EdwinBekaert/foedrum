@@ -24,6 +24,10 @@ import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const at = '2026-10-18T09:00:00.000Z';
+// Built at run time, so no scanner takes this file for one that holds a token.
+const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+/** `text` as a regular expression that matches it literally. */
+const escaped = (text: string): string => text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 const pr = 'https://github.com/alice/web/pull/12';
 
 const done = (attempt: number, assumptions: string[] = []): Attempt => ({
@@ -418,6 +422,102 @@ describe('renderStatus', () => {
   });
 });
 
+describe('renderStatus: out doc text that looks like a secret (#235)', () => {
+  const leftOut = (stepId: string) =>
+    `\\[left out: a text of step ${stepId} that looks like a secret\\]`;
+  const noToken = (text: string) => assert.doesNotMatch(text, /ghp|A1b2/);
+
+  it('leaves out an assumption, naming the step, and keeps the others', () => {
+    const text = renderStatus(
+      batch({ steps: new Map([step('plan', done(1, [`Token ${token}`, 'Port 8080 is free']))]) }),
+      steps,
+    );
+    assert.match(
+      text,
+      new RegExp(`- \`plan\`: ${escaped(leftOut('plan'))}\n- \`plan\`: Port 8080 is free`),
+    );
+    noToken(text);
+  });
+
+  it('reads only the start of a text it can show, so a long one cannot stall the driver', () => {
+    const long = `Port 8080 is free.${'\nx'.repeat(500_000)}\n${token}`;
+    const text = renderStatus(batch({ steps: new Map([step('plan', done(1, [long]))]) }), steps);
+    assert.match(text, /- `plan`: Port 8080 is free\. x x x/);
+    noToken(text);
+  });
+
+  it('reads past the characters it shows, so a token cut there is still left out', () => {
+    const cut = `${'Port 8080 is free. '.repeat(10)}${token}`;
+    const text = renderStatus(batch({ steps: new Map([step('plan', done(1, [cut]))]) }), steps);
+    assert.match(text, new RegExp(`- \`plan\`: ${escaped(leftOut('plan'))}`));
+    noToken(text);
+  });
+
+  it("leaves out a blocked step's summary, and a failed attempt's reason", () => {
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'blocked', stepId: 'brew', blockerKind: 'findings', summary: token }),
+        steps: new Map([
+          step('plan', failed(1, `the brewer failed: ${token}`), done(2)),
+          step('brew', failed(1, `blocked (findings): ${token}`)),
+        ]),
+      }),
+      steps,
+    );
+    assert.match(text, new RegExp(`is blocked \\(findings\\): ${escaped(leftOut('brew'))}`));
+    noToken(text);
+  });
+
+  it("leaves out a failed step's reason on its line", () => {
+    const text = renderStatus(
+      batch({ steps: new Map([step('plan', failed(1, `the brewer failed: ${token}`))]) }),
+      steps,
+    );
+    assert.match(lineOf(text, 'plan'), new RegExp(`failed: ${escaped(leftOut('plan'))}`));
+    noToken(text);
+  });
+
+  it("leaves out the last reason of a step that used its attempts, and a question's texts", () => {
+    const exhausted = renderStatus(
+      batch({
+        lane: stuck({ kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: token }),
+      }),
+      steps,
+    );
+    assert.match(exhausted, new RegExp(`the last: ${escaped(leftOut('brew'))}`));
+    noToken(exhausted);
+    const question = {
+      q: `Use ${token}?`,
+      options: ['yes', token],
+      recommended: token,
+      whyBlocking: 'x',
+    };
+    const asked = renderStatus(
+      batch({ lane: stuck({ kind: 'needs_input', stepId: 'plan', questions: [question] }) }),
+      steps,
+    );
+    assert.match(
+      asked,
+      new RegExp(`- ${escaped(leftOut('plan'))} Options: yes, ${escaped(leftOut('plan'))}`),
+    );
+    noToken(asked);
+  });
+
+  it('keeps a commit hash that `isCommit` knows, as the refused push names its commits', () => {
+    const sha = 'c'.repeat(40);
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'brew',
+      blockerKind: 'environment',
+      summary: `the push stopped: commit ${sha}, GitHub token in notes.txt`,
+    };
+    const known = renderStatus(batch({ lane: stuck(reason) }), steps, (word) => word === sha);
+    assert.match(known, new RegExp(`commit ${sha}, GitHub token in notes.txt`));
+    const unknown = renderStatus(batch({ lane: stuck(reason) }), steps);
+    assert.doesNotMatch(unknown, new RegExp(sha));
+  });
+});
+
 /** A fake of the comments host: the comments of every issue, ids from 1, as `login` sees them. */
 const fakeComments = (login: string) => {
   const comments: { id: number; repo: string; issue: number; author: string; body: string }[] = [];
@@ -739,5 +839,37 @@ describe('statusEffects', () => {
     await driver.tick();
     assert.deepEqual(comments.comments, []);
     assert.deepEqual(comments.calls, []);
+  });
+
+  it("shows a commit hash the batch's state records, and leaves out a token (#235)", async () => {
+    const sha = 'a'.repeat(40);
+    order();
+    brew();
+    const output = { status: 'done', summary: 'Done', assumptions: [`Token ${token}`] };
+    issue({
+      kind: 'finish',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'succeeded', output },
+    });
+    const brewing = { batchId: '7-1', stepId: 'brew', attempt: 1 };
+    const worktree = { repo: 'alice/web', path: '/work/brew/1', branch: 'foedrum/brew/1' };
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', ...brewing, worktree: { ...worktree, commit: sha } },
+    });
+    const summary = `the brewer made no commit since ${sha}`;
+    issue({
+      kind: 'finish',
+      ...brewing,
+      ending: { kind: 'blocked', blockerKind: 'divergence', summary },
+    });
+    const driver = await open();
+    await driver.tick();
+    const { body } = only();
+    assert.match(body, new RegExp(summary));
+    assert.match(body, /- `plan`: \\\[left out: a text of step plan that looks like a secret\\\]/);
+    assert.doesNotMatch(body, /ghp|A1b2/);
   });
 });
