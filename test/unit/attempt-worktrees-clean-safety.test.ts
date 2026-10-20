@@ -7,6 +7,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
@@ -99,6 +100,35 @@ describe('openAttemptWorktrees with a fake git', () => {
         statusOptions.map((options) => options?.config?.['core.fsmonitor']),
         ['false'],
       );
+    });
+
+    it('runs status and the removal with no hooks either (#263)', async () => {
+      worktreeOnDisk(path, 'implement1');
+      const configs: { command: string; config: GitOptions['config'] }[] = [];
+      const git: Git = async (_cwd, args, options) => {
+        if (args.includes('status') || args[1] === 'remove') {
+          configs.push({
+            command: args.includes('status') ? 'status' : 'remove',
+            config: options?.config,
+          });
+        }
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') return ok(porcelain([{ path, branch }]));
+        return ok();
+      };
+
+      await open(git).clean({ batches: new Map([['12-1', 'ended' as const]]), leased: [] });
+
+      // With the clone's own settings (ADR 0096): no transport either.
+      const config = {
+        'core.fsmonitor': 'false',
+        'core.hooksPath': devNull,
+        'protocol.allow': 'never',
+      };
+      assert.deepEqual(configs, [
+        { command: 'status', config },
+        { command: 'remove', config },
+      ]);
     });
 
     it('knows its worktrees when the work root is reached through a link', async () => {

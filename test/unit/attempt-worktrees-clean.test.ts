@@ -87,6 +87,8 @@ describe('openAttemptWorktrees with a fake git', () => {
           `--work-tree=${path}`,
           'status',
           '--porcelain',
+          // Nor the repository a submodule's .git file names.
+          '--ignore-submodules=all',
         ],
         [
           clone,

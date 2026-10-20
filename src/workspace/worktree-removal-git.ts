@@ -3,9 +3,10 @@
 
 import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { clearReadOnly, errorCode, removeTree } from '../platform/remove.ts';
-import type { Git as WorkspaceGit } from './git.ts';
+import type { GitOptions, Git as WorkspaceGit } from './git.ts';
 import type { FolderState, Removal } from './worktree-removal.ts';
 
 export interface OkGitResult {
@@ -15,7 +16,7 @@ export interface OkGitResult {
 }
 
 /** git with success as a flag, and a reason on every failure. */
-export type OkGit = (cwd: string, args: string[]) => Promise<OkGitResult>;
+export type OkGit = (cwd: string, args: string[], options?: GitOptions) => Promise<OkGitResult>;
 
 // Foedrum's git with success as a flag.
 export const gitThrough =
@@ -35,11 +36,43 @@ export const gitThrough =
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
-/** The state of a worktree folder that git lists. */
-export const folderState = async (git: OkGit, path: string): Promise<FolderState> => {
+/** For a git that reads a worktree's index: no fsmonitor command and no hook runs (#263). */
+export const noRepositoryCommands = { 'core.fsmonitor': 'false', 'core.hooksPath': devNull };
+
+/**
+ * git status of the worktree at `path`, run in `main` against `record`, its record under the
+ * clone: never by discovery from the folder, whose .git file a brewer can point at a git folder
+ * of its own, with a core.fsmonitor command in its configuration (#263, ADR 0095). Submodules are
+ * not looked into; git worktree remove refuses a worktree that has one.
+ */
+export const statusOf = (git: OkGit, main: string, record: string, path: string) =>
+  git(
+    main,
+    // A gitlink would make git look into the submodule with a git found by its own .git file.
+    [
+      `--git-dir=${record}`,
+      `--work-tree=${path}`,
+      'status',
+      '--porcelain',
+      '--ignore-submodules=all',
+    ],
+    { config: noRepositoryCommands },
+  );
+
+/**
+ * The state of a worktree folder that git lists; `unchecked` when the repository at `main` has
+ * no record of it, which keeps it.
+ */
+export const folderState = async (
+  git: OkGit,
+  main: string,
+  path: string,
+  record: string | undefined,
+): Promise<FolderState> => {
   if (!existsSync(path)) return 'gone';
   if (!existsSync(join(path, '.git'))) return 'no-git';
-  const status = await git(path, ['status', '--porcelain']);
+  if (record === undefined) return 'unchecked';
+  const status = await statusOf(git, main, record, path);
   return status.ok && status.stdout.trim() === '' ? 'clean' : 'dirty';
 };
 
@@ -61,7 +94,10 @@ export const removeWorktree = async (git: OkGit, main: string, removal: Removal)
       for (const path of [removal.path, removal.record]) {
         if (path !== undefined) await clearReadOnly(path).catch(() => undefined);
       }
-      const removed = await git(main, ['worktree', 'remove', removal.path]);
+      // git worktree remove runs git status in the folder, which inherits this configuration.
+      const removed = await git(main, ['worktree', 'remove', removal.path], {
+        config: noRepositoryCommands,
+      });
       if (removed.ok) return;
       // git deletes the .git file and the record even when it fails on a busy file, and no
       // later run would see the folder again; with the .git file still there, it refused.
