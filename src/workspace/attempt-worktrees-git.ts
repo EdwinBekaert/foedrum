@@ -18,6 +18,7 @@ import {
   type BatchFolderFact,
   type Claims,
   type ListedFact,
+  managedClonePath,
   parseAttemptFolder,
   planClean,
   planWorktree,
@@ -368,10 +369,6 @@ const withoutCredentials = (url: string): string => {
   parsed.password = '';
   return parsed.toString();
 };
-
-/** Where the managed clone of `repo` is in the work root (ADR 0012). */
-export const managedClonePath = (workRoot: string, repo: string): string =>
-  join(workRoot, repoFolder(repo), 'clone.git');
 
 /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
 export const worktreeClonePath = (

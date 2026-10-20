@@ -3,7 +3,8 @@
 // attempt worktrees are added to, never in a worktree a brewer wrote. kept-branches.ts decides.
 
 import type { State } from '../engine/fold.ts';
-import type { Git } from '../workspace/git.ts';
+import { parseAttemptBranch } from '../workspace/attempt-worktrees.ts';
+import type { Git, GitResult } from '../workspace/git.ts';
 import type { BranchReading } from './kept-branches.ts';
 
 export interface KeptBranchesShell {
@@ -12,11 +13,76 @@ export interface KeptBranchesShell {
   cloneOf: (repo: string) => string | undefined;
 }
 
+class Unread extends Error {}
+
+const firstLine = (text: string): string =>
+  text
+    .split(/\r?\n/)
+    .find((line) => line.trim() !== '')
+    ?.trim() ?? '';
+
+// git's output, or Unread with the first line of why it failed.
+const output = async (
+  git: Git,
+  clone: string,
+  args: string[],
+  quietMiss = false,
+): Promise<GitResult> => {
+  const failed = (why: string) => new Unread(`git ${args[0]} in ${clone} failed: ${why}`);
+  let result: GitResult;
+  try {
+    result = await git(clone, args);
+  } catch (error) {
+    throw failed(error instanceof Error ? error.message : String(error));
+  }
+  // `rev-parse --verify --quiet` says nothing when the ref is not there.
+  if (result.code === 0 || (quietMiss && result.code === 1 && result.stderr === '')) return result;
+  throw failed(firstLine(result.stderr) || `git exited with ${result.code}`);
+};
+
+const readOne = async (
+  state: State,
+  branch: string,
+  start: string,
+  { git, cloneOf }: KeptBranchesShell,
+): Promise<BranchReading> => {
+  const batchId = parseAttemptBranch(branch)?.batchId ?? '';
+  const taskTree = state.batches.get(batchId)?.taskTree;
+  if (taskTree?.kind !== 'attempt') {
+    return { kind: 'unread', reason: `no task tree of batch ${batchId} in the event store` };
+  }
+  const clone = cloneOf(taskTree.repo);
+  if (clone === undefined) {
+    return {
+      kind: 'unread',
+      reason: `no clone for ${taskTree.repo} in foedrum.jsonc and .foedrum/local.jsonc`,
+    };
+  }
+  try {
+    const ref = `refs/heads/${branch}`;
+    const tipped = await output(git, clone, ['rev-parse', '--verify', '--quiet', ref], true);
+    if (tipped.code !== 0) return { kind: 'gone' };
+    const tip = tipped.stdout.trim();
+    if (start === '' || tip === start) {
+      return { kind: 'read', clone, tip, ahead: start === '' ? undefined : 0 };
+    }
+    const counted = await output(git, clone, ['rev-list', '--count', `${start}..${tip}`]);
+    return { kind: 'read', clone, tip, ahead: Number(counted.stdout.trim()) };
+  } catch (error) {
+    if (error instanceof Unread) return { kind: 'unread', reason: error.message };
+    throw error;
+  }
+};
+
 /** What git says of each branch of `unpushed` (`Claims.unpushed`), by name. */
 export const readKeptBranches = async (
-  _state: State,
-  _unpushed: ReadonlyMap<string, string>,
-  _shell: KeptBranchesShell,
+  state: State,
+  unpushed: ReadonlyMap<string, string>,
+  shell: KeptBranchesShell,
 ): Promise<Map<string, BranchReading>> => {
-  throw new Error('not implemented');
+  const readings = new Map<string, BranchReading>();
+  for (const [branch, start] of unpushed) {
+    readings.set(branch, await readOne(state, branch, start, shell));
+  }
+  return readings;
 };

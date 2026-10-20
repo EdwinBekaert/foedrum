@@ -31,6 +31,10 @@ export const repoFolder = (repo: string): string => {
   return folder;
 };
 
+/** Where the managed clone of `repo` is in the work root (ADR 0012). */
+export const managedClonePath = (workRoot: string, repo: string): string =>
+  join(workRoot, repoFolder(repo), 'clone.git');
+
 // A path segment that is also a component of a branch name: git refuses `..` anywhere and a
 // `.lock` ending (git check-ref-format).
 const refSegment = (id: string): boolean =>

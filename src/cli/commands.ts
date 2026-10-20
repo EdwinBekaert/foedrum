@@ -10,6 +10,7 @@ import type { HumanCommand } from '../engine/decide.ts';
 import type { StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
 import { batchOf } from '../engine/state-branch.ts';
+import { worktreeClaims } from '../engine/worktree-claims.ts';
 import {
   AnswerCommand,
   CancelCommand,
@@ -25,6 +26,7 @@ import {
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
+import { keptBranchLines } from './kept-branches.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
 import { describeLane, formatStatus } from './status.ts';
@@ -81,12 +83,12 @@ const failed = (command: string, message: string): CliResult => ({
 });
 
 // Reads every event of the Brewery's store and folds them; one line when there is no store or the
-// fold refuses the log. Never writes (ADR 0030).
-const readBrewery = (
+// fold refuses the log. Never writes (ADR 0030). The store closes once `show` is done.
+const readBrewery = async (
   command: string,
   { cwd, openStore }: CliContext,
-  show: (events: readonly StoredEvent[], state: State) => CliResult,
-): CliResult => {
+  show: (events: readonly StoredEvent[], state: State) => CliResult | Promise<CliResult>,
+): Promise<CliResult> => {
   const path = storePath(cwd);
   const store = openStore(path);
   if (store === undefined) return failed(command, `no event store at ${path}`);
@@ -99,7 +101,7 @@ const readBrewery = (
       if (error instanceof InvalidLogError) return failed(command, error.message);
       throw error;
     }
-    return show(events, state);
+    return await show(events, state);
   } finally {
     store.close();
   }
@@ -164,7 +166,13 @@ export const commands: readonly RegisteredCommand[] = [
     positionals: [],
     schema: StatusCommand,
     handler: async (_input, context) =>
-      readBrewery('status', context, (_events, state) => done(formatStatus(state))),
+      readBrewery('status', context, async (_events, state) => {
+        // The task-tree branches the cleanup keeps (ADR 0084), read only when there are any.
+        const unpushed = worktreeClaims(state, []).unpushed ?? new Map<string, string>();
+        const readings =
+          unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
+        return done(formatStatus(state, keptBranchLines(unpushed, readings)));
+      }),
   }),
   define({
     name: 'stuck',
