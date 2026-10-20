@@ -1,0 +1,28 @@
+# 0088. Out doc text that looks like a secret is left out of the pull request and the status comment
+
+Date: 2026-10-20 · Status: Accepted · Amends [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) (what the pull request body quotes) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (what the status comment shows)
+
+## Context
+A brewer's out doc text leaves the machine without any commit. Its summary and assumptions go into the pull request body ([ADR 0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md)), and its assumptions, a blocked step's summary, a failed attempt's reason (which carries a failed or blocked out doc's summary), the last reason of a step that used its attempts, and a needs_input step's questions go into the status comment ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)). Anyone can read both on a public repository. A brewer that read a credential can write it there: [ADR 0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) scans the commits at the push, and this text goes nowhere near that scan (#235).
+
+The patterns are `findSecrets` (`src/formats/secrets.ts`), as for the push and for a check's output ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)). They take a 40-character hexadecimal word for a key unless `isCommit` says it is a commit. The push asks git; a renderer cannot, since the status comment is rendered from the folded state alone, at every driver pass, and every revision must leave out the same text.
+
+## Decision
+- **Every out doc text either renderer shows goes through `findSecrets` first** (`withoutSecrets`, `src/engine/out-doc-text.ts`). In the pull request body: each step's summary and each assumption. In the status comment: each assumption, a blocked step's summary, a failed attempt's reason on its step line, the last reason of a step that used its attempts, and a question's text, each of its options and its recommendation. Each is read as written and as shown on one line, since joining its lines can make a match (`password` on one line, `= x` on the next).
+- **A match leaves that whole text out** and puts a fixed line in its place: `[left out: a text of step <step> that looks like a secret]`. Never the matched text, never `findSecrets`' excerpt of it (its first four characters), and not the kind either, so the fixed line depends only on the step. The rest of the report is kept. In the status comment the fixed line is escaped like any other text (ADR 0072).
+- **The renderers stay pure.** `renderStatus` takes the batch, its steps and an `isCommit`; `statusDue` passes the state's, so every revision of the same state renders the same text, and the digest it records is stable. `pullRequestText` takes an `isCommit` beside its reports, which the action's `due` reads from the state.
+- **`isCommit` is the commits the folded state records for the batch** (`knownCommits`, `src/engine/pull-request.ts`), without running git: where each of its attempts' worktrees started, the commits of its rewinds, and from the ledger the commit its push recorded and the commits a refused push named (ADR 0079). The texts that name a full commit hash are Foedrum's own about these commits: the refused push's summary names each refused commit, so with an `isCommit` that knows none of them, the status comment would leave out the very line that tells a human which commit to look at. A hash is a hash of the commit's content, so no brewer can choose one equal to a key it read. Any other 40-character hexadecimal word, a commit the state does not know included, is left out: that fails closed, and costs a human one line of a summary.
+- Texts nobody but a human or the engine writes are not read: the order's title (the issue's), the recipe and who chose it, the Conditioning wait, the pull request URLs. Nothing routes by a model yet; the router's reason gets the same treatment when it does.
+
+## Consequences
+- A credential a brewer writes into its out doc stays in the event log on the machine and the state branch, as it did, but no longer reaches the pull request body or the status comment. The state branch is the Brewery's own; keeping out doc text off it is not this decision.
+- A summary or an assumption that happens to look like a key (a long random fixture name, an unknown commit's hash, `token: x` in prose) is left out with its step named: the human reads the out doc on the machine.
+- The refused push's summary stays readable in the status comment, commit by commit.
+- Each render runs the patterns over every shown text, a few kilobytes per batch: no measurable cost beside the comment's request.
+
+## Alternatives considered
+- **Filter at the out doc's read, before the event is recorded:** keeps the text off the state branch too, but the event log is the record a human repairs a batch from, and a brewer's own fields (a review's verdict) would need the same treatment. Left to a later issue if the state branch needs it.
+- **Leave out only the matched words, keeping the rest:** a secret split by the patterns' word boundaries leaves its pieces; the whole text is cheaper to reason about.
+- **`isCommit` from git, at render time:** the status comment would depend on the clone, not the state, and a revision could differ from the one before for the same events.
+- **`isCommit` that takes no word for a commit:** the simplest, but it leaves out the refused push's own summary, the one line a human needs to fix it.
+- **`isCommit` that takes every 40-character hexadecimal word for a commit:** a hexadecimal key of that length would pass.
