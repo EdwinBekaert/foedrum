@@ -27,7 +27,7 @@ Review criteria changed by this pull request: <paths from criteria.txt that the 
 | # | Lens | Severity | Location | Finding | Disposition |
 |---|---|---|---|---|---|
 | 1 | correctness | major | `src/…:42` (or "location unverified: `src/…:57`", or "—" for none) | … | fixed in `<hash>` |
-| 2 | security | minor, pre-existing | `src/…:7` | … | dismissed because pre-existing, filed as #<n> |
+| 2 | security | minor, pre-existing | `src/…:7` | … | dismissed because pre-existing, filed as #<n> (or "to file" on a local run) |
 
 Verdicts: correctness approve · security approve · …
 
