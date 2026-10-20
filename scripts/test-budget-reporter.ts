@@ -88,8 +88,8 @@ export interface BudgetOptions {
   // Measures a file's CPU time again, alone, once the run has ended, in ms; undefined when that
   // run reported none (ADR 0089). Without it, the run's reading is the only one.
   remeasure?: (file: string) => Promise<number | undefined>;
-  // How long all runs alone may take together, in ms of `now`, so they end within the check
-  // step's own deadline; no run alone starts after it.
+  // For how long after the first run alone another may start, in ms of `now`; one started just
+  // before may still take its deadline.
   remeasureForMs?: number;
   // The time in ms; performance.now by default.
   now?: () => number;
@@ -101,9 +101,9 @@ const REMEASURE_TIMEOUT_MS = 60_000;
 // How many times a file over the budget or the ceiling is run alone, at most.
 const REMEASURES = 3;
 
-// How long all runs alone may take together: npm test's run and these stay within the check
-// step's 300 s (scripts/check.ts).
-const REMEASURE_FOR_MS = 120_000;
+// For how long runs alone may start: with one more that takes its 60 s and npm test's own run,
+// they stay within the check step's 300 s (scripts/check.ts).
+const REMEASURE_FOR_MS = 90_000;
 
 export interface RemeasureOptions {
   // The node that runs the file, and the folder it runs in.
