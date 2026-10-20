@@ -1,6 +1,6 @@
 # 0022. Five default lenses: test design joins the four
 
-Date: 2026-10-15 · Status: Accepted · Amended by [0058](0058-the-planted-git-defect-moves-from-the-unit-test-to-the-code.md)
+Date: 2026-10-15 · Status: Accepted · Amended by [0058](0058-the-planted-git-defect-moves-from-the-unit-test-to-the-code.md) and [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md)
 
 ## Context
 [ADR 0017](0017-test-first-recipes-and-tasting-lenses.md) ships four default lenses: correctness, security, cross-platform and design conformance. Test strength had no lens of its own: correctness ended with a short "Tests" section, and Brett's mutants are advisory. In M0's second wave, weak tests got through review that way: unit tests that built real git repositories (#51, which led to [ADR 0021](0021-unit-tests-spawn-no-processes.md)), rejection tests that passed against a reject-everything `z.never()` stub (#47), and a success-path test that passed against a stub with no entry point (#46).

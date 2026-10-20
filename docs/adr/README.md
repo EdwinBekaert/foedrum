@@ -20,12 +20,12 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0014](0014-interactive-refinement-plugin.md) | Interactive refinement through a Claude Code plugin | Accepted, generalised by 0019 |
 | [0015](0015-house-yeast.md) | House yeast: scoped, budgeted, promotable rules | Accepted, amended by 0017 and 0018 |
 | [0016](0016-delivery-npm-cli-and-companion-plugin.md) | Delivery: an npm CLI and a companion Claude Code plugin | Accepted |
-| [0017](0017-test-first-recipes-and-tasting-lenses.md) | Test-first recipes and tasting lenses | Accepted, amended by 0022, 0034, 0040 and 0078 |
+| [0017](0017-test-first-recipes-and-tasting-lenses.md) | Test-first recipes and tasting lenses | Accepted, amended by 0022, 0034, 0040, 0078 and 0094 |
 | [0018](0018-house-yeast-layers.md) | House yeast in three layers: defaults, Brewery, repository | Accepted, amended by 0041 |
 | [0019](0019-interactive-sessions-and-one-command-layer.md) | Interactive sessions, the autonomous Cellar, and one command layer | Accepted, amended by 0025, 0030, 0041, 0042 and 0044 |
 | [0020](0020-jsonc-frontmatter.md) | Frontmatter is read as JSONC (amends 0007) | Accepted |
 | [0021](0021-unit-tests-spawn-no-processes.md) | Unit tests start no processes | Accepted, amended by 0036, 0038 and 0086 |
-| [0022](0022-five-default-lenses.md) | Five default lenses: test design joins the four (amends 0017) | Accepted, amended by 0058 |
+| [0022](0022-five-default-lenses.md) | Five default lenses: test design joins the four (amends 0017) | Accepted, amended by 0058 and 0094 |
 | [0023](0023-language-independent-recipes.md) | Default recipes are language-independent | Accepted, amended by 0069 |
 | [0024](0024-state-branch-layout-outbox-and-divergence.md) | The state branch: layout, outbox and divergence (amends 0002 and 0011) | Accepted, amended by 0027, 0033, 0043 and 0044 |
 | [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) | Batch lifecycle: a reminder on Stuck, rewind only from Stuck (amends 0019) | Accepted, amended by 0027, 0032, 0044, 0053 and 0064 |
@@ -93,6 +93,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
 | [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
 | [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049 and 0057) | Accepted |
+| [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) | Reviewers show their evidence and mark pre-existing defects (amends 0017 and 0022) | Accepted |
 | [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) | The engine's git reaches the remote outside the clone's configuration (amends 0012, 0029, 0071 and 0090) | Accepted |
 
 ## Template

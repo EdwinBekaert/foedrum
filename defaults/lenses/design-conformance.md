@@ -7,7 +7,7 @@ Review the change against the decisions the repository has already made: its con
 **Decisions.**
 - Does the change contradict an accepted decision record or the architecture document? Quote the decision. A deliberate change of direction is allowed only with a new decision record in the same change that supersedes the old one, and with the architecture document updated to match.
 - Does the change introduce a new design decision (a new mechanism, a new external dependency, a new persistent format, a new public interface) without recording it where the repository records decisions?
-- Do the documents still describe what the code does after this change?
+- Do the documents still describe what the code does after this change? Quote the line of the contributor instructions, the architecture document, a guide or a decision record that the change makes wrong. That is a finding also when the document is not part of the change.
 
 **Vocabulary.** The repository's glossary terms are used consistently in identifiers, messages, comments and documentation. Flag synonyms for defined terms (two names for one concept) and defined terms used for something else.
 
@@ -25,4 +25,4 @@ Logic errors and missing deadlines (correctness); injection, secrets and permiss
 
 ## Reporting
 
-Report only what you can tie to specific lines of the change, and cite the rule or decision it conflicts with (document and section, or the quoted sentence). If a rule is ambiguous, say how you read it. If you find nothing, say so; do not invent findings.
+Report only what you can tie to specific lines of the change, and cite the rule or decision it conflicts with (document and section, or the quoted sentence). If a rule is ambiguous, say how you read it. Tie every claim about what code does to a line you read that shows it, never to a name, a comment or a type alone. When a finding is one case of a wider class of bug, name the class, so the author looks for the other cases too. Say when the defect was already there before this change, in code the change reaches but neither adds nor alters: such a finding is reported, but it does not hold the change up. If you find nothing, say so; do not invent findings.

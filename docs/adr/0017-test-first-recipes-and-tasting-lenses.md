@@ -1,6 +1,6 @@
 # 0017. Test-first recipes and tasting lenses
 
-Date: 2026-10-13 · Status: Accepted, amended by [0022](0022-five-default-lenses.md) (five default lenses), [0034](0034-brett-mutants-as-structured-line-edits.md) (mutants as one-line edits) , [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (what kills a mutant) and [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (how the red proof and testsUnchanged read)
+Date: 2026-10-13 · Status: Accepted, amended by [0022](0022-five-default-lenses.md) (five default lenses), [0034](0034-brett-mutants-as-structured-line-edits.md) (mutants as one-line edits), [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (what kills a mutant), [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (how the red proof and testsUnchanged read) and [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) (evidence, and pre-existing findings)
 
 ## Context
 When one agent writes both the tests and the code, it tends to write tests that fit the code it already has in mind. The tests pass, but they prove little. Telling the agent to work "test-first" does not change this: whether it did is not observable, and the engine must not depend on a model choosing to follow advice. Likewise, a single broad review ("review this diff") finds less than several focused reviews, and passing tests say nothing about whether the tests would notice a bug.
