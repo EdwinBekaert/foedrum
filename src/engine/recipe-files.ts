@@ -22,16 +22,35 @@ import { resolveRecipe } from './resolve-recipe.ts';
 /** A file of the Brewery, by its path from the Brewery's root with `/`: its text, or why not. */
 export type BreweryFile = { path: string } & ({ text: string } | { unreadable: string });
 
-/** The Brewery's recipe files (`recipes/*.jsonc`) and brewer files (`brewers/*.md`). */
-export interface BreweryFiles {
+/** The files of one kind: recipes (`*.jsonc`), brewers and lenses (`*.md`). */
+interface FilesByKind {
   recipes: readonly BreweryFile[];
   brewers: readonly BreweryFile[];
+  lenses?: readonly BreweryFile[];
+}
+
+/**
+ * The Brewery's recipe files (`recipes/*.jsonc`), brewer files (`brewers/*.md`) and lens files
+ * (`lenses/*.md`), and Foedrum's own defaults (ADR 0098), each by its path in `defaults/`.
+ */
+export interface BreweryFiles extends FilesByKind {
+  defaults?: Partial<FilesByKind>;
+}
+
+/** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
+export interface Lens {
+  name: string;
+  /** The file it was read from: `lenses/<name>.md` or `defaults/lenses/<name>.md`. */
+  path: string;
+  text: string;
 }
 
 /** The brewer of a recipe's step, with its instructions: the brewer file's body. */
 export interface StepBrewer {
   brewer: BrewerFrontmatter;
   instructions: string;
+  /** The lenses its inputs name, by name. */
+  lenses?: ReadonlyMap<string, Lens>;
 }
 
 /** The brewers of the loaded recipes' steps. */
@@ -59,7 +78,14 @@ interface StepCheck {
 }
 
 export type LoadedRecipes =
-  | { valid: true; recipes: Recipes; brewers: StepBrewers; checks: StepChecks }
+  | {
+      valid: true;
+      recipes: Recipes;
+      brewers: StepBrewers;
+      checks: StepChecks;
+      /** The paths of the default files in use: those the Brewery has no file of its name for. */
+      defaults?: readonly string[];
+    }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
 

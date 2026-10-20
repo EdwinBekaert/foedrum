@@ -2,7 +2,7 @@
 // .foedrum/tmp/tests. What the files mean is in recipe-files.test.ts.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { breweryRecipes, readBreweryFiles } from '../../src/engine/brewery-files.ts';
@@ -23,8 +23,38 @@ describe('readBreweryFiles', () => {
     writeFileSync(file, text);
   };
 
-  it('has no files in a Brewery without recipe and brewer folders', () => {
-    assert.deepEqual(readBreweryFiles(brewery.path), { recipes: [], brewers: [] });
+  it('has no files in a Brewery without recipe, brewer and lens folders, nor defaults without them', () => {
+    const none = { recipes: [], brewers: [], lenses: [] };
+    assert.deepEqual(readBreweryFiles(brewery.path, join(brewery.path, 'defaults')), {
+      ...none,
+      defaults: none,
+    });
+  });
+
+  it("reads the Brewery's lenses, and the defaults' recipes, brewers and lenses by their path in defaults/ (ADR 0098)", () => {
+    write('lenses/security.md', 'our security');
+    write('foedrum/defaults/recipes/nip.jsonc', 'nip');
+    write('foedrum/defaults/brewers/gauger.md', 'gauger');
+    write('foedrum/defaults/lenses/correctness.md', 'correctness');
+    const files = readBreweryFiles(brewery.path, join(brewery.path, 'foedrum', 'defaults'));
+    assert.deepEqual(files.lenses, [{ path: 'lenses/security.md', text: 'our security' }]);
+    assert.deepEqual(files.defaults, {
+      recipes: [{ path: 'defaults/recipes/nip.jsonc', text: 'nip' }],
+      brewers: [{ path: 'defaults/brewers/gauger.md', text: 'gauger' }],
+      lenses: [{ path: 'defaults/lenses/correctness.md', text: 'correctness' }],
+    });
+  });
+
+  it("reads the defaults of Foedrum's own install, wherever the Brewery is (ADR 0098)", () => {
+    const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
+    const own = readFileSync(
+      join(import.meta.dirname, '..', '..', 'defaults', 'lenses', 'test-design.md'),
+      'utf8',
+    );
+    assert.deepEqual(
+      lenses.find(({ path }) => path === 'defaults/lenses/test-design.md'),
+      { path: 'defaults/lenses/test-design.md', text: own },
+    );
   });
 
   it('reads the recipe and brewer files directly in their folders, by name', () => {

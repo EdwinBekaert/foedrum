@@ -40,7 +40,7 @@ function readFolder(root: string, folder: string, extension: string): BreweryFil
  * The recipe and brewer files directly in their folders, by name; a missing folder has none. A
  * file or folder that cannot be read is listed with the reason, so it fails the load.
  */
-export function readBreweryFiles(root: string): BreweryFiles {
+export function readBreweryFiles(root: string, _defaults?: string): BreweryFiles {
   return {
     recipes: readFolder(root, 'recipes', '.jsonc'),
     brewers: readFolder(root, 'brewers', '.md'),
