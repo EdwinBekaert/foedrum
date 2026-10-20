@@ -6,7 +6,7 @@
 import type { ScanFinding } from '../formats/commit-scan.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
-import { PushResult } from '../schemas/store.ts';
+import { MAX_REFUSED, PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
 import type { Ending } from './decide.ts';
 import { type DriverActions, repositoryOf } from './driver.ts';
@@ -97,8 +97,6 @@ type Plan =
   /** The secret scan stopped the push: the batch waits on a human (ADR 0079). */
   | { kind: 'blocked'; summary: string };
 
-/** The most findings the ledger keeps of one push. */
-const MAX_FINDINGS = 50;
 /** The findings the blocked summary names; it counts the rest. */
 const NAMED_FINDINGS = 3;
 
@@ -212,7 +210,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
             const { result, base: start } = await resolve(signal);
             if (result.empty === true) return result;
             const found = await push.secretScan(start, result.commit, signal);
-            if (found.length > 0) return { ...result, refused: found.slice(0, MAX_FINDINGS) };
+            if (found.length > 0) return { ...result, refused: found.slice(0, MAX_REFUSED) };
             await push.push(result.commit, branch, signal);
             return result;
           },

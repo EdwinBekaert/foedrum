@@ -72,8 +72,9 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
   const placeOf = (): string => (findSecrets(path, isCommit).length === 0 ? path : SECRET_PATH);
   const flush = (): void => {
     if (path === '') return;
-    const place = placeOf();
-    for (const { kind } of findSecrets(path, isCommit)) found.add({ commit, place, kind });
+    const inPath = findSecrets(path, isCommit);
+    const place = inPath.length === 0 ? path : SECRET_PATH;
+    for (const { kind } of inPath) found.add({ commit, place, kind });
     const text = added.join('\n').replace(INTEGRITY, '');
     for (const { kind } of findSecrets(text, isCommit)) found.add({ commit, place, kind });
     added = [];

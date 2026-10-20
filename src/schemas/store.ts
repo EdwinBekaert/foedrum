@@ -83,6 +83,9 @@ export const CommitSha = z
   .string()
   .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
 
+/** The most findings the ledger keeps of one refused push (ADR 0079). */
+export const MAX_REFUSED = 50;
+
 /**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
@@ -97,7 +100,7 @@ export const PushResult = z.strictObject({
   refused: z
     .array(z.strictObject({ commit: CommitSha, place: Filled, kind: Filled }))
     .min(1)
-    .max(50)
+    .max(MAX_REFUSED)
     .optional(),
 });
 export type PushResult = z.infer<typeof PushResult>;
