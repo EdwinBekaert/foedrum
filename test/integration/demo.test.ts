@@ -55,6 +55,8 @@ describe('npm run demo', () => {
       at.every((where, n) => where >= 0 && where > (at[n - 1] ?? -1)),
       `headings at ${at.join(', ')}:\n${result.stdout}`,
     );
+    // The first Cellar shows status as the batch moves, up to the attempt the kill takes.
+    assert.match(result.stdout.slice(at[2], at[3]), /brewing +brew #1 started/);
     // The restart shows that it found the lost attempt: lost, and brewed again.
     const restart = result.stdout.slice(at[3], at[4]);
     assert.match(
@@ -66,6 +68,11 @@ describe('npm run demo', () => {
     const pullStep = result.stdout.slice(at[4], at[5]);
     assert.match(pullStep, /On tap/);
     assert.ok(!result.stdout.includes('<!--'), result.stdout);
+    // On tap: foedrum status shows the batch there, with its pull request.
+    assert.match(
+      result.stdout.slice(at[5], at[6]),
+      /\$ foedrum status\n.*on tap +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
+    );
     // replay shows the batch's events and the state the fold makes of them.
     const replay = result.stdout.slice(at[6]);
     assert.match(replay, /Batch 1-1, issue/);

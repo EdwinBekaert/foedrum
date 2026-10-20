@@ -140,6 +140,12 @@ describe('lostAttemptLine', () => {
     assert.equal(of(started(1), lost), undefined);
   });
 
+  it('says nothing when another step or batch, or a later attempt, starts', () => {
+    assert.equal(of(started(1), lost, { ...started(2), stepId: 'open-pull-request' }), undefined);
+    assert.equal(of(started(1), lost, { ...started(2), batchId: '1-2' }), undefined);
+    assert.equal(of(started(1), lost, started(3)), undefined);
+  });
+
   it('says nothing of an attempt that failed some other way', () => {
     const failed = { ...lost, outcome: { kind: 'failed', retryable: true, reason: 'no commit' } };
     assert.equal(of(started(1), failed, started(2)), undefined);
