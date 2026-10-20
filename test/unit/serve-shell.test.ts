@@ -68,25 +68,34 @@ describe('serveShell', () => {
     assert.deepStrictEqual(calls, []);
   });
 
-  it("pushes from the user's clone of a local repository, and from the managed clone (ADR 0071)", async () => {
+  const managed = () => join(workRoot, 'acme.web', 'clone.git');
+  const gitDirs = () => join(workRoot, 'acme.web', 'git-dirs');
+  const github = 'https://github.com/acme/web.git';
+  /** Where each call of `command` ran, its git directory's folder and the URL it reached. */
+  const reached = (calls: string[][], command: string) =>
+    calls
+      .filter((call) => call.includes(command))
+      .map((call) => [call[0], dirname(call[1]?.slice('--git-dir='.length) ?? ''), call.at(-2)]);
+  /** The clone whose objects each git directory of Foedrum's own was made for. */
+  const objectsOf = (calls: string[][]) =>
+    calls.filter((call) => call.includes('--show-object-format')).map((call) => call[0]);
+
+  it("pushes the objects of the user's clone of a local repository, and of the managed clone, to the repository on GitHub (ADR 0071, ADR 0096)", async () => {
     const tip = 'c'.repeat(40);
     const branch = 'foedrum/acme.brewery/12-1/acme.web';
     const { calls, git } = fakeGit();
     const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
     await shell.push(web()).push(tip, branch);
     await shell.push(web({ source: 'managed' })).push(tip, branch);
-    assert.deepStrictEqual(
-      calls.map(([cwd, command]) => `${cwd} ${command}`),
-      [`${clone} push`, `${join(workRoot, 'acme.web', 'clone.git')} push`],
-    );
+    assert.deepStrictEqual(objectsOf(calls), [clone, managed()]);
+    assert.deepStrictEqual(reached(calls, 'push'), [
+      [gitDirs(), gitDirs(), github],
+      [gitDirs(), gitDirs(), github],
+    ]);
   });
 
   it("fetches each repository's base from GitHub into a git directory of the work root, from its clone's objects (ADR 0090)", async () => {
-    const managed = join(workRoot, 'acme.web', 'clone.git');
-    const root = join(workRoot, 'acme.web', 'base');
-    const { calls, git } = fakeGit((cwd, args) => {
-      if (args.includes('--git-common-dir'))
-        return { code: 0, stdout: `${cwd}\nsha1\n`, stderr: '' };
+    const { calls, git } = fakeGit((_cwd, args) => {
       if (args.includes('refs/heads/main'))
         return { code: 0, stdout: `${'e'.repeat(40)}\n`, stderr: '' };
       return undefined;
@@ -94,18 +103,29 @@ describe('serveShell', () => {
     const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
     await shell.push(web()).baseTip('main');
     await shell.push(web({ source: 'managed' })).baseTip('main');
-    const fetches = calls.filter((call) => call.includes('fetch'));
-    assert.deepStrictEqual(
-      fetches.map((call) => [
-        call[0],
-        dirname(call[1]?.slice('--git-dir='.length) ?? ''),
-        call.at(-2),
-      ]),
-      [
-        [clone, root, 'https://github.com/acme/web.git'],
-        [managed, root, 'https://github.com/acme/web.git'],
-      ],
+    assert.deepStrictEqual(objectsOf(calls), [clone, managed()]);
+    assert.deepStrictEqual(reached(calls, 'fetch'), [
+      [gitDirs(), gitDirs(), github],
+      [gitDirs(), gitDirs(), github],
+    ]);
+  });
+
+  it("fetches into each repository's clone from GitHub before an attempt starts, never through the clone's remote (ADR 0096)", async () => {
+    mkdirSync(managed(), { recursive: true });
+    const { calls, git } = fakeGit((_cwd, args) =>
+      args.includes('main^{commit}')
+        ? { code: 0, stdout: `${'b'.repeat(40)}\n`, stderr: '' }
+        : undefined,
     );
+    const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
+    const attempt = { batchId: '12-1', stepId: 'plan', attempt: 1 };
+    await (await shell.worktrees(web())).create(attempt, 'origin/main');
+    await (await shell.worktrees(web({ source: 'managed' }))).create(attempt, 'origin/main');
+    assert.deepStrictEqual(objectsOf(calls), [clone, managed()]);
+    assert.deepStrictEqual(reached(calls, 'fetch'), [
+      [gitDirs(), gitDirs(), github],
+      [gitDirs(), gitDirs(), github],
+    ]);
   });
 
   it('refuses a local repository without a clone instead of running git in the Brewery checkout (#202)', async () => {

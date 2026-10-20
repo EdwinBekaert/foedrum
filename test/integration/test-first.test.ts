@@ -198,7 +198,13 @@ describe('a test-first recipe with real git and a real test run', () => {
         {
           repo: 'acme/app',
           base: 'origin/main',
-          manager: openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/app', clone: user }),
+          manager: openAttemptWorktrees({
+            git: runGit,
+            workRoot,
+            repo: 'acme/app',
+            clone: user,
+            own: { url: join(dir.path, 'origin.git'), root: join(workRoot, 'git-dirs') },
+          }),
         },
       ],
     });

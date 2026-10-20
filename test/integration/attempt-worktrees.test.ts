@@ -113,7 +113,13 @@ describe('attempt worktrees with real git', () => {
   });
 
   const open = (clone = user) =>
-    openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/app', clone });
+    openAttemptWorktrees({
+      git: runGit,
+      workRoot,
+      repo: 'acme/app',
+      clone,
+      own: { url: origin, root: join(workRoot, 'git-dirs') },
+    });
   const records = (commonDir = join(user, '.git')): string[] =>
     existsSync(join(commonDir, 'worktrees'))
       ? readdirSync(join(commonDir, 'worktrees')).filter((name) => name !== 'mine')
@@ -360,7 +366,13 @@ describe('the driver and attempt worktrees with real git', () => {
 
   const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'] }) });
   const manager = () =>
-    openAttemptWorktrees({ git: runGit, workRoot, repo: 'acme/app', clone: user });
+    openAttemptWorktrees({
+      git: runGit,
+      workRoot,
+      repo: 'acme/app',
+      clone: user,
+      own: { url: join(dir.path, 'origin.git'), root: join(workRoot, 'git-dirs') },
+    });
   const driver = (worktrees: boolean) =>
     createBrewing({
       store,

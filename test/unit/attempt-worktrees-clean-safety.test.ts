@@ -44,6 +44,7 @@ describe('openAttemptWorktrees with a fake git', () => {
       workRoot,
       repo: 'acme/app',
       clone,
+      own: { url: 'https://github.com/acme/app.git', root: join(workRoot, 'git-dirs') },
       ...(now === undefined ? {} : { now }),
     });
 
