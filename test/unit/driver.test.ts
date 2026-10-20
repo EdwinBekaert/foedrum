@@ -1532,6 +1532,33 @@ describe('openDriver', () => {
       assert.equal(outcomeOf(driver, plan('b1'))?.kind, 'failed');
     });
 
+    it('stops the run whose end rejected while it still holds its lease (I2)', async () => {
+      const hand = handRunner();
+      const key = attemptKey.encode(plan('b1'));
+      const leasedAtStop: boolean[] = [];
+      order('b1');
+      const driver = await open({
+        runner: {
+          ...hand.runner,
+          start: (attempt) => {
+            const run = hand.runner.start(attempt);
+            return {
+              ended: run.ended,
+              stop: () => {
+                leasedAtStop.push(store.currentLeases(now).some((l) => l.attemptKey === key));
+                run.stop();
+              },
+            };
+          },
+        },
+      });
+      await driver.drive();
+      hand.reject(plan('b1'), new Error('the stream reader broke'));
+      await driver.drive();
+      assert.deepStrictEqual(leasedAtStop, [true]);
+      assert.deepStrictEqual(store.currentLeases(now), []);
+    });
+
     it('stops the run whose end rejected, since its process may still run', async () => {
       const { stopped } = await rejectWith(new Error('the stream reader broke'));
       assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
