@@ -13,6 +13,16 @@ const SECRET_PATH = 'a file whose path looks like a secret';
 
 const BINARY = 'binary file';
 
+// A commit's headers in `git log --format=raw`: the tree and parents are hashes the push needs,
+// the author and committer are named by their header, and any other header by `header <name>`.
+const COMMIT_LINE = /^commit ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/;
+const UNREAD_HEADERS = new Set(['tree', 'parent']);
+const PEOPLE = new Set(['author', 'committer']);
+const SIGNATURES = new Set(['gpgsig', 'gpgsig-sha256']);
+const HEADER_NAME = /^[a-z][a-z0-9-]*$/;
+const SECRET_HEADER = 'a header';
+const BASE64 = 'long base64 string';
+
 // A package lock's integrity hashes (Subresource Integrity) look random and are not secret. In any
 // other file such a prefix could disguise a key, so only a lock's are left out.
 const INTEGRITY = /\bsha(?:1|256|384|512)-[A-Za-z0-9+/]+={0,2}/g;
@@ -51,8 +61,46 @@ export const scanMessages = (log: string, isCommit: IsCommit): ScanFinding[] => 
  * the committer, and every other header the push carries and `%B` does not show (a signature, an
  * encoding, a merged tag). The message, indented below them, is `scanMessages`' to read.
  */
-export const scanHeaders = (_log: string, _isCommit: IsCommit): ScanFinding[] => {
-  throw new Error('not implemented');
+export const scanHeaders = (log: string, isCommit: IsCommit): ScanFinding[] => {
+  const found = collect();
+  let commit = '';
+  let inHeaders = false;
+  const headers: { name: string; lines: string[] }[] = [];
+  const flush = (): void => {
+    for (const { name, lines } of headers) {
+      if (UNREAD_HEADERS.has(name)) continue;
+      const place = PEOPLE.has(name)
+        ? name
+        : HEADER_NAME.test(name)
+          ? `header ${name}`
+          : SECRET_HEADER;
+      for (const { kind } of findSecrets(lines.join('\n'), isCommit)) {
+        // A signature's armour is base64 by nature; a token in it is still found by its own kind.
+        if (SIGNATURES.has(name) && kind === BASE64) continue;
+        found.add({ commit, place, kind });
+      }
+    }
+    headers.length = 0;
+  };
+  for (const line of log.split(/\r?\n/)) {
+    const start = COMMIT_LINE.exec(line);
+    if (start !== null) {
+      flush();
+      commit = start[1] ?? '';
+      inHeaders = true;
+    } else if (!inHeaders) {
+      // The message, indented, is scanMessages' to read.
+    } else if (line === '') {
+      flush();
+      inHeaders = false;
+    } else if (line.startsWith(' ')) {
+      headers.at(-1)?.lines.push(line.slice(1));
+    } else {
+      headers.push({ name: line.split(' ', 1)[0] ?? '', lines: [line] });
+    }
+  }
+  flush();
+  return found.list();
 };
 
 // The path of `diff --git a/<path> b/<path>`, quoted as git quotes it: renames are off, so both

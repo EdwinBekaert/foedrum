@@ -4,7 +4,12 @@
 
 import { devNull } from 'node:os';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
-import { commitCandidates, scanMessages, scanPatches } from '../formats/commit-scan.ts';
+import {
+  commitCandidates,
+  scanHeaders,
+  scanMessages,
+  scanPatches,
+} from '../formats/commit-scan.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 export interface BranchPushOptions {
@@ -42,6 +47,8 @@ const AS_COMMITTED: GitOptions = {
 };
 const SHOWN = ['--no-notes', '--no-show-signature'];
 const MESSAGES = ['log', ...SHOWN, '--encoding=UTF-8', '--format=%x00%H%n%B'];
+// Every header as stored, which %B leaves out: the author, the committer, a signature, an encoding.
+const HEADERS = ['log', ...SHOWN, '--no-decorate', '--no-mailmap', '--format=raw'];
 const PATCHES = [
   'log',
   ...SHOWN,
@@ -148,13 +155,16 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         return result.stdout;
       };
       const messages = await read([...MESSAGES, ...range]);
-      const patches = messages === undefined ? undefined : await read([...PATCHES, ...range]);
-      if (messages === undefined || patches === undefined) {
+      const headers = messages === undefined ? undefined : await read([...HEADERS, ...range]);
+      const patches = headers === undefined ? undefined : await read([...PATCHES, ...range]);
+      if (messages === undefined || headers === undefined || patches === undefined) {
         return [{ commit, place: `the commits from ${base}`, kind: TOO_LARGE }];
       }
       // A 40-character hexadecimal word is a key unless the clone has it as a commit; the commits'
-      // own hashes, after each NUL, are not read.
-      const shown = `${messages}\n${patches}`.replace(/\0[0-9a-f]{40}/g, '');
+      // own hashes, after each NUL, and their commit, tree and parent lines are not read.
+      const shown = `${messages}\n${headers}\n${patches}`
+        .replace(/\0[0-9a-f]{40}/g, '')
+        .replace(/^(?:commit|tree|parent) [0-9a-f]+$/gm, '');
       const candidates = commitCandidates(shown);
       const commits = new Set<string>();
       if (candidates.length > 0) {
@@ -168,7 +178,11 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         }
       }
       const isCommit = (sha: string): boolean => commits.has(sha.toLowerCase());
-      return [...scanMessages(messages, isCommit), ...scanPatches(patches, isCommit)];
+      return [
+        ...scanMessages(messages, isCommit),
+        ...scanHeaders(headers, isCommit),
+        ...scanPatches(patches, isCommit),
+      ];
     },
   };
 };
