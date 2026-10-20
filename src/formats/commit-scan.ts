@@ -19,8 +19,11 @@ const SECRET_PATH = 'a file whose path looks like a secret';
 
 const BINARY = 'binary file';
 
-// A package lock's integrity hashes (Subresource Integrity) look random and are not secret.
+// A package lock's integrity hashes (Subresource Integrity) look random and are not secret. In any
+// other file such a prefix could disguise a key, so only a lock's are left out.
 const INTEGRITY = /\bsha(?:1|256|384|512)-[A-Za-z0-9+/]+={0,2}/g;
+const LOCKS = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml']);
+const isLock = (path: string): boolean => LOCKS.has(path.split('/').at(-1) ?? '');
 
 const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
 
@@ -60,14 +63,16 @@ const pathOf = (header: string): string => {
 /**
  * The findings in the output of `git log --format=%x00%H --patch --unified=0` with the prefixes
  * `a/` and `b/`: the added lines of each file, and every binary file, which the scan cannot read.
- * The lines of each hunk are counted from its header, so an added line is never read as a header.
+ * The lines of each hunk are counted from its header, old and new apart, as a context line counts
+ * on both sides: an added line is never read as a header, nor a header as part of a hunk.
  */
 export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
   const found = collect();
   let commit = '';
   let path = '';
   let added: string[] = [];
-  let left = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
   // A path is published too: it is read like a line, and a finding never names one that matches.
   const placeOf = (): string => (findSecrets(path, isCommit).length === 0 ? path : SECRET_PATH);
   const flush = (): void => {
@@ -75,16 +80,24 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
     const inPath = findSecrets(path, isCommit);
     const place = inPath.length === 0 ? path : SECRET_PATH;
     for (const { kind } of inPath) found.add({ commit, place, kind });
-    const text = added.join('\n').replace(INTEGRITY, '');
+    const joined = added.join('\n');
+    const text = isLock(path) ? joined.replace(INTEGRITY, '') : joined;
     for (const { kind } of findSecrets(text, isCommit)) found.add({ commit, place, kind });
     added = [];
   };
   for (const line of log.split(/\r?\n/)) {
-    if (left > 0) {
+    if (oldLeft > 0 || newLeft > 0) {
       // `\ No newline at end of file` belongs to the line before it.
       if (line.startsWith('\\')) continue;
-      left -= 1;
-      if (line.startsWith('+')) added.push(line.slice(1));
+      if (line.startsWith('+')) {
+        added.push(line.slice(1));
+        newLeft -= 1;
+      } else if (line.startsWith('-')) {
+        oldLeft -= 1;
+      } else {
+        oldLeft -= 1;
+        newLeft -= 1;
+      }
       continue;
     }
     if (line.startsWith('\0')) {
@@ -98,7 +111,10 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
       found.add({ commit, place: placeOf(), kind: BINARY });
     } else {
       const hunk = HUNK.exec(line);
-      if (hunk !== null) left = Number(hunk[1] ?? 1) + Number(hunk[2] ?? 1);
+      if (hunk !== null) {
+        oldLeft = Number(hunk[1] ?? 1);
+        newLeft = Number(hunk[2] ?? 1);
+      }
     }
   }
   flush();

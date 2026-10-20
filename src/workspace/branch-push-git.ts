@@ -24,7 +24,13 @@ export interface BranchPushOptions {
  */
 const AS_COMMITTED: GitOptions = {
   timeoutMs: 120_000,
-  env: { GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: devNull, GIT_SHALLOW_FILE: devNull },
+  env: {
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_GRAFT_FILE: devNull,
+    GIT_SHALLOW_FILE: devNull,
+    // A partial clone would fetch a missing object, so a word asked of cat-file would leave.
+    GIT_NO_LAZY_FETCH: '1',
+  },
   config: {
     'core.attributesFile': devNull,
     'log.showRoot': 'true',
@@ -41,6 +47,7 @@ const PATCHES = [
   '--patch',
   '--diff-merges=first-parent',
   '--unified=0',
+  '--inter-hunk-context=0',
   '--no-ext-diff',
   '--no-textconv',
   '--no-color',
