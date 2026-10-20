@@ -319,8 +319,9 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
       nameless.calls.some(({ args }) => args.includes('fetch')),
       false,
     );
-    // Only the clone's path, with no line after it; and an empty path before the format.
-    for (const answer of [clone, '\nsha1\n']) {
+    // Only the clone's path, with no line after it or an empty one; and an empty path before the
+    // format.
+    for (const answer of [clone, `${clone}\n`, '\nsha1\n']) {
       const half = recordingGit((args) =>
         args.includes('--git-common-dir') ? ok(answer) : answers(args),
       );
@@ -350,7 +351,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
 
   it('refuses a base that git would read as an option or a refspec, and a push with no base fetch, before git runs', async () => {
     const { git, calls } = recordingGit(answers);
-    for (const name of ['--upload-pack=x', 'main:refs/heads/x', 'a..b', 'ma in', '']) {
+    for (const name of ['--upload-pack=x', '-main', 'main:refs/heads/x', 'a..b', 'ma in', '']) {
       await assert.rejects(openBranchPush({ git, clone, base }).baseTip(name), {
         message: `${JSON.stringify(name)} is no branch name`,
       });
