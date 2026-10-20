@@ -224,6 +224,19 @@ describe('readKeptBranches', () => {
     });
   });
 
+  it('lists a branch rev-parse failed on silently with another code as not read, never gone', async () => {
+    const { git } = fakeGit(() => ({ code: 128, stdout: '', stderr: '' }));
+    const readings = await readKeptBranches(
+      state(batch('12-1', 'acme/app')),
+      new Map([[branch, START]]),
+      { git, cloneOf },
+    );
+    assert.deepEqual(readings.get(branch), {
+      kind: 'unread',
+      reason: `git rev-parse in ${CLONE} failed: git exited with 128`,
+    });
+  });
+
   it('says so for a branch whose batch the state has no task tree for', async () => {
     const { calls, git } = fakeGit();
     const readings = await readKeptBranches(state(), new Map([[branch, START]]), {
