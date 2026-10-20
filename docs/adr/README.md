@@ -45,11 +45,11 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted, amended by 0054 |
 | [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) | Untrusted input in per-prompt nonce tags (amends 0018 and 0019) | Accepted |
-| [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047 and 0062 |
+| [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047, 0062 and 0087 |
 | [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) | Target-repository issues as a work queue, claimed by a ref (amends 0008, 0013, 0024, 0029 and 0033) | Accepted, amended by 0050 |
 | [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051, 0055 and 0063 |
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted, amended by 0056, 0060 and 0065 |
-| [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057 and 0062 |
+| [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057, 0062 and 0087 |
 | [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted, amended by 0048 and 0057 |
 | [0048](0048-retried-pre-stream-failures-commit-detection-and-out-doc-identity.md) | Retried failures before the stream, commit detection, and the out doc's identity (amends 0047) | Accepted |
 | [0049](0049-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted, amended by 0057 |
@@ -84,8 +84,9 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0081](0081-the-cleanup-ignores-the-steps-own-out-doc.md) | The cleanup ignores the step's own out doc (amends 0029 and 0037) | Accepted, amended by 0084 |
 | [0082](0082-brewers-never-allow-gh.md) | Brewers never allow `gh`, and doctor says what can still reach its login (amends 0062 and 0073) | Accepted |
 | [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) | A batch's commits end in a pull request or on a kept branch (amends 0029, 0053, 0059 and 0081) | Accepted, amended by 0079 |
-| [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) | The out doc contract names the attempt's shell commands (amends 0074) | Accepted |
+| [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) | The out doc contract names the attempt's shell commands (amends 0074) | Accepted, amended by 0087 |
 | [0086](0086-the-test-layer-guard-refuses-integration-tests-that-can-start-the-real-gh.md) | The test-layer guard refuses integration tests that can start the real `gh` (amends 0021) | Accepted |
+| [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) | Sandboxed commands go through the allow rules, and never see the credentials Foedrum names (amends 0042, 0046 and 0085) | Accepted |
 
 ## Template
 
