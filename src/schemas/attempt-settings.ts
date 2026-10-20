@@ -75,8 +75,9 @@ const fileRuleProblem = (rule: string, list: 'allow' | 'deny'): string | undefin
   if (specifier !== undefined && unconsultedPathTools.has(tool)) {
     return `Claude Code never consults a ${tool} path rule such as "${rule}": write "${consultedFor[tool]}(${specifier})"`;
   }
-  if (list === 'allow' && specifier === undefined && Object.hasOwn(consultedFor, tool)) {
-    return `A bare "${tool}" allows it anywhere on disk: write "${scopedRule(rule)}" for the worktree`;
+  const scoped = scopedRule(rule);
+  if (list === 'allow' && scoped !== rule) {
+    return `A bare "${tool}" allows it anywhere on disk: write "${scoped}" for the worktree`;
   }
   return undefined;
 };
