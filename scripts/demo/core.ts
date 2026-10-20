@@ -34,6 +34,18 @@ export const DIAGNOSIS: ServeInputs['diagnosis'] = {
   problems: [],
 };
 
+/** Who the demo commits as, in its own git configuration. */
+export const IDENTITY = { name: 'Demo brewer', email: 'brewer@demo.invalid' };
+
+/**
+ * The git configuration every git of the demo reads as its global one, with no system one: the
+ * demo's identity, no commit signing, and the target repository's URL on GitHub rewritten to the
+ * scratch `remote`, so serve's own fetches and pushes reach it and never github.com.
+ */
+export const gitConfig = (_remote: string): string => {
+  throw new Error('not implemented');
+};
+
 /** How a life of the Cellar ends: killed mid-attempt, or once the batch is on tap. */
 export type Life = 'crash' | 'finish';
 

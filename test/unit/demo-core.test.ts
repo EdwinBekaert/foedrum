@@ -7,6 +7,8 @@ import {
   CRASH_LINE,
   type DemoRun,
   DIAGNOSIS,
+  gitConfig,
+  IDENTITY,
   lifeEndOf,
   localConfig,
   ON_TAP_LINE,
@@ -208,5 +210,24 @@ describe('lifeEndOf', () => {
 
   it('ends at once when the batch is cancelled', () => {
     assert.deepStrictEqual(of(ordered, cancelled), { kind: 'cancelled' });
+  });
+});
+
+describe('gitConfig', () => {
+  it('gives the demo its identity, no commit signing, and the target remote for its URL on GitHub', () => {
+    const text = gitConfig('/scratch/demo/web.git');
+    assert.match(text, /^\[user\]\n\tname = Demo brewer\n\temail = brewer@demo\.invalid\n/);
+    assert.match(text, /^\[commit\]\n\tgpgsign = false$/m);
+    assert.match(
+      text,
+      /^\[url "\/scratch\/demo\/web\.git"\]\n\tinsteadOf = https:\/\/github\.com\/demo\/web\.git$/m,
+    );
+    assert.equal(IDENTITY.name, 'Demo brewer');
+    assert.ok(text.endsWith('\n'));
+  });
+
+  it('escapes the backslashes and quotes of a Windows path in the URL section', () => {
+    const text = gitConfig('D:\\a "b"\\web.git');
+    assert.ok(text.includes('\n[url "D:\\\\a \\"b\\"\\\\web.git"]\n'), text);
   });
 });
