@@ -2,6 +2,8 @@
 // never in an attempt's worktree (ADR 0066). Git runs only through the injected `Git`, so unit
 // tests pass a fake one (ADR 0021).
 
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
@@ -13,6 +15,7 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
+import { removeTree } from '../platform/remove.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 export interface BranchPushOptions {
@@ -131,7 +134,7 @@ const foedrumBranch = (branch: string): string => {
 };
 
 export const openBranchPush = (options: BranchPushOptions): BranchPush => {
-  const { git, clone, remote = 'origin', base: fetchBase } = options;
+  const { git, clone, remote = 'origin', base: fetchBase, id: newId = randomUUID } = options;
   const must = async (args: string[], gitOptions: GitOptions): Promise<string> => {
     const result = await git(clone, args, gitOptions);
     if (result.code !== 0) throw new Error(`git ${command(args)} failed: ${firstLine(result)}`);
@@ -161,7 +164,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (!BRANCH_NAME.test(name)) throw new Error(`${JSON.stringify(name)} is no branch name`);
       if (fetchBase === undefined)
         throw new Error(`The pushes from ${clone} have no base to fetch`);
-      const { url, root: gitDir } = fetchBase;
+      const { url, root } = fetchBase;
       const [common, format] = (
         await must(
           ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
@@ -184,53 +187,60 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         aborts(signal),
       );
       const have = known.stdout.trim();
-      // Git in Foedrum's own directory reads that directory's configuration, never the clone's, which
-      // a brewer can write (#200): no url.*.insteadOf, include, credential helper or hook of it.
+      // A git directory of this fetch's own, made for it and removed after: no fetch at the same
+      // time, and nothing a fetch killed at its deadline left (a ref's lock, a ref of a commit the
+      // clone has pruned since), takes part. Git there reads that directory's configuration, never
+      // the clone's, which a brewer can write (#200): no url.*.insteadOf, include, credential helper
+      // or hook of it.
+      const gitDir = join(root, `${newId()}.git`);
       const own = [`--git-dir=${gitDir}`];
-      await must(
-        [...own, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
-        aborts(signal),
-      );
-      const ref = `refs/heads/${name}`;
-      const objects = { GIT_OBJECT_DIRECTORY: join(common, 'objects') };
-      // The ref starts at the clone's base, never at what an earlier fetch left, which the clone may
-      // have pruned since: the fetch then brings only what the clone lacks, and git's check of what
-      // it brought stops there instead of walking a blobless clone's history to blobs it never had.
-      await must(
-        known.code === 0 && SHA.test(have)
-          ? [...own, 'update-ref', ref, have]
-          : [...own, 'update-ref', '-d', ref],
-        { ...aborts(signal), env: objects },
-      );
-      await must(
-        [
-          ...own,
-          'fetch',
-          '--quiet',
-          '--no-tags',
-          '--no-write-fetch-head',
-          '--no-recurse-submodules',
-          // A gc there would prune every object of the clone that its own refs do not reach.
-          '--no-auto-maintenance',
-          '--end-of-options',
-          url,
-          `+${ref}:${ref}`,
-        ],
-        {
-          ...aborts(signal),
-          timeoutMs: TRANSFER_TIMEOUT_MS,
-          env: objects,
-          config: { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' },
-        },
-      );
-      const fetched = (
+      try {
+        // git init makes the directory, but not the folder it is in.
+        await mkdir(root, { recursive: true });
         await must(
-          [...own, 'rev-parse', '--verify', '--quiet', '--end-of-options', ref],
+          [...own, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
           aborts(signal),
-        )
-      ).trim();
-      if (!SHA.test(fetched)) throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
-      return fetched;
+        );
+        const ref = `refs/heads/${name}`;
+        const objects = { GIT_OBJECT_DIRECTORY: join(common, 'objects') };
+        // The ref starts at the clone's base: the fetch then brings only what the clone lacks, and
+        // git's check of what it brought stops there instead of walking a blobless clone's history
+        // to blobs it never had.
+        if (known.code === 0 && SHA.test(have)) {
+          await must([...own, 'update-ref', ref, have], { ...aborts(signal), env: objects });
+        }
+        await must(
+          [
+            ...own,
+            'fetch',
+            '--quiet',
+            '--no-tags',
+            '--no-write-fetch-head',
+            '--no-recurse-submodules',
+            // A gc there would prune every object of the clone that its own refs do not reach.
+            '--no-auto-maintenance',
+            '--end-of-options',
+            url,
+            `+${ref}:${ref}`,
+          ],
+          {
+            ...aborts(signal),
+            timeoutMs: TRANSFER_TIMEOUT_MS,
+            env: objects,
+            config: { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' },
+          },
+        );
+        const fetched = (
+          await must(
+            [...own, 'rev-parse', '--verify', '--quiet', '--end-of-options', ref],
+            aborts(signal),
+          )
+        ).trim();
+        if (!SHA.test(fetched)) throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
+        return fetched;
+      } finally {
+        await removeTree(gitDir);
+      }
     },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;
