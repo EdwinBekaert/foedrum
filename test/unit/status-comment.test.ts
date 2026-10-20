@@ -439,6 +439,13 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
     noToken(text);
   });
 
+  it('reads only the start of a text it can show, so a long one cannot stall the driver', () => {
+    const long = `Port 8080 is free.${'\nx'.repeat(500_000)}\n${token}`;
+    const text = renderStatus(batch({ steps: new Map([step('plan', done(1, [long]))]) }), steps);
+    assert.match(text, /- `plan`: Port 8080 is free\. x x x/);
+    noToken(text);
+  });
+
   it("leaves out a blocked step's summary, and a failed attempt's reason", () => {
     const text = renderStatus(
       batch({
