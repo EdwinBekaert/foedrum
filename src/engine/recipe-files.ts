@@ -116,25 +116,30 @@ function keptDefaults(
   return defaults.filter(({ path }) => !names.has(nameOf(path)));
 }
 
+/** The defaults the Brewery keeps, by kind: those it has no file of the same name for (ADR 0098). */
+function defaultsKept(files: BreweryFiles): Required<FilesByKind> {
+  const { defaults = {} } = files;
+  return {
+    recipes: keptDefaults(files.recipes, defaults.recipes),
+    brewers: keptDefaults(files.brewers, defaults.brewers),
+    lenses: keptDefaults(files.lenses ?? [], defaults.lenses),
+  };
+}
+
 /** The files the load reads, by kind: the Brewery's own, then the defaults it keeps (ADR 0098). */
 export function filesInUse(files: BreweryFiles): Required<FilesByKind> {
-  const { defaults = {} } = files;
-  const lenses = files.lenses ?? [];
+  const kept = defaultsKept(files);
   return {
-    recipes: [...files.recipes, ...keptDefaults(files.recipes, defaults.recipes)],
-    brewers: [...files.brewers, ...keptDefaults(files.brewers, defaults.brewers)],
-    lenses: [...lenses, ...keptDefaults(lenses, defaults.lenses)],
+    recipes: [...files.recipes, ...kept.recipes],
+    brewers: [...files.brewers, ...kept.brewers],
+    lenses: [...(files.lenses ?? []), ...kept.lenses],
   };
 }
 
 /** The paths of the defaults the Brewery has no file of the same name for (ADR 0098). */
 function defaultsInUse(files: BreweryFiles): string[] {
-  const { defaults = {} } = files;
-  return [
-    ...keptDefaults(files.recipes, defaults.recipes),
-    ...keptDefaults(files.brewers, defaults.brewers),
-    ...keptDefaults(files.lenses ?? [], defaults.lenses),
-  ].map(({ path }) => path);
+  const { recipes, brewers, lenses } = defaultsKept(files);
+  return [...recipes, ...brewers, ...lenses].map(({ path }) => path);
 }
 
 /** The lens a brewer input reads (`"from": "lens:<name>"`), when it reads one. */
