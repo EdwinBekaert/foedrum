@@ -17,10 +17,10 @@ Foedrum's lenses already ask for findings tied to specific lines and a concrete 
 ## Consequences
 - A fix round only fixes what its pull request caused. Pre-existing defects become issues with a number, sized and planned like any other.
 - The citation check is unchanged: it reads only `file` and `line`, and an extra field passes through it.
-- The Taster's own answer format, which does not exist yet (#205, #218), takes the same field when it is built.
+- The Taster's own answer format, which does not exist yet (#26), takes the same field when it is built; a verify pass (#260) and diff-only rounds (#261) are issues of their own.
 
 ## Alternatives considered
-- **A verify pass that confirms or refutes each finding before the fix round:** a mechanism of its own, with its own token cost; left to its own issue for the Taster.
+- **A verify pass that confirms or refutes each finding before the fix round:** a mechanism of its own, with its own token cost; #260, for the Taster first.
 - **A voting panel of verifiers, as Anthropic's reviewer does:** the Taster already takes about a third of a session's tokens; one verifier first, if any.
 - **Adopting Claude Code Review or the security review GitHub Action:** both run on a paid plan or need an API key in CI, and Code Review never blocks a pull request ("A review never approves or blocks the pull request"), which is the opposite of the gate ([ADR 0067](0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md)).
 - **A `REVIEW.md` in this repository:** the lenses are already the review's instructions, read from the base branch.
