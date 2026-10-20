@@ -27,13 +27,14 @@ describe('npm run demo', () => {
 
   it('takes one order from Ordered to On tap through a crash and a restart, on a machine with no git identity', async () => {
     const scratch = join(dir.path, 'demo');
-    // A machine with no git identity of its own, as a CI runner or a fresh clone has: no global
-    // configuration (an empty file of the test's own) and no system one.
-    const empty = join(dir.path, 'gitconfig');
-    writeFileSync(empty, '');
+    // A machine with no git identity of its own, as a CI runner or a fresh clone has: no system
+    // configuration, and a global one of the test's own that only stops git from guessing an
+    // identity from the user and host names, which it would on a host whose name has a dot.
+    const noIdentity = join(dir.path, 'gitconfig');
+    writeFileSync(noIdentity, '[user]\n\tuseConfigOnly = true\n');
     const result = await execProcess(process.execPath, [demo, '--in', scratch], {
       cwd: root,
-      env: { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1' },
+      env: { ...process.env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
       // Only a guard against a hang (ADR 0075).
       timeoutMs: hangGuardMs,
     });

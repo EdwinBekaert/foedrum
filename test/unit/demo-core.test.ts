@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import {
   BREWERY,
   breweryFiles,
@@ -8,7 +9,6 @@ import {
   type DemoRun,
   DIAGNOSIS,
   gitConfig,
-  IDENTITY,
   lifeEndOf,
   localConfig,
   ON_TAP_LINE,
@@ -222,7 +222,9 @@ describe('gitConfig', () => {
       text,
       /^\[url "\/scratch\/demo\/web\.git"\]\n\tinsteadOf = https:\/\/github\.com\/demo\/web\.git$/m,
     );
-    assert.equal(IDENTITY.name, 'Demo brewer');
+    // The brewer commits with the same identity, whatever configuration its git reads.
+    assert.ok(text.includes(`\tname = ${DEMO_GIT_CONFIG['user.name']}\n`), text);
+    assert.ok(text.includes(`\temail = ${DEMO_GIT_CONFIG['user.email']}\n`), text);
     assert.ok(text.endsWith('\n'));
   });
 
