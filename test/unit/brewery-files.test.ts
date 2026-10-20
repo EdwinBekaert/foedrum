@@ -45,6 +45,15 @@ describe('readBreweryFiles', () => {
     });
   });
 
+  it('lists a defaults folder it cannot read by its path in defaults/ (ADR 0098)', () => {
+    write('foedrum/defaults/lenses', 'a file where the folder should be');
+    const lenses = readBreweryFiles(brewery.path, join(brewery.path, 'foedrum', 'defaults'))
+      .defaults?.lenses;
+    assert.equal(lenses?.length, 1);
+    assert.equal(lenses?.[0]?.path, 'defaults/lenses');
+    assert.match(lenses?.[0] && 'unreadable' in lenses[0] ? lenses[0].unreadable : '', /ENOTDIR/);
+  });
+
   it("reads the defaults of Foedrum's own install, wherever the Brewery is (ADR 0098)", () => {
     const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
     const own = readFileSync(

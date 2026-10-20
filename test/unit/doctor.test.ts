@@ -756,4 +756,17 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     assert.match(replacing, /\nDefaults in use: none\n/);
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /Defaults in use/);
   });
+
+  it("says nothing of the defaults when the Brewery's files do not load", () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [{ path: 'recipes/pale.jsonc', text: '{' }],
+        brewers: [],
+        defaults: { lenses: [lens] },
+      },
+    });
+    assert.ok(diagnosis.problems.some(({ what }) => what === INVALID_RECIPES));
+    assert.doesNotMatch(formatDiagnosis(diagnosis), /Defaults in use/);
+  });
 });
