@@ -415,6 +415,20 @@ describe('runServe', () => {
     assert.equal(lines.at(-1), 'foedrum serve: stopped');
   });
 
+  it('prints a run whose end rejected once, as a notice, and no failed tick (#130)', async () => {
+    const broken: BrewerRunner = {
+      start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
+      progress: () => undefined,
+    };
+    assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
+    const failed = lines.filter((line) =>
+      line.endsWith('failed, so it is blocked on its environment: the runner broke'),
+    );
+    assert.equal(failed.length, 1, lines.join('\n'));
+    assert.ok(!lines.some((line) => line.includes('a tick failed')), lines.join('\n'));
+    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+  });
+
   it("prints the driver's notices, one line each, and goes on", async () => {
     let flushes = 0;
     await runServe(
