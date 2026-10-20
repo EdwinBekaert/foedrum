@@ -446,6 +446,13 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
     noToken(text);
   });
 
+  it('reads past the characters it shows, so a token cut there is still left out', () => {
+    const cut = `${'Port 8080 is free. '.repeat(10)}${token}`;
+    const text = renderStatus(batch({ steps: new Map([step('plan', done(1, [cut]))]) }), steps);
+    assert.match(text, new RegExp(`- \`plan\`: ${escaped(leftOut('plan'))}`));
+    noToken(text);
+  });
+
   it("leaves out a blocked step's summary, and a failed attempt's reason", () => {
     const text = renderStatus(
       batch({
