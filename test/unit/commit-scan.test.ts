@@ -133,6 +133,20 @@ describe('scanPatches', () => {
     assert.deepEqual(scanPatches(log, none), []);
   });
 
+  it('refuses a new binary file whose name only looks like a deletion', () => {
+    const path = 'x and /dev/null';
+    const log = patch(
+      C1,
+      [
+        `diff --git a/${path} b/${path}`,
+        'new file mode 100644',
+        'index 0000000..88768ef',
+        `Binary files /dev/null and b/${path} differ`,
+      ].join('\n'),
+    );
+    assert.deepEqual(scanPatches(log, none), [{ commit: C1, place: path, kind: 'binary file' }]);
+  });
+
   it('names a binary file whose path holds the secret without its path', () => {
     const path = `keys/${token}.bin`;
     const log = patch(
