@@ -1141,6 +1141,27 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     valid({ recipes: [], brewers: [], lenses: [lens('security', atLimit)] });
   });
 
+  it('keeps an unreadable defaults folder even when a Brewery file has its name', () => {
+    const folder = { path: 'defaults/brewers', unreadable: 'ENOTDIR: not a directory' };
+    const problems = problemsOf({
+      recipes: [],
+      brewers: [brewer('brewers')],
+      defaults: { brewers: [folder] },
+    });
+    assert.ok(problems.includes('defaults/brewers: ENOTDIR: not a directory'), problems.join('\n'));
+  });
+
+  it('names an unreadable lenses/ folder once, not also every lens its brewers name', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [taster('lens:mine')],
+        lenses: [{ path: 'lenses', unreadable: 'EACCES: permission denied' }],
+      }),
+      ['lenses: EACCES: permission denied'],
+    );
+  });
+
   it('names a lens too large once, not also as a lens its brewer lacks', () => {
     const tooLarge = lens('security', 'x'.repeat(1024 * 1024 + 1));
     assert.deepEqual(
