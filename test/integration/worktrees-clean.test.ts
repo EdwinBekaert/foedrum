@@ -282,6 +282,39 @@ describe('worktrees-clean with real git', () => {
     assert.ok(existsSync(path), result.stdout);
   });
 
+  it('leaves a merged, clean worktree with a planted submodule to git, which refuses it without running anything', () => {
+    const path = worktree('21-merged-submodule', { push: false });
+    // The planted git folder is ignored, so status reads the worktree as clean and the cleanup
+    // asks git to remove it.
+    writeFileSync(join(path, '.gitignore'), '.claude/worktrees/\nforged/\n');
+    const sub = join(path, 'sub');
+    git(path, ['init', '-q', '-b', 'main', sub]);
+    writeFileSync(join(sub, 'a.txt'), 'a\n');
+    git(sub, ['add', 'a.txt']);
+    git(sub, ['commit', '-q', '-m', 'Sub']);
+    git(path, ['add', '.gitignore', 'sub']);
+    git(path, ['commit', '-q', '-m', 'Add a gitlink']);
+    git(path, ['push', '-q', '-u', 'origin', '21-merged-submodule']);
+    merge('21-merged-submodule');
+    renameSync(join(sub, '.git'), join(path, 'forged'));
+    writeFileSync(join(sub, '.git'), 'gitdir: ../forged\n');
+    const monitor = fsmonitor();
+    git(join(path, 'forged'), ['config', 'core.fsmonitor', monitor.command]);
+    git(join(path, 'forged'), ['config', 'filter.x.clean', monitor.command]);
+    writeFileSync(join(sub, '.gitattributes'), '* filter=x\n');
+    writeFileSync(join(sub, 'a.txt'), 'c\n');
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(monitor.ran(), undefined, 'a command of the forged submodule git folder ran');
+    assert.ok(existsSync(path), result.stdout);
+    assert.match(
+      result.stdout,
+      /could not clean \.claude\/worktrees\/21-merged-submodule: .*submodules/,
+    );
+  });
+
   it('removes a clean worktree without running the fsmonitor of the repository', () => {
     const merged = worktree('19-merged');
     merge('19-merged');
