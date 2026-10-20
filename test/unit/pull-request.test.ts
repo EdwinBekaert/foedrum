@@ -222,6 +222,17 @@ describe('pullRequestText', () => {
     assert.doesNotMatch(body, /ghp_|A1b2|AKIA/);
   });
 
+  it('reads only the reports it can show, so a token past the cut does not hide them', () => {
+    const reports = [
+      { stepId: 'plan', summary: `${'y '.repeat(40_000)}${token}`, assumptions: [] },
+      { stepId: 'implement', summary: token, assumptions: [] },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.match(body, /^plan: y y y/m);
+    assert.match(body, /\n\(cut short\)\n```\n\nCloses acme\/brewery#12$/);
+    assert.doesNotMatch(body, /ghp_|A1b2/);
+  });
+
   it('keeps a commit hash that `isCommit` knows, and leaves out one it does not', () => {
     const sha = 'a'.repeat(40);
     const reports = [{ stepId: 'plan', summary: `Reverted ${sha}`, assumptions: [] }];

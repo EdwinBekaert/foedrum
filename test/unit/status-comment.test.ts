@@ -509,10 +509,10 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
       kind: 'blocked',
       stepId: 'brew',
       blockerKind: 'environment',
-      summary: `the push stopped: commit ${sha}, notes.txt: GitHub token`,
+      summary: `the push stopped: commit ${sha}, GitHub token in notes.txt`,
     };
     const known = renderStatus(batch({ lane: stuck(reason) }), steps, (word) => word === sha);
-    assert.match(known, new RegExp(`commit ${sha}, notes.txt: GitHub token`));
+    assert.match(known, new RegExp(`commit ${sha}, GitHub token in notes.txt`));
     const unknown = renderStatus(batch({ lane: stuck(reason) }), steps);
     assert.doesNotMatch(unknown, new RegExp(sha));
   });

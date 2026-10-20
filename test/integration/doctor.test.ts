@@ -112,7 +112,7 @@ const doctorWithStubs = async (
 const sandboxHides =
   "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const writtenDown =
-  'A login a brewer did read is for #209 to catch at the push, and #235 in out doc text.';
+  'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 const keyring = (sandboxedLevel: string) =>
   `  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} Until #190, check steps run outside the sandbox and the container, so they can still read gh's login.`;
 const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Until #190, check steps run outside the sandbox, so they can still read gh's login.`;
