@@ -117,6 +117,26 @@ describe('settleAttempt', () => {
     }
   });
 
+  // Review of #252: however the process ended after the refusal, the window is what to wait for.
+  it('puts a usage limit before a killed, overflowed or stopped process', () => {
+    const exits = [
+      { kind: 'killed', signal: 'SIGTERM' },
+      { kind: 'overflowed', what: 'a stream line passed 8388608 bytes' },
+      { kind: 'stopped' },
+    ] as const;
+    for (const exit of exits) {
+      const ending = settleAttempt(
+        facts({ exit, usageLimit: { limit: 'Opus', resets: '3:45pm' }, outDoc: undefined }),
+        limits,
+      );
+      assert.deepStrictEqual(ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'claude hit its Opus limit, which resets 3:45pm: retry the step after that',
+      });
+    }
+  });
+
   it('puts a session that is not what was asked before a usage limit', () => {
     const ending = settleAttempt(
       facts({ environment: 'no init', usageLimit: { limit: 'weekly', resets: 'Mon 12:00am' } }),

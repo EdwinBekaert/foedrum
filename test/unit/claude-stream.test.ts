@@ -263,6 +263,19 @@ describe('readClaudeStream', () => {
     }
   });
 
+  // Review of #252: the whole text is read trimmed, and the reset is cut like any stream text.
+  it('reads a usage limit with whitespace around it, and cuts a long reset', () => {
+    const padded = limitResults("  You've hit your weekly limit · resets Mon 12:00am\n");
+    for (const end of padded) {
+      const { facts } = readAll([init(), end], asked);
+      assert.deepEqual(facts.usageLimit, { limit: 'weekly', resets: 'Mon 12:00am' });
+    }
+    for (const end of limitResults(`You've hit your session limit · resets ${'x'.repeat(5000)}`)) {
+      const { facts } = readAll([init(), end], asked);
+      assert.deepEqual(facts.usageLimit, { limit: 'session', resets: `${'x'.repeat(200)}…` });
+    }
+  });
+
   // ADR 0091: only claude's own error result names a usage limit, never a reply of the model.
   it('reads no usage limit from a result that reported no error, nor from the model', () => {
     for (const { text } of documentedUsageLimits) {
