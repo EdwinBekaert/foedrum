@@ -378,6 +378,11 @@ describe('writeAttemptSettings', () => {
       /Must hide every credential/,
     ],
     [
+      'a sandbox that hides no credentials',
+      sandboxed(withoutKey(sandboxBlock, 'credentials')),
+      /credentials/,
+    ],
+    [
       'a sandbox that auto-allows sandboxed commands',
       sandboxed({ ...sandboxBlock, autoAllowBashIfSandboxed: true }),
       /autoAllowBashIfSandboxed/,
