@@ -228,6 +228,17 @@ describe('gitConfig', () => {
     assert.ok(text.endsWith('\n'));
   });
 
+  it('sends every other GitHub URL to a scratch path that does not exist, never to github.com', () => {
+    const text = gitConfig(join('scratch', 'demo', 'web.git'));
+    const sections = [...text.matchAll(/^\[url "(.+)"\]\n\tinsteadOf = (.+)$/gm)].map(
+      ([, to = '', from = '']) => ({ to: to.replaceAll('\\\\', '\\'), from }),
+    );
+    assert.deepStrictEqual(sections, [
+      { to: join('scratch', 'demo', 'web.git'), from: 'https://github.com/demo/web.git' },
+      { to: join('scratch', 'demo', 'no-such-remote'), from: 'https://github.com/' },
+    ]);
+  });
+
   it('escapes the backslashes and quotes of a Windows path in the URL section', () => {
     const text = gitConfig('D:\\a "b"\\web.git');
     assert.ok(text.includes('\n[url "D:\\\\a \\"b\\"\\\\web.git"]\n'), text);
