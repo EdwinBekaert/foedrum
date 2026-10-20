@@ -92,6 +92,7 @@ describe('foedrum: commands that change state', () => {
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
+    readKeptBranches: async () => assert.fail('no kept branch to read'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     ...overrides,
   });
@@ -429,6 +430,7 @@ describe('foedrum stuck', () => {
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
+      readKeptBranches: async () => assert.fail('no kept branch to read'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     });
   const append = (...events: Event[]) =>

@@ -35,6 +35,9 @@ export const cliFromCheckout = async (
       user: () => userName(() => userInfo().username, process.env),
       surface: 'terminal',
       now: () => new Date(),
+      readKeptBranches: async () => {
+        throw new Error('not implemented');
+      },
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
     });

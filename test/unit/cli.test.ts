@@ -58,6 +58,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   user: () => 'ada',
   surface: 'terminal',
   now: () => new Date(D1),
+  readKeptBranches: async () => assert.fail('no kept branch to read'),
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   ...overrides,
 });
@@ -474,6 +475,83 @@ describe('foedrum status', () => {
       result.stderr,
       /^foedrum status: Invalid event log at event 1 \(step\.started\): [^\n]+\n$/,
     );
+  });
+
+  describe('the task-tree branches the cleanup keeps (ADR 0084, ADR 0092)', () => {
+    const START = 'b'.repeat(40);
+    const TIP = 'c'.repeat(40);
+    // 11-1 brewed a commit and was cancelled before its pull request; 12-1 is still ordered.
+    const cancelledWithCommits: Event[] = [
+      ordered(11),
+      ordered(12),
+      { type: 'step.scheduled', batchId: '11-1', stepId: 'brew', attempt: 1, deadlineAt: D1 },
+      {
+        type: 'step.started',
+        batchId: '11-1',
+        stepId: 'brew',
+        attempt: 1,
+        worktree: {
+          repo: 'acme/app',
+          path: '/work/acme.app/attempts/11-1/brew/1',
+          branch: 'foedrum/11-1/brew/1',
+          commit: START,
+        },
+      },
+      {
+        type: 'step.finished',
+        batchId: '11-1',
+        stepId: 'brew',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: {} },
+      },
+      { type: 'batch.cancelled', batchId: '11-1', by: 'ann', via: 'terminal' },
+    ];
+
+    it("lists them after the batches, from the claims and git's readings", async () => {
+      const asked: [string[], [string, string][]][] = [];
+      const result = await run(['status'], {
+        openStore: () => storeWith(cancelledWithCommits),
+        readKeptBranches: async (state, unpushed) => {
+          asked.push([[...state.batches.keys()], [...unpushed]]);
+          return new Map([
+            ['foedrum/11-1/brew/1', { kind: 'read', clone: '/src/app', tip: TIP, ahead: 2 }],
+          ]);
+        },
+      });
+      assert.deepEqual(asked, [[['11-1', '12-1'], [['foedrum/11-1/brew/1', START]]]]);
+      assert.deepEqual(result, {
+        exitCode: 0,
+        stdout: [
+          '2 batches',
+          '',
+          '  11-1  #11  cancelled  by ann via terminal',
+          '  12-1  #12  ordered    to be routed by 2026-12-31T00:00:00.000Z',
+          '',
+          '1 kept branch: commits of ended batches that no push recorded (ADR 0084); take them, then drop the branch',
+          '',
+          '  11-1  foedrum/11-1/brew/1  2 commits past the start  in /src/app: git branch -D foedrum/11-1/brew/1',
+          '',
+        ].join('\n'),
+        stderr: '',
+      });
+    });
+
+    it('adds nothing when the branch is gone, and reads no git when no ended batch has one', async () => {
+      let reads = 0;
+      const gone = await run(['status'], {
+        openStore: () => storeWith(cancelledWithCommits),
+        readKeptBranches: async () => {
+          reads++;
+          return new Map([['foedrum/11-1/brew/1', { kind: 'gone' }]]);
+        },
+      });
+      assert.equal(reads, 1);
+      assert.doesNotMatch(gone.stdout, /kept/);
+      assert.equal(gone.stdout.endsWith('2026-12-31T00:00:00.000Z\n'), true);
+      // The default context fails any read of the kept branches.
+      const none = await run(['status'], { openStore: () => storeWith([ordered(11)]) });
+      assert.equal(none.exitCode, 0, none.stderr);
+    });
   });
 
   it('closes the event store, and appends nothing to it (ADR 0030)', async () => {

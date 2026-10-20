@@ -139,6 +139,19 @@ const read = <T>(
   return undefined;
 };
 
+/**
+ * The clone `repo`'s attempt worktrees are added to, from the text of foedrum.jsonc and
+ * .foedrum/local.jsonc: the user's for `source: local`, the managed one in the work root
+ * otherwise. Undefined when the files do not name it or do not read.
+ */
+export const attemptClone = (
+  _files: { config: string | undefined; local: string | undefined },
+  _home: string,
+  _repo: string,
+): string | undefined => {
+  throw new Error('not implemented');
+};
+
 /** Everything serve sets up, or one line per problem, all of them at once. */
 export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   const { root, home, platform, env, files, diagnosis } = inputs;
