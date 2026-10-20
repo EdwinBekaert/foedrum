@@ -7,10 +7,13 @@
 // demo's own, whose insteadOf sends the target's GitHub URL there. In the life that crashes, the
 // process is killed with SIGKILL once the brewer has committed: no finally block runs, and the
 // lock, the lease and the attempt's worktree are left as a crash leaves them. scripts/demo.ts
-// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish`.
+// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish`. For the walkthrough (#268) it
+// shows `foedrum status` whenever the store has changed and once an attempt has started, and in the
+// restart the line that says which attempt was lost and which one brews it again.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { cliFromCheckout } from '../../src/cli/cli-main.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { runServe } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
@@ -21,6 +24,7 @@ import { runGit } from '../../src/workspace/git.ts';
 import { scriptedBrewer } from './brewer.ts';
 import { codeHost, fileJournal } from './code-host.ts';
 import { CRASH_LINE, DIAGNOSIS, lifeEndOf, ON_TAP_LINE } from './core.ts';
+import { lostAttemptLine } from './walkthrough.ts';
 
 /** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
 const INTERVAL_MS = 100;
@@ -64,6 +68,19 @@ const crash = (): void => {
 
 let store: EventStore | undefined;
 
+// `foedrum status` as the CLI runs it in the Brewery, shown when it says something new. It reads
+// the store, and git in the local clone for a branch the cleanup keeps: never gh or the network.
+let shown = '';
+const showStatus = async (): Promise<void> => {
+  const { stdout, stderr } = await cliFromCheckout(['status'], root);
+  const text = `${stdout}${stderr}`.trimEnd();
+  if (text === shown) return;
+  shown = text;
+  out('$ foedrum status');
+  for (const line of text.split('\n')) out(line === '' ? '' : `  ${line}`);
+};
+let seen = 0;
+
 const listening = listenWhileServing(process);
 const ended = new AbortController();
 let failed = false;
@@ -78,7 +95,12 @@ const shell: ServeShell = {
   },
   // Between ticks: the life ends once the batch is on tap, or at once when it cannot get there.
   wait: async (ms, signal) => {
-    const end = lifeEndOf(store?.eventsAfter(0) ?? []);
+    const events = store?.eventsAfter(0) ?? [];
+    if (events.length !== seen) {
+      seen = events.length;
+      await showStatus();
+    }
+    const end = lifeEndOf(events);
     if (end === undefined) return machine.wait(ms, signal);
     switch (end.kind) {
       case 'on_tap':
@@ -104,6 +126,12 @@ const shell: ServeShell = {
       write: (path, text) => writeFileSync(path, text),
       life,
       crash,
+      // The attempt as status shows it; in the restart, the one it lost before it.
+      started: async () => {
+        await showStatus();
+        const lost = lostAttemptLine(store?.eventsAfter(0) ?? []);
+        if (lost !== undefined) out(lost);
+      },
     }),
   gh: host.exec,
 };

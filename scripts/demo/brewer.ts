@@ -45,7 +45,7 @@ const failed = (reason: string): AttemptEnd => ({
 });
 
 export const scriptedBrewer = (options: ScriptedBrewerOptions): BrewerRunner => {
-  const { plan, git, write, life, crash } = options;
+  const { plan, git, write, life, crash, started } = options;
   // The tests' runner plays the attempt: a brewer that is still running when the Cellar dies, or
   // one whose out doc says done.
   const scripted = fakeBrewerRunner(() =>
@@ -56,6 +56,7 @@ export const scriptedBrewer = (options: ScriptedBrewerOptions): BrewerRunner => 
   /** The fixed change, committed in the attempt's worktree; why it could not be, if not. */
   const commit = async (start: AttemptStart): Promise<string | undefined> => {
     try {
+      await started?.(start.ref);
       const { cwd } = await plan(start);
       write(join(cwd, GREETING.file), GREETING.text);
       const steps = [
