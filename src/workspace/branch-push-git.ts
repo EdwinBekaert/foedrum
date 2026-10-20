@@ -13,8 +13,15 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
-import { gitOutput, inClone, type OwnRemote, withOwnGitDir } from './clone-git.ts';
-import type { Git, GitOptions, GitResult } from './git.ts';
+import {
+  firstLine,
+  gitOutput,
+  inClone,
+  type OwnGitDir,
+  type OwnRemote,
+  withOwnGitDir,
+} from './clone-git.ts';
+import type { Git, GitOptions } from './git.ts';
 
 export interface BranchPushOptions {
   git: Git;
@@ -101,13 +108,6 @@ const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 // A branch Foedrum pushes, so that nothing from outside reaches git as an option or a refspec.
 const FOEDRUM_BRANCH = /^foedrum\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$/;
 
-const firstLine = ({ code, stderr }: GitResult): string =>
-  stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line !== '') ??
-  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
-
 // The signal as git's options take it.
 const aborts = (signal: AbortSignal | undefined): GitOptions =>
   signal === undefined ? {} : { signal };
@@ -125,7 +125,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
   // A git directory of the call's own, reaching the remote by the URL Foedrum names (ADR 0096).
   const remotely = <T>(
     signal: AbortSignal | undefined,
-    use: Parameters<typeof withOwnGitDir<T>>[4],
+    use: (dir: OwnGitDir) => Promise<T>,
   ): Promise<T> => {
     if (own === undefined) {
       throw new Error(`The pushes from ${clone} name no URL to reach the remote by`);

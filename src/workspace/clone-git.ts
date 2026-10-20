@@ -28,7 +28,7 @@ export interface OwnRemote {
  * fails instead of reaching the clone's remote through its credential helper or ssh command; no
  * hook, such as reference-transaction on a ref update; no fsmonitor.
  */
-export const IN_CLONE = {
+const IN_CLONE = {
   env: { GIT_NO_LAZY_FETCH: '1' },
   config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
 } as const satisfies GitOptions;
@@ -49,7 +49,7 @@ export const inClone = (git: Git): Git => gitWith(git, IN_CLONE);
 /** No hook, gc or maintenance in Foedrum's own git directory: a gc would prune the clone's objects. */
 const OWN_CONFIG = { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' };
 
-const firstLine = ({ code, stderr }: GitResult): string =>
+export const firstLine = ({ code, stderr }: GitResult): string =>
   stderr
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -154,15 +154,14 @@ export const fetchIntoClone = async (
   git: Git,
   clone: string,
   own: OwnRemote,
-  options: { remote: string; timeoutMs: number; signal?: AbortSignal },
+  options: { remote: string; timeoutMs: number },
 ): Promise<void> => {
-  const { remote, timeoutMs, signal } = options;
+  const { remote, timeoutMs } = options;
   const local = inClone(git);
-  const aborts: GitOptions = signal === undefined ? {} : { signal };
   const tracking = `refs/remotes/${remote}/`;
   const listing = ['for-each-ref', '--format=%(objectname) %(refname)', tracking];
-  await withOwnGitDir(git, clone, own, signal, async (dir) => {
-    const known = refsOf(await gitOutput(local, clone, listing, aborts));
+  await withOwnGitDir(git, clone, own, undefined, async (dir) => {
+    const known = refsOf(await gitOutput(local, clone, listing));
     if (known.size > 0) await dir.run(['update-ref', '--stdin'], { stdin: updates(known) });
     await dir.run(
       [
@@ -182,10 +181,7 @@ export const fetchIntoClone = async (
     const fetched = refsOf(await dir.run(listing));
     const moved = [...fetched].filter(([ref, sha]) => known.get(ref) !== sha);
     if (moved.length > 0) {
-      await gitOutput(local, clone, ['update-ref', '--stdin'], {
-        ...aborts,
-        stdin: updates(moved),
-      });
+      await gitOutput(local, clone, ['update-ref', '--stdin'], { stdin: updates(moved) });
     }
   });
 };
