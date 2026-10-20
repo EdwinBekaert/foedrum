@@ -103,11 +103,12 @@ type Plan =
 /** The findings the blocked summary names; it counts the rest. */
 const NAMED_FINDINGS = 3;
 
-// Each commit, place and kind: never the matched text, nor findSecrets' excerpt of it.
+// Each commit, place and kind: never the matched text, nor findSecrets' excerpt of it. The place
+// comes last, so a file named `token` never reads as an assignment the status comment leaves out.
 const refusal = (batchId: string, findings: readonly ScanFinding[]): string => {
   const named = findings
     .slice(0, NAMED_FINDINGS)
-    .map(({ commit, place, kind }) => `commit ${commit}, ${place}: ${kind}`);
+    .map(({ commit, place, kind }) => `commit ${commit}, ${kind} in ${place}`);
   const more = findings.length - named.length;
   return `the push of batch ${batchId} stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079): ${[
     ...named,

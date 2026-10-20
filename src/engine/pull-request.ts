@@ -97,6 +97,8 @@ const MAX_TITLE = 256;
 /** GitHub's longest body, less room for the lines around the reports. */
 const MAX_REPORTS = 60_000;
 const CUT = '(cut short)';
+/** How far past the cut the reports are read for secrets: room for a match that starts before it. */
+const SCAN_PAST = 1_000;
 
 /**
  * The pull request's title and body. The reports are quoted in a fenced block, where GitHub links
@@ -111,17 +113,25 @@ export const pullRequestText = ({
 }: PullRequestTextInput): PullRequestText => {
   const order = `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
+  // Only what can be shown is read (ADR 0088): reports of 1 MiB would cost a second at every apply.
+  let unread = MAX_REPORTS + SCAN_PAST;
+  let cut = false;
+  const shown = (text: string, stepId: string): string => {
+    const read = text.slice(0, Math.max(0, unread));
+    unread -= read.length + 1;
+    if (read.length < text.length) cut = true;
+    return withoutSecrets(read, stepId, isCommit);
+  };
   const lines = reports.flatMap(({ stepId, summary, assumptions }) => [
-    `${stepId}: ${withoutSecrets(summary, stepId, isCommit)}`,
+    `${stepId}: ${shown(summary, stepId)}`,
     ...assumptions.map(
-      (assumption) =>
-        `  assumed: ${withoutSecrets(assumption, stepId, isCommit).replace(/\s+/g, ' ')}`,
+      (assumption) => `  assumed: ${shown(assumption, stepId).replace(/\s+/g, ' ')}`,
     ),
   ]);
   // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
   // output could otherwise make the fence, which comes twice, as long as the reports.
   let quoted = lines.join('\n').replace(/`{17,}/g, '`'.repeat(16));
-  if (quoted.length > MAX_REPORTS) quoted = `${quoted.slice(0, MAX_REPORTS)}\n${CUT}`;
+  if (cut || quoted.length > MAX_REPORTS) quoted = `${quoted.slice(0, MAX_REPORTS)}\n${CUT}`;
   const longest = Math.max(0, ...[...quoted.matchAll(/`+/g)].map(([run]) => run.length));
   const fence = '`'.repeat(Math.max(3, longest + 1));
   const reported =
