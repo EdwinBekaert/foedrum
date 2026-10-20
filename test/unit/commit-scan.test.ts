@@ -129,6 +129,33 @@ describe('scanPatches', () => {
     ]);
   });
 
+  it('reads the last line of a file that ends without a newline', () => {
+    const log = patch(
+      C1,
+      [
+        'diff --git a/a.txt b/a.txt',
+        'index 1111111..2222222 100644',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -1 +1 @@',
+        '-old',
+        '\\ No newline at end of file',
+        `+${token}`,
+        '\\ No newline at end of file',
+      ].join('\n'),
+    );
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'a.txt', kind: 'GitHub token' },
+    ]);
+  });
+
+  it('reads a path with spaces, which git does not quote', () => {
+    const log = patch(C1, newFile('my notes.txt', token));
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'my notes.txt', kind: 'GitHub token' },
+    ]);
+  });
+
   // Captured from git 2.56 for a file named café.txt: git quotes a path with non-ASCII bytes.
   it('reads a quoted path as git shows it', () => {
     const log = patch(

@@ -250,6 +250,30 @@ describe('the openPullRequest push with real git', () => {
       assert.match(stopped(state, requests), new RegExp(`commit ${tip}, message: GitHub token`));
     });
 
+    it("pushes a commit that names one of the clone's commits by its hash", async () => {
+      const { state } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        writeFileSync(join(path, 'plan.txt'), `continues ${start}\n`);
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', '-m', `After ${start}`]);
+      });
+      assert.equal(
+        git(origin, ['log', '-1', '--format=%s', `refs/heads/${bottle}`]).trim(),
+        'Plan',
+      );
+      assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    });
+
+    it('stops the push of a hexadecimal word that is no commit of the clone', async () => {
+      const key = '0123456789abcdef'.repeat(3).slice(0, 40);
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), `key ${key}\n`);
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan']);
+      });
+      assert.match(stopped(state, requests), /, plan\.txt: long hexadecimal string/);
+    });
+
     it('stops the push of a credential in an added line of a file the base has', async () => {
       const { state, requests } = await brew((path) => {
         writeFileSync(join(path, 'readme.txt'), `hello\nkey ${token}\n`);

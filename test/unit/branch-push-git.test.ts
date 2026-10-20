@@ -260,6 +260,19 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     }
   });
 
+  it('keeps a hexadecimal word the clone has as no commit: git answers missing, or another type', async () => {
+    const key = 'd'.repeat(40);
+    const blob = 'e'.repeat(40);
+    const { git } = recordingGit((args) =>
+      args[0] === 'log'
+        ? ok(args.includes('--patch') ? '' : `\0${TIP}\nUse ${key}\nand ${blob}\n`)
+        : ok(`${key} missing\n${blob} blob\n`),
+    );
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+      { commit: TIP, place: 'message', kind: 'long hexadecimal string' },
+    ]);
+  });
+
   it('asks nothing of the objects when no word may be a commit', async () => {
     const { git, calls } = recordingGit((args) =>
       args[0] === 'log' ? ok(`\0${TIP}\nClean\n`) : failed('unexpected'),
