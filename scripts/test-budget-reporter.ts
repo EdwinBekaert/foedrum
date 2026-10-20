@@ -251,12 +251,17 @@ export const budgetReporter = ({
     if (over) fail();
   };
 
-export default budgetReporter({
-  budgetMs: FILE_BUDGET_MS,
-  cwd: process.cwd(),
-  slowest: 5,
-  fail: () => {
-    process.exitCode = 1;
-  },
-  remeasure: nodeRemeasure(),
-});
+// npm test's reporter, with the given options changed (the integration tests lower the budget).
+export const npmTestReporter = (overrides: Partial<BudgetOptions> = {}) =>
+  budgetReporter({
+    budgetMs: FILE_BUDGET_MS,
+    cwd: process.cwd(),
+    slowest: 5,
+    fail: () => {
+      process.exitCode = 1;
+    },
+    remeasure: nodeRemeasure(),
+    ...overrides,
+  });
+
+export default npmTestReporter();
