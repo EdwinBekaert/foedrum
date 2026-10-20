@@ -129,6 +129,38 @@ describe('scanPatches', () => {
     ]);
   });
 
+  // Review of #237: diff.interHunkContext puts context lines in a hunk, which its header counts
+  // on both sides; counted twice, they would swallow the next file's header and hunk.
+  it('counts context lines once: the next file of the commit is still read', () => {
+    const log = patch(
+      C1,
+      [
+        'diff --git a/a.txt b/a.txt',
+        'index 1111111..2222222 100644',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -1,8 +1,8 @@',
+        '-one',
+        '+One',
+        ...['2', '3', '4', '5', '6', '7'].map((line) => ` ${line}`),
+        '-eight',
+        '+Eight',
+      ].join('\n'),
+      newFile('b.txt', token),
+    );
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'b.txt', kind: 'GitHub token' },
+    ]);
+  });
+
+  it("leaves integrity hashes out only in a package lock: elsewhere they may be a key's disguise", () => {
+    const disguised = `sha512-${'Ab1+'.repeat(21)}Q==`;
+    const log = patch(C1, newFile('config.env', `AWS_KEY=${disguised}`));
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'config.env', kind: 'long base64 string' },
+    ]);
+  });
+
   it('reads the last line of a file that ends without a newline', () => {
     const log = patch(
       C1,

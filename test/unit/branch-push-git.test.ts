@@ -226,6 +226,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
           '--patch',
           '--diff-merges=first-parent',
           '--unified=0',
+          '--inter-hunk-context=0',
           '--no-ext-diff',
           '--no-textconv',
           '--no-color',
@@ -251,6 +252,8 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         GIT_NO_REPLACE_OBJECTS: '1',
         GIT_GRAFT_FILE: devNull,
         GIT_SHALLOW_FILE: devNull,
+        // A partial clone would fetch a missing object, so a key asked of cat-file would leave.
+        GIT_NO_LAZY_FETCH: '1',
       });
       assert.deepEqual(options?.config, {
         'core.attributesFile': devNull,

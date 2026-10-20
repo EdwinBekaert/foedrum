@@ -334,5 +334,23 @@ describe('the openPullRequest push with real git', () => {
         assert.match(stopped(state, requests), /, plan\.txt: GitHub token/);
       });
     }
+
+    // Review of #237: merged hunks carry context lines, which must not throw the count off.
+    it('sees the commits as they are, whatever a brewer planted in the clone: diff.interHunkContext', async () => {
+      const { state, requests } = await brew((path) => {
+        const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+        writeFileSync(join(path, 'a.txt'), `${lines.join('\n')}\n`);
+        git(path, ['add', 'a.txt']);
+        git(path, ['commit', '-q', '-m', 'Add a']);
+        lines[0] = 'first';
+        lines[7] = 'eighth';
+        writeFileSync(join(path, 'a.txt'), `${lines.join('\n')}\n`);
+        writeFileSync(join(path, 'b.txt'), `${token}\n`);
+        git(path, ['add', 'a.txt', 'b.txt']);
+        git(path, ['commit', '-q', '-m', 'Change a, add b']);
+        git(path, ['config', 'diff.interHunkContext', '1000']);
+      });
+      assert.match(stopped(state, requests), /, b\.txt: GitHub token/);
+    });
   });
 });
