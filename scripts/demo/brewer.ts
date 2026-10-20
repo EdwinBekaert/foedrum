@@ -18,6 +18,8 @@ export interface ScriptedBrewerOptions {
   life: Life;
   /** Kills the Cellar's process; called once the commit is made, in the life that crashes. */
   crash: () => void;
+  /** Called once the attempt has started, before the brewer writes; the demo shows it there. */
+  started?: (ref: AttemptStart['ref']) => Promise<void>;
 }
 
 /** The file the brewer writes, and what it says. */
