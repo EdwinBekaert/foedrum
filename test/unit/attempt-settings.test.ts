@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
-import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
+import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/attempt-settings.ts';
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -292,6 +292,22 @@ describe('attemptSettings and gh', () => {
   }
 });
 
+// A valid sandbox block; each refused row below changes one thing in it, so it is refused for
+// that reason alone.
+const sandboxBlock = {
+  enabled: true,
+  failIfUnavailable: true,
+  allowUnsandboxedCommands: false,
+  autoAllowBashIfSandboxed: false,
+  credentials: sandboxCredentials,
+};
+const sandboxed = (sandbox: object) => ({
+  permissions: { allow: [], deny: ['AskUserQuestion'] },
+  sandbox,
+});
+const withoutKey = (block: object, key: string) =>
+  Object.fromEntries(Object.entries(block).filter(([name]) => name !== key));
+
 describe('writeAttemptSettings', () => {
   let dir: TempDir;
   let file: string;
@@ -325,31 +341,23 @@ describe('writeAttemptSettings', () => {
     ],
     [
       'a sandbox that may fall back to running unsandboxed',
-      {
-        permissions: { allow: [], deny: ['AskUserQuestion'] },
-        sandbox: { enabled: true, failIfUnavailable: false, allowUnsandboxedCommands: false },
-      },
+      sandboxed({ ...sandboxBlock, failIfUnavailable: false }),
+      /failIfUnavailable/,
     ],
     [
       'a sandbox that runs every sandboxed command without the allow rules',
-      {
-        permissions: { allow: [], deny: ['AskUserQuestion'] },
-        sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
-      },
+      sandboxed(withoutKey(sandboxBlock, 'autoAllowBashIfSandboxed')),
       /autoAllowBashIfSandboxed/,
     ],
     [
-      'a sandbox that leaves a credential readable',
-      {
-        permissions: { allow: [], deny: ['AskUserQuestion'] },
-        sandbox: {
-          enabled: true,
-          failIfUnavailable: true,
-          allowUnsandboxedCommands: false,
-          autoAllowBashIfSandboxed: false,
-          credentials: { files: [{ path: '~/.ssh', mode: 'deny' }], envVars: [] },
+      'a sandbox that leaves a credential variable set',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          envVars: sandboxCredentials.envVars.filter(({ name }) => name !== 'GH_TOKEN'),
         },
-      },
+      }),
       /Must hide every credential/,
     ],
   ] as const) {
