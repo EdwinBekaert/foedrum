@@ -213,7 +213,7 @@ describe('loadRecipes: fails closed', () => {
 
   it('refuses a recipe that names a brewer the Brewery does not have', () => {
     assert.deepEqual(problemsOf(brewery({ brewers: [brewmaster] })), [
-      'recipes/pale.jsonc: it names no brewer "maltster" the Brewery has',
+      'recipes/pale.jsonc: it names no brewer "maltster" that the Brewery\'s brewers/ or Foedrum\'s defaults have (ADR 0098)',
     ]);
   });
 
@@ -257,7 +257,7 @@ describe('loadRecipes: fails closed', () => {
     assert.deepEqual(problemsOf(files), [
       'brewers/maltster.md: EACCES',
       'recipes/amber.jsonc: EISDIR',
-      'recipes/pale.jsonc: it names no brewer "gauger" the Brewery has',
+      'recipes/pale.jsonc: it names no brewer "gauger" that the Brewery\'s brewers/ or Foedrum\'s defaults have (ADR 0098)',
     ]);
   });
 });
@@ -1116,5 +1116,28 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
       }),
       ['lenses/security.md: EACCES: permission denied'],
     );
+  });
+
+  it('names an unreadable lens once, not also as a lens its brewer lacks', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [taster('lens:security')],
+        lenses: [{ path: 'lenses/security.md', unreadable: 'EACCES: permission denied' }],
+        defaults: { lenses: [lens('security', 'Look for secrets.', 'defaults/lenses')] },
+      }),
+      ['lenses/security.md: EACCES: permission denied'],
+    );
+  });
+
+  it("refuses a lens larger than a brewer's input may be, and loads one at the limit", () => {
+    const atLimit = 'é'.repeat(512 * 1024);
+    assert.deepEqual(
+      problemsOf({ recipes: [], brewers: [], lenses: [lens('security', `${atLimit}x`)] }),
+      [
+        "lenses/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
+      ],
+    );
+    valid({ recipes: [], brewers: [], lenses: [lens('security', atLimit)] });
   });
 });

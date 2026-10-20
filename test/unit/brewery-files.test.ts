@@ -131,7 +131,7 @@ describe('breweryRecipes', () => {
   it("throws doctor's line when a file is not valid", () => {
     write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'maltster' }]));
     assert.throws(() => breweryRecipes(brewery.path), {
-      message: `${INVALID_RECIPES}: recipes/pale.jsonc: it names no brewer "maltster" the Brewery has`,
+      message: `${INVALID_RECIPES}: recipes/pale.jsonc: it names no brewer "maltster" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
     });
   });
 });
