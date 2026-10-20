@@ -67,4 +67,14 @@ describe('test-budget-reporter under node --test', () => {
       /^✖ test\/fixtures\/test-budget\/sample\.test\.ts used \d+\.\d\d s of CPU time, over the 0 s budget/m,
     );
   });
+
+  // A file over the budget in the run is run again alone, under the real runner (ADR 0089).
+  it('measures a file over the budget again alone and names both readings', () => {
+    const result = runWith('./test/fixtures/test-budget/remeasure-reporter.ts');
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(
+      result.stdout,
+      /^✖ test\/fixtures\/test-budget\/sample\.test\.ts used \d+\.\d\d s of CPU time (alone \(\d+\.\d\d s in the run\)|in the run \(\d+\.\d\d s alone\)), over the 0 s budget/m,
+    );
+  });
 });

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 import {
   type BudgetOptions,
   budgetReporter,
   recordCpuTime,
+  remeasureAlone,
   type TestEvent,
   withoutCpuTimes,
 } from '../../scripts/test-budget-reporter.ts';
@@ -315,6 +317,294 @@ describe('budgetReporter', () => {
 
   it('prints nothing when no test file ran', async () => {
     assert.deepEqual(await report([]), { lines: [], failed: false });
+  });
+});
+
+// The same work can take several times the CPU time on a loaded machine (#248), so a file over the
+// budget in the run is measured again, alone, once the run has ended (ADR 0089).
+describe('budgetReporter with a re-measure (ADR 0089)', () => {
+  // A re-measure that answers from the given readings, in ms, and records which files it measured.
+  const alone = (readings: Record<string, number | undefined>) => {
+    const measured: string[] = [];
+    const remeasure = async (file: string) => {
+      measured.push(file);
+      return readings[file];
+    };
+    return { measured, remeasure };
+  };
+
+  it('lets a unit file pass that was over the budget in the run but is within it alone, and says so', async () => {
+    const { measured, remeasure } = alone({ [fileA]: 1300 });
+    const { lines, failed } = await report(timed(fileA, 16_000, 5080), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.deepEqual(measured, [fileA]);
+    assert.deepEqual(overLines(lines), []);
+    assert.ok(
+      lines.includes(
+        'ℹ test/unit/a.test.ts used 5.08 s of CPU time in the run, over the 5 s budget, and 1.30 s alone: the same work takes more CPU time on a loaded machine (ADR 0089)',
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it('fails a unit file that is over the budget alone too, naming both readings', async () => {
+    const { remeasure } = alone({ [fileA]: 5200 });
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, true);
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /^✖ test\/unit\/a\.test\.ts used 5\.20 s of CPU time alone \(6\.00 s in the run\), over the 5 s budget/,
+    );
+  });
+
+  // Load only adds CPU time, so the lower reading is the closer one to the file's own work.
+  it('keeps the lower reading when the file used more alone than in the run', async () => {
+    const { remeasure } = alone({ [fileA]: 6000 });
+    const { lines, failed } = await report(timed(fileA, 9000, 5100), 5000, 5, { remeasure });
+    assert.equal(failed, true);
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /used 5\.10 s of CPU time in the run \(6\.00 s alone\)/,
+    );
+  });
+
+  it("keeps the run's reading when the file reports none alone", async () => {
+    const { remeasure } = alone({});
+    const { lines, failed } = await report(timed(fileA, 9000, 5100), 5000, 5, { remeasure });
+    assert.equal(failed, true);
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /^✖ test\/unit\/a\.test\.ts used 5\.10 s of CPU time, over the 5 s budget/,
+    );
+  });
+
+  it('lets a chaos file pass that was over the ceiling in the run but is within it alone', async () => {
+    const { remeasure } = alone({ [fileD]: 9000 });
+    const { lines, failed } = await report(timed(fileD, 40_000, 16_000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.ok(
+      lines.some((line) =>
+        line.startsWith(
+          'ℹ test/chaos/d.test.ts used 16.00 s of CPU time in the run, over the 15 s ceiling, and 9.00 s alone',
+        ),
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  // The runs alone end within the check step's own deadline, however many files are over.
+  it('starts no run alone once the runs alone have taken their time, and says so', async () => {
+    let clock = 0;
+    const measured: string[] = [];
+    const remeasure = async (file: string) => {
+      measured.push(file);
+      clock += 50_000;
+      return 6000;
+    };
+    const { lines, failed } = await report(
+      [...timed(fileA, 9000, 6000), ...timed(fileB, 9000, 7000)],
+      5000,
+      5,
+      { remeasure, now: () => clock, remeasureForMs: 120_000 },
+    );
+    assert.equal(failed, true);
+    // b at 0, 50 and 100 s; a at 150 s would start past the 120 s.
+    assert.deepEqual(measured, [fileB, fileB, fileB]);
+    assert.match(
+      overLines(lines)[1] ?? '',
+      /^✖ test\/unit\/a\.test\.ts used 6\.00 s of CPU time, not run alone: the runs alone took their 120 s \(ADR 0089\), over the 5 s budget/,
+    );
+  });
+
+  it('lets a property file pass that was over the ceiling in the run but is within it alone', async () => {
+    const { remeasure } = alone({ [fileC]: 1000 });
+    const { lines, failed } = await report(timed(fileC, 20_000, 15_100), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.deepEqual(overLines(lines), []);
+    assert.ok(
+      lines.some((line) =>
+        line.startsWith('ℹ test/property/c.test.ts used 15.10 s of CPU time in the run'),
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  // 90 s to start runs alone, and one more may take its 60 s: with npm test's own run, within the
+  // check step's 300 s.
+  it('starts no run alone 90 s after the first by default, nor exactly at 90 s', async () => {
+    let clock = 0;
+    const measured: string[] = [];
+    const remeasure = async (file: string) => {
+      measured.push(file);
+      clock += 30_000;
+      return 6000;
+    };
+    await report([...timed(fileA, 9000, 6000), ...timed(fileB, 9000, 7000)], 5000, 5, {
+      remeasure,
+      now: () => clock,
+    });
+    // b at 0, 30 and 60 s; a would start at 90 s.
+    assert.deepEqual(measured, [fileB, fileB, fileB]);
+  });
+
+  it('lets a file pass that uses exactly the budget alone, after one run alone', async () => {
+    const { measured, remeasure } = alone({ [fileA]: 5000 });
+    const { failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.deepEqual(measured, [fileA]);
+  });
+
+  // A run alone that reports nothing will not report anything the next time either.
+  it('stops running a file alone once a run alone gives no reading', async () => {
+    const { measured, remeasure } = alone({});
+    await report(timed(fileA, 9000, 5100), 5000, 5, { remeasure });
+    assert.deepEqual(measured, [fileA]);
+  });
+
+  it('runs a file alone again after a run without a reading that followed a reading', async () => {
+    const readings = [5900, undefined, 4000];
+    let calls = 0;
+    const remeasure = async () => readings[calls++];
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.equal(calls, 3);
+    assert.ok(
+      lines.some((line) =>
+        line.includes('6.00 s of CPU time in the run, over the 5 s budget, and 4.00 s alone'),
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it('measures again only the files over the budget or the ceiling that reported a CPU time', async () => {
+    const { measured, remeasure } = alone({ [fileC]: 1000 });
+    const { failed } = await report(
+      [
+        ...timed(fileA, 6000, 4900),
+        summary(fileB, 5100),
+        ...timed(fileC, 20_000, 15_100),
+        ...timed(fileD, 9000, 9000),
+      ],
+      5000,
+      5,
+      { remeasure },
+    );
+    // b has no CPU time: its wall time holds, as without a re-measure.
+    assert.equal(failed, true);
+    assert.deepEqual(measured, [fileC]);
+  });
+
+  // Other sessions' load outlasts the run, so one run alone can still be over (#248).
+  it('measures a file alone up to three times, stopping at the first reading within the budget', async () => {
+    const readings = [5900, 4100, 1000];
+    let calls = 0;
+    const remeasure = async () => readings[calls++];
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.equal(calls, 2);
+    assert.ok(
+      lines.some((line) =>
+        line.includes('6.00 s of CPU time in the run, over the 5 s budget, and 4.10 s alone'),
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it('fails a file over the budget in all three runs alone, with the lowest reading', async () => {
+    const readings = [5900, 5300, 5600];
+    let calls = 0;
+    const remeasure = async () => readings[calls++];
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, true);
+    assert.equal(calls, 3);
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /used 5\.30 s of CPU time alone \(6\.00 s in the run\)/,
+    );
+  });
+
+  it('measures the files one at a time, once the run has ended', async () => {
+    let ended = false;
+    let running = 0;
+    const seen: { file: string; ended: boolean; running: number }[] = [];
+    const remeasure = async (file: string) => {
+      running += 1;
+      seen.push({ file, ended, running });
+      await new Promise((resolve) => setImmediate(resolve));
+      running -= 1;
+      return 100;
+    };
+    const reporter = budgetReporter({ budgetMs: 5000, cwd, slowest: 5, fail: () => {}, remeasure });
+    const source = (async function* () {
+      yield* [...timed(fileA, 6000, 5100), ...timed(fileB, 7000, 6100)];
+      ended = true;
+    })();
+    for await (const _ of reporter(source));
+    assert.deepEqual(seen, [
+      { file: fileB, ended: true, running: 1 },
+      { file: fileA, ended: true, running: 1 },
+    ]);
+  });
+});
+
+describe('remeasureAlone', () => {
+  type Call = { file: string; args: string[]; cwd: string; options?: RunOptions };
+  const runner = (outcome: ProcessOutcome) => {
+    const calls: Call[] = [];
+    const runProcess: RunProcess = async (file, args, cwd, options) => {
+      calls.push({ file, args, cwd, ...(options === undefined ? {} : { options }) });
+      return outcome;
+    };
+    return { calls, runProcess };
+  };
+  const reading = (ms: number) => cpu(fileA, ms)[0]?.data?.message ?? '';
+
+  it('runs the file alone under node --test with the CPU time preload and coverage, as npm test does', async () => {
+    const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+    await remeasureAlone({ execPath: 'node.exe', cwd, runProcess, timeoutMs: 60_000 })(fileA);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.file, 'node.exe');
+    assert.equal(calls[0]?.cwd, cwd);
+    assert.deepEqual(calls[0]?.args, [
+      '--import',
+      './scripts/test-cpu-time.ts',
+      '--test',
+      '--experimental-test-coverage',
+      '--test-reporter=tap',
+      '--test-reporter-destination=stdout',
+      fileA,
+    ]);
+    assert.equal(calls[0]?.options?.timeoutMs, 60_000);
+  });
+
+  it('gives a run alone 60 s by default', async () => {
+    const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+    await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA);
+    assert.equal(calls[0]?.options?.timeoutMs, 60_000);
+  });
+
+  it('reads the highest CPU time the file reported in its output, failed tests or not', async () => {
+    const output = `TAP version 13\nnot ok 1 - x\n# ${reading(1300)}\n# ${reading(20)}\n1..1\n`;
+    const { runProcess } = runner({ exitCode: 1, output });
+    assert.equal(await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA), 1300);
+  });
+
+  it('reads a CPU time of 0 ms', async () => {
+    const { runProcess } = runner({ exitCode: 0, output: `# ${reading(0)}\n` });
+    assert.equal(await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA), 0);
+  });
+
+  it('reads nothing from a run without a reading, or one that was killed', async () => {
+    const none = runner({ exitCode: 0, output: 'TAP version 13\n1..0\n' });
+    assert.equal(
+      await remeasureAlone({ execPath: 'node', cwd, runProcess: none.runProcess })(fileA),
+      undefined,
+    );
+    const killed = runner({ exitCode: null, output: `# ${reading(900)}\n`, killed: 'timed-out' });
+    assert.equal(
+      await remeasureAlone({ execPath: 'node', cwd, runProcess: killed.runProcess })(fileA),
+      undefined,
+    );
   });
 });
 
