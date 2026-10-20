@@ -16,6 +16,7 @@ import {
   BREWERY,
   breweryFiles,
   gitConfig,
+  gitEnvOf,
   type Life,
   localConfig,
   ORDER,
@@ -43,7 +44,7 @@ try {
 
 // Every git of the demo, its own and the Cellar's, reads only the demo's configuration: the
 // machine's global and system ones (an identity, signing, url rewrites, hooks) take no part.
-const ownGit = { GIT_CONFIG_GLOBAL: join(scratch, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+const ownGit = gitEnvOf(scratch);
 
 const git = async (cwd: string, args: string[]): Promise<void> => {
   const result = await runGit(cwd, args, { config: DEMO_GIT_CONFIG, env: ownGit });
