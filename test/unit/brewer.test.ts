@@ -190,6 +190,12 @@ describe('BrewerFrontmatter', () => {
       'gh after a wrapper',
       { ...taster, tools: { allow: ['Read', 'PowerShell(env gh api user)'] } },
     ],
+    // #135: Claude Code never consults a path rule for these tools (ADR 0093).
+    ['a Write path rule', { ...taster, tools: { allow: ['Read', 'Write(docs/**)'] } }],
+    ['a MultiEdit path rule', { ...taster, tools: { allow: ['Read', 'MultiEdit(docs/**)'] } }],
+    ['a NotebookEdit path rule', { ...taster, tools: { allow: ['NotebookEdit(a.ipynb)'] } }],
+    ['a Glob path rule', { ...taster, tools: { allow: ['Glob(src/**)'] } }],
+    ['a Write path rule in deny', { ...taster, tools: { allow: ['Read'], deny: ['Write(x)'] } }],
     [
       'two inputs with the same name',
       {
@@ -210,6 +216,20 @@ describe('BrewerFrontmatter', () => {
 
 // Names that would undo the brewer's minimal environment, its sandbox or its credentials. The
 // runner applies its own variables last (the real guarantee); the schema catches mistakes early.
+// #135: the brewer file says what to write instead, when it loads (ADR 0093).
+describe('BrewerFrontmatter file-tool path rules', () => {
+  for (const [rule, instead] of [
+    ['Write(docs/**)', 'Edit(docs/**)'],
+    ['Glob(src/**)', 'Read(src/**)'],
+  ] as const) {
+    it(`refuses ${rule}, naming ${instead}`, () => {
+      const result = BrewerFrontmatter.safeParse({ ...taster, tools: { allow: [rule] } });
+      assert.equal(result.success, false);
+      assert.match(result.error?.message ?? '', new RegExp(instead.replace(/[()*]/g, '\\$&')));
+    });
+  }
+});
+
 describe('BrewerFrontmatter env', () => {
   const reserved: [string, string][] = [
     ['NODE_*', 'NODE_OPTIONS'],
