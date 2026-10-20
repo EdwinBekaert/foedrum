@@ -88,6 +88,11 @@ export interface BudgetOptions {
   // Measures a file's CPU time again, alone, once the run has ended, in ms; undefined when that
   // run reported none (ADR 0089). Without it, the run's reading is the only one.
   remeasure?: (file: string) => Promise<number | undefined>;
+  // How long all runs alone may take together, in ms of `now`, so they end within the check
+  // step's own deadline; no run alone starts after it.
+  remeasureForMs?: number;
+  // The time in ms; performance.now by default.
+  now?: () => number;
 }
 
 // One file's run alone gets a minute: a unit file within the budget takes a few seconds.

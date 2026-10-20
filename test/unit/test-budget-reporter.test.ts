@@ -392,6 +392,30 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     );
   });
 
+  // The runs alone end within the check step's own deadline, however many files are over.
+  it('starts no run alone once the runs alone have taken their time, and says so', async () => {
+    let clock = 0;
+    const measured: string[] = [];
+    const remeasure = async (file: string) => {
+      measured.push(file);
+      clock += 50_000;
+      return 6000;
+    };
+    const { lines, failed } = await report(
+      [...timed(fileA, 9000, 6000), ...timed(fileB, 9000, 7000)],
+      5000,
+      5,
+      { remeasure, now: () => clock, remeasureForMs: 120_000 },
+    );
+    assert.equal(failed, true);
+    // b at 0, 50 and 100 s; a at 150 s would start past the 120 s.
+    assert.deepEqual(measured, [fileB, fileB, fileB]);
+    assert.match(
+      overLines(lines)[1] ?? '',
+      /^✖ test\/unit\/a\.test\.ts used 6\.00 s of CPU time, not run alone: the runs alone took their 120 s \(ADR 0089\), over the 5 s budget/,
+    );
+  });
+
   // A run alone that reports nothing will not report anything the next time either.
   it('stops running a file alone once a run alone gives no reading', async () => {
     const { measured, remeasure } = alone({});
