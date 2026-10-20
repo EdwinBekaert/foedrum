@@ -330,7 +330,10 @@ describe('the openPullRequest push with real git', () => {
     };
     for (const [plant, work] of Object.entries(plants)) {
       it(`sees the commits as they are, whatever a brewer planted in the clone: ${plant}`, async () => {
-        const { state, requests } = await brew(work);
+        const { state, requests, planBranch } = await brew(work);
+        // The plant works: a plain log of the clone does not show the token.
+        const plain = git(user, ['log', '--patch', `refs/heads/${planBranch}`, '^origin/main']);
+        assert.doesNotMatch(plain, /A1b2/);
         assert.match(stopped(state, requests), /, plan\.txt: GitHub token/);
       });
     }
