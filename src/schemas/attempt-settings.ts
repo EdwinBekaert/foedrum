@@ -45,6 +45,51 @@ export const sandboxCredentials = {
   ].map((name) => ({ name, mode: 'deny' as const })),
 };
 
+// Claude Code checks file permissions against Read(path) and Edit(path) rules only: Edit rules
+// cover every tool that edits files, and Read rules, best-effort, Grep and Glob. It never consults
+// a path rule for Write, MultiEdit, NotebookEdit or Glob (ADR 0093).
+const consultedFor: Readonly<Record<string, 'Read' | 'Edit'>> = {
+  Read: 'Read',
+  Grep: 'Read',
+  Glob: 'Read',
+  Edit: 'Edit',
+  Write: 'Edit',
+  MultiEdit: 'Edit',
+  NotebookEdit: 'Edit',
+};
+const unconsultedPathTools = new Set(['Write', 'MultiEdit', 'NotebookEdit', 'Glob']);
+
+/** A brewer's worktree, claude's working directory, as a path rule's pattern. */
+const WORKTREE = './**';
+
+/** The rule to write for a bare file-tool rule: its tool's rule scoped to the worktree. */
+export const scopedRule = (rule: string): string => {
+  const { tool, specifier } = parseRule(rule);
+  const consulted = Object.hasOwn(consultedFor, tool) ? consultedFor[tool] : undefined;
+  return consulted === undefined || specifier !== undefined ? rule : `${consulted}(${WORKTREE})`;
+};
+
+/** Why claude would not read a rule the way it seems to, with the rule to write instead. */
+const fileRuleProblem = (rule: string, list: 'allow' | 'deny'): string | undefined => {
+  const { tool, specifier } = parseRule(rule);
+  if (specifier !== undefined && unconsultedPathTools.has(tool)) {
+    return `Claude Code never consults a ${tool} path rule such as "${rule}": write "${consultedFor[tool]}(${specifier})"`;
+  }
+  if (list === 'allow' && specifier === undefined && Object.hasOwn(consultedFor, tool)) {
+    return `A bare "${tool}" allows it anywhere on disk: write "${scopedRule(rule)}" for the worktree`;
+  }
+  return undefined;
+};
+
+const fileRules =
+  (list: 'allow' | 'deny') =>
+  (rules: readonly string[], ctx: z.RefinementCtx): void => {
+    for (const [index, rule] of rules.entries()) {
+      const message = fileRuleProblem(rule, list);
+      if (message !== undefined) ctx.addIssue({ code: 'custom', message, path: [index] });
+    }
+  };
+
 const Credentials = z
   .strictObject({
     files: z.array(z.strictObject({ path: z.string(), mode: z.literal('deny') })),
@@ -59,7 +104,10 @@ const Credentials = z
 
 export const AttemptSettings = z
   .strictObject({
-    permissions: z.strictObject({ allow: z.array(BrewerAllowedTool), deny: z.array(ToolRule) }),
+    permissions: z.strictObject({
+      allow: z.array(BrewerAllowedTool).superRefine(fileRules('allow')),
+      deny: z.array(ToolRule).superRefine(fileRules('deny')),
+    }),
     // Only where the isolation level relies on Claude Code's sandbox: it must run, or nothing does,
     // and the allow rules decide for sandboxed commands too (ADR 0087).
     sandbox: z
