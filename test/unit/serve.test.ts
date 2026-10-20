@@ -403,7 +403,9 @@ describe('runServe', () => {
 
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {
     const broken: BrewerRunner = {
-      start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
+      start: () => {
+        throw new Error('the runner broke');
+      },
       progress: () => undefined,
     };
     assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
