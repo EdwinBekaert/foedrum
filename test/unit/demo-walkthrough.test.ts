@@ -58,6 +58,13 @@ describe('pausesBetweenSteps', () => {
     assert.equal(pausesBetweenSteps({ noPause: true, interactive: false }), false);
   });
 
+  it('stops pausing once the input has ended', () => {
+    assert.equal(
+      pausesBetweenSteps({ noPause: false, interactive: true, inputEnded: true }),
+      false,
+    );
+  });
+
   it('asks for Enter, and says how to go without the pauses', () => {
     assert.match(PAUSE_PROMPT, /Enter/);
     assert.match(PAUSE_PROMPT, /--no-pause/);

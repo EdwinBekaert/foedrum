@@ -225,6 +225,8 @@ export interface DemoRun {
   pulls: readonly { title: string; head: string; base: string }[];
   /** The comments on the order's issue there. */
   comments: readonly { author: string; body: string }[];
+  /** The foedrum commands the walkthrough ran, and how each ended. */
+  commands?: readonly { argv: readonly string[]; exitCode: number; stderr: string }[];
 }
 
 /** The last lines of a process's output, to say why. */

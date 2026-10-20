@@ -150,6 +150,20 @@ describe('problemsOf', () => {
     assert.match(problemsOf(run({ restart: timedOut })).join('\n'), /not on tap/);
   });
 
+  it('says when foedrum status or replay failed, with what it said', () => {
+    const problems = problemsOf(
+      run({
+        commands: [
+          { argv: ['status'], exitCode: 0, stderr: '' },
+          { argv: ['replay', '1-1'], exitCode: 1, stderr: 'foedrum replay: no batch 1-1\n' },
+        ],
+      }),
+    );
+    assert.deepStrictEqual(problems, [
+      'foedrum replay 1-1 failed (exit code 1): foedrum replay: no batch 1-1',
+    ]);
+  });
+
   it('counts the pull requests and the comments', () => {
     assert.match(problemsOf(run({ pulls: [] })).join('\n'), /0 pull requests, not 1/);
     assert.match(problemsOf(run({ pulls: [pull, pull] })).join('\n'), /2 pull requests, not 1/);

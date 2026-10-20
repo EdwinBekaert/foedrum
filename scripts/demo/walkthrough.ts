@@ -79,8 +79,12 @@ export const PAUSE_PROMPT =
  * Whether the walkthrough pauses between its steps: only when someone can press Enter, on a
  * terminal, and `--no-pause` was not given.
  */
-export const pausesBetweenSteps = (options: { noPause: boolean; interactive: boolean }): boolean =>
-  options.interactive && !options.noPause;
+export const pausesBetweenSteps = (options: {
+  noPause: boolean;
+  interactive: boolean;
+  /** The input ended at a pause (Ctrl+D): no one can press Enter any more. */
+  inputEnded?: boolean;
+}): boolean => options.interactive && !options.noPause;
 
 /** The diagnosis serve runs with in the demo, as lines. */
 export const diagnosisLines = (diagnosis: ServeInputs['diagnosis']): string[] => {
