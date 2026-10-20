@@ -118,6 +118,21 @@ describe('claude with the attempt settings of a brewer with bare file tools', {
     assert.equal(readFileSync(join(worktree, 'created.txt'), 'utf8'), 'edited');
   });
 
+  it('denies Write and Edit outside the worktree', async () => {
+    const denied = await run([write(join(outside, 'w.txt')), edit(join(outside, 'e.txt'))]);
+    assert.deepEqual(denied, ['Write', 'Edit']);
+    assert.equal(existsSync(join(outside, 'w.txt')), false);
+    assert.equal(existsSync(join(outside, 'e.txt')), false);
+  });
+
+  it('denies Write and Edit through ..', async () => {
+    const up = `${worktree}/../outside`;
+    const denied = await run([write(`${up}/w.txt`), edit(`${up}/e.txt`)]);
+    assert.deepEqual(denied, ['Write', 'Edit']);
+    assert.equal(existsSync(join(outside, 'w.txt')), false);
+    assert.equal(existsSync(join(outside, 'e.txt')), false);
+  });
+
   it('denies Write and Edit through a junction or link that leads outside', async () => {
     const link = join(worktree, 'link');
     symlinkSync(outside, link, 'junction');
