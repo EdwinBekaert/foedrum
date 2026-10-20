@@ -14,6 +14,11 @@
 // run after it. A file without a reading (it failed to load, or the run left out the preload) is
 // held to its wall time, which the runner always reports.
 //
+// CPU time still grows with load: on a hybrid or hyper-threaded CPU the same work takes several
+// times the CPU time while other processes keep the cores busy (#248). So a file over the budget
+// or the ceiling in the run is run again alone, one at a time, once the run has ended and its own
+// files no longer load the machine, and the lower of the two readings counts (ADR 0089).
+//
 // The budget binds only files in test/unit/. Property and chaos files are costly by design:
 // their run count sets their time. They get a ceiling instead, so only a run count grown too
 // large fails them.
@@ -85,6 +90,9 @@ export interface BudgetOptions {
   remeasure?: (file: string) => Promise<number | undefined>;
 }
 
+// One file's run alone gets a minute: a unit file within the budget takes a few seconds.
+const REMEASURE_TIMEOUT_MS = 60_000;
+
 export interface RemeasureOptions {
   // The node that runs the file, and the folder it runs in.
   execPath: string;
@@ -97,13 +105,31 @@ export interface RemeasureOptions {
 // Runs one test file alone under node --test with the CPU time preload, as npm test does, and
 // reads the CPU time it reports (ADR 0089).
 export const remeasureAlone =
-  (_options: RemeasureOptions) =>
-  async (_file: string): Promise<number | undefined> => {
-    throw new Error('not implemented');
+  ({ execPath, cwd, runProcess, timeoutMs = REMEASURE_TIMEOUT_MS }: RemeasureOptions) =>
+  async (file: string): Promise<number | undefined> => {
+    const { output, killed } = await runProcess(
+      execPath,
+      [
+        '--import',
+        './scripts/test-cpu-time.ts',
+        '--test',
+        '--experimental-test-coverage',
+        '--test-reporter=tap',
+        '--test-reporter-destination=stdout',
+        file,
+      ],
+      cwd,
+      { timeoutMs },
+    );
+    if (killed !== undefined) return undefined;
+    // TAP prints each diagnostic as a comment; the highest reading, as in the run.
+    const readings = output
+      .split('\n')
+      .filter((line) => line.includes(CPU_TIME))
+      .map((line) => Number(line.slice(line.indexOf(CPU_TIME) + CPU_TIME.length).trim()))
+      .filter((ms) => Number.isFinite(ms) && ms >= 0);
+    return readings.length === 0 ? undefined : Math.max(...readings);
   };
-
-// One file's run alone gets a minute: a unit file within the budget takes a few seconds.
-const REMEASURE_TIMEOUT_MS = 60_000;
 
 // The real re-measure: this node, in the folder npm test runs in, through the process runner,
 // loaded only when a file is over, since every test process loads this module (ADR 0038).
@@ -112,7 +138,6 @@ export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>)
     execPath: process.execPath,
     cwd: process.cwd(),
     runProcess: async (...args) => (await import('./process-runner.ts')).spawnProcess(...args),
-    timeoutMs: REMEASURE_TIMEOUT_MS,
   });
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(2)} s`;
@@ -123,6 +148,7 @@ export const budgetReporter = ({
   budgetedDir = 'test/unit/',
   slowest,
   fail,
+  remeasure,
 }: BudgetOptions) =>
   async function* (source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
     const walls = new Map<string, number>();
@@ -140,17 +166,14 @@ export const budgetReporter = ({
     if (walls.size === 0) return;
     // A file is measured by its CPU time, or by its wall time when it reported none.
     const files = [...walls]
-      .map(([file, wallMs]) => {
-        const cpuMs = cpus.get(file);
+      .map(([path, wallMs]) => {
+        const cpuMs = cpus.get(path);
         return {
-          file: relative(cwd, file).split(sep).join('/'),
+          path,
+          file: relative(cwd, path).split(sep).join('/'),
           wallMs,
           cpuMs,
           ms: cpuMs ?? wallMs,
-          used:
-            cpuMs === undefined
-              ? `took ${seconds(wallMs)} of wall time (no CPU time reported)`
-              : `used ${seconds(cpuMs)} of CPU time`,
         };
       })
       .sort((a, b) => b.ms - a.ms);
@@ -161,14 +184,41 @@ export const budgetReporter = ({
     }
     yield 'end of test file times\n';
     let over = false;
-    for (const { file, ms, used } of files) {
-      if (file.startsWith(budgetedDir) && ms > budgetMs) {
-        over = true;
-        yield `✖ ${file} ${used}, over the ${budgetMs / 1000} s budget for one test file: make it cheaper, or move real tools and file system trees to test/integration/ (ADR 0021)\n`;
-      } else if (CEILING_DIRS.some((dir) => file.startsWith(dir)) && ms > LAYER_CEILING_MS) {
-        over = true;
-        yield `✖ ${file} ${used}, over the ${LAYER_CEILING_MS / 1000} s ceiling for a property or chaos file: lower its run count (#87)\n`;
+    for (const { path, file, wallMs, cpuMs, ms } of files) {
+      const limit = file.startsWith(budgetedDir)
+        ? {
+            ms: budgetMs,
+            name: 'budget',
+            advice: `for one test file: make it cheaper, or move real tools and file system trees to test/integration/ (ADR 0021)`,
+          }
+        : CEILING_DIRS.some((dir) => file.startsWith(dir))
+          ? {
+              ms: LAYER_CEILING_MS,
+              name: 'ceiling',
+              advice: 'for a property or chaos file: lower its run count (#87)',
+            }
+          : undefined;
+      if (limit === undefined || ms <= limit.ms) continue;
+      const overThe = `over the ${limit.ms / 1000} s ${limit.name}`;
+      let used =
+        cpuMs === undefined
+          ? `took ${seconds(wallMs)} of wall time (no CPU time reported)`
+          : `used ${seconds(cpuMs)} of CPU time`;
+      // Load only adds CPU time, so the lower of the two readings is the closer one (ADR 0089).
+      // One file at a time, once the run has ended, so they do not load each other.
+      const aloneMs = cpuMs === undefined ? undefined : await remeasure?.(path);
+      if (cpuMs !== undefined && aloneMs !== undefined) {
+        if (aloneMs <= limit.ms) {
+          yield `ℹ ${file} used ${seconds(cpuMs)} of CPU time in the run, ${overThe}, and ${seconds(aloneMs)} alone: the same work takes more CPU time on a loaded machine (ADR 0089)\n`;
+          continue;
+        }
+        used =
+          aloneMs <= cpuMs
+            ? `used ${seconds(aloneMs)} of CPU time alone (${seconds(cpuMs)} in the run)`
+            : `used ${seconds(cpuMs)} of CPU time in the run (${seconds(aloneMs)} alone)`;
       }
+      over = true;
+      yield `✖ ${file} ${used}, ${overThe} ${limit.advice}\n`;
     }
     if (over) fail();
   };
@@ -180,4 +230,5 @@ export default budgetReporter({
   fail: () => {
     process.exitCode = 1;
   },
+  remeasure: nodeRemeasure(),
 });
