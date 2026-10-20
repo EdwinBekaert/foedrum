@@ -141,11 +141,19 @@ describe('foedrum status and replay on store files', () => {
     // The user's clone: the batch started at `start`, and its branch holds two commits past it.
     const clone = join(brewery.path, 'web');
     mkdirSync(clone);
+    // Without this machine's git configuration (signing, hooks), and with a hang guard.
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: join(brewery.path, 'no-gitconfig'),
+      GIT_CONFIG_NOSYSTEM: '1',
+    };
     const git = (...args: string[]): string =>
       execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
         cwd: clone,
+        env,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 60_000,
       }).trim();
     git('init', '-q', '-b', 'main');
     git('commit', '-q', '--allow-empty', '-m', 'start');
