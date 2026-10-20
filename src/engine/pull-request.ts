@@ -2,6 +2,7 @@
 // branch it pushes, the pull request the ledger recorded, and the pull request's text from the
 // order and the brewers' out docs.
 
+import type { IsCommit } from '../formats/secrets.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
@@ -54,6 +55,8 @@ export interface PullRequestTextInput {
   closes: { repo: string; issue: number };
   /** Model output: untrusted. */
   reports: readonly StepReport[];
+  /** Whether a 40-character hexadecimal word is a commit, not a key; none is when absent. */
+  isCommit?: IsCommit;
 }
 
 export interface PullRequestText {

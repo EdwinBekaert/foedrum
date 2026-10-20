@@ -204,6 +204,28 @@ describe('pullRequestActions: the pull request', () => {
     assert.match(request?.body ?? '', /\nCloses acme\/brewery#12$/);
   });
 
+  it("leaves out report text that looks like a secret, but not a commit the batch's state records (#235)", async () => {
+    const { actions, requests } = actionsWith();
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const reported = brewed.map((event) =>
+      event.type === 'step.finished'
+        ? {
+            ...event,
+            outcome: {
+              kind: 'succeeded' as const,
+              output: { status: 'done', summary: `Started at ${other}`, assumptions: [token] },
+            },
+          }
+        : event,
+    );
+    keysOf(fold([ordered({ issue: 12 }), ...reported, ...opening]), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    assert.match(body, new RegExp(`implement: Started at ${other}`));
+    assert.match(body, /assumed: \[left out: a text of step implement that looks like a secret\]/);
+    assert.doesNotMatch(body, /ghp|A1b2/);
+  });
+
   it('closes a claimed issue in its own repository, reading its title there', async () => {
     const { actions, requests, titles } = actionsWith();
     keysOf(brewing({ issue: 7, repo: 'acme/api' } as { issue: number }), actions);

@@ -3,6 +3,7 @@
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
 import { createHash } from 'node:crypto';
+import type { IsCommit } from '../formats/secrets.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { OutDocAssumptions } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
@@ -231,7 +232,11 @@ const assumptionLines = (batch: Batch, stepIds: readonly string[]): string[] =>
  * its out docs and, on tap, its pull requests. Every text a brewer or an issue wrote is one
  * escaped line.
  */
-export const renderStatus = (batch: Batch, steps?: readonly string[]): string => {
+export const renderStatus = (
+  batch: Batch,
+  steps?: readonly string[],
+  _isCommit?: IsCommit,
+): string => {
   // The recipe's steps, then any the batch has that the recipe no longer lists.
   const stepIds = [...new Set([...(steps ?? []), ...batch.steps.keys(), ...(batch.skipped ?? [])])];
   const sections = [
