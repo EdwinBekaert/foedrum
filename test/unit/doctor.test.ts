@@ -602,6 +602,20 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     }
   });
 
+  // ADR 0087's credential entries are Linux `~/` paths, so on WSL2 the Windows user's copies of
+  // the same logins under /mnt stay readable (review of #250).
+  it("says wherever it advises or runs WSL2 that the sandbox leaves the Windows user's logins readable", () => {
+    for (const facts of [windows, wsl1, wsl2]) {
+      assert.match(
+        keyring(facts)[0] ?? '',
+        /Under WSL, it doesn't hide the Windows user's logins under \/mnt \(ADR 0087\)\./,
+      );
+    }
+    for (const facts of [macos, linux(), linux({ bwrap: undefined }), freebsd]) {
+      assert.doesNotMatch(keyring(facts)[0] ?? '', /\/mnt/);
+    }
+  });
+
   // A login a brewer did read can still be written into a commit or an out doc (#229).
   it('names #209 for a login in a commit and #235 for one in out doc text on every level', () => {
     for (const facts of [...sandboxed, ...permissionsOnly]) {

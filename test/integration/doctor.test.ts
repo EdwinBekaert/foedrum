@@ -114,7 +114,7 @@ const sandboxHides =
 const writtenDown =
   'A login a brewer did read is for #209 to catch at the push, and #235 in out doc text.';
 const keyring = (sandboxedLevel: string) =>
-  `  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} Until #190, check steps run outside the sandbox and the container, so they can still read gh's login.`;
+  `  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} Until #190, check steps run outside the sandbox and the container, so they can still read gh's login.`;
 const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Until #190, check steps run outside the sandbox, so they can still read gh's login.`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
