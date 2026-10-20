@@ -3,6 +3,7 @@
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
 // pushes twice or opens two pull requests (I4). The attempt ends once both are recorded.
 
+import type { IsCommit } from '../formats/secrets.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
 import type { ScanFinding } from '../schemas/store.ts';
@@ -15,6 +16,7 @@ import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
 import {
   bottleBranch,
+  knownCommits,
   openedPullRequest,
   pullRequestKey,
   pullRequestText,
@@ -88,6 +90,7 @@ type ActionEffect =
       request: Omit<PullRequestRequest, 'title' | 'body'>;
       order: OrderIssue;
       reports: readonly StepReport[];
+      isCommit: IsCommit;
     };
 
 /** Where the action pushes from and opens into, or why it cannot run. */
@@ -217,7 +220,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         };
       }
       case 'open': {
-        const { repo, request, order, reports } = effect;
+        const { repo, request, order, reports, isCommit } = effect;
         return {
           find: async (_key, signal) => {
             const url = await host.find(repo, request.head, signal);
@@ -228,6 +231,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
               title: await orderTitle(order, signal),
               closes: { repo: order.repo ?? brewery, issue: order.issue },
               reports,
+              isCommit,
             });
             return pullRequestUrl(await host.open(repo, { ...request, ...text }, signal));
           },
@@ -263,6 +267,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         request: { head: branch, base: repository.base },
         order,
         reports: stepReports(batch),
+        isCommit: knownCommits(state, batchId),
       });
       return [pushKey(batchId), pullRequestKey(batchId)];
     },

@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
-import { knownCommits, withoutSecrets } from '../../src/engine/out-doc-text.ts';
+import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
+import { knownCommits } from '../../src/engine/pull-request.ts';
 import type { Event } from '../../src/schemas/events.ts';
 
 // Built at run time, so no scanner takes this file for one that holds a token.
