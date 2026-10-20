@@ -86,6 +86,23 @@ describe('attemptSettings', () => {
   });
 });
 
+// #135: under dontAsk a bare file-tool rule allows its tool anywhere on disk. Claude Code checks
+// file permissions against Edit(path) and Read(path) rules only, and Edit rules apply to every
+// tool that edits files, so the worktree is Read(./**) and Edit(./**), never Write(./**) (ADR 0093).
+describe('attemptSettings and the file tools', () => {
+  it('keeps Read and Edit path rules, and bare file tools in deny, as they are', () => {
+    const settings = attemptSettings({
+      allow: ['Read(src/**)', 'Edit(docs/**)'],
+      deny: ['Write', 'NotebookEdit', 'Read(.env)'],
+      sandbox: false,
+    });
+    assert.deepEqual(settings.permissions, {
+      allow: ['Read(src/**)', 'Edit(docs/**)'],
+      deny: ['Write', 'NotebookEdit', 'Read(.env)', 'AskUserQuestion'],
+    });
+  });
+});
+
 // #167: claude matches a deny rule against the command as written, so `git -C . push` gets past
 // `Bash(git push *)`, and `git p''ush` past any pattern. A push is denied only when no allow rule
 // matches it, so the settings never allow git with no fixed subcommand (ADR 0062).
