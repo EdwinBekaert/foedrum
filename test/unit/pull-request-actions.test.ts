@@ -394,6 +394,13 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
     assert.deepEqual(pushes, []);
   });
 
+  it('scans nothing when there is nothing to push', async () => {
+    const { actions, scans } = actionsWith({ main: tip, found });
+    keysOf(brewing(), actions);
+    assert.equal(((await actions.target.apply(push)) as { empty?: true }).empty, true);
+    assert.deepEqual(scans, []);
+  });
+
   it('records at most 50 findings', async () => {
     const many = Array.from({ length: 60 }, (_, i) => ({
       commit: tip,

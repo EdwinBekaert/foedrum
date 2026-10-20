@@ -184,6 +184,23 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', BASE]]));
   });
 
+  it('names it when the secret scan stopped the push: nothing reached the remote (ADR 0079)', () => {
+    const from = 'refs/heads/foedrum/12-1/brew/2';
+    const refused = new Map([
+      [
+        effectKey.encode({ batchId: '12-1', effect: 'push' }),
+        {
+          branch: 'foedrum/acme.app/12-1/brew/2',
+          commit: TIP,
+          from,
+          refused: [{ commit: TIP, place: 'message', kind: 'GitHub token' }],
+        },
+      ],
+    ]);
+    const state = brewed(lanes.cancelled as Lane, refused);
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', BASE]]));
+  });
+
   it('names nothing of a live batch, which keeps its branches anyway', () => {
     assert.deepEqual(worktreeClaims(brewed(lanes.brewing as Lane), []).unpushed, new Map());
   });
