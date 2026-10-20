@@ -277,6 +277,24 @@ describe('the openPullRequest push with real git', () => {
       });
     }
 
+    // A mailmap would rewrite the author without changing the commit lines, so the commit-list
+    // check would not notice. git 2.56 prints raw headers unmapped anyway; --no-mailmap keeps it so.
+    it("stops the push of a credential in the author, whatever the clone's mailmap", async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
+        const mailmap = join(path, '..', 'mailmap');
+        writeFileSync(mailmap, `Brewer <b@x.y> ${token} <x@y.z>\n`);
+        git(path, ['config', 'mailmap.file', mailmap]);
+        git(path, ['config', 'log.mailmap', 'true']);
+      });
+      // The mailmap is in force: a log of the clone shows the mapped author.
+      const plain = git(user, ['log', '--format=%aN', '-1', `refs/heads/${planBranch}`]);
+      assert.equal(plain.trim(), 'Brewer');
+      assert.match(stopped(state, requests), /, author: GitHub token/);
+    });
+
     it('stops the push of a commit whose encoding header holds a credential', async () => {
       const { state, requests } = await brew((path) => {
         writeFileSync(join(path, 'plan.txt'), 'plan\n');
