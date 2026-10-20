@@ -176,21 +176,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         // git's check of what it brought stops there instead of walking a blobless clone's history
         // to blobs it never had.
         if (known.code === 0 && SHA.test(have)) await dir.run(['update-ref', ref, have]);
-        await dir.run(
-          [
-            'fetch',
-            '--quiet',
-            '--no-tags',
-            '--no-write-fetch-head',
-            '--no-recurse-submodules',
-            // A gc there would prune every object of the clone that its own refs do not reach.
-            '--no-auto-maintenance',
-            '--end-of-options',
-            dir.url,
-            `+${ref}:${ref}`,
-          ],
-          { timeoutMs: TRANSFER_TIMEOUT_MS },
-        );
+        await dir.fetch(`+${ref}:${ref}`, TRANSFER_TIMEOUT_MS);
         const fetched = (
           await dir.run(['rev-parse', '--verify', '--quiet', '--end-of-options', ref])
         ).trim();

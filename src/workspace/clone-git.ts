@@ -26,10 +26,12 @@ export interface OwnRemote {
 /**
  * What every local git call in the clone runs with: no transport, so a partial clone's lazy fetch
  * fails instead of reaching the clone's remote through its credential helper or ssh command; no
- * hook, such as reference-transaction on a ref update; no fsmonitor.
+ * hook, such as reference-transaction on a ref update; no fsmonitor. `GIT_ALLOW_PROTOCOL`, naming
+ * no protocol, overrides every `protocol.<name>.allow` of the clone, which `protocol.allow` does
+ * not; `GIT_NO_LAZY_FETCH` (git 2.44) makes the failure clear.
  */
 const IN_CLONE = {
-  env: { GIT_NO_LAZY_FETCH: '1' },
+  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none' },
   config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
 } as const satisfies GitOptions;
 
@@ -48,6 +50,14 @@ export const inClone = (git: Git): Git => gitWith(git, IN_CLONE);
 
 /** No hook, gc or maintenance in Foedrum's own git directory: a gc would prune the clone's objects. */
 const OWN_CONFIG = { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' };
+
+/**
+ * The URL Foedrum names as the promisor remote of its own git directory, for a partial clone: a
+ * delta of a file the clone has no copy of then resolves from that URL, never through the clone's
+ * configuration (review of #266).
+ */
+const PROMISOR = 'foedrum';
+const FILTER = 'blob:none';
 
 export const firstLine = ({ code, stderr }: GitResult): string =>
   stderr
@@ -78,6 +88,12 @@ export interface OwnGitDir {
   url: string;
   /** git in the directory; its output, or throws with git's reason. */
   run(args: readonly string[], options?: GitOptions): Promise<string>;
+  /**
+   * Fetches `refspec` from the URL Foedrum names, with nothing else: no tags, no FETCH_HEAD, no
+   * submodules, no maintenance. Into a partial clone it fetches blobless, with that URL as the
+   * directory's promisor remote.
+   */
+  fetch(refspec: string, timeoutMs: number): Promise<void>;
 }
 
 /**
@@ -107,6 +123,58 @@ export const withOwnGitDir = async <T>(
   const { url, root, id = randomUUID } = own;
   const gitDir = join(root, `${id()}.git`);
   const prefix = [`--git-dir=${gitDir}`];
+  const run = (args: readonly string[], options: GitOptions = {}): Promise<string> =>
+    gitOutput(git, root, [...prefix, ...args], {
+      ...aborts,
+      ...options,
+      env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
+      config: { ...options.config, ...OWN_CONFIG },
+    });
+  const fetch = async (refspec: string, timeoutMs: number): Promise<void> => {
+    // A partial clone as the clone's configuration says: a promisor remote, or the extension older
+    // gits write. One that says so falsely fetches no files, and one that hides it fails to fetch.
+    const promisor = await inClone(git)(
+      clone,
+      ['config', '--get-regexp', String.raw`^(extensions\.partialclone|remote\..*\.promisor)$`],
+      aborts,
+    );
+    const partial =
+      promisor.code === 0 &&
+      promisor.stdout
+        .split(/\r?\n/)
+        .some(
+          (line) => /^extensions\.partialclone \S/i.test(line) || / (?:true|yes|on|1)$/i.test(line),
+        );
+    if (partial) {
+      await run(['config', 'core.repositoryformatversion', '1']);
+      await run(['config', 'extensions.partialClone', PROMISOR]);
+    }
+    await run(
+      [
+        'fetch',
+        '--quiet',
+        '--no-tags',
+        '--no-write-fetch-head',
+        '--no-recurse-submodules',
+        // A gc there would prune every object of the clone that its own refs do not reach.
+        '--no-auto-maintenance',
+        ...(partial ? [`--filter=${FILTER}`] : []),
+        '--end-of-options',
+        partial ? PROMISOR : url,
+        refspec,
+      ],
+      {
+        timeoutMs,
+        config: partial
+          ? {
+              [`remote.${PROMISOR}.url`]: url,
+              [`remote.${PROMISOR}.promisor`]: 'true',
+              [`remote.${PROMISOR}.partialclonefilter`]: FILTER,
+            }
+          : {},
+      },
+    );
+  };
   try {
     // git init makes the directory, but not the folder it is in.
     await mkdir(root, { recursive: true });
@@ -116,16 +184,7 @@ export const withOwnGitDir = async <T>(
       [...prefix, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
       aborts,
     );
-    return await use({
-      url,
-      run: (args, options = {}) =>
-        gitOutput(git, root, [...prefix, ...args], {
-          ...aborts,
-          ...options,
-          env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
-          config: { ...options.config, ...OWN_CONFIG },
-        }),
-    });
+    return await use({ url, run, fetch });
   } finally {
     await removeTree(gitDir);
   }
@@ -163,21 +222,7 @@ export const fetchIntoClone = async (
   await withOwnGitDir(git, clone, own, undefined, async (dir) => {
     const known = refsOf(await gitOutput(local, clone, listing));
     if (known.size > 0) await dir.run(['update-ref', '--stdin'], { stdin: updates(known) });
-    await dir.run(
-      [
-        'fetch',
-        '--quiet',
-        '--no-tags',
-        '--no-write-fetch-head',
-        '--no-recurse-submodules',
-        // A gc there would prune every object of the clone that its own refs do not reach.
-        '--no-auto-maintenance',
-        '--end-of-options',
-        dir.url,
-        `+refs/heads/*:${tracking}*`,
-      ],
-      { timeoutMs },
-    );
+    await dir.fetch(`+refs/heads/*:${tracking}*`, timeoutMs);
     const fetched = refsOf(await dir.run(listing));
     const moved = [...fetched].filter(([ref, sha]) => known.get(ref) !== sha);
     if (moved.length > 0) {
