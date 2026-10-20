@@ -69,6 +69,11 @@ export type DriverNotice =
   | { kind: 'batch_lost'; batchId: string; holder: BatchLease }
   /** Applying an effect failed; the batch's other effects wait for the next pass. */
   | { kind: 'effect_failed'; key: EffectKey; error: unknown }
+  /**
+   * The runner's end of an attempt rejected: the attempt is blocked on its environment, and the
+   * other runs go on (ADR 0099).
+   */
+  | { kind: 'run_failed'; ref: AttemptRef; error: unknown }
   /** What a cleanup of an ended batch's worktrees did. */
   | { kind: 'cleaned'; batchId: string; report: CleanReport };
 
@@ -155,6 +160,24 @@ export const repositoryOf = <R extends { readonly repo: string }>(
     throw new Error(`batch ${batchId} writes in ${repo}, which the Brewery does not list`);
   }
   return found;
+};
+
+/** How much of a rejected run's message its summary keeps: the runner may quote what it read. */
+const summaryLength = 120;
+
+/**
+ * The summary of a run whose end rejected with `error` (ADR 0099): the first line of its message,
+ * at most `summaryLength` characters, or a fixed text when that has nothing to show or cannot be
+ * read, since the event store refuses an empty summary.
+ */
+const rejectionSummary = (error: unknown): string => {
+  let message: unknown;
+  try {
+    message = error instanceof Error ? error.message : String(error);
+  } catch {}
+  const text = typeof message === 'string' ? message : '';
+  const line = (text.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
+  return line === '' ? 'the brewer runner failed without a message' : line;
 };
 
 /** The attempt `ref` in `state`, if it was scheduled. */
@@ -264,8 +287,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   });
 
   const runs = new Map<string, { ref: AttemptRef; run: RunningAttempt }>();
-  const ended: { ref: AttemptRef; end: AttemptEnd }[] = [];
-  const errors: unknown[] = [];
+  // The runs that ended, with the error of each whose end rejected.
+  const ended: { ref: AttemptRef; end: AttemptEnd; rejected?: { error: unknown } }[] = [];
   // Ended batches whose worktrees drive() cleans next.
   const toClean = new Set<string>();
   // Ended batches cleaned while an attempt of theirs held a live lease, which kept its worktree:
@@ -446,14 +469,23 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           runs.set(key, { ref, run });
           run.ended.then(
             (end) => ended.push({ ref, end }),
-            (error: unknown) => errors.push(error),
+            // The runner broke, not the attempt: it is blocked on its environment, and its process,
+            // which may still run, is stopped before its lease goes (ADR 0099).
+            // Neither can throw, so the end is always recorded and nothing is left floating.
+            (error: unknown) => {
+              const summary = rejectionSummary(error);
+              const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
+              ended.push({ ref, end: { ending }, rejected: { error } });
+              try {
+                run.stop();
+              } catch {}
+            },
           );
         }
       }
       // Let the runs that ended settle their promises.
       await new Promise((resolve) => setImmediate(resolve));
-      if (errors.length > 0) throw errors.splice(0)[0];
-      for (const { ref, end } of ended.splice(0)) {
+      for (const { ref, end, rejected } of ended.splice(0)) {
         const key = attemptKey.encode(ref);
         runs.delete(key);
         // The step boundary: an attempt that ended is recorded, also in a batch another driver
@@ -462,6 +494,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         if (!issue({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
           releaseAttempt(key);
         }
+        if (rejected !== undefined) report({ kind: 'run_failed', ref, error: rejected.error });
         // An attempt of an ended batch held its worktree until now.
         if (cleaners.length > 0 && batchIsOver(log.state(), ref.batchId)) {
           toClean.add(ref.batchId);

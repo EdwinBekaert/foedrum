@@ -403,13 +403,29 @@ describe('runServe', () => {
 
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {
     const broken: BrewerRunner = {
-      start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
+      start: () => {
+        throw new Error('the runner broke');
+      },
       progress: () => undefined,
     };
     assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
     assert.ok(lines.includes('foedrum serve: a tick failed: the runner broke'), lines.join('\n'));
     // It went on ticking after the failed tick, until it was stopped.
     assert.ok(calls.filter((call) => call === 'wait 5000').length > 1, calls.join('\n'));
+    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+  });
+
+  it('prints a run whose end rejected once, as a notice, and no failed tick (#130)', async () => {
+    const broken: BrewerRunner = {
+      start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
+      progress: () => undefined,
+    };
+    assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
+    const failed = lines.filter((line) =>
+      line.endsWith('failed, so it is blocked on its environment: the runner broke'),
+    );
+    assert.equal(failed.length, 1, lines.join('\n'));
+    assert.ok(!lines.some((line) => line.includes('a tick failed')), lines.join('\n'));
     assert.equal(lines.at(-1), 'foedrum serve: stopped');
   });
 
@@ -1127,6 +1143,11 @@ describe('formatNotice', () => {
         }),
         formatNotice({ kind: 'effect_failed', key, error: new Error('GitHub answered 502') }),
         formatNotice({
+          kind: 'run_failed',
+          ref: { batchId: '12-1', stepId: 'brew', attempt: 1 },
+          error: new Error('the stream reader broke'),
+        }),
+        formatNotice({
           kind: 'cleaned',
           batchId: '12-1',
           report: {
@@ -1149,6 +1170,7 @@ describe('formatNotice', () => {
         'a tick failed: boom',
         'batch 12-1 is driven by session-1 now',
         `the effect ${JSON.stringify(['12-1', 'brew', 1, 'comment'])} failed: GitHub answered 502`,
+        'the run of step brew#1 of batch 12-1 failed, so it is blocked on its environment: the stream reader broke',
         'cleaned batch 12-1: removed worktree 12-1/brew/1; could not clean x: busy',
         'cleaned batch 12-1: nothing to remove',
       ],

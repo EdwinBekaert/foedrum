@@ -127,6 +127,10 @@ export const formatNotice = (notice: DriverNotice): string => {
       return `batch ${notice.batchId} is driven by ${notice.holder.owner} now`;
     case 'effect_failed':
       return `the effect ${effectKey.encode(notice.key)} failed: ${messageOf(notice.error)}`;
+    case 'run_failed': {
+      const { batchId, stepId, attempt } = notice.ref;
+      return `the run of step ${stepId}#${attempt} of batch ${batchId} failed, so it is blocked on its environment: ${messageOf(notice.error)}`;
+    }
     case 'cleaned': {
       const { done, kept, failed } = notice.report;
       const lines = [...done, ...kept, ...failed];
