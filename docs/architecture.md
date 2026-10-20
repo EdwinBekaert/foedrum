@@ -600,7 +600,7 @@ recipes/          custom and overriding recipes (*.jsonc)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)
 .foedrum/         local (git-ignored): SQLite index (index.db; foedrum status and replay open it read-only), local.jsonc (this machine's work root and clones, ADR 0063), logs
 
-Work root (outside the checkout, default ~/.foedrum/<owner>.<name>/): brewery.json (the Brewery it belongs to) and drivers/<owner>.lock (one per driver), ADR 0037; per repository <owner>.<name>/ with attempts/<batch>/<step>/<attempt> (worktrees) and clone.git (managed clone); ADR 0029; state/ (the state branch's worktree) and attempt-settings/<batch>/<step>/<attempt>.json, ADR 0059 and ADR 0063
+Work root (outside the checkout, default ~/.foedrum/<owner>.<name>/): brewery.json (the Brewery it belongs to) and drivers/<owner>.lock (one per driver), ADR 0037; per repository <owner>.<name>/ with attempts/<batch>/<step>/<attempt> (worktrees), clone.git (managed clone) and base.git (the push's fetch of the base, ADR 0090); ADR 0029; state/ (the state branch's worktree) and attempt-settings/<batch>/<step>/<attempt>.json, ADR 0059 and ADR 0063
 
 Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.md), events.jsonl for events without a batch; committed at every step boundary (ADR 0024)
 ```
