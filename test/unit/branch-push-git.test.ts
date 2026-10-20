@@ -161,7 +161,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
   const OLD = 'b'.repeat(40);
   const gitDir = '/work/acme.api/base.git';
   const url = 'https://github.com/acme/api.git';
-  const base = { url, gitDir };
+  const base = { url, root: gitDir };
   /** A clone at `/work/acme.api/clone` whose origin/main is at OLD, and a remote main at TIP. */
   const answers = (args: readonly string[]): GitResult => {
     if (args.includes('--git-common-dir')) return ok(`${clone}\nsha1\n`);

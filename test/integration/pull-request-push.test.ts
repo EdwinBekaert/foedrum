@@ -134,7 +134,7 @@ describe('the openPullRequest push with real git', () => {
             push: openBranchPush({
               git: runGit,
               clone: user,
-              base: { url: origin, gitDir: join(dir.path, `base-${runs}.git`) },
+              base: { url: origin, root: join(dir.path, `base-${runs}.git`) },
             }),
           },
         ],
@@ -309,7 +309,7 @@ describe('the openPullRequest push with real git', () => {
       git(seed, ['push', '-q', served, 'main']);
       const tip = git(served, ['rev-parse', 'main']).trim();
       const gitDir = join(run, 'base.git');
-      const push = openBranchPush({ git: runGit, clone: managed, base: { url, gitDir } });
+      const push = openBranchPush({ git: runGit, clone: managed, base: { url, root: gitDir } });
       assert.equal(await push.baseTip('main'), tip);
       assert.equal(await push.baseTip('main'), tip);
       // What the clone's gc leaves when it prunes the commit base.git's ref still names.

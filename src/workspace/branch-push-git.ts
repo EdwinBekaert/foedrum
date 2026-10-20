@@ -31,7 +31,7 @@ export interface BranchPushOptions {
  */
 export interface BaseFetch {
   url: string;
-  gitDir: string;
+  root: string;
 }
 
 /**
@@ -159,7 +159,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (!BRANCH_NAME.test(name)) throw new Error(`${JSON.stringify(name)} is no branch name`);
       if (fetchBase === undefined)
         throw new Error(`The pushes from ${clone} have no base to fetch`);
-      const { url, gitDir } = fetchBase;
+      const { url, root: gitDir } = fetchBase;
       const [common, format] = (
         await must(
           ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],

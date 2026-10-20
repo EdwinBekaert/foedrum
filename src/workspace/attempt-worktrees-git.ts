@@ -377,7 +377,7 @@ export const managedClonePath = (workRoot: string, repo: string): string =>
  * The git directory of Foedrum's own that fetches the base of `repo` into its clone's objects, and
  * reads none of the clone's configuration (ADR 0090).
  */
-export const baseGitDirPath = (workRoot: string, repo: string): string =>
+export const baseFetchRoot = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'base.git');
 
 /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */

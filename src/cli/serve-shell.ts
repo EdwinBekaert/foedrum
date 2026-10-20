@@ -11,7 +11,7 @@ import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
 import {
-  baseGitDirPath,
+  baseFetchRoot,
   ensureManagedClone,
   openAttemptWorktrees,
   worktreeClonePath,
@@ -98,7 +98,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: worktreeClonePath(workRoot, repository),
         base: {
           url: `https://github.com/${repository.repo}.git`,
-          gitDir: baseGitDirPath(workRoot, repository.repo),
+          root: baseFetchRoot(workRoot, repository.repo),
         },
       }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
