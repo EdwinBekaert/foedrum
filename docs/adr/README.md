@@ -74,7 +74,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) | The intake in `foedrum serve`: Brewery orders, routing by label, and relabelled issues (amends 0008, 0032, 0050, 0052 and 0063) | Accepted, amended by 0072 |
 | [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) | Check steps run the repository's commands in an attempt of their own (amends 0023, 0031, 0053 and 0064) | Accepted, amended by 0078 |
 | [0070](0070-tests-never-hold-the-wall-clock-to-a-limit.md) | Tests never hold the wall clock to a limit (extends 0036) | Accepted, amended by 0075 |
-| [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted, amended by 0079, 0088 and 0090 |
+| [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted, amended by 0079, 0088, 0090 and 0096 |
 | [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) | The status comment: edits as revisions in the ledger, one a minute per order (amends 0033, 0052 and 0068) | Accepted, amended by 0088 |
 | [0073](0073-github-only-through-gh-s-own-login.md) | GitHub only through `gh`'s own login: Foedrum never holds a token (supersedes part of 0008 and 0063, amends 0052) | Accepted, amended by 0075 and 0082 |
 | [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) | `git.commit` grants fixed git rules, and a commit-producing brewer's `done` needs a commit (amends 0028 and 0059) | Accepted, amended by 0085 |
@@ -89,10 +89,11 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) | Sandboxed commands go through the allow rules, and never see the credentials Foedrum names (amends 0042, 0046 and 0085) | Accepted |
 | [0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md) | Out doc text that looks like a secret is left out of the pull request and the status comment (amends 0071, 0072, 0079 and 0082) | Accepted |
 | [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) | A file over the test budget is measured again alone (amends 0036 and 0054) | Accepted |
-| [0090](0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md) | The push fetches the base in a git directory of its own (amends 0071 and 0079) | Accepted |
+| [0090](0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md) | The push fetches the base in a git directory of its own (amends 0071 and 0079) | Accepted, amended by 0096 |
 | [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
 | [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
 | [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049 and 0057) | Accepted |
+| [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) | The engine's git reaches the remote outside the clone's configuration (amends 0071 and 0090) | Accepted |
 
 ## Template
 
