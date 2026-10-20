@@ -26,12 +26,13 @@ export interface OwnRemote {
 /**
  * What every local git call in the clone runs with: no transport, so a partial clone's lazy fetch
  * fails instead of reaching the clone's remote through its credential helper or ssh command; no
- * hook, such as reference-transaction on a ref update; no fsmonitor. `GIT_ALLOW_PROTOCOL`, naming
- * no protocol, overrides every `protocol.<name>.allow` of the clone, which `protocol.allow` does
- * not; `GIT_NO_LAZY_FETCH` (git 2.44) makes the failure clear.
+ * hook, such as reference-transaction on a ref update; no fsmonitor. An empty
+ * `GIT_ALLOW_PROTOCOL` allows no protocol and no remote helper, whatever name it has, and
+ * overrides every `protocol.<name>.allow` of the clone, which `protocol.allow` does not;
+ * `GIT_NO_LAZY_FETCH` (git 2.44) makes the failure clear.
  */
 const IN_CLONE = {
-  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none' },
+  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' },
   config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
 } as const satisfies GitOptions;
 
@@ -91,9 +92,10 @@ export interface OwnGitDir {
   /**
    * Fetches `refspec` from the URL Foedrum names, with nothing else: no tags, no FETCH_HEAD, no
    * submodules, no maintenance. Into a partial clone it fetches blobless, with that URL as the
-   * directory's promisor remote.
+   * directory's promisor remote. With `prune`, the refs `refspec` writes that the remote no longer
+   * has go, before the fetch writes any.
    */
-  fetch(refspec: string, timeoutMs: number): Promise<void>;
+  fetch(refspec: string, timeoutMs: number, prune?: boolean): Promise<void>;
 }
 
 /**
@@ -130,7 +132,7 @@ export const withOwnGitDir = async <T>(
       env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
       config: { ...options.config, ...OWN_CONFIG },
     });
-  const fetch = async (refspec: string, timeoutMs: number): Promise<void> => {
+  const fetch = async (refspec: string, timeoutMs: number, prune = false): Promise<void> => {
     // A partial clone as the clone's configuration says: a promisor remote, or the extension older
     // gits write. One that says so falsely fetches no files, and one that hides it fails to fetch.
     const promisor = await inClone(git)(
@@ -158,6 +160,7 @@ export const withOwnGitDir = async <T>(
         '--no-recurse-submodules',
         // A gc there would prune every object of the clone that its own refs do not reach.
         '--no-auto-maintenance',
+        ...(prune ? ['--prune'] : []),
         ...(partial ? [`--filter=${FILTER}`] : []),
         '--end-of-options',
         partial ? PROMISOR : url,
@@ -205,9 +208,12 @@ const updates = (refs: Iterable<[string, string]>): string =>
 
 /**
  * The worktree manager's fetch (ADR 0096): every branch of the remote Foedrum names into the
- * clone's `refs/remotes/<remote>/`, as `git fetch <remote>` would, but from a git directory of its
- * own. Its refs start as the clone's, so the server sends only what the clone lacks and git's
- * check of what came stops there; the refs that moved are written back into the clone.
+ * clone's `refs/remotes/<remote>/`, as `git fetch --prune <remote>` would, but from a git directory
+ * of its own. Its refs start as the clone's, so the server sends only what the clone lacks and
+ * git's check of what came stops there. The refs the remote no longer has are deleted from the
+ * clone first, then the refs that moved are written back, so a branch made again as a folder (`x`
+ * gone, `x/y` new) never stops the fetch (review of #266). `<remote>/HEAD`, which no branch of the
+ * remote writes, stays.
  */
 export const fetchIntoClone = async (
   git: Git,
@@ -222,8 +228,16 @@ export const fetchIntoClone = async (
   await withOwnGitDir(git, clone, own, undefined, async (dir) => {
     const known = refsOf(await gitOutput(local, clone, listing));
     if (known.size > 0) await dir.run(['update-ref', '--stdin'], { stdin: updates(known) });
-    await dir.fetch(`+refs/heads/*:${tracking}*`, timeoutMs);
+    await dir.fetch(`+refs/heads/*:${tracking}*`, timeoutMs, true);
     const fetched = refsOf(await dir.run(listing));
+    // Each deleted only while it is where the clone had it, and before the updates: git refuses to
+    // delete `x` and make `x/y` in one transaction.
+    const gone = [...known]
+      .filter(([ref]) => !fetched.has(ref) && ref !== `${tracking}HEAD`)
+      .map(([ref, sha]) => `delete ${ref} ${sha}\n`);
+    if (gone.length > 0) {
+      await gitOutput(local, clone, ['update-ref', '--stdin'], { stdin: gone.join('') });
+    }
     const moved = [...fetched].filter(([ref, sha]) => known.get(ref) !== sha);
     if (moved.length > 0) {
       await gitOutput(local, clone, ['update-ref', '--stdin'], { stdin: updates(moved) });
