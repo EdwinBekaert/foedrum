@@ -133,7 +133,7 @@ const cellar = join(root, 'scripts', 'demo', 'cellar.ts');
 const live = (life: Life) =>
   execProcess(process.execPath, [cellar, scratch, life], {
     cwd: root,
-    env: { ...process.env, ...ownGit },
+    env: process.env,
     timeoutMs: LIFE_MS,
   });
 
