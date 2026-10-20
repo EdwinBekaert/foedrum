@@ -4,6 +4,7 @@
 
 import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
+import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
@@ -26,7 +27,7 @@ import {
   type Target,
   worktreeStatus,
 } from './attempt-worktrees.ts';
-import type { OwnRemote } from './clone-git.ts';
+import { fetchIntoClone, gitWith, inClone, type OwnRemote } from './clone-git.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 import { parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
@@ -44,10 +45,13 @@ export interface AttemptWorktreesOptions {
    * managed clone (`source: managed`, from `ensureManagedClone`).
    */
   clone: string;
-  /** Default `origin`. */
+  /** The clone's remote whose tracking refs (`refs/remotes/<remote>/`) the fetch moves; default `origin`. */
   remote?: string;
-  /** The remote as Foedrum names it, which the fetch reaches (ADR 0096). */
-  own?: OwnRemote;
+  /**
+   * The remote as Foedrum names it, which the fetch reaches from a git directory of its own,
+   * never through the clone's configuration (ADR 0096).
+   */
+  own: OwnRemote;
   /** The clock for the age of a stale index.lock. */
   now?: () => number;
 }
@@ -159,7 +163,14 @@ const removeEmptyFolders = async (path: string): Promise<boolean> => {
 };
 
 export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptWorktrees => {
-  const { git, workRoot, repo, clone, remote = 'origin', now = Date.now } = options;
+  const { workRoot, repo, clone, own, remote = 'origin', now = Date.now } = options;
+  // Every attempt worktree shares the clone's configuration, which a brewer can write: git there
+  // runs with no transport, hook or fsmonitor (ADR 0096).
+  const git = inClone(options.git);
+  // The checkout of a partial clone downloads its files, so it keeps its transport.
+  const checkout = gitWith(options.git, {
+    config: { 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
+  });
   const root = join(workRoot, repoFolder(repo), 'attempts');
   const okGit = gitThrough(git);
   // git lists worktrees by their real path, so the attempts root is compared through links
@@ -196,14 +207,14 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     if (!existsSync(join(path, '.git'))) return { state: 'no-git' };
     if (record === undefined || !(await pointsAt(path, record))) return { state: 'foreign' };
     const args = [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'];
-    const status = await git(clone, args, { config: { 'core.fsmonitor': 'false' } });
+    const status = await git(clone, args);
     return status.code === 0 ? worktreeStatus(status.stdout, outDoc) : { state: 'dirty' };
   };
-  // One fetch at a time: concurrent fetches in one clone fail on git's ref locks.
+  // One fetch at a time: concurrent fetches write the same refs of the clone.
   let fetching: Promise<unknown> = Promise.resolve();
-  const fetchOnce = (): Promise<string> => {
+  const fetchOnce = (): Promise<void> => {
     const fetched = fetching.then(() =>
-      must(git, clone, ['fetch', '--quiet', remote], { timeoutMs: FETCH_TIMEOUT_MS }),
+      fetchIntoClone(options.git, clone, own, { remote, timeoutMs: FETCH_TIMEOUT_MS }),
     );
     fetching = fetched.catch(() => undefined);
     return fetched;
@@ -242,7 +253,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
           await removeWorktree(okGit, clone, { kind: 'prune', record: plan.prune });
         }
         const args = plan.newBranch ? ['-b', branch, '--', path, plan.at] : ['--', path, branch];
-        await must(git, clone, ['worktree', 'add', ...args], { timeoutMs: FETCH_TIMEOUT_MS });
+        await must(checkout, clone, ['worktree', 'add', ...args], { timeoutMs: FETCH_TIMEOUT_MS });
         return { path, branch, commit: plan.newBranch ? plan.at : (branchTip ?? '') };
       }
       default: {
