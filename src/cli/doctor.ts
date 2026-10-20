@@ -96,6 +96,11 @@ export interface Diagnosis {
     | undefined;
   advice: readonly string[];
   problems: readonly Problem[];
+  /**
+   * The paths of Foedrum's default files the Brewery's recipes use, when doctor read its files
+   * and they load: those it has no file of the same name for (ADR 0098).
+   */
+  defaults?: readonly string[];
   /** No required problem. */
   ok: boolean;
 }
@@ -325,11 +330,14 @@ const configProblems = ({ config, configUnreadable }: DoctorFacts): Problem[] =>
 
 // The recipe and brewer files, when doctor read them: files that do not load stop every command
 // that needs recipes, with this same line (ADR 0053).
-const recipeProblems = ({ brewery }: DoctorFacts): Problem[] => {
-  if (brewery === undefined) return [];
+// The defaults in use, when they load (ADR 0098).
+const recipesOf = ({ brewery }: DoctorFacts): { problems: Problem[]; defaults?: string[] } => {
+  if (brewery === undefined) return { problems: [] };
   const loaded = loadRecipes(brewery);
-  if (loaded.valid) return [];
-  return [{ required: true, what: INVALID_RECIPES, fix: loaded.problems.join('; ') }];
+  if (loaded.valid) return { problems: [], defaults: [...loaded.defaults] };
+  return {
+    problems: [{ required: true, what: INVALID_RECIPES, fix: loaded.problems.join('; ') }],
+  };
 };
 
 /** The effective isolation level (ADR 0010, architecture §13) and what to do about it. */
@@ -399,6 +407,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
 export const diagnose = (facts: DoctorFacts): Diagnosis => {
   const { tools } = facts;
   const { isolation, advice, problems: sandboxProblems } = isolationOf(facts);
+  const recipes = recipesOf(facts);
   const problems: Problem[] = [
     ...(isTooOld(facts.node)
       ? [
@@ -427,7 +436,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ),
     ...jobObjectProblems(facts),
     ...configProblems(facts),
-    ...recipeProblems(facts),
+    ...recipes.problems,
     ...sandboxProblems,
   ];
   // Podman first: it runs without a daemon or root. One that does not answer its version (a
@@ -462,6 +471,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     container,
     advice,
     problems,
+    ...(recipes.defaults === undefined ? {} : { defaults: recipes.defaults }),
     ok: problems.every((problem) => !problem.required),
   };
 };
@@ -473,6 +483,7 @@ export const formatDiagnosis = ({
   container,
   advice,
   problems,
+  defaults,
   ok,
 }: Diagnosis): string => {
   const lines = [
@@ -493,6 +504,13 @@ export const formatDiagnosis = ({
       : container.usable
         ? `Container: ${container.name} ${container.version} at ${container.path}; the container level is available`
         : `Container: ${container.name} at ${container.path} does not answer its version${container.said === undefined ? '' : ` (${container.said})`}; the container level is not available`,
+    ...(defaults === undefined
+      ? []
+      : [
+          defaults.length === 0
+            ? 'Defaults in use: none'
+            : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one)`,
+        ]),
     '',
   ];
   if (problems.length > 0) {

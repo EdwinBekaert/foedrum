@@ -1,6 +1,7 @@
 // The Brewery's recipe files as the engine's Recipes (ADR 0053), the core (ADR 0021): every
-// recipe and brewer file is read and checked, and either all of them load or none does.
-// brewery-files.ts reads the files.
+// recipe, brewer and lens file is read and checked, and either all of them load or none does.
+// Foedrum's defaults lie under the Brewery's files: a Brewery file replaces the default of its
+// name (ADR 0098). brewery-files.ts reads the files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { durationMs } from '../schemas/primitives.ts';
@@ -84,7 +85,7 @@ export type LoadedRecipes =
       brewers: StepBrewers;
       checks: StepChecks;
       /** The paths of the default files in use: those the Brewery has no file of its name for. */
-      defaults?: readonly string[];
+      defaults: readonly string[];
     }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
@@ -105,6 +106,40 @@ const oneLine = (reason: string): string =>
 
 /** The name a file must hold: its file name without the extension. */
 const nameOf = (path: string): string => (path.split('/').at(-1) ?? '').replace(/\.[^.]*$/, '');
+
+/** The defaults of one kind that no file of `own` is named like: a Brewery file replaces them. */
+function keptDefaults(
+  own: readonly BreweryFile[],
+  defaults: readonly BreweryFile[] = [],
+): readonly BreweryFile[] {
+  const names = new Set(own.map(({ path }) => nameOf(path)));
+  return defaults.filter(({ path }) => !names.has(nameOf(path)));
+}
+
+/** The files the load reads, by kind: the Brewery's own, then the defaults it keeps (ADR 0098). */
+export function filesInUse(files: BreweryFiles): Required<FilesByKind> {
+  const { defaults = {} } = files;
+  const lenses = files.lenses ?? [];
+  return {
+    recipes: [...files.recipes, ...keptDefaults(files.recipes, defaults.recipes)],
+    brewers: [...files.brewers, ...keptDefaults(files.brewers, defaults.brewers)],
+    lenses: [...lenses, ...keptDefaults(lenses, defaults.lenses)],
+  };
+}
+
+/** The paths of the defaults the Brewery has no file of the same name for (ADR 0098). */
+function defaultsInUse(files: BreweryFiles): string[] {
+  const { defaults = {} } = files;
+  return [
+    ...keptDefaults(files.recipes, defaults.recipes),
+    ...keptDefaults(files.brewers, defaults.brewers),
+    ...keptDefaults(files.lenses ?? [], defaults.lenses),
+  ].map(({ path }) => path);
+}
+
+/** The lens a brewer input reads (`"from": "lens:<name>"`), when it reads one. */
+const lensOf = (from: string): string | undefined =>
+  from.startsWith('lens:') ? from.slice('lens:'.length) : undefined;
 
 /** Each file's checked content, or the problems that make the load fail. */
 function readAll<T extends { name: string }>(
@@ -336,8 +371,19 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
 }
 
 /** The recipes of `files`, or every problem they have; never some of them. */
-export function loadRecipes(files: BreweryFiles): LoadedRecipes {
+export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const problems: string[] = [];
+  const files = filesInUse(breweryFiles);
+  // A lens has no frontmatter: its file's name is its name, and its text is all of it.
+  const lenses = new Map<string, Lens>();
+  for (const file of files.lenses) {
+    if ('unreadable' in file) {
+      problems.push(`${file.path}: ${file.unreadable}`);
+      continue;
+    }
+    const name = nameOf(file.path);
+    lenses.set(name, { name, path: file.path, text: file.text });
+  }
   const brewers = new Map(
     readAll(
       files.brewers,
@@ -346,7 +392,24 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
         const doc = readDoc(text, BrewerFrontmatter);
         if (!doc.valid) return doc;
         const { frontmatter: brewer, body: instructions } = doc;
-        return { valid: true, value: { name: brewer.name, brewer, instructions } };
+        const named = new Map<string, Lens>();
+        const unknown: string[] = [];
+        for (const input of brewer.inputs) {
+          const lens = lensOf(input.from);
+          if (lens === undefined) continue;
+          const found = lenses.get(lens);
+          if (found !== undefined) named.set(lens, found);
+          else {
+            unknown.push(
+              `the brewer "${brewer.name}" has the input "${input.name}" from the lens "${lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0098)`,
+            );
+          }
+        }
+        if (unknown.length > 0) return { valid: false, reason: unknown.join('; ') };
+        return {
+          valid: true,
+          value: { name: brewer.name, brewer, instructions, lenses: named },
+        };
       },
       problems,
     ).map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
@@ -508,6 +571,7 @@ export function loadRecipes(files: BreweryFiles): LoadedRecipes {
   if (problems.length > 0) return { valid: false, problems };
   return {
     valid: true,
+    defaults: defaultsInUse(breweryFiles),
     recipes: { find: (name) => recipes.get(name) },
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
     checks: {

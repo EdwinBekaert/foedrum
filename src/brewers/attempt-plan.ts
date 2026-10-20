@@ -7,7 +7,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
-import type { StepBrewer } from '../engine/recipe-files.ts';
+import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
@@ -21,10 +21,14 @@ import {
   type RandomBytes,
 } from './prompt.ts';
 
-/** Where the text of an input is read from: the order's issue, or a file inside `root`. */
+/**
+ * Where the text of an input is read from: the order's issue, a file inside `root`, or nowhere,
+ * since the brewer's loader read it (a lens, ADR 0098).
+ */
 export type InputRead =
   | { kind: 'order'; issue: number; repo?: string }
-  | { kind: 'file'; path: string; root: string };
+  | { kind: 'file'; path: string; root: string }
+  | { kind: 'text'; text: string };
 
 /** An input of the brewer, where it comes from, and where its text is read. */
 export interface PlannedInput {
@@ -127,13 +131,15 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
 
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
- * throws when a step it names has no out doc yet.
+ * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
+ * the loader found for the brewer (ADR 0098).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
   batch: Batch,
   stepBrewer: (stepId: string) => StepBrewer | undefined,
   worktree: string,
+  lenses: ReadonlyMap<string, Lens> = new Map(),
 ): PlannedInput[] {
   const skipped = (from: string): boolean =>
     from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);
@@ -158,6 +164,16 @@ export function inputsOf(
           name,
           source: { kind: 'out-doc', step },
           read: { kind: 'file', path: join(root, doc), root },
+        };
+      }
+      if (from.startsWith('lens:')) {
+        const lens = lenses.get(from.slice('lens:'.length));
+        // The loader refuses a brewer whose lens it did not find.
+        if (lens === undefined) throw new Error(`the input "${name}" has no ${from}`);
+        return {
+          name,
+          source: { kind: 'lens', lens: lens.name, path: lens.path },
+          read: { kind: 'text', text: lens.text },
         };
       }
       // `file:<path>`: a relative path with `/`, checked by the brewer's schema.

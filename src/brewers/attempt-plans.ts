@@ -102,9 +102,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
-    if (read.kind === 'order') {
-      const text = await options.orderText(read);
-      // Anyone who can file an issue writes its body: it gets the limit of an input file.
+    if (read.kind !== 'file') {
+      const text = read.kind === 'order' ? await options.orderText(read) : read.text;
+      // Anyone who can file an issue writes its body: it gets the limit of an input file, and so
+      // does a lens.
       if (Buffer.byteLength(text, 'utf8') > MAX_INPUT_BYTES) {
         throw new Error(
           `the input "${name}" was not read: it is larger than ${MAX_INPUT_BYTES} bytes`,
@@ -143,6 +144,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         batch,
         (id) => brewers.find(recipe, id),
         worktree.path,
+        found.lenses,
       );
       const inputs: PromptInput[] = [];
       for (const input of planned) {

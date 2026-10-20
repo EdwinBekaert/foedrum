@@ -11,6 +11,8 @@ export type InputSource =
   | { kind: 'out-doc'; step: string }
   | { kind: 'file'; path: string }
   | { kind: 'house-yeast'; rule: string }
+  /** A lens's text (ADR 0098): `path` is the Brewery's `lenses/<lens>.md` or the default's. */
+  | { kind: 'lens'; lens: string; path: string }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string };
 
@@ -47,6 +49,8 @@ function describeSource(source: InputSource): string {
       return `file ${source.path}`;
     case 'house-yeast':
       return `house-yeast rule ${source.rule}`;
+    case 'lens':
+      return `lens ${source.lens}, file ${source.path}`;
     case 'answers':
       return `answers to the questions of step ${source.step}`;
     default: {
