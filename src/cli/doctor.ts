@@ -128,7 +128,7 @@ const sandboxHides = (wsl: boolean) =>
   wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
 const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
 const WRITTEN_DOWN =
-  'A login a brewer did read is for #209 to catch at the push, and #235 in out doc text.';
+  'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 const checkSteps = (outside: string) =>
   `Until #190, check steps run outside ${outside}, so they can still read gh's login.`;
 const permissionsOnlyAdvice = (sandbox: string | undefined, wsl = false) =>

@@ -396,7 +396,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['commit', '-q', '-m', 'Plan', '-m', `GH=${token}`]);
       });
       const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
-      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, message: GitHub token`));
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, GitHub token in message`));
     });
 
     // Review of #237: `git commit --author` matches a brewer's `Bash(git commit *)` rule.
@@ -407,7 +407,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
       });
       const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
-      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, author: GitHub token`));
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, GitHub token in author`));
     });
 
     // Consultant-round review of #237: settings of the clone that changed how the headers print.
@@ -422,7 +422,7 @@ describe('the openPullRequest push with real git', () => {
           git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
           git(path, ['config', `${setting}`, `${value}`]);
         });
-        assert.match(stopped(state, requests), /, author: GitHub token/);
+        assert.match(stopped(state, requests), /, GitHub token in author/);
       });
     }
 
@@ -441,7 +441,7 @@ describe('the openPullRequest push with real git', () => {
       // The mailmap is in force: a log of the clone shows the mapped author.
       const plain = git(user, ['log', '--format=%aN', '-1', `refs/heads/${planBranch}`]);
       assert.equal(plain.trim(), 'Brewer');
-      assert.match(stopped(state, requests), /, author: GitHub token/);
+      assert.match(stopped(state, requests), /, GitHub token in author/);
     });
 
     it('stops the push of a commit whose encoding header holds a credential', async () => {
@@ -450,7 +450,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['add', 'plan.txt']);
         git(path, ['-c', `i18n.commitEncoding=${token}`, 'commit', '-q', '-m', 'Plan']);
       });
-      assert.match(stopped(state, requests), /, header encoding: GitHub token/);
+      assert.match(stopped(state, requests), /, GitHub token in header encoding/);
     });
 
     it("pushes a commit that names one of the clone's commits by its hash", async () => {
@@ -474,7 +474,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['add', 'plan.txt']);
         git(path, ['commit', '-q', '-m', 'Plan']);
       });
-      assert.match(stopped(state, requests), /, plan\.txt: long hexadecimal string/);
+      assert.match(stopped(state, requests), /, long hexadecimal string in plan\.txt/);
     });
 
     it('stops the push of a credential in an added line of a file the base has', async () => {
@@ -482,12 +482,12 @@ describe('the openPullRequest push with real git', () => {
         writeFileSync(join(path, 'readme.txt'), `hello\nkey ${token}\n`);
         git(path, ['commit', '-q', '-am', 'Note the key']);
       });
-      assert.match(stopped(state, requests), /, readme\.txt: GitHub token/);
+      assert.match(stopped(state, requests), /, GitHub token in readme\.txt/);
     });
 
     it('stops the push of a credential in a new file, in a commit before the tip', async () => {
       const { state, requests } = await brew(commitAndHide);
-      assert.match(stopped(state, requests), /, plan\.txt: GitHub token/);
+      assert.match(stopped(state, requests), /, GitHub token in plan\.txt/);
     });
 
     it('stops the push of a binary file, which it cannot read', async () => {
@@ -496,7 +496,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['add', 'logo.png']);
         git(path, ['commit', '-q', '-m', 'Add a logo']);
       });
-      assert.match(stopped(state, requests), /, logo\.png: binary file/);
+      assert.match(stopped(state, requests), /, binary file in logo\.png/);
     });
 
     it('stops the push of more than 4 MiB of changes, past what it reads', async () => {
@@ -537,7 +537,7 @@ describe('the openPullRequest push with real git', () => {
         // The plant works: a plain log of the clone does not show the token.
         const plain = git(user, ['log', '--patch', `refs/heads/${planBranch}`, '^origin/main']);
         assert.doesNotMatch(plain, /A1b2/);
-        assert.match(stopped(state, requests), /, plan\.txt: GitHub token/);
+        assert.match(stopped(state, requests), /, GitHub token in plan\.txt/);
       });
     }
 
@@ -556,7 +556,7 @@ describe('the openPullRequest push with real git', () => {
         git(path, ['commit', '-q', '-m', 'Change a, add b']);
         git(path, ['config', 'diff.interHunkContext', '1000']);
       });
-      assert.match(stopped(state, requests), /, b\.txt: GitHub token/);
+      assert.match(stopped(state, requests), /, GitHub token in b\.txt/);
     });
 
     it('stops the push of a credential that only a merge commit adds', async () => {
@@ -577,7 +577,10 @@ describe('the openPullRequest push with real git', () => {
       });
       const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
       assert.equal(git(user, ['rev-list', '--parents', '-1', tip]).trim().split(' ').length, 3);
-      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, plan\\.txt: GitHub token`));
+      assert.match(
+        stopped(state, requests),
+        new RegExp(`commit ${tip}, GitHub token in plan\\.txt`),
+      );
     });
   });
 });

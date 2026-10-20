@@ -74,6 +74,15 @@ export type CommitsSeen =
   /** git could not answer. */
   | { kind: 'uncounted'; reason: string };
 
+/**
+ * A usage window of claude's subscription that ran out, as claude named it (ADR 0091): which
+ * limit, and its reset as claude wrote it (`3:45pm`, `Mon 12:00am`).
+ */
+export interface UsageLimit {
+  limit: 'session' | 'weekly' | 'Opus' | 'Sonnet';
+  resets: string;
+}
+
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
   /**
@@ -87,6 +96,8 @@ export interface AttemptFacts {
   outDoc: string | undefined;
   /** Why the result event reported an error (`is_error`, ADR 0042), when it did. */
   streamError?: string | undefined;
+  /** The usage window the error result said ran out, in one of the documented messages. */
+  usageLimit?: UsageLimit | undefined;
   /** Why the runner did not read the out doc it found (larger than its limit, not a file). */
   outDocUnread?: string | undefined;
   /** The first line of the event stream that was not a stream-json event. */
@@ -165,6 +176,13 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   // Another attempt would meet the same environment; a human must fix it (ADR 0046).
   if (facts.environment !== undefined) {
     const summary = `claude did not set up the session the runner asked for: ${facts.environment}`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
+  // claude refuses every request until the window resets: another attempt now would be refused
+  // too, so a human retries after the reset claude named (ADR 0091).
+  if (facts.usageLimit !== undefined) {
+    const { limit, resets } = facts.usageLimit;
+    const summary = `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`;
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
   if (exit.kind === 'unstartable') {

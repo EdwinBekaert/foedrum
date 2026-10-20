@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
+import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
+import { knownCommits } from '../../src/engine/pull-request.ts';
 import {
   type BranchPush,
   type PullRequestHost,
@@ -216,6 +218,28 @@ describe('pullRequestActions: the pull request', () => {
     assert.match(request?.body ?? '', /\nCloses acme\/brewery#12$/);
   });
 
+  it("leaves out report text that looks like a secret, but not a commit the batch's state records (#235)", async () => {
+    const { actions, requests } = actionsWith();
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const reported = brewed.map((event) =>
+      event.type === 'step.finished'
+        ? {
+            ...event,
+            outcome: {
+              kind: 'succeeded' as const,
+              output: { status: 'done', summary: `Started at ${other}`, assumptions: [token] },
+            },
+          }
+        : event,
+    );
+    keysOf(fold([ordered({ issue: 12 }), ...reported, ...opening]), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    assert.match(body, new RegExp(`implement: Started at ${other}`));
+    assert.match(body, /assumed: \[left out: a text of step implement that looks like a secret\]/);
+    assert.doesNotMatch(body, /ghp|A1b2/);
+  });
+
   it('closes a claimed issue in its own repository, reading its title there', async () => {
     const { actions, requests, titles } = actionsWith();
     keysOf(brewing({ issue: 7, repo: 'acme/api' } as { issue: number }), actions);
@@ -408,7 +432,7 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
   ];
   const summary =
     'the push of batch 12-1 stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079): ' +
-    `commit ${tip}, message: GitHub token; commit ${other}, notes/aws.txt: AWS access key id`;
+    `commit ${tip}, GitHub token in message; commit ${other}, AWS access key id in notes/aws.txt`;
 
   it('scans every commit from the base to the tip, then pushes a clean task tree as before', async () => {
     const { actions, pushes, scans } = actionsWith();
@@ -482,7 +506,29 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
     assert.equal(ending.kind, 'blocked');
     assert.match(
       ending.kind === 'blocked' ? ending.summary : '',
-      new RegExp(`commit ${tip}, c.txt: GitHub token; and 2 more$`),
+      new RegExp(`commit ${tip}, GitHub token in c.txt; and 2 more$`),
+    );
+  });
+
+  // Review of #253: `token: GitHub token` reads as a credential assignment.
+  it('names each place so that a file named like a credential reads as no secret itself', () => {
+    const { actions } = actionsWith();
+    const named = ['token', 'header secret', 'password'].map((place) => ({
+      commit: tip,
+      place,
+      kind: 'GitHub token',
+    }));
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from, refused: named }),
+    ]);
+    const ending = actions.ending(state, action);
+    const stopped = ending.kind === 'blocked' ? ending.summary : '';
+    assert.equal(
+      withoutSecrets(stopped, 'open-pull-request', knownCommits(state, '12-1')),
+      stopped,
     );
   });
 });

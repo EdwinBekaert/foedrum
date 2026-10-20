@@ -1,6 +1,6 @@
 # 0072. The status comment: edits as revisions in the ledger, one a minute per order
 
-Date: 2026-10-18 · Status: Accepted · Amends [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (an effect that edits what an earlier one made), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (the first GitHub writes beyond the claim marks) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (serve reads the token's login for every Brewery)
+Date: 2026-10-18 · Status: Accepted, amended by [0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md) (out doc text that looks like a secret is left out) · Amends [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) (an effect that edits what an earlier one made), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (the first GitHub writes beyond the claim marks) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (serve reads the token's login for every Brewery)
 
 ## Context
 Architecture §8 gives every order one status comment on its issue, edited in place: the projection a human reads on GitHub without the CLI. #179 brings it to M1 and leaves three questions open:

@@ -28,6 +28,11 @@ import type { AttemptLimits, AttemptStart, CommitsSeen } from '../../src/engine/
 import type { StreamOptions, StreamResult } from '../../src/platform/processes.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import {
+  documentedUsageLimits,
+  limitResults,
+  rejectedRateLimit,
+} from '../fixtures/claude-usage-limits.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { descheduled } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -667,6 +672,27 @@ describe('claudeBrewerRunner', () => {
       retryable: true,
       reason: 'claude reported an error: max_turns: Reached maximum number of turns (1)',
     });
+  });
+
+  // #238, ADR 0091: claude refuses every request until the window resets, so retrying now would
+  // spend the step's attempts on the same refusal. Stuck at once, on the environment.
+  it('blocks on the environment when a usage window ran out, naming the limit and its reset', async () => {
+    const [initLine] = fixture('success.jsonl');
+    for (const { text, limit, resets } of documentedUsageLimits) {
+      for (const end of limitResults(text)) {
+        const { calls, runner } = setup(
+          { lines: [initLine ?? '', rejectedRateLimit, end], result: exited(1) },
+          { outDoc: undefined },
+        );
+        const ended = await runner.start(attempt).ended;
+        assert.deepEqual(ended.ending, {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`,
+        });
+        assert.equal(calls.length, 1);
+      }
+    }
   });
 
   it('fails, retryably, with the reason when the out doc was not read', async () => {

@@ -15,6 +15,10 @@ import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 
 type Output = Extract<StepOutcome, { kind: 'succeeded' }>['output'];
 
+// Built at run time, so no scanner takes this file for one that holds a token.
+const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+const aws = ['AKIA', 'Z'.repeat(16)].join('');
+
 const ordered: Event = {
   type: 'batch.ordered',
   batchId: '12-1',
@@ -191,5 +195,56 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.ok(body.length <= 65_536, `${body.length}`);
     assert.match(body, /\n\(cut short\)\n```\n\nCloses acme\/brewery#12$/);
+  });
+
+  it('leaves out a summary and an assumption that look like a secret, naming the step (#235)', () => {
+    const reports = [
+      { stepId: 'plan', summary: `Read ${token}`, assumptions: ['No config file'] },
+      { stepId: 'implement', summary: 'Added --json', assumptions: [`AWS key ${aws}`, 'Tabs'] },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.equal(
+      body,
+      [
+        'Brewed by Foedrum from acme/brewery#12. What each step reported:',
+        '',
+        '```text',
+        'plan: [left out: a text of step plan that looks like a secret]',
+        '  assumed: No config file',
+        'implement: Added --json',
+        '  assumed: [left out: a text of step implement that looks like a secret]',
+        '  assumed: Tabs',
+        '```',
+        '',
+        'Closes acme/brewery#12',
+      ].join('\n'),
+    );
+    assert.doesNotMatch(body, /ghp_|A1b2|AKIA/);
+  });
+
+  it('reads only the reports it can show, so a token past the cut does not hide them', () => {
+    const reports = [
+      { stepId: 'plan', summary: `${'y '.repeat(40_000)}${token}`, assumptions: [] },
+      { stepId: 'implement', summary: token, assumptions: [] },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.match(body, /^plan: y y y/m);
+    assert.match(body, /\n\(cut short\)\n```\n\nCloses acme\/brewery#12$/);
+    assert.doesNotMatch(body, /ghp_|A1b2/);
+  });
+
+  it('says it is cut short when it stopped reading, though the backticks it read shrink', () => {
+    const reports = [{ stepId: 'plan', summary: '`'.repeat(70_000), assumptions: [] }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.match(body, /\n\(cut short\)\n`+\n\nCloses acme\/brewery#12$/);
+  });
+
+  it('keeps a commit hash that `isCommit` knows, and leaves out one it does not', () => {
+    const sha = 'a'.repeat(40);
+    const reports = [{ stepId: 'plan', summary: `Reverted ${sha}`, assumptions: [] }];
+    const known = pullRequestText({ title: 'T', closes, reports, isCommit: (w) => w === sha });
+    assert.match(known.body, new RegExp(`plan: Reverted ${sha}`));
+    const unknown = pullRequestText({ title: 'T', closes, reports });
+    assert.doesNotMatch(unknown.body, new RegExp(sha));
   });
 });
