@@ -255,6 +255,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
       assert.deepEqual(options?.config, {
         'core.attributesFile': devNull,
         'log.showRoot': 'true',
+        'advice.graftFileDeprecated': 'false',
       });
     }
   });
