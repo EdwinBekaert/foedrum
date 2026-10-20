@@ -84,7 +84,7 @@ export const pausesBetweenSteps = (options: {
   interactive: boolean;
   /** The input ended at a pause (Ctrl+D): no one can press Enter any more. */
   inputEnded?: boolean;
-}): boolean => options.interactive && !options.noPause;
+}): boolean => options.interactive && !options.noPause && options.inputEnded !== true;
 
 /** The diagnosis serve runs with in the demo, as lines. */
 export const diagnosisLines = (diagnosis: ServeInputs['diagnosis']): string[] => {

@@ -258,5 +258,12 @@ export const problemsOf = (run: DemoRun): string[] => {
   if (comments.length !== 1) {
     problems.push(`the order has ${comments.length} status comments, not 1`);
   }
+  for (const { argv, exitCode, stderr } of run.commands ?? []) {
+    if (exitCode !== 0) {
+      problems.push(
+        `foedrum ${argv.join(' ')} failed (exit code ${exitCode}): ${stderr.trim() || '(no output)'}`,
+      );
+    }
+  }
   return problems;
 };

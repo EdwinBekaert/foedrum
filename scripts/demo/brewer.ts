@@ -55,8 +55,9 @@ export const scriptedBrewer = (options: ScriptedBrewerOptions): BrewerRunner => 
   );
   /** The fixed change, committed in the attempt's worktree; why it could not be, if not. */
   const commit = async (start: AttemptStart): Promise<string | undefined> => {
+    // Showing the attempt never fails it: the Cellar says itself why it could not.
+    await started?.(start.ref).catch(() => undefined);
     try {
-      await started?.(start.ref);
       const { cwd } = await plan(start);
       write(join(cwd, GREETING.file), GREETING.text);
       const steps = [

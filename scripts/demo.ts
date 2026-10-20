@@ -91,31 +91,38 @@ const repository = async (name: string, files: Record<string, string>): Promise<
   return clone;
 };
 
-const pauses = pausesBetweenSteps({
-  noPause: values['no-pause'] === true,
-  interactive: process.stdin.isTTY === true,
-});
-/** Waits for Enter; Ctrl+C ends the demo, and the end of input goes on without the pauses. */
+const noPause = values['no-pause'] === true;
+const interactive = process.stdin.isTTY === true;
+let inputEnded = false;
+/** Waits for Enter; Ctrl+C ends the demo, and the end of input (Ctrl+D) ends the pauses. */
 const pause = async (): Promise<void> => {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   prompt.on('SIGINT', () => process.exit(130));
+  let answered = false;
   await new Promise<void>((done) => {
     prompt.once('close', done);
-    prompt.question(PAUSE_PROMPT, () => done());
+    prompt.question(PAUSE_PROMPT, () => {
+      answered = true;
+      done();
+    });
   });
   prompt.close();
+  if (!answered) inputEnded = true;
 };
 let step = 0;
 /** Opens the next step, after a pause when there was one before it. */
 const next = async (): Promise<void> => {
-  if (step > 0 && pauses) await pause();
+  if (step > 0 && pausesBetweenSteps({ noPause, interactive, inputEnded })) await pause();
   for (const line of stepLines(step)) say(line);
   step += 1;
 };
 
+/** The foedrum commands the walkthrough ran, and how each ended. */
+const commands: { argv: string[]; exitCode: number; stderr: string }[] = [];
 /** `foedrum <argv>` as the CLI runs it in the Brewery: status and replay read only its store. */
 const foedrum = async (brewery: string, argv: string[]): Promise<void> => {
-  const { stdout, stderr } = await cliFromCheckout(argv, brewery);
+  const { exitCode, stdout, stderr } = await cliFromCheckout(argv, brewery);
+  commands.push({ argv, exitCode, stderr });
   say(`$ foedrum ${argv.join(' ')}`);
   indented(`${stdout}${stderr}`.trimEnd().split('\n'));
 };
@@ -187,7 +194,7 @@ await next();
 await foedrum(brewery, ['replay', BATCH]);
 
 say('');
-const problems = problemsOf({ crash, restart, pulls, comments });
+const problems = problemsOf({ crash, restart, pulls, comments, commands });
 if (problems.length > 0) {
   for (const problem of problems) say(`demo: ${problem}`);
   process.exitCode = 1;

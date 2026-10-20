@@ -128,9 +128,13 @@ const shell: ServeShell = {
       crash,
       // The attempt as status shows it; in the restart, the one it lost before it.
       started: async () => {
-        await showStatus();
-        const lost = lostAttemptLine(store?.eventsAfter(0) ?? []);
-        if (lost !== undefined) out(lost);
+        try {
+          await showStatus();
+          const lost = lostAttemptLine(store?.eventsAfter(0) ?? []);
+          if (lost !== undefined) out(lost);
+        } catch (error) {
+          out(`demo: could not show the attempt: ${(error as Error).message}`);
+        }
       },
     }),
   gh: host.exec,
