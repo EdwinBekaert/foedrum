@@ -71,7 +71,7 @@ export type DriverNotice =
   | { kind: 'effect_failed'; key: EffectKey; error: unknown }
   /**
    * The runner's end of an attempt rejected: the attempt is blocked on its environment, and the
-   * other runs go on (ADR 0028).
+   * other runs go on (ADR 0099).
    */
   | { kind: 'run_failed'; ref: AttemptRef; error: unknown }
   /** What a cleanup of an ended batch's worktrees did. */
@@ -167,12 +167,16 @@ const summaryLength = 120;
 
 /**
  * The summary of a run whose end rejected with `error` (ADR 0099): the first line of its message,
- * at most `summaryLength` characters, or a fixed text when that has nothing to show, since the
- * event store refuses an empty summary.
+ * at most `summaryLength` characters, or a fixed text when that has nothing to show or cannot be
+ * read, since the event store refuses an empty summary.
  */
 const rejectionSummary = (error: unknown): string => {
-  const message = error instanceof Error ? error.message : String(error);
-  const line = (message.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
+  let message: unknown;
+  try {
+    message = error instanceof Error ? error.message : String(error);
+  } catch {}
+  const text = typeof message === 'string' ? message : '';
+  const line = (text.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
   return line === '' ? 'the brewer runner failed without a message' : line;
 };
 
@@ -467,11 +471,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
             (end) => ended.push({ ref, end }),
             // The runner broke, not the attempt: it is blocked on its environment, and its process,
             // which may still run, is stopped before its lease goes (ADR 0099).
+            // Neither can throw, so the end is always recorded and nothing is left floating.
             (error: unknown) => {
-              run.stop();
               const summary = rejectionSummary(error);
               const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
               ended.push({ ref, end: { ending }, rejected: { error } });
+              try {
+                run.stop();
+              } catch {}
             },
           );
         }
