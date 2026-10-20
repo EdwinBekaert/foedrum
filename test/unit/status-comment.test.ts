@@ -140,6 +140,19 @@ describe('renderStatus', () => {
     assert.match(text, /`retry`.*`cancel`/);
   });
 
+  // #238, ADR 0091: the reset is claude's text, shown as plain text like any summary (ADR 0072).
+  it('says which usage limit a batch is Stuck on and when it resets, as plain text', () => {
+    const summary = 'claude hit its session limit, which resets 3:45pm: retry the step after that';
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'blocked', stepId: 'brew', blockerKind: 'environment', summary }),
+        steps: new Map([step('plan', done(1)), step('brew', failed(1, summary))]),
+      }),
+      steps,
+    );
+    assert.ok(text.includes(`\`brew\` is blocked (environment): ${summary}`));
+  });
+
   it('lists the questions of a batch Stuck for input', () => {
     const question = {
       q: 'Which port?',
