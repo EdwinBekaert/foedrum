@@ -373,15 +373,25 @@ const withoutCredentials = (url: string): string => {
 export const managedClonePath = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'clone.git');
 
+/**
+ * Where each fetch of the base of `repo` makes a git directory of its own, which writes into its
+ * clone's objects and reads none of the clone's configuration (ADR 0090).
+ */
+export const baseFetchRoot = (workRoot: string, repo: string): string =>
+  join(workRoot, repoFolder(repo), 'base');
+
 /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
 export const worktreeClonePath = (
   workRoot: string,
   repository: { repo: string; source: RepositorySource; clone?: string },
-): string =>
-  // A local repository without its clone is refused before anything opens (serveSetup).
-  repository.source === 'local'
-    ? (repository.clone ?? '')
-    : managedClonePath(workRoot, repository.repo);
+): string => {
+  if (repository.source === 'managed') return managedClonePath(workRoot, repository.repo);
+  // serveSetup refuses it before anything opens; never git in the working directory instead (#202).
+  if (repository.clone === undefined) {
+    throw new Error(`The local repository ${repository.repo} names no clone`);
+  }
+  return repository.clone;
+};
 
 /**
  * The repository's managed clone (`source: managed`, ADR 0012): a bare partial clone in the work

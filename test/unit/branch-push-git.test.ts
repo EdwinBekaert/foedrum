@@ -3,10 +3,13 @@
 // it as an option.
 
 import assert from 'node:assert/strict';
+import { existsSync, mkdirSync } from 'node:fs';
 import { devNull } from 'node:os';
-import { describe, it } from 'node:test';
+import { dirname, join } from 'node:path';
+import { beforeEach, describe, it } from 'node:test';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
+import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
 const TIP = 'c'.repeat(40);
 const branch = 'foedrum/acme.brewery/12-1/acme.api';
@@ -152,6 +155,210 @@ describe('openBranchPush: push', () => {
     await assert.rejects(push.push('HEAD', branch), /HEAD is no full commit sha/);
     await assert.rejects(push.push(TIP, '--force'), /"--force" is no branch in foedrum\//);
     await assert.rejects(push.remoteTip('main'), /"main" is no branch in foedrum\//);
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe('openBranchPush: baseTip (ADR 0090)', () => {
+  const OLD = 'b'.repeat(40);
+  const nextFolder = suiteFolders('branch-push-git');
+  let root: string;
+  let gitDir: string;
+  let base: { url: string; root: string };
+  beforeEach(() => {
+    root = nextFolder();
+    gitDir = join(root, 'f1.git');
+    base = { url, root };
+  });
+  const url = 'https://github.com/acme/api.git';
+  /** The git directory of each fetch: f1, f2, … */
+  const ids = () => {
+    let n = 0;
+    return () => `f${++n}`;
+  };
+  /** A clone at `/work/acme.api/clone` whose origin/main is at OLD, and a remote main at TIP. */
+  const answers = (args: readonly string[]): GitResult => {
+    if (args.includes('--git-common-dir')) return ok(`${clone}\nsha1\n`);
+    if (args.includes('refs/remotes/origin/main^{commit}')) return ok(`${OLD}\n`);
+    if (args.includes('refs/heads/main')) return ok(`${TIP}\n`);
+    return ok();
+  };
+
+  it("fetches the remote's base into a git directory of the fetch's own, from the clone's origin/<base>, writing into the clone's objects", async () => {
+    const { git, calls } = recordingGit(answers);
+    const push = openBranchPush({ git, clone, base, id: ids() });
+    assert.equal(await push.baseTip('main'), TIP);
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+        [
+          clone,
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          'refs/remotes/origin/main^{commit}',
+        ],
+        [
+          clone,
+          `--git-dir=${gitDir}`,
+          'init',
+          '--bare',
+          '--quiet',
+          '--template=',
+          '--object-format=sha1',
+        ],
+        [clone, `--git-dir=${gitDir}`, 'update-ref', 'refs/heads/main', OLD],
+        [
+          clone,
+          `--git-dir=${gitDir}`,
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--no-recurse-submodules',
+          '--no-auto-maintenance',
+          '--end-of-options',
+          url,
+          '+refs/heads/main:refs/heads/main',
+        ],
+        [
+          clone,
+          `--git-dir=${gitDir}`,
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          'refs/heads/main',
+        ],
+      ],
+    );
+    // The ref is the fetch's boundary: what it walks after the fetch stops at the clone's base.
+    assert.equal(calls[3]?.options?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
+    const fetch = calls[4]?.options;
+    assert.equal(fetch?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
+    assert.equal(fetch?.config?.['core.hooksPath'], devNull);
+    assert.equal(fetch?.config?.['gc.auto'], '0');
+    assert.equal(fetch?.timeoutMs, 300_000);
+  });
+
+  it('sets no ref when the clone has no origin/<base>, or git names none, and passes the signal to every call', async () => {
+    for (const known of [failed(''), ok('not a sha\n')]) {
+      const { git, calls } = recordingGit((args) =>
+        args.includes('refs/remotes/origin/main^{commit}') ? known : answers(args),
+      );
+      const push = openBranchPush({ git, clone, base });
+      const { signal } = new AbortController();
+      assert.equal(await push.baseTip('main', signal), TIP);
+      assert.equal(
+        calls.some(({ args }) => args.includes('update-ref')),
+        false,
+      );
+      assert.deepEqual(
+        calls.map(({ options }) => options?.signal === signal),
+        [true, true, true, true, true],
+      );
+    }
+  });
+
+  it('gives every fetch a git directory of its own in the root, and removes it after, also when git fails (review of #254)', async () => {
+    // A git whose init makes the directory it names, as git would.
+    const made: string[] = [];
+    const { git, calls } = recordingGit((args) => {
+      if (args.includes('init')) {
+        const dir = (args[0] ?? '').slice('--git-dir='.length);
+        mkdirSync(dir, { recursive: true });
+        made.push(dir);
+      }
+      if (args.includes('fetch') && made.length === 3) return failed('fatal: unreachable\n');
+      return answers(args);
+    });
+    const push = openBranchPush({ git, clone, base });
+    await Promise.all([push.baseTip('main'), push.baseTip('main')]);
+    await assert.rejects(push.baseTip('main'), { message: 'git fetch failed: fatal: unreachable' });
+    assert.equal(new Set(made).size, 3);
+    for (const dir of made) {
+      assert.equal(dirname(dir), root);
+      assert.equal(existsSync(dir), false, dir);
+    }
+    const dirs = calls
+      .filter(({ args }) => args[0]?.startsWith('--git-dir='))
+      .map(({ args }) => args[0]);
+    assert.equal(new Set(dirs).size, 3);
+  });
+
+  it('runs no hook, gc or maintenance of its own for the fetch, which sees only the ref Foedrum fetched (review of #254)', async () => {
+    const { git, calls } = recordingGit(answers);
+    await openBranchPush({ git, clone, base }).baseTip('main');
+    const fetch = calls.find(({ args }) => args.includes('fetch'));
+    assert.deepEqual(fetch?.options?.config, {
+      'core.hooksPath': devNull,
+      'gc.auto': '0',
+      'maintenance.auto': 'false',
+    });
+  });
+
+  it('takes a base whose name has a slash and a dot (review of #254)', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args.includes('refs/heads/release/1.0') ? ok(`${TIP}\n`) : answers(args),
+    );
+    assert.equal(await openBranchPush({ git, clone, base }).baseTip('release/1.0'), TIP);
+    const fetch = calls.find(({ args }) => args.includes('fetch'));
+    assert.equal(fetch?.args.at(-1), '+refs/heads/release/1.0:refs/heads/release/1.0');
+  });
+
+  it('fails when git names no git directory of the clone, or the fetched ref no commit (review of #254)', async () => {
+    const nameless = recordingGit((args) =>
+      args.includes('--git-common-dir') ? ok('\n') : answers(args),
+    );
+    await assert.rejects(openBranchPush({ git: nameless.git, clone, base }).baseTip('main'), {
+      message: `git rev-parse did not name the git directory of ${clone}`,
+    });
+    assert.equal(
+      nameless.calls.some(({ args }) => args.includes('fetch')),
+      false,
+    );
+    // Only the clone's path, with no line after it or an empty one; and an empty path before the
+    // format.
+    for (const answer of [clone, `${clone}\n`, '\nsha1\n']) {
+      const half = recordingGit((args) =>
+        args.includes('--git-common-dir') ? ok(answer) : answers(args),
+      );
+      await assert.rejects(openBranchPush({ git: half.git, clone, base }).baseTip('main'), {
+        message: `git rev-parse did not name the git directory of ${clone}`,
+      });
+      assert.equal(half.calls.length, 1, JSON.stringify(answer));
+    }
+    const odd = recordingGit((args) =>
+      args.includes('refs/heads/main') ? ok('not a sha\n') : answers(args),
+    );
+    await assert.rejects(openBranchPush({ git: odd.git, clone, base }).baseTip('main'), {
+      message: 'The fetch of main named no commit: not a sha',
+    });
+  });
+
+  it("fails with git's reason when the remote has no such branch", async () => {
+    const { git } = recordingGit((args) =>
+      args.includes('fetch')
+        ? failed("fatal: couldn't find remote ref refs/heads/main\n")
+        : answers(args),
+    );
+    await assert.rejects(openBranchPush({ git, clone, base }).baseTip('main'), {
+      message: "git fetch failed: fatal: couldn't find remote ref refs/heads/main",
+    });
+  });
+
+  it('refuses a base that git would read as an option or a refspec, and a push with no base fetch, before git runs', async () => {
+    const { git, calls } = recordingGit(answers);
+    for (const name of ['--upload-pack=x', '-main', 'main:refs/heads/x', 'a..b', 'ma in', '']) {
+      await assert.rejects(openBranchPush({ git, clone, base }).baseTip(name), {
+        message: `${JSON.stringify(name)} is no branch name`,
+      });
+    }
+    await assert.rejects(openBranchPush({ git, clone }).baseTip('main'), {
+      message: `The pushes from ${clone} have no base to fetch`,
+    });
     assert.deepEqual(calls, []);
   });
 });
