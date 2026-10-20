@@ -178,6 +178,13 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
     const summary = `claude did not set up the session the runner asked for: ${facts.environment}`;
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
+  // claude refuses every request until the window resets: another attempt now would be refused
+  // too, so a human retries after the reset claude named (ADR 0091).
+  if (facts.usageLimit !== undefined) {
+    const { limit, resets } = facts.usageLimit;
+    const summary = `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
   if (exit.kind === 'unstartable') {
     return failed(false, `the brewer could not start: ${exit.reason}`);
   }
