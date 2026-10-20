@@ -53,6 +53,11 @@ export interface BranchPush {
   commit(revision: string, signal?: AbortSignal): Promise<string>;
   /** Whether the commit `commit` is the commit `of` or one of its ancestors: both full shas. */
   isAncestor(commit: string, of: string, signal?: AbortSignal): Promise<boolean>;
+  /**
+   * The commit the remote's branch `base` points at now, fetched into the clone's objects without
+   * reading the clone's configuration (ADR 0090); throws when the remote has no such branch.
+   */
+  baseTip(base: string, signal?: AbortSignal): Promise<string>;
   /** The commit the remote's branch `branch` points at, or `undefined` when it has no such branch. */
   remoteTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Pushes `commit` to the remote's branch `branch`, never by force. */
@@ -187,10 +192,12 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       case 'push': {
         const { push, revision, base, branch } = effect;
         // The commit to push, and whether the base holds all of it: a pull request with no commits,
-        // which the code host refuses, is recorded as nothing to push instead.
+        // which the code host refuses, is recorded as nothing to push instead. The base as the
+        // remote has it now, not the clone's origin/<base>, which may not have been fetched since
+        // the base moved (ADR 0090); the scan reads from the same commit.
         const resolve = async (signal?: AbortSignal) => {
           const commit = await push.commit(revision, signal);
-          const from = await push.commit(base, signal);
+          const from = await push.baseTip(base, signal);
           // Every commit of the task tree is in the base already, also when the base moved past it.
           const empty = await push.isAncestor(commit, from, signal);
           const result: PushResult = {
@@ -259,7 +266,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         kind: 'push',
         push: repository.push,
         revision,
-        base: `origin/${repository.base}`,
+        base: repository.base,
         branch,
       });
       effects.set(effectKey.encode(pullRequestKey(batchId)), {

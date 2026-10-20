@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { diagnose } from '../../src/cli/doctor.ts';
-import { type ServeInputs, serveSetup } from '../../src/cli/serve-config.ts';
+import { attemptClone, type ServeInputs, serveSetup } from '../../src/cli/serve-config.ts';
 import { linux, loggedIn, ran, windows } from '../helpers/doctor-facts.ts';
 import { clone, config, home, local, models, root, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -97,6 +97,38 @@ describe('serveSetup', () => {
       }),
     );
     assert.equal(setup.repositories[0]?.clone, clone);
+  });
+
+  it("names the clone a repository's attempt worktrees are added to, as serve does (ADR 0092)", () => {
+    const files = { config: config(), local: local() };
+    assert.equal(attemptClone(files, home, 'acme/web'), clone);
+    // Another spelling of the name is the same repository.
+    assert.equal(attemptClone(files, home, 'Acme/WEB'), clone);
+    const managed = { config: config({}, { source: 'managed' }), local: undefined };
+    assert.equal(
+      attemptClone(managed, home, 'acme/web'),
+      join(home, '.foedrum', 'acme.brewery', 'acme.web', 'clone.git'),
+    );
+    const workRoot = resolve('work');
+    assert.equal(
+      attemptClone({ ...managed, local: local({ workRoot }) }, home, 'acme/web'),
+      join(workRoot, 'acme.web', 'clone.git'),
+    );
+  });
+
+  it('names no clone for a repository the files do not name, or files that do not read', () => {
+    const files = { config: config(), local: local() };
+    assert.equal(attemptClone(files, home, 'acme/other'), undefined);
+    assert.equal(attemptClone({ ...files, local: undefined }, home, 'acme/web'), undefined);
+    assert.equal(attemptClone({ ...files, config: undefined }, home, 'acme/web'), undefined);
+    assert.equal(attemptClone({ ...files, config: '{ not jsonc' }, home, 'acme/web'), undefined);
+    assert.equal(attemptClone({ ...files, local: '{ "clones": 1 }' }, home, 'acme/web'), undefined);
+    // A managed clone lies in the work root, which needs the Brewery's name.
+    const noBrewery = config({ brewery: undefined }, { source: 'managed' });
+    assert.equal(
+      attemptClone({ config: noBrewery, local: undefined }, home, 'acme/web'),
+      undefined,
+    );
   });
 
   it('runs without .foedrum/local.jsonc when every repository is managed', () => {

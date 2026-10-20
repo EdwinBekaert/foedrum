@@ -27,7 +27,7 @@ import { ModelsConfig } from '../schemas/models.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
-import { repoFolder } from '../workspace/attempt-worktrees.ts';
+import { managedClonePath, repoFolder } from '../workspace/attempt-worktrees.ts';
 import type { Diagnosis } from './doctor.ts';
 
 /** What serve reads before it touches anything. */
@@ -139,6 +139,37 @@ const read = <T>(
   return undefined;
 };
 
+// GitHub names are case-insensitive: the two files may spell one differently.
+const sameName = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
+
+/** The user's clone of `repo` that .foedrum/local.jsonc names. */
+const userClone = (local: LocalConfig, repo: string): string | undefined =>
+  Object.entries(local.clones).find(([name]) => sameName(name, repo))?.[1];
+
+const workRootOf = (local: LocalConfig | undefined, home: string, brewery: string): string =>
+  local?.workRoot ?? join(home, '.foedrum', repoFolder(brewery));
+
+/**
+ * The clone `repo`'s attempt worktrees are added to, from the text of foedrum.jsonc and
+ * .foedrum/local.jsonc: the user's for `source: local`, the managed one in the work root
+ * otherwise. Undefined when the files do not name it or do not read.
+ */
+export const attemptClone = (
+  files: { config: string | undefined; local: string | undefined },
+  home: string,
+  repo: string,
+): string | undefined => {
+  const problems: string[] = [];
+  const config = read('foedrum.jsonc', files.config, BreweryConfig, undefined, problems);
+  const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
+  if (config === undefined || local === undefined) return undefined;
+  const repository = Object.entries(config.repositories).find(([name]) => sameName(name, repo));
+  if (repository === undefined) return undefined;
+  if ((repository[1].source ?? 'local') === 'local') return userClone(local, repo);
+  if (config.brewery === undefined) return undefined;
+  return managedClonePath(workRootOf(local, home, config.brewery), repo);
+};
+
 /** Everything serve sets up, or one line per problem, all of them at once. */
 export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   const { root, home, platform, env, files, diagnosis } = inputs;
@@ -171,10 +202,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   const repositories = Object.entries(config?.repositories ?? {}).map(
     ([repo, repository]): ServeRepository => {
       const source = repository.source ?? 'local';
-      // GitHub names are case-insensitive: the two files may spell one differently.
-      const clone = Object.entries(local?.clones ?? {}).find(
-        ([name]) => name.toLowerCase() === repo.toLowerCase(),
-      )?.[1];
+      const clone = local === undefined ? undefined : userClone(local, repo);
       if (source === 'local' && clone === undefined && local !== undefined) {
         problems.push(
           `.foedrum/local.jsonc: ${repo} has the source local, so name its clone in "clones" (ADR 0063)`,
@@ -223,7 +251,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     return { kind: 'refused', problems };
   }
   const { brewery } = config;
-  const workRoot = local?.workRoot ?? join(home, '.foedrum', repoFolder(brewery));
+  const workRoot = workRootOf(local, home, brewery);
   return {
     kind: 'ready',
     setup: {

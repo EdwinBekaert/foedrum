@@ -84,5 +84,6 @@ export const doctorHere = async (
     user: () => 'doctor-test',
     surface: 'terminal',
     now: () => new Date(),
+    readKeptBranches: notForDoctor('kept branches'),
     serve: notForDoctor('serve'),
   });

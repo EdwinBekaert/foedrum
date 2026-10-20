@@ -4,12 +4,14 @@
 
 import { parseArgs } from 'node:util';
 import type { EventStore } from '../engine/event-store.ts';
+import type { State } from '../engine/fold.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
 import { commands } from './commands.ts';
 import type { DoctorFacts } from './doctor.ts';
+import type { BranchReading } from './kept-branches.ts';
 
 /** What the commands need from the machine. */
 export interface CliContext {
@@ -33,6 +35,14 @@ export interface CliContext {
   /** Where the command comes from: the surface its events record. */
   surface: Surface;
   now: () => Date;
+  /**
+   * What git says of the task-tree branches the cleanup keeps (`Claims.unpushed`, ADR 0084), for
+   * `foedrum status` (ADR 0092). Called only when there are any.
+   */
+  readKeptBranches: (
+    state: State,
+    unpushed: ReadonlyMap<string, string>,
+  ) => Promise<ReadonlyMap<string, BranchReading>>;
   /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
   serve: () => Promise<CliResult>;
 }
