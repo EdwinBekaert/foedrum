@@ -30,7 +30,7 @@ import type { Git, GitOptions, GitResult } from './git.ts';
 import { parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
 import type { FolderState } from './worktree-removal.ts';
-import { gitThrough, removeWorktree } from './worktree-removal-git.ts';
+import { gitThrough, removeWorktree, statusOf } from './worktree-removal-git.ts';
 
 export interface AttemptWorktreesOptions {
   git: Git;
@@ -192,9 +192,8 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     if (!existsSync(path)) return { state: 'gone' };
     if (!existsSync(join(path, '.git'))) return { state: 'no-git' };
     if (record === undefined || !(await pointsAt(path, record))) return { state: 'foreign' };
-    const args = [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'];
-    const status = await git(clone, args, { config: { 'core.fsmonitor': 'false' } });
-    return status.code === 0 ? worktreeStatus(status.stdout, outDoc) : { state: 'dirty' };
+    const status = await statusOf(okGit, clone, record, path);
+    return status.ok ? worktreeStatus(status.stdout, outDoc) : { state: 'dirty' };
   };
   // One fetch at a time: concurrent fetches in one clone fail on git's ref locks.
   let fetching: Promise<unknown> = Promise.resolve();

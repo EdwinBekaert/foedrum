@@ -3,9 +3,10 @@
 
 import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { clearReadOnly, errorCode, removeTree } from '../platform/remove.ts';
-import type { Git as WorkspaceGit } from './git.ts';
+import type { GitOptions, Git as WorkspaceGit } from './git.ts';
 import type { FolderState, Removal } from './worktree-removal.ts';
 
 export interface OkGitResult {
@@ -15,7 +16,7 @@ export interface OkGitResult {
 }
 
 /** git with success as a flag, and a reason on every failure. */
-export type OkGit = (cwd: string, args: string[]) => Promise<OkGitResult>;
+export type OkGit = (cwd: string, args: string[], options?: GitOptions) => Promise<OkGitResult>;
 
 // Foedrum's git with success as a flag.
 export const gitThrough =
@@ -35,11 +36,30 @@ export const gitThrough =
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
-/** The state of a worktree folder that git lists. */
-export const folderState = async (git: OkGit, path: string): Promise<FolderState> => {
+/**
+ * git status of the worktree at `path`, run in `main` against `record`, its record under the
+ * clone: never by discovery from the folder, whose .git file a brewer can point at a git folder
+ * of its own, with a core.fsmonitor command in its configuration (#263, ADR 0095).
+ */
+export const statusOf = (git: OkGit, main: string, record: string, path: string) =>
+  git(main, [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'], {
+    config: { 'core.fsmonitor': 'false', 'core.hooksPath': devNull },
+  });
+
+/**
+ * The state of a worktree folder that git lists; `unchecked` when the repository at `main` has
+ * no record of it, which keeps it.
+ */
+export const folderState = async (
+  git: OkGit,
+  main: string,
+  path: string,
+  record: string | undefined,
+): Promise<FolderState> => {
   if (!existsSync(path)) return 'gone';
   if (!existsSync(join(path, '.git'))) return 'no-git';
-  const status = await git(path, ['status', '--porcelain']);
+  if (record === undefined) return 'unchecked';
+  const status = await statusOf(git, main, record, path);
   return status.ok && status.stdout.trim() === '' ? 'clean' : 'dirty';
 };
 

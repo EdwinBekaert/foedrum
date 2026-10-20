@@ -60,7 +60,7 @@ const gatherFacts = async (git: Git, main: string): Promise<Gathered> => {
     const record = records.find(
       ({ folder }) => folder !== undefined && samePath(folder, path),
     )?.dir;
-    const state = inside === undefined ? 'unchecked' : await folderState(git, path);
+    const state = inside === undefined ? 'unchecked' : await folderState(git, main, path, record);
     worktrees.push({ path, inside, branch, lockReason, state, record });
   }
   // lstrip=2, not :short, which git disambiguates (heads/<name> next to a tag of that name).
