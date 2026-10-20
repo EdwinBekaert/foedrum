@@ -247,7 +247,11 @@ describe('worktrees-clean with real git', () => {
       result.stdout,
       /kept worktree \.claude\/worktrees\/17-dirty: it has uncommitted or untracked changes/,
     );
-    assert.match(result.stdout, /kept worktree \.claude\/worktrees\/18-forged: /);
+    // Read through its record, the planted git folder is an untracked change.
+    assert.match(
+      result.stdout,
+      /kept worktree \.claude\/worktrees\/18-forged: it has uncommitted or untracked changes/,
+    );
   });
 
   it('never runs a command of the git folder a submodule .git file names', () => {
