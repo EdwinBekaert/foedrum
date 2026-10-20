@@ -62,6 +62,30 @@ describe('the demo brewer', () => {
     assert.ok(runner.progress(start.ref) !== undefined);
   });
 
+  it('in the life that crashes, does not crash once the attempt was stopped while it committed', async () => {
+    const log: string[] = [];
+    let commit = (): void => {};
+    const git: Git = async (_at, args) => {
+      if (args[0] === 'commit') await new Promise<void>((done) => (commit = done));
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    const runner = scriptedBrewer({
+      plan: async () => ({ cwd }),
+      git,
+      write: () => {},
+      life: 'crash',
+      crash: () => log.push('crash'),
+    });
+    const run = runner.start(start);
+    await settled();
+    // The engine stops the attempt (a deadline, or serve's own stop) while git still commits.
+    run.stop();
+    commit();
+    const { ending } = await run.ended;
+    assert.equal(ending.kind, 'cancelled', JSON.stringify(ending));
+    assert.deepStrictEqual(log, []);
+  });
+
   it('fails the attempt, not the tick, when git cannot commit, and does not crash', async () => {
     const { runner, log } = brewer('crash', 128);
     const { ending } = await runner.start(start).ended;
