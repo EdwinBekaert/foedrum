@@ -9,6 +9,7 @@ import { brewerBaseEnv, type Env } from '../engine/brewer-env.ts';
 import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
 import {
   type BreweryFiles,
+  filesInUse,
   invalidRecipes,
   loadRecipes,
   type StepBrewers,
@@ -224,7 +225,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   if (!loaded.valid) problems.push(invalidRecipes(loaded.problems));
   // Every brewer's alias has a model, so no attempt finds out only when it starts.
   if (models !== undefined) {
-    for (const file of files.brewery.brewers) {
+    for (const file of filesInUse(files.brewery).brewers) {
       if (!('text' in file)) continue;
       const brewer = readDoc(file.text, BrewerFrontmatter);
       if (!brewer.valid) continue;

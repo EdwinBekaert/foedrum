@@ -9,7 +9,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
-import type { StepBrewers } from '../engine/recipe-files.ts';
+import { MAX_INPUT_BYTES, type StepBrewers } from '../engine/recipe-files.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
@@ -65,9 +65,6 @@ export interface AttemptPlans {
   outDoc(step: { batchId: string; stepId: string }): string | undefined;
 }
 
-/** An input's text reaches the prompt on stdin, and the event log through the out doc. */
-const MAX_INPUT_BYTES = 1024 * 1024;
-
 const realFiles = {
   read: readOutDocFile,
   makeFolder: (path: string) => {
@@ -102,6 +99,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
+    // A lens's text was read, and held to the limit, when the brewer loaded (ADR 0098).
+    if (read.kind === 'text') return read.text;
     if (read.kind === 'order') {
       const text = await options.orderText(read);
       // Anyone who can file an issue writes its body: it gets the limit of an input file.
@@ -143,6 +142,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         batch,
         (id) => brewers.find(recipe, id),
         worktree.path,
+        found.lenses,
       );
       const inputs: PromptInput[] = [];
       for (const input of planned) {

@@ -18,6 +18,8 @@ export interface ScriptedBrewerOptions {
   life: Life;
   /** Kills the Cellar's process; called once the commit is made, in the life that crashes. */
   crash: () => void;
+  /** Called once the attempt has started, before the brewer writes; the demo shows it there. */
+  started?: (ref: AttemptStart['ref']) => Promise<void>;
 }
 
 /** The file the brewer writes, and what it says. */
@@ -43,7 +45,7 @@ const failed = (reason: string): AttemptEnd => ({
 });
 
 export const scriptedBrewer = (options: ScriptedBrewerOptions): BrewerRunner => {
-  const { plan, git, write, life, crash } = options;
+  const { plan, git, write, life, crash, started } = options;
   // The tests' runner plays the attempt: a brewer that is still running when the Cellar dies, or
   // one whose out doc says done.
   const scripted = fakeBrewerRunner(() =>
@@ -53,6 +55,8 @@ export const scriptedBrewer = (options: ScriptedBrewerOptions): BrewerRunner => 
   );
   /** The fixed change, committed in the attempt's worktree; why it could not be, if not. */
   const commit = async (start: AttemptStart): Promise<string | undefined> => {
+    // Showing the attempt never fails it: the Cellar says itself why it could not.
+    await started?.(start.ref).catch(() => undefined);
     try {
       const { cwd } = await plan(start);
       write(join(cwd, GREETING.file), GREETING.text);

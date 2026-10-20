@@ -90,6 +90,13 @@ describe('BrewerFrontmatter', () => {
     assert.equal(accepted({ ...taster, inputs }), true);
   });
 
+  it('accepts an input from a lens (ADR 0098)', () => {
+    assert.equal(
+      accepted({ ...taster, inputs: [{ name: 'focus', from: 'lens:test-design' }] }),
+      true,
+    );
+  });
+
   it('defaults an input to untrusted', () => {
     const parsed = BrewerFrontmatter.parse({
       ...taster,
@@ -157,6 +164,14 @@ describe('BrewerFrontmatter', () => {
     [
       'an input from a file outside the worktree',
       { ...taster, inputs: [{ name: 'x', from: 'file:../x' }] },
+    ],
+    [
+      'an input from a lens name that is not path-safe',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:../security' }] },
+    ],
+    [
+      'an input from a lens name in capitals',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:Bad' }] },
     ],
     [
       'a trusted order, which is always untrusted',

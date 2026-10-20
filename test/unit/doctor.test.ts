@@ -718,3 +718,55 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
     assert.deepEqual(diagnose(linux()).problems, []);
   });
 });
+
+describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
+  const lens = { path: 'defaults/lenses/security.md', text: 'Look for secrets.' };
+  const replaced = { path: 'defaults/lenses/correctness.md', text: 'Look for bugs.' };
+
+  it('names the defaults the Brewery has no file of its own for', () => {
+    const report = formatDiagnosis(
+      diagnose({
+        ...linux(),
+        brewery: {
+          recipes: [],
+          brewers: [],
+          lenses: [{ path: 'lenses/correctness.md', text: 'Our bugs.' }],
+          defaults: { lenses: [replaced, lens] },
+        },
+      }),
+    );
+    assert.match(
+      report,
+      /\nDefaults in use: defaults\/lenses\/security\.md \(a Brewery file of the same name replaces one\)\n/,
+    );
+  });
+
+  it('says none are in use when the Brewery replaces every default, and nothing when it read no Brewery', () => {
+    const replacing = formatDiagnosis(
+      diagnose({
+        ...linux(),
+        brewery: {
+          recipes: [],
+          brewers: [],
+          lenses: [{ path: 'lenses/correctness.md', text: 'Our bugs.' }],
+          defaults: { lenses: [replaced] },
+        },
+      }),
+    );
+    assert.match(replacing, /\nDefaults in use: none\n/);
+    assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /Defaults in use/);
+  });
+
+  it("says nothing of the defaults when the Brewery's files do not load", () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [{ path: 'recipes/pale.jsonc', text: '{' }],
+        brewers: [],
+        defaults: { lenses: [lens] },
+      },
+    });
+    assert.ok(diagnosis.problems.some(({ what }) => what === INVALID_RECIPES));
+    assert.doesNotMatch(formatDiagnosis(diagnosis), /Defaults in use/);
+  });
+});

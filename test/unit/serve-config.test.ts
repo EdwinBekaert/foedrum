@@ -210,6 +210,27 @@ describe('serveSetup', () => {
     );
   });
 
+  it('refuses a default brewer whose model alias models.jsonc does not have, unless the Brewery replaces it (ADR 0098)', () => {
+    const { brewery } = inputs().files;
+    const [own] = brewery.brewers;
+    assert.ok(own !== undefined);
+    const fromDefaults = { ...own, path: 'defaults/brewers/cellarman.md' };
+    const withDefault = (brewers: typeof brewery.brewers) => ({
+      files: {
+        ...inputs().files,
+        models: models('deep'),
+        brewery: { ...brewery, brewers, defaults: { brewers: [fromDefaults] } },
+      },
+    });
+    assert.deepStrictEqual(refused(inputs(withDefault([]))), [
+      'defaults/brewers/cellarman.md: models.jsonc has no model for the alias "quick" of the brewer "cellarman"',
+    ]);
+    // The Brewery's own cellarman is checked instead.
+    assert.deepStrictEqual(refused(inputs(withDefault([own]))), [
+      'brewers/cellarman.md: models.jsonc has no model for the alias "quick" of the brewer "cellarman"',
+    ]);
+  });
+
   it("refuses recipe files that do not load, with doctor's line", () => {
     const problems = refused(
       inputs({

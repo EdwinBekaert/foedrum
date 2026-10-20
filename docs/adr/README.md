@@ -44,7 +44,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0038](0038-npm-test-processes-refuse-process-starts.md) | npm test's processes refuse to start processes (amends 0021 and 0036) | Accepted |
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted, amended by 0054 |
-| [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) | Untrusted input in per-prompt nonce tags (amends 0018 and 0019) | Accepted |
+| [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) | Untrusted input in per-prompt nonce tags (amends 0018 and 0019) | Accepted, amended by 0098 |
 | [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047, 0062 and 0087 |
 | [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) | Target-repository issues as a work queue, claimed by a ref (amends 0008, 0013, 0024, 0029 and 0033) | Accepted, amended by 0050 |
 | [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051, 0055 and 0063 |
@@ -56,7 +56,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0050](0050-the-intake-of-target-repository-issues.md) | The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines (amends 0008, 0043 and 0044) | Accepted, amended by 0052 and 0068 |
 | [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) | Chaos runs on the real driver, with two drivers and a terminal on one store (amends 0033 and 0044) | Accepted, amended by 0055 and 0061 |
 | [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) | GitHub reads: conditional requests, rate-limit pauses and the polling interval (amends 0008 and 0050) | Accepted, amended by 0068, 0072 and 0073 |
-| [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) | Recipe files reach the engine: brewer steps in a line first, and all or nothing (amends 0025) | Accepted, amended by 0064, 0069 and 0084 |
+| [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) | Recipe files reach the engine: brewer steps in a line first, and all or nothing (amends 0025) | Accepted, amended by 0064, 0069, 0084 and 0098 |
 | [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) | Test runs below normal priority, and review runs scoped to their question (amends 0034, 0036 and 0040) | Accepted, amended by 0089 |
 | [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) | A step waits for the lease of its abandoned attempt (amends 0044 and 0051) | Accepted |
 | [0056](0056-the-gate-pre-filter-reads-the-command.md) | The local gate's pre-filter reads the command, not the whole hook input (amends 0045) | Accepted, amended by 0060 and 0065 |
@@ -97,6 +97,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0095](0095-the-cleanups-read-a-worktree-through-its-record-and-run-no-fsmonitor-or-hook.md) | The cleanups read a worktree through its record, and run no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
 | [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) | The engine's git reaches the remote outside the clone's configuration (amends 0012, 0029, 0071 and 0090) | Accepted |
 | [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) | `npm run demo` is a development script on serve's seams, with the tests' fakes | Accepted |
+| [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) | Foedrum's defaults load under the Brewery's files, and a brewer input can name a lens (amends 0041 and 0053) | Accepted |
 | [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) | A rejected run end is blocked on the environment, not a failed tick (amends 0028) | Accepted |
 
 ## Template
