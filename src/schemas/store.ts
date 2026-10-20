@@ -83,16 +83,28 @@ export const CommitSha = z
   .string()
   .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
 
+/** The most findings the ledger keeps of one refused push (ADR 0079). */
+export const MAX_REFUSED = 50;
+
+/**
+ * What the secret scan found in a batch's commits (ADR 0079): the commit, the place (the file's
+ * path as git shows it, `message`, or why neither can be named) and the kind, never the text.
+ */
+export const ScanFinding = z.strictObject({ commit: CommitSha, place: Filled, kind: Filled });
+export type ScanFinding = z.infer<typeof ScanFinding>;
+
 /**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
- * commit of it, so nothing was pushed.
+ * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
+ * (ADR 0079): each commit, place and kind, never the text.
  */
 export const PushResult = z.strictObject({
   branch: Filled,
   commit: CommitSha,
   from: Filled,
   empty: z.literal(true).optional(),
+  refused: z.array(ScanFinding).min(1).max(MAX_REFUSED).optional(),
 });
 export type PushResult = z.infer<typeof PushResult>;
 

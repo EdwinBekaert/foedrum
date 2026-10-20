@@ -9,6 +9,8 @@ export interface GitResult {
   code: number | null;
   stdout: string;
   stderr: string;
+  /** Why the runner killed git, when it did. */
+  killed?: Killed;
 }
 
 export interface GitOptions {
@@ -20,6 +22,10 @@ export interface GitOptions {
   signal?: AbortSignal;
   /** Kills git when its output passes this many bytes; default the runner's 4 MiB (ADR 0035). */
   maxOutputBytes?: number;
+  /** Environment for this call only, after git's own: it never turns a prompt back on. */
+  env?: Readonly<Record<string, string>>;
+  /** Written to git's stdin, which is then closed. */
+  stdin?: string;
 }
 
 export type Git = (
@@ -82,16 +88,29 @@ const whyGitKilled = (
 /** git through the given process runner; unit tests pass a fake one (ADR 0021). */
 export const runGitWith =
   (exec: ExecProcess): Git =>
-  async (cwd, args, { timeoutMs = 60_000, config, signal, maxOutputBytes } = {}) => {
+  async (cwd, args, { timeoutMs = 60_000, config, signal, maxOutputBytes, env, stdin } = {}) => {
+    const own = gitEnv(process.env, config);
     const { exitCode, stdout, stderr, killed } = await exec('git', args, {
       cwd,
-      env: gitEnv(process.env, config),
+      // The call's own after git's, but never in place of what keeps git from prompting.
+      env: {
+        ...own,
+        ...env,
+        GIT_TERMINAL_PROMPT: own.GIT_TERMINAL_PROMPT,
+        GCM_INTERACTIVE: own.GCM_INTERACTIVE,
+      },
       timeoutMs,
       signal,
       maxOutputBytes,
+      ...(stdin === undefined ? {} : { stdin }),
     });
     const why = whyGitKilled(killed, timeoutMs, maxOutputBytes);
-    return { code: exitCode, stdout, stderr: `${stderr}${why}` };
+    return {
+      code: exitCode,
+      stdout,
+      stderr: `${stderr}${why}`,
+      ...(killed === undefined ? {} : { killed }),
+    };
   };
 
 /**

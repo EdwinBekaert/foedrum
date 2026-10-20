@@ -169,6 +169,7 @@ describe('runServe', () => {
       push: async (commit, branch) => {
         pushes.push(`${repository.repo} ${commit} ${branch}`);
       },
+      secretScan: async () => [],
     }),
     runner: (claude, plan) => {
       calls.push(`runner ${claude}`);

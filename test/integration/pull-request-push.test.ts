@@ -4,8 +4,8 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -201,6 +201,234 @@ describe('the openPullRequest push with real git', () => {
       kind: 'failed',
       retryable: false,
       reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+    });
+  });
+
+  describe('the secret scan before the push (ADR 0079)', () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+
+    /** Asserts that nothing reached the origin and the batch is Stuck on its environment; its summary. */
+    const stopped = (state: Awaited<ReturnType<typeof brew>>['state'], requests: unknown[]) => {
+      assert.equal(
+        git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]),
+        '',
+      );
+      assert.deepEqual(requests, []);
+      const lane = state.batches.get('12-1')?.lane;
+      assert.equal(lane?.kind, 'stuck');
+      const reason = lane?.kind === 'stuck' ? lane.reason : undefined;
+      assert.equal(reason?.kind, 'blocked');
+      assert.equal(reason?.kind === 'blocked' && reason.blockerKind, 'environment');
+      // Not in any event, so neither on the state branch nor in the status comment.
+      assert.doesNotMatch(JSON.stringify(store.eventsAfter(0)), /A1b2/);
+      return reason?.kind === 'blocked' ? reason.summary : '';
+    };
+
+    /** Commits the token in plan.txt, then removes it again: the tip's tree holds no secret. */
+    const commitAndHide = (path: string) => {
+      writeFileSync(join(path, 'plan.txt'), `${token}\n`);
+      git(path, ['add', 'plan.txt']);
+      git(path, ['commit', '-q', '-m', 'Plan']);
+      git(path, ['rm', '-q', 'plan.txt']);
+      git(path, ['commit', '-q', '-m', 'Tidy']);
+      const gitDir = git(path, ['rev-parse', '--git-common-dir']).trim();
+      return {
+        tidy: git(path, ['rev-parse', 'HEAD']).trim(),
+        start: git(path, ['rev-parse', 'HEAD~2']).trim(),
+        common: isAbsolute(gitDir) ? gitDir : join(path, gitDir),
+      };
+    };
+
+    it('stops the push of a commit whose message holds a credential', async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', '-m', `GH=${token}`]);
+      });
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, message: GitHub token`));
+    });
+
+    // Review of #237: `git commit --author` matches a brewer's `Bash(git commit *)` rule.
+    it('stops the push of a commit whose author holds a credential', async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
+      });
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, author: GitHub token`));
+    });
+
+    // Consultant-round review of #237: settings of the clone that changed how the headers print.
+    for (const [setting, value] of [
+      ['color.ui', 'always'],
+      ['i18n.logOutputEncoding', 'UTF-16LE'],
+    ]) {
+      it(`stops the push of a credential in the author, whatever the clone's ${setting}`, async () => {
+        const { state, requests } = await brew((path) => {
+          writeFileSync(join(path, 'plan.txt'), 'plan\n');
+          git(path, ['add', 'plan.txt']);
+          git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
+          git(path, ['config', `${setting}`, `${value}`]);
+        });
+        assert.match(stopped(state, requests), /, author: GitHub token/);
+      });
+    }
+
+    // A mailmap would rewrite the author without changing the commit lines, so the commit-list
+    // check would not notice. git 2.56 prints raw headers unmapped anyway; --no-mailmap keeps it so.
+    it("stops the push of a credential in the author, whatever the clone's mailmap", async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
+        const mailmap = join(path, '..', 'mailmap');
+        writeFileSync(mailmap, `Brewer <b@x.y> ${token} <x@y.z>\n`);
+        git(path, ['config', 'mailmap.file', mailmap]);
+        git(path, ['config', 'log.mailmap', 'true']);
+      });
+      // The mailmap is in force: a log of the clone shows the mapped author.
+      const plain = git(user, ['log', '--format=%aN', '-1', `refs/heads/${planBranch}`]);
+      assert.equal(plain.trim(), 'Brewer');
+      assert.match(stopped(state, requests), /, author: GitHub token/);
+    });
+
+    it('stops the push of a commit whose encoding header holds a credential', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['-c', `i18n.commitEncoding=${token}`, 'commit', '-q', '-m', 'Plan']);
+      });
+      assert.match(stopped(state, requests), /, header encoding: GitHub token/);
+    });
+
+    it("pushes a commit that names one of the clone's commits by its hash", async () => {
+      const { state } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        writeFileSync(join(path, 'plan.txt'), `continues ${start}\n`);
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan', '-m', `After ${start}`]);
+      });
+      assert.equal(
+        git(origin, ['log', '-1', '--format=%s', `refs/heads/${bottle}`]).trim(),
+        'Plan',
+      );
+      assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    });
+
+    it('stops the push of a hexadecimal word that is no commit of the clone', async () => {
+      const key = '0123456789abcdef'.repeat(3).slice(0, 40);
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'plan.txt'), `key ${key}\n`);
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan']);
+      });
+      assert.match(stopped(state, requests), /, plan\.txt: long hexadecimal string/);
+    });
+
+    it('stops the push of a credential in an added line of a file the base has', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'readme.txt'), `hello\nkey ${token}\n`);
+        git(path, ['commit', '-q', '-am', 'Note the key']);
+      });
+      assert.match(stopped(state, requests), /, readme\.txt: GitHub token/);
+    });
+
+    it('stops the push of a credential in a new file, in a commit before the tip', async () => {
+      const { state, requests } = await brew(commitAndHide);
+      assert.match(stopped(state, requests), /, plan\.txt: GitHub token/);
+    });
+
+    it('stops the push of a binary file, which it cannot read', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'logo.png'), Buffer.from([0, 1, 2, 3, 0, 255]));
+        git(path, ['add', 'logo.png']);
+        git(path, ['commit', '-q', '-m', 'Add a logo']);
+      });
+      assert.match(stopped(state, requests), /, logo\.png: binary file/);
+    });
+
+    it('stops the push of more than 4 MiB of changes, past what it reads', async () => {
+      const { state, requests } = await brew((path) => {
+        writeFileSync(join(path, 'big.txt'), 'all work and no play\n'.repeat(250_000));
+        git(path, ['add', 'big.txt']);
+        git(path, ['commit', '-q', '-m', 'Add a big file']);
+      });
+      assert.match(stopped(state, requests), /more than 4 MiB of messages or changes/);
+    });
+
+    // Each one hides the commit that adds the token from a plain `git log --patch` in the clone
+    // every attempt worktree shares, while the push would still carry it.
+    const plants: Record<string, (path: string) => void> = {
+      'a replace ref that skips the commit': (path) => {
+        const { tidy, start } = commitAndHide(path);
+        git(path, ['replace', '--graft', tidy, start]);
+      },
+      'a graft that skips the commit': (path) => {
+        const { tidy, start, common } = commitAndHide(path);
+        mkdirSync(join(common, 'info'), { recursive: true });
+        writeFileSync(join(common, 'info', 'grafts'), `${tidy} ${start}\n`);
+      },
+      'a shallow file that ends history at the tip': (path) => {
+        const { tidy, common } = commitAndHide(path);
+        writeFileSync(join(common, 'shallow'), `${tidy}\n`);
+      },
+      'a textconv that shows nothing': (path) => {
+        const { common } = commitAndHide(path);
+        mkdirSync(join(common, 'info'), { recursive: true });
+        writeFileSync(join(common, 'info', 'attributes'), '*.txt diff=hide\n');
+        git(path, ['config', 'diff.hide.textconv', 'node -e ""']);
+      },
+    };
+    for (const [plant, work] of Object.entries(plants)) {
+      it(`sees the commits as they are, whatever a brewer planted in the clone: ${plant}`, async () => {
+        const { state, requests, planBranch } = await brew(work);
+        // The plant works: a plain log of the clone does not show the token.
+        const plain = git(user, ['log', '--patch', `refs/heads/${planBranch}`, '^origin/main']);
+        assert.doesNotMatch(plain, /A1b2/);
+        assert.match(stopped(state, requests), /, plan\.txt: GitHub token/);
+      });
+    }
+
+    // Review of #237: merged hunks carry context lines, which must not throw the count off.
+    it('sees the commits as they are, whatever a brewer planted in the clone: diff.interHunkContext', async () => {
+      const { state, requests } = await brew((path) => {
+        const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+        writeFileSync(join(path, 'a.txt'), `${lines.join('\n')}\n`);
+        git(path, ['add', 'a.txt']);
+        git(path, ['commit', '-q', '-m', 'Add a']);
+        lines[0] = 'first';
+        lines[7] = 'eighth';
+        writeFileSync(join(path, 'a.txt'), `${lines.join('\n')}\n`);
+        writeFileSync(join(path, 'b.txt'), `${token}\n`);
+        git(path, ['add', 'a.txt', 'b.txt']);
+        git(path, ['commit', '-q', '-m', 'Change a, add b']);
+        git(path, ['config', 'diff.interHunkContext', '1000']);
+      });
+      assert.match(stopped(state, requests), /, b\.txt: GitHub token/);
+    });
+
+    it('stops the push of a credential that only a merge commit adds', async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        git(path, ['checkout', '-q', '-b', 'side', start]);
+        writeFileSync(join(path, 'side.txt'), 'side\n');
+        git(path, ['add', 'side.txt']);
+        git(path, ['commit', '-q', '-m', 'Side']);
+        git(path, ['checkout', '-q', '-']);
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan']);
+        git(path, ['merge', '-q', '--no-commit', '--no-ff', 'side']);
+        writeFileSync(join(path, 'plan.txt'), `plan\n${token}\n`);
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Merge side']);
+      });
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(user, ['rev-list', '--parents', '-1', tip]).trim().split(' ').length, 3);
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, plan\\.txt: GitHub token`));
     });
   });
 });

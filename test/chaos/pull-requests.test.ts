@@ -89,6 +89,7 @@ const codeHost = (kills: readonly KillPoint[]) => {
       remote.set(branch, commit);
       point('after the push reached the remote');
     },
+    secretScan: async () => [],
   };
   const host: PullRequestHost = {
     find: async (_repo, head) => opened.get(head),

@@ -13,6 +13,7 @@ import {
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { ScanFinding } from '../../src/schemas/store.ts';
 
 const tip = 'c'.repeat(40);
 const other = 'd'.repeat(40);
@@ -29,9 +30,15 @@ const from = 'refs/heads/foedrum/12-1/implement/1';
  * A clone whose revisions name `tip`, but for `origin/main` at `main`, and a remote with the
  * branches it was pushed.
  */
-const fakePush = (remote: Record<string, string> = {}, main = base, behind: string[] = []) => {
+const fakePush = (
+  remote: Record<string, string> = {},
+  main = base,
+  behind: string[] = [],
+  found: ScanFinding[] = [],
+) => {
   const asked: string[] = [];
   const pushes: string[] = [];
+  const scans: string[] = [];
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
@@ -44,8 +51,12 @@ const fakePush = (remote: Record<string, string> = {}, main = base, behind: stri
       pushes.push(`${commit} ${name}`);
       remote[name] = commit;
     },
+    secretScan: async (from, to) => {
+      scans.push(`${from}..${to}`);
+      return found;
+    },
   };
-  return { target, asked, pushes, remote };
+  return { target, asked, pushes, remote, scans };
 };
 
 /** A code host with the pull requests the Brewery opened, by head branch. */
@@ -119,9 +130,10 @@ const actionsWith = (
     behind?: string[];
     opened?: Record<string, string>;
     answer?: string;
+    found?: ScanFinding[];
   } = {},
 ) => {
-  const pushed = fakePush(options.remote, options.main, options.behind);
+  const pushed = fakePush(options.remote, options.main, options.behind, options.found);
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
@@ -350,5 +362,91 @@ describe('pullRequestActions: a task tree the base has moved past (review of #19
     assert.deepEqual(await actions.target.apply(push), nothing);
     assert.deepEqual(await actions.target.find(push), { result: nothing });
     assert.deepEqual(pushes, []);
+  });
+});
+
+describe('pullRequestActions: the secret scan before the push (ADR 0079)', () => {
+  const found: ScanFinding[] = [
+    { commit: tip, place: 'message', kind: 'GitHub token' },
+    { commit: other, place: 'notes/aws.txt', kind: 'AWS access key id' },
+  ];
+  const summary =
+    'the push of batch 12-1 stopped before anything left the machine: its commits hold what looks like a secret, or what the scan cannot read (ADR 0079): ' +
+    `commit ${tip}, message: GitHub token; commit ${other}, notes/aws.txt: AWS access key id`;
+
+  it('scans every commit from the base to the tip, then pushes a clean task tree as before', async () => {
+    const { actions, pushes, scans } = actionsWith();
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.deepEqual(scans, [`${base}..${tip}`]);
+    assert.deepEqual(pushes, [`${tip} ${branch}`]);
+  });
+
+  it('records what the scan found instead of pushing', async () => {
+    const { actions, pushes } = actionsWith({ found });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      refused: found,
+    });
+    assert.deepEqual(pushes, []);
+  });
+
+  it('scans nothing when there is nothing to push', async () => {
+    const { actions, scans } = actionsWith({ main: tip, found });
+    keysOf(brewing(), actions);
+    assert.equal(((await actions.target.apply(push)) as { empty?: true }).empty, true);
+    assert.deepEqual(scans, []);
+  });
+
+  it('records at most 50 findings', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      commit: tip,
+      place: `f${i}.txt`,
+      kind: 'GitHub token',
+    }));
+    const { actions } = actionsWith({ found: many });
+    keysOf(brewing(), actions);
+    const result = (await actions.target.apply(push)) as { refused: ScanFinding[] };
+    assert.deepEqual(result.refused, many.slice(0, 50));
+  });
+
+  it('blocks the attempt on its environment for good, naming each commit, place and kind, and opens no pull request', () => {
+    const { actions } = actionsWith();
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from, refused: found }),
+    ]);
+    assert.deepEqual(actions.due(state, action), []);
+    assert.deepEqual(actions.ending(state, action), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary,
+    });
+  });
+
+  it('names the first three findings and counts the rest', () => {
+    const { actions } = actionsWith();
+    const five = ['a', 'b', 'c', 'd', 'e'].map((name) => ({
+      commit: tip,
+      place: `${name}.txt`,
+      kind: 'GitHub token',
+    }));
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(push, { branch, commit: tip, from, refused: five }),
+    ]);
+    const ending = actions.ending(state, action);
+    assert.equal(ending.kind, 'blocked');
+    assert.match(
+      ending.kind === 'blocked' ? ending.summary : '',
+      new RegExp(`commit ${tip}, c.txt: GitHub token; and 2 more$`),
+    );
   });
 });
