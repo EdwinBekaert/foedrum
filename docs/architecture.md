@@ -597,6 +597,7 @@ foedrum.jsonc     the Brewery's owner/name (brewery) and GitHub API (githubApi);
 models.jsonc      model aliases, and an alias per brewer (updated by blind-tasting pull requests)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
+lenses/           custom and overriding tasting lenses (*.md); a brewer input "lens:<name>" reads one (ADR 0098)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback (§12b)
 .foedrum/         local (git-ignored): SQLite index (index.db; foedrum status and replay open it read-only), local.jsonc (this machine's work root and clones, ADR 0063), logs
 
