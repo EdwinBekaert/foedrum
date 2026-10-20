@@ -1450,6 +1450,42 @@ describe('openDriver', () => {
         reason: 'blocked (environment): a string',
       });
     });
+
+    /** Orders b1, starts it, rejects its end with `error`, and drives on. */
+    const rejectWith = async (error: Error) => {
+      const hand = handRunner();
+      order('b1');
+      const driver = await open({ runner: hand.runner });
+      await driver.drive();
+      hand.reject(plan('b1'), error);
+      await assert.doesNotReject(driver.drive());
+      return { driver, stopped: hand.stopped };
+    };
+
+    it('keeps the first line of the message, at most 120 characters, since the runner may quote what it read', async () => {
+      const { driver } = await rejectWith(
+        new Error(`${'x'.repeat(300)}\nthe rest of a stderr tail`),
+      );
+      assert.deepStrictEqual(outcomeOf(driver, plan('b1')), {
+        kind: 'failed',
+        retryable: false,
+        reason: `blocked (environment): ${'x'.repeat(120)}`,
+      });
+    });
+
+    it('names a rejection with no message by a fixed text, so its finish is recorded', async () => {
+      const { driver } = await rejectWith(new Error(' '));
+      assert.deepStrictEqual(outcomeOf(driver, plan('b1')), {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (environment): the brewer runner failed without a message',
+      });
+    });
+
+    it('stops the run whose end rejected, since its process may still run', async () => {
+      const { stopped } = await rejectWith(new Error('the stream reader broke'));
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+    });
   });
 
   describe('a start that is refused', () => {
