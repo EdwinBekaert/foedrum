@@ -4,7 +4,8 @@
 
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import type { Event, StuckReason } from '../../src/schemas/events.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
 
 /** The Brewery the demo makes, and its one target repository. */
@@ -118,13 +119,47 @@ export type LifeEnd =
   | { kind: 'stuck'; reason: string }
   | { kind: 'cancelled' };
 
+/** Why a batch is Stuck, in one line. */
+const stuckReason = (reason: StuckReason): string => {
+  const why =
+    'lastReason' in reason ? reason.lastReason : 'summary' in reason ? reason.summary : '';
+  const step = 'stepId' in reason ? ` at step ${reason.stepId}` : '';
+  return `${reason.kind}${step}${why === '' ? '' : `: ${why}`}`;
+};
+
 /**
  * How the life ends, from the store's events in order, or undefined while the batch still
  * brews: on tap once the status comment's revision that shows it is applied after it (ADR
  * 0072), and at once when the batch is Stuck or cancelled, which the demo cannot recover from.
  */
-export const lifeEndOf = (_events: readonly { event: Event }[]): LifeEnd | undefined => {
-  throw new Error('not implemented');
+export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefined => {
+  let end: LifeEnd | undefined;
+  let tapped: readonly string[] | undefined;
+  for (const { event } of events) {
+    switch (event.type) {
+      case 'batch.on_tap':
+        tapped = event.pullRequests;
+        break;
+      case 'effect.applied':
+        if (tapped !== undefined && effectKey.decode(event.key).effect.startsWith('status.')) {
+          end = { kind: 'on_tap', pullRequests: tapped };
+        }
+        break;
+      case 'batch.stuck':
+        end = { kind: 'stuck', reason: stuckReason(event.reason) };
+        break;
+      case 'batch.resumed':
+      case 'batch.rewound':
+        end = undefined;
+        break;
+      case 'batch.cancelled':
+        end = { kind: 'cancelled' };
+        break;
+      default:
+        break;
+    }
+  }
+  return end;
 };
 
 /** What a run left, as the demo's shell gathered it. */
@@ -153,7 +188,8 @@ const ending = ({ exitCode, killed }: ProcessOutcome): string =>
 export const problemsOf = (run: DemoRun): string[] => {
   const { crash, restart, pulls, comments } = run;
   const problems: string[] = [];
-  if (crash.exitCode === 0 || !crash.output.includes(CRASH_LINE)) {
+  // Killed by the process itself, never by the runner: a deadline means it never crashed.
+  if (crash.exitCode === 0 || crash.killed !== undefined || !crash.output.includes(CRASH_LINE)) {
     problems.push(
       `the first Cellar was not killed mid-attempt (${ending(crash)}):\n${tail(crash.output)}`,
     );
