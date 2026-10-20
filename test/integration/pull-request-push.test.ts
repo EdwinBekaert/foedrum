@@ -328,6 +328,25 @@ describe('the openPullRequest push with real git', () => {
       assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
       assert.equal(requests.length, 1);
     });
+
+    it("leaves out of the scan what main holds already, though the clone's origin/main is behind it (review of #254)", async () => {
+      // Built at run time, so no scanner takes this file for one that holds a token.
+      const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+      const { state, requests, planBranch } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        // A commit main holds, with what looks like a secret: the base's, not the batch's.
+        writeFileSync(join(path, 'notes.txt'), `${token}\n`);
+        git(path, ['add', 'notes.txt']);
+        git(path, ['commit', '-q', '-m', 'On main already']);
+        git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
+        git(path, ['update-ref', 'refs/remotes/origin/main', start]);
+        commitPlan(path);
+      });
+      const plan = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
+      assert.equal(requests.length, 1);
+      assert.equal(state.batches.get('12-1')?.lane.kind, 'on_tap');
+    });
   });
 
   describe('the secret scan before the push (ADR 0079)', () => {

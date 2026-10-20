@@ -279,6 +279,16 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
       nameless.calls.some(({ args }) => args.includes('fetch')),
       false,
     );
+    // Only the clone's path, with no line after it; and an empty path before the format.
+    for (const answer of [clone, '\nsha1\n']) {
+      const half = recordingGit((args) =>
+        args.includes('--git-common-dir') ? ok(answer) : answers(args),
+      );
+      await assert.rejects(openBranchPush({ git: half.git, clone, base }).baseTip('main'), {
+        message: `git rev-parse did not name the git directory of ${clone}`,
+      });
+      assert.equal(half.calls.length, 1, JSON.stringify(answer));
+    }
     const odd = recordingGit((args) =>
       args.includes('refs/heads/main') ? ok('not a sha\n') : answers(args),
     );
