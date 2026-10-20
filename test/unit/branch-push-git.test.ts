@@ -18,11 +18,17 @@ const clone = '/work/acme.api/clone';
 const ok = (stdout = ''): GitResult => ({ code: 0, stdout, stderr: '' });
 const failed = (stderr: string): GitResult => ({ code: 1, stdout: '', stderr });
 
-/** A git that answers each call through `answer` and records it with its options. */
+/**
+ * A git that answers each call through `answer` and records it with its options; its init makes
+ * the git directory it names, as git would.
+ */
 const recordingGit = (answer: (args: readonly string[]) => GitResult = () => ok()) => {
   const calls: { cwd: string; args: readonly string[]; options: GitOptions | undefined }[] = [];
   const git: Git = async (cwd, args, options) => {
     calls.push({ cwd, args, options });
+    if (args[1] === 'init' && args[0]?.startsWith('--git-dir=')) {
+      mkdirSync(args[0].slice('--git-dir='.length), { recursive: true });
+    }
     return answer(args);
   };
   return { git, calls };

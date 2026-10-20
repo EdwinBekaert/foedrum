@@ -37,13 +37,16 @@ export const failed = (stderr = 'fatal: simulated failure\n'): GitResult => ({
 
 // A fake git that records every call, and its options, and answers through `answer`, or with
 // success; the git directory and object format, as rev-parse names them, are `<cwd>/.git` and
-// SHA-1.
+// SHA-1, and init makes the git directory it names, as git would.
 export const fakeGit = (answer: Answer = () => undefined) => {
   const calls: Call[] = [];
   const options: (GitOptions | undefined)[] = [];
   const git: Git = async (cwd, args, given) => {
     calls.push([cwd, ...args]);
     options.push(given);
+    if (args[1] === 'init' && args[0]?.startsWith('--git-dir=')) {
+      mkdirSync(args[0].slice('--git-dir='.length), { recursive: true });
+    }
     if (args.includes('--show-object-format')) return ok(`${join(cwd, '.git')}\nsha1\n`);
     return answer(cwd, args) ?? ok();
   };

@@ -51,7 +51,7 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
   });
   after(async () => {
     await new Promise((resolve) => server.close(resolve));
-    removeTree(dir.path);
+    await removeTree(dir.path);
   });
 
   let runs = 0;
