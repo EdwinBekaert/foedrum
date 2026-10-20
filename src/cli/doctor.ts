@@ -117,27 +117,32 @@ const WSL2_ADVICE =
 /**
  * What each level keeps from gh's login (ADR 0082, #229). Claude Code's sandbox docs settle the
  * hosts file and the token variables (ADR 0087), not the OS keyring, so the sandbox never "closes"
- * it; the container mounts only the worktree (ADR 0010). Check steps run outside both until #190
- * (ADR 0069).
+ * it, and on WSL2 its `~/` entries leave the Windows user's logins under /mnt readable; the
+ * container mounts only the worktree (ADR 0010). Check steps run outside both until #190 (ADR 0069).
  */
 const SANDBOX_HIDES =
   "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+const WSL2_WINDOWS_HOME =
+  "Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087).";
+const sandboxHides = (wsl: boolean) =>
+  wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
 const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
 const WRITTEN_DOWN =
   'A login a brewer did read is for #209 to catch at the push, and #235 in out doc text.';
 const checkSteps = (outside: string) =>
   `Until #190, check steps run outside ${outside}, so they can still read gh's login.`;
-const permissionsOnlyAdvice = (sandbox: string | undefined) =>
+const permissionsOnlyAdvice = (sandbox: string | undefined, wsl = false) =>
   [
     "A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file.",
     sandbox === undefined
       ? `The ${CONTAINER_CLOSES}`
-      : `${sandbox} ${SANDBOX_HIDES} For brewers, the ${CONTAINER_CLOSES}`,
+      : `${sandbox} ${sandboxHides(wsl)} For brewers, the ${CONTAINER_CLOSES}`,
     WRITTEN_DOWN,
     checkSteps(sandbox === undefined ? 'the container' : 'the sandbox and the container'),
   ].join(' ');
-const SANDBOXED_ADVICE = `The sandbox ${SANDBOX_HIDES} ${WRITTEN_DOWN} ${checkSteps('the sandbox')}`;
-const WSL2_OR_CONTAINER = permissionsOnlyAdvice('In WSL2, the sandboxed level');
+const sandboxedAdvice = (wsl: boolean) =>
+  `The sandbox ${sandboxHides(wsl)} ${WRITTEN_DOWN} ${checkSteps('the sandbox')}`;
+const WSL2_OR_CONTAINER = permissionsOnlyAdvice('In WSL2, the sandboxed level', true);
 
 /** The first dotted number a version command printed; `undefined` when it failed. */
 const versionOf = (run: ToolRun | undefined): string | undefined =>
@@ -340,7 +345,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
   });
   switch (platform) {
     case 'darwin':
-      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [SANDBOXED_ADVICE]);
+      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [sandboxedAdvice(false)]);
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
@@ -375,12 +380,12 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (missing.length > 0) {
         return level(
           { level: 'permissions only', why: `the sandbox needs ${SANDBOX_TOOLS}` },
-          [permissionsOnlyAdvice(`The sandboxed level (${SANDBOX_TOOLS})`)],
+          [permissionsOnlyAdvice(`The sandboxed level (${SANDBOX_TOOLS})`, wsl)],
           missing,
         );
       }
       return level({ level: 'sandboxed', why: wsl ? `WSL2, ${SANDBOX_TOOLS}` : SANDBOX_TOOLS }, [
-        SANDBOXED_ADVICE,
+        sandboxedAdvice(wsl),
       ]);
     }
     default:
