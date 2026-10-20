@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
@@ -126,8 +126,9 @@ describe('claude with the attempt settings of a brewer with bare file tools', {
   });
 
   it('denies Write and Edit through ..', async () => {
-    const up = `${worktree}/../outside`;
-    const denied = await run([write(`${up}/w.txt`), edit(`${up}/e.txt`)]);
+    // Joined by hand with the platform's separator: join would resolve the .. away.
+    const up = (file: string) => [worktree, '..', 'outside', file].join(sep);
+    const denied = await run([write(up('w.txt')), edit(up('e.txt'))]);
     assert.deepEqual(denied, ['Write', 'Edit']);
     assert.equal(existsSync(join(outside, 'w.txt')), false);
     assert.equal(existsSync(join(outside, 'e.txt')), false);
