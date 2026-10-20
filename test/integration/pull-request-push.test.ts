@@ -253,6 +253,49 @@ describe('the openPullRequest push with real git', () => {
         });
       });
     }
+
+    /** Someone else's commit on main, made in another clone: one the user's clone lacks. */
+    const commitOnMain = (other: string, message: string): string => {
+      git(other, ['fetch', '-q', 'origin']);
+      git(other, ['reset', '-q', '--hard', 'origin/main']);
+      git(other, ['commit', '-q', '--allow-empty', '-m', message]);
+      git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/main']);
+      return git(other, ['rev-parse', 'HEAD']).trim();
+    };
+
+    it("pushes nothing when main moved past the plan to a commit the clone lacks, and brings that commit into the clone's objects (review of #254)", async () => {
+      const other = join(dir.path, `other-${runs}`);
+      git(dir.path, ['clone', '-q', origin, other]);
+      let tip = '';
+      const { state, requests } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        commitPlan(path);
+        git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
+        git(path, ['update-ref', 'refs/remotes/origin/main', start]);
+        tip = commitOnMain(other, 'Merged on top');
+      });
+      assert.equal(git(origin, ['rev-parse', 'refs/heads/main']).trim(), tip);
+      assert.deepEqual(requests, []);
+      const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
+      assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+      });
+      assert.equal(git(user, ['cat-file', '-t', tip]).trim(), 'commit');
+    });
+
+    it('scans from a main the clone lacks and pushes the plan beyond it (review of #254)', async () => {
+      const other = join(dir.path, `other-${runs}`);
+      git(dir.path, ['clone', '-q', origin, other]);
+      const { requests, planBranch } = await brew((path) => {
+        commitPlan(path);
+        commitOnMain(other, 'Unrelated on main');
+      });
+      const plan = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
+      assert.equal(requests.length, 1);
+    });
   });
 
   describe('the secret scan before the push (ADR 0079)', () => {

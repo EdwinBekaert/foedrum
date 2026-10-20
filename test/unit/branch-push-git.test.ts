@@ -245,6 +245,45 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     );
   });
 
+  it('runs no hook, gc or maintenance of its own for the fetch, which sees only the ref Foedrum fetched (review of #254)', async () => {
+    const { git, calls } = recordingGit(answers);
+    await openBranchPush({ git, clone, base }).baseTip('main');
+    const fetch = calls.find(({ args }) => args.includes('fetch'));
+    assert.deepEqual(fetch?.options?.config, {
+      'core.hooksPath': devNull,
+      'gc.auto': '0',
+      'maintenance.auto': 'false',
+    });
+  });
+
+  it('takes a base whose name has a slash and a dot (review of #254)', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args.includes('refs/heads/release/1.0') ? ok(`${TIP}\n`) : answers(args),
+    );
+    assert.equal(await openBranchPush({ git, clone, base }).baseTip('release/1.0'), TIP);
+    const fetch = calls.find(({ args }) => args.includes('fetch'));
+    assert.equal(fetch?.args.at(-1), '+refs/heads/release/1.0:refs/heads/release/1.0');
+  });
+
+  it('fails when git names no git directory of the clone, or the fetched ref no commit (review of #254)', async () => {
+    const nameless = recordingGit((args) =>
+      args.includes('--git-common-dir') ? ok('\n') : answers(args),
+    );
+    await assert.rejects(openBranchPush({ git: nameless.git, clone, base }).baseTip('main'), {
+      message: `git rev-parse did not name the git directory of ${clone}`,
+    });
+    assert.equal(
+      nameless.calls.some(({ args }) => args.includes('fetch')),
+      false,
+    );
+    const odd = recordingGit((args) =>
+      args.includes('refs/heads/main') ? ok('not a sha\n') : answers(args),
+    );
+    await assert.rejects(openBranchPush({ git: odd.git, clone, base }).baseTip('main'), {
+      message: 'The fetch of main named no commit: not a sha',
+    });
+  });
+
   it("fails with git's reason when the remote has no such branch", async () => {
     const { git } = recordingGit((args) =>
       args.includes('fetch')
