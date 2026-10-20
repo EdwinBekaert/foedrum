@@ -120,6 +120,19 @@ describe('scanPatches', () => {
     ]);
   });
 
+  it('lets a binary file go that a commit only deletes: the base has it', () => {
+    const log = patch(
+      C1,
+      [
+        'diff --git a/docs/old.png b/docs/old.png',
+        'deleted file mode 100644',
+        'index 88768ef..0000000',
+        'Binary files a/docs/old.png and /dev/null differ',
+      ].join('\n'),
+    );
+    assert.deepEqual(scanPatches(log, none), []);
+  });
+
   it('names a binary file whose path holds the secret without its path', () => {
     const path = `keys/${token}.bin`;
     const log = patch(

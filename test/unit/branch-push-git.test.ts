@@ -233,6 +233,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
           '--no-renames',
           '--no-relative',
           '--ignore-submodules=none',
+          '--submodule=short',
           '--src-prefix=a/',
           '--dst-prefix=b/',
           ...range,
@@ -259,6 +260,8 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         'core.attributesFile': devNull,
         'log.showRoot': 'true',
         'advice.graftFileDeprecated': 'false',
+        // No transport at all, whatever the git version: a lazy fetch fails here instead.
+        'protocol.allow': 'never',
       });
     }
   });
