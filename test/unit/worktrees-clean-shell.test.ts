@@ -332,6 +332,22 @@ describe('cleanWorktrees with a fake git', () => {
     );
   });
 
+  it('removes a worktree with core.fsmonitor off and no hooks for the status git runs there', async () => {
+    const removeOptions: (GitOptions | undefined)[] = [];
+    const { git: answer } = fakeGit(main);
+    const git: Git = async (cwd, args, options) => {
+      if (args[0] === 'worktree' && args[1] === 'remove') removeOptions.push(options);
+      return answer(cwd, args);
+    };
+
+    await cleanWorktrees(main, git);
+
+    assert.deepEqual(
+      removeOptions.map((options) => options?.config),
+      [{ 'core.fsmonitor': 'false', 'core.hooksPath': devNull }],
+    );
+  });
+
   it('keeps a worktree folder whose record the clone does not have, without running git there', async () => {
     rmSync(record('7-merged'), { recursive: true });
     const { calls, git } = fakeGit(main);

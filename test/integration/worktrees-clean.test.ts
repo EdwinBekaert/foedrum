@@ -240,6 +240,27 @@ describe('worktrees-clean with real git', () => {
     assert.match(result.stdout, /kept worktree \.claude\/worktrees\/18-forged: /);
   });
 
+  it('removes a clean worktree without running the fsmonitor of the repository', () => {
+    const merged = worktree('19-merged');
+    merge('19-merged');
+    // git worktree remove runs git status in the worktree, which reads the repository's
+    // configuration, core.fsmonitor included (#263).
+    const marker = join(dir.path, 'fsmonitor-ran');
+    const monitor = join(dir.path, 'monitor.mjs');
+    writeFileSync(
+      monitor,
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\n`,
+    );
+    const slash = (path: string): string => path.replaceAll('\\', '/');
+    git(main, ['config', 'core.fsmonitor', `"${slash(process.execPath)}" "${slash(monitor)}"`]);
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(merged), false, result.stdout);
+    assert.equal(existsSync(marker), false, 'the fsmonitor command of the repository ran');
+  });
+
   it('removes read-only records git no longer lists, outside .claude/worktrees/ too', () => {
     // A review run from the main checkout, whose removal stopped after deleting the gitdir file.
     const scratch = join(main, '.foedrum', 'tmp', '14', 'scratch', 'tree');
