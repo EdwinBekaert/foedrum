@@ -36,13 +36,17 @@ describe('readBreweryFiles', () => {
     write('brewers/notes.txt', 'notes');
     write('recipes/old/stout.jsonc', 'stout');
     write('brewers/old/gauger.md', 'gauger');
-    assert.deepEqual(readBreweryFiles(brewery.path), {
-      recipes: [
-        { path: 'recipes/amber.jsonc', text: 'amber' },
-        { path: 'recipes/pale.jsonc', text: 'pale' },
-      ],
-      brewers: [{ path: 'brewers/maltster.md', text: 'maltster' }],
-    });
+    const { recipes, brewers } = readBreweryFiles(brewery.path);
+    assert.deepEqual(
+      { recipes, brewers },
+      {
+        recipes: [
+          { path: 'recipes/amber.jsonc', text: 'amber' },
+          { path: 'recipes/pale.jsonc', text: 'pale' },
+        ],
+        brewers: [{ path: 'brewers/maltster.md', text: 'maltster' }],
+      },
+    );
   });
 
   it('lists a recipe file it cannot read with the reason', () => {
