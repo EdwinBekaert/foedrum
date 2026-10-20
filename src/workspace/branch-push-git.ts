@@ -3,6 +3,7 @@
 // tests pass a fake one (ADR 0021).
 
 import { devNull } from 'node:os';
+import { join } from 'node:path';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
 import {
   commitCandidates,
@@ -96,10 +97,12 @@ const PATCHES = [
 /** Past the runner's output limit (ADR 0035), the scan reads no further and refuses. */
 const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan reads';
 
-/** A push of a large repository takes a while; the effect's deadline aborts it sooner. */
-const PUSH_TIMEOUT_MS = 300_000;
+/** A push or fetch of a large repository takes a while; the effect's deadline aborts it sooner. */
+const TRANSFER_TIMEOUT_MS = 300_000;
 
 const SHA = /^[0-9a-f]{40}$/;
+// A base branch as git reads it in a refspec: never an option, a second refspec or a range.
+const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 // A branch Foedrum pushes, so that nothing from outside reaches git as an option or a refspec.
 const FOEDRUM_BRANCH = /^foedrum\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$/;
 
@@ -109,6 +112,10 @@ const firstLine = ({ code, stderr }: GitResult): string =>
     .map((line) => line.trim())
     .find((line) => line !== '') ??
   (code === null ? 'git did not finish in time' : `git exited with ${code}`);
+
+// The git command of `args`, after git's own options such as `--git-dir`.
+const command = (args: readonly string[]): string =>
+  args.find((arg) => !arg.startsWith('-')) ?? 'git';
 
 // The signal as git's options take it.
 const aborts = (signal: AbortSignal | undefined): GitOptions =>
@@ -122,10 +129,10 @@ const foedrumBranch = (branch: string): string => {
 };
 
 export const openBranchPush = (options: BranchPushOptions): BranchPush => {
-  const { git, clone, remote = 'origin' } = options;
+  const { git, clone, remote = 'origin', base: fetchBase } = options;
   const must = async (args: string[], gitOptions: GitOptions): Promise<string> => {
     const result = await git(clone, args, gitOptions);
-    if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${firstLine(result)}`);
+    if (result.code !== 0) throw new Error(`git ${command(args)} failed: ${firstLine(result)}`);
     return result.stdout;
   };
   return {
@@ -148,8 +155,72 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (result.code === 0 || result.code === 1) return result.code === 0;
       throw new Error(`git merge-base failed: ${firstLine(result)}`);
     },
-    baseTip: async () => {
-      throw new Error('not implemented');
+    baseTip: async (name, signal) => {
+      if (!BRANCH_NAME.test(name)) throw new Error(`${JSON.stringify(name)} is no branch name`);
+      if (fetchBase === undefined)
+        throw new Error(`The pushes from ${clone} have no base to fetch`);
+      const { url, gitDir } = fetchBase;
+      const [common, format] = (
+        await must(
+          ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+          aborts(signal),
+        )
+      ).split(/\r?\n/);
+      if (common === undefined || format === undefined || common === '' || format === '') {
+        throw new Error(`git rev-parse did not name the git directory of ${clone}`);
+      }
+      // The clone's own origin/<base>, so the fetch brings only what the clone lacks.
+      const known = await git(
+        clone,
+        [
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          `refs/remotes/${remote}/${name}^{commit}`,
+        ],
+        aborts(signal),
+      );
+      const have = known.stdout.trim();
+      const tip = known.code === 0 && SHA.test(have) ? [`--negotiation-tip=${have}`] : [];
+      // Git in Foedrum's own directory reads that directory's configuration, never the clone's, which
+      // a brewer can write (#200): no url.*.insteadOf, include, credential helper or hook of it.
+      const own = [`--git-dir=${gitDir}`];
+      await must(
+        [...own, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
+        aborts(signal),
+      );
+      const ref = `refs/heads/${name}`;
+      await must(
+        [
+          ...own,
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--no-recurse-submodules',
+          // A gc there would prune every object of the clone that its own refs do not reach.
+          '--no-auto-maintenance',
+          ...tip,
+          '--end-of-options',
+          url,
+          `+${ref}:${ref}`,
+        ],
+        {
+          ...aborts(signal),
+          timeoutMs: TRANSFER_TIMEOUT_MS,
+          env: { GIT_OBJECT_DIRECTORY: join(common, 'objects') },
+          config: { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' },
+        },
+      );
+      const fetched = (
+        await must(
+          [...own, 'rev-parse', '--verify', '--quiet', '--end-of-options', ref],
+          aborts(signal),
+        )
+      ).trim();
+      if (!SHA.test(fetched)) throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
+      return fetched;
     },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;
@@ -167,7 +238,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       // wrote into the clone its worktree shares (`--no-verify` alone skips only pre-push).
       await must(['push', '--no-verify', remote, refspec], {
         ...aborts(signal),
-        timeoutMs: PUSH_TIMEOUT_MS,
+        timeoutMs: TRANSFER_TIMEOUT_MS,
         config: { 'core.hooksPath': devNull },
       });
     },

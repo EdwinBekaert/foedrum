@@ -11,6 +11,7 @@ import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
 import {
+  baseGitDirPath,
   ensureManagedClone,
   openAttemptWorktrees,
   worktreeClonePath,
@@ -70,10 +71,15 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     },
     stateBranch: (store) =>
       openStateBranch({ store, git, clone: root, worktree: setup.stateWorktree }),
-    worktrees: async ({ repo, source, clone }) => {
+    worktrees: async (repository) => {
+      const { repo, source, clone } = repository;
       if (source === 'local') {
-        // serveSetup refuses a local repository without its clone.
-        return openAttemptWorktrees({ git, workRoot, repo, clone: clone ?? '' });
+        return openAttemptWorktrees({
+          git,
+          workRoot,
+          repo,
+          clone: worktreeClonePath(workRoot, repository),
+        });
       }
       const managed = await ensureManagedClone({
         git,
@@ -84,8 +90,17 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       });
       return openAttemptWorktrees({ git, workRoot, repo, clone: managed });
     },
-    // From the clone the worktrees are added to.
-    push: (repository) => openBranchPush({ git, clone: worktreeClonePath(workRoot, repository) }),
+    // From the clone the worktrees are added to, with the base fetched from the repository on
+    // GitHub, where its pull request goes, never through the clone's configuration (ADR 0090).
+    push: (repository) =>
+      openBranchPush({
+        git,
+        clone: worktreeClonePath(workRoot, repository),
+        base: {
+          url: `https://github.com/${repository.repo}.git`,
+          gitDir: baseGitDirPath(workRoot, repository.repo),
+        },
+      }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     exec: execProcess,
     gh: execProcess,
