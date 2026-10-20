@@ -18,7 +18,7 @@ export const documentedUsageLimits = [
 /**
  * Texts near a usage limit that are none of the four: a warning before the window runs out, the
  * interactive wait's line, a spend limit, a server throttle, and the message with a curly
- * apostrophe, inside other text, or with another separator.
+ * apostrophe, inside other text, with another separator, or followed by more lines.
  */
 export const otherLimitTexts = [
   "You've used 85% of your session limit · resets 3:45pm",
@@ -31,6 +31,7 @@ export const otherLimitTexts = [
   "You've hit your session limit - resets 3:45pm",
   "You've hit your Haiku limit · resets 3:45pm",
   "You've hit your session limit · resets ",
+  "You've hit your session limit · resets 3:45pm\nSee https://status.claude.com",
 ] as const;
 
 const SESSION = '00000000-0000-4000-8000-000000000001';
