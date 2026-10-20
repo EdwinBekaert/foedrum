@@ -2,7 +2,7 @@
 // (ADR 0042, ADR 0046). claude drops a file that fails its own validation silently, deny rules
 // included, so only the keys the runner uses exist here, strictly.
 
-import { BrewerAllowedTool, parseRule, ToolRule } from './primitives.ts';
+import { BrewerAllowedTool, BrewerDeniedTool, consultedFor, parseRule } from './primitives.ts';
 import { z } from './zod.ts';
 
 /** The shells whose `git push` every attempt denies (brewers-and-recipes §1.1). */
@@ -45,6 +45,26 @@ export const sandboxCredentials = {
   ].map((name) => ({ name, mode: 'deny' as const })),
 };
 
+/** A brewer's worktree, claude's working directory, as a path rule's pattern. */
+const WORKTREE = './**';
+
+/** The rule to write for a bare file-tool rule: its tool's rule scoped to the worktree. */
+export const scopedRule = (rule: string): string => {
+  const { tool, specifier } = parseRule(rule);
+  const consulted = Object.hasOwn(consultedFor, tool) ? consultedFor[tool] : undefined;
+  return consulted === undefined || specifier !== undefined ? rule : `${consulted}(${WORKTREE})`;
+};
+
+/** An attempt's allow rule: never a bare file tool, which allows it anywhere on disk. */
+const ScopedAllowedTool = BrewerAllowedTool.superRefine((rule, ctx) => {
+  const scoped = scopedRule(rule);
+  if (scoped === rule) return;
+  ctx.addIssue({
+    code: 'custom',
+    message: `A bare "${rule}" allows it anywhere on disk: write "${scoped}" for the worktree`,
+  });
+});
+
 const Credentials = z
   .strictObject({
     files: z.array(z.strictObject({ path: z.string(), mode: z.literal('deny') })),
@@ -59,7 +79,10 @@ const Credentials = z
 
 export const AttemptSettings = z
   .strictObject({
-    permissions: z.strictObject({ allow: z.array(BrewerAllowedTool), deny: z.array(ToolRule) }),
+    permissions: z.strictObject({
+      allow: z.array(ScopedAllowedTool),
+      deny: z.array(BrewerDeniedTool),
+    }),
     // Only where the isolation level relies on Claude Code's sandbox: it must run, or nothing does,
     // and the allow rules decide for sandboxed commands too (ADR 0087).
     sandbox: z
