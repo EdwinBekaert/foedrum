@@ -19,6 +19,7 @@
 // large fails them.
 
 import { relative, sep } from 'node:path';
+import type { RunProcess } from './process-runner.ts';
 
 export const FILE_BUDGET_MS = 5000;
 
@@ -79,7 +80,40 @@ export interface BudgetOptions {
   slowest: number;
   // Marks the run as failed.
   fail: () => void;
+  // Measures a file's CPU time again, alone, once the run has ended, in ms; undefined when that
+  // run reported none (ADR 0089). Without it, the run's reading is the only one.
+  remeasure?: (file: string) => Promise<number | undefined>;
 }
+
+export interface RemeasureOptions {
+  // The node that runs the file, and the folder it runs in.
+  execPath: string;
+  cwd: string;
+  runProcess: RunProcess;
+  // The deadline of one file's run.
+  timeoutMs?: number;
+}
+
+// Runs one test file alone under node --test with the CPU time preload, as npm test does, and
+// reads the CPU time it reports (ADR 0089).
+export const remeasureAlone =
+  (_options: RemeasureOptions) =>
+  async (_file: string): Promise<number | undefined> => {
+    throw new Error('not implemented');
+  };
+
+// One file's run alone gets a minute: a unit file within the budget takes a few seconds.
+const REMEASURE_TIMEOUT_MS = 60_000;
+
+// The real re-measure: this node, in the folder npm test runs in, through the process runner,
+// loaded only when a file is over, since every test process loads this module (ADR 0038).
+export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>) =>
+  remeasureAlone({
+    execPath: process.execPath,
+    cwd: process.cwd(),
+    runProcess: async (...args) => (await import('./process-runner.ts')).spawnProcess(...args),
+    timeoutMs: REMEASURE_TIMEOUT_MS,
+  });
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(2)} s`;
 
