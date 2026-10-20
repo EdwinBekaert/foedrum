@@ -119,7 +119,7 @@ describe('runGitWith', () => {
   it("adds the call's own environment after git's, and writes its input to git's stdin", async () => {
     const { calls, git } = answering(exited(0));
     await git('/work/repo', ['cat-file', '--batch-check'], {
-      env: { GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '1' },
+      env: { GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '1', GCM_INTERACTIVE: 'always' },
       stdin: 'abc\n',
     });
     const options = calls[0]?.[2];
@@ -127,6 +127,7 @@ describe('runGitWith', () => {
       ...gitEnv(process.env),
       GIT_NO_REPLACE_OBJECTS: '1',
       GIT_TERMINAL_PROMPT: '0',
+      GCM_INTERACTIVE: 'never',
     });
     assert.equal(options?.stdin, 'abc\n');
   });

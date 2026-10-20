@@ -129,20 +129,22 @@ describe('scanPatches', () => {
     ]);
   });
 
+  // Captured from git 2.56 for a file named café.txt: git quotes a path with non-ASCII bytes.
   it('reads a quoted path as git shows it', () => {
     const log = patch(
       C1,
       [
-        'diff --git "a/my notes.txt" "b/my notes.txt"',
+        'diff --git "a/caf\\303\\251.txt" "b/caf\\303\\251.txt"',
         'new file mode 100644',
+        'index 0000000..7f6c193',
         '--- /dev/null',
-        '+++ "b/my notes.txt"',
+        '+++ "b/caf\\303\\251.txt"',
         '@@ -0,0 +1 @@',
         `+${token}`,
       ].join('\n'),
     );
     assert.deepEqual(scanPatches(log, none), [
-      { commit: C1, place: '"my notes.txt"', kind: 'GitHub token' },
+      { commit: C1, place: '"caf\\303\\251.txt"', kind: 'GitHub token' },
     ]);
   });
 
