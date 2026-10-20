@@ -36,6 +36,9 @@ export const gitThrough =
 
 const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
 
+// For a git that reads a worktree's files: no fsmonitor command and no hook runs (#263).
+const inWorktree = { 'core.fsmonitor': 'false', 'core.hooksPath': devNull };
+
 /**
  * git status of the worktree at `path`, run in `main` against `record`, its record under the
  * clone: never by discovery from the folder, whose .git file a brewer can point at a git folder
@@ -43,7 +46,7 @@ const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => l
  */
 export const statusOf = (git: OkGit, main: string, record: string, path: string) =>
   git(main, [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'], {
-    config: { 'core.fsmonitor': 'false', 'core.hooksPath': devNull },
+    config: inWorktree,
   });
 
 /**
@@ -81,7 +84,8 @@ export const removeWorktree = async (git: OkGit, main: string, removal: Removal)
       for (const path of [removal.path, removal.record]) {
         if (path !== undefined) await clearReadOnly(path).catch(() => undefined);
       }
-      const removed = await git(main, ['worktree', 'remove', removal.path]);
+      // git worktree remove runs git status in the folder, which inherits this configuration.
+      const removed = await git(main, ['worktree', 'remove', removal.path], { config: inWorktree });
       if (removed.ok) return;
       // git deletes the .git file and the record even when it fails on a busy file, and no
       // later run would see the folder again; with the .git file still there, it refused.
