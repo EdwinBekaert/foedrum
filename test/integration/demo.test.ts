@@ -3,6 +3,7 @@
 // request and one status comment on the in-process code host. Real git and node, no gh, no claude.
 
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { codeHost, fileJournal } from '../../scripts/demo/code-host.ts';
@@ -24,10 +25,15 @@ describe('npm run demo', () => {
   });
   afterEach(() => removeTree(dir.path));
 
-  it('takes one order from Ordered to On tap through a crash and a restart', async () => {
+  it('takes one order from Ordered to On tap through a crash and a restart, on a machine with no git identity', async () => {
     const scratch = join(dir.path, 'demo');
+    // A machine with no git identity of its own, as a CI runner or a fresh clone has: no global
+    // configuration (an empty file of the test's own) and no system one.
+    const empty = join(dir.path, 'gitconfig');
+    writeFileSync(empty, '');
     const result = await execProcess(process.execPath, [demo, '--in', scratch], {
       cwd: root,
+      env: { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1' },
       // Only a guard against a hang (ADR 0075).
       timeoutMs: hangGuardMs,
     });
