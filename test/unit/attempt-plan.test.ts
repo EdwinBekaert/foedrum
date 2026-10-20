@@ -33,7 +33,7 @@ const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
     produces: 'report',
     model: 'builder',
     effort: 'high',
-    tools: { allow: ['Read', 'Write(brew.md)', 'Bash(git diff*)'], deny: ['Read(.env)'] },
+    tools: { allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)'], deny: ['Read(.env)'] },
     access: 'read',
     tree: 'task',
     deadline: '30m',
@@ -467,11 +467,11 @@ describe('planAttempt', () => {
       model: 'claude-sonnet-5-5',
       effort: 'high',
       maxTurns: 40,
-      tools: ['Read', 'Write', 'Bash'],
+      tools: ['Read', 'Edit', 'Bash'],
       session: { kind: 'new', id: '0f8fad5b-d9cb-469f-a165-70867728950e' },
     });
     assert.deepEqual(plan.permissions, {
-      allow: ['Read', 'Write(brew.md)', 'Bash(git diff*)', 'Bash(npm test)'],
+      allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)', 'Bash(npm test)'],
       deny: ['Read(.env)'],
       sandbox: true,
     });
@@ -637,7 +637,7 @@ describe('planAttempt', () => {
   });
 
   it('names no shell commands when the plan has no shell rules', () => {
-    const tools = { allow: ['Read', 'Write(brew.md)'], deny: [] };
+    const tools = { allow: ['Read', 'Edit(brew.md)'], deny: [] };
     const { prompt } = planAttempt({ ...facts({ tools }), repoTools: [] });
     assert.doesNotMatch(prompt, /Your shell/);
   });
