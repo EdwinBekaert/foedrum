@@ -31,6 +31,17 @@ export const repoFolder = (repo: string): string => {
   return folder;
 };
 
+/** Where the managed clone of `repo` is in the work root (ADR 0012). */
+export const managedClonePath = (workRoot: string, repo: string): string =>
+  join(workRoot, repoFolder(repo), 'clone.git');
+
+/**
+ * Where each fetch of the base of `repo` makes a git directory of its own, which writes into its
+ * clone's objects and reads none of the clone's configuration (ADR 0090).
+ */
+export const baseFetchRoot = (workRoot: string, repo: string): string =>
+  join(workRoot, repoFolder(repo), 'base');
+
 // A path segment that is also a component of a branch name: git refuses `..` anywhere and a
 // `.lock` ending (git check-ref-format).
 const refSegment = (id: string): boolean =>

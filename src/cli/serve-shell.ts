@@ -10,8 +10,8 @@ import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
+import { baseFetchRoot } from '../workspace/attempt-worktrees.ts';
 import {
-  baseFetchRoot,
   ensureManagedClone,
   openAttemptWorktrees,
   worktreeClonePath,
