@@ -1,6 +1,6 @@
 // The pushes of the openPullRequest action (ADR 0071), the shell, with a fake git that records
-// every call (ADR 0021): git runs in the clone, never by force, and nothing from outside reaches
-// it as an option.
+// every call (ADR 0021): git reads in the clone and reaches the remote from a git directory of its
+// own (ADR 0096), never by force, and nothing from outside reaches it as an option.
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -27,6 +27,23 @@ const recordingGit = (answer: (args: readonly string[]) => GitResult = () => ok(
   };
   return { git, calls };
 };
+
+/** What every local git call in the clone runs with: no transport, hook or fsmonitor (ADR 0096). */
+const IN_CLONE = {
+  env: { GIT_NO_LAZY_FETCH: '1' },
+  config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
+};
+/** What every call in Foedrum's own git directory runs with: no hook, gc or maintenance. */
+const OWN_CONFIG = {
+  'core.hooksPath': devNull,
+  'gc.auto': '0',
+  'maintenance.auto': 'false',
+};
+const url = 'https://github.com/acme/api.git';
+const nextFolder = suiteFolders('branch-push-git');
+/** rev-parse's answer for the clone's git directory and object format. */
+const named = (args: readonly string[]): GitResult | undefined =>
+  args.includes('--show-object-format') ? ok(`${clone}\nsha1\n`) : undefined;
 
 describe('openBranchPush: commit', () => {
   it('resolves the revision to a commit in the clone, never as an option', async () => {
@@ -59,27 +76,55 @@ describe('openBranchPush: commit', () => {
 });
 
 describe('openBranchPush: remoteTip', () => {
-  it("reads the remote branch's commit with ls-remote, matching the ref exactly", async () => {
+  it("reads the remote branch's commit with ls-remote of the URL Foedrum names, in a git directory of its own, matching the ref exactly", async () => {
     const listed = [
       `${'e'.repeat(40)}\trefs/heads/${branch}-old`,
       `${TIP}\trefs/heads/${branch}`,
       '',
     ].join('\n');
-    const { git, calls } = recordingGit(() => ok(listed));
-    const push = openBranchPush({ git, clone, remote: 'upstream' });
+    const root = nextFolder();
+    const gitDir = join(root, 'f1.git');
+    const { git, calls } = recordingGit((args) => named(args) ?? ok(listed));
+    const push = openBranchPush({ git, clone, own: { url, root, id: () => 'f1' } });
     assert.equal(await push.remoteTip(branch), TIP);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
-      [[clone, 'ls-remote', '--refs', 'upstream', `refs/heads/${branch}`]],
+      [
+        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+        [
+          root,
+          `--git-dir=${gitDir}`,
+          'init',
+          '--bare',
+          '--quiet',
+          '--template=',
+          '--object-format=sha1',
+        ],
+        [root, `--git-dir=${gitDir}`, 'ls-remote', '--refs', url, `refs/heads/${branch}`],
+      ],
     );
+    assert.deepEqual(calls[2]?.options?.config, OWN_CONFIG);
+    assert.equal(existsSync(gitDir), false);
   });
 
   it('is undefined when the remote has no such branch, and fails when git does', async () => {
-    const none = openBranchPush({ git: recordingGit(() => ok('')).git, clone });
+    const own = { url, root: nextFolder() };
+    const none = openBranchPush({
+      git: recordingGit((args) => named(args) ?? ok('')).git,
+      clone,
+      own,
+    });
     assert.equal(await none.remoteTip(branch), undefined);
     const down = openBranchPush({
-      git: recordingGit(() => failed('fatal: could not read from remote repository\n')).git,
+      git: recordingGit(
+        (args) =>
+          named(args) ??
+          (args.includes('ls-remote')
+            ? failed('fatal: could not read from remote repository\n')
+            : ok()),
+      ).git,
       clone,
+      own,
     });
     await assert.rejects(down.remoteTip(branch), {
       message: 'git ls-remote failed: fatal: could not read from remote repository',
@@ -123,27 +168,47 @@ describe('openBranchPush: isAncestor (review of #198)', () => {
 });
 
 describe('openBranchPush: push', () => {
-  it("pushes the commit to the remote's branch without force and without the user's hooks", async () => {
-    const { git, calls } = recordingGit();
-    const push = openBranchPush({ git, clone });
+  it("pushes the commit by its sha to the URL Foedrum names, without force, from a git directory of its own with the clone's objects", async () => {
+    const root = nextFolder();
+    const gitDir = join(root, 'f1.git');
+    const { git, calls } = recordingGit((args) => named(args) ?? ok());
+    const push = openBranchPush({ git, clone, own: { url, root, id: () => 'f1' } });
     await push.push(TIP, branch);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
-      [[clone, 'push', '--no-verify', 'origin', `${TIP}:refs/heads/${branch}`]],
+      [
+        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+        [
+          root,
+          `--git-dir=${gitDir}`,
+          'init',
+          '--bare',
+          '--quiet',
+          '--template=',
+          '--object-format=sha1',
+        ],
+        [root, `--git-dir=${gitDir}`, 'push', '--no-verify', url, `${TIP}:refs/heads/${branch}`],
+      ],
     );
+    assert.equal(calls[2]?.options?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
+    assert.equal(existsSync(gitDir), false);
   });
 
-  it("runs none of the clone's hooks, which a brewer's code can write (review of #198)", async () => {
-    const { git, calls } = recordingGit();
-    await openBranchPush({ git, clone }).push(TIP, branch);
-    assert.deepEqual(calls[0]?.options?.config, { 'core.hooksPath': devNull });
+  it("runs no hook, gc or maintenance, none of the clone's (review of #198) and none of its own", async () => {
+    const { git, calls } = recordingGit((args) => named(args) ?? ok());
+    await openBranchPush({ git, clone, own: { url, root: nextFolder() } }).push(TIP, branch);
+    assert.deepEqual(calls[2]?.options?.config, OWN_CONFIG);
   });
 
   it("fails with git's reason, as a push the remote rejected", async () => {
     const rejected = failed(
       ' ! [rejected]        cccc -> foedrum/x (non-fast-forward)\nerror: failed\n',
     );
-    const push = openBranchPush({ git: recordingGit(() => rejected).git, clone });
+    const push = openBranchPush({
+      git: recordingGit((args) => named(args) ?? (args.includes('push') ? rejected : ok())).git,
+      clone,
+      own: { url, root: nextFolder() },
+    });
     await assert.rejects(push.push(TIP, branch), {
       message: 'git push failed: ! [rejected]        cccc -> foedrum/x (non-fast-forward)',
     });
@@ -151,17 +216,58 @@ describe('openBranchPush: push', () => {
 
   it('refuses a commit that is no full sha, and a branch outside foedrum/, before git runs', async () => {
     const { git, calls } = recordingGit();
-    const push = openBranchPush({ git, clone });
+    const push = openBranchPush({ git, clone, own: { url, root: nextFolder() } });
     await assert.rejects(push.push('HEAD', branch), /HEAD is no full commit sha/);
     await assert.rejects(push.push(TIP, '--force'), /"--force" is no branch in foedrum\//);
     await assert.rejects(push.remoteTip('main'), /"main" is no branch in foedrum\//);
     assert.deepEqual(calls, []);
   });
+
+  it("refuses to push, list or fetch with no URL of Foedrum's, before git runs: never by the clone's remote", async () => {
+    const { git, calls } = recordingGit();
+    const push = openBranchPush({ git, clone });
+    const message = `The pushes from ${clone} name no URL to reach the remote by`;
+    await assert.rejects(push.push(TIP, branch), { message });
+    await assert.rejects(push.remoteTip(branch), { message });
+    await assert.rejects(push.baseTip('main'), { message });
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe('openBranchPush: git in the clone (ADR 0096)', () => {
+  it('runs every call in the clone with no transport, hook or fsmonitor, and every other in its own git directory', async () => {
+    const root = nextFolder();
+    const { git, calls } = recordingGit((args) => {
+      const answer = named(args);
+      if (answer !== undefined) return answer;
+      if (args.includes('--patch') || args[0] === 'log') return ok('');
+      if (args.some((arg) => arg.endsWith('^{commit}')) || args.includes('refs/heads/main'))
+        return ok(`${TIP}\n`);
+      return ok();
+    });
+    const push = openBranchPush({ git, clone, own: { url, root } });
+    await push.commit('refs/heads/x');
+    await push.isAncestor(TIP, TIP);
+    await push.remoteTip(branch);
+    await push.push(TIP, branch);
+    await push.baseTip('main');
+    await push.secretScan('b'.repeat(40), TIP);
+    const inClone = calls.filter(({ cwd }) => cwd === clone);
+    assert.ok(inClone.length >= 9, String(inClone.length));
+    for (const { args, options } of inClone) {
+      assert.equal(options?.env?.GIT_NO_LAZY_FETCH, '1', args.join(' '));
+      for (const [key, value] of Object.entries(IN_CLONE.config)) {
+        assert.equal(options?.config?.[key], value, `${key} of ${args.join(' ')}`);
+      }
+    }
+    for (const { args } of calls.filter(({ cwd }) => cwd !== clone)) {
+      assert.match(args[0] ?? '', /^--git-dir=/);
+    }
+  });
 });
 
 describe('openBranchPush: baseTip (ADR 0090)', () => {
   const OLD = 'b'.repeat(40);
-  const nextFolder = suiteFolders('branch-push-git');
   let root: string;
   let gitDir: string;
   let base: { url: string; root: string };
@@ -170,7 +276,6 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     gitDir = join(root, 'f1.git');
     base = { url, root };
   });
-  const url = 'https://github.com/acme/api.git';
   /** The git directory of each fetch: f1, f2, … */
   const ids = () => {
     let n = 0;
@@ -186,12 +291,21 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
 
   it("fetches the remote's base into a git directory of the fetch's own, from the clone's origin/<base>, writing into the clone's objects", async () => {
     const { git, calls } = recordingGit(answers);
-    const push = openBranchPush({ git, clone, base, id: ids() });
+    const push = openBranchPush({ git, clone, own: { ...base, id: ids() } });
     assert.equal(await push.baseTip('main'), TIP);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
       [
         [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+        [
+          root,
+          `--git-dir=${gitDir}`,
+          'init',
+          '--bare',
+          '--quiet',
+          '--template=',
+          '--object-format=sha1',
+        ],
         [
           clone,
           'rev-parse',
@@ -200,18 +314,9 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
           '--end-of-options',
           'refs/remotes/origin/main^{commit}',
         ],
+        [root, `--git-dir=${gitDir}`, 'update-ref', 'refs/heads/main', OLD],
         [
-          clone,
-          `--git-dir=${gitDir}`,
-          'init',
-          '--bare',
-          '--quiet',
-          '--template=',
-          '--object-format=sha1',
-        ],
-        [clone, `--git-dir=${gitDir}`, 'update-ref', 'refs/heads/main', OLD],
-        [
-          clone,
+          root,
           `--git-dir=${gitDir}`,
           'fetch',
           '--quiet',
@@ -224,7 +329,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
           '+refs/heads/main:refs/heads/main',
         ],
         [
-          clone,
+          root,
           `--git-dir=${gitDir}`,
           'rev-parse',
           '--verify',
@@ -248,7 +353,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
       const { git, calls } = recordingGit((args) =>
         args.includes('refs/remotes/origin/main^{commit}') ? known : answers(args),
       );
-      const push = openBranchPush({ git, clone, base });
+      const push = openBranchPush({ git, clone, own: base });
       const { signal } = new AbortController();
       assert.equal(await push.baseTip('main', signal), TIP);
       assert.equal(
@@ -274,7 +379,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
       if (args.includes('fetch') && made.length === 3) return failed('fatal: unreachable\n');
       return answers(args);
     });
-    const push = openBranchPush({ git, clone, base });
+    const push = openBranchPush({ git, clone, own: base });
     await Promise.all([push.baseTip('main'), push.baseTip('main')]);
     await assert.rejects(push.baseTip('main'), { message: 'git fetch failed: fatal: unreachable' });
     assert.equal(new Set(made).size, 3);
@@ -290,7 +395,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
 
   it('runs no hook, gc or maintenance of its own for the fetch, which sees only the ref Foedrum fetched (review of #254)', async () => {
     const { git, calls } = recordingGit(answers);
-    await openBranchPush({ git, clone, base }).baseTip('main');
+    await openBranchPush({ git, clone, own: base }).baseTip('main');
     const fetch = calls.find(({ args }) => args.includes('fetch'));
     assert.deepEqual(fetch?.options?.config, {
       'core.hooksPath': devNull,
@@ -303,7 +408,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     const { git, calls } = recordingGit((args) =>
       args.includes('refs/heads/release/1.0') ? ok(`${TIP}\n`) : answers(args),
     );
-    assert.equal(await openBranchPush({ git, clone, base }).baseTip('release/1.0'), TIP);
+    assert.equal(await openBranchPush({ git, clone, own: base }).baseTip('release/1.0'), TIP);
     const fetch = calls.find(({ args }) => args.includes('fetch'));
     assert.equal(fetch?.args.at(-1), '+refs/heads/release/1.0:refs/heads/release/1.0');
   });
@@ -312,7 +417,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     const nameless = recordingGit((args) =>
       args.includes('--git-common-dir') ? ok('\n') : answers(args),
     );
-    await assert.rejects(openBranchPush({ git: nameless.git, clone, base }).baseTip('main'), {
+    await assert.rejects(openBranchPush({ git: nameless.git, clone, own: base }).baseTip('main'), {
       message: `git rev-parse did not name the git directory of ${clone}`,
     });
     assert.equal(
@@ -325,7 +430,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
       const half = recordingGit((args) =>
         args.includes('--git-common-dir') ? ok(answer) : answers(args),
       );
-      await assert.rejects(openBranchPush({ git: half.git, clone, base }).baseTip('main'), {
+      await assert.rejects(openBranchPush({ git: half.git, clone, own: base }).baseTip('main'), {
         message: `git rev-parse did not name the git directory of ${clone}`,
       });
       assert.equal(half.calls.length, 1, JSON.stringify(answer));
@@ -333,7 +438,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     const odd = recordingGit((args) =>
       args.includes('refs/heads/main') ? ok('not a sha\n') : answers(args),
     );
-    await assert.rejects(openBranchPush({ git: odd.git, clone, base }).baseTip('main'), {
+    await assert.rejects(openBranchPush({ git: odd.git, clone, own: base }).baseTip('main'), {
       message: 'The fetch of main named no commit: not a sha',
     });
   });
@@ -344,7 +449,7 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
         ? failed("fatal: couldn't find remote ref refs/heads/main\n")
         : answers(args),
     );
-    await assert.rejects(openBranchPush({ git, clone, base }).baseTip('main'), {
+    await assert.rejects(openBranchPush({ git, clone, own: base }).baseTip('main'), {
       message: "git fetch failed: fatal: couldn't find remote ref refs/heads/main",
     });
   });
@@ -352,12 +457,12 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
   it('refuses a base that git would read as an option or a refspec, and a push with no base fetch, before git runs', async () => {
     const { git, calls } = recordingGit(answers);
     for (const name of ['--upload-pack=x', '-main', 'main:refs/heads/x', 'a..b', 'ma in', '']) {
-      await assert.rejects(openBranchPush({ git, clone, base }).baseTip(name), {
+      await assert.rejects(openBranchPush({ git, clone, own: base }).baseTip(name), {
         message: `${JSON.stringify(name)} is no branch name`,
       });
     }
     await assert.rejects(openBranchPush({ git, clone }).baseTip('main'), {
-      message: `The pushes from ${clone} have no base to fetch`,
+      message: `The pushes from ${clone} name no URL to reach the remote by`,
     });
     assert.deepEqual(calls, []);
   });
@@ -365,19 +470,19 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
 
 describe('openBranchPush: signals and time', () => {
   it('passes the signal to every git call, with time for a large push', async () => {
-    const { git, calls } = recordingGit((args) =>
-      args[0] === 'rev-parse' ? ok(`${TIP}\n`) : ok(''),
+    const { git, calls } = recordingGit(
+      (args) => named(args) ?? (args[0] === 'rev-parse' ? ok(`${TIP}\n`) : ok('')),
     );
-    const push = openBranchPush({ git, clone });
+    const push = openBranchPush({ git, clone, own: { url, root: nextFolder() } });
     const { signal } = new AbortController();
     await push.commit('refs/heads/x', signal);
     await push.remoteTip(branch, signal);
     await push.push(TIP, branch, signal);
     assert.deepEqual(
       calls.map(({ options }) => options?.signal === signal),
-      [true, true, true],
+      [true, true, true, true, true, true, true],
     );
-    assert.equal(calls[2]?.options?.timeoutMs, 300_000);
+    assert.equal(calls[6]?.options?.timeoutMs, 300_000);
   });
 });
 
@@ -502,6 +607,9 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         'advice.graftFileDeprecated': 'false',
         // No transport at all, whatever the git version: a lazy fetch fails here instead.
         'protocol.allow': 'never',
+        // And no hook or fsmonitor, as every call in the clone (ADR 0096).
+        'core.hooksPath': devNull,
+        'core.fsmonitor': 'false',
       });
     }
   });

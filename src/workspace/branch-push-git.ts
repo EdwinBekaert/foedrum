@@ -16,6 +16,7 @@ import {
   scanPatches,
 } from '../formats/commit-scan.ts';
 import { removeTree } from '../platform/remove.ts';
+import type { OwnRemote } from './clone-git.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 export interface BranchPushOptions {
@@ -26,6 +27,8 @@ export interface BranchPushOptions {
   remote?: string;
   /** Where the base is fetched from, and into (ADR 0090). */
   base?: BaseFetch;
+  /** The remote as Foedrum names it (ADR 0096). */
+  own?: OwnRemote;
   /** The name of each fetch's git directory in the base's root; default a random UUID. */
   id?: () => string;
 }

@@ -26,6 +26,7 @@ import {
   type Target,
   worktreeStatus,
 } from './attempt-worktrees.ts';
+import type { OwnRemote } from './clone-git.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 import { parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
@@ -45,6 +46,8 @@ export interface AttemptWorktreesOptions {
   clone: string;
   /** Default `origin`. */
   remote?: string;
+  /** The remote as Foedrum names it, which the fetch reaches (ADR 0096). */
+  own?: OwnRemote;
   /** The clock for the age of a stale index.lock. */
   now?: () => number;
 }

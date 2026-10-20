@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import {
@@ -36,12 +37,14 @@ describe('openAttemptWorktrees with a fake git', () => {
     mkdirSync(join(clone, '.git', 'worktrees'), { recursive: true });
   });
 
+  const url = 'https://github.com/acme/app.git';
   const open = (git: Git, now?: () => number) =>
     openAttemptWorktrees({
       git,
       workRoot,
       repo: 'acme/app',
       clone,
+      own: { url, root: join(workRoot, 'git'), id: () => 'f1' },
       ...(now === undefined ? {} : { now }),
     });
 
@@ -69,8 +72,27 @@ describe('openAttemptWorktrees with a fake git', () => {
       const worktree = await open(git).create(attempt, 'origin/main');
 
       assert.deepEqual(worktree, { path, branch, commit: BASE });
+      const own = join(workRoot, 'git');
+      const gitDir = `--git-dir=${join(own, 'f1.git')}`;
+      const refs = ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/'];
       assert.deepEqual(calls, [
-        [clone, 'fetch', '--quiet', 'origin'],
+        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+        [own, gitDir, 'init', '--bare', '--quiet', '--template=', '--object-format=sha1'],
+        [clone, ...refs],
+        [
+          own,
+          gitDir,
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--no-recurse-submodules',
+          '--no-auto-maintenance',
+          '--end-of-options',
+          url,
+          '+refs/heads/*:refs/remotes/origin/*',
+        ],
+        [own, gitDir, ...refs],
         [clone, 'rev-parse', '--verify', '--quiet', '--end-of-options', 'origin/main^{commit}'],
         [clone, 'worktree', 'list', '--porcelain', '-z'],
         [clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
@@ -78,8 +100,72 @@ describe('openAttemptWorktrees with a fake git', () => {
       ]);
     });
 
+    it("fetches into a git directory of its own from the clone's remote refs, and writes back only the refs that moved (ADR 0096)", async () => {
+      const own = join(workRoot, 'git');
+      const OLD = 'a'.repeat(40);
+      const { calls, options, git } = fakeGit((cwd, args) => {
+        if (args.includes('for-each-ref')) {
+          // origin/HEAD and origin/main as the clone has them; main moves, and a branch is new.
+          const before = `${BASE} refs/remotes/origin/HEAD\n${BASE} refs/remotes/origin/main\n${OLD} refs/remotes/origin/old\n`;
+          const after = `${BASE} refs/remotes/origin/HEAD\n${TIP} refs/remotes/origin/main\n${OLD} refs/remotes/origin/old\n${TIP} refs/remotes/origin/new\n`;
+          return ok(cwd === clone ? before : after);
+        }
+        if (args.includes('origin/main^{commit}')) return ok(`${TIP}\n`);
+        if (args[0] === 'rev-parse' && !args.includes('--show-object-format')) return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+
+      await open(git).create(attempt, 'origin/main');
+
+      const updates = calls.flatMap((call, i) =>
+        call.includes('update-ref') ? [{ cwd: call[0], stdin: options[i]?.stdin }] : [],
+      );
+      assert.deepEqual(updates, [
+        {
+          cwd: own,
+          stdin: `update refs/remotes/origin/HEAD ${BASE}\nupdate refs/remotes/origin/main ${BASE}\nupdate refs/remotes/origin/old ${OLD}\n`,
+        },
+        {
+          cwd: clone,
+          stdin: `update refs/remotes/origin/main ${TIP}\nupdate refs/remotes/origin/new ${TIP}\n`,
+        },
+      ]);
+      const fetch = calls.findIndex((call) => call.includes('fetch'));
+      assert.equal(options[fetch]?.env?.GIT_OBJECT_DIRECTORY, join(clone, '.git', 'objects'));
+      assert.deepEqual(options[fetch]?.config, {
+        'core.hooksPath': devNull,
+        'gc.auto': '0',
+        'maintenance.auto': 'false',
+      });
+      assert.equal(existsSync(join(own, 'f1.git')), false);
+    });
+
+    it('runs every git call in the clone with no transport, hook or fsmonitor, and the checkout with no hook or fsmonitor (ADR 0096)', async () => {
+      const { calls, options, git } = fakeGit((_cwd, args) => {
+        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse' && !args.includes('--show-object-format')) return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+
+      await open(git).create(attempt, 'origin/main');
+
+      const inClone = calls.flatMap((call, i) => (call[0] === clone ? [{ call, i }] : []));
+      assert.ok(inClone.length >= 5, String(inClone.length));
+      for (const { call, i } of inClone) {
+        const { env, config } = options[i] ?? {};
+        assert.equal(config?.['core.hooksPath'], devNull, call.join(' '));
+        assert.equal(config?.['core.fsmonitor'], 'false', call.join(' '));
+        if (call[1] === 'worktree' && call[2] === 'add') continue;
+        // The checkout of a partial clone downloads its files; nothing else in the clone may.
+        assert.equal(config?.['protocol.allow'], 'never', call.join(' '));
+        assert.equal(env?.GIT_NO_LAZY_FETCH, '1', call.join(' '));
+      }
+    });
+
     it('throws, without adding anything, when the fetch or the base fails', async () => {
-      const fetchFails = fakeGit((_cwd, args) => (args[0] === 'fetch' ? failed() : undefined));
+      const fetchFails = fakeGit((_cwd, args) => (args.includes('fetch') ? failed() : undefined));
       await assert.rejects(open(fetchFails.git).create(attempt, 'origin/main'), /fetch/);
       const noBase = fakeGit((_cwd, args) => (args[0] === 'rev-parse' ? failed('') : undefined));
       await assert.rejects(open(noBase.git).create(attempt, 'origin/nope'), /origin\/nope/);
@@ -102,8 +188,10 @@ describe('openAttemptWorktrees with a fake git', () => {
 
     it('gives the checkout as long as a fetch: a partial clone downloads every file then', async () => {
       const deadlines = new Map<string, number | undefined>();
-      const git: Git = async (_cwd, args, options) => {
-        deadlines.set(args.slice(0, 2).join(' '), options?.timeoutMs);
+      const git: Git = async (cwd, args, options) => {
+        const command = args.filter((arg) => !arg.startsWith('--git-dir='));
+        deadlines.set(command.slice(0, 2).join(' '), options?.timeoutMs);
+        if (args.includes('--show-object-format')) return ok(`${join(cwd, '.git')}\nsha1\n`);
         if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
         if (args[0] === 'rev-parse') return { code: 1, stdout: '', stderr: '' };
         if (args[0] === 'worktree' && args[1] === 'list') return ok('');
@@ -119,8 +207,9 @@ describe('openAttemptWorktrees with a fake git', () => {
     it('fetches one at a time when attempts start together: git locks the refs it updates', async () => {
       let running = 0;
       let most = 0;
-      const git: Git = async (_cwd, args) => {
-        if (args[0] === 'fetch') {
+      const git: Git = async (cwd, args) => {
+        if (args.includes('--show-object-format')) return ok(`${join(cwd, '.git')}\nsha1\n`);
+        if (args.includes('fetch')) {
           running += 1;
           most = Math.max(most, running);
           await new Promise((resolve) => setImmediate(resolve));
@@ -162,7 +251,7 @@ describe('openAttemptWorktrees with a fake git', () => {
 
       assert.deepEqual(worktree, { path, branch, commit: TIP });
       assert.deepEqual(calls.at(-1), [clone, 'worktree', 'add', '--', path, branch]);
-      assert.ok(!calls.some(([, ...args]) => args[0] === 'fetch'));
+      assert.ok(!calls.some((call) => call.includes('fetch')));
     });
 
     it('refuses a recorded commit that is no commit, before adding anything', async () => {

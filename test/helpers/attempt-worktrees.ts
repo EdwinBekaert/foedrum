@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before } from 'node:test';
 import type { AttemptRef } from '../../src/workspace/attempt-worktrees.ts';
-import type { Git, GitResult } from '../../src/workspace/git.ts';
+import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from './temp-dir.ts';
 
 // One temp folder per suite, a fresh subfolder per test: removing a tree per test is slow on
@@ -35,14 +35,19 @@ export const failed = (stderr = 'fatal: simulated failure\n'): GitResult => ({
   stderr,
 });
 
-// A fake git that records every call and answers through `answer`, or with success.
+// A fake git that records every call, and its options, and answers through `answer`, or with
+// success; the git directory and object format, as rev-parse names them, are `<cwd>/.git` and
+// SHA-1.
 export const fakeGit = (answer: Answer = () => undefined) => {
   const calls: Call[] = [];
-  const git: Git = async (cwd, args) => {
+  const options: (GitOptions | undefined)[] = [];
+  const git: Git = async (cwd, args, given) => {
     calls.push([cwd, ...args]);
+    options.push(given);
+    if (args.includes('--show-object-format')) return ok(`${join(cwd, '.git')}\nsha1\n`);
     return answer(cwd, args) ?? ok();
   };
-  return { calls, git };
+  return { calls, options, git };
 };
 
 // `git worktree list --porcelain -z` output for the given worktrees.
