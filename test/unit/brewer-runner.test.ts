@@ -117,6 +117,18 @@ describe('settleAttempt', () => {
     }
   });
 
+  it('puts a session that is not what was asked before a usage limit', () => {
+    const ending = settleAttempt(
+      facts({ environment: 'no init', usageLimit: { limit: 'weekly', resets: 'Mon 12:00am' } }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude did not set up the session the runner asked for: no init',
+    });
+  });
+
   it('puts a crash before garbage in the stream', () => {
     const killed = { kind: 'killed', signal: 'SIGSEGV' } as const;
     assert.deepStrictEqual(settleAttempt(facts({ exit: killed, garbage: 'x' }), limits), {

@@ -450,6 +450,19 @@ describe('foedrum status', () => {
     assert.match(replayed.stdout, /^Batch app-11, issue acme\/app#11$/m);
   });
 
+  // #238, ADR 0091: the limit and its reset, as claude gave them, tell a human when to retry.
+  it('shows the usage limit a batch is Stuck on, with its reset', async () => {
+    const summary =
+      'claude hit its weekly limit, which resets Mon 12:00am: retry the step after that';
+    const events: Event[] = [
+      ordered(11),
+      stuck(11, { kind: 'blocked', stepId: 'brew', blockerKind: 'environment', summary }),
+    ];
+    const listed = await run(['stuck'], { openStore: () => storeWith(events) });
+    assert.match(listed.stdout, /blocked at brew \(environment\): claude hit its weekly limit/);
+    assert.ok(listed.stdout.includes('resets Mon 12:00am: retry the step after that'));
+  });
+
   it('says in one line, escaped, and exits 1, when reading the store throws', async () => {
     // A stored event that no longer validates: the message repeats text from the store.
     // An error that escaped runCli becomes the result, so the assertion below shows it.

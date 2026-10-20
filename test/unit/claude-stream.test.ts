@@ -263,6 +263,17 @@ describe('readClaudeStream', () => {
     }
   });
 
+  // ADR 0091: only claude's own error result names a usage limit, never a reply of the model.
+  it('reads no usage limit from a result that reported no error, nor from the model', () => {
+    for (const { text } of documentedUsageLimits) {
+      for (const end of limitResults(text, false)) {
+        const said = assistant('msg_1', [{ type: 'text', text }]);
+        const { facts } = readAll([init(), said, end], asked);
+        assert.equal(facts.usageLimit, undefined);
+      }
+    }
+  });
+
   // Review of #133: only a cause the next attempt meets again is the environment.
   it('makes an assistant error before the first reply the environment only for a lasting cause', () => {
     for (const [error, lasting] of [
