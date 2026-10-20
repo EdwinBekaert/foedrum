@@ -88,16 +88,29 @@ const whyGitKilled = (
 /** git through the given process runner; unit tests pass a fake one (ADR 0021). */
 export const runGitWith =
   (exec: ExecProcess): Git =>
-  async (cwd, args, { timeoutMs = 60_000, config, signal, maxOutputBytes } = {}) => {
+  async (cwd, args, { timeoutMs = 60_000, config, signal, maxOutputBytes, env, stdin } = {}) => {
+    const own = gitEnv(process.env, config);
     const { exitCode, stdout, stderr, killed } = await exec('git', args, {
       cwd,
-      env: gitEnv(process.env, config),
+      // The call's own after git's, but never in place of what keeps git from prompting.
+      env: {
+        ...own,
+        ...env,
+        GIT_TERMINAL_PROMPT: own.GIT_TERMINAL_PROMPT,
+        GCM_INTERACTIVE: own.GCM_INTERACTIVE,
+      },
       timeoutMs,
       signal,
       maxOutputBytes,
+      ...(stdin === undefined ? {} : { stdin }),
     });
     const why = whyGitKilled(killed, timeoutMs, maxOutputBytes);
-    return { code: exitCode, stdout, stderr: `${stderr}${why}` };
+    return {
+      code: exitCode,
+      stdout,
+      stderr: `${stderr}${why}`,
+      ...(killed === undefined ? {} : { killed }),
+    };
   };
 
 /**

@@ -4,6 +4,7 @@
 
 import { devNull } from 'node:os';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
+import { commitCandidates, scanMessages, scanPatches } from '../formats/commit-scan.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 export interface BranchPushOptions {
@@ -13,6 +14,44 @@ export interface BranchPushOptions {
   /** Default `origin`. */
   remote?: string;
 }
+
+/**
+ * How the secret scan runs git (ADR 0079): on the objects as committed, so that no replace ref,
+ * graft or shallow file in the clone, which every attempt worktree shares, hides a commit or
+ * changes its parents, and with no attribute file of the user's. Its flags turn off what the
+ * clone's configuration could otherwise change: diff drivers, textconv, prefixes, renames, notes,
+ * signatures and colour.
+ */
+const AS_COMMITTED: GitOptions = {
+  timeoutMs: 120_000,
+  env: { GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: devNull, GIT_SHALLOW_FILE: devNull },
+  config: {
+    'core.attributesFile': devNull,
+    'log.showRoot': 'true',
+    // A graft file at /dev/null makes git print its deprecation hint ahead of every error.
+    'advice.graftFileDeprecated': 'false',
+  },
+};
+const SHOWN = ['--no-notes', '--no-show-signature'];
+const MESSAGES = ['log', ...SHOWN, '--encoding=UTF-8', '--format=%x00%H%n%B'];
+const PATCHES = [
+  'log',
+  ...SHOWN,
+  '--format=%x00%H',
+  '--patch',
+  '--diff-merges=first-parent',
+  '--unified=0',
+  '--no-ext-diff',
+  '--no-textconv',
+  '--no-color',
+  '--no-renames',
+  '--no-relative',
+  '--ignore-submodules=none',
+  '--src-prefix=a/',
+  '--dst-prefix=b/',
+];
+/** Past the runner's output limit (ADR 0035), the scan reads no further and refuses. */
+const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan reads';
 
 /** A push of a large repository takes a while; the effect's deadline aborts it sooner. */
 const PUSH_TIMEOUT_MS = 300_000;
@@ -86,8 +125,40 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         config: { 'core.hooksPath': devNull },
       });
     },
-    secretScan: async () => {
-      throw new Error('not implemented');
+    secretScan: async (base, commit, signal) => {
+      for (const sha of [base, commit]) {
+        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+      }
+      const range = ['--end-of-options', commit, `^${base}`];
+      const options: GitOptions = { ...aborts(signal), ...AS_COMMITTED };
+      const read = async (args: string[]): Promise<string | undefined> => {
+        const result = await git(clone, args, options);
+        if (result.killed === 'too-much-output') return undefined;
+        if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${firstLine(result)}`);
+        return result.stdout;
+      };
+      const messages = await read([...MESSAGES, ...range]);
+      const patches = messages === undefined ? undefined : await read([...PATCHES, ...range]);
+      if (messages === undefined || patches === undefined) {
+        return [{ commit, place: `the commits from ${base}`, kind: TOO_LARGE }];
+      }
+      // A 40-character hexadecimal word is a key unless the clone has it as a commit; the commits'
+      // own hashes, after each NUL, are not read.
+      const shown = `${messages}\n${patches}`.replace(/\0[0-9a-f]{40}/g, '');
+      const candidates = commitCandidates(shown);
+      const commits = new Set<string>();
+      if (candidates.length > 0) {
+        const checked = await must(['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+          ...options,
+          stdin: candidates.map((sha) => `${sha}\n`).join(''),
+        });
+        for (const line of checked.split(/\r?\n/)) {
+          const [sha, type] = line.split(' ');
+          if (sha !== undefined && type === 'commit') commits.add(sha.toLowerCase());
+        }
+      }
+      const isCommit = (sha: string): boolean => commits.has(sha.toLowerCase());
+      return [...scanMessages(messages, isCommit), ...scanPatches(patches, isCommit)];
     },
   };
 };
