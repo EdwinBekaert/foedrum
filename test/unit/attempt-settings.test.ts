@@ -325,6 +325,12 @@ describe('writeAttemptSettings', () => {
     });
   });
 
+  // The refused rows below each change one key of this block.
+  it("writes a sandboxed attempt's settings", () => {
+    writeAttemptSettings(file, sandboxed(sandboxBlock) as AttemptSettings);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), sandboxed(sandboxBlock));
+  });
+
   // claude would drop the whole file silently, deny rules included (ADR 0042).
   for (const [what, settings, reason] of [
     ['an unknown key', { permissions: { allow: [], deny: ['AskUserQuestion'] }, model: 'x' }],
@@ -359,6 +365,44 @@ describe('writeAttemptSettings', () => {
         },
       }),
       /Must hide every credential/,
+    ],
+    [
+      'a sandbox that leaves a credential file readable',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          files: sandboxCredentials.files.filter(({ path }) => path !== '~/.config/gh'),
+        },
+      }),
+      /Must hide every credential/,
+    ],
+    [
+      'a sandbox that auto-allows sandboxed commands',
+      sandboxed({ ...sandboxBlock, autoAllowBashIfSandboxed: true }),
+      /autoAllowBashIfSandboxed/,
+    ],
+    [
+      'a credential file masked instead of denied',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          files: sandboxCredentials.files.map((entry) => ({ ...entry, mode: 'mask' })),
+        },
+      }),
+      /files/,
+    ],
+    [
+      'a credential variable masked instead of denied',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          envVars: sandboxCredentials.envVars.map((entry) => ({ ...entry, mode: 'mask' })),
+        },
+      }),
+      /envVars/,
     ],
   ] as const) {
     it(`refuses ${what}, and writes nothing`, () => {
