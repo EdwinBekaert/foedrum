@@ -429,6 +429,24 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     );
   });
 
+  // 90 s to start runs alone, and one more may take its 60 s: with npm test's own run, within the
+  // check step's 300 s.
+  it('starts no run alone 90 s after the first by default, nor exactly at 90 s', async () => {
+    let clock = 0;
+    const measured: string[] = [];
+    const remeasure = async (file: string) => {
+      measured.push(file);
+      clock += 30_000;
+      return 6000;
+    };
+    await report([...timed(fileA, 9000, 6000), ...timed(fileB, 9000, 7000)], 5000, 5, {
+      remeasure,
+      now: () => clock,
+    });
+    // b at 0, 30 and 60 s; a would start at 90 s.
+    assert.deepEqual(measured, [fileB, fileB, fileB]);
+  });
+
   // A run alone that reports nothing will not report anything the next time either.
   it('stops running a file alone once a run alone gives no reading', async () => {
     const { measured, remeasure } = alone({});
