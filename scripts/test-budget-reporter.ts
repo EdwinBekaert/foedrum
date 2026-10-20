@@ -101,6 +101,10 @@ const REMEASURE_TIMEOUT_MS = 60_000;
 // How many times a file over the budget or the ceiling is run alone, at most.
 const REMEASURES = 3;
 
+// How long all runs alone may take together: npm test's run and these stay within the check
+// step's 300 s (scripts/check.ts).
+const REMEASURE_FOR_MS = 120_000;
+
 export interface RemeasureOptions {
   // The node that runs the file, and the folder it runs in.
   execPath: string;
@@ -157,6 +161,8 @@ export const budgetReporter = ({
   slowest,
   fail,
   remeasure,
+  remeasureForMs = REMEASURE_FOR_MS,
+  now = () => performance.now(),
 }: BudgetOptions) =>
   async function* (source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
     const walls = new Map<string, number>();
@@ -192,6 +198,8 @@ export const budgetReporter = ({
     }
     yield 'end of test file times\n';
     let over = false;
+    // When the first run alone started.
+    let remeasuresFrom: number | undefined;
     for (const { path, file, wallMs, cpuMs, ms } of files) {
       const limit = file.startsWith(budgetedDir)
         ? {
@@ -216,8 +224,12 @@ export const budgetReporter = ({
       // a time, once the run has ended, so they do not load each other; up to three runs, since
       // other sessions' load can outlast the run.
       let aloneMs: number | undefined;
-      for (let run = 0; cpuMs !== undefined && run < REMEASURES; run++) {
-        const reading = await remeasure?.(path);
+      let outOfTime = false;
+      for (let run = 0; cpuMs !== undefined && remeasure !== undefined && run < REMEASURES; run++) {
+        remeasuresFrom ??= now();
+        outOfTime = now() - remeasuresFrom >= remeasureForMs;
+        if (outOfTime) break;
+        const reading = await remeasure(path);
         if (reading !== undefined) aloneMs = Math.min(reading, aloneMs ?? reading);
         if (aloneMs === undefined || aloneMs <= limit.ms) break;
       }
@@ -230,6 +242,8 @@ export const budgetReporter = ({
           aloneMs <= cpuMs
             ? `used ${seconds(aloneMs)} of CPU time alone (${seconds(cpuMs)} in the run)`
             : `used ${seconds(cpuMs)} of CPU time in the run (${seconds(aloneMs)} alone)`;
+      } else if (outOfTime) {
+        used += `, not run alone: the runs alone took their ${remeasureForMs / 1000} s (ADR 0089)`;
       }
       over = true;
       yield `✖ ${file} ${used}, ${overThe} ${limit.advice}\n`;
