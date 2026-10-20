@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { cleanWorktrees, type Git, gitThrough } from '../../scripts/worktrees-clean.ts';
 import type {
+  GitOptions,
   Git as WorkspaceGit,
   GitResult as WorkspaceGitResult,
 } from '../../src/workspace/git.ts';
@@ -87,8 +89,25 @@ describe('cleanWorktrees with a fake git', () => {
       [main, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
       [main, 'fetch', '--prune', '--quiet', 'origin'],
       [main, 'worktree', 'list', '--porcelain', '-z'],
-      [wt('7-merged'), 'status', '--porcelain'],
-      [wt('9-plain-lock'), 'status', '--porcelain'],
+      // Against each worktree's record in the clone, never by its .git file (#263).
+      [
+        main,
+        `--git-dir=${record('7-merged')}`,
+        `--work-tree=${wt('7-merged')}`,
+        'status',
+        '--porcelain',
+        // A submodule's git would be found by discovery, from its own .git file.
+        '--ignore-submodules=all',
+      ],
+      [
+        main,
+        `--git-dir=${record('9-plain-lock')}`,
+        `--work-tree=${wt('9-plain-lock')}`,
+        'status',
+        '--porcelain',
+        // A submodule's git would be found by discovery, from its own .git file.
+        '--ignore-submodules=all',
+      ],
       [main, 'for-each-ref', format, 'refs/heads'],
       [main, 'for-each-ref', '--format=%(refname:lstrip=2)', '--merged=origin/main', 'refs/heads'],
       // 10-gone: the record goes on disk, then the branch, only while it is still at the
@@ -283,8 +302,10 @@ describe('cleanWorktrees with a fake git', () => {
   });
 
   it('keeps a worktree whose status shows changes', async () => {
-    const { calls, git } = fakeGit(main, undefined, (cwd, args) =>
-      args[0] === 'status' && cwd === wt('7-merged') ? refs.statusDirty : undefined,
+    const { calls, git } = fakeGit(main, undefined, (_cwd, args) =>
+      args.includes('status') && args.includes(`--work-tree=${wt('7-merged')}`)
+        ? refs.statusDirty
+        : undefined,
     );
 
     const lines = await cleanWorktrees(main, git);
@@ -295,6 +316,77 @@ describe('cleanWorktrees with a fake git', () => {
       lines.includes(
         'kept worktree .claude/worktrees/7-merged: it has uncommitted or untracked changes',
       ),
+    );
+  });
+
+  it('runs status with core.fsmonitor off and no hooks', async () => {
+    const statusOptions: (GitOptions | undefined)[] = [];
+    const { git: answer } = fakeGit(main);
+    const git: Git = async (cwd, args, options) => {
+      if (args.includes('status')) statusOptions.push(options);
+      return answer(cwd, args);
+    };
+
+    await cleanWorktrees(main, git);
+
+    const config = { 'core.fsmonitor': 'false', 'core.hooksPath': devNull };
+    assert.deepEqual(
+      statusOptions.map((options) => options?.config),
+      [config, config],
+    );
+  });
+
+  it('removes a worktree with core.fsmonitor off and no hooks for the status git runs there', async () => {
+    const removeOptions: (GitOptions | undefined)[] = [];
+    const { git: answer } = fakeGit(main);
+    const git: Git = async (cwd, args, options) => {
+      if (args[0] === 'worktree' && args[1] === 'remove') removeOptions.push(options);
+      return answer(cwd, args);
+    };
+
+    await cleanWorktrees(main, git);
+
+    assert.deepEqual(
+      removeOptions.map((options) => options?.config),
+      [{ 'core.fsmonitor': 'false', 'core.hooksPath': devNull }],
+    );
+  });
+
+  it('fetches with core.fsmonitor off and no hooks', async () => {
+    // git fetch reads the main checkout's index, and with it runs its core.fsmonitor command.
+    const fetchOptions: (GitOptions | undefined)[] = [];
+    const { git: answer } = fakeGit(main);
+    const git: Git = async (cwd, args, options) => {
+      if (args[0] === 'fetch') fetchOptions.push(options);
+      return answer(cwd, args);
+    };
+
+    await cleanWorktrees(main, git);
+
+    assert.deepEqual(
+      fetchOptions.map((options) => options?.config),
+      [{ 'core.fsmonitor': 'false', 'core.hooksPath': devNull }],
+    );
+  });
+
+  it('keeps a worktree folder whose record the clone does not have, without running git there', async () => {
+    rmSync(record('7-merged'), { recursive: true });
+    const { calls, git } = fakeGit(main);
+
+    const lines = await cleanWorktrees(main, git);
+
+    const commands = calls.map(([, ...args]) => args.join(' '));
+    assert.equal(
+      commands.some((command) => command.includes(`--work-tree=${wt('7-merged')}`)),
+      false,
+    );
+    assert.equal(commands.includes(`worktree remove ${wt('7-merged')}`), false);
+    assert.ok(existsSync(wt('7-merged')));
+    assert.ok(
+      lines.includes(
+        'kept worktree .claude/worktrees/7-merged: no record under .git/worktrees/ points at it',
+      ),
+      lines.join('\n'),
     );
   });
 });

@@ -8,6 +8,8 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -90,6 +92,24 @@ describe('worktrees-clean with real git', () => {
       encoding: 'utf8',
       env: { ...process.env, CLAUDE_PROJECT_DIR: cwd },
     });
+
+  // A core.fsmonitor command, in node so it runs on Windows too, that writes down where git ran
+  // it; `ran()` is what it wrote, undefined when it never ran (#263).
+  const fsmonitor = () => {
+    const marker = join(dir.path, 'fsmonitor-ran');
+    const script = join(dir.path, 'monitor.mjs');
+    const line = 'process.cwd() + " GIT_DIR=" + process.env.GIT_DIR + "\\n"';
+    writeFileSync(
+      script,
+      `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(marker)}, ${line});\n`,
+    );
+    const slash = (path: string): string => path.replaceAll('\\', '/');
+    return {
+      command: `"${slash(process.execPath)}" "${slash(script)}"`,
+      ran: () => (existsSync(marker) ? readFileSync(marker, 'utf8') : undefined),
+      forget: () => rmSync(marker, { force: true }),
+    };
+  };
 
   it('removes merged worktrees whose remote branch is gone, at session start in the main checkout only', () => {
     const merged = worktree('7-merged');
@@ -195,6 +215,119 @@ describe('worktrees-clean with real git', () => {
       result.stdout,
       /kept worktree \.claude\/worktrees\/13-live: locked by a live session/,
     );
+  });
+
+  it('never runs the fsmonitor of a git folder a .git file names, and still reads clean and dirty', () => {
+    const clean16 = worktree('16-clean');
+    const dirty = worktree('17-dirty');
+    const forged = worktree('18-forged');
+    for (const branch of ['16-clean', '17-dirty', '18-forged']) merge(branch);
+    writeFileSync(join(dirty, 'notes.txt'), 'not committed\n');
+    // What a brewer can write: a git folder inside its worktree, with an index so git status
+    // reads it, a core.fsmonitor command, and the worktree's .git file pointing there (#263).
+    const monitor = fsmonitor();
+    const forgedGit = join(forged, 'forged');
+    git(dir.path, ['init', '-q', '--bare', forgedGit]);
+    git(forgedGit, ['config', 'core.bare', 'false']);
+    git(forgedGit, ['config', 'core.fsmonitor', monitor.command]);
+    // Removed first: Windows refuses to overwrite a hidden file, and git hides the .git file.
+    rmSync(join(forged, '.git'));
+    writeFileSync(join(forged, '.git'), 'gitdir: ./forged\n');
+    git(forged, ['add', '18-forged.txt']);
+    monitor.forget();
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(monitor.ran(), undefined, 'the fsmonitor command of the forged git folder ran');
+    assert.equal(existsSync(clean16), false, result.stdout);
+    assert.match(result.stdout, /removed worktree \.claude\/worktrees\/16-clean/);
+    assert.ok(existsSync(dirty) && existsSync(forged), result.stdout);
+    assert.match(
+      result.stdout,
+      /kept worktree \.claude\/worktrees\/17-dirty: it has uncommitted or untracked changes/,
+    );
+    // Read through its record, the planted git folder is an untracked change.
+    assert.match(
+      result.stdout,
+      /kept worktree \.claude\/worktrees\/18-forged: it has uncommitted or untracked changes/,
+    );
+  });
+
+  it('never runs a command of the git folder a submodule .git file names', () => {
+    const path = worktree('20-submodule', { push: false });
+    // A submodule committed as a gitlink, its .git file then pointed at a git folder with a
+    // clean filter: git status would look into it with a git of its own, by discovery (#263).
+    const sub = join(path, 'sub');
+    git(path, ['init', '-q', '-b', 'main', sub]);
+    writeFileSync(join(sub, 'a.txt'), 'a\n');
+    git(sub, ['add', 'a.txt']);
+    git(sub, ['commit', '-q', '-m', 'Sub']);
+    git(path, ['add', 'sub']);
+    git(path, ['commit', '-q', '-m', 'Add a gitlink']);
+    const forgedGit = join(path, 'forged');
+    renameSync(join(sub, '.git'), forgedGit);
+    writeFileSync(join(sub, '.git'), 'gitdir: ../forged\n');
+    const monitor = fsmonitor();
+    git(forgedGit, ['config', 'core.fsmonitor', monitor.command]);
+    git(forgedGit, ['config', 'filter.x.clean', monitor.command]);
+    writeFileSync(join(sub, '.gitattributes'), '* filter=x\n');
+    // The same size, so git hashes the file, through the filter, to tell whether it changed.
+    writeFileSync(join(sub, 'a.txt'), 'c\n');
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(monitor.ran(), undefined, 'a command of the forged submodule git folder ran');
+    assert.ok(existsSync(path), result.stdout);
+  });
+
+  it('leaves a merged, clean worktree with a planted submodule to git, which refuses it without running anything', () => {
+    const path = worktree('21-merged-submodule', { push: false });
+    // The planted git folder is ignored, so status reads the worktree as clean and the cleanup
+    // asks git to remove it.
+    writeFileSync(join(path, '.gitignore'), '.claude/worktrees/\nforged/\n');
+    const sub = join(path, 'sub');
+    git(path, ['init', '-q', '-b', 'main', sub]);
+    writeFileSync(join(sub, 'a.txt'), 'a\n');
+    git(sub, ['add', 'a.txt']);
+    git(sub, ['commit', '-q', '-m', 'Sub']);
+    git(path, ['add', '.gitignore', 'sub']);
+    git(path, ['commit', '-q', '-m', 'Add a gitlink']);
+    git(path, ['push', '-q', '-u', 'origin', '21-merged-submodule']);
+    merge('21-merged-submodule');
+    renameSync(join(sub, '.git'), join(path, 'forged'));
+    writeFileSync(join(sub, '.git'), 'gitdir: ../forged\n');
+    const monitor = fsmonitor();
+    git(join(path, 'forged'), ['config', 'core.fsmonitor', monitor.command]);
+    git(join(path, 'forged'), ['config', 'filter.x.clean', monitor.command]);
+    writeFileSync(join(sub, '.gitattributes'), '* filter=x\n');
+    writeFileSync(join(sub, 'a.txt'), 'c\n');
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(monitor.ran(), undefined, 'a command of the forged submodule git folder ran');
+    assert.ok(existsSync(path), result.stdout);
+    assert.match(
+      result.stdout,
+      /could not clean \.claude\/worktrees\/21-merged-submodule: .*submodules/,
+    );
+  });
+
+  it('removes a clean worktree without running the fsmonitor of the repository', () => {
+    const merged = worktree('19-merged');
+    merge('19-merged');
+    // git worktree remove runs git status in the worktree, which reads the repository's
+    // configuration, core.fsmonitor included (#263).
+    const monitor = fsmonitor();
+    git(main, ['config', 'core.fsmonitor', monitor.command]);
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(merged), false, result.stdout);
+    assert.equal(monitor.ran(), undefined, 'the fsmonitor command of the repository ran');
   });
 
   it('removes read-only records git no longer lists, outside .claude/worktrees/ too', () => {
