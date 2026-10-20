@@ -368,6 +368,30 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     );
   });
 
+  it("keeps the run's reading when the file reports none alone", async () => {
+    const { remeasure } = alone({});
+    const { lines, failed } = await report(timed(fileA, 9000, 5100), 5000, 5, { remeasure });
+    assert.equal(failed, true);
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /^✖ test\/unit\/a\.test\.ts used 5\.10 s of CPU time, over the 5 s budget/,
+    );
+  });
+
+  it('lets a chaos file pass that was over the ceiling in the run but is within it alone', async () => {
+    const { remeasure } = alone({ [fileD]: 9000 });
+    const { lines, failed } = await report(timed(fileD, 40_000, 16_000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.ok(
+      lines.some((line) =>
+        line.startsWith(
+          'ℹ test/chaos/d.test.ts used 16.00 s of CPU time in the run, over the 15 s ceiling, and 9.00 s alone',
+        ),
+      ),
+      lines.join('\n'),
+    );
+  });
+
   it('measures again only the files over the budget or the ceiling that reported a CPU time', async () => {
     const { measured, remeasure } = alone({ [fileC]: 1000 });
     const { failed } = await report(
