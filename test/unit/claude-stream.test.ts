@@ -6,6 +6,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readClaudeStream, type StreamAsk } from '../../src/brewers/claude-stream.ts';
+import {
+  documentedUsageLimits,
+  limitResults,
+  otherLimitTexts,
+  rejectedRateLimit,
+} from '../fixtures/claude-usage-limits.ts';
 import { cpuTimeMs, descheduled } from '../helpers/load.ts';
 
 const dir = join(import.meta.dirname, '..', 'fixtures', 'claude-stream');
@@ -229,6 +235,32 @@ describe('readClaudeStream', () => {
     );
     assert.equal(facts.environment, undefined);
     assert.equal(facts.streamError, 'api_error: Overloaded');
+  });
+
+  // #238, ADR 0091: a run-out usage window, read only in the forms the docs give, from either arm
+  // of an error result, before the model replied or after; any other text stays a stream error.
+  it('reads a usage limit from an error result only in a documented form', () => {
+    const expected = new Map<string, unknown>([
+      ...documentedUsageLimits.map(({ text, limit, resets }) => [text, { limit, resets }] as const),
+      ...otherLimitTexts.map((text) => [text, undefined] as const),
+    ]);
+    const quotaError = assistant('msg_0', [{ type: 'text', text: 'limit' }], {
+      error: 'rate_limit',
+    });
+    const reply = assistant('msg_1', [{ type: 'text', text: 'working' }]);
+    for (const [text, usageLimit] of expected) {
+      for (const end of limitResults(text)) {
+        for (const before of [
+          [quotaError, rejectedRateLimit],
+          [reply, rejectedRateLimit],
+        ]) {
+          const { facts } = readAll([init(), ...before, end], asked);
+          assert.deepEqual(facts.usageLimit, usageLimit, `${text} after ${before[0]}`);
+          assert.equal(facts.environment, undefined);
+          assert.notEqual(facts.streamError, undefined);
+        }
+      }
+    }
   });
 
   // Review of #133: only a cause the next attempt meets again is the environment.

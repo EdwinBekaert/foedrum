@@ -25,7 +25,7 @@ export interface StreamAsk extends AskedSession {
 /** What the stream showed, for settleAttempt. */
 export type StreamFacts = Pick<
   AttemptFacts,
-  'environment' | 'streamError' | 'garbage' | 'denials' | 'deniedTools' | 'turns'
+  'environment' | 'streamError' | 'usageLimit' | 'garbage' | 'denials' | 'deniedTools' | 'turns'
 > & {
   /** The session claude set up, once its init matched what was asked. */
   session?: SessionFacts;
