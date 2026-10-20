@@ -42,12 +42,22 @@ export const noRepositoryCommands = { 'core.fsmonitor': 'false', 'core.hooksPath
 /**
  * git status of the worktree at `path`, run in `main` against `record`, its record under the
  * clone: never by discovery from the folder, whose .git file a brewer can point at a git folder
- * of its own, with a core.fsmonitor command in its configuration (#263, ADR 0095).
+ * of its own, with a core.fsmonitor command in its configuration (#263, ADR 0095). Submodules are
+ * not looked into; git worktree remove refuses a worktree that has one.
  */
 export const statusOf = (git: OkGit, main: string, record: string, path: string) =>
-  git(main, [`--git-dir=${record}`, `--work-tree=${path}`, 'status', '--porcelain'], {
-    config: noRepositoryCommands,
-  });
+  git(
+    main,
+    // A gitlink would make git look into the submodule with a git found by its own .git file.
+    [
+      `--git-dir=${record}`,
+      `--work-tree=${path}`,
+      'status',
+      '--porcelain',
+      '--ignore-submodules=all',
+    ],
+    { config: noRepositoryCommands },
+  );
 
 /**
  * The state of a worktree folder that git lists; `unchecked` when the repository at `main` has
