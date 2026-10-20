@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { removeTree } from '../../src/platform/remove.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
+import { inClone } from '../../src/workspace/clone-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -101,6 +102,13 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
     "core.sshCommand, with the origin's URL over ssh": (clone) => {
       git(clone, ['config', 'remote.origin.url', 'ssh://git@foedrum.invalid/acme/app.git']);
       git(clone, ['config', 'core.sshCommand', `${mark} core.sshCommand`]);
+    },
+    "core.askPass, with the origin's URL at a server that asks for a login": (clone) => {
+      git(clone, ['config', 'remote.origin.url', login]);
+      git(clone, ['config', 'core.askPass', `${mark} core.askPass`]);
+    },
+    "url.<nowhere>.pushInsteadOf of the origin's URL": (clone) => {
+      git(clone, ['config', `url.${nowhere()}.pushInsteadOf`, origin]);
     },
     'remote.origin.pushurl': (clone) => {
       git(clone, ['config', 'remote.origin.pushurl', nowhere()]);
@@ -199,5 +207,21 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
     git(managed, ['config', `url.${nowhere()}.insteadOf`, url]);
     await openBranchPush({ git: runGit, clone: managed, own }).push(tip, bottle);
     assert.equal(git(served, ['rev-parse', `refs/heads/${bottle}`]).trim(), tip);
+  });
+
+  it('reads a blobless clone with no lazy fetch, so a promisor remote a brewer points at its own ssh command never runs (review of #266)', async () => {
+    const served = join(run, 'served.git');
+    git(run, ['clone', '-q', '--bare', origin, served]);
+    git(served, ['config', 'uploadpack.allowFilter', 'true']);
+    const managed = join(run, 'clone.git');
+    git(run, ['clone', '-q', '--bare', '--filter=blob:none', pathToFileURL(served).href, managed]);
+    const blob = git(served, ['rev-parse', 'main:readme.txt']).trim();
+    // The promisor remote over ssh, its command the brewer's, and ssh allowed for it by name.
+    git(managed, ['config', 'remote.origin.url', 'ssh://git@foedrum.invalid/acme/app.git']);
+    git(managed, ['config', 'core.sshCommand', `${mark} core.sshCommand`]);
+    git(managed, ['config', 'protocol.ssh.allow', 'always']);
+    const read = await inClone(runGit)(managed, ['cat-file', '-p', blob]);
+    assert.notEqual(read.code, 0);
+    assert.equal(existsSync(marks) ? readFileSync(marks, 'utf8') : '', '');
   });
 });
