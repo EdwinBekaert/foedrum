@@ -208,6 +208,22 @@ describe('readKeptBranches', () => {
     });
   });
 
+  it('takes a silent exit 1 as gone from rev-parse only, and names the exit code when git says nothing', async () => {
+    // rev-list has no quiet miss: a silent failure is not a count of 0.
+    const { git } = fakeGit((_cwd, args) =>
+      args[0] === 'rev-parse' ? ok(`${TIP}\n`) : { code: 1, stdout: '', stderr: '' },
+    );
+    const readings = await readKeptBranches(
+      state(batch('12-1', 'acme/app')),
+      new Map([[branch, START]]),
+      { git, cloneOf },
+    );
+    assert.deepEqual(readings.get(branch), {
+      kind: 'unread',
+      reason: `git rev-list in ${CLONE} failed: git exited with 1`,
+    });
+  });
+
   it('says so for a branch whose batch the state has no task tree for', async () => {
     const { calls, git } = fakeGit();
     const readings = await readKeptBranches(state(), new Map([[branch, START]]), {
