@@ -115,14 +115,34 @@ const SANDBOX_TOOLS = 'bubblewrap and socat';
 const WSL2_ADVICE =
   'For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.';
 /**
- * What the permissions-only level leaves open, and what closes it for brewers: check steps run
- * outside the OS sandbox at every level until #190 (ADR 0069, ADR 0082).
+ * What each level keeps from gh's login (ADR 0082, #229). Claude Code's sandbox docs settle the
+ * hosts file and the token variables (ADR 0087), not the OS keyring, so the sandbox never "closes"
+ * it, and on WSL2 its `~/` entries leave the Windows user's logins under /mnt readable; the
+ * container mounts only the worktree (ADR 0010). Check steps run outside both until #190 (ADR 0069).
  */
-const keyringAdvice = (closedBy: string) =>
-  `A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; ${closedBy} closes that for brewers, and check steps keep it until #190.`;
-const CHECK_STEP_KEYRING =
-  "Until #190, check steps run outside the sandbox, so they can still ask the OS keyring for gh's login.";
-const WSL2_OR_CONTAINER = keyringAdvice('WSL2 or the container level');
+const SANDBOX_HIDES =
+  "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+const WSL2_WINDOWS_HOME =
+  "Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087).";
+const sandboxHides = (wsl: boolean) =>
+  wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
+const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
+const WRITTEN_DOWN =
+  'A login a brewer did read is for #209 to catch at the push, and #235 in out doc text.';
+const checkSteps = (outside: string) =>
+  `Until #190, check steps run outside ${outside}, so they can still read gh's login.`;
+const permissionsOnlyAdvice = (sandbox: string | undefined, wsl = false) =>
+  [
+    "A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file.",
+    sandbox === undefined
+      ? `The ${CONTAINER_CLOSES}`
+      : `${sandbox} ${sandboxHides(wsl)} For brewers, the ${CONTAINER_CLOSES}`,
+    WRITTEN_DOWN,
+    checkSteps(sandbox === undefined ? 'the container' : 'the sandbox and the container'),
+  ].join(' ');
+const sandboxedAdvice = (wsl: boolean) =>
+  `The sandbox ${sandboxHides(wsl)} ${WRITTEN_DOWN} ${checkSteps('the sandbox')}`;
+const WSL2_OR_CONTAINER = permissionsOnlyAdvice('In WSL2, the sandboxed level', true);
 
 /** The first dotted number a version command printed; `undefined` when it failed. */
 const versionOf = (run: ToolRun | undefined): string | undefined =>
@@ -325,7 +345,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
   });
   switch (platform) {
     case 'darwin':
-      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [CHECK_STEP_KEYRING]);
+      return level({ level: 'sandboxed', why: 'macOS Seatbelt' }, [sandboxedAdvice(false)]);
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
@@ -360,17 +380,17 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (missing.length > 0) {
         return level(
           { level: 'permissions only', why: `the sandbox needs ${SANDBOX_TOOLS}` },
-          [keyringAdvice(`the sandboxed level (${SANDBOX_TOOLS}) or the container level`)],
+          [permissionsOnlyAdvice(`The sandboxed level (${SANDBOX_TOOLS})`, wsl)],
           missing,
         );
       }
       return level({ level: 'sandboxed', why: wsl ? `WSL2, ${SANDBOX_TOOLS}` : SANDBOX_TOOLS }, [
-        CHECK_STEP_KEYRING,
+        sandboxedAdvice(wsl),
       ]);
     }
     default:
       return level({ level: 'permissions only', why: `no sandbox on ${platform}` }, [
-        keyringAdvice('the container level'),
+        permissionsOnlyAdvice(undefined),
       ]);
   }
 };
