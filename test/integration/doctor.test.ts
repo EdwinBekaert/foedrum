@@ -107,11 +107,15 @@ const doctorWithStubs = async (
   };
 };
 
-// What the OS keyring leaves open at each level, and what closes it (ADR 0082).
-const keyring = (closedBy: string) =>
-  `  A brewer or a check step runs as you here, so it can still ask the OS keyring for gh's login; ${closedBy} closes that for brewers, and check steps keep it until #190.`;
-const checkStepKeyring =
-  "  Until #190, check steps run outside the sandbox, so they can still ask the OS keyring for gh's login.";
+// What each level keeps from gh's login (ADR 0082, #229): the sandbox docs settle the hosts file
+// and the token variables, not the OS keyring.
+const sandboxHides =
+  "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+const writtenDown =
+  'A login a brewer did read is for #209 to catch at the push, and #235 in out doc text.';
+const keyring = (sandboxedLevel: string) =>
+  `  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} Until #190, check steps run outside the sandbox and the container, so they can still read gh's login.`;
+const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Until #190, check steps run outside the sandbox, so they can still read gh's login.`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
 // problem.
@@ -127,7 +131,7 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
           ? ['Isolation: sandboxed (bubblewrap and socat)', checkStepKeyring]
           : [
               'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
-              keyring('the sandboxed level (bubblewrap and socat) or the container level'),
+              keyring('The sandboxed level (bubblewrap and socat)'),
             ],
         problems: bwrap
           ? []
@@ -139,7 +143,7 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
         isolation: [
           'Isolation: permissions only (native Windows has no sandbox for shell commands)',
           '  For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.',
-          keyring('WSL2 or the container level'),
+          keyring('In WSL2, the sandboxed level'),
         ],
         problems: [],
       };

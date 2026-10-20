@@ -529,61 +529,98 @@ describe('diagnose: isolation (ADR 0010)', () => {
 });
 
 // #204: a brewer or a check step runs as the maintainer's OS user, so on the permissions-only level
-// it can still ask the OS keyring for gh's login; the line says what closes that (ADR 0082).
-describe('diagnose: what the permissions-only level leaves open (ADR 0082)', () => {
+// it can still read gh's login; the line says what each other level keeps from it (ADR 0082).
+// #229: Claude Code's sandbox docs settle the hosts file and the token variables (ADR 0087), not
+// the OS keyring, so the sandboxed level never "closes" it; #209 and #235 catch a login read anyway.
+describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #229)", () => {
   const keyring = (facts: DoctorFacts) =>
     diagnose(facts).advice.filter((line) => /keyring/.test(line));
+  const wsl1 = { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' };
+  const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
+  const freebsd = { ...macos, platform: 'freebsd' as const };
+  const sandboxed = [macos, linux(), wsl2];
+  const permissionsOnly = [windows, wsl1, linux({ bwrap: undefined }), freebsd];
 
-  it('says on native Windows and WSL 1 that a brewer can still ask the keyring, which WSL2 or the container level closes', () => {
-    for (const facts of [windows, { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' }]) {
+  // What ADR 0087 hides from a sandboxed command, from the docs.
+  const hidesFileAndVariables = (line: string) => {
+    assert.match(line, /hides gh's hosts file at its default path and the token variables/);
+    assert.match(line, /keeps them from reaching GitHub/);
+  };
+  // The docs say nothing about the Keychain or the Secret Service, so neither does the line.
+  const leavesKeyringOpen = (line: string) => {
+    assert.match(
+      line,
+      /Claude Code's docs don't say whether the sandbox stops a read from the OS keyring/,
+    );
+    assert.doesNotMatch(line, /sandbox(?:ed level)?[^;.]* closes/);
+  };
+
+  it('says on every permissions-only level that a brewer or a check step can read the keyring or the hosts file', () => {
+    for (const facts of permissionsOnly) {
       const [line, ...more] = keyring(facts);
       assert.deepEqual(more, []);
-      assert.match(line ?? '', /brewer/);
-      assert.match(line ?? '', /check step/);
-      assert.match(line ?? '', /gh's login/);
-      assert.match(line ?? '', /WSL2 or the container level/);
+      assert.match(
+        line ?? '',
+        /^A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file\./,
+      );
     }
   });
 
-  it('names the sandboxed level and the container level on Linux without bubblewrap', () => {
-    const [line, ...more] = keyring(linux({ bwrap: undefined }));
-    assert.deepEqual(more, []);
-    assert.match(line ?? '', /gh's login/);
-    assert.match(line ?? '', /sandboxed level .*or the container level/);
+  it('says on native Windows and WSL 1 what WSL2 hides and that the container level closes it', () => {
+    for (const facts of [windows, wsl1]) {
+      const [line = ''] = keyring(facts);
+      assert.match(line, /In WSL2, the sandboxed level hides/);
+      hidesFileAndVariables(line);
+      leavesKeyringOpen(line);
+      assert.match(line, /the container level mounts only the worktree, which closes both/);
+    }
   });
 
-  it('names the container level on an operating system without a sandbox', () => {
-    const [line] = keyring({ ...macos, platform: 'freebsd' });
-    assert.match(line ?? '', /gh's login/);
-    assert.match(line ?? '', /the container level/);
-    assert.doesNotMatch(line ?? '', /WSL2/);
+  it('names bubblewrap and socat for the sandboxed level on Linux without them', () => {
+    const [line = ''] = keyring(linux({ bwrap: undefined }));
+    assert.match(line, /The sandboxed level \(bubblewrap and socat\) hides/);
+    hidesFileAndVariables(line);
+    leavesKeyringOpen(line);
+    assert.match(line, /the container level mounts only the worktree, which closes both/);
+    assert.doesNotMatch(line, /WSL2/);
+  });
+
+  it('names only the container level on an operating system without a sandbox', () => {
+    const [line = ''] = keyring(freebsd);
+    assert.match(line, /The container level mounts only the worktree, which closes both/);
+    assert.doesNotMatch(line, /WSL2|sandboxed level/);
+  });
+
+  it('says on the sandboxed level what the sandbox hides from a brewer and what it leaves open', () => {
+    for (const facts of sandboxed) {
+      const [line = '', ...more] = keyring(facts);
+      assert.deepEqual(more, []);
+      assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
+      assert.match(line, /^The sandbox hides gh's hosts file/);
+      hidesFileAndVariables(line);
+      leavesKeyringOpen(line);
+    }
+  });
+
+  // A login a brewer did read can still be written into a commit or an out doc (#229).
+  it('names #209 for a login in a commit and #235 for one in out doc text on every level', () => {
+    for (const facts of [...sandboxed, ...permissionsOnly]) {
+      const [line = ''] = keyring(facts);
+      assert.match(
+        line,
+        /A login a brewer did read is for #209 to catch at the push, and #235 in out doc text\./,
+      );
+    }
   });
 
   // Check steps run outside the OS sandbox at every level until #190 (ADR 0069, review of #225).
-  it('says what closes it for brewers only, since check steps keep it until #190', () => {
-    const permissionsOnly = [
-      windows,
-      { ...linux(), kernelRelease: '4.4.0-19041-Microsoft' },
-      linux({ bwrap: undefined }),
-      { ...macos, platform: 'freebsd' as const },
-    ];
-    for (const facts of permissionsOnly) {
-      const [line] = keyring(facts);
-      assert.match(line ?? '', /closes that for brewers/);
-      assert.match(line ?? '', /check steps .*until #190/);
-    }
-  });
-
-  it('says on the sandboxed level that check steps can still ask the keyring until #190', () => {
-    const wsl2 = { ...linux(), kernelRelease: '5.15.153.1-microsoft-standard-WSL2' };
-    for (const facts of [macos, linux(), wsl2]) {
-      const [line, ...more] = keyring(facts);
-      assert.deepEqual(more, []);
-      assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
-      assert.match(line ?? '', /check steps/);
-      assert.match(line ?? '', /gh's login/);
-      assert.match(line ?? '', /#190/);
-      assert.doesNotMatch(line ?? '', /brewer/);
+  it('says on every level that check steps keep the login until #190', () => {
+    for (const facts of [...sandboxed, ...permissionsOnly]) {
+      const [line = ''] = keyring(facts);
+      assert.match(
+        line,
+        /Until #190, check steps run outside the (?:sandbox|container|sandbox and the container), so they can still read gh's login\.$/,
+      );
     }
   });
 });
