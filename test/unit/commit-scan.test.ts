@@ -120,6 +120,25 @@ describe('scanPatches', () => {
     ]);
   });
 
+  it('names a binary file whose path holds the secret without its path', () => {
+    const path = `keys/${token}.bin`;
+    const log = patch(
+      C1,
+      [
+        `diff --git a/${path} b/${path}`,
+        'new file mode 100644',
+        'index 0000000..88768ef',
+        `Binary files /dev/null and b/${path} differ`,
+      ].join('\n'),
+    );
+    const found = scanPatches(log, none);
+    assert.deepEqual(found, [
+      { commit: C1, place: 'a file whose path looks like a secret', kind: 'binary file' },
+      { commit: C1, place: 'a file whose path looks like a secret', kind: 'GitHub token' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(found), /A1b2/);
+  });
+
   it('names a file whose path holds the secret without its path', () => {
     const path = `keys/${token}.txt`;
     const log = patch(C1, newFile(path, 'hello'));
@@ -211,6 +230,18 @@ describe('scanPatches', () => {
     const sri = `sha512-${'Ab1+'.repeat(21)}Q==`;
     const log = patch(C1, newFile('package-lock.json', `      "integrity": "${sri}",`));
     assert.deepEqual(scanPatches(log, none), []);
+  });
+
+  it('knows a lock by its name, in any folder', () => {
+    const sri = `sha512-${'Ab1+'.repeat(21)}Q==`;
+    for (const lock of ['packages/app/package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
+      const log = patch(C1, newFile(lock, `  integrity ${sri}`));
+      assert.deepEqual(scanPatches(log, none), [], lock);
+    }
+    const log = patch(C1, newFile('docs/package-lock.json.md', `  integrity ${sri}`));
+    assert.deepEqual(scanPatches(log, none), [
+      { commit: C1, place: 'docs/package-lock.json.md', kind: 'long base64 string' },
+    ]);
   });
 
   it('finds nothing in a clean patch', () => {

@@ -352,5 +352,26 @@ describe('the openPullRequest push with real git', () => {
       });
       assert.match(stopped(state, requests), /, b\.txt: GitHub token/);
     });
+
+    it('stops the push of a credential that only a merge commit adds', async () => {
+      const { state, requests, planBranch } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        git(path, ['checkout', '-q', '-b', 'side', start]);
+        writeFileSync(join(path, 'side.txt'), 'side\n');
+        git(path, ['add', 'side.txt']);
+        git(path, ['commit', '-q', '-m', 'Side']);
+        git(path, ['checkout', '-q', '-']);
+        writeFileSync(join(path, 'plan.txt'), 'plan\n');
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Plan']);
+        git(path, ['merge', '-q', '--no-commit', '--no-ff', 'side']);
+        writeFileSync(join(path, 'plan.txt'), `plan\n${token}\n`);
+        git(path, ['add', 'plan.txt']);
+        git(path, ['commit', '-q', '-m', 'Merge side']);
+      });
+      const tip = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(user, ['rev-list', '--parents', '-1', tip]).trim().split(' ').length, 3);
+      assert.match(stopped(state, requests), new RegExp(`commit ${tip}, plan\\.txt: GitHub token`));
+    });
   });
 });
