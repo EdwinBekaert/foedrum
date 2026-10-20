@@ -96,6 +96,8 @@ describe('cleanWorktrees with a fake git', () => {
         `--work-tree=${wt('7-merged')}`,
         'status',
         '--porcelain',
+        // A submodule's git would be found by discovery, from its own .git file.
+        '--ignore-submodules=all',
       ],
       [
         main,
@@ -103,6 +105,8 @@ describe('cleanWorktrees with a fake git', () => {
         `--work-tree=${wt('9-plain-lock')}`,
         'status',
         '--porcelain',
+        // A submodule's git would be found by discovery, from its own .git file.
+        '--ignore-submodules=all',
       ],
       [main, 'for-each-ref', format, 'refs/heads'],
       [main, 'for-each-ref', '--format=%(refname:lstrip=2)', '--merged=origin/main', 'refs/heads'],

@@ -9,6 +9,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -247,6 +248,34 @@ describe('worktrees-clean with real git', () => {
       /kept worktree \.claude\/worktrees\/17-dirty: it has uncommitted or untracked changes/,
     );
     assert.match(result.stdout, /kept worktree \.claude\/worktrees\/18-forged: /);
+  });
+
+  it('never runs a command of the git folder a submodule .git file names', () => {
+    const path = worktree('20-submodule', { push: false });
+    // A submodule committed as a gitlink, its .git file then pointed at a git folder with a
+    // clean filter: git status would look into it with a git of its own, by discovery (#263).
+    const sub = join(path, 'sub');
+    git(path, ['init', '-q', '-b', 'main', sub]);
+    writeFileSync(join(sub, 'a.txt'), 'a\n');
+    git(sub, ['add', 'a.txt']);
+    git(sub, ['commit', '-q', '-m', 'Sub']);
+    git(path, ['add', 'sub']);
+    git(path, ['commit', '-q', '-m', 'Add a gitlink']);
+    const forgedGit = join(path, 'forged');
+    renameSync(join(sub, '.git'), forgedGit);
+    writeFileSync(join(sub, '.git'), 'gitdir: ../forged\n');
+    const monitor = fsmonitor();
+    git(forgedGit, ['config', 'core.fsmonitor', monitor.command]);
+    git(forgedGit, ['config', 'filter.x.clean', monitor.command]);
+    writeFileSync(join(sub, '.gitattributes'), '* filter=x\n');
+    // The same size, so git hashes the file, through the filter, to tell whether it changed.
+    writeFileSync(join(sub, 'a.txt'), 'c\n');
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(monitor.ran(), undefined, 'a command of the forged submodule git folder ran');
+    assert.ok(existsSync(path), result.stdout);
   });
 
   it('removes a clean worktree without running the fsmonitor of the repository', () => {
