@@ -4,9 +4,10 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type DriverNotice, openDriver } from '../../src/engine/driver.ts';
@@ -127,7 +128,15 @@ describe('the openPullRequest push with real git', () => {
       actions: pullRequestActions({
         brewery: 'acme/brewery',
         repositories: [
-          { repo: 'acme/app', base: 'main', push: openBranchPush({ git: runGit, clone: user }) },
+          {
+            repo: 'acme/app',
+            base: 'main',
+            push: openBranchPush({
+              git: runGit,
+              clone: user,
+              base: { url: origin, root: join(dir.path, `base-${runs}.git`) },
+            }),
+          },
         ],
         host,
         orderTitle: async () => 'Add a plan',
@@ -201,6 +210,146 @@ describe('the openPullRequest push with real git', () => {
       kind: 'failed',
       retryable: false,
       reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+    });
+  });
+
+  describe('the base as the remote has it now (ADR 0090)', () => {
+    /** What a brewer could write into the config of the clone its worktree shares (#200). */
+    const plants: Record<string, (path: string, nowhere: string) => void> = {
+      'a url.<nowhere>.insteadOf of the origin': (path, nowhere) =>
+        git(path, ['config', `url.${nowhere}.insteadOf`, origin]),
+      'an include.path of a file that redirects the origin': (path, nowhere) => {
+        const included = join(dir.path, `included-${runs}.gitconfig`);
+        writeFileSync(included, '');
+        git(dir.path, ['config', '--file', included, `url.${nowhere}.insteadOf`, origin]);
+        git(path, ['config', 'include.path', included]);
+      },
+    };
+    for (const [plant, write] of Object.entries(plants)) {
+      it(`pushes nothing for a plan main already holds, though the clone never fetched it, past ${plant}`, async () => {
+        const nowhere = join(dir.path, `nowhere-${runs}.git`);
+        let start = '';
+        const { state, requests } = await brew((path) => {
+          start = git(path, ['rev-parse', 'HEAD']).trim();
+          commitPlan(path);
+          // The plan's commit reaches main, and the clone's origin/main stays where it was: git
+          // moves it on a push to the origin's own path, so it goes back.
+          git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
+          git(path, ['update-ref', 'refs/remotes/origin/main', start]);
+          write(path, nowhere);
+        });
+        assert.equal(git(user, ['rev-parse', 'refs/remotes/origin/main']).trim(), start);
+        // The plant works: git in the clone no longer reaches the origin.
+        assert.throws(() => git(user, ['ls-remote', origin]));
+        assert.equal(
+          git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]),
+          '',
+        );
+        assert.deepEqual(requests, []);
+        const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
+        assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
+          kind: 'failed',
+          retryable: false,
+          reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+        });
+      });
+    }
+
+    /** Someone else's commit on main, made in another clone: one the user's clone lacks. */
+    const commitOnMain = (other: string, message: string): string => {
+      git(other, ['fetch', '-q', 'origin']);
+      git(other, ['reset', '-q', '--hard', 'origin/main']);
+      git(other, ['commit', '-q', '--allow-empty', '-m', message]);
+      git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/main']);
+      return git(other, ['rev-parse', 'HEAD']).trim();
+    };
+
+    it("pushes nothing when main moved past the plan to a commit the clone lacks, and brings that commit into the clone's objects (review of #254)", async () => {
+      const other = join(dir.path, `other-${runs}`);
+      git(dir.path, ['clone', '-q', origin, other]);
+      let tip = '';
+      const { state, requests } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        commitPlan(path);
+        git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
+        git(path, ['update-ref', 'refs/remotes/origin/main', start]);
+        tip = commitOnMain(other, 'Merged on top');
+      });
+      assert.equal(git(origin, ['rev-parse', 'refs/heads/main']).trim(), tip);
+      assert.deepEqual(requests, []);
+      const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
+      assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+      });
+      assert.equal(git(user, ['cat-file', '-t', tip]).trim(), 'commit');
+    });
+
+    it("fetches the base into a managed repository's blobless clone, every time and two at once, past what a killed fetch left (review of #254)", async () => {
+      const run = join(dir.path, `blobless-${runs}`);
+      const seed = join(run, 'seed');
+      const served = join(run, 'origin.git');
+      const managed = join(run, 'clone.git');
+      execFileSync('git', ['init', '-q', '-b', 'main', seed]);
+      const commitFile = (name: string) => {
+        writeFileSync(join(seed, name), `${name}\n`);
+        git(seed, ['add', name]);
+        git(seed, ['commit', '-q', '-m', name]);
+      };
+      for (const name of ['a.txt', 'b.txt']) commitFile(name);
+      git(run, ['clone', '-q', '--bare', seed, served]);
+      git(served, ['config', 'uploadpack.allowFilter', 'true']);
+      const url = pathToFileURL(served).href;
+      // As ensureManagedClone makes it: bare, blobless, fetching into origin/*.
+      git(run, ['clone', '-q', '--bare', '--filter=blob:none', url, managed]);
+      git(managed, ['config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']);
+      git(managed, ['fetch', '-q', 'origin']);
+      commitFile('c.txt');
+      git(seed, ['push', '-q', served, 'main']);
+      const tip = git(served, ['rev-parse', 'main']).trim();
+      const root = join(run, 'base');
+      // What a fetch killed at its deadline leaves: its git directory, with a ref's lock, and a
+      // ref of a commit the clone has pruned since.
+      const left = join(root, 'killed.git');
+      git(run, ['init', '-q', '--bare', left]);
+      writeFileSync(join(left, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`);
+      writeFileSync(join(left, 'refs', 'heads', 'main.lock'), '');
+      const push = openBranchPush({ git: runGit, clone: managed, base: { url, root } });
+      assert.equal(await push.baseTip('main'), tip);
+      assert.deepEqual(await Promise.all([push.baseTip('main'), push.baseTip('main')]), [tip, tip]);
+      assert.deepEqual(readdirSync(root), ['killed.git']);
+    });
+
+    it('scans from a main the clone lacks and pushes the plan beyond it (review of #254)', async () => {
+      const other = join(dir.path, `other-${runs}`);
+      git(dir.path, ['clone', '-q', origin, other]);
+      const { requests, planBranch } = await brew((path) => {
+        commitPlan(path);
+        commitOnMain(other, 'Unrelated on main');
+      });
+      const plan = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
+      assert.equal(requests.length, 1);
+    });
+
+    it("leaves out of the scan what main holds already, though the clone's origin/main is behind it (review of #254)", async () => {
+      // Built at run time, so no scanner takes this file for one that holds a token.
+      const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+      const { state, requests, planBranch } = await brew((path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        // A commit main holds, with what looks like a secret: the base's, not the batch's.
+        writeFileSync(join(path, 'notes.txt'), `${token}\n`);
+        git(path, ['add', 'notes.txt']);
+        git(path, ['commit', '-q', '-m', 'On main already']);
+        git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
+        git(path, ['update-ref', 'refs/remotes/origin/main', start]);
+        commitPlan(path);
+      });
+      const plan = git(user, ['rev-parse', `refs/heads/${planBranch}`]).trim();
+      assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), plan);
+      assert.equal(requests.length, 1);
+      assert.equal(state.batches.get('12-1')?.lane.kind, 'on_tap');
     });
   });
 

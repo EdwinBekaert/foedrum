@@ -30,13 +30,14 @@ const from = 'refs/heads/foedrum/12-1/implement/1';
 
 /**
  * A clone whose revisions name `tip`, but for `origin/main` at `main`, and a remote with the
- * branches it was pushed.
+ * branches it was pushed, whose main is at `fetched`.
  */
 const fakePush = (
   remote: Record<string, string> = {},
   main = base,
   behind: string[] = [],
   found: ScanFinding[] = [],
+  fetched = main,
 ) => {
   const asked: string[] = [];
   const pushes: string[] = [];
@@ -46,8 +47,12 @@ const fakePush = (
       asked.push(revision);
       return revision === 'origin/main' ? main : tip;
     },
-    // A commit is an ancestor of itself, and of the base when the base moved past it.
-    isAncestor: async (commit, of) => commit === of || (of === main && behind.includes(commit)),
+    baseTip: async (name) => {
+      asked.push(`fetch ${name}`);
+      return fetched;
+    },
+    // A commit is an ancestor of itself, and of the remote's base when it moved past it.
+    isAncestor: async (commit, of) => commit === of || (of === fetched && behind.includes(commit)),
     remoteTip: async (name) => remote[name],
     push: async (commit, name) => {
       pushes.push(`${commit} ${name}`);
@@ -133,9 +138,16 @@ const actionsWith = (
     opened?: Record<string, string>;
     answer?: string;
     found?: ScanFinding[];
+    fetched?: string;
   } = {},
 ) => {
-  const pushed = fakePush(options.remote, options.main, options.behind, options.found);
+  const pushed = fakePush(
+    options.remote,
+    options.main,
+    options.behind,
+    options.found,
+    options.fetched,
+  );
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
@@ -171,7 +183,7 @@ describe('pullRequestActions: the push', () => {
     const { actions, asked, pushes } = actionsWith();
     keysOf(brewing(), actions);
     assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
-    assert.deepEqual(asked, [from, 'origin/main']);
+    assert.deepEqual(asked, [from, 'fetch main']);
     assert.deepEqual(pushes, [`${tip} ${branch}`]);
   });
 
@@ -386,6 +398,30 @@ describe('pullRequestActions: a task tree the base has moved past (review of #19
     assert.deepEqual(await actions.target.apply(push), nothing);
     assert.deepEqual(await actions.target.find(push), { result: nothing });
     assert.deepEqual(pushes, []);
+  });
+});
+
+describe('pullRequestActions: the base as the remote has it now (ADR 0090)', () => {
+  const moved = 'e'.repeat(40);
+
+  it("records a task tree the remote's base holds as nothing to push, while the clone's origin/main is behind", async () => {
+    const { actions, pushes, scans } = actionsWith({ main: base, fetched: moved, behind: [tip] });
+    keysOf(brewing(), actions);
+    const nothing = { branch, commit: tip, from, empty: true };
+    assert.deepEqual(await actions.target.find(push), { result: nothing });
+    assert.deepEqual(await actions.target.apply(push), nothing);
+    assert.deepEqual(pushes, []);
+    assert.deepEqual(scans, []);
+  });
+
+  it("scans from the base the empty check read, not from the clone's origin/main", async () => {
+    const { actions, asked, pushes, scans } = actionsWith({ main: base, fetched: moved });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.deepEqual(scans, [`${moved}..${tip}`]);
+    assert.deepEqual(pushes, [`${tip} ${branch}`]);
+    assert.equal(asked.includes('fetch main'), true);
+    assert.equal(asked.includes('origin/main'), false);
   });
 });
 

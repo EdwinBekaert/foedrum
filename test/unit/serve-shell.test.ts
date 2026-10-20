@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
@@ -79,6 +79,43 @@ describe('serveShell', () => {
       calls.map(([cwd, command]) => `${cwd} ${command}`),
       [`${clone} push`, `${join(workRoot, 'acme.web', 'clone.git')} push`],
     );
+  });
+
+  it("fetches each repository's base from GitHub into a git directory of the work root, from its clone's objects (ADR 0090)", async () => {
+    const managed = join(workRoot, 'acme.web', 'clone.git');
+    const root = join(workRoot, 'acme.web', 'base');
+    const { calls, git } = fakeGit((cwd, args) => {
+      if (args.includes('--git-common-dir'))
+        return { code: 0, stdout: `${cwd}\nsha1\n`, stderr: '' };
+      if (args.includes('refs/heads/main'))
+        return { code: 0, stdout: `${'e'.repeat(40)}\n`, stderr: '' };
+      return undefined;
+    });
+    const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
+    await shell.push(web()).baseTip('main');
+    await shell.push(web({ source: 'managed' })).baseTip('main');
+    const fetches = calls.filter((call) => call.includes('fetch'));
+    assert.deepStrictEqual(
+      fetches.map((call) => [
+        call[0],
+        dirname(call[1]?.slice('--git-dir='.length) ?? ''),
+        call.at(-2),
+      ]),
+      [
+        [clone, root, 'https://github.com/acme/web.git'],
+        [managed, root, 'https://github.com/acme/web.git'],
+      ],
+    );
+  });
+
+  it('refuses a local repository without a clone instead of running git in the Brewery checkout (#202)', async () => {
+    const { clone: _, ...cloneless } = web();
+    const { calls, git } = fakeGit();
+    const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
+    const message = 'The local repository acme/web names no clone';
+    assert.throws(() => shell.push(cloneless), { message });
+    await assert.rejects(shell.worktrees(cloneless), { message });
+    assert.deepStrictEqual(calls, []);
   });
 
   /** A git whose `clone` makes the folder it clones into, as git would. */
