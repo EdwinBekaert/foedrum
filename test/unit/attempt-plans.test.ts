@@ -73,6 +73,7 @@ const setup = (
   events: Event[] = [...ordered, started],
   files: Record<string, OutDocRead> = {},
   orderBody = 'Add a --json flag.',
+  brewers = loaded.brewers,
 ) => {
   const folders: string[] = [];
   const reads: { file: string; root: string }[] = [];
@@ -80,7 +81,7 @@ const setup = (
   const orders: unknown[] = [];
   const plans = createAttemptPlans({
     state: () => fold(events),
-    brewers: loaded.brewers,
+    brewers,
     models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
     repoTools: (repo) => (repo === 'acme/api' ? ['Bash(npm test)'] : []),
     clone: (repo) => join('/clones', repo),
@@ -108,6 +109,38 @@ const setup = (
 const start = { ref, limits: { outDoc: { file: 'brew.md', schema: OutDocFrontmatter } } };
 
 describe('createAttemptPlans: plan', () => {
+  it('puts the text of a lens input in the prompt, tagged with the lens and its file (ADR 0098)', async () => {
+    const withLens = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            inputs: [{ name: 'focus', from: 'lens:test-design' }],
+          }),
+        },
+      ],
+      defaults: {
+        lenses: [{ path: 'defaults/lenses/test-design.md', text: '# Lens: test design\n' }],
+      },
+    });
+    assert.ok(withLens.valid, withLens.valid ? '' : withLens.problems.join('\n'));
+    const { plans, reads } = setup(undefined, {}, undefined, withLens.brewers);
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /source="lens test-design, file defaults\/lenses\/test-design\.md" name="focus">\n# Lens: test design\n\n<\//,
+    );
+    // The lens was read with the brewer: nothing more is read for it.
+    assert.deepEqual(reads, []);
+  });
+
   it("plans the attempt in the worktree the driver recorded, with the repository's tools", async () => {
     const { plans } = setup();
     const plan = await plans.plan(start);

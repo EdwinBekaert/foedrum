@@ -2,11 +2,11 @@
 // .foedrum/tmp/tests. What the files mean is in recipe-files.test.ts.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { breweryRecipes, readBreweryFiles } from '../../src/engine/brewery-files.ts';
-import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
+import { INVALID_RECIPES, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -23,8 +23,62 @@ describe('readBreweryFiles', () => {
     writeFileSync(file, text);
   };
 
-  it('has no files in a Brewery without recipe and brewer folders', () => {
-    assert.deepEqual(readBreweryFiles(brewery.path), { recipes: [], brewers: [] });
+  it('has no files in a Brewery without recipe, brewer and lens folders, nor defaults without them', () => {
+    const none = { recipes: [], brewers: [], lenses: [] };
+    assert.deepEqual(readBreweryFiles(brewery.path, join(brewery.path, 'defaults')), {
+      ...none,
+      defaults: none,
+    });
+  });
+
+  it("reads the Brewery's lenses, and the defaults' recipes, brewers and lenses by their path in defaults/ (ADR 0098)", () => {
+    write('lenses/security.md', 'our security');
+    write('foedrum/defaults/recipes/nip.jsonc', 'nip');
+    write('foedrum/defaults/brewers/gauger.md', 'gauger');
+    write('foedrum/defaults/lenses/correctness.md', 'correctness');
+    const files = readBreweryFiles(brewery.path, join(brewery.path, 'foedrum', 'defaults'));
+    assert.deepEqual(files.lenses, [{ path: 'lenses/security.md', text: 'our security' }]);
+    assert.deepEqual(files.defaults, {
+      recipes: [{ path: 'defaults/recipes/nip.jsonc', text: 'nip' }],
+      brewers: [{ path: 'defaults/brewers/gauger.md', text: 'gauger' }],
+      lenses: [{ path: 'defaults/lenses/correctness.md', text: 'correctness' }],
+    });
+  });
+
+  it('lists a defaults folder it cannot read by its path in defaults/ (ADR 0098)', () => {
+    write('foedrum/defaults/lenses', 'a file where the folder should be');
+    const lenses = readBreweryFiles(brewery.path, join(brewery.path, 'foedrum', 'defaults'))
+      .defaults?.lenses;
+    assert.equal(lenses?.length, 1);
+    assert.equal(lenses?.[0]?.path, 'defaults/lenses');
+    assert.match(lenses?.[0] && 'unreadable' in lenses[0] ? lenses[0].unreadable : '', /ENOTDIR/);
+  });
+
+  it("reads the defaults of Foedrum's own install, wherever the Brewery is (ADR 0098)", () => {
+    const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
+    const own = readFileSync(
+      join(import.meta.dirname, '..', '..', 'defaults', 'lenses', 'test-design.md'),
+      'utf8',
+    );
+    assert.deepEqual(
+      lenses.find(({ path }) => path === 'defaults/lenses/test-design.md'),
+      { path: 'defaults/lenses/test-design.md', text: own },
+    );
+  });
+
+  it('reads the defaults of the install, not of the working directory (ADR 0098)', () => {
+    // A working directory with defaults of its own, which must not be read.
+    write('defaults/lenses/test-design.md', "the working directory's lens");
+    const cwd = process.cwd();
+    process.chdir(brewery.path);
+    try {
+      const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
+      const found = lenses.find(({ path }) => path === 'defaults/lenses/test-design.md');
+      assert.ok(found !== undefined && 'text' in found);
+      assert.notEqual(found.text, "the working directory's lens");
+    } finally {
+      process.chdir(cwd);
+    }
   });
 
   it('reads the recipe and brewer files directly in their folders, by name', () => {
@@ -36,13 +90,17 @@ describe('readBreweryFiles', () => {
     write('brewers/notes.txt', 'notes');
     write('recipes/old/stout.jsonc', 'stout');
     write('brewers/old/gauger.md', 'gauger');
-    assert.deepEqual(readBreweryFiles(brewery.path), {
-      recipes: [
-        { path: 'recipes/amber.jsonc', text: 'amber' },
-        { path: 'recipes/pale.jsonc', text: 'pale' },
-      ],
-      brewers: [{ path: 'brewers/maltster.md', text: 'maltster' }],
-    });
+    const { recipes, brewers } = readBreweryFiles(brewery.path);
+    assert.deepEqual(
+      { recipes, brewers },
+      {
+        recipes: [
+          { path: 'recipes/amber.jsonc', text: 'amber' },
+          { path: 'recipes/pale.jsonc', text: 'pale' },
+        ],
+        brewers: [{ path: 'brewers/maltster.md', text: 'maltster' }],
+      },
+    );
   });
 
   it('lists a recipe file it cannot read with the reason', () => {
@@ -80,10 +138,15 @@ describe('breweryRecipes', () => {
     assert.equal(breweryRecipes(brewery.path).find('pale')?.firstStep, 'maltster');
   });
 
+  it("loads Foedrum's own defaults in a Brewery without files of its own (ADR 0098)", () => {
+    const loaded = loadRecipes(readBreweryFiles(brewery.path));
+    assert.equal(loaded.valid, true, loaded.valid ? '' : loaded.problems.join('\n'));
+  });
+
   it("throws doctor's line when a file is not valid", () => {
     write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'maltster' }]));
     assert.throws(() => breweryRecipes(brewery.path), {
-      message: `${INVALID_RECIPES}: recipes/pale.jsonc: it names no brewer "maltster" the Brewery has`,
+      message: `${INVALID_RECIPES}: recipes/pale.jsonc: it names no brewer "maltster" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
     });
   });
 });

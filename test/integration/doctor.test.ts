@@ -8,7 +8,7 @@
 // test/unit/cli.test.ts.
 
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { resolveExecutable } from '../../src/platform/executables.ts';
@@ -34,6 +34,17 @@ import {
 import { type CapturedAnswer, stubPath, writeStubTools } from './stub-tools.ts';
 
 const realGit = resolveExecutable('git') ?? '';
+// doctor runs in a Brewery without files of its own, so every file under Foedrum's defaults/ is in
+// use (ADR 0098), listed here from the folders themselves.
+const defaultsRoot = join(import.meta.dirname, '..', '..', 'defaults');
+const defaultsInUse = (['recipes', 'brewers', 'lenses'] as const).flatMap((folder) => {
+  const extension = folder === 'recipes' ? '.jsonc' : '.md';
+  const names = existsSync(join(defaultsRoot, folder))
+    ? readdirSync(join(defaultsRoot, folder)).filter((name) => name.endsWith(extension))
+    : [];
+  return names.sort().map((name) => `defaults/${folder}/${name}`);
+});
+const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // canned-gh-login.ts. The real tools' output is no longer read here (ADR 0075).
@@ -186,6 +197,7 @@ describe('foedrum doctor with stub tools', () => {
         '',
         ...platform.isolation,
         `Container: podman 5.2.0 at ${at('podman')}; the container level is available`,
+        DEFAULTS_LINE,
         '',
         'Foedrum has everything it needs.',
         '',
@@ -222,6 +234,7 @@ describe('foedrum doctor with stub tools', () => {
         '',
         ...platform.isolation,
         `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
+        DEFAULTS_LINE,
         '',
         'Problems:',
         '  npm not found: Foedrum is installed and updated with npm, which comes with Node',
@@ -267,6 +280,7 @@ describe('foedrum doctor with stub tools', () => {
         '',
         ...platform.isolation,
         `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
+        DEFAULTS_LINE,
         '',
         'Foedrum has everything it needs.',
         '',

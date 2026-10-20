@@ -11,18 +11,22 @@ const Count = z.int().positive();
 /** A camelCase name: a `{variable}` in the prompt, or a named out-doc schema. */
 const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase name');
 
-const source = /^(?:order|step:(.+)|file:(.+))$/;
+const source = /^(?:order|step:(.+)|file:(.+)|lens:(.+))$/;
 
 const Input = z.strictObject({
   name: Identifier,
   from: z
     .string()
-    .regex(source, 'Must be "order", "step:<step id>" or "file:<path in the repository>"')
+    .regex(
+      source,
+      'Must be "order", "step:<step id>", "file:<path in the repository>" or "lens:<lens name>"',
+    )
     .refine((from) => {
-      const [, step, file] = source.exec(from) ?? [];
-      if (step !== undefined) return PathSafeId.safeParse(step).success;
+      const [, step, file, lens] = source.exec(from) ?? [];
+      const id = step ?? lens;
+      if (id !== undefined) return PathSafeId.safeParse(id).success;
       return file === undefined || RelativePath.safeParse(file).success;
-    }, 'Must name a path-safe step id or a relative path'),
+    }, 'Must name a path-safe step id or lens name, or a relative path'),
   // Untrusted input goes between per-prompt nonce tags, as data (ADR 0041). Every
   // source is untrusted for now; a trusted one needs an ADR (brewers-and-recipes §1.1).
   trusted: z

@@ -46,7 +46,7 @@
               },
               "from": {
                 "type": "string",
-                "pattern": "^(?:order|step:(.+)|file:(.+))$"
+                "pattern": "^(?:order|step:(.+)|file:(.+)|lens:(.+))$"
               },
               "trusted": {
                 "default": false,
@@ -305,7 +305,7 @@
               },
               "from": {
                 "type": "string",
-                "pattern": "^(?:order|step:(.+)|file:(.+))$"
+                "pattern": "^(?:order|step:(.+)|file:(.+)|lens:(.+))$"
               },
               "trusted": {
                 "default": false,

@@ -213,7 +213,7 @@ describe('loadRecipes: fails closed', () => {
 
   it('refuses a recipe that names a brewer the Brewery does not have', () => {
     assert.deepEqual(problemsOf(brewery({ brewers: [brewmaster] })), [
-      'recipes/pale.jsonc: it names no brewer "maltster" the Brewery has',
+      'recipes/pale.jsonc: it names no brewer "maltster" that the Brewery\'s brewers/ or Foedrum\'s defaults have (ADR 0098)',
     ]);
   });
 
@@ -257,7 +257,7 @@ describe('loadRecipes: fails closed', () => {
     assert.deepEqual(problemsOf(files), [
       'brewers/maltster.md: EACCES',
       'recipes/amber.jsonc: EISDIR',
-      'recipes/pale.jsonc: it names no brewer "gauger" the Brewery has',
+      'recipes/pale.jsonc: it names no brewer "gauger" that the Brewery\'s brewers/ or Foedrum\'s defaults have (ADR 0098)',
     ]);
   });
 });
@@ -997,5 +997,178 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       kind: 'done',
       pullRequests: [],
     });
+  });
+});
+
+describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)", () => {
+  const fromDefaults = (file: BreweryFile): BreweryFile => ({
+    ...file,
+    path: `defaults/${file.path}`,
+  });
+  const lens = (name: string, text: string, folder = 'lenses'): BreweryFile => ({
+    path: `${folder}/${name}.md`,
+    text,
+  });
+  const defaults = {
+    recipes: [fromDefaults(pale)],
+    brewers: [fromDefaults(maltster), fromDefaults(brewmaster)],
+  };
+  const valid = (files: BreweryFiles) => {
+    const result = loadRecipes(files);
+    assert.equal(result.valid, true, result.valid ? '' : result.problems.join('\n'));
+    return result as Extract<LoadedRecipes, { valid: true }>;
+  };
+
+  it('gives a Brewery with no files of its own the default recipes and brewers, and says which are in use', () => {
+    const result = valid({ recipes: [], brewers: [], defaults });
+    assert.deepEqual(result.recipes.find('pale')?.steps, ['maltster', 'plan']);
+    assert.equal(result.brewers.find('pale', 'plan')?.brewer.maxAttempts, 3);
+    assert.deepEqual(result.defaults, [
+      'defaults/recipes/pale.jsonc',
+      'defaults/brewers/maltster.md',
+      'defaults/brewers/brewmaster.md',
+    ]);
+  });
+
+  it("loads the Brewery's own file instead of the default of the same name, even a broken default", () => {
+    const own = brewer('brewmaster', { maxAttempts: 1 });
+    const broken = { path: 'defaults/brewers/brewmaster.md', text: 'not a brewer' };
+    const result = valid({
+      recipes: [],
+      brewers: [own],
+      defaults: { ...defaults, brewers: [fromDefaults(maltster), broken] },
+    });
+    assert.equal(result.brewers.find('pale', 'plan')?.brewer.maxAttempts, 1);
+    assert.deepEqual(result.defaults, [
+      'defaults/recipes/pale.jsonc',
+      'defaults/brewers/maltster.md',
+    ]);
+    // The Brewery's own recipe replaces the default recipe too.
+    const ownPale = recipe('pale', [{ brewer: 'maltster' }]);
+    const replaced = valid({ recipes: [ownPale], brewers: [], defaults });
+    assert.deepEqual(replaced.recipes.find('pale')?.steps, ['maltster']);
+    assert.deepEqual(replaced.defaults, [
+      'defaults/brewers/maltster.md',
+      'defaults/brewers/brewmaster.md',
+    ]);
+  });
+
+  it('fails the load on a broken default the Brewery does not replace, naming its file', () => {
+    const broken = { path: 'defaults/brewers/brewmaster.md', text: 'not a brewer' };
+    const problems = problemsOf({
+      recipes: [],
+      brewers: [],
+      defaults: { ...defaults, brewers: [fromDefaults(maltster), broken] },
+    });
+    assert.ok(
+      problems.some((line) => line.startsWith('defaults/brewers/brewmaster.md: ')),
+      problems.join('\n'),
+    );
+  });
+
+  const taster = (from: string) => brewer('taster', { inputs: [{ name: 'focus', from }] });
+
+  it("gives a lens input the Brewery's lens of that name, else the default lens", () => {
+    const tasting = recipe('tasting', [{ id: 'taste', brewer: 'taster' }]);
+    const files = (lenses: BreweryFile[]): BreweryFiles => ({
+      recipes: [tasting],
+      brewers: [taster('lens:test-design')],
+      lenses,
+      defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses')] },
+    });
+    const lensOf = (result: Extract<LoadedRecipes, { valid: true }>) =>
+      result.brewers.find('tasting', 'taste')?.lenses?.get('test-design');
+    const fromDefault = valid(files([]));
+    assert.deepEqual(lensOf(fromDefault), {
+      name: 'test-design',
+      path: 'defaults/lenses/test-design.md',
+      text: 'Look at the tests.',
+    });
+    assert.deepEqual(fromDefault.defaults, ['defaults/lenses/test-design.md']);
+    const own = valid(files([lens('test-design', 'Look at our tests.')]));
+    assert.deepEqual(lensOf(own), {
+      name: 'test-design',
+      path: 'lenses/test-design.md',
+      text: 'Look at our tests.',
+    });
+    assert.deepEqual(own.defaults, []);
+  });
+
+  it('refuses a brewer whose lens input names a lens neither the Brewery nor the defaults have, naming the brewer and the lens', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [taster('lens:sparkle')],
+        defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses')] },
+      }),
+      [
+        'brewers/taster.md: the brewer "taster" has the input "focus" from the lens "sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0098)',
+      ],
+    );
+  });
+
+  it('fails the load on a lens file it could not read', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [],
+        lenses: [{ path: 'lenses/security.md', unreadable: 'EACCES: permission denied' }],
+      }),
+      ['lenses/security.md: EACCES: permission denied'],
+    );
+  });
+
+  it('names an unreadable lens once, not also as a lens its brewer lacks', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [taster('lens:security')],
+        lenses: [{ path: 'lenses/security.md', unreadable: 'EACCES: permission denied' }],
+        defaults: { lenses: [lens('security', 'Look for secrets.', 'defaults/lenses')] },
+      }),
+      ['lenses/security.md: EACCES: permission denied'],
+    );
+  });
+
+  it("refuses a lens larger than a brewer's input may be, and loads one at the limit", () => {
+    const atLimit = 'é'.repeat(512 * 1024);
+    assert.deepEqual(
+      problemsOf({ recipes: [], brewers: [], lenses: [lens('security', `${atLimit}x`)] }),
+      [
+        "lenses/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
+      ],
+    );
+    valid({ recipes: [], brewers: [], lenses: [lens('security', atLimit)] });
+  });
+
+  it('keeps an unreadable defaults folder even when a Brewery file has its name', () => {
+    const folder = { path: 'defaults/brewers', unreadable: 'ENOTDIR: not a directory' };
+    const problems = problemsOf({
+      recipes: [],
+      brewers: [brewer('brewers')],
+      defaults: { brewers: [folder] },
+    });
+    assert.ok(problems.includes('defaults/brewers: ENOTDIR: not a directory'), problems.join('\n'));
+  });
+
+  it('names an unreadable lenses/ folder once, not also every lens its brewers name', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [taster('lens:mine')],
+        lenses: [{ path: 'lenses', unreadable: 'EACCES: permission denied' }],
+      }),
+      ['lenses: EACCES: permission denied'],
+    );
+  });
+
+  it('names a lens too large once, not also as a lens its brewer lacks', () => {
+    const tooLarge = lens('security', 'x'.repeat(1024 * 1024 + 1));
+    assert.deepEqual(
+      problemsOf({ recipes: [], brewers: [taster('lens:security')], lenses: [tooLarge] }),
+      [
+        "lenses/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
+      ],
+    );
   });
 });

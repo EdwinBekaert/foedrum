@@ -8,6 +8,7 @@ Foedrum is a GitHub-native orchestrator that runs Claude agents (brewers) throug
 - Decisions: `docs/adr/` — read the relevant ADR before changing a design decision; a change of mind is a new ADR
 - Plan: `ROADMAP.md` and the GitHub milestones/issues
 - Dependencies: `DEPENDENCIES.md`, `.npmrc`
+- Defaults: `defaults/` (brewers, recipes, lenses) loads under every Brewery's own files, found from the install, never the working directory; a Brewery file of the same name replaces the default (`loadRecipes`, [ADR 0098](docs/adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md))
 
 Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, attempt, out doc, gravity reading, bottle, Conditioning, Stuck) consistently in code, docs and messages.
 
