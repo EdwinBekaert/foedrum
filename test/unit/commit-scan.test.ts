@@ -130,6 +130,14 @@ describe('scanHeaders (review of #237)', () => {
     ]);
   });
 
+  // git ends the headers only at an empty line; a line that is only a CR is still a header.
+  it('reads on past a header line that is only a carriage return', () => {
+    const log = raw(C1, [`author ${person('Brewer')}`, '\r', `x-leak ${token}`]);
+    assert.deepEqual(scanHeaders(log, none), [
+      { commit: C1, place: 'header x-leak', kind: 'GitHub token' },
+    ]);
+  });
+
   it('leaves the tree, the parents and the message to the other reads', () => {
     const log = raw(C1, [`author ${person('Brewer')}`, `committer ${person('Brewer')}`], token);
     assert.deepEqual(scanHeaders(log, none), []);

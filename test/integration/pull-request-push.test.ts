@@ -261,6 +261,22 @@ describe('the openPullRequest push with real git', () => {
       assert.match(stopped(state, requests), new RegExp(`commit ${tip}, author: GitHub token`));
     });
 
+    // Consultant-round review of #237: settings of the clone that changed how the headers print.
+    for (const [setting, value] of [
+      ['color.ui', 'always'],
+      ['i18n.logOutputEncoding', 'UTF-16LE'],
+    ]) {
+      it(`stops the push of a credential in the author, whatever the clone's ${setting}`, async () => {
+        const { state, requests } = await brew((path) => {
+          writeFileSync(join(path, 'plan.txt'), 'plan\n');
+          git(path, ['add', 'plan.txt']);
+          git(path, ['commit', '-q', '-m', 'Plan', `--author=${token} <x@y.z>`]);
+          git(path, ['config', `${setting}`, `${value}`]);
+        });
+        assert.match(stopped(state, requests), /, author: GitHub token/);
+      });
+    }
+
     it('stops the push of a commit whose encoding header holds a credential', async () => {
       const { state, requests } = await brew((path) => {
         writeFileSync(join(path, 'plan.txt'), 'plan\n');

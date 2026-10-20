@@ -199,6 +199,14 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     '    Use the key',
     '',
   ].join('\n');
+  const plainHeaders = [
+    `commit ${TIP}`,
+    'author Brewer <brewer@example.com> 1792484716 +0200',
+    'committer Brewer <brewer@example.com> 1792484716 +0200',
+    '',
+    '    Clean',
+    '',
+  ].join('\n');
   const answers = (args: readonly string[]): GitResult => {
     if (args.includes('--patch')) return ok(patches);
     if (args.includes('--format=raw')) return ok(headers);
@@ -236,6 +244,9 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
           '--no-show-signature',
           '--no-decorate',
           '--no-mailmap',
+          '--no-color',
+          '--no-abbrev-commit',
+          '--encoding=none',
           '--format=raw',
           ...range,
         ],
@@ -291,25 +302,45 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
   it('keeps a hexadecimal word the clone has as no commit: git answers missing, or another type', async () => {
     const key = 'd'.repeat(40);
     const blob = 'e'.repeat(40);
-    const { git } = recordingGit((args) =>
-      args[0] === 'log'
+    const { git } = recordingGit((args) => {
+      if (args.includes('--format=raw')) return ok(plainHeaders);
+      return args[0] === 'log'
         ? ok(args.includes('--patch') ? '' : `\0${TIP}\nUse ${key}\nand ${blob}\n`)
-        : ok(`${key} missing\n${blob} blob\n`),
-    );
+        : ok(`${key} missing\n${blob} blob\n`);
+    });
     assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
       { commit: TIP, place: 'message', kind: 'long hexadecimal string' },
     ]);
   });
 
   it('asks nothing of the objects when no word may be a commit', async () => {
-    const { git, calls } = recordingGit((args) =>
-      args[0] === 'log' ? ok(`\0${TIP}\nClean\n`) : failed('unexpected'),
-    );
+    const { git, calls } = recordingGit((args) => {
+      if (args.includes('--format=raw')) return ok(plainHeaders);
+      return args[0] === 'log' ? ok(`\0${TIP}\nClean\n`) : failed('unexpected');
+    });
     assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), []);
     assert.deepEqual(
       calls.map(({ args }) => args[0]),
       ['log', 'log', 'log'],
     );
+  });
+
+  // Consultant-round review of #237: a clone setting (color.ui=always) once hid every commit line.
+  it('refuses when the headers read shows other commits than the messages read', async () => {
+    const coloured = `\u001b[33mcommit ${TIP}\u001b[m\nauthor ${token} <x@y.z> 1 +0000\n\n    Clean\n`;
+    for (const headers of [coloured, '']) {
+      const { git } = recordingGit((args) => {
+        if (args.includes('--format=raw')) return ok(headers);
+        return ok(args.includes('--patch') ? '' : `\0${TIP}\nClean\n`);
+      });
+      assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+        {
+          commit: TIP,
+          place: `the commits from ${BASE}`,
+          kind: 'headers git did not show as stored',
+        },
+      ]);
+    }
   });
 
   it('refuses commits it cannot read whole: more than 4 MiB of messages or changes', async () => {
