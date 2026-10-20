@@ -32,7 +32,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0026](0026-how-a-permission-ceiling-covers-a-rule.md) | How a permission ceiling covers a rule | Accepted |
 | [0027](0027-supervisor-lost-and-stalled-attempts.md) | The supervisor: lost and stalled attempts, reminders and the flush retry (amends 0024 and 0025) | Accepted, amended by 0032, 0044 and 0047 |
 | [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) | The brewer runner: how an attempt ends, its environment, and testFirst when unset | Accepted, amended by 0042, 0044, 0046, 0047 and 0074 |
-| [0029](0029-attempt-worktrees-layout-claims-and-repair.md) | Attempt worktrees: layout, claims, repair and resumed sessions (amends 0012) | Accepted, amended by 0037, 0043, 0066, 0081 and 0084 |
+| [0029](0029-attempt-worktrees-layout-claims-and-repair.md) | Attempt worktrees: layout, claims, repair and resumed sessions (amends 0012) | Accepted, amended by 0037, 0043, 0066, 0081, 0084 and 0095 |
 | [0030](0030-only-commands-that-change-state-are-recorded.md) | Only commands that change state are recorded (amends 0019) | Accepted |
 | [0031](0031-cmd-and-bat-files-through-cmd-exe.md) | `.cmd` and `.bat` files start through cmd.exe | Accepted, amended by 0069 |
 | [0032](0032-routing-deadline-for-ordered-batches.md) | A routing deadline for Ordered batches (amends 0025 and 0027) | Accepted, amended by 0064 and 0068 |
@@ -77,7 +77,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted, amended by 0079, 0088 and 0090 |
 | [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) | The status comment: edits as revisions in the ledger, one a minute per order (amends 0033, 0052 and 0068) | Accepted, amended by 0088 |
 | [0073](0073-github-only-through-gh-s-own-login.md) | GitHub only through `gh`'s own login: Foedrum never holds a token (supersedes part of 0008 and 0063, amends 0052) | Accepted, amended by 0075 and 0082 |
-| [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) | `git.commit` grants fixed git rules, and a commit-producing brewer's `done` needs a commit (amends 0028 and 0059) | Accepted, amended by 0085 |
+| [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) | `git.commit` grants fixed git rules, and a commit-producing brewer's `done` needs a commit (amends 0028 and 0059) | Accepted, amended by 0085 and 0095 |
 | [0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md) | Only a lower bound reads the wall clock, and doctor's tests run against stub tools (amends 0070 and 0073) | Accepted |
 | [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) | The red proof reads the test report, and testsUnchanged compares the lines of the tests (amends 0017, 0059, 0064, 0066 and 0069) | Accepted |
 | [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) | The push scans the batch's commits for secrets (amends 0071 and 0084) | Accepted, amended by 0088 and 0090 |
@@ -93,6 +93,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
 | [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
 | [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049 and 0057) | Accepted |
+| [0095](0095-git-reads-a-worktree-only-through-its-record-and-runs-no-fsmonitor-or-hook.md) | git reads a worktree only through its record, and runs no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
 
 ## Template
 
