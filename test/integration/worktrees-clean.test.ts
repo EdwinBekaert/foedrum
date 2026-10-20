@@ -197,6 +197,49 @@ describe('worktrees-clean with real git', () => {
     );
   });
 
+  it('never runs the fsmonitor of a git folder a .git file names, and still reads clean and dirty', () => {
+    const clean16 = worktree('16-clean');
+    const dirty = worktree('17-dirty');
+    const forged = worktree('18-forged');
+    for (const branch of ['16-clean', '17-dirty', '18-forged']) merge(branch);
+    writeFileSync(join(dirty, 'notes.txt'), 'not committed\n');
+    // What a brewer can write: a git folder inside its worktree, with an index so git status
+    // reads it, a core.fsmonitor command, and the worktree's .git file pointing there (#263).
+    const marker = join(dir.path, 'fsmonitor-ran');
+    const monitor = join(dir.path, 'monitor.mjs');
+    writeFileSync(
+      monitor,
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\n`,
+    );
+    const forgedGit = join(forged, 'forged');
+    git(dir.path, ['init', '-q', '--bare', forgedGit]);
+    git(forgedGit, ['config', 'core.bare', 'false']);
+    const slash = (path: string): string => path.replaceAll('\\', '/');
+    git(forgedGit, [
+      'config',
+      'core.fsmonitor',
+      `"${slash(process.execPath)}" "${slash(monitor)}"`,
+    ]);
+    // Removed first: Windows refuses to overwrite a hidden file, and git hides the .git file.
+    rmSync(join(forged, '.git'));
+    writeFileSync(join(forged, '.git'), 'gitdir: ./forged\n');
+    git(forged, ['add', '18-forged.txt']);
+    rmSync(marker, { force: true });
+
+    const result = clean(main);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(marker), false, 'the fsmonitor command of the forged git folder ran');
+    assert.equal(existsSync(clean16), false, result.stdout);
+    assert.match(result.stdout, /removed worktree \.claude\/worktrees\/16-clean/);
+    assert.ok(existsSync(dirty) && existsSync(forged), result.stdout);
+    assert.match(
+      result.stdout,
+      /kept worktree \.claude\/worktrees\/17-dirty: it has uncommitted or untracked changes/,
+    );
+    assert.match(result.stdout, /kept worktree \.claude\/worktrees\/18-forged: /);
+  });
+
   it('removes read-only records git no longer lists, outside .claude/worktrees/ too', () => {
     // A review run from the main checkout, whose removal stopped after deleting the gitdir file.
     const scratch = join(main, '.foedrum', 'tmp', '14', 'scratch', 'tree');
