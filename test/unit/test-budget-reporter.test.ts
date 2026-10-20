@@ -447,6 +447,13 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     assert.deepEqual(measured, [fileB, fileB, fileB]);
   });
 
+  it('lets a file pass that uses exactly the budget alone, after one run alone', async () => {
+    const { measured, remeasure } = alone({ [fileA]: 5000 });
+    const { failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.deepEqual(measured, [fileA]);
+  });
+
   // A run alone that reports nothing will not report anything the next time either.
   it('stops running a file alone once a run alone gives no reading', async () => {
     const { measured, remeasure } = alone({});
@@ -580,6 +587,11 @@ describe('remeasureAlone', () => {
     const output = `TAP version 13\nnot ok 1 - x\n# ${reading(1300)}\n# ${reading(20)}\n1..1\n`;
     const { runProcess } = runner({ exitCode: 1, output });
     assert.equal(await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA), 1300);
+  });
+
+  it('reads a CPU time of 0 ms', async () => {
+    const { runProcess } = runner({ exitCode: 0, output: `# ${reading(0)}\n` });
+    assert.equal(await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA), 0);
   });
 
   it('reads nothing from a run without a reading, or one that was killed', async () => {
