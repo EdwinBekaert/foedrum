@@ -2,7 +2,7 @@
 // passed its schema, so the file is never one claude would drop.
 
 import { writeFileSync } from 'node:fs';
-import { AttemptSettings, alwaysDenied } from '../schemas/attempt-settings.ts';
+import { AttemptSettings, alwaysDenied, sandboxCredentials } from '../schemas/attempt-settings.ts';
 import { z } from '../schemas/zod.ts';
 
 export interface AttemptPermissions {
@@ -25,9 +25,19 @@ const valid = (settings: unknown): AttemptSettings => {
 export function attemptSettings({ allow, deny, sandbox }: AttemptPermissions): AttemptSettings {
   return valid({
     permissions: { allow: [...allow], deny: [...new Set([...deny, ...alwaysDenied(allow)])] },
-    // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed.
+    // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
+    // default it runs every sandboxed command whatever the allow rules say, and lets it read the
+    // machine's credentials.
     ...(sandbox
-      ? { sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false } }
+      ? {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            autoAllowBashIfSandboxed: false,
+            credentials: sandboxCredentials,
+          },
+        }
       : {}),
   });
 }
