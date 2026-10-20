@@ -113,13 +113,22 @@ const oneLine = (reason: string): string =>
 /** The name a file must hold: its file name without the extension. */
 const nameOf = (path: string): string => (path.split('/').at(-1) ?? '').replace(/\.[^.]*$/, '');
 
-/** The defaults of one kind that no file of `own` is named like: a Brewery file replaces them. */
+/**
+ * Whether `file` is a folder the shell could not list: its path names the folder, without a file
+ * name and its extension, so it is never matched by name like a file.
+ */
+const isFolder = ({ path }: BreweryFile): boolean => !/\.[^/]*$/.test(path);
+
+/**
+ * The defaults of one kind that no file of `own` is named like: a Brewery file replaces them. A
+ * defaults folder that could not be read is always kept, so it fails the load.
+ */
 function keptDefaults(
   own: readonly BreweryFile[],
   defaults: readonly BreweryFile[] = [],
 ): readonly BreweryFile[] {
-  const names = new Set(own.map(({ path }) => nameOf(path)));
-  return defaults.filter(({ path }) => !names.has(nameOf(path)));
+  const names = new Set(own.filter((file) => !isFolder(file)).map(({ path }) => nameOf(path)));
+  return defaults.filter((file) => isFolder(file) || !names.has(nameOf(file.path)));
 }
 
 /** The defaults the Brewery keeps, by kind: those it has no file of the same name for (ADR 0098). */
@@ -389,6 +398,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const lenses = new Map<string, Lens>();
   // A lens whose file has a problem of its own is reported once, as that file.
   const brokenLenses = new Set<string>();
+  // A lens folder that could not be read may hold any lens: no brewer is told it lacks one.
+  const lensFolderUnread = files.lenses.some((file) => 'unreadable' in file && isFolder(file));
   for (const file of files.lenses) {
     const name = nameOf(file.path);
     if ('unreadable' in file) {
@@ -415,7 +426,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         const unknown: string[] = [];
         for (const input of brewer.inputs) {
           const lens = lensOf(input.from);
-          if (lens === undefined || brokenLenses.has(lens)) continue;
+          if (lens === undefined || lensFolderUnread || brokenLenses.has(lens)) continue;
           const found = lenses.get(lens);
           if (found !== undefined) named.set(lens, found);
           else {
