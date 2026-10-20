@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { devNull } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
@@ -152,6 +153,119 @@ describe('openBranchPush: push', () => {
     await assert.rejects(push.push('HEAD', branch), /HEAD is no full commit sha/);
     await assert.rejects(push.push(TIP, '--force'), /"--force" is no branch in foedrum\//);
     await assert.rejects(push.remoteTip('main'), /"main" is no branch in foedrum\//);
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe('openBranchPush: baseTip (ADR 0090)', () => {
+  const OLD = 'b'.repeat(40);
+  const gitDir = '/work/acme.api/base.git';
+  const url = 'https://github.com/acme/api.git';
+  const base = { url, gitDir };
+  /** A clone at `/work/acme.api/clone` whose origin/main is at OLD, and a remote main at TIP. */
+  const answers = (args: readonly string[]): GitResult => {
+    if (args.includes('--git-common-dir')) return ok(`${clone}\nsha1\n`);
+    if (args.includes('refs/remotes/origin/main^{commit}')) return ok(`${OLD}\n`);
+    if (args.includes('refs/heads/main')) return ok(`${TIP}\n`);
+    return ok();
+  };
+
+  it("fetches the remote's base into Foedrum's own git directory, which writes into the clone's objects", async () => {
+    const { git, calls } = recordingGit(answers);
+    const push = openBranchPush({ git, clone, base });
+    assert.equal(await push.baseTip('main'), TIP);
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+        [
+          clone,
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          'refs/remotes/origin/main^{commit}',
+        ],
+        [
+          clone,
+          `--git-dir=${gitDir}`,
+          'init',
+          '--bare',
+          '--quiet',
+          '--template=',
+          '--object-format=sha1',
+        ],
+        [
+          clone,
+          `--git-dir=${gitDir}`,
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--no-recurse-submodules',
+          '--no-auto-maintenance',
+          `--negotiation-tip=${OLD}`,
+          '--end-of-options',
+          url,
+          '+refs/heads/main:refs/heads/main',
+        ],
+        [
+          clone,
+          `--git-dir=${gitDir}`,
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          'refs/heads/main',
+        ],
+      ],
+    );
+    const fetch = calls[3]?.options;
+    assert.equal(fetch?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
+    assert.equal(fetch?.config?.['core.hooksPath'], devNull);
+    assert.equal(fetch?.config?.['gc.auto'], '0');
+    assert.equal(fetch?.timeoutMs, 300_000);
+  });
+
+  it('fetches without a negotiation tip when the clone has no origin/<base>, and passes the signal to every call', async () => {
+    const { git, calls } = recordingGit((args) =>
+      args.includes('refs/remotes/origin/main^{commit}') ? failed('') : answers(args),
+    );
+    const push = openBranchPush({ git, clone, base });
+    const { signal } = new AbortController();
+    assert.equal(await push.baseTip('main', signal), TIP);
+    const fetch = calls.find(({ args }) => args.includes('fetch'));
+    assert.equal(
+      fetch?.args.some((arg) => arg.startsWith('--negotiation-tip')),
+      false,
+    );
+    assert.deepEqual(
+      calls.map(({ options }) => options?.signal === signal),
+      [true, true, true, true, true],
+    );
+  });
+
+  it("fails with git's reason when the remote has no such branch", async () => {
+    const { git } = recordingGit((args) =>
+      args.includes('fetch')
+        ? failed("fatal: couldn't find remote ref refs/heads/main\n")
+        : answers(args),
+    );
+    await assert.rejects(openBranchPush({ git, clone, base }).baseTip('main'), {
+      message: "git fetch failed: fatal: couldn't find remote ref refs/heads/main",
+    });
+  });
+
+  it('refuses a base that git would read as an option or a refspec, and a push with no base fetch, before git runs', async () => {
+    const { git, calls } = recordingGit(answers);
+    for (const name of ['--upload-pack=x', 'main:refs/heads/x', 'a..b', 'ma in', '']) {
+      await assert.rejects(openBranchPush({ git, clone, base }).baseTip(name), {
+        message: `${JSON.stringify(name)} is no branch name`,
+      });
+    }
+    await assert.rejects(openBranchPush({ git, clone }).baseTip('main'), {
+      message: `The pushes from ${clone} have no base to fetch`,
+    });
     assert.deepEqual(calls, []);
   });
 });

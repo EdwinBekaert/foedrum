@@ -127,7 +127,15 @@ describe('the openPullRequest push with real git', () => {
       actions: pullRequestActions({
         brewery: 'acme/brewery',
         repositories: [
-          { repo: 'acme/app', base: 'main', push: openBranchPush({ git: runGit, clone: user }) },
+          {
+            repo: 'acme/app',
+            base: 'main',
+            push: openBranchPush({
+              git: runGit,
+              clone: user,
+              base: { url: origin, gitDir: join(dir.path, `base-${runs}.git`) },
+            }),
+          },
         ],
         host,
         orderTitle: async () => 'Add a plan',
@@ -202,6 +210,49 @@ describe('the openPullRequest push with real git', () => {
       retryable: false,
       reason: 'batch 12-1 has no commits beyond main to open a pull request with',
     });
+  });
+
+  describe('the base as the remote has it now (ADR 0090)', () => {
+    /** What a brewer could write into the config of the clone its worktree shares (#200). */
+    const plants: Record<string, (path: string, nowhere: string) => void> = {
+      'a url.<nowhere>.insteadOf of the origin': (path, nowhere) =>
+        git(path, ['config', `url.${nowhere}.insteadOf`, origin]),
+      'an include.path of a file that redirects the origin': (path, nowhere) => {
+        const included = join(dir.path, `included-${runs}.gitconfig`);
+        writeFileSync(included, '');
+        git(dir.path, ['config', '--file', included, `url.${nowhere}.insteadOf`, origin]);
+        git(path, ['config', 'include.path', included]);
+      },
+    };
+    for (const [plant, write] of Object.entries(plants)) {
+      it(`pushes nothing for a plan main already holds, though the clone never fetched it, past ${plant}`, async () => {
+        const nowhere = join(dir.path, `nowhere-${runs}.git`);
+        let start = '';
+        const { state, requests } = await brew((path) => {
+          start = git(path, ['rev-parse', 'HEAD']).trim();
+          commitPlan(path);
+          // The plan's commit reaches main, and the clone's origin/main stays where it was: git
+          // moves it on a push to the origin's own path, so it goes back.
+          git(path, ['push', '-q', origin, 'HEAD:refs/heads/main']);
+          git(path, ['update-ref', 'refs/remotes/origin/main', start]);
+          write(path, nowhere);
+        });
+        assert.equal(git(user, ['rev-parse', 'refs/remotes/origin/main']).trim(), start);
+        // The plant works: git in the clone no longer reaches the origin.
+        assert.throws(() => git(user, ['ls-remote', origin]));
+        assert.equal(
+          git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]),
+          '',
+        );
+        assert.deepEqual(requests, []);
+        const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
+        assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
+          kind: 'failed',
+          retryable: false,
+          reason: 'batch 12-1 has no commits beyond main to open a pull request with',
+        });
+      });
+    }
   });
 
   describe('the secret scan before the push (ADR 0079)', () => {

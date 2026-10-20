@@ -164,6 +164,7 @@ describe('runServe', () => {
     push: (repository) => ({
       // The task tree is at FAKE_COMMIT, the base elsewhere.
       commit: async (revision) => (revision === 'origin/main' ? 'b'.repeat(40) : FAKE_COMMIT),
+      baseTip: async () => 'b'.repeat(40),
       isAncestor: async (commit, of) => commit === of,
       remoteTip: async () => undefined,
       push: async (commit, branch) => {

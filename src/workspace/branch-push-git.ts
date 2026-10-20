@@ -20,6 +20,17 @@ export interface BranchPushOptions {
   clone: string;
   /** Default `origin`. */
   remote?: string;
+  /** Where the base is fetched from, and into (ADR 0090). */
+  base?: BaseFetch;
+}
+
+/**
+ * The fetch of the base (ADR 0090): from a URL Foedrum names, in a git directory of Foedrum's own
+ * whose objects are the clone's, so nothing in the clone's configuration takes part.
+ */
+export interface BaseFetch {
+  url: string;
+  gitDir: string;
 }
 
 /**
@@ -136,6 +147,9 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       // 0: an ancestor, 1: not one; anything else is git failing.
       if (result.code === 0 || result.code === 1) return result.code === 0;
       throw new Error(`git merge-base failed: ${firstLine(result)}`);
+    },
+    baseTip: async () => {
+      throw new Error('not implemented');
     },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;

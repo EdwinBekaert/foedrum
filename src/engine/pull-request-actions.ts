@@ -51,6 +51,11 @@ export interface BranchPush {
   commit(revision: string, signal?: AbortSignal): Promise<string>;
   /** Whether the commit `commit` is the commit `of` or one of its ancestors: both full shas. */
   isAncestor(commit: string, of: string, signal?: AbortSignal): Promise<boolean>;
+  /**
+   * The commit the remote's branch `base` points at now, fetched into the clone's objects without
+   * reading the clone's configuration (ADR 0090); throws when the remote has no such branch.
+   */
+  baseTip(base: string, signal?: AbortSignal): Promise<string>;
   /** The commit the remote's branch `branch` points at, or `undefined` when it has no such branch. */
   remoteTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Pushes `commit` to the remote's branch `branch`, never by force. */
