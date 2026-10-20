@@ -374,11 +374,14 @@ const withoutCredentials = (url: string): string => {
 export const worktreeClonePath = (
   workRoot: string,
   repository: { repo: string; source: RepositorySource; clone?: string },
-): string =>
-  // A local repository without its clone is refused before anything opens (serveSetup).
-  repository.source === 'local'
-    ? (repository.clone ?? '')
-    : managedClonePath(workRoot, repository.repo);
+): string => {
+  if (repository.source === 'managed') return managedClonePath(workRoot, repository.repo);
+  // serveSetup refuses it before anything opens; never git in the working directory instead (#202).
+  if (repository.clone === undefined) {
+    throw new Error(`The local repository ${repository.repo} names no clone`);
+  }
+  return repository.clone;
+};
 
 /**
  * The repository's managed clone (`source: managed`, ADR 0012): a bare partial clone in the work

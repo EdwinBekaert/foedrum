@@ -50,7 +50,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051, 0055 and 0063 |
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted, amended by 0056, 0060 and 0065 |
 | [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057, 0062 and 0087 |
-| [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted, amended by 0048 and 0057 |
+| [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted, amended by 0048, 0057 and 0091 |
 | [0048](0048-retried-pre-stream-failures-commit-detection-and-out-doc-identity.md) | Retried failures before the stream, commit detection, and the out doc's identity (amends 0047) | Accepted |
 | [0049](0049-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted, amended by 0057 |
 | [0050](0050-the-intake-of-target-repository-issues.md) | The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines (amends 0008, 0043 and 0044) | Accepted, amended by 0052 and 0068 |
@@ -74,13 +74,13 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) | The intake in `foedrum serve`: Brewery orders, routing by label, and relabelled issues (amends 0008, 0032, 0050, 0052 and 0063) | Accepted, amended by 0072 |
 | [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) | Check steps run the repository's commands in an attempt of their own (amends 0023, 0031, 0053 and 0064) | Accepted, amended by 0078 |
 | [0070](0070-tests-never-hold-the-wall-clock-to-a-limit.md) | Tests never hold the wall clock to a limit (extends 0036) | Accepted, amended by 0075 |
-| [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted, amended by 0079 and 0088 |
+| [0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md) | The openPullRequest action: two effects of the batch, run by the driver (amends 0053 and 0059) | Accepted, amended by 0079, 0088 and 0090 |
 | [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) | The status comment: edits as revisions in the ledger, one a minute per order (amends 0033, 0052 and 0068) | Accepted, amended by 0088 |
 | [0073](0073-github-only-through-gh-s-own-login.md) | GitHub only through `gh`'s own login: Foedrum never holds a token (supersedes part of 0008 and 0063, amends 0052) | Accepted, amended by 0075 and 0082 |
 | [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) | `git.commit` grants fixed git rules, and a commit-producing brewer's `done` needs a commit (amends 0028 and 0059) | Accepted, amended by 0085 |
 | [0075](0075-only-a-lower-bound-reads-the-wall-clock-and-doctor-runs-against-stub-tools.md) | Only a lower bound reads the wall clock, and doctor's tests run against stub tools (amends 0070 and 0073) | Accepted |
 | [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) | The red proof reads the test report, and testsUnchanged compares the lines of the tests (amends 0017, 0059, 0064, 0066 and 0069) | Accepted |
-| [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) | The push scans the batch's commits for secrets (amends 0071 and 0084) | Accepted, amended by 0088 |
+| [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) | The push scans the batch's commits for secrets (amends 0071 and 0084) | Accepted, amended by 0088 and 0090 |
 | [0081](0081-the-cleanup-ignores-the-steps-own-out-doc.md) | The cleanup ignores the step's own out doc (amends 0029 and 0037) | Accepted, amended by 0084 |
 | [0082](0082-brewers-never-allow-gh.md) | Brewers never allow `gh`, and doctor says what can still reach its login (amends 0062 and 0073) | Accepted, amended by 0088 |
 | [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) | A batch's commits end in a pull request or on a kept branch (amends 0029, 0053, 0059 and 0081) | Accepted, amended by 0079 and 0092 |
@@ -89,6 +89,8 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) | Sandboxed commands go through the allow rules, and never see the credentials Foedrum names (amends 0042, 0046 and 0085) | Accepted |
 | [0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md) | Out doc text that looks like a secret is left out of the pull request and the status comment (amends 0071, 0072, 0079 and 0082) | Accepted |
 | [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) | A file over the test budget is measured again alone (amends 0036 and 0054) | Accepted |
+| [0090](0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md) | The push fetches the base in a git directory of its own (amends 0071 and 0079) | Accepted |
+| [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
 | [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
 
 ## Template

@@ -9,6 +9,7 @@ import {
 } from '../../src/engine/brewer-runner.ts';
 import { OutDocFrontmatter, outDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
+import { documentedUsageLimits } from '../fixtures/claude-usage-limits.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 
 const limits: AttemptLimits = {
@@ -90,6 +91,61 @@ describe('settleAttempt', () => {
       blockerKind: 'environment',
       summary:
         'claude did not set up the session the runner asked for: permission mode "default", not dontAsk',
+    });
+  });
+
+  // ADR 0091: claude refuses every request until the window resets, so another attempt now would
+  // be refused too. A human retries after the reset claude named.
+  it('blocks on the environment when a usage window ran out, naming the limit and its reset', () => {
+    for (const { limit, resets } of documentedUsageLimits) {
+      const ending = settleAttempt(
+        facts({
+          usageLimit: { limit, resets },
+          exit: { kind: 'exited', code: 1 },
+          streamError: 'api_error: rejected',
+          outDoc: undefined,
+          denials: 9,
+          turns: 101,
+        }),
+        limits,
+      );
+      assert.deepStrictEqual(ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`,
+      });
+    }
+  });
+
+  // Review of #252: however the process ended after the refusal, the window is what to wait for.
+  it('puts a usage limit before a killed, overflowed or stopped process', () => {
+    const exits = [
+      { kind: 'killed', signal: 'SIGTERM' },
+      { kind: 'overflowed', what: 'a stream line passed 8388608 bytes' },
+      { kind: 'stopped' },
+    ] as const;
+    for (const exit of exits) {
+      const ending = settleAttempt(
+        facts({ exit, usageLimit: { limit: 'Opus', resets: '3:45pm' }, outDoc: undefined }),
+        limits,
+      );
+      assert.deepStrictEqual(ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'claude hit its Opus limit, which resets 3:45pm: retry the step after that',
+      });
+    }
+  });
+
+  it('puts a session that is not what was asked before a usage limit', () => {
+    const ending = settleAttempt(
+      facts({ environment: 'no init', usageLimit: { limit: 'weekly', resets: 'Mon 12:00am' } }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude did not set up the session the runner asked for: no init',
     });
   });
 

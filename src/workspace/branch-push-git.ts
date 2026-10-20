@@ -2,7 +2,10 @@
 // never in an attempt's worktree (ADR 0066). Git runs only through the injected `Git`, so unit
 // tests pass a fake one (ADR 0021).
 
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { devNull } from 'node:os';
+import { join } from 'node:path';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
 import {
   commitCandidates,
@@ -12,6 +15,7 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
+import { removeTree } from '../platform/remove.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 export interface BranchPushOptions {
@@ -20,6 +24,19 @@ export interface BranchPushOptions {
   clone: string;
   /** Default `origin`. */
   remote?: string;
+  /** Where the base is fetched from, and into (ADR 0090). */
+  base?: BaseFetch;
+  /** The name of each fetch's git directory in the base's root; default a random UUID. */
+  id?: () => string;
+}
+
+/**
+ * The fetch of the base (ADR 0090): from a URL Foedrum names, in a git directory of Foedrum's own
+ * whose objects are the clone's, so nothing in the clone's configuration takes part.
+ */
+export interface BaseFetch {
+  url: string;
+  root: string;
 }
 
 /**
@@ -85,10 +102,12 @@ const PATCHES = [
 /** Past the runner's output limit (ADR 0035), the scan reads no further and refuses. */
 const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan reads';
 
-/** A push of a large repository takes a while; the effect's deadline aborts it sooner. */
-const PUSH_TIMEOUT_MS = 300_000;
+/** A push or fetch of a large repository takes a while; the effect's deadline aborts it sooner. */
+const TRANSFER_TIMEOUT_MS = 300_000;
 
 const SHA = /^[0-9a-f]{40}$/;
+// A base branch as git reads it in a refspec: never an option, a second refspec or a range.
+const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 // A branch Foedrum pushes, so that nothing from outside reaches git as an option or a refspec.
 const FOEDRUM_BRANCH = /^foedrum\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$/;
 
@@ -98,6 +117,10 @@ const firstLine = ({ code, stderr }: GitResult): string =>
     .map((line) => line.trim())
     .find((line) => line !== '') ??
   (code === null ? 'git did not finish in time' : `git exited with ${code}`);
+
+// The git command of `args`, after git's own options such as `--git-dir`.
+const command = (args: readonly string[]): string =>
+  args.find((arg) => !arg.startsWith('-')) ?? 'git';
 
 // The signal as git's options take it.
 const aborts = (signal: AbortSignal | undefined): GitOptions =>
@@ -111,10 +134,10 @@ const foedrumBranch = (branch: string): string => {
 };
 
 export const openBranchPush = (options: BranchPushOptions): BranchPush => {
-  const { git, clone, remote = 'origin' } = options;
+  const { git, clone, remote = 'origin', base: fetchBase, id: newId = randomUUID } = options;
   const must = async (args: string[], gitOptions: GitOptions): Promise<string> => {
     const result = await git(clone, args, gitOptions);
-    if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${firstLine(result)}`);
+    if (result.code !== 0) throw new Error(`git ${command(args)} failed: ${firstLine(result)}`);
     return result.stdout;
   };
   return {
@@ -137,6 +160,88 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (result.code === 0 || result.code === 1) return result.code === 0;
       throw new Error(`git merge-base failed: ${firstLine(result)}`);
     },
+    baseTip: async (name, signal) => {
+      if (!BRANCH_NAME.test(name)) throw new Error(`${JSON.stringify(name)} is no branch name`);
+      if (fetchBase === undefined)
+        throw new Error(`The pushes from ${clone} have no base to fetch`);
+      const { url, root } = fetchBase;
+      const [common, format] = (
+        await must(
+          ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
+          aborts(signal),
+        )
+      ).split(/\r?\n/);
+      if (common === undefined || format === undefined || common === '' || format === '') {
+        throw new Error(`git rev-parse did not name the git directory of ${clone}`);
+      }
+      // The clone's own origin/<base>: where the fetch starts.
+      const known = await git(
+        clone,
+        [
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          `refs/remotes/${remote}/${name}^{commit}`,
+        ],
+        aborts(signal),
+      );
+      const have = known.stdout.trim();
+      // A git directory of this fetch's own, made for it and removed after: no fetch at the same
+      // time, and nothing a fetch killed at its deadline left (a ref's lock, a ref of a commit the
+      // clone has pruned since), takes part. Git there reads that directory's configuration, never
+      // the clone's, which a brewer can write (#200): no url.*.insteadOf, include, credential helper
+      // or hook of it.
+      const gitDir = join(root, `${newId()}.git`);
+      const own = [`--git-dir=${gitDir}`];
+      try {
+        // git init makes the directory, but not the folder it is in.
+        await mkdir(root, { recursive: true });
+        await must(
+          [...own, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
+          aborts(signal),
+        );
+        const ref = `refs/heads/${name}`;
+        const objects = { GIT_OBJECT_DIRECTORY: join(common, 'objects') };
+        // The ref starts at the clone's base: the fetch then brings only what the clone lacks, and
+        // git's check of what it brought stops there instead of walking a blobless clone's history
+        // to blobs it never had.
+        if (known.code === 0 && SHA.test(have)) {
+          await must([...own, 'update-ref', ref, have], { ...aborts(signal), env: objects });
+        }
+        await must(
+          [
+            ...own,
+            'fetch',
+            '--quiet',
+            '--no-tags',
+            '--no-write-fetch-head',
+            '--no-recurse-submodules',
+            // A gc there would prune every object of the clone that its own refs do not reach.
+            '--no-auto-maintenance',
+            '--end-of-options',
+            url,
+            `+${ref}:${ref}`,
+          ],
+          {
+            ...aborts(signal),
+            timeoutMs: TRANSFER_TIMEOUT_MS,
+            env: objects,
+            config: { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' },
+          },
+        );
+        const fetched = (
+          await must(
+            [...own, 'rev-parse', '--verify', '--quiet', '--end-of-options', ref],
+            aborts(signal),
+          )
+        ).trim();
+        if (!SHA.test(fetched)) throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
+        return fetched;
+      } finally {
+        await removeTree(gitDir);
+      }
+    },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;
       const listed = await must(['ls-remote', '--refs', remote, ref], aborts(signal));
@@ -153,7 +258,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       // wrote into the clone its worktree shares (`--no-verify` alone skips only pre-push).
       await must(['push', '--no-verify', remote, refspec], {
         ...aborts(signal),
-        timeoutMs: PUSH_TIMEOUT_MS,
+        timeoutMs: TRANSFER_TIMEOUT_MS,
         config: { 'core.hooksPath': devNull },
       });
     },
