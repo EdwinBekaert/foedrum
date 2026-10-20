@@ -162,6 +162,20 @@ export const repositoryOf = <R extends { readonly repo: string }>(
   return found;
 };
 
+/** How much of a rejected run's message its summary keeps: the runner may quote what it read. */
+const summaryLength = 120;
+
+/**
+ * The summary of a run whose end rejected with `error` (ADR 0099): the first line of its message,
+ * at most `summaryLength` characters, or a fixed text when that has nothing to show, since the
+ * event store refuses an empty summary.
+ */
+const rejectionSummary = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  const line = (message.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
+  return line === '' ? 'the brewer runner failed without a message' : line;
+};
+
 /** The attempt `ref` in `state`, if it was scheduled. */
 const attemptOf = (state: State, ref: AttemptRef) =>
   state.batches.get(ref.batchId)?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
@@ -451,9 +465,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           runs.set(key, { ref, run });
           run.ended.then(
             (end) => ended.push({ ref, end }),
-            // The runner broke, not the attempt: it is blocked on its environment (ADR 0028).
+            // The runner broke, not the attempt: it is blocked on its environment, and its process,
+            // which may still run, is stopped before its lease goes (ADR 0099).
             (error: unknown) => {
-              const summary = error instanceof Error ? error.message : String(error);
+              run.stop();
+              const summary = rejectionSummary(error);
               const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
               ended.push({ ref, end: { ending }, rejected: { error } });
             },

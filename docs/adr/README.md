@@ -31,7 +31,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) | Batch lifecycle: a reminder on Stuck, rewind only from Stuck (amends 0019) | Accepted, amended by 0027, 0032, 0044, 0053 and 0064 |
 | [0026](0026-how-a-permission-ceiling-covers-a-rule.md) | How a permission ceiling covers a rule | Accepted |
 | [0027](0027-supervisor-lost-and-stalled-attempts.md) | The supervisor: lost and stalled attempts, reminders and the flush retry (amends 0024 and 0025) | Accepted, amended by 0032, 0044 and 0047 |
-| [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) | The brewer runner: how an attempt ends, its environment, and testFirst when unset | Accepted, amended by 0042, 0044, 0046, 0047 and 0074 |
+| [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) | The brewer runner: how an attempt ends, its environment, and testFirst when unset | Accepted, amended by 0042, 0044, 0046, 0047, 0074 and 0099 |
 | [0029](0029-attempt-worktrees-layout-claims-and-repair.md) | Attempt worktrees: layout, claims, repair and resumed sessions (amends 0012) | Accepted, amended by 0037, 0043, 0066, 0081, 0084, 0095 and 0096 |
 | [0030](0030-only-commands-that-change-state-are-recorded.md) | Only commands that change state are recorded (amends 0019) | Accepted |
 | [0031](0031-cmd-and-bat-files-through-cmd-exe.md) | `.cmd` and `.bat` files start through cmd.exe | Accepted, amended by 0069 |
@@ -97,6 +97,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0095](0095-the-cleanups-read-a-worktree-through-its-record-and-run-no-fsmonitor-or-hook.md) | The cleanups read a worktree through its record, and run no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
 | [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) | The engine's git reaches the remote outside the clone's configuration (amends 0012, 0029, 0071 and 0090) | Accepted |
 | [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) | `npm run demo` is a development script on serve's seams, with the tests' fakes | Accepted |
+| [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) | A rejected run end is blocked on the environment, not a failed tick (amends 0028) | Accepted |
 
 ## Template
 
