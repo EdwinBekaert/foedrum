@@ -155,8 +155,22 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.cancelled':
         end = { kind: 'cancelled' };
         break;
-      default:
+      // The batch brews on: none of these ends a life.
+      case 'order.decomposed':
+      case 'batch.ordered':
+      case 'batch.recipe_chosen':
+      case 'step.scheduled':
+      case 'step.skipped':
+      case 'step.started':
+      case 'step.finished':
+      case 'input.received':
+      case 'batch.waiting':
+      case 'bottle.opened':
+      case 'release.observed':
+      case 'pull_request.ended':
         break;
+      default:
+        event satisfies never;
     }
   }
   return end;
