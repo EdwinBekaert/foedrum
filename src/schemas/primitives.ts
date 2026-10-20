@@ -57,6 +57,33 @@ export const ToolRule = z
   .string()
   .regex(/^[A-Za-z][\w-]*(?:\([^\r\n]+\))?$/, 'Must be a tool name, optionally with "(specifier)"');
 
+// Claude Code checks file permissions against Read(path) and Edit(path) rules only: Edit rules
+// cover every tool that edits files, and Read rules, best-effort, Grep and Glob. It never consults
+// a path rule for Write, MultiEdit, NotebookEdit or Glob (ADR 0093).
+export const consultedFor: Readonly<Record<string, 'Read' | 'Edit'>> = {
+  Read: 'Read',
+  Grep: 'Read',
+  Glob: 'Read',
+  Edit: 'Edit',
+  Write: 'Edit',
+  MultiEdit: 'Edit',
+  NotebookEdit: 'Edit',
+};
+const unconsultedPathTools = new Set(['Write', 'MultiEdit', 'NotebookEdit', 'Glob']);
+
+/** Why Claude Code would never consult a path rule, naming the rule to write instead. */
+const unconsultedPathRule = (rule: string, ctx: z.RefinementCtx): void => {
+  const { tool, specifier } = parseRule(rule);
+  if (specifier === undefined || !unconsultedPathTools.has(tool)) return;
+  ctx.addIssue({
+    code: 'custom',
+    message: `Claude Code never consults a ${tool} path rule such as "${rule}": write "${consultedFor[tool]}(${specifier})"`,
+  });
+};
+
+/** A deny rule of a brewer or an attempt: never a path rule Claude Code would not consult. */
+export const BrewerDeniedTool = ToolRule.superRefine(unconsultedPathRule);
+
 /** An allowlist entry: never AskUserQuestion, which is always denied (ADR 0006). */
 export const AllowedTool = ToolRule.refine(
   (rule) => parseRule(rule).tool !== 'AskUserQuestion',
@@ -71,10 +98,12 @@ export const AllowedTool = ToolRule.refine(
 export const BrewerAllowedTool = AllowedTool.refine(
   (rule) => !reachesAnyGitCommand(rule),
   'Must not allow git with no fixed subcommand, such as "Bash(git *)": a push with options before it gets past every deny rule (ADR 0062)',
-).refine(
-  (rule) => !reachesGh(rule),
-  'Must not allow gh, or a rule that may start it, such as "Bash(gh *)": only the engine talks to GitHub, with the maintainer\'s gh login (ADR 0082)',
-);
+)
+  .refine(
+    (rule) => !reachesGh(rule),
+    'Must not allow gh, or a rule that may start it, such as "Bash(gh *)": only the engine talks to GitHub, with the maintainer\'s gh login (ADR 0082)',
+  )
+  .superRefine(unconsultedPathRule);
 
 /**
  * A rule of the permission ceiling or of a repository's tools: never one that names gh. These are
