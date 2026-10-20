@@ -122,6 +122,7 @@ describe('the openPullRequest push with real git', () => {
             workRoot: join(dir.path, `work-${runs}`),
             repo: 'acme/app',
             clone: user,
+            own: { url: origin, root: join(dir.path, `git-dirs-${runs}`) },
           }),
         },
       ],
@@ -134,7 +135,7 @@ describe('the openPullRequest push with real git', () => {
             push: openBranchPush({
               git: runGit,
               clone: user,
-              base: { url: origin, root: join(dir.path, `base-${runs}.git`) },
+              own: { url: origin, root: join(dir.path, `git-dirs-${runs}`) },
             }),
           },
         ],
@@ -315,7 +316,7 @@ describe('the openPullRequest push with real git', () => {
       git(run, ['init', '-q', '--bare', left]);
       writeFileSync(join(left, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`);
       writeFileSync(join(left, 'refs', 'heads', 'main.lock'), '');
-      const push = openBranchPush({ git: runGit, clone: managed, base: { url, root } });
+      const push = openBranchPush({ git: runGit, clone: managed, own: { url, root } });
       assert.equal(await push.baseTip('main'), tip);
       assert.deepEqual(await Promise.all([push.baseTip('main'), push.baseTip('main')]), [tip, tip]);
       assert.deepEqual(readdirSync(root), ['killed.git']);

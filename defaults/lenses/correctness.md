@@ -32,4 +32,4 @@ Injection, secrets and permissions (security); paths, process spawning and line 
 
 ## Reporting
 
-Report only what you can tie to specific lines of the change, with a concrete scenario: the input or sequence of events, and the wrong result, hang or crash that follows. Prefer one well-argued finding over several speculative ones. If you find nothing, say so; do not invent findings.
+Report only what you can tie to specific lines of the change, with a concrete scenario: the input or sequence of events, and the wrong result, hang or crash that follows. Prefer one well-argued finding over several speculative ones. Tie every claim about what code does to a line you read that shows it, never to a name, a comment or a type alone. When a finding is one case of a wider class of bug, name the class, so the author looks for the other cases too. Say when the defect was already there before this change, in code the change reaches but neither adds nor alters: such a finding is reported, but it does not hold the change up. If you find nothing, say so; do not invent findings.

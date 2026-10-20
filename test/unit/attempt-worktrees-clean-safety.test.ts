@@ -45,6 +45,7 @@ describe('openAttemptWorktrees with a fake git', () => {
       workRoot,
       repo: 'acme/app',
       clone,
+      own: { url: 'https://github.com/acme/app.git', root: join(workRoot, 'git-dirs') },
       ...(now === undefined ? {} : { now }),
     });
 
@@ -118,7 +119,12 @@ describe('openAttemptWorktrees with a fake git', () => {
 
       await open(git).clean({ batches: new Map([['12-1', 'ended' as const]]), leased: [] });
 
-      const config = { 'core.fsmonitor': 'false', 'core.hooksPath': devNull };
+      // With the clone's own settings (ADR 0096): no transport either.
+      const config = {
+        'core.fsmonitor': 'false',
+        'core.hooksPath': devNull,
+        'protocol.allow': 'never',
+      };
       assert.deepEqual(configs, [
         { command: 'status', config },
         { command: 'remove', config },

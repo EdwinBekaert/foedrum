@@ -36,11 +36,11 @@ export const managedClonePath = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'clone.git');
 
 /**
- * Where each fetch of the base of `repo` makes a git directory of its own, which writes into its
- * clone's objects and reads none of the clone's configuration (ADR 0090).
+ * Where each push, fetch and ls-remote of `repo` makes a git directory of its own, which writes into
+ * its clone's objects and reads none of the clone's configuration (ADR 0090, ADR 0096).
  */
-export const baseFetchRoot = (workRoot: string, repo: string): string =>
-  join(workRoot, repoFolder(repo), 'base');
+export const ownGitDirsRoot = (workRoot: string, repo: string): string =>
+  join(workRoot, repoFolder(repo), 'git-dirs');
 
 // A path segment that is also a component of a branch name: git refuses `..` anywhere and a
 // `.lock` ending (git check-ref-format).

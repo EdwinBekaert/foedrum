@@ -22,9 +22,12 @@ Review criteria changed by this pull request: <paths from criteria.txt that the 
 
 ### Lens findings
 
+<n> findings: <b> blocker, <m> major, <k> minor; <p> pre-existing (or "No findings.")
+
 | # | Lens | Severity | Location | Finding | Disposition |
 |---|---|---|---|---|---|
 | 1 | correctness | major | `src/…:42` (or "location unverified: `src/…:57`", or "—" for none) | … | fixed in `<hash>` |
+| 2 | security | minor, pre-existing | `src/…:7` | … | dismissed because pre-existing, filed as #<m> (or "to file (draft <k>)" on a local or `--no-comment` run, "not filed (declined)", or "not filed (gh: <first line of its error>)") |
 
 Verdicts: correctness approve · security approve · …
 
