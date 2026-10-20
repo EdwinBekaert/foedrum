@@ -93,7 +93,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
 | [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
 | [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049 and 0057) | Accepted |
-| [0095](0095-git-reads-a-worktree-only-through-its-record-and-runs-no-fsmonitor-or-hook.md) | git reads a worktree only through its record, and runs no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
+| [0095](0095-the-cleanups-read-a-worktree-through-its-record-and-run-no-fsmonitor-or-hook.md) | The cleanups read a worktree through its record, and run no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
 
 ## Template
 
