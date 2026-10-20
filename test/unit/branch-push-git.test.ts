@@ -3,11 +3,13 @@
 // it as an option.
 
 import assert from 'node:assert/strict';
+import { existsSync, mkdirSync } from 'node:fs';
 import { devNull } from 'node:os';
-import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { dirname, join } from 'node:path';
+import { beforeEach, describe, it } from 'node:test';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
+import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
 const TIP = 'c'.repeat(40);
 const branch = 'foedrum/acme.brewery/12-1/acme.api';
@@ -159,9 +161,21 @@ describe('openBranchPush: push', () => {
 
 describe('openBranchPush: baseTip (ADR 0090)', () => {
   const OLD = 'b'.repeat(40);
-  const gitDir = '/work/acme.api/base.git';
+  const nextFolder = suiteFolders('branch-push-git');
+  let root: string;
+  let gitDir: string;
+  let base: { url: string; root: string };
+  beforeEach(() => {
+    root = nextFolder();
+    gitDir = join(root, 'f1.git');
+    base = { url, root };
+  });
   const url = 'https://github.com/acme/api.git';
-  const base = { url, root: gitDir };
+  /** The git directory of each fetch: f1, f2, … */
+  const ids = () => {
+    let n = 0;
+    return () => `f${++n}`;
+  };
   /** A clone at `/work/acme.api/clone` whose origin/main is at OLD, and a remote main at TIP. */
   const answers = (args: readonly string[]): GitResult => {
     if (args.includes('--git-common-dir')) return ok(`${clone}\nsha1\n`);
@@ -170,9 +184,9 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     return ok();
   };
 
-  it("fetches the remote's base into Foedrum's own git directory, from the clone's origin/<base>, writing into the clone's objects", async () => {
+  it("fetches the remote's base into a git directory of the fetch's own, from the clone's origin/<base>, writing into the clone's objects", async () => {
     const { git, calls } = recordingGit(answers);
-    const push = openBranchPush({ git, clone, base });
+    const push = openBranchPush({ git, clone, base, id: ids() });
     assert.equal(await push.baseTip('main'), TIP);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
@@ -229,23 +243,49 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     assert.equal(fetch?.timeoutMs, 300_000);
   });
 
-  it('deletes a ref left from an earlier fetch when the clone has no origin/<base>, and passes the signal to every call', async () => {
-    const { git, calls } = recordingGit((args) =>
-      args.includes('refs/remotes/origin/main^{commit}') ? failed('') : answers(args),
-    );
+  it('sets no ref when the clone has no origin/<base>, or git names none, and passes the signal to every call', async () => {
+    for (const known of [failed(''), ok('not a sha\n')]) {
+      const { git, calls } = recordingGit((args) =>
+        args.includes('refs/remotes/origin/main^{commit}') ? known : answers(args),
+      );
+      const push = openBranchPush({ git, clone, base });
+      const { signal } = new AbortController();
+      assert.equal(await push.baseTip('main', signal), TIP);
+      assert.equal(
+        calls.some(({ args }) => args.includes('update-ref')),
+        false,
+      );
+      assert.deepEqual(
+        calls.map(({ options }) => options?.signal === signal),
+        [true, true, true, true, true],
+      );
+    }
+  });
+
+  it('gives every fetch a git directory of its own in the root, and removes it after, also when git fails (review of #254)', async () => {
+    // A git whose init makes the directory it names, as git would.
+    const made: string[] = [];
+    const { git, calls } = recordingGit((args) => {
+      if (args.includes('init')) {
+        const dir = (args[0] ?? '').slice('--git-dir='.length);
+        mkdirSync(dir, { recursive: true });
+        made.push(dir);
+      }
+      if (args.includes('fetch') && made.length === 3) return failed('fatal: unreachable\n');
+      return answers(args);
+    });
     const push = openBranchPush({ git, clone, base });
-    const { signal } = new AbortController();
-    assert.equal(await push.baseTip('main', signal), TIP);
-    assert.deepEqual(calls.find(({ args }) => args.includes('update-ref'))?.args, [
-      `--git-dir=${gitDir}`,
-      'update-ref',
-      '-d',
-      'refs/heads/main',
-    ]);
-    assert.deepEqual(
-      calls.map(({ options }) => options?.signal === signal),
-      [true, true, true, true, true, true],
-    );
+    await Promise.all([push.baseTip('main'), push.baseTip('main')]);
+    await assert.rejects(push.baseTip('main'), { message: 'git fetch failed: fatal: unreachable' });
+    assert.equal(new Set(made).size, 3);
+    for (const dir of made) {
+      assert.equal(dirname(dir), root);
+      assert.equal(existsSync(dir), false, dir);
+    }
+    const dirs = calls
+      .filter(({ args }) => args[0]?.startsWith('--git-dir='))
+      .map(({ args }) => args[0]);
+    assert.equal(new Set(dirs).size, 3);
   });
 
   it('runs no hook, gc or maintenance of its own for the fetch, which sees only the ref Foedrum fetched (review of #254)', async () => {

@@ -23,6 +23,8 @@ export interface BranchPushOptions {
   remote?: string;
   /** Where the base is fetched from, and into (ADR 0090). */
   base?: BaseFetch;
+  /** The name of each fetch's git directory in the base's root; default a random UUID. */
+  id?: () => string;
 }
 
 /**

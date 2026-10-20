@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
@@ -83,7 +83,7 @@ describe('serveShell', () => {
 
   it("fetches each repository's base from GitHub into a git directory of the work root, from its clone's objects (ADR 0090)", async () => {
     const managed = join(workRoot, 'acme.web', 'clone.git');
-    const gitDir = join(workRoot, 'acme.web', 'base.git');
+    const root = join(workRoot, 'acme.web', 'base');
     const { calls, git } = fakeGit((cwd, args) => {
       if (args.includes('--git-common-dir'))
         return { code: 0, stdout: `${cwd}\nsha1\n`, stderr: '' };
@@ -96,10 +96,14 @@ describe('serveShell', () => {
     await shell.push(web({ source: 'managed' })).baseTip('main');
     const fetches = calls.filter((call) => call.includes('fetch'));
     assert.deepStrictEqual(
-      fetches.map((call) => [call[0], call[1], call.at(-2)]),
+      fetches.map((call) => [
+        call[0],
+        dirname(call[1]?.slice('--git-dir='.length) ?? ''),
+        call.at(-2),
+      ]),
       [
-        [clone, `--git-dir=${gitDir}`, 'https://github.com/acme/web.git'],
-        [managed, `--git-dir=${gitDir}`, 'https://github.com/acme/web.git'],
+        [clone, root, 'https://github.com/acme/web.git'],
+        [managed, root, 'https://github.com/acme/web.git'],
       ],
     );
   });

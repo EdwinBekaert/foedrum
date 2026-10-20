@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -286,7 +286,7 @@ describe('the openPullRequest push with real git', () => {
       assert.equal(git(user, ['cat-file', '-t', tip]).trim(), 'commit');
     });
 
-    it("fetches the base into a managed repository's blobless clone, every time, also past a ref of an object the clone lost (review of #254)", async () => {
+    it("fetches the base into a managed repository's blobless clone, every time and two at once, past what a killed fetch left (review of #254)", async () => {
       const run = join(dir.path, `blobless-${runs}`);
       const seed = join(run, 'seed');
       const served = join(run, 'origin.git');
@@ -308,13 +308,17 @@ describe('the openPullRequest push with real git', () => {
       commitFile('c.txt');
       git(seed, ['push', '-q', served, 'main']);
       const tip = git(served, ['rev-parse', 'main']).trim();
-      const gitDir = join(run, 'base.git');
-      const push = openBranchPush({ git: runGit, clone: managed, base: { url, root: gitDir } });
+      const root = join(run, 'base');
+      // What a fetch killed at its deadline leaves: its git directory, with a ref's lock, and a
+      // ref of a commit the clone has pruned since.
+      const left = join(root, 'killed.git');
+      git(run, ['init', '-q', '--bare', left]);
+      writeFileSync(join(left, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`);
+      writeFileSync(join(left, 'refs', 'heads', 'main.lock'), '');
+      const push = openBranchPush({ git: runGit, clone: managed, base: { url, root } });
       assert.equal(await push.baseTip('main'), tip);
-      assert.equal(await push.baseTip('main'), tip);
-      // What the clone's gc leaves when it prunes the commit base.git's ref still names.
-      writeFileSync(join(gitDir, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`);
-      assert.equal(await push.baseTip('main'), tip);
+      assert.deepEqual(await Promise.all([push.baseTip('main'), push.baseTip('main')]), [tip, tip]);
+      assert.deepEqual(readdirSync(root), ['killed.git']);
     });
 
     it('scans from a main the clone lacks and pushes the plan beyond it (review of #254)', async () => {
