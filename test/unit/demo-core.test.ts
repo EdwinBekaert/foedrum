@@ -164,6 +164,13 @@ describe('problemsOf', () => {
     ]);
   });
 
+  it('says so when a failed command wrote nothing to stderr', () => {
+    const commands = [{ argv: ['status'], exitCode: 1, stderr: '\n' }];
+    assert.deepStrictEqual(problemsOf(run({ commands })), [
+      'foedrum status failed (exit code 1): (no output)',
+    ]);
+  });
+
   it('counts the pull requests and the comments', () => {
     assert.match(problemsOf(run({ pulls: [] })).join('\n'), /0 pull requests, not 1/);
     assert.match(problemsOf(run({ pulls: [pull, pull] })).join('\n'), /2 pull requests, not 1/);
