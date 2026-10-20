@@ -651,9 +651,9 @@ describe('claudeBrewerRunner', () => {
       },
     );
     const end = await runner.start(attempt).ended;
-    assert.equal(end.ending.kind, 'failed');
+    assert.ok(end.ending.kind === 'failed' && !end.ending.retryable, JSON.stringify(end.ending));
     assert.match(
-      end.ending.kind === 'failed' ? end.ending.reason : '',
+      end.ending.reason ?? '',
       /^the brewer could not start: .*write "Edit\(brew\.md\)"/s,
     );
     assert.deepEqual(calls, []);
