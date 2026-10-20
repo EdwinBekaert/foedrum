@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
-import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
+import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/attempt-settings.ts';
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -34,10 +34,43 @@ describe('attemptSettings', () => {
   // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed.
   it('requires the sandbox to run when the isolation level relies on it', () => {
     const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
-    assert.deepEqual(settings.sandbox, {
-      enabled: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
+    assert.equal(settings.sandbox?.enabled, true);
+    assert.equal(settings.sandbox?.failIfUnavailable, true);
+    assert.equal(settings.sandbox?.allowUnsandboxedCommands, false);
+  });
+
+  // #234: by default Claude Code runs every sandboxed Bash command without asking, whatever the
+  // allow rules say, dontAsk included (ADR 0087).
+  it('lets the allow rules decide for sandboxed commands too', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    assert.equal(settings.sandbox?.autoAllowBashIfSandboxed, false);
+  });
+
+  // A sandboxed command reads most of the machine and inherits Claude Code's environment, and
+  // Claude Code has no credential deny list of its own (ADR 0087).
+  it('hides the credential files and variables from sandboxed commands', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    assert.deepEqual(settings.sandbox?.credentials, {
+      files: [
+        '~/.config/gh',
+        '~/.git-credentials',
+        '~/.config/git/credentials',
+        '~/.ssh',
+        '~/.aws',
+        '~/.npmrc',
+        '~/.claude/.credentials.json',
+        '~/.config/anthropic',
+      ].map((path) => ({ path, mode: 'deny' })),
+      envVars: [
+        'GH_TOKEN',
+        'GITHUB_TOKEN',
+        'GH_ENTERPRISE_TOKEN',
+        'GITHUB_ENTERPRISE_TOKEN',
+        'NPM_TOKEN',
+        'ANTHROPIC_API_KEY',
+        'ANTHROPIC_AUTH_TOKEN',
+        'CLAUDE_CODE_OAUTH_TOKEN',
+      ].map((name) => ({ name, mode: 'deny' })),
     });
   });
 
@@ -259,6 +292,22 @@ describe('attemptSettings and gh', () => {
   }
 });
 
+// A valid sandbox block; each refused row below changes one thing in it, so it is refused for
+// that reason alone.
+const sandboxBlock = {
+  enabled: true,
+  failIfUnavailable: true,
+  allowUnsandboxedCommands: false,
+  autoAllowBashIfSandboxed: false,
+  credentials: sandboxCredentials,
+};
+const sandboxed = (sandbox: object) => ({
+  permissions: { allow: [], deny: ['AskUserQuestion'] },
+  sandbox,
+});
+const withoutKey = (block: object, key: string) =>
+  Object.fromEntries(Object.entries(block).filter(([name]) => name !== key));
+
 describe('writeAttemptSettings', () => {
   let dir: TempDir;
   let file: string;
@@ -274,6 +323,12 @@ describe('writeAttemptSettings', () => {
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
       permissions: { allow: ['Read'], deny: ['AskUserQuestion'] },
     });
+  });
+
+  // The refused rows below each change one key of this block.
+  it("writes a sandboxed attempt's settings", () => {
+    writeAttemptSettings(file, sandboxed(sandboxBlock) as AttemptSettings);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), sandboxed(sandboxBlock));
   });
 
   // claude would drop the whole file silently, deny rules included (ADR 0042).
@@ -292,10 +347,67 @@ describe('writeAttemptSettings', () => {
     ],
     [
       'a sandbox that may fall back to running unsandboxed',
-      {
-        permissions: { allow: [], deny: ['AskUserQuestion'] },
-        sandbox: { enabled: true, failIfUnavailable: false, allowUnsandboxedCommands: false },
-      },
+      sandboxed({ ...sandboxBlock, failIfUnavailable: false }),
+      /failIfUnavailable/,
+    ],
+    [
+      'a sandbox that runs every sandboxed command without the allow rules',
+      sandboxed(withoutKey(sandboxBlock, 'autoAllowBashIfSandboxed')),
+      /autoAllowBashIfSandboxed/,
+    ],
+    [
+      'a sandbox that leaves a credential variable set',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          envVars: sandboxCredentials.envVars.filter(({ name }) => name !== 'GH_TOKEN'),
+        },
+      }),
+      /Must hide every credential/,
+    ],
+    [
+      'a sandbox that leaves a credential file readable',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          files: sandboxCredentials.files.filter(({ path }) => path !== '~/.config/gh'),
+        },
+      }),
+      /Must hide every credential/,
+    ],
+    [
+      'a sandbox that hides no credentials',
+      sandboxed(withoutKey(sandboxBlock, 'credentials')),
+      /credentials/,
+    ],
+    [
+      'a sandbox that auto-allows sandboxed commands',
+      sandboxed({ ...sandboxBlock, autoAllowBashIfSandboxed: true }),
+      /autoAllowBashIfSandboxed/,
+    ],
+    [
+      'a credential file masked instead of denied',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          files: sandboxCredentials.files.map((entry) => ({ ...entry, mode: 'mask' })),
+        },
+      }),
+      /files/,
+    ],
+    [
+      'a credential variable masked instead of denied',
+      sandboxed({
+        ...sandboxBlock,
+        credentials: {
+          ...sandboxCredentials,
+          envVars: sandboxCredentials.envVars.map((entry) => ({ ...entry, mode: 'mask' })),
+        },
+      }),
+      /envVars/,
     ],
   ] as const) {
     it(`refuses ${what}, and writes nothing`, () => {

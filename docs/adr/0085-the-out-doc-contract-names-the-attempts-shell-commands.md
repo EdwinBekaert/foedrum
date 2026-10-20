@@ -1,6 +1,6 @@
 # 0085. The out doc contract names the attempt's shell commands
 
-Date: 2026-10-18 · Status: Accepted · Amends [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (what the contract of a brewer that is not committing holds, and how long it may be)
+Date: 2026-10-18 · Status: Accepted · Amends [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (what the contract of a brewer that is not committing holds, and how long it may be) · Amended by [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md)
 
 ## Context
 A brewer's attempt allows only the shell commands of its rules: its own `tools.allow`, the git rules `git.commit: true` grants (ADR 0074) and the repository's toolchain rules (ADR 0023). The contract told a committing brewer to commit with `git add` and `git commit`, but no brewer was told which commands its shell runs. In the live demo on 2026-10-18 (batch 3-1, haiku, two attempts in a row), the brewer first ran a heredoc and `node -e`, which was rightly denied. Claude Code's denial reads "Permission to use Bash has been denied", and the brewer took it to mean all of Bash: it made its change with Edit, never tried `git add`, and wrote `blocked` (environment). The batch went Stuck. With one line naming the commands in the brewer's own body, the next attempt committed (#222).
