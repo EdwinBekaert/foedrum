@@ -392,6 +392,28 @@ describe('budgetReporter with a re-measure (ADR 0089)', () => {
     );
   });
 
+  // A run alone that reports nothing will not report anything the next time either.
+  it('stops running a file alone once a run alone gives no reading', async () => {
+    const { measured, remeasure } = alone({});
+    await report(timed(fileA, 9000, 5100), 5000, 5, { remeasure });
+    assert.deepEqual(measured, [fileA]);
+  });
+
+  it('runs a file alone again after a run without a reading that followed a reading', async () => {
+    const readings = [5900, undefined, 4000];
+    let calls = 0;
+    const remeasure = async () => readings[calls++];
+    const { lines, failed } = await report(timed(fileA, 9000, 6000), 5000, 5, { remeasure });
+    assert.equal(failed, false);
+    assert.equal(calls, 3);
+    assert.ok(
+      lines.some((line) =>
+        line.includes('6.00 s of CPU time in the run, over the 5 s budget, and 4.00 s alone'),
+      ),
+      lines.join('\n'),
+    );
+  });
+
   it('measures again only the files over the budget or the ceiling that reported a CPU time', async () => {
     const { measured, remeasure } = alone({ [fileC]: 1000 });
     const { failed } = await report(
@@ -490,6 +512,12 @@ describe('remeasureAlone', () => {
       '--test-reporter-destination=stdout',
       fileA,
     ]);
+    assert.equal(calls[0]?.options?.timeoutMs, 60_000);
+  });
+
+  it('gives a run alone 60 s by default', async () => {
+    const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+    await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA);
     assert.equal(calls[0]?.options?.timeoutMs, 60_000);
   });
 
