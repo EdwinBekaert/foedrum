@@ -11,24 +11,19 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const script = join(import.meta.dirname, '..', '..', 'scripts', 'instruction-sizes.ts');
 
-const git = (cwd: string, args: string[]): string =>
-  execFileSync(
-    'git',
-    [
-      '-c',
-      'user.name=Test',
-      '-c',
-      'user.email=t@example.com',
-      '-c',
-      'commit.gpgsign=false',
-      ...args,
-    ],
-    { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-  );
-
 describe('instruction-sizes with real git', () => {
   let dir: TempDir;
   let repo: string;
+  // Only the fixture's own git config: no hooks path, excludes file or signing from the machine.
+  let env: NodeJS.ProcessEnv;
+  const git = (cwd: string, args: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+      cwd,
+      env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    });
   const write = (file: string, text: string) => {
     mkdirSync(dirname(join(repo, file)), { recursive: true });
     writeFileSync(join(repo, file), text);
@@ -36,6 +31,12 @@ describe('instruction-sizes with real git', () => {
   beforeEach(() => {
     dir = makeTempDir('instruction-sizes');
     repo = join(dir.path, 'repo');
+    writeFileSync(join(dir.path, 'gitconfig'), '');
+    env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: join(dir.path, 'gitconfig'),
+      GIT_CONFIG_NOSYSTEM: '1',
+    };
     git(dir.path, ['init', '-q', '-b', 'main', repo]);
     write('.gitignore', 'defaults/ignored.md\n');
     write('CLAUDE.md', 'a\nb\n');
@@ -58,6 +59,7 @@ describe('instruction-sizes with real git', () => {
 
     const result = spawnSync(process.execPath, [script, '--since', 'HEAD'], {
       cwd: join(repo, 'src'),
+      env,
       encoding: 'utf8',
       timeout: 60_000,
     });
