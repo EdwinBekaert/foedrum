@@ -354,13 +354,20 @@ describe('the state branch with real git', () => {
     });
     const refLock = join(a.clone, '.git', 'refs', 'heads', 'foedrum', 'state.lock');
     const headLock = join(git(a.worktree, ['rev-parse', '--absolute-git-dir']).trim(), 'HEAD.lock');
+    // Each lock alone blocks a real commit there.
+    for (const lock of [refLock, headLock]) {
+      writeFileSync(lock, '');
+      assert.throws(
+        () => git(a.worktree, ['commit', '-q', '--allow-empty', '-m', 'probe']),
+        (error: Error & { stderr?: string }) =>
+          // The name is enough: git may print the folder by another spelling (case, links).
+          (error.stderr ?? '').includes(lock === refLock ? 'state.lock' : 'HEAD.lock'),
+        lock,
+      );
+      rmSync(lock);
+    }
     writeFileSync(refLock, '');
     writeFileSync(headLock, '');
-    writeFileSync(join(a.worktree, 'probe.txt'), 'x\n');
-    assert.throws(
-      () => git(a.worktree, ['commit', '-q', '-a', '--allow-empty', '-m', 'probe']),
-      /cannot lock ref|Unable to create/,
-    );
 
     const said: string[] = [];
     const restarted = openStateBranch({
@@ -370,7 +377,6 @@ describe('the state branch with real git', () => {
       worktree: a.worktree,
       out: (line) => said.push(line),
     });
-    rmSync(join(a.worktree, 'probe.txt'));
     a.store.withTransaction((tx) =>
       tx.append({
         type: 'batch.ordered',
