@@ -224,7 +224,7 @@ flowchart LR
 
 ```ts
 type Event =
-  | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string; routeBy: string }
+  | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string; routeBy: string; by?: string; via?: Surface } // by and via together, when a person ordered it (ADR 0105)
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'human'; by: string; via: Surface }
   | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string; route?: { from: string; why: 'failed' | 'findings' } }  // route: scheduled by an onFail or onBlocked route (ADR 0064)
