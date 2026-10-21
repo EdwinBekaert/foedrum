@@ -392,9 +392,9 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     );
   });
 
-  it("names the branch of the last attempt that succeeded when no attempt was made at the rewind's commit (review of #288)", () => {
+  it("names every attempt branch of the repository when no attempt was made at the rewind's commit (review of #288)", () => {
     // brew/1 succeeded with tip Q; a rewind to Q (say, to retry an action step after it) makes
-    // no worktree there, and brew/1's branch is the only ref to Q.
+    // no worktree there. Which branch holds Q only git can tell, so each one is named.
     const Q = 'e'.repeat(40);
     const state = rewound([[1, finished('brew', 1, TIP)]]);
     const found = state.batches.get('12-1');
@@ -402,7 +402,10 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     const batch: Batch = { ...found, taskTree: { kind: 'rewound', shas: { 'acme/app': Q } } };
     assert.deepEqual(
       worktreeClaims({ ...state, batches: new Map([['12-1', batch]]) }, []).unpushed,
-      new Map([['foedrum/12-1/brew/1', BASE]]),
+      new Map([
+        ['foedrum/12-1/plan/1', BASE],
+        ['foedrum/12-1/brew/1', BASE],
+      ]),
     );
   });
 
