@@ -5,7 +5,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { Event } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
-import { CommitSha, type PushedThrough } from '../schemas/store.ts';
+import { CommitSha, type KeptOutDoc, type PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import type { LoggedEvent, StoredEvent } from './event-store.ts';
 import type { State } from './fold.ts';
@@ -188,6 +188,7 @@ export const planFlush = (
   current: ReadonlyMap<string, string | undefined>,
   pending: readonly StoredEvent[],
   pushedThrough: number,
+  _outDocs: readonly KeptOutDoc[] = [],
 ): BranchFile[] => {
   const byPath = new Map<string, StoredEvent[]>();
   // Each pending line by id, with the file it goes to.

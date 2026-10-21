@@ -26,6 +26,7 @@ import type {
   StoredEvent,
 } from '../../src/engine/event-store.ts';
 import type { Batch, State } from '../../src/engine/fold.ts';
+import { keepOutDocs } from '../../src/engine/kept-out-docs.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from './brewing.ts';
@@ -260,6 +261,8 @@ export const killPlan = (seed: number): KillPlan => ({
     'while writing the log': 0.02,
     'before the push reached the remote': 0.03,
     'after the push reached the remote': 0.03,
+    // Once per attempt that ends with an out doc, in the runs that keep them.
+    'after an out doc was kept': 0.05,
   },
   maxKills: 6,
 });
@@ -363,6 +366,14 @@ const killableStore = (inner: EventStore, life: Life, watch: StoreWatch): EventS
       life.point('in a transaction');
       tx.markPushed(marker);
     },
+    keepOutDoc: (doc) => {
+      life.point('in a transaction');
+      tx.keepOutDoc(doc);
+    },
+    forgetOutDocs: (attempts) => {
+      life.point('in a transaction');
+      tx.forgetOutDocs(attempts);
+    },
   });
   const reading =
     <A extends unknown[], R>(fn: (...args: A) => R) =>
@@ -386,6 +397,7 @@ const killableStore = (inner: EventStore, life: Life, watch: StoreWatch): EventS
     replay: reading(inner.replay),
     lastEventId: reading(inner.lastEventId),
     pushedThrough: reading(inner.pushedThrough),
+    keptOutDocs: reading(inner.keptOutDocs),
     restore: reading(inner.restore),
     findEffect: reading(inner.findEffect),
     // The run's connection outlives every driver.
@@ -613,6 +625,11 @@ export interface ChaosOptions {
    * process starts on it before it opens its driver, and its supervisor flushes it.
    */
   stateBranch?: boolean;
+  /**
+   * With `stateBranch`: each process's runner keeps the out docs its attempts end with
+   * (`keepOutDocs`), and the state branch's flush writes them (ADR 0103).
+   */
+  outDocs?: boolean;
   /** The moves a seed's run plays (`trialChaos`); default its generated scenario. */
   moves?: (seed: number) => MoveSource;
 }
@@ -741,7 +758,9 @@ export const openChaosEngine = async (
         })
       : undefined;
   const branch =
-    options.stateBranch === true ? fakeStateBranch(() => kill.kills.at(-1)?.point) : undefined;
+    options.stateBranch === true
+      ? fakeStateBranch(() => kill.kills.at(-1)?.point, { outDocs: options.outDocs === true })
+      : undefined;
   let now = t0;
   const restarts: Date[] = [];
   const losses: Loss[] = [];
@@ -873,9 +892,13 @@ export const openChaosEngine = async (
       try {
         const stateBranch = branch?.handle(life, store);
         await stateBranch?.start();
+        const brewing =
+          branch !== undefined && options.outDocs === true
+            ? keepOutDocs({ runner, store: branch.keeping(life, store, outside.keptOutDocs) })
+            : runner;
         const driver = await openDriver({
           store,
-          runner,
+          runner: brewing,
           recipes,
           clock: () => now,
           lock: () => locks.take(life),

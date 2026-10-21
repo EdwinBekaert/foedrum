@@ -391,6 +391,12 @@ export const openSqliteEventStore = (
         ensureLive();
         markPushed(marker);
       },
+      keepOutDoc: () => {
+        throw new Error('not implemented');
+      },
+      forgetOutDocs: () => {
+        throw new Error('not implemented');
+      },
     };
     return {
       tx,
@@ -458,6 +464,10 @@ export const openSqliteEventStore = (
     lastEventId,
 
     pushedThrough,
+
+    keptOutDocs: () => {
+      throw new Error('not implemented');
+    },
 
     restore: (log, commit) =>
       withTransaction(() => {
