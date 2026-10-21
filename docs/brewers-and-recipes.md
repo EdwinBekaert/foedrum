@@ -319,8 +319,8 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Innkeeper | Router: picks a recipe for an order (lean call) | haiku | low |
 | Maltster | Gathers context: relevant code, history, constraints | sonnet | high |
 | Brewmaster | Writes the plan with acceptance criteria | opus | medium |
-| Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | sonnet | high |
-| Cellarman | Makes the Gauger's tests pass without changing them | sonnet | high |
+| Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | builder (sonnet) | high |
+| Cellarman | Makes the Gauger's tests pass without changing them | builder (sonnet) | high |
 | Taster | Reviews a diff through one lens (read-only) | opus | medium |
 | Brett | Mutation check: proposes plausible bugs; the engine confirms which ones the tests miss (advisory by default) | sonnet | medium |
 | Cooper | Fixes review findings | sonnet | high |
@@ -328,6 +328,8 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Microbiologist | Bug triage: reproduce, root cause, failing test | opus | medium |
 | Lab tech | Verifies a fix in a real environment | sonnet | high |
 | Tasting panel | Runs evaluations | — (uses the model under test) | — |
+
+Shipped in `defaults/brewers/` so far: the Gauger, whose test rules are the test-design lens, passed in as `"from": "lens:test-design"`, and Cellarman, both on the alias `builder`, which a Brewery that keeps them maps in `models.jsonc` ([ADR 0100](adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)). The others follow as the engine learns what they need.
 
 Default **tasting lenses** (`defaults/lenses/*.md`): correctness, security, cross-platform, design conformance, test design. A Brewery adds or overrides lenses by committing files to `lenses/`: a file of the same name replaces the default, and a brewer input `"from": "lens:<name>"` takes the lens's text ([ADR 0098](adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)). Test-first and lenses: [ADR 0017](adr/0017-test-first-recipes-and-tasting-lenses.md); the fifth lens: [ADR 0022](adr/0022-five-default-lenses.md).
 

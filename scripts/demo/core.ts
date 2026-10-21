@@ -141,8 +141,9 @@ export const breweryFiles = (): Record<string, string> => ({
       [TARGET]: { checks: { build: null, typecheck: null, lint: null, format: null, test: null } },
     },
   }),
-  // The model a brewer would get; the scripted one asks none.
-  'models.jsonc': json({ models: { quick: 'claude-haiku-5-5' } }),
+  // The model a brewer would get; the scripted one asks none. Foedrum's default brewers name
+  // builder, so serve checks it too (ADR 0098).
+  'models.jsonc': json({ models: { quick: 'claude-haiku-5-5', builder: 'claude-haiku-5-5' } }),
   '.gitignore': '.foedrum/\n',
   'recipes/stout.jsonc': json(RECIPE),
   'brewers/cellarman.md': BREWER,
