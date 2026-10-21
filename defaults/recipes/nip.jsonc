@@ -18,7 +18,12 @@
       "when": "recipe.testFirst",
       "onFail": { "goto": "gauge", "maxRounds": 1 }
     },
-    { "id": "implement", "brewer": "cellarman" },
+    {
+      "id": "implement",
+      "brewer": "cellarman",
+      // A test Cellarman finds wrong goes back to the Gauger, once (ADR 0017, ADR 0064).
+      "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
+    },
     {
       "id": "green",
       "check": ["build", "lint", "format", "test"],
