@@ -1566,13 +1566,13 @@ describe('openDriver', () => {
   });
 
   describe('an end whose record throws (#278)', () => {
+    const bound = (target: object, name: string | symbol) => {
+      const value = Reflect.get(target, name);
+      return typeof value === 'function' ? value.bind(target) : value;
+    };
     /** `store`, whose next append of `ref`'s finish throws `error` once. */
     const failingFinish = (ref: AttemptRef, error: Error): EventStore => {
       let armed = true;
-      const bound = (target: object, name: string | symbol) => {
-        const value = Reflect.get(target, name);
-        return typeof value === 'function' ? value.bind(target) : value;
-      };
       return new Proxy(store, {
         get: (target, name) =>
           name !== 'withTransaction'
@@ -1697,10 +1697,6 @@ describe('openDriver', () => {
       const broken = new Error('the store could not be read');
       // The first read of the store after b1's finish is committed throws: the batchIsOver check.
       let state: 'waiting' | 'armed' | 'thrown' = 'waiting';
-      const bound = (target: object, name: string | symbol) => {
-        const value = Reflect.get(target, name);
-        return typeof value === 'function' ? value.bind(target) : value;
-      };
       const failingRead = new Proxy(store, {
         get: (target, name) => {
           if (name === 'eventsAfter') {
