@@ -10,6 +10,7 @@ import {
   type State,
 } from '../../src/engine/fold.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
+import { planClean } from '../../src/workspace/attempt-worktrees.ts';
 
 const batch = (id: string, lane: Lane): Batch => ({
   id,
@@ -283,9 +284,34 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
   const failedAt = (attempt: number, commit: string) =>
     finished('brew', attempt, commit, { kind: 'failed', retryable: true, reason: 'the run broke' });
 
+  it("names the branch of the latest attempt made at a rewound task tree's commit, with the batch's start (#255)", () => {
+    const state = rewound([
+      [1, finished('brew', 1, TIP)],
+      [2, finished('brew', 2, TIP)],
+      [3, failedAt(3, TIP)],
+    ]);
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/3', BASE]]));
+  });
+
+  it('names the branch of an attempt before the rewind made at its commit, when none ran after it (#255)', () => {
+    const state = rewound([
+      [1, finished('brew', 1, TIP)],
+      [2, finished('brew', 2, TIP)],
+    ]);
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', BASE]]));
+  });
+
   it("names nothing of a rewound task tree once a push recorded the rewind's commit (#255)", () => {
     const state = rewound([[1, finished('brew', 1, TIP)]], pushedFrom(TIP));
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
+  });
+
+  it("names it when the push recorded another revision than the rewind's commit (#255)", () => {
+    const state = rewound(
+      [[1, finished('brew', 1, TIP)]],
+      pushedFrom('refs/heads/foedrum/12-1/brew/1'),
+    );
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/1', BASE]]));
   });
 
   /** `rewound` without the plan step, so no attempt of the batch succeeded. */
@@ -306,6 +332,14 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
   });
 
+  it('names the branch of a rewound task tree past its first attempt, with no start when none succeeded (#255)', () => {
+    const state = noneSucceeded([
+      [1, failedAt(1, BASE)],
+      [2, failedAt(2, TIP)],
+    ]);
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', '']]));
+  });
+
   it("names nothing when no attempt in the rewind's repository was made at its commit (#255)", () => {
     const LIB = 'd'.repeat(40);
     const elsewhere = failedAt(3, TIP);
@@ -316,5 +350,32 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
       [3, inLib],
     ]);
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
+  });
+
+  it("keeps the branch holding a rewound task tree in the cleanup's plan, with ADR 0084's line (#255)", () => {
+    const state = rewound([
+      [1, finished('brew', 1, TIP)],
+      [2, failedAt(2, TIP)],
+    ]);
+    const branches = ['plan/1', 'brew/1', 'brew/2'].map((attempt) => ({
+      name: `foedrum/12-1/${attempt}`,
+      tip: TIP,
+    }));
+
+    const plan = planClean(
+      { worktrees: [], branches, folders: [] },
+      worktreeClaims(state, []),
+      '/work',
+    );
+
+    assert.deepEqual(plan, {
+      actions: [
+        { kind: 'delete-branch', branch: 'foedrum/12-1/plan/1', tip: TIP },
+        { kind: 'delete-branch', branch: 'foedrum/12-1/brew/1', tip: TIP },
+      ],
+      kept: [
+        'kept branch foedrum/12-1/brew/2: it holds the task tree of batch 12-1, which no push recorded (ADR 0084)',
+      ],
+    });
   });
 });
