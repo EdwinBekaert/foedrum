@@ -1,0 +1,23 @@
+# 0104. The local gate checks the tree a command pushes, not the hook's working directory
+
+Date: 2026-10-21 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) (where `gh pr ready` is looked up)
+
+## Context
+The gate ran the detached-HEAD check, the `node_modules` check and `npm run check` in the hook's working directory, and looked `gh pr ready`'s pull request up there (#132). A session in the main checkout that runs `git -C .claude/worktrees/<n> push`, or `cd .claude/worktrees/<n> && git push`, pushes the worktree while the gate checks the main checkout, so the worktree goes unchecked. The same holds for `gh pr create`, and for `cd <worktree> && gh pr ready` without a number, which marks the worktree's pull request ready while the gate reads the summary of another. Sessions `cd` into worktrees inside a command all the time.
+
+## Decision
+- **The reader tracks where each command runs.** Reading a command (ADR 0045), the gate keeps the directories it changes into, in order, from the hook's working directory: `cd`, `chdir`, `pushd`, `Set-Location`, `sl`, `Push-Location` and PowerShell's `cd..` and `cd\`, each lasting for the rest of the command, including after `;`, `&&`, `|` and inside `( )`. A wrapper's directory option applies to its command only: `env -C`/`--chdir`, `sudo -D`/`--chdir`. git's `-C` applies to that git call: the last one wins, each resolved against the ones before it, as git reads them. bash's `cd -P`/`-L`/`-e`, cmd's `cd /d` and `Set-Location -Path`/`-LiteralPath` are read as they are meant.
+- **The checks run there.** For `git push` and `gh pr create`, the detached-HEAD check, the `node_modules` check and `npm run check` run in that directory, under the deadlines they had (10 s, and 540 s for the check). `gh pr ready` is looked up there too. The path is resolved against the hook's working directory, with `~` and `~/…` as the home directory and, on Windows, Git Bash's `/c/…` as the drive `C:`.
+- **A directory computed at run time blocks.** When a step is computed at run time (`cd "$d"`, `git -C $d`, `$( )`, `$env:X`) or kept by the shell (`cd -`, `~-`, `popd`, `Pop-Location`, a bare `cd`, a drive letter alone, `wsl --cd`, which names a Linux path), a `git push` is blocked with one line that says to push from inside the worktree, and `gh pr create` the same way. A `gh pr ready` without a number is blocked with one line that says to give the number; with a number, it is looked up in the hook's working directory, as before. A command nested in one that changes directory (`cd x && bash -c "git push"`) counts as computed, since the gate does not track where the nested command starts.
+- **One tree per command.** A command that pushes or opens pull requests from two directories (`git -C a push; git -C b push`) is blocked with one line, so the check still runs once per command, within the hook's 600 s.
+
+## Consequences
+- Pushing a worktree from the main checkout, with `-C` or after `cd`, checks the worktree. CLAUDE.md's "push from the checkout you changed" now holds for these forms by the gate, not only by care.
+- A push after a computed `cd` is refused, even when it would have pushed the right tree: write the path as it is, or run the push from inside the worktree.
+- The readings that assume the worst of what they cannot read (ADR 0045) now also see places. The re-reading of the arguments of a command that runs text skips the options before them, so `bash -c "cd x && git push"` checks `x`; a reading that still sees the push in two places blocks it as two trees, failing closed.
+- Not read, as with other arguments computed at run time: `git --git-dir`/`--work-tree`, `Start-Process -WorkingDirectory`, a `cd` whose program name is itself computed, and a `cd` inside a subshell whose effect ends with it: `(cd x); git push` checks `x` although the push runs in the hook's directory, so the gate checks a tree the push does not come from. The gate catches a session's mistakes, not intent.
+
+## Alternatives considered
+- **Block every push that changes directory:** simple, but `cd <worktree> && git push` is the normal way for a session that started in the main checkout, and the gate can tell where it goes.
+- **Check every directory a command names:** two checks can pass the hook's 600 s; one tree per command keeps the deadlines.
+- **Resolve the push's checkout from git (`git rev-parse --show-toplevel` in the named directory):** one more process per push; the check already runs in the directory, and npm finds the package root from it.
