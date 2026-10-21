@@ -79,7 +79,7 @@ const READY_API_BLOCKED =
 const TOO_DEEP_BLOCKED =
   'This command nests shells or commands too deeply for the gate to check: run git push, gh pr create and gh pr ready as plain commands.';
 const UNREADABLE_QUERY_BLOCKED =
-  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not mark a pull request ready.';
+  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not merge a pull request or mark one ready.';
 const READY_COMBINED_BLOCKED =
   'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
@@ -145,6 +145,13 @@ const closingParen = (text: string, open: number): number => {
     else if (text[i] === ')' && --depth === 0) return i + 1;
   }
   return -1;
+};
+
+// Whether a {name} without spaces, such as gh's {owner}, starts at i.
+const PLACEHOLDER = /\{\w+\}/y;
+const placeholderAt = (command: string, i: number): boolean => {
+  PLACEHOLDER.lastIndex = i;
+  return PLACEHOLDER.test(command);
 };
 
 const lex = (source: string, dialect: Dialect): Lexed => {
@@ -272,6 +279,12 @@ const lex = (source: string, dialect: Dialect): Lexed => {
         lexed.substitutions.push(command.slice(i + 1, end - 1));
         add(command.slice(i, end), true);
       }
+      i = end;
+    } else if (char === '{' && dialect === 'bash' && placeholderAt(command, i)) {
+      // Bash reserves a brace only as a word of its own, so gh's placeholders
+      // (repos/{owner}/{repo}/…) are text in a word (#297); PowerShell makes them script blocks.
+      const end = command.indexOf('}', i) + 1;
+      add(command.slice(i, end));
       i = end;
     } else if (SEPARATORS.has(char)) {
       endSegment();
@@ -663,16 +676,17 @@ const positionals = (args: Word[], optionsWithValue: Set<string>): Word[] => {
   return result;
 };
 
-// The value of gh's last -R or --repo, given as the next word, after `=`, or joined to -R as gh
-// reads it: the last one wins.
-const repoOption = (args: Word[]): Word | undefined => {
-  let repo: Word | undefined;
+// The value of gh's last short or long option (-R or --repo, -X or --method), given as the next
+// word, after `=`, or joined to the short option as gh reads it: the last one wins.
+const lastOption = (args: Word[], short: string, long: string): Word | undefined => {
+  const joinedOption = new RegExp(`^(?:${short}=?|${long}=)(.+)$`, 's');
+  let value: Word | undefined;
   for (const [i, arg] of args.entries()) {
-    const joined = /^(?:-R=?|--repo=)(.+)$/s.exec(arg.text);
-    if (arg.text === '-R' || arg.text === '--repo') repo = args[i + 1];
-    else if (joined !== null) repo = { ...arg, text: joined[1] ?? '' };
+    const joined = joinedOption.exec(arg.text);
+    if (arg.text === short || arg.text === long) value = args[i + 1];
+    else if (joined !== null) value = { ...arg, text: joined[1] ?? '' };
   }
-  return repo;
+  return value;
 };
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
@@ -688,12 +702,34 @@ const unreadableQuery = (args: Word[]): boolean =>
     );
   });
 
+// The method of a `gh api` call, from its last -X or --method, also after -i in one group of short
+// flags (-iX PUT): undefined when none is given, and COMPUTED when it is computed at run time.
+const apiMethod = (args: Word[]): string | undefined => {
+  const ungrouped = args.map((arg) => ({ ...arg, text: arg.text.replace(/^-i+X/, '-X') }));
+  const method = lastOption(ungrouped, '-X', '--method');
+  return method?.dynamic ? COMPUTED : method?.text.toUpperCase();
+};
+
+// Whether a `gh api` call merges a pull request: a PUT (or a method computed at run time) to a path
+// or URL ending in pulls/<n>/merge, before any query string, or a GraphQL query naming the
+// mutations that merge one, turn on its auto-merge or add it to the merge queue. A GET of the
+// endpoint only asks whether the pull request is merged.
+const MERGE_ENDPOINT = /(?:^|\/)pulls\/[^/?#]+\/merge(?:[?#].*)?$/s;
+const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest)\b/;
+const apiMerges = (args: Word[]): boolean => {
+  const method = apiMethod(args);
+  return (
+    args.some((arg) => MERGE_MUTATION.test(arg.text)) ||
+    ((method === 'PUT' || method === COMPUTED) && args.some((arg) => MERGE_ENDPOINT.test(arg.text)))
+  );
+};
+
 // The pull request and repository of `gh pr ready`, unless it is --undo, which always passes.
 // Any argument computed at run time, or splatted in PowerShell (@args), may name another
 // repository.
 const readReady = (args: Word[], pr: Word | undefined, { found, place }: Reading): void => {
   if (args.some((arg) => arg.text === '--undo')) return;
-  const repo = repoOption(args);
+  const repo = lastOption(args, '-R', '--repo');
   if (args.some((arg) => arg.dynamic || /^@\w/.test(arg.text))) {
     found.reasons.push(READY_COMPUTED_BLOCKED);
   } else {
@@ -716,18 +752,16 @@ const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
       found.gated = true;
       found.places.push({ place: reading.place, push: false });
     } else if (action?.text === 'ready') readReady(args, name, reading);
-  } else if (
-    (group?.text === 'api' || group?.dynamic) &&
-    args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))
-  ) {
-    found.reasons.push(READY_API_BLOCKED);
-  } else if (
-    (group?.text === 'api' || group?.dynamic) &&
+  }
+  // A group computed at run time may be pr or api, so it is read as both.
+  if (group?.text === 'api' || group?.dynamic) {
+    if (args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))) {
+      found.reasons.push(READY_API_BLOCKED);
+    } else if (apiMerges(args)) found.reasons.push(PR_MERGE_BLOCKED);
     // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
-    args.some((arg) => arg.text === 'graphql') &&
-    unreadableQuery(args)
-  ) {
-    found.reasons.push(UNREADABLE_QUERY_BLOCKED);
+    else if (args.some((arg) => arg.text === 'graphql') && unreadableQuery(args)) {
+      found.reasons.push(UNREADABLE_QUERY_BLOCKED);
+    }
   } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
     const shell = args.some((arg) => arg.text === '--shell' || arg.text === '-s');
     const value = expansion.text;

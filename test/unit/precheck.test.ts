@@ -872,6 +872,9 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
     "Start-Process gh -ArgumentList 'pr','merge','30'",
     '"C:\\Program Files\\GitHub CLI\\gh.exe" pr merge 30',
     '$gh pr merge 30',
+    // A brace group runs its commands; only a {name} inside a word is text in bash.
+    '{ gh pr merge 30; }',
+    'x{a}; gh pr merge 30',
   ];
   for (const command of merges) {
     it(`forbids merging a pull request: ${command}`, () => {
@@ -2016,6 +2019,7 @@ describe('precheck on forbidden commands', () => {
     'git push --force-with-lease',
     'gh pr merge 30',
     'git push origin --delete old-branch',
+    'gh api -X PUT repos/o/r/pulls/30/merge',
   ]) {
     it(`blocks without running the check: ${command}`, async () => {
       const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
@@ -2024,6 +2028,81 @@ describe('precheck on forbidden commands', () => {
       assert.equal(result.stderr, `${forbiddenReason(command)}\n`);
       assert.match(result.stderr, /blocked/);
       assert.deepEqual(calls, []);
+    });
+  }
+});
+
+// gh api can merge a pull request as gh pr merge does: a PUT to its merge endpoint, or the
+// GraphQL mutations that merge it or turn on auto-merge (#297).
+describe('forbiddenReason on a merge through gh api', () => {
+  const blocked = [
+    'gh api -X PUT repos/o/r/pulls/30/merge',
+    'gh api -XPUT repos/o/r/pulls/30/merge',
+    'gh api --method PUT repos/o/r/pulls/30/merge',
+    'gh api --method=put repos/o/r/pulls/30/merge',
+    'gh api -X put /repos/o/r/pulls/30/merge',
+    'gh api -X Put pulls/30/merge',
+    'gh api -X PUT /pulls/30/merge',
+    'gh api -X PUT repos/{owner}/{repo}/pulls/30/merge',
+    'gh api repos/o/r/pulls/30/merge -X PUT -f merge_method=squash',
+    'gh api -H "Accept: application/vnd.github+json" --method PUT repos/o/r/pulls/30/merge',
+    'gh api -X GET -X PUT repos/o/r/pulls/30/merge',
+    'gh api -X $method repos/o/r/pulls/30/merge',
+    'gh api -X PUT https://api.github.com/repos/o/r/pulls/30/merge',
+    'gh api -X PUT https://ghe.example.com/api/v3/repos/o/r/pulls/30/merge',
+    "gh api -X PUT 'repos/o/r/pulls/30/merge?merge_method=squash'",
+    'gh api -X PUT "$base/pulls/30/merge"',
+    'gh api -iX PUT repos/o/r/pulls/30/merge',
+    'gh api -iXPUT repos/o/r/pulls/30/merge',
+    'gh api -X=PUT repos/o/r/pulls/30/merge',
+    // gh's command group computed at run time may be api.
+    'gh $g -X PUT repos/o/r/pulls/30/merge',
+    `gh $(echo api) graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    `gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    `gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    `gh api graphql -F query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    `gh api graphql --raw-field query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    `gh api graphql --raw-field='query=mutation { enablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+    `gh api graphql -F id=PR_kw1 -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }'`,
+    `bash -c "gh api -X PUT repos/o/r/pulls/30/merge"`,
+    `pwsh -Command "gh api --method PUT repos/o/r/pulls/30/merge"`,
+    `bash -c "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \\"PR_kw1\\"}) { clientMutationId } }'"`,
+    `pwsh -Command "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: ''PR_kw1''}) { clientMutationId } }'"`,
+  ];
+  for (const command of blocked) {
+    it(`forbids: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
+    });
+  }
+
+  it('says that a query it cannot read may merge a pull request too', () => {
+    assert.match(
+      forbiddenReason('gh api graphql -F query=@merge.graphql') ?? '',
+      /does not merge a pull request or mark one ready/,
+    );
+  });
+
+  const allowed = [
+    // A GET only asks whether the pull request is merged.
+    'gh api repos/o/r/pulls/30/merge',
+    'gh api -X GET repos/o/r/pulls/30/merge',
+    'gh api --method=get /repos/o/r/pulls/30/merge',
+    'gh api -X PUT -X GET repos/o/r/pulls/30/merge',
+    'gh api -X PUT repos/o/r/pulls/30/requested_reviewers',
+    'gh api -X PUT repos/o/r/pulls/30/merge/extra',
+    'gh api -X PUT repos/o/r/xpulls/30/merge',
+    'gh api -X PUT repos/o/r/issues/30/labels -f labels[]=bug',
+    'gh api -X $method repos/o/r/pulls/30',
+    'gh api -i repos/o/r/pulls/30/merge',
+    'gh api https://api.github.com/repos/o/r/pulls/30/merge',
+    'gh api repos/o/r/pulls/30',
+    'gh api graphql -f query=\'query { repository(owner: "o", name: "r") { pullRequest(number: 30) { merged } } }\'',
+    'gh api graphql -f query=\'mutation { disablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }\'',
+    "git commit -m 'block gh api -X PUT repos/o/r/pulls/30/merge'",
+  ];
+  for (const command of allowed) {
+    it(`allows: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
     });
   }
 });
