@@ -33,7 +33,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - `/brew-sheet [topic | #issue | #pr] [--mermaid]` — in Claude Code, explain a part of Foedrum with one verified picture (`.claude/skills/brew-sheet/`); also how pull request and issue descriptions explain themselves
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
-- `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `serve` (the Cellar, until Ctrl+C; ADR 0063), `doctor`, `status`, `stuck`, `replay <batch>`, and the commands that change state (`retry`, `skip`, `answer`, `recipe`, `rewind`, `cancel`); `--help` lists them
+- `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `serve` (the Cellar, until Ctrl+C; ADR 0063), `doctor`, `status`, `stuck`, `replay <batch>`, and the commands that change state (`retry`, `skip`, `answer`, `recipe`, `rewind`, `cancel`, `order`); `--help` lists them
 
 ## Local gate
 
