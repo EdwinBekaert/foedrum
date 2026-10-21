@@ -445,7 +445,8 @@ describe('precheck on a push from another directory', () => {
   });
 
   it('checks the tree of gh pr create after a cd', async () => {
-    const { checks, heads } = await gate('cd ../wt && gh pr create --draft');
+    const { result, checks, heads } = await gate('cd ../wt && gh pr create --draft');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
     assert.deepEqual(checks, [worktree]);
     assert.deepEqual(heads, []);
   });
@@ -618,6 +619,15 @@ describe('precheck on a push from outside the project', () => {
     assert.deepEqual(asked, [join(root, '..', 'wt')]);
     assert.deepEqual(checks, [join(root, '..', 'wt')]);
   });
+
+  // A command that changes no directory runs in the hook's working directory, as before.
+  for (const command of ['git push', 'gh pr ready 5']) {
+    it(`does not ask about the hook's own directory: ${command}`, async () => {
+      const { result, asked } = await gate(command);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(asked, []);
+    });
+  }
 });
 
 describe('resolvePlace', () => {
