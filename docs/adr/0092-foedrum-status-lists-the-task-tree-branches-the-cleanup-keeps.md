@@ -1,6 +1,6 @@
 # 0092. `foedrum status` lists the task-tree branches the cleanup keeps
 
-Date: 2026-10-20 · Status: Accepted · Amends [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) (nothing reminds anyone of a kept branch)
+Date: 2026-10-20 · Status: Accepted, amended by [0101](0101-the-cleanup-keeps-the-attempt-branches-that-hold-a-rewound-task-tree.md) (a rewound task tree's branches, read in their attempt's clone) · Amends [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) (nothing reminds anyone of a kept branch)
 
 ## Context
 [ADR 0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) keeps the branch of an ended batch's task tree when no push recorded it (`Claims.unpushed`) and its tip is not the batch's start. Its consequences say nothing reminds anyone of such a branch beyond the cleanup's `kept branch` line, which `foedrum serve` prints once and which scrolls away. The branches pile up in the clone, and each holds work someone may want (#232).

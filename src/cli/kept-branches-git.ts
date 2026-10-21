@@ -46,16 +46,27 @@ const readOne = async (
   start: string,
   { git, cloneOf }: KeptBranchesShell,
 ): Promise<BranchReading> => {
-  const batchId = parseAttemptBranch(branch)?.batchId ?? '';
-  const taskTree = state.batches.get(batchId)?.taskTree;
-  if (taskTree?.kind !== 'attempt') {
+  const attemptRef = parseAttemptBranch(branch);
+  const batchId = attemptRef?.batchId ?? '';
+  const batch = state.batches.get(batchId);
+  const { taskTree } = batch ?? {};
+  // A rewound task tree is held by attempt branches, each in the repository it wrote in (ADR 0101).
+  const attempt =
+    attemptRef && batch?.steps.get(attemptRef.stepId)?.attempts.get(attemptRef.attempt);
+  const repo =
+    taskTree?.kind === 'attempt'
+      ? taskTree.repo
+      : taskTree?.kind === 'rewound' && attempt !== undefined && attempt.phase !== 'scheduled'
+        ? attempt.worktree?.repo
+        : undefined;
+  if (repo === undefined) {
     return { kind: 'unread', reason: `no task tree of batch ${batchId} in the event store` };
   }
-  const clone = cloneOf(taskTree.repo);
+  const clone = cloneOf(repo);
   if (clone === undefined) {
     return {
       kind: 'unread',
-      reason: `no clone for ${taskTree.repo} in foedrum.jsonc and .foedrum/local.jsonc`,
+      reason: `no clone for ${repo} in foedrum.jsonc and .foedrum/local.jsonc`,
     };
   }
   try {
