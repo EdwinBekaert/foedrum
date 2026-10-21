@@ -192,6 +192,9 @@ describe('serveShell', () => {
       if (command === 'rev-parse' && first === '--absolute-git-dir') {
         return { code: 0, stdout: `${gitDir}\n`, stderr: '' };
       }
+      if (command === 'rev-parse' && first === '--path-format=absolute') {
+        return { code: 0, stdout: `${join(workRoot, 'brewery-git')}\n`, stderr: '' };
+      }
       if (command === 'rev-parse' || command === 'config')
         return { code: 1, stdout: '', stderr: '' };
       if (command === 'write-tree' || command === 'commit-tree') {

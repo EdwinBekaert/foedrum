@@ -4,7 +4,8 @@
 // index then fails with "Unable to create '…/index.lock': File exists". Run this only for a
 // worktree no git command of this Foedrum is running in; the age guards against another one. A
 // caller that knows by a lock of its own that no git writes the index (the state worktree under
-// its writer lock, ADR 0107) passes `maxAgeMs: -Infinity` instead of relying on the age.
+// its writer lock, ADR 0107) passes `maxAgeMs: -Infinity` instead of relying on the age, and
+// removes the other lock files a killed git leaves there with removeStaleLock (#306).
 
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,11 +20,19 @@ export interface IndexLockOptions {
 }
 
 /** Removes `<gitDir>/index.lock` when it is older than maxAgeMs, through removeTree. */
-export const removeStaleIndexLock = async (
+export const removeStaleIndexLock = (
   gitDir: string,
+  options: IndexLockOptions = {},
+): Promise<IndexLockCleanup> => removeStaleLock(join(gitDir, 'index.lock'), options);
+
+/**
+ * Removes the lock file at `lock` (git's `<file>.lock` beside the file it writes) when it is
+ * older than maxAgeMs, through removeTree.
+ */
+export const removeStaleLock = async (
+  lock: string,
   { maxAgeMs = 60_000, now = Date.now }: IndexLockOptions = {},
 ): Promise<IndexLockCleanup> => {
-  const lock = join(gitDir, 'index.lock');
   let written: number;
   try {
     written = (await stat(lock)).mtimeMs;

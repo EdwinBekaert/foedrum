@@ -6,7 +6,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { type FileLock, takeFileLock } from '../platform/file-lock.ts';
-import { removeStaleIndexLock } from '../platform/index-lock.ts';
+import { removeStaleLock } from '../platform/index-lock.ts';
 import { removeTree } from '../platform/remove.ts';
 import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
@@ -37,7 +37,7 @@ export interface StateBranchOptions {
   remote?: string;
   /** Default `foedrum/state`. */
   branch?: string;
-  /** Where a stale `index.lock`'s removal is said; default nowhere. */
+  /** Where a stale lock file's removal is said; default nowhere. */
   out?: (line: string) => void;
   /** Waits between tries for the writer lock at a start; default a timer. */
   sleep?: (ms: number) => Promise<void>;
@@ -130,21 +130,32 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${why(result)}`);
     return result.stdout;
   };
-  // Every git that writes the worktree's index runs under the writer lock (ADR 0107), so an
-  // index.lock found while it is held was left by a git that no longer runs.
+  // Every git that writes the worktree runs under the writer lock (ADR 0107), so a lock file
+  // of git's found while it is held was left by a git that no longer runs: the index's and
+  // HEAD's in the worktree's git folder, and the branch's ref in the clone's common one (#306).
   const writerLock = join(dirname(worktree), 'state.lock');
   const takeWriter = async (): Promise<FileLock | undefined> => {
     await mkdir(dirname(worktree), { recursive: true });
     return takeFileLock(writerLock, 0);
   };
   const otherWriter = `another driver of this work root is writing the state worktree ${worktree}: its writer lock ${writerLock} is held`;
-  let gitDir: string | undefined;
-  const removeLeftIndexLock = async (): Promise<void> => {
-    gitDir ??= (await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim();
-    if (
-      (await removeStaleIndexLock(gitDir, { maxAgeMs: Number.NEGATIVE_INFINITY })) === 'removed'
-    ) {
-      out(`removed a stale index.lock from the state worktree: ${join(gitDir, 'index.lock')}`);
+  let gitLocks: { name: string; path: string }[] | undefined;
+  const removeLeftLocks = async (): Promise<void> => {
+    if (gitLocks === undefined) {
+      const gitDir = (await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim();
+      const commonDir = (
+        await must(worktree, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+      ).trim();
+      gitLocks = [
+        { name: 'index.lock', path: join(gitDir, 'index.lock') },
+        { name: 'HEAD.lock', path: join(gitDir, 'HEAD.lock') },
+        { name: `${ref}.lock`, path: `${join(commonDir, ...ref.split('/'))}.lock` },
+      ];
+    }
+    for (const { name, path } of gitLocks) {
+      if ((await removeStaleLock(path, { maxAgeMs: Number.NEGATIVE_INFINITY })) === 'removed') {
+        out(`removed a stale ${name} from the state worktree: ${path}`);
+      }
     }
   };
 
@@ -366,7 +377,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     }
     if (remoteSha !== undefined) await refuseLinks(remoteSha);
     await openWorktree(remoteSha);
-    await removeLeftIndexLock();
+    await removeLeftLocks();
     await checkSigning();
     const pushed = store.pushedThrough();
     const localHead = await head();
@@ -437,7 +448,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         const lock = await takeWriter();
         if (lock === undefined) return { kind: 'failed', reason: otherWriter };
         return asWriter(lock, async () => {
-          await removeLeftIndexLock();
+          await removeLeftLocks();
           return flushNow(false);
         });
       }),
