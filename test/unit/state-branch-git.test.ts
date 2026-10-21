@@ -887,6 +887,51 @@ describe('openStateBranch with a fake git', () => {
       `removed a stale refs/heads/foedrum/state.lock from the state worktree: ${refLock()}`,
     ];
 
+    it('are removed at the start, whose flush then commits and pushes, saying so', async () => {
+      append(ordered('b1'));
+      leaveLocks();
+
+      const result = await branch().start();
+
+      assert.deepEqual(result, {
+        decision: 'flush',
+        flush: { kind: 'pushed', through: 1, commit: sha(100) },
+      });
+      assert.equal(existsSync(refLock()), false);
+      assert.equal(existsSync(headLock()), false);
+      assert.deepEqual(said, removedLines());
+    });
+
+    it('are removed by a flush that meets them, which then commits and pushes', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLocks();
+
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 1, commit: sha(100) });
+
+      assert.equal(existsSync(refLock()), false);
+      assert.equal(existsSync(headLock()), false);
+      assert.deepEqual(said, removedLines());
+    });
+
+    it('leaves the files beside them alone', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLocks();
+      const beside = [
+        join(fake.commonDir, 'refs', 'heads', 'foedrum', 'other.lock'),
+        join(fake.commonDir, 'packed-refs.lock'),
+        join(fake.gitDir, 'ORIG_HEAD.lock'),
+      ];
+      for (const path of beside) writeFileSync(path, '');
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      for (const path of beside) assert.equal(existsSync(path), true, path);
+    });
+
     it('are left alone while another writer holds the writer lock: the flush fails at once', async () => {
       const state = branch();
       await state.start();
