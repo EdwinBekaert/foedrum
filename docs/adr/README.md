@@ -1,6 +1,8 @@
 # Architecture decision records
 
-Each record captures one decision: context, decision, consequences and the alternatives considered. Records are immutable once accepted; a change of mind is a new record that supersedes the old one.
+Each record captures one decision: context, decision, consequences and the alternatives considered. Records are immutable once accepted; a change of mind is a new record that supersedes or amends the old one, and says so in its own status line.
+
+The table below is rebuilt when a milestone closes, from the records themselves: their titles, their status lines and the records that name them in an `Amends` or `Supersedes` line. A pull request adds its record as a new file and changes nothing else here, so the table and an older record's "Amended by" line can lag behind the folder until then. The folder lists every record in number order; to find what amends a record, search for its number: `git grep -l "Amends.*[0024]" docs/adr/`.
 
 | # | Decision | Status |
 |---|---|---|
