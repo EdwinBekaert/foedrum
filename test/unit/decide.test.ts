@@ -1366,6 +1366,19 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
     it('refuses a batch id the log has', () => {
       refuses(lanes.cancelled, again('b1', { issue: 100 }), /batch b1 was already ordered/);
     });
+
+    it("refuses a live batch's own id as ordered before, not as live", () => {
+      refuses(lanes.brewing, again('b1', { issue: 100 }), /batch b1 was already ordered/);
+    });
+
+    it('refuses it while a later batch is live, past one that ended', () => {
+      const b2: Event = { ...ordered, batchId: 'b2' };
+      refuses(
+        [...lanes.cancelled, b2],
+        again('b3', { issue: 100 }),
+        /^batch b2 of #100 is still ordered$/,
+      );
+    });
   });
 
   describe('a target-repository issue', () => {
@@ -1404,6 +1417,18 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
 
     it('refuses it while its batch is live', () => {
       refuses([webOrdered], again('web-7-2', web), /^batch web-7 of acme\/web#7 is still ordered$/);
+    });
+
+    it('refuses it while a later batch is live, past one that ended and was released', () => {
+      const later: Event = { ...webOrdered, batchId: 'web-7-2' };
+      const events = [...webCancelled, ...released, later];
+      const refused = /^batch web-7-2 of acme\/web#7 is still ordered$/;
+      refuses(events, again('web-7-3', web), refused);
+      refuses(events, { kind: 'order', batchId: 'web-7-3', order: web }, refused);
+    });
+
+    it("refuses the intake's order of a live batch's own id as ordered before", () => {
+      refuses([webOrdered], { kind: 'order', batchId: 'web-7', order: web }, /already ordered/);
     });
 
     it("refuses the intake's order of it the same way, so a terminal and serve never order it twice", () => {

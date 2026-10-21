@@ -620,6 +620,32 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.equal(lastId(), before);
     });
 
+    it('refuses an order that lands while the claim waits on GitHub, and keeps the claim its own', async () => {
+      const racing = {
+        ...github.host,
+        create: async (...args: Parameters<FakeGitHub['host']['create']>) => {
+          // The intake of a running serve orders the issue meanwhile.
+          const order = { issue: 7, repo: 'acme/web' };
+          const log = createCommandLog({ store, recipes });
+          assert.equal(
+            log.issue({ kind: 'order', batchId: 'web-7-2', order }, t0).kind,
+            'accepted',
+          );
+          return github.host.create(...args);
+        },
+      };
+      assert.deepStrictEqual(
+        await run(['order', 'web#7'], { claims: () => racing }),
+        refused('batch web-7-2 of acme/web#7 is still ordered'),
+      );
+      const event = last();
+      assert.deepStrictEqual(event?.type === 'batch.ordered' && [event.batchId, event.by], [
+        'web-7-2',
+        undefined,
+      ]);
+      assert.equal(JSON.parse(github.refs.get('acme/web#7') ?? 'null').brewery, 'acme/brewery');
+    });
+
     it('refuses an issue with a live batch before it claims anything', async () => {
       assert.deepStrictEqual(
         await run(['order', 'web#9']),
