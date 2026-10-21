@@ -1051,7 +1051,10 @@ describe('SqliteEventStore in memory', () => {
         keptDoc({ stepId: 'a/b' }),
         keptDoc({ attempt: 0 }),
       ]) {
-        assert.throws(() => store.withTransaction((tx) => tx.keepOutDoc(doc)));
+        // The schema refuses it, not some other error on the way.
+        assert.throws(() => store.withTransaction((tx) => tx.keepOutDoc(doc)), {
+          name: 'ZodError',
+        });
       }
       assert.deepEqual(store.keptOutDocs(), []);
     });
