@@ -5,7 +5,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-typescript-on-node.md) | TypeScript, run by Node's built-in type stripping | Accepted |
-| [0002](0002-event-sourced-engine-on-node-sqlite.md) | Event-sourced engine on `node:sqlite` | Accepted, amended by 0011, 0024 and 0044 |
+| [0002](0002-event-sourced-engine-on-node-sqlite.md) | Event-sourced engine on `node:sqlite` | Accepted, amended by 0011, 0024, 0044 and 0103 |
 | [0003](0003-drive-the-claude-cli.md) | Drive the user's `claude` CLI, not the Agent SDK | Accepted, amended by 0042 |
 | [0004](0004-built-in-first-dependency-policy.md) | Built-in first dependency policy | Accepted |
 | [0005](0005-typed-step-outcomes-and-out-docs.md) | Typed step outcomes via out docs | Accepted |
@@ -101,7 +101,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) | A rejected run end is blocked on the environment, not a failed tick (amends 0028) | Accepted |
 | [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) | Nip ships with a default Cellarman, and the default brewers name the builder alias (amends 0098) | Accepted |
 | [0101](0101-the-cleanup-keeps-the-attempt-branches-that-hold-a-rewound-task-tree.md) | The cleanup keeps the attempt branches that hold a rewound task tree (amends 0084 and 0092) | Accepted |
-| [0103](0103-out-docs-reach-the-state-branch-through-the-store.md) | Out docs reach the state branch through the store (amends 0024 and 0081) | Accepted |
+| [0103](0103-out-docs-reach-the-state-branch-through-the-store.md) | Out docs reach the state branch through the store (amends 0002, 0024 and 0081) | Accepted |
 
 ## Template
 
