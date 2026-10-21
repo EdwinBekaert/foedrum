@@ -16,8 +16,9 @@ export interface ChangedRef {
 
 // `<sha-1 or sha-256>\t<ref>`, as ls-remote prints each ref.
 const LISTED = /^([0-9a-f]{40}|[0-9a-f]{64})\t(refs\/\S+)$/;
-// GitHub writes these itself and refuses a push to them, so nobody's push moves them.
-const GITHUB_OWN = 'refs/pull/';
+// GitHub writes these itself and refuses a push to them, so nobody's push moves them: pull
+// requests' refs, and a merge queue's branches.
+const GITHUB_OWN = ['refs/pull/', 'refs/heads/gh-readonly-queue/'];
 
 /** The refs `ls-remote --refs` printed, or why its output is not a listing. */
 export function parseRemoteRefs(listed: string): RemoteRefs | { error: string } {
@@ -37,7 +38,7 @@ export function parseRemoteRefs(listed: string): RemoteRefs | { error: string } 
 
 /**
  * The refs that changed from `before` to `after`, by name, but not those `engine` says the engine
- * wrote during the attempt, nor GitHub's own `refs/pull/`.
+ * wrote during the attempt, nor GitHub's own `refs/pull/` and merge queue branches.
  */
 export function changedRefs(
   before: RemoteRefs,
@@ -48,7 +49,7 @@ export function changedRefs(
   return names.flatMap((ref): ChangedRef[] => {
     const from = before.get(ref);
     const to = after.get(ref);
-    if (from === to || ref.startsWith(GITHUB_OWN) || engine(ref)) return [];
+    if (from === to || GITHUB_OWN.some((own) => ref.startsWith(own)) || engine(ref)) return [];
     return [{ ref, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) }];
   });
 }

@@ -84,16 +84,28 @@ export function guardPushes(options: PushGuardOptions): BrewerRunner {
         if (before.aborted) return { ending: { kind: 'cancelled' } };
         if ('summary' in start) return { ending: blocked(start.summary) };
         running = runner.start(attempt);
-        const end = await running.ended;
+        // A runner that rejected may have pushed first: the remote is read all the same, and its
+        // error goes on only when nothing changed.
+        const end: { ended: AttemptEnd } | { error: unknown } = await running.ended.then(
+          (ended) => ({ ended }),
+          (error: unknown) => ({ error }),
+        );
         const after = await read(key, repo, 'after', serving);
-        if ('summary' in after) return { ...end, ending: blocked(after.summary) };
         const engine = window.close();
-        const changed = changedRefs(start, after, (ref) => engine.has(ref) || exempt(repo, ref));
-        if (changed.length === 0) return end;
-        // A push is the engine's alone: the remote is not what the engine left, so the batch is
-        // Stuck for a human to look at it, however its recipe routes a failure.
-        const summary = noPushReason(repo, changed);
-        return { ...end, ending: { kind: 'blocked', blockerKind: 'divergence', summary } };
+        const changed =
+          'summary' in after
+            ? []
+            : changedRefs(start, after, (ref) => engine.has(ref) || exempt(repo, ref));
+        if (changed.length > 0) {
+          // A push is the engine's alone: the remote is not what the engine left, so the batch is
+          // Stuck for a human to look at it, however its recipe routes a failure.
+          const summary = noPushReason(repo, changed);
+          const ending = { kind: 'blocked', blockerKind: 'divergence', summary } as const;
+          return 'ended' in end ? { ...end.ended, ending } : { ending };
+        }
+        if ('error' in end) throw end.error;
+        if ('summary' in after) return { ...end.ended, ending: blocked(after.summary) };
+        return end.ended;
       } finally {
         window.close();
         reading.delete(key);
