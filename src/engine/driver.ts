@@ -471,7 +471,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
             (end) => ended.push({ ref, end }),
             // The runner broke, not the attempt: it is blocked on its environment, and its process,
             // which may still run, is stopped before its lease goes (ADR 0099).
-            // Neither can throw, so the end is always recorded and nothing is left floating.
+            // Neither can throw, so the end always reaches the step boundary and nothing is left floating.
             (error: unknown) => {
               const summary = rejectionSummary(error);
               const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
