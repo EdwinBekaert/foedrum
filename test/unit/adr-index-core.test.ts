@@ -168,6 +168,25 @@ describe('rebuilding the ADR index', () => {
     assert.ok(result.changes.includes('0001-a.md:3: amended by 0002 removed'));
   });
 
+  it('rewrites rows that are out of order or doubled, and says so', () => {
+    const first = '| [0001](0001-a.md) | First | Accepted |';
+    const second = '| [0002](0002-b.md) | Second | Accepted |';
+    const files = [record(A, 'First', 'Accepted'), record(B, 'Second', 'Accepted')];
+    for (const rows of [
+      [second, first],
+      [first, first, second],
+    ]) {
+      const result = built(readmeWith(rows), files);
+      assert.deepEqual(
+        { readme: result.readme, changes: result.changes },
+        {
+          readme: readmeWith([first, second]),
+          changes: ['README.md: rows out of order or doubled'],
+        },
+      );
+    }
+  });
+
   it('fails on a link to a number with no record, naming the file and line', () => {
     const result = rebuild(readmeWith([]), [
       record(A, 'First', 'Accepted'),

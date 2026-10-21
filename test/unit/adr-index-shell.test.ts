@@ -78,6 +78,23 @@ describe('node scripts/adr-index.ts', () => {
     );
   });
 
+  it('reads only the README and the record files, never a folder or another file', () => {
+    const reads: string[] = [];
+    const code = run(['--check'], {
+      list: () => ['README.md', 'images', 'notes.txt', '0001-a.md'],
+      readFile: (name) => {
+        reads.push(name);
+        if (name === 'README.md') return README;
+        if (name === '0001-a.md') return FIRST;
+        return ''; // a folder would throw EISDIR here
+      },
+      writeFile: () => assert.fail('nothing to write'),
+      out: () => {},
+      err: () => {},
+    });
+    assert.deepEqual({ code, reads: reads.sort() }, { code: 0, reads: ['0001-a.md', 'README.md'] });
+  });
+
   it('exits 2 on an argument it does not know', () => {
     const result = runWith(['--write'], { 'README.md': README });
     assert.deepEqual(
