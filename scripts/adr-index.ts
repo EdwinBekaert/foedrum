@@ -6,7 +6,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rebuild } from './adr-index/core.ts';
+import { isRecordName, rebuild } from './adr-index/core.ts';
 
 export interface RunDeps {
   /** The names of the files in docs/adr/. */
@@ -31,7 +31,7 @@ export const run = (args: string[], deps: RunDeps): number => {
   }
   const records = deps
     .list()
-    .filter((name) => name !== README)
+    .filter(isRecordName)
     .map((name) => ({ name, text: deps.readFile(name) }));
   const result = rebuild(deps.readFile(README), records);
   if (!result.ok) {

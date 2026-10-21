@@ -36,6 +36,12 @@ const FORWARD: Record<string, Kind> = {
 };
 
 const RECORD_NAME = /^(\d{4})-.+\.md$/;
+
+/** Whether a file in docs/adr/ is a record, by its name (`0024-state-branch.md`). */
+export const isRecordName = (name: string): boolean => RECORD_NAME.test(name);
+
+// A forward link followed by a possessive names only part of the record: `[0008](…)'s client`.
+const PART = /^['’]s\b/;
 const TITLE = /^# (\d{4})\. (.+)$/;
 const STATUS = /^(Date: .*? · Status: )(.*)$/;
 const STATUS_LINE = 2; // the third line: title, blank, status
@@ -155,7 +161,8 @@ interface Parsed {
   segments: string[];
   /** Forward links: kind and the numbers it names, in the order the line names the kinds. */
   forward: Map<Kind, Set<string>>;
-  forwardVerbs: Map<Kind, string>;
+  /** The numbers a `Supersedes` link names only a part of. */
+  partly: Set<string>;
   links: string[];
 }
 
@@ -177,13 +184,16 @@ const parse = (file: AdrFile, problems: string[]): Parsed | undefined => {
   }
   const segments = (status[2] ?? '').split(SEGMENTS);
   const forward = new Map<Kind, Set<string>>();
-  const forwardVerbs = new Map<Kind, string>();
+  const partly = new Set<string>();
   for (const segment of segments) {
     const kind = forwardKind(segment);
     if (kind === undefined) continue;
-    forwardVerbs.set(kind, (segment.split(' ', 1)[0] ?? '').toLowerCase());
     const numbers = forward.get(kind) ?? new Set<string>();
-    for (const link of linksIn(segment)) if (link.depth === 0) numbers.add(link.number);
+    for (const link of linksIn(segment)) {
+      if (link.depth > 0) continue;
+      numbers.add(link.number);
+      if (kind === 'superseded' && PART.test(segment.slice(link.end))) partly.add(link.number);
+    }
     forward.set(kind, numbers);
   }
   return {
@@ -195,7 +205,7 @@ const parse = (file: AdrFile, problems: string[]): Parsed | undefined => {
     eol,
     segments,
     forward,
-    forwardVerbs,
+    partly,
     links: segments.flatMap((segment) => linksIn(segment).map((link) => link.number)),
   };
 };
@@ -290,22 +300,33 @@ const rewrite = (
   return { segments, changes };
 };
 
-const row = (record: Parsed, expected: Map<Kind, Set<string>>): string => {
-  const verbs = [...record.forward].flatMap(([kind, numbers]) =>
-    numbers.size > 0
-      ? [`${record.forwardVerbs.get(kind)} ${listed([...numbers].sort(byNumber))}`]
-      : [],
-  );
+const verbOf = (kind: Kind): string =>
+  (Object.keys(FORWARD).find((verb) => FORWARD[verb] === kind) ?? '').toLowerCase();
+
+const row = (record: Parsed, expected: Map<Kind, Set<string>>, partlyBy: Set<string>): string => {
+  const verbs = [...record.forward].flatMap(([kind, numbers]) => {
+    const sorted = [...numbers].sort(byNumber);
+    const whole = sorted.filter((number) => kind !== 'superseded' || !record.partly.has(number));
+    const part = sorted.filter((number) => !whole.includes(number));
+    return [
+      ...(whole.length > 0 ? [`${verbOf(kind)} ${listed(whole)}`] : []),
+      ...(part.length > 0 ? [`${verbOf(kind)} part of ${listed(part)}`] : []),
+    ];
+  });
   const title = `${record.title}${verbs.length > 0 ? ` (${verbs.join(', ')})` : ''}`;
   const [own = ''] = record.segments;
   const firstClause = clausesIn(own, 0)[0];
   const ownStatus = (firstClause === undefined ? own : own.slice(0, firstClause.start))
     .replace(/,\s*$/, '')
     .trim();
+  // A record superseded only in part says so last, after what amends it.
   const parts = KINDS.flatMap((kind) => {
-    const numbers = [...(expected.get(kind) ?? [])].sort(byNumber);
+    const numbers = [...(expected.get(kind) ?? [])]
+      .filter((number) => kind !== 'superseded' || !partlyBy.has(number))
+      .sort(byNumber);
     return numbers.length > 0 ? [`${kind} by ${listed(numbers)}`] : [];
   });
+  if (partlyBy.size > 0) parts.push(`partly superseded by ${listed([...partlyBy].sort(byNumber))}`);
   const status =
     ownStatus === ''
       ? capitalised(parts.join('; '))
@@ -336,7 +357,7 @@ const rebuildTable = (
     bare.slice(header + 2, end).map((line) => [ROW_NUMBER.exec(line)?.[1] ?? line, line]),
   );
   const after = new Map(rows.map((line) => [ROW_NUMBER.exec(line)?.[1] ?? line, line]));
-  const changes = [...new Set([...before.keys(), ...after.keys()])].sort(byNumber).flatMap((n) => {
+  const changed = [...new Set([...before.keys(), ...after.keys()])].sort(byNumber).flatMap((n) => {
     const old = before.get(n);
     const now = after.get(n);
     if (old === now) return [];
@@ -344,6 +365,10 @@ const rebuildTable = (
       `README.md: row ${n} ${old === undefined ? 'added' : now === undefined ? 'removed' : 'changed'}`,
     ];
   });
+  // Rows compared by number hide a doubled or reordered row; the lines as a list show it.
+  const reordered =
+    changed.length === 0 && bare.slice(header + 2, end).join('\n') !== rows.join('\n');
+  const changes = reordered ? ['README.md: rows out of order or doubled'] : changed;
   const text = [
     ...lines.slice(0, header + 2),
     ...rows.map((line) => `${line}${eol}`),
@@ -392,7 +417,10 @@ export const rebuild = (readme: string, records: AdrFile[]): Rebuild => {
   for (const record of parsed) {
     const kinds = expected.get(record.number) ?? new Map<Kind, Set<string>>();
     const { segments, changes } = rewrite(record, kinds, fileOf, problems);
-    rows.push(row(record, kinds));
+    const partlyBy = new Set(
+      parsed.filter((other) => other.partly.has(record.number)).map((other) => other.number),
+    );
+    rows.push(row(record, kinds, partlyBy));
     if (changes.length === 0) continue;
     const lines = [...record.lines];
     lines[STATUS_LINE] = `${record.prefix}${segments.join(SEGMENTS)}${record.eol}`;
