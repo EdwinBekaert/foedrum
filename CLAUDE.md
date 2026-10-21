@@ -56,6 +56,7 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
   - force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`);
   - pushes that delete or mirror remote refs (`--delete`, `-d`, a `:branch` refspec, `--mirror`);
   - `gh pr merge`, also with `-R`/`--repo`;
+  - merging a pull request through `gh api` (#297), with the `gh pr merge` message: a `PUT` (`-X PUT`, `-XPUT`, `--method PUT`, `--method=put`, any case, the last one counting as in gh; or a method computed at run time) to a path ending in `pulls/<n>/merge`, with or without a leading `/` or `repos/<owner>/<repo>` (gh's `{owner}`/`{repo}` too); and a query naming the GraphQL `mergePullRequest` or `enablePullRequestAutoMerge` mutation. A `GET` of `…/pulls/<n>/merge` only asks whether it is merged and passes;
   - marking a pull request ready through `gh api` (the GraphQL `markPullRequestReadyForReview` mutation): use `gh pr ready <n>`, which the gate checks; and `gh api graphql` with a query the gate cannot read (`query=@file`, `--input`, a variable);
   - defining a git or gh alias that pushes, merges, opens a pull request or marks one ready (`git config alias.*`, `git -c alias.*=`, `gh alias set`);
   - commands nested too deeply to check (more than 8 levels of shells and substitutions);

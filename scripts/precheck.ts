@@ -147,6 +147,13 @@ const closingParen = (text: string, open: number): number => {
   return -1;
 };
 
+// Whether a {name} without spaces, such as gh's {owner}, starts at i.
+const PLACEHOLDER = /\{\w+\}/y;
+const placeholderAt = (command: string, i: number): boolean => {
+  PLACEHOLDER.lastIndex = i;
+  return PLACEHOLDER.test(command);
+};
+
 const lex = (source: string, dialect: Dialect): Lexed => {
   const command = dialect === 'powershell' ? foldQuotes(source) : source;
   const escapeChar = dialect === 'bash' ? '\\' : '`';
@@ -272,6 +279,12 @@ const lex = (source: string, dialect: Dialect): Lexed => {
         lexed.substitutions.push(command.slice(i + 1, end - 1));
         add(command.slice(i, end), true);
       }
+      i = end;
+    } else if (char === '{' && dialect === 'bash' && placeholderAt(command, i)) {
+      // Bash reserves a brace only as a word of its own, so gh's placeholders
+      // (repos/{owner}/{repo}/…) are text in a word (#297); PowerShell makes them script blocks.
+      const end = command.indexOf('}', i) + 1;
+      add(command.slice(i, end));
       i = end;
     } else if (SEPARATORS.has(char)) {
       endSegment();
@@ -688,6 +701,40 @@ const unreadableQuery = (args: Word[]): boolean =>
     );
   });
 
+// The method of a `gh api` call, from its last -X or --method (given as the next word, after `=`,
+// or joined to -X), as gh reads it; undefined when none is given, and COMPUTED when it is computed
+// at run time.
+const apiMethod = (args: Word[]): string | undefined => {
+  let method: string | undefined;
+  for (const [i, arg] of args.entries()) {
+    const joined = /^(?:-X=?|--method=)(.+)$/s.exec(arg.text);
+    const word =
+      arg.text === '-X' || arg.text === '--method'
+        ? args[i + 1]
+        : joined === null
+          ? undefined
+          : arg;
+    if (word !== undefined) {
+      method = word.dynamic ? COMPUTED : (joined?.[1] ?? word.text).toUpperCase();
+    }
+  }
+  return method;
+};
+
+// Whether a `gh api` call merges a pull request: a PUT (or a method computed at run time) to
+// pulls/<n>/merge, with or without a leading slash or repos/<owner>/<repo>, or a GraphQL query
+// naming the mutations that merge one or turn on its auto-merge. A GET of the endpoint only asks
+// whether the pull request is merged.
+const MERGE_ENDPOINT = /^\/?(?:repos\/[^/]+\/[^/]+\/)?pulls\/[^/]+\/merge$/;
+const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge)\b/;
+const apiMerges = (args: Word[]): boolean => {
+  const method = apiMethod(args);
+  return (
+    args.some((arg) => MERGE_MUTATION.test(arg.text)) ||
+    ((method === 'PUT' || method === COMPUTED) && args.some((arg) => MERGE_ENDPOINT.test(arg.text)))
+  );
+};
+
 // The pull request and repository of `gh pr ready`, unless it is --undo, which always passes.
 // Any argument computed at run time, or splatted in PowerShell (@args), may name another
 // repository.
@@ -716,18 +763,14 @@ const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
       found.gated = true;
       found.places.push({ place: reading.place, push: false });
     } else if (action?.text === 'ready') readReady(args, name, reading);
-  } else if (
-    (group?.text === 'api' || group?.dynamic) &&
-    args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))
-  ) {
-    found.reasons.push(READY_API_BLOCKED);
-  } else if (
-    (group?.text === 'api' || group?.dynamic) &&
+  } else if (group?.text === 'api' || group?.dynamic) {
+    if (args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))) {
+      found.reasons.push(READY_API_BLOCKED);
+    } else if (apiMerges(args)) found.reasons.push(PR_MERGE_BLOCKED);
     // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
-    args.some((arg) => arg.text === 'graphql') &&
-    unreadableQuery(args)
-  ) {
-    found.reasons.push(UNREADABLE_QUERY_BLOCKED);
+    else if (args.some((arg) => arg.text === 'graphql') && unreadableQuery(args)) {
+      found.reasons.push(UNREADABLE_QUERY_BLOCKED);
+    }
   } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
     const shell = args.some((arg) => arg.text === '--shell' || arg.text === '-s');
     const value = expansion.text;
