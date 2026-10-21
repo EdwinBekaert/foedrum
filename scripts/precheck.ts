@@ -36,9 +36,10 @@ const MAX_OUTPUT_CHARS = 4000;
 // for an encoded command; npx, npm, dlx and bun for a package runner (#175).
 const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
 // A delete (rm, rd, ri, del, erase, Remove-Item) of a path that may hold a variable or a
-// substitution ($, %, a backtick, read before the shells' characters are dropped) (#281).
+// substitution ($, %, a backtick or PowerShell's ( ), read before the shells' characters are
+// dropped) (#281).
 const MAY_DELETE = /rm|rd|ri|del|erase|remove/i;
-const MAY_COMPUTE = /[$%`]/;
+const MAY_COMPUTE = /[$%`(]/;
 const mayNeedTheGate = (text: string): boolean => {
   const plain = normalised(text);
   return MAY_NEED_THE_GATE.test(plain) || (MAY_DELETE.test(plain) && MAY_COMPUTE.test(text));
@@ -253,6 +254,14 @@ const lex = (source: string, dialect: Dialect): Lexed => {
     } else if (char === ' ' || char === '\t') {
       endWord();
       i++;
+    } else if (char === '(' && dialect === 'powershell' && isDelete(segment[0] ?? word)) {
+      // An argument of a delete: PowerShell computes it, as in (Join-Path $root run) (#281).
+      const end = closingParen(command, i);
+      if (end >= 0) {
+        lexed.substitutions.push(command.slice(i + 1, end - 1));
+        add(command.slice(i, end), true);
+      }
+      i = end;
     } else if (SEPARATORS.has(char)) {
       endSegment();
       i++;
@@ -607,24 +616,41 @@ const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): vo
 
 // Whether an option word tells a delete to recurse. rm takes -r or -R in a group of its short
 // options, or --recursive or a prefix of it; PowerShell's Remove-Item and its aliases (rm too)
-// take -Recurse or a prefix of it, also as -Recurse:<value>; cmd's rd and del take /s.
-const POSIX_RECURSIVE = /^-[dfiIvrR]*[rR][dfiIvrR]*$/;
+// take -Recurse or a prefix of it, also as -Recurse:<value> but not -Recurse:$false; cmd's rd and
+// del take /s, also among other switches written together (/s/q). GNU and BSD rm's flags may share
+// the group, and bash drops quotes around it; PowerShell reads a quoted word as a value, and an en
+// dash, em dash or horizontal bar as a parameter's dash.
+const POSIX_RECURSIVE = /^-[dfiIvPWxrR]*[rR][dfiIvPWxrR]*$/;
+const PARAMETER = new RegExp(
+  `^[-${String.fromCodePoint(0x2013, 0x2014, 0x2015)}]([a-z]+)(?::(.*))?$`,
+  'is',
+);
 const recursesPowershell = (word: Word): boolean => {
-  const name = /^-([a-z]+)(?::.*)?$/is.exec(word.text)?.[1]?.toLowerCase();
-  return !word.quoted && name !== undefined && 'recurse'.startsWith(name);
+  const [, name, value] = PARAMETER.exec(word.text) ?? [];
+  return (
+    !word.quoted &&
+    name !== undefined &&
+    'recurse'.startsWith(name.toLowerCase()) &&
+    value?.toLowerCase() !== '$false'
+  );
 };
 const recursesRm = (word: Word): boolean =>
-  !word.quoted &&
-  (POSIX_RECURSIVE.test(word.text) ||
-    (word.text.length > 2 && '--recursive'.startsWith(word.text)) ||
-    recursesPowershell(word));
-const recursesCmd = (word: Word): boolean => /^\/s$/i.test(word.text);
+  POSIX_RECURSIVE.test(word.text) ||
+  (word.text.length > 2 && '--recursive'.startsWith(word.text)) ||
+  recursesPowershell(word);
+const recursesCmd = (word: Word): boolean =>
+  /^(?:\/[a-z]+)+$/i.test(word.text) && word.text.toLowerCase().split('/').includes('s');
 const REMOVE_ITEM = new Set(['remove-item', 'ri', 'del', 'erase', 'rd', 'rmdir']);
 const CMD_DELETES = new Set(['rd', 'rmdir', 'del', 'erase']);
+const isDelete = (word: Word | undefined): boolean =>
+  word !== undefined &&
+  !word.dynamic &&
+  (programName(word.text) === 'rm' || REMOVE_ITEM.has(programName(word.text)));
 
 // A recursive delete whose path holds a variable or a substitution: bash's and PowerShell's $…,
-// $( ) and bash's backticks, which the lexer marks as computed, and cmd's %…% (#281). A
-// PowerShell switch given a value (-Recurse:$true) is no path.
+// $( ) and bash's backticks, which the lexer marks as computed, PowerShell's @( ), and cmd's %…%
+// (#281). A PowerShell switch given a value (-Recurse:$true) and a redirection (2>$null) are no
+// path.
 const deletesComputedPath = (program: string, args: Word[]): boolean => {
   const recurses =
     program === 'rm'
@@ -634,11 +660,12 @@ const deletesComputedPath = (program: string, args: Word[]): boolean => {
             recursesPowershell(word) || (CMD_DELETES.has(program) && recursesCmd(word))
         : undefined;
   if (recurses === undefined || !args.some(recurses)) return false;
-  return args.some(
-    (word) =>
-      !/^-[a-z]+:\$(?:true|false)$/i.test(word.text) &&
-      (word.dynamic || /%[^%\s]+%/.test(word.text)),
-  );
+  return args.some((word) => {
+    const switchValue = /^\$(?:true|false)$/i.test(PARAMETER.exec(word.text)?.[2] ?? '');
+    const redirection = /^\d?>/.test(word.text);
+    if (switchValue || redirection) return false;
+    return word.dynamic || word.text.startsWith('@(') || /%[^%\s]+%/.test(word.text);
+  });
 };
 
 // The commands pwsh or powershell runs: the rest of the line after -Command (or any prefix of
