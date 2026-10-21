@@ -785,6 +785,51 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(await state.flush(), { kind: 'unchanged' });
     });
 
+    it('forgets only the out docs it pushed, not one kept while it pushed', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      keep();
+      const review = { batchId: 'b1', stepId: 'review', attempt: 1, text: '# Review\n' };
+      fake.answer = (args) => {
+        // Another attempt ends while git pushes.
+        if (args[0] === 'push') store.withTransaction((tx) => tx.keepOutDoc(review));
+        return undefined;
+      };
+
+      assert.equal((await state.flush()).kind, 'pushed');
+      assert.deepEqual(store.keptOutDocs(), [review]);
+
+      fake.answer = () => undefined;
+      assert.equal((await state.flush()).kind, 'pushed');
+      assert.equal(read('batches/b1/review-1.md'), '# Review\n');
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+
+    it('stops on a rejected push of out docs alone, naming them, and keeps them', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      await state.flush();
+      keep();
+      fake.answer = (args) =>
+        args[0] === 'push'
+          ? exit(
+              1,
+              '',
+              'To origin\n!\trefs/heads/foedrum/state:refs/heads/foedrum/state\t[rejected] (fetch first)\nDone\n',
+            )
+          : undefined;
+
+      await assert.rejects(
+        state.flush(),
+        (error) =>
+          error instanceof StateBranchStopError && /with out docs only/.test(error.message),
+      );
+      assert.equal(store.keptOutDocs().length, 1);
+      assert.equal(store.pushedThrough()?.eventId, 2);
+    });
+
     it('writes a kept out doc at the next start, when the engine died before its flush', async () => {
       append(ordered('b1'), finished);
       keep();
