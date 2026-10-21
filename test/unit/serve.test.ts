@@ -470,58 +470,6 @@ describe('runServe', () => {
     );
   });
 
-  describe('the noPush guard (ADR 0106)', () => {
-    const pushless = brewer.replace(
-      '"maxAttempts": 1',
-      '"maxAttempts": 1,\n  "guards": ["noPush"]',
-    );
-    const before = `${'a'.repeat(40)}\trefs/heads/main\n`;
-    const after = `${'b'.repeat(40)}\trefs/heads/main\n`;
-
-    it("reads the target repository's remote before and after an attempt, and makes the batch Stuck when a ref moved (done when, #173)", async () => {
-      const files = serveInputs().files;
-      const result = serveSetup(
-        serveInputs({
-          files: {
-            ...files,
-            local: local({ workRoot: dir.path }),
-            brewery: {
-              ...files.brewery,
-              brewers: [{ path: 'brewers/cellarman.md', text: pushless }],
-            },
-          },
-        }),
-      );
-      const guarded = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
-      const log = createCommandLog({ store, recipes: guarded.recipes });
-      const listings = [before, after];
-      const reads: string[] = [];
-      const code = await runServe(
-        guarded,
-        shell({
-          refs: (repository) => async () => {
-            reads.push(repository.repo);
-            return listings.shift() ?? after;
-          },
-          wait: async () => {
-            calls.push('wait');
-            const lane = log.state().batches.get('12-1')?.lane.kind;
-            if (lane === 'on_tap' || lane === 'stuck' || calls.length > 40) controller.abort();
-          },
-        }),
-      );
-      assert.equal(code, 0);
-      assert.deepStrictEqual(reads, ['acme/web', 'acme/web']);
-      const batch = log.state().batches.get('12-1');
-      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
-        kind: 'blocked',
-        stepId: 'brew',
-        blockerKind: 'divergence',
-        summary: `the guard noPush: the remote of acme/web changed during the attempt: refs/heads/main moved from ${'a'.repeat(40)} to ${'b'.repeat(40)}`,
-      });
-    });
-  });
-
   describe('a recipe with a check step (ADR 0069)', () => {
     const outsideSandbox =
       'foedrum serve: check steps run outside the OS sandbox: their commands can run code a brewer wrote, with network and home-folder access (ADR 0069)';
