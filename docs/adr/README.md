@@ -83,7 +83,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) | The push scans the batch's commits for secrets (amends 0071 and 0084) | Accepted, amended by 0088 and 0090 |
 | [0081](0081-the-cleanup-ignores-the-steps-own-out-doc.md) | The cleanup ignores the step's own out doc (amends 0029 and 0037) | Accepted, amended by 0084 |
 | [0082](0082-brewers-never-allow-gh.md) | Brewers never allow `gh`, and doctor says what can still reach its login (amends 0062 and 0073) | Accepted, amended by 0088 |
-| [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) | A batch's commits end in a pull request or on a kept branch (amends 0029, 0053, 0059 and 0081) | Accepted, amended by 0079 and 0092 |
+| [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) | A batch's commits end in a pull request or on a kept branch (amends 0029, 0053, 0059 and 0081) | Accepted, amended by 0079, 0092 and 0101 |
 | [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) | The out doc contract names the attempt's shell commands (amends 0074) | Accepted, amended by 0087 |
 | [0086](0086-the-test-layer-guard-refuses-integration-tests-that-can-start-the-real-gh.md) | The test-layer guard refuses integration tests that can start the real `gh` (amends 0021) | Accepted |
 | [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) | Sandboxed commands go through the allow rules, and never see the credentials Foedrum names (amends 0042, 0046 and 0085) | Accepted |
@@ -91,7 +91,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) | A file over the test budget is measured again alone (amends 0036 and 0054) | Accepted |
 | [0090](0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md) | The push fetches the base in a git directory of its own (amends 0071 and 0079) | Accepted, amended by 0096 |
 | [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) | A run-out usage window blocks on the environment (amends 0047) | Accepted |
-| [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted |
+| [0092](0092-foedrum-status-lists-the-task-tree-branches-the-cleanup-keeps.md) | `foedrum status` lists the task-tree branches the cleanup keeps (amends 0084) | Accepted, amended by 0101 |
 | [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) | A brewer's file-tool rules are Read and Edit rules scoped to its worktree (amends 0049 and 0057) | Accepted |
 | [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) | Reviewers show their evidence and mark pre-existing defects (amends 0017 and 0022) | Accepted |
 | [0095](0095-the-cleanups-read-a-worktree-through-its-record-and-run-no-fsmonitor-or-hook.md) | The cleanups read a worktree through its record, and run no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
@@ -100,6 +100,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) | Foedrum's defaults load under the Brewery's files, and a brewer input can name a lens (amends 0041 and 0053) | Accepted, amended by 0100 |
 | [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) | A rejected run end is blocked on the environment, not a failed tick (amends 0028) | Accepted |
 | [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) | Nip ships with a default Cellarman, and the default brewers name the builder alias (amends 0098) | Accepted |
+| [0101](0101-the-cleanup-keeps-the-attempt-branches-that-hold-a-rewound-task-tree.md) | The cleanup keeps the attempt branches that hold a rewound task tree (amends 0084 and 0092) | Accepted |
 
 ## Template
 
