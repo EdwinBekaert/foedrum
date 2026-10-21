@@ -52,6 +52,7 @@ const setup = ({
   read,
   exempt,
   history = events,
+  stop,
 }: {
   /** What the brewer does to the remote, then how its attempt ends. */
   behaviour?: (remote: ReturnType<typeof fakeRemote>) => Behaviour;
@@ -62,6 +63,8 @@ const setup = ({
   exempt?: (repo: string, ref: string) => boolean;
   /** The events the driver has recorded. */
   history?: Event[];
+  /** Aborts when serve stops. */
+  stop?: AbortSignal;
 } = {}) => {
   const writes = remoteWrites();
   const order: string[] = [];
@@ -84,6 +87,7 @@ const setup = ({
     },
     writes,
     ...(exempt === undefined ? {} : { exempt }),
+    ...(stop === undefined ? {} : { signal: stop }),
   });
   return { runner, inner, order, writes, remote };
 };
@@ -245,6 +249,47 @@ describe('guardPushes (ADR 0106)', () => {
     assert.deepEqual(end.ending, { kind: 'cancelled' });
     assert.deepEqual(inner.started, []);
     assert.equal(runner.progress(ref), undefined);
+  });
+
+  it('aborts the read after the attempt when serve stops, so no git outlives it, and never passes the attempt', async () => {
+    const serving = new AbortController();
+    let given: AbortSignal | undefined;
+    const { runner } = setup({
+      stop: serving.signal,
+      read: (n, signal) => {
+        if (n !== 2) return undefined;
+        given = signal;
+        return new Promise((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(new Error('git was stopped'))),
+        );
+      },
+    });
+    const running = start(runner);
+    while (given === undefined) await new Promise((resolve) => setImmediate(resolve));
+    serving.abort();
+    // An abort reaches its listeners at once: git is stopped before anything else runs.
+    assert.equal(given.aborted, true);
+    assert.equal((await running.ended).ending.kind, 'blocked');
+  });
+
+  it('cancels the attempt before the brewer starts when serve stops during the read before', async () => {
+    const serving = new AbortController();
+    let given: AbortSignal | undefined;
+    const { runner, inner } = setup({
+      stop: serving.signal,
+      read: (_n, signal) => {
+        given = signal;
+        return new Promise((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(new Error('git was stopped'))),
+        );
+      },
+    });
+    const running = start(runner);
+    while (given === undefined) await new Promise((resolve) => setImmediate(resolve));
+    serving.abort();
+    assert.equal(given.aborted, true);
+    assert.deepEqual((await running.ended).ending, { kind: 'cancelled' });
+    assert.deepEqual(inner.started, []);
   });
 
   it('still reads after an attempt the engine stopped, and fails it when its brewer pushed', async () => {

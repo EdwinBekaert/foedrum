@@ -29,6 +29,8 @@ export interface PushGuardOptions {
   writes: RemoteWrites;
   /** Refs the engine writes that guard themselves, such as the state branch (ADR 0024). */
   exempt?: (repo: string, ref: string) => boolean;
+  /** Aborts every read when serve stops, so no git outlives it; default never. */
+  signal?: AbortSignal;
   /** Default the system clock. */
   clock?: () => Date;
 }
