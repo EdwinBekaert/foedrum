@@ -24,7 +24,7 @@ import {
 } from '../../src/engine/driver.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
-import type { EffectKey, EventStore } from '../../src/engine/event-store.ts';
+import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import type { State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -1562,6 +1562,131 @@ describe('openDriver', () => {
     it('stops the run whose end rejected, since its process may still run', async () => {
       const { stopped } = await rejectWith(new Error('the stream reader broke'));
       assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+    });
+  });
+
+  describe('an end whose record throws (#278)', () => {
+    /** `store`, whose next append of `ref`'s finish throws `error` once. */
+    const failingFinish = (ref: AttemptRef, error: Error): EventStore => {
+      let armed = true;
+      const bound = (target: object, name: string | symbol) => {
+        const value = Reflect.get(target, name);
+        return typeof value === 'function' ? value.bind(target) : value;
+      };
+      return new Proxy(store, {
+        get: (target, name) =>
+          name !== 'withTransaction'
+            ? bound(target, name)
+            : <T>(fn: (tx: EventStoreTransaction) => T): T =>
+                target.withTransaction((tx) =>
+                  fn(
+                    new Proxy(tx, {
+                      get: (inner, key) =>
+                        key !== 'append'
+                          ? bound(inner, key)
+                          : (event: Event) => {
+                              const finish =
+                                event.type === 'step.finished' &&
+                                attemptKey.encode(event) === attemptKey.encode(ref);
+                              if (armed && finish) {
+                                armed = false;
+                                throw error;
+                              }
+                              return inner.append(event);
+                            },
+                    }),
+                  ),
+                ),
+      });
+    };
+    const outcomeOf = (driver: Driver, ref: AttemptRef) => {
+      const found = driver.state().batches.get(ref.batchId)?.steps.get(ref.stepId);
+      const attempt = found?.attempts.get(ref.attempt);
+      return attempt?.phase === 'finished' ? attempt.outcome : undefined;
+    };
+    const leased = (ref: AttemptRef): boolean =>
+      store.currentLeases(now).some((lease) => lease.attemptKey === attemptKey.encode(ref));
+
+    it('records the other ends of its pass, lets their leases go and reports it', async () => {
+      const { runner, end } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      order('b2');
+      const full = new Error('the disk is full');
+      const driver = await open({
+        store: failingFinish(plan('b1'), full),
+        runner,
+        report: (notice) => notices.push(notice),
+      });
+      await driver.drive();
+      end(plan('b1'));
+      end(plan('b2'));
+      await assert.doesNotReject(driver.drive());
+      assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
+      assert.ok(!leased(plan('b2')));
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'command_failed'),
+        [
+          {
+            kind: 'command_failed',
+            command: { kind: 'finish', ...plan('b1'), ending: succeeded },
+            error: full,
+          },
+        ],
+      );
+      // b1's end is not recorded: its lease stays until it expires, and the supervisor loses it.
+      assert.equal(outcomeOf(driver, plan('b1')), undefined);
+      assert.ok(leased(plan('b1')));
+    });
+
+    it('lets the lease of the end that threw expire, so the supervisor loses its attempt and retries it', async () => {
+      const { runner, end, started } = handRunner();
+      order('b1');
+      const driver = await open({
+        store: failingFinish(plan('b1'), new Error('the disk is full')),
+        runner,
+      });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      // The heartbeat renews no lease of a run that ended.
+      now = at(4);
+      await driver.tick();
+      now = at(6);
+      await driver.tick();
+      assert.ok(!leased(plan('b1')));
+      const outcome = outcomeOf(driver, plan('b1'));
+      assert.equal(outcome?.kind, 'failed');
+      assert.deepStrictEqual(started.at(-1), plan('b1', 2));
+    });
+
+    it('still reports a rejected run whose blocked end threw, and records the other ends', async () => {
+      const { runner, end, reject } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      order('b2');
+      const full = new Error('the disk is full');
+      const broken = new Error('the stream reader broke');
+      const driver = await open({
+        store: failingFinish(plan('b1'), full),
+        runner,
+        report: (notice) => notices.push(notice),
+      });
+      await driver.drive();
+      reject(plan('b1'), broken);
+      end(plan('b2'));
+      await assert.doesNotReject(driver.drive());
+      assert.deepStrictEqual(
+        notices
+          .filter((notice) => notice.kind === 'command_failed' || notice.kind === 'run_failed')
+          .map((notice) => [notice.kind, 'error' in notice ? notice.error : undefined]),
+        [
+          ['command_failed', full],
+          ['run_failed', broken],
+        ],
+      );
+      assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
+      assert.ok(!leased(plan('b2')));
     });
   });
 
