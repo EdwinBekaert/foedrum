@@ -2,8 +2,14 @@
 // instructions, how big each one is, and the report against an earlier commit. The shell
 // (instruction-sizes.ts) reads the files through git (ADR 0021).
 
-/** The audited set: what every session and brewer reads (issue #280). */
-export const AUDITED_PATHS = ['CLAUDE.md', '.claude/skills', '.claude/agents', 'defaults'] as const;
+/** The audited set: what every session reads, and the defaults every brewer reads (issue #280). */
+export const AUDITED_PATHS = [
+  'CLAUDE.md',
+  '.claude/rules',
+  '.claude/skills',
+  '.claude/agents',
+  'defaults',
+] as const;
 
 /** The memory docs' target for one CLAUDE.md file. */
 export const CLAUDE_MD_LINE_TARGET = 200;

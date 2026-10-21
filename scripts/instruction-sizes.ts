@@ -1,5 +1,5 @@
 // `node scripts/instruction-sizes.ts [--since <commit>]`: prints the bytes and lines of every
-// file of Foedrum's own instructions (CLAUDE.md, .claude/skills/, .claude/agents/, defaults/), and
+// file of Foedrum's own instructions (CLAUDE.md, .claude/rules/, skills/ and agents/, defaults/), and
 // with --since the change since that commit (issue #280). instruction-sizes/core.ts decides; this
 // shell reads the files and asks git (ADR 0021).
 
