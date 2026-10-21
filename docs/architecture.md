@@ -163,17 +163,18 @@ sequenceDiagram
   participant W as state worktree
   participant R as foedrum/state on GitHub
   C->>S: append the events, one transaction
-  T->>S: read the events after the pushed-through marker
-  T->>W: write them to each batch's events.jsonl, commit without the user's hooks
+  T->>S: read the events after the pushed-through marker, then the kept out docs
+  T->>W: write them to each batch's events.jsonl and step-attempt.md, commit without the user's hooks
   W->>R: push
   alt push accepted
-    T->>S: move the marker to the last pushed event
+    T->>S: move the marker to the last pushed event, forget the pushed out docs
   else rejected, another engine wrote
     T->>C: stop the engine, never merge
   end
 ```
 
 - On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history. Events without a batch (bottles, releases) go to a top-level `events.jsonl`. Every line carries the store's event id, so a rebuild merges the files by id and gets the same ids and state ([ADR 0024](adr/0024-state-branch-layout-outbox-and-divergence.md)). Batch and step ids are path segments: lower case, a letter or digit at both ends, at most 64 characters, no Windows device names (`src/schemas/ids.ts`). A remote branch with a symbolic link or submodule is refused before checkout.
+- **Out docs** go through the store ([ADR 0103](adr/0103-out-docs-reach-the-state-branch-through-the-store.md)): the runner ends an attempt with the text it read, `keepOutDocs` keeps it in the store before the driver records `step.finished`, and the flush writes it at `batches/<batch>/<step>-<attempt>.md` in the commit of that event, then forgets it with the marker. A kill in between leaves both on the branch, or the next start writes the doc again. The text is model output: stored byte for byte, never a log, never read back as an instruction, and past 256 KiB replaced by a fixed line. So its body outlives the worktree the cleanup deletes; `foedrum replay` points at it.
 - State is committed at **every step boundary** (`step.finished`, or any event that changes a batch's lane) and pushed. SQLite is written first; a flush writes every event after the store's pushed-through marker, commits, pushes and only then moves the marker. The local SQLite database is an index and working store that `foedrum serve` rebuilds from the state branch on any machine.
 - The branch has its own worktree of the Brewery clone in the work root. Commits and pushes skip the user's git hooks; signing follows the clone, and a test commit at start-up refuses to start when signing cannot work unattended.
 - **One active engine per Brewery:** a rejected push means another engine wrote in between; the engine stops instead of diverging. At start-up a missing or behind database is rebuilt from the branch; unpushed local events while the branch moved stop the engine with an error naming both heads. Foedrum never merges or rewrites state history.
