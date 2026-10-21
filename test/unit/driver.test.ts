@@ -1744,6 +1744,16 @@ describe('openDriver', () => {
       await driver.drive().catch(() => {});
       await driver.drive().catch(() => {});
       assert.equal(state, 'thrown');
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'command_failed'),
+        [
+          {
+            kind: 'command_failed',
+            command: { kind: 'finish', ...plan('b1'), ending: succeeded },
+            error: broken,
+          },
+        ],
+      );
       assert.equal(outcomeOf(driver, plan('b1'))?.kind, 'succeeded');
       assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
       assert.ok(!leased(plan('b1')));
