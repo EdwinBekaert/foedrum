@@ -3,9 +3,59 @@
 // file's path, so a model-written draft with extra keys or a multi-line title would be sent as it
 // is. This file imports nothing, so the review skill can run it from its criteria copy.
 
+const titleLimit = 256;
+const bodyLimit = 65_536;
+
 export type DraftCheck = { ok: true; title: string } | { ok: false; problems: string[] };
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+// GitHub counts characters, not UTF-16 units.
+const length = (text: string): number => [...text].length;
+
+const lineBreak = /[\n\v\f\r\u0085\u2028\u2029]/u;
+const control = /\p{Cc}/u;
+
+const fieldProblem = (
+  draft: Record<string, unknown>,
+  key: 'title' | 'body',
+  limit: number,
+): string | undefined => {
+  if (!Object.hasOwn(draft, key)) return `"${key}" is missing`;
+  const value = draft[key];
+  if (typeof value !== 'string') return `"${key}" is not a string`;
+  if (key === 'title') {
+    if (value.trim() === '') return '"title" is empty';
+    if (lineBreak.test(value)) return '"title" is more than one line';
+    if (control.test(value)) return '"title" has a control character';
+  }
+  const count = length(value);
+  return count > limit ? `"${key}" has ${count} characters, more than ${limit}` : undefined;
+};
+
 // Checks the text of a draft file: one line per problem, or the title it would file.
-export const checkDraft = (_text: string): DraftCheck => {
-  throw new Error('not implemented');
+export const checkDraft = (text: string): DraftCheck => {
+  let draft: unknown;
+  try {
+    // A draft saved on Windows may start with a byte order mark (CLAUDE.md, Cross-platform).
+    draft = JSON.parse(text.replace(/^\uFEFF/, ''));
+  } catch (error) {
+    return { ok: false, problems: [`the draft is not JSON: ${(error as Error).message}`] };
+  }
+  if (!isObject(draft)) return { ok: false, problems: ['the draft is not a JSON object'] };
+  // A key is model output; quoted, its control characters cannot forge an output line.
+  const problems = Object.keys(draft)
+    .filter((key) => key !== 'title' && key !== 'body')
+    .map((key) => `unexpected key ${JSON.stringify(key)}`);
+  for (const problem of [
+    fieldProblem(draft, 'title', titleLimit),
+    fieldProblem(draft, 'body', bodyLimit),
+  ]) {
+    if (problem !== undefined) problems.push(problem);
+  }
+  // With no problem, the title is a string; the test of its type only tells the compiler.
+  if (problems.length === 0 && typeof draft.title === 'string')
+    return { ok: true, title: draft.title };
+  return { ok: false, problems };
 };
