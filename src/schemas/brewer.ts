@@ -35,10 +35,11 @@ const Input = z.strictObject({
 });
 
 // Names that would undo the brewer's minimal environment, its sandbox or its credentials, in any
-// case. The runner applies its own variables last, which is the real guarantee; this list only
-// catches mistakes when the brewer is loaded.
+// case, and the GitHub tokens, which a push could carry (ADR 0109). The runner applies its own
+// variables last, which is the real guarantee; this list only catches mistakes when the brewer is
+// loaded.
 const reservedEnv =
-  /^(?:(?:node|npm_config|anthropic|claude|git|ssh|ld|dyld)_.*|path|pathext|comspec|systemroot|home|userprofile|appdata|bash_env|env|.*_proxy)$/i;
+  /^(?:(?:node|npm_config|anthropic|claude|git|ssh|ld|dyld)_.*|(?:gh|github)(?:_enterprise)?_token|path|pathext|comspec|systemroot|home|userprofile|appdata|bash_env|env|.*_proxy)$/i;
 
 const EnvName = z
   .string()

@@ -62,11 +62,38 @@ export function brewerBaseEnv(
 }
 
 /**
+ * What git reads after every configuration file (ADR 0109): no credential helper and no askpass
+ * program, wherever the user's or the clone's configuration set them (an empty helper clears the
+ * list), and every transport refused but local paths, as git allows them by default, git, http and
+ * https, so neither ssh nor a remote helper can reach a key or a login.
+ */
+const NO_PUSH_CREDENTIALS: readonly (readonly [string, string])[] = [
+  ['credential.helper', ''],
+  ['core.askPass', ''],
+  ['protocol.allow', 'never'],
+  ['protocol.file.allow', 'user'],
+  ['protocol.git.allow', 'always'],
+  ['protocol.http.allow', 'always'],
+  ['protocol.https.allow', 'always'],
+  ['protocol.ssh.allow', 'never'],
+];
+
+/**
  * The runner's forced variables (brewers-and-recipes §1.1): npm runs no lifecycle script, and git
- * holds no credential that lets a push succeed (ADR 0109).
+ * holds no credential that lets a push succeed and never prompts for one (ADR 0109).
  */
 export function brewerForcedEnv(): Record<string, string> {
-  throw new Error('not implemented');
+  return {
+    npm_config_ignore_scripts: 'true',
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_CONFIG_COUNT: String(NO_PUSH_CREDENTIALS.length),
+    ...Object.fromEntries(
+      NO_PUSH_CREDENTIALS.flatMap(([key, value], n) => [
+        [`GIT_CONFIG_KEY_${n}`, key],
+        [`GIT_CONFIG_VALUE_${n}`, value],
+      ]),
+    ),
+  };
 }
 
 /** The layers merged in order; a later layer replaces a name of an earlier one. */

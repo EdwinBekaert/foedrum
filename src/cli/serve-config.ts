@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
-import { brewerBaseEnv, type Env } from '../engine/brewer-env.ts';
+import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
 import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
 import {
   type BreweryFiles,
@@ -276,7 +276,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       sandbox: diagnosis.isolation.level === 'sandboxed',
       brewerEnv: {
         base: brewerBaseEnv(env, platform),
-        forced: { npm_config_ignore_scripts: 'true' },
+        forced: brewerForcedEnv(),
       },
     },
   };
