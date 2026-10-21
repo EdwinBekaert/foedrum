@@ -3,11 +3,12 @@
 // clone made from GitHub that borrows the local clone's objects). No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { fakeGit, suiteFolders } from '../helpers/attempt-worktrees.ts';
 import { clone, local, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -161,6 +162,41 @@ describe('serveShell', () => {
       'https://github.com/acme/web.git',
     ]);
     assert.equal(existsSync(join(workRoot, 'acme.web', 'clone.git')), true);
+  });
+
+  it("says on serve's output that the state branch removed a stale index.lock (ADR 0107)", async () => {
+    const gitDir = join(workRoot, 'brewery-git', 'worktrees', 'state');
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(gitDir, 'index.lock'), '');
+    const { git } = fakeGit((_cwd, args) => {
+      const [command, first] = args;
+      if (command === 'ls-remote') return { code: 2, stdout: '', stderr: '' };
+      if (command === 'rev-parse' && first === '--absolute-git-dir') {
+        return { code: 0, stdout: `${gitDir}\n`, stderr: '' };
+      }
+      if (command === 'rev-parse' || command === 'config')
+        return { code: 1, stdout: '', stderr: '' };
+      if (command === 'write-tree' || command === 'commit-tree') {
+        return { code: 0, stdout: `${'a'.repeat(40)}\n`, stderr: '' };
+      }
+      return undefined;
+    });
+    const said: string[] = [];
+    const shell = serveShell(setup, {
+      root: 'brewery',
+      git,
+      out: (line) => said.push(line),
+      listen: () => {},
+    });
+    const store = openSqliteEventStore(':memory:');
+    try {
+      await shell.stateBranch(store).start();
+    } finally {
+      store.close();
+    }
+    assert.deepStrictEqual(said, [
+      `foedrum serve: removed a stale index.lock from the state worktree: ${join(gitDir, 'index.lock')}`,
+    ]);
   });
 
   it('keeps listening for stop signals while serve shuts down, and stops listening after', () => {
