@@ -776,28 +776,4 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(store.keptOutDocs(), []);
     });
   });
-
-  describe('writeOutDoc', () => {
-    it('writes the out doc next to the batch log, and the next flush commits it', async () => {
-      const state = branch();
-      await state.start();
-      await state.writeOutDoc({ batchId: 'b1', stepId: 'plan', attempt: 2 }, '# Plan\n');
-      assert.equal(read('batches/b1/plan-2.md'), '# Plan\n');
-      append(ordered('b1'));
-      await state.flush();
-      assert.ok(fake.calls.some((call) => call.args[0] === 'add' && call.args.includes('-A')));
-    });
-
-    it('refuses an id that is not a path segment', async () => {
-      const state = branch();
-      await state.start();
-      await assert.rejects(
-        state.writeOutDoc({ batchId: '..', stepId: 'plan', attempt: 1 }, 'x'),
-        /batch id/,
-      );
-      // Where an unchecked `batches/../plan-1.md` would land.
-      assert.equal(existsSync(join(worktree, 'plan-1.md')), false);
-      assert.equal(existsSync(join(worktree, 'batches')), false);
-    });
-  });
 });

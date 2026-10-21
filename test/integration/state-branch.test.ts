@@ -149,9 +149,14 @@ describe('the state branch with real git', () => {
       deadlineAt: at(30),
     });
     await record(a, { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1 });
-    await a.state.writeOutDoc(
-      { batchId: 'b1', stepId: 'plan', attempt: 1 },
-      '{ "status": "done" }\n# Plan\n',
+    // Kept before its step.finished, as keepOutDocs does (ADR 0103).
+    a.store.withTransaction((tx) =>
+      tx.keepOutDoc({
+        batchId: 'b1',
+        stepId: 'plan',
+        attempt: 1,
+        text: '{ "status": "done" }\n# Plan\n',
+      }),
     );
     await record(a, {
       type: 'step.finished',
