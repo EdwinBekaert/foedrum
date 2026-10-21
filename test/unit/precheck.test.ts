@@ -2045,6 +2045,13 @@ describe('forbiddenReason on a merge through gh api', () => {
     'gh api -H "Accept: application/vnd.github+json" --method PUT repos/o/r/pulls/30/merge',
     'gh api -X GET -X PUT repos/o/r/pulls/30/merge',
     'gh api -X $method repos/o/r/pulls/30/merge',
+    'gh api -X PUT https://api.github.com/repos/o/r/pulls/30/merge',
+    'gh api -X PUT https://ghe.example.com/api/v3/repos/o/r/pulls/30/merge',
+    "gh api -X PUT 'repos/o/r/pulls/30/merge?merge_method=squash'",
+    'gh api -X PUT "$base/pulls/30/merge"',
+    'gh api -iX PUT repos/o/r/pulls/30/merge',
+    'gh api -iXPUT repos/o/r/pulls/30/merge',
+    `gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -F query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql --raw-field query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
@@ -2060,6 +2067,13 @@ describe('forbiddenReason on a merge through gh api', () => {
       assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
     });
   }
+
+  it('says that a query it cannot read may merge a pull request too', () => {
+    assert.match(
+      forbiddenReason('gh api graphql -F query=@merge.graphql') ?? '',
+      /does not merge a pull request or mark one ready/,
+    );
+  });
 
   const allowed = [
     // A GET only asks whether the pull request is merged.
