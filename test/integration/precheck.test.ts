@@ -161,6 +161,42 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
+  // A push from another directory runs that tree's check only inside CLAUDE_PROJECT_DIR (#132).
+  it('runs the check of a pushed tree inside the project, and nothing outside it', async () => {
+    const folder = makeTempDir('pushed-tree');
+    try {
+      const check = `node ${JSON.stringify(npmStub)} run check`;
+      const project = join(folder.path, 'project');
+      for (const dir of [project, join(project, 'wt'), join(folder.path, 'other')]) {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(
+          join(dir, 'package.json'),
+          `${JSON.stringify({ private: true, scripts: { check } })}\n`,
+        );
+      }
+      const { CLAUDE_PROJECT_DIR: _, ...env } = envWithoutNpm();
+      const gate = (command: string, projectDir?: string) =>
+        run(process.execPath, [script], hookInput(command, project), {
+          cwd: root,
+          env: projectDir === undefined ? env : { ...env, CLAUDE_PROJECT_DIR: projectDir },
+        });
+      const inside = await gate('git -C wt push', project);
+      assert.equal(inside.code, 2);
+      assert.match(inside.stderr, /stub npm: run check/);
+      for (const [command, projectDir] of [
+        ['git -C ../other push', project],
+        ['git -C wt push', undefined],
+      ] as const) {
+        const blocked = await gate(command, projectDir);
+        assert.equal(blocked.code, 2);
+        assert.match(blocked.stderr, /^git push is blocked: it runs in .*, outside the project/);
+        assert.doesNotMatch(blocked.stderr, /stub npm/);
+      }
+    } finally {
+      folder.remove();
+    }
+  });
+
   it('lets npx run a binary in node_modules/.bin of the package around cwd, and no other', async () => {
     const project = makeTempDir('npx-binaries');
     try {
