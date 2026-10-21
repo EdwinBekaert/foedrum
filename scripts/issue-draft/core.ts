@@ -19,13 +19,44 @@ const control = /\p{Cc}/u;
 // Bidi overrides and zero-width characters: a title can show the user other text than it files.
 const format = /\p{Cf}/gu;
 
-// Model-written text in a problem line: JSON.stringify escapes line breaks and control
-// characters, so the text cannot forge an output line, and format characters are escaped too.
-const quote = (text: string): string =>
-  JSON.stringify(text).replace(format, (char) => {
-    const hex = (char.codePointAt(0) ?? 0).toString(16);
-    return hex.length > 4 ? `\\u{${hex}}` : `\\u${hex.padStart(4, '0')}`;
-  });
+const escapeChar = (char: string): string => {
+  const hex = (char.codePointAt(0) ?? 0).toString(16);
+  return hex.length > 4 ? `\\u{${hex}}` : `\\u${hex.padStart(4, '0')}`;
+};
+
+// Text from outside in a problem line, such as a path in a read error: with its control and
+// format characters escaped, it cannot forge an output line or reorder one.
+export const escapeText = (text: string): string => text.replace(/[\p{Cc}\p{Cf}]/gu, escapeChar);
+
+// Model-written text in a problem line, quoted: JSON.stringify escapes line breaks and control
+// characters, and format characters are escaped too.
+const quote = (text: string): string => JSON.stringify(text).replace(format, escapeChar);
+
+// The keys of the draft object itself, as often as the text names them: JSON.parse keeps the
+// last of two equal keys, but `gh api --input` sends the text, and GitHub may keep another.
+// The text is valid JSON here, so a string is a key when it is in the object itself (depth 1)
+// and a colon follows it.
+const topLevelKeys = (text: string): string[] => {
+  const keys: string[] = [];
+  const colon = /\s*:/y;
+  let depth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '"') {
+      let end = index + 1;
+      while (text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+      colon.lastIndex = end + 1;
+      if (depth === 1 && colon.test(text)) keys.push(JSON.parse(text.slice(index, end + 1)));
+      index = end;
+    } else if (char === '{' || char === '[') depth += 1;
+    else if (char === '}' || char === ']') depth -= 1;
+  }
+  return keys;
+};
+
+const duplicates = (keys: string[]): string[] => [
+  ...new Set(keys.filter((key, index) => keys.indexOf(key) !== index)),
+];
 
 const fieldProblem = (
   draft: Record<string, unknown>,
@@ -56,9 +87,12 @@ export const checkDraft = (text: string): DraftCheck => {
     return { ok: false, problems: [`the draft is not JSON: ${quote((error as Error).message)}`] };
   }
   if (!isObject(draft)) return { ok: false, problems: ['the draft is not a JSON object'] };
-  const problems = Object.keys(draft)
-    .filter((key) => key !== 'title' && key !== 'body')
-    .map((key) => `unexpected key ${quote(key)}`);
+  const problems = [
+    ...duplicates(topLevelKeys(text)).map((key) => `duplicate key ${quote(key)}`),
+    ...Object.keys(draft)
+      .filter((key) => key !== 'title' && key !== 'body')
+      .map((key) => `unexpected key ${quote(key)}`),
+  ];
   for (const problem of [
     fieldProblem(draft, 'title', titleLimit),
     fieldProblem(draft, 'body', bodyLimit),

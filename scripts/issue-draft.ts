@@ -3,7 +3,7 @@
 // draft would file; exit 1 prints one line per problem; exit 2 is a usage error.
 
 import { readFileSync } from 'node:fs';
-import { checkDraft } from './issue-draft/core.ts';
+import { checkDraft, escapeText } from './issue-draft/core.ts';
 
 export interface RunDeps {
   readFile: (file: string) => string;
@@ -21,7 +21,9 @@ export const run = ([file]: string[], deps: RunDeps): number => {
   try {
     text = deps.readFile(file);
   } catch (error) {
-    deps.out(`cannot read the draft: ${(error as Error).message.split('\n')[0]}\n`);
+    // The message names the path; its first line, escaped, stays one problem line.
+    const [first = ''] = (error as Error).message.split('\n');
+    deps.out(`cannot read the draft: ${escapeText(first)}\n`);
     return 1;
   }
   const result = checkDraft(text);
