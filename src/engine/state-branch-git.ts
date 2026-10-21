@@ -35,6 +35,10 @@ export interface StateBranchOptions {
   remote?: string;
   /** Default `foedrum/state`. */
   branch?: string;
+  /** Where a stale `index.lock`'s removal is said; default nowhere. */
+  out?: (line: string) => void;
+  /** Waits between tries for the writer lock at a start; default a timer. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export type FlushResult =

@@ -6,6 +6,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { openStateBranch } from '../../src/engine/state-branch-git.ts';
+import { takeFileLock } from '../../src/platform/file-lock.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -60,6 +61,8 @@ class FakeGit {
   /** The files of the remote branch, written into a new worktree. */
   files: Record<string, string> = {};
   signing = false;
+  /** The worktree's git folder, where git keeps its index.lock. */
+  gitDir = '';
   private next = 100;
   answer: (args: string[]) => GitResult | undefined = () => undefined;
 
@@ -83,6 +86,10 @@ class FakeGit {
 
   private simulate(args: string[]): GitResult {
     const [command, ...rest] = args;
+    const lock = join(this.gitDir, 'index.lock');
+    if (['write-tree', 'add', 'commit'].includes(command ?? '') && existsSync(lock)) {
+      return exit(128, `fatal: Unable to create '${lock}': File exists.\n`);
+    }
     switch (command) {
       case 'ls-remote':
         return this.remote === undefined
@@ -98,6 +105,7 @@ class FakeGit {
         this.head = rest.at(-1);
         return ok();
       case 'rev-parse':
+        if (rest[0] === '--absolute-git-dir') return ok(`${this.gitDir}\n`);
         if (rest.includes('refs/heads/foedrum/state'))
           return this.localBranch ? ok(sha(1)) : exit(1);
         return this.head === undefined ? exit(1) : ok(`${this.head}\n`);
@@ -160,13 +168,24 @@ describe('openStateBranch with a fake git', () => {
     worktree = join(dir.path, 'state');
     store = openSqliteEventStore(':memory:');
     fake = new FakeGit(worktree);
+    fake.gitDir = join(dir.path, 'clone-git', 'worktrees', 'state');
   });
   afterEach(() => {
+    said.length = 0;
     store.close();
     dir.remove();
   });
 
-  const branch = () => openStateBranch({ store, git: fake.git, clone, worktree });
+  const said: string[] = [];
+  const branch = (sleep?: (ms: number) => Promise<void>) =>
+    openStateBranch({
+      store,
+      git: fake.git,
+      clone,
+      worktree,
+      out: (line) => said.push(line),
+      ...(sleep === undefined ? {} : { sleep }),
+    });
   const append = (...events: Event[]): void =>
     store.withTransaction((tx) => {
       for (const event of events) tx.append(event);
@@ -711,6 +730,131 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(first.kind, 'pushed');
       assert.deepEqual(second, { kind: 'unchanged' });
       assert.equal(fake.calls.filter((call) => call.args[0] === 'push').length, 1);
+    });
+  });
+
+  // ADR 0107: a start and a flush hold the state worktree's writer lock, so an index.lock a killed
+  // git left there is stale at once; one another writer holds is left alone.
+  describe('a stale index.lock', () => {
+    const indexLock = () => join(fake.gitDir, 'index.lock');
+    const leaveLock = (): void => {
+      mkdirSync(fake.gitDir, { recursive: true });
+      writeFileSync(indexLock(), '');
+    };
+    const writerLock = () => join(dir.path, 'state.lock');
+    const existing = (): void => {
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
+    };
+    const removedLine = () => `removed a stale index.lock from the state worktree: ${indexLock()}`;
+
+    it('is removed at the start before the signing check, which then goes on, saying so', async () => {
+      existing();
+      leaveLock();
+      let lockAtWriteTree: boolean | undefined;
+      fake.answer = (args) => {
+        if (args[0] === 'write-tree') lockAtWriteTree = existsSync(indexLock());
+        return undefined;
+      };
+
+      assert.deepEqual(await branch().start(), { decision: 'ready' });
+
+      assert.equal(lockAtWriteTree, false);
+      assert.equal(existsSync(indexLock()), false);
+      assert.deepEqual(said, [removedLine()]);
+    });
+
+    it('is removed by a flush that meets it, which then commits and pushes', async () => {
+      const state = branch();
+      await state.start();
+      assert.deepEqual(said, [], 'nothing to say without a lock');
+      append(ordered('b1'));
+      leaveLock();
+
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 1, commit: sha(100) });
+
+      assert.equal(existsSync(indexLock()), false);
+      assert.deepEqual(said, [removedLine()]);
+    });
+
+    it('is left alone while another writer holds the writer lock: the flush fails at once', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLock();
+      fake.calls.length = 0;
+      const other = takeFileLock(writerLock(), 0);
+      assert.ok(other !== undefined);
+      try {
+        const result = await state.flush();
+        assert.equal(result.kind, 'failed');
+        assert.match(result.kind === 'failed' ? result.reason : '', /another driver/);
+        assert.equal(existsSync(indexLock()), true);
+        assert.deepEqual(fake.calls, []);
+        assert.deepEqual(said, []);
+        assert.equal(store.pushedThrough(), undefined);
+      } finally {
+        other.release();
+      }
+      // Once the other writer is done, the next flush removes the lock and pushes.
+      assert.equal((await state.flush()).kind, 'pushed');
+      assert.equal(existsSync(indexLock()), false);
+    });
+
+    it('waits at the start until the other writer lets go, then removes it', async () => {
+      existing();
+      leaveLock();
+      let other = takeFileLock(writerLock(), 0);
+      const waits: number[] = [];
+      const sleep = async (ms: number): Promise<void> => {
+        waits.push(ms);
+        assert.equal(existsSync(indexLock()), true, 'untouched while the other writer holds it');
+        if (waits.length === 3) {
+          other?.release();
+          other = undefined;
+        }
+      };
+      try {
+        assert.deepEqual(await branch(sleep).start(), { decision: 'ready' });
+      } finally {
+        other?.release();
+      }
+      assert.deepEqual(waits, [250, 250, 250]);
+      assert.equal(existsSync(indexLock()), false);
+      assert.deepEqual(said, [removedLine()]);
+    });
+
+    it('stops the start after 150 s of another writer, leaving its lock and touching no git', async () => {
+      existing();
+      leaveLock();
+      const other = takeFileLock(writerLock(), 0);
+      let waited = 0;
+      try {
+        await assert.rejects(
+          branch(async (ms) => {
+            waited += ms;
+          }).start(),
+          (error) =>
+            error instanceof StateBranchStopError &&
+            error.message.includes(writerLock()) &&
+            /another driver/.test(error.message),
+        );
+      } finally {
+        other?.release();
+      }
+      assert.equal(waited, 150_000);
+      assert.equal(existsSync(indexLock()), true);
+      assert.equal(fake.find('write-tree'), undefined);
+    });
+
+    it('lets the writer lock go after a start that fails, so the next start can take it', async () => {
+      fake.answer = (args) =>
+        args[0] === 'commit-tree' ? exit(128, 'fatal: no email\n') : undefined;
+      await assert.rejects(branch().start(), StateBranchStopError);
+      assert.equal(existsSync(writerLock()), true, 'the start took the writer lock');
+      const after = takeFileLock(writerLock(), 0);
+      assert.ok(after !== undefined);
+      after.release();
     });
   });
 
