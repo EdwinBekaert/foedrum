@@ -14,7 +14,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { createBrewing } from '../helpers/brewing.ts';
-import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
+import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 
 // A Brewery with no recipes/, brewers/ or lenses/ of its own: a folder that does not exist has
 // none, so only Foedrum's defaults load.
@@ -25,7 +25,57 @@ const valid = (result: LoadedRecipes) => {
   return result;
 };
 
+/** The steps an order brewed with the default Nip started, in order, as the fake runner plays them. */
+const brewNip = async (scripts: Record<string, readonly Behaviour[]>): Promise<string[]> => {
+  const store = openSqliteEventStore(':memory:');
+  try {
+    const brewing = createBrewing({
+      store,
+      runner: fakeBrewerRunner(scripts),
+      recipes: valid(loadRecipes(noFiles)).recipes,
+      clock: () => new Date('2026-10-21T12:00:00.000Z'),
+    });
+    assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+    assert.ok(
+      brewing.command({
+        kind: 'route',
+        batchId: 'b1',
+        recipe: 'nip',
+        reason: 'label',
+        source: 'label',
+      }),
+    );
+    await brewing.drive();
+    return brewing
+      .events()
+      .flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
+  } finally {
+    store.close();
+  }
+};
+
 describe('the default Nip', () => {
+  it('sends a Cellarman that finds a test wrong back to the Gauger, once (ADR 0017, ADR 0064)', async () => {
+    const done = behave.succeed();
+    const started = await brewNip({
+      gauge: [done, done],
+      red: [done, done],
+      implement: [behave.blocked('findings', 'The test expects the wrong slug'), done],
+      green: [done],
+      'open-pull-request': [done],
+    });
+    assert.deepEqual(started, [
+      'gauge',
+      'red',
+      'implement',
+      'gauge',
+      'red',
+      'implement',
+      'green',
+      'open-pull-request',
+    ]);
+  });
+
   it("plans Nip's steps from the defaults in a Brewery without its own nip.jsonc and gauger.md", () => {
     const loaded = valid(loadRecipes(noFiles));
     assert.deepEqual(loaded.recipes.find('nip')?.steps, [
