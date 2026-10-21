@@ -15,6 +15,7 @@ import {
   type ServeShell,
 } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
@@ -609,14 +610,10 @@ describe('runServe', () => {
         checks.map(({ file, args, options }) => [file, args, options.cwd, options.shell]),
         [['npm test', [], worktreeOf(1), true]],
       );
-      // The brewers' minimal environment and nothing else: no GitHub token under any name, and
-      // no npm lifecycle scripts (ADR 0063).
+      // The brewers' minimal environment and nothing else: no GitHub token under any name, no npm
+      // lifecycle scripts (ADR 0063), and git with no push credential (ADR 0109).
       const env = checks[0]?.options.env ?? {};
-      assert.deepStrictEqual(env, {
-        PATH: '/usr/bin',
-        HOME: home,
-        npm_config_ignore_scripts: 'true',
-      });
+      assert.deepStrictEqual(env, { PATH: '/usr/bin', HOME: home, ...brewerForcedEnv() });
       const finished = events.filter(
         (event) => event.type === 'step.finished' && event.stepId === 'green',
       );

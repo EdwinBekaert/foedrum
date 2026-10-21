@@ -40,10 +40,17 @@ const Input = z.strictObject({
 const reservedEnv =
   /^(?:(?:node|npm_config|anthropic|claude|git|ssh|ld|dyld)_.*|path|pathext|comspec|systemroot|home|userprofile|appdata|bash_env|env|.*_proxy)$/i;
 
+// The GitHub tokens, in any case: a push could carry one, and Foedrum never holds one (ADR 0109).
+const gitHubToken = /^(?:gh|github)(?:_enterprise)?_token$/i;
+
 const EnvName = z
   .string()
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Must be letters, digits and "_", not starting with a digit')
-  .refine((name) => !reservedEnv.test(name), 'Reserved: the brewer runner sets this variable');
+  .refine((name) => !reservedEnv.test(name), 'Reserved: the brewer runner sets this variable')
+  .refine(
+    (name) => !gitHubToken.test(name),
+    'Reserved: a GitHub token, which a push could carry (ADR 0109)',
+  );
 
 const Guard = z.enum([
   'requiresOutDoc',
