@@ -62,10 +62,10 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0056](0056-the-gate-pre-filter-reads-the-command.md) | The local gate's pre-filter reads the command, not the whole hook input (amends 0045) | Accepted, amended by 0060, 0065 and 0102 |
 | [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) | Real-claude tests are opt-in, and proofs of claude leave the suite (amends 0046, 0047 and 0049) | Accepted, amended by 0062 and 0093 |
 | [0058](0058-the-planted-git-defect-moves-from-the-unit-test-to-the-code.md) | The planted git defect moves from the unit test to the code (amends 0022) | Accepted |
-| [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) | Attempt plans from the brewer of the step, and on tap without a pull request (amends 0043, 0047 and 0053) | Accepted, amended by 0062, 0063, 0066, 0071, 0074, 0078 and 0084 |
+| [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) | Attempt plans from the brewer of the step, and on tap without a pull request (amends 0043, 0047 and 0053) | Accepted, amended by 0062, 0063, 0066, 0071, 0074, 0078, 0084 and 0106 |
 | [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) | The local gate refuses `gh pr ready` until the review summary for the head is on the pull request (amends 0045 and 0056) | Accepted |
 | [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) | Chaos faults at their sites, shrinking, and the worktree and state branch cases (amends 0037 and 0051) | Accepted |
-| [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted, amended by 0082 |
+| [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted, amended by 0082 and 0106 |
 | [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066, 0068 and 0073 |
 | [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) | Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required (amends 0025, 0032 and 0053) | Accepted, amended by 0069 and 0078 |
 | [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) | The local gate refuses npx of packages that are not in the lockfile (amends 0045 and 0056) | Accepted |
@@ -102,6 +102,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) | Nip ships with a default Cellarman, and the default brewers name the builder alias (amends 0098) | Accepted |
 | [0101](0101-the-cleanup-keeps-the-attempt-branches-that-hold-a-rewound-task-tree.md) | The cleanup keeps the attempt branches that hold a rewound task tree (amends 0084 and 0092) | Accepted |
 | [0102](0102-the-gate-blocks-a-recursive-delete-of-a-path-built-from-a-variable.md) | The local gate blocks a recursive delete of a path built from a variable (amends 0045 and 0056) | Accepted |
+| [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) | The noPush guard compares the remote's refs around each attempt (amends 0059 and 0062) | Accepted |
 
 ## Template
 

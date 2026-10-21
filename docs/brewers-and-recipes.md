@@ -86,7 +86,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | `requiresCommits` | the out doc says `done`, but the brewer made no commit after its worktree's start: the batch goes Stuck on a `divergence`. Every brewer that produces commits has it, listed or not ([ADR 0074](adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)) |
 | `testsNotRemoved` | test declarations disappeared compared with the attempt's start commit |
 | `testsUnchanged` | test declarations or assertions committed by the step named in the red proof's `of` were changed or removed (helpers, fixtures, imports and new tests may change) |
-| `noPush` | the branch moved on the remote |
+| `noPush` | a ref of the repository's remote changed during the attempt that the engine did not write: the batch is Stuck on a divergence, naming the ref and both commits ([ADR 0106](adr/0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md)) |
 | `scope` | files outside the worktree were touched |
 | `diffLimits` | more files or lines changed than allowed |
 
