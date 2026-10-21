@@ -2055,6 +2055,9 @@ describe('forbiddenReason on a merge through gh api', () => {
     'gh api -iX PUT repos/o/r/pulls/30/merge',
     'gh api -iXPUT repos/o/r/pulls/30/merge',
     'gh api -X=PUT repos/o/r/pulls/30/merge',
+    // gh's command group computed at run time may be api.
+    'gh $g -X PUT repos/o/r/pulls/30/merge',
+    `gh $(echo api) graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -F query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
