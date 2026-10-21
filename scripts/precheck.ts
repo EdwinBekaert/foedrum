@@ -3,7 +3,8 @@
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
 // summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
 // its relatives when they would run a package the lockfile did not install (#175), and a recursive
-// delete of a path built from a variable or a substitution (#281).
+// delete of a path built from a variable or a substitution (#281). The checks run in the tree the
+// command pushes: the directory it changes into with cd, git -C and the like (#132).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
@@ -83,6 +84,16 @@ const READY_COMBINED_BLOCKED =
   'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
   'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
+const PUSH_PLACE_BLOCKED =
+  'git push is blocked: it runs in a directory computed at run time (such as cd "$d" or git -C $d), so the gate cannot tell which tree to check: push from inside the worktree, or name its path as it is.';
+const CREATE_PLACE_BLOCKED =
+  'gh pr create is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which tree to check: run it from inside the worktree, or name its path as it is.';
+const READY_PLACE_BLOCKED =
+  'gh pr ready is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which pull request it marks ready: give the pull request number.';
+const manyPlacesBlocked = (dirs: string[]): string =>
+  `This command pushes or opens pull requests from more than one directory (${dirs.join(', ')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.`;
+const outsideBlocked = (what: string, dir: string): string =>
+  `${what} is blocked: it runs in ${dir}, outside the project this session works in, so the gate does not run that tree's code: ${what === 'git push' ? 'push' : `run ${what}`} from inside that checkout.`;
 const VARIABLE_DELETE_BLOCKED =
   'A recursive delete of a path built from a variable or a substitution is blocked: an empty or wrong value removes the wrong tree; write the literal path, such as `rm -rf .foedrum/tmp/218/run` (CLAUDE.md).';
 const downloadBlocked = (run: string): string =>
@@ -293,17 +304,34 @@ const programName = (text: string): string =>
 // The program of a word computed at run time: it may be git or gh.
 const COMPUTED = '$';
 
+// Where a command runs: the directories it changes into from the hook's working directory, in
+// order, or undefined when one of them is computed at run time (#132).
+type Place = readonly string[] | undefined;
+
+// A change of directory: the path as written, or undefined when it is computed at run time.
+type Chdir = string | undefined;
+
+const moveTo = (place: Place, chdir: Chdir): Place =>
+  place === undefined || chdir === undefined ? undefined : [...place, chdir];
+
 interface Invocation {
   program: string;
   args: Word[];
+  // The word that changes directory (cd, pushd, Set-Location, …), when the command is one.
+  moves?: Word;
+  // The directories a wrapper runs the command in (env -C).
+  chdirs: Chdir[];
 }
 
 // A word that runs the command after it: its options, those of them that take a value, the
-// options whose value is itself a command, and how many operands come before the command.
+// options whose value is itself a command, how many operands come before the command, and the
+// options that run it in another directory, whose path the gate can resolve unless it is `foreign`.
 interface Wrapper {
   withValue: readonly string[];
   runs?: readonly string[];
   operands?: number;
+  chdir?: readonly string[];
+  foreign?: boolean;
 }
 
 const WRAPPERS = new Map<string, Wrapper>([
@@ -314,14 +342,29 @@ const WRAPPERS = new Map<string, Wrapper>([
     {
       withValue: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'],
       runs: ['-S', '--split-string'],
+      chdir: ['-C', '--chdir'],
     },
   ],
   ['exec', { withValue: ['-a'] }],
-  // wsl runs git in Linux against the same checkout; -e ends its options like --.
-  ['wsl', { withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'] }],
+  // wsl runs git in Linux against the same checkout; -e ends its options like --. Its --cd is a
+  // Linux path.
+  [
+    'wsl',
+    {
+      withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'],
+      chdir: ['--cd'],
+      foreign: true,
+    },
+  ],
   ['nice', { withValue: ['-n', '--adjustment'] }],
   ['nohup', { withValue: [] }],
-  ['sudo', { withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '-h', '-p', '-r', '-t'] }],
+  [
+    'sudo',
+    {
+      withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '--chdir', '-h', '-p', '-r', '-t'],
+      chdir: ['-D', '--chdir'],
+    },
+  ],
   ['time', { withValue: ['-f', '--format', '-o', '--output'] }],
   ['timeout', { withValue: ['-s', '--signal', '-k', '--kill-after'], operands: 1 }],
   [
@@ -402,7 +445,39 @@ const packageRunner = (
 
 // The words that change directory: bash's and PowerShell's commands and aliases, PowerShell's cd..
 // and cd\ functions, and a drive letter, which PowerShell and cmd switch to.
-const CHANGE_DIRECTORY = /^(?:cd|chdir|pushd|set-location|sl|push-location|cd\.\.|cd\\|[a-z]:)$/i;
+const CHANGE_DIRECTORY =
+  /^(?:cd|chdir|pushd|popd|set-location|sl|push-location|pop-location|cd\.\.|cd\\|[a-z]:)$/i;
+
+// Set-Location's and Push-Location's parameters that take the path, and the one other that takes
+// a value.
+const LOCATION_PATH = new Set(['path', 'literalpath', 'lp', 'pspath']);
+const LOCATION_VALUE = new Set(['stackname']);
+
+// Where a change of directory goes: the path it names, or undefined when that is computed at run
+// time or kept by the shell (cd -, ~-, popd, a bare cd, a drive letter's own current directory).
+// bash's cd options (-P, -L, -e) and cmd's /d are skipped.
+const destination = (command: Word, args: Word[]): Chdir => {
+  const name = command.text.toLowerCase();
+  if (name === 'cd..') return '..';
+  if (name === 'cd\\') return '\\';
+  if (!/^(?:cd|chdir|pushd|set-location|sl|push-location)$/.test(name)) return undefined;
+  let target: Word | undefined;
+  for (let i = 0; i < args.length && target === undefined; i++) {
+    const word = args[i] as Word;
+    const [, parameter = '', value] = /^-([a-z]+)(?::(.*))?$/is.exec(word.text) ?? [];
+    const option = parameter !== '' || word.text === '--' || /^\/d$/i.test(word.text);
+    if (word.quoted || !option) target = word;
+    else if (LOCATION_PATH.has(parameter.toLowerCase())) {
+      target = value === undefined ? args[++i] : { ...word, text: value };
+    } else if (LOCATION_VALUE.has(parameter.toLowerCase()) && value === undefined) i++;
+  }
+  if (target === undefined || target.dynamic || target.text === '' || target.text === '-') {
+    return undefined;
+  }
+  // ~ and ~/… are the home directory; ~-, ~+ and ~user are the shell's to know.
+  if (target.text.startsWith('~') && !/^~(?:$|[\\/])/.test(target.text)) return undefined;
+  return target.text;
+};
 
 // bash's reserved words that can come before a command, and PowerShell's dot operator.
 const RESERVED_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '.']);
@@ -417,24 +492,54 @@ const leadingWords = ([first, second]: Word[]): number => {
   return first.dynamic && ASSIGNMENT.test(second?.text ?? '') ? 2 : 0;
 };
 
+// The option a wrapper's word names, and the value the word holds, as getopt reads it: after `=`;
+// a long option or the one long option it is a prefix of (--chd for --chdir); or in a group of
+// short options, the first that takes a value takes the rest of the word (-iC../wt is -i, then
+// -C with ../wt), or the next word when nothing is left (-iC ../wt).
+const getopt = (text: string, withValue: readonly string[]): { option: string; value?: string } => {
+  const [name = '', value] = text.split(/=(.*)/s);
+  const option = (found: string) =>
+    value === undefined ? { option: found } : { option: found, value };
+  if (name === '--' || withValue.includes(name)) return option(name);
+  if (name.startsWith('--')) {
+    const longs = withValue.filter((each) => each.startsWith(name));
+    return option(longs.length === 1 ? (longs[0] ?? name) : name);
+  }
+  for (let j = 1; j < text.length; j++) {
+    const short = `-${text[j]}`;
+    if (!withValue.includes(short)) continue;
+    const rest = text.slice(j + 1);
+    return rest === '' ? { option: short } : { option: short, value: rest };
+  }
+  return { option: name };
+};
+
 // The program and arguments of a simple command, after environment assignments, reserved words,
 // PowerShell assignments and wrapper words. A wrapper option whose value is a command adds it to
 // `nested`; a package a package runner would run goes to `found.packages`, and a change of
 // directory sets `found.movesDir`.
 const invocation = (words: Word[], nested: string[], found: Findings): Invocation | undefined => {
   let rest = words;
+  const chdirs: Chdir[] = [];
   for (;;) {
     for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
       rest = rest.slice(skip);
     const [first, ...operands] = rest;
     if (first === undefined) return undefined;
     // `cd\` has no last path part, so it is tested before programName drops it.
-    if (!first.dynamic && CHANGE_DIRECTORY.test(first.text)) found.movesDir = true;
     const program = first.dynamic ? COMPUTED : programName(first.text);
-    if (CHANGE_DIRECTORY.test(program)) found.movesDir = true;
+    const moves = !first.dynamic && CHANGE_DIRECTORY.test(first.text);
+    if (moves || CHANGE_DIRECTORY.test(program)) found.movesDir = true;
     const runner = packageRunner(program, operands);
     const wrapper = runner?.wrapper ?? WRAPPERS.get(program);
-    if (wrapper === undefined) return { program, args: operands };
+    if (wrapper === undefined) {
+      const moved = moves
+        ? first
+        : CHANGE_DIRECTORY.test(program)
+          ? { ...first, text: program }
+          : undefined;
+      return { program, args: operands, chdirs, ...(moved === undefined ? {} : { moves: moved }) };
+    }
     const args = runner?.args ?? operands;
     const run = (name: Word | undefined, lookup: boolean) => {
       if (runner === undefined || name === undefined) return;
@@ -444,13 +549,18 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
     let i = 0;
     while (args[i]?.text.startsWith('-')) {
       const word = args[i] as Word;
-      const [option = '', value] = word.text.split(/=(.*)/s);
+      const { option, value } = getopt(word.text, wrapper.withValue);
       if (option === '--') {
         i++;
         break;
       }
       const packageOption = runner?.wrapper.packages.includes(option) === true;
       if (runner?.wrapper.moves?.includes(option)) found.movesDir = true;
+      if (wrapper.chdir?.includes(option)) {
+        const dir = value === undefined ? args[i + 1] : { ...word, text: value };
+        chdirs.push(dir === undefined || dir.dynamic || wrapper.foreign ? undefined : dir.text);
+        found.movesDir = true;
+      }
       if (value !== undefined) {
         if (packageOption) run({ ...word, text: value }, false);
         i++;
@@ -486,9 +596,11 @@ const isDeleteOrMirrorArg = (arg: string): boolean =>
 interface Findings {
   reasons: string[];
   gated: boolean;
-  pushes: boolean;
-  // The pull requests `gh pr ready` marks ready, each needing its review summary.
-  readies: ReadyTarget[];
+  // Where each push and gh pr create runs, and whether it is a push.
+  places: { place: Place; push: boolean }[];
+  // The pull requests `gh pr ready` marks ready, each needing its review summary, and where gh
+  // runs.
+  readies: { target: ReadyTarget; place: Place }[];
   // Whether any command read, decoded and nested ones too, mentions GH_REPO or GH_HOST.
   ghEnv: boolean;
   // The packages npx and its relatives run, each needing to be a binary the lockfile installed.
@@ -504,26 +616,31 @@ interface Reading {
   found: Findings;
   nested: string[];
   aliases: string[];
+  // Where the command being read runs.
+  place: Place;
 }
 
 // The command a git alias value runs: `!…` runs a shell command, anything else a git command.
 const gitAlias = (value: string): string =>
   value.startsWith('!') ? value.slice(1) : `git ${value}`;
 
-const readGit = (args: Word[], literal: boolean, { found, aliases }: Reading): void => {
+const readGit = (args: Word[], literal: boolean, { found, aliases, place }: Reading): void => {
   let i = 0;
+  // Each -C is resolved against the ones before it, as git reads them.
+  let gitPlace = place;
   while (args[i]?.text.startsWith('-')) {
     const option = args[i]?.text ?? '';
     const value = args[i + 1]?.text ?? '';
     if (option === '-c' && /^alias\..*=/is.test(value)) {
       aliases.push(gitAlias(value.slice(value.indexOf('=') + 1)));
     }
+    if (option === '-C') gitPlace = moveTo(gitPlace, args[i + 1]?.dynamic ? undefined : value);
     i += GIT_OPTIONS_WITH_VALUE.has(option) ? 2 : 1;
   }
   const subcommand = args[i];
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
     found.gated = true;
-    found.pushes = true;
+    found.places.push({ place: gitPlace, push: true });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
@@ -574,27 +691,31 @@ const unreadableQuery = (args: Word[]): boolean =>
 // The pull request and repository of `gh pr ready`, unless it is --undo, which always passes.
 // Any argument computed at run time, or splatted in PowerShell (@args), may name another
 // repository.
-const readReady = (args: Word[], pr: Word | undefined, found: Findings): void => {
+const readReady = (args: Word[], pr: Word | undefined, { found, place }: Reading): void => {
   if (args.some((arg) => arg.text === '--undo')) return;
   const repo = repoOption(args);
   if (args.some((arg) => arg.dynamic || /^@\w/.test(arg.text))) {
     found.reasons.push(READY_COMPUTED_BLOCKED);
   } else {
-    found.readies.push({
+    const target = {
       ...(pr === undefined ? {} : { pr: pr.text }),
       ...(repo === undefined ? {} : { repo: repo.text }),
-    });
+    };
+    found.readies.push({ target, place });
   }
 };
 
-const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): void => {
+const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
+  const { found, aliases } = reading;
   const [group, action, name, expansion] = positionals(args, GH_OPTIONS_WITH_VALUE);
   if (group?.text === 'pr' || (literal && group?.dynamic)) {
     if (action?.dynamic || (group?.dynamic && action?.text === 'merge')) {
       found.reasons.push(COMPUTED_PR_ACTION_BLOCKED);
     } else if (action?.text === 'merge') found.reasons.push(PR_MERGE_BLOCKED);
-    else if (action?.text === 'create' || action?.text === 'new') found.gated = true;
-    else if (action?.text === 'ready') readReady(args, name, found);
+    else if (action?.text === 'create' || action?.text === 'new') {
+      found.gated = true;
+      found.places.push({ place: reading.place, push: false });
+    } else if (action?.text === 'ready') readReady(args, name, reading);
   } else if (
     (group?.text === 'api' || group?.dynamic) &&
     args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))
@@ -787,11 +908,14 @@ const readInvocation = ({ program, args }: Invocation, reading: Reading): boolea
   return true;
 };
 
+// Reads a command that runs at `base`. A command nested in one that changes directory may run
+// anywhere, so its place is computed.
 const read = (
   command: string,
   depth: number,
   found: Findings,
-  dialects: readonly Dialect[] = DIALECTS,
+  dialects: readonly Dialect[],
+  base: Place,
 ): void => {
   found.reads++;
   if (/GH_REPO|GH_HOST/i.test(normalised(command))) found.ghEnv = true;
@@ -801,29 +925,48 @@ const read = (
   }
   const nested = new Set<string>();
   const aliases = new Set<string>();
+  const unquoted = new Set<string>();
+  let moved = false;
   for (const dialect of dialects) {
     const lexed = lex(command, dialect);
-    const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [] };
+    const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [], place: base };
+    // A change of directory lasts for the rest of the command.
+    let place = base;
     let runsText = false;
     for (const words of lexed.segments) {
       const called = invocation(words, reading.nested, found);
-      if (called !== undefined && readInvocation(called, reading)) runsText = true;
+      if (called === undefined) continue;
+      if (called.moves !== undefined) place = moveTo(place, destination(called.moves, called.args));
+      moved ||= called.moves !== undefined || called.chdirs.length > 0;
+      reading.place = called.chdirs.reduce(moveTo, place);
+      if (readInvocation(called, reading)) runsText = true;
     }
     if (runsText) {
-      reading.nested.push(...lexed.strings, ...lexed.segments.map((words) => text(words.slice(1))));
+      // Without the options before them (-c, and cmd's /c), so that the cd of bash -c or cmd /c
+      // counts where the push runs.
+      const option = (word: Word) => word.text.startsWith('-') || /^\/[a-z?]$/i.test(word.text);
+      const operands = lexed.segments.map((words) => {
+        const start = words.findIndex((word, i) => i > 0 && !option(word));
+        return start < 0 ? '' : text(words.slice(start));
+      });
+      reading.nested.push(...lexed.strings, ...operands);
     }
     // A string over several lines may be an apostrophe in a comment, a heredoc or a here-string
     // read as a quote, so its lines are read as commands too.
     reading.nested.push(...lexed.strings.filter((string) => /[\r\n]/.test(string)));
-    // Read without quotes, so a stray quote never hides what follows it.
-    if (lexed.unclosed) reading.nested.push(withoutQuotes(command));
+    // Read without quotes, so a stray quote never hides what follows it. It is this command, its
+    // changes of directory included, so it runs where this command does.
+    if (lexed.unclosed) unquoted.add(withoutQuotes(command));
     for (const each of reading.nested) nested.add(each);
     for (const each of reading.aliases) aliases.add(each);
   }
-  for (const each of nested) if (each.trim() !== '') read(each, depth + 1, found);
+  for (const each of nested) {
+    if (each.trim() !== '') read(each, depth + 1, found, DIALECTS, moved ? undefined : base);
+  }
+  for (const each of unquoted) read(each, depth + 1, found, DIALECTS, base);
   for (const alias of aliases) {
     const defined = noFindings(found.reads);
-    read(alias, depth + 1, defined);
+    read(alias, depth + 1, defined, DIALECTS, []);
     found.reads = defined.reads;
     if (defined.gated || defined.readies.length > 0 || defined.reasons.length > 0) {
       found.reasons.push(ALIAS_BLOCKED);
@@ -834,7 +977,7 @@ const read = (
 const noFindings = (reads: number): Findings => ({
   reasons: [],
   gated: false,
-  pushes: false,
+  places: [],
   readies: [],
   ghEnv: false,
   packages: [],
@@ -844,8 +987,60 @@ const noFindings = (reads: number): Findings => ({
 
 const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Findings => {
   const found = noFindings(0);
-  read(command, 0, found, dialects);
+  read(command, 0, found, dialects, []);
   return found;
+};
+
+// node:path's posix or win32 functions; a type, so the module still has no static imports.
+export type PathModule = typeof import('node:path').posix;
+
+// The directory a command runs in: the hook's working directory, then each directory it changes
+// into, in order, with Git Bash's /c/… drive paths on Windows and a home path (~, ~/…) expanded.
+export const resolvePlace = (
+  cwd: string,
+  dirs: readonly string[],
+  path: PathModule,
+  home: string,
+): string => {
+  if (dirs.length === 0) return cwd;
+  const windows = path.sep === '\\';
+  const expand = (dir: string): string => {
+    if (/^~(?:$|[\\/])/.test(dir)) return path.join(home, dir.slice(1));
+    const drive = windows ? /^\/([a-z])(?=\/|$)/i.exec(dir) : null;
+    return drive === null ? dir : `${drive[1]?.toUpperCase()}:\\${dir.slice(2)}`;
+  };
+  return path.resolve(cwd, ...dirs.map(expand));
+};
+
+// Whether `dir` is inside the project at `root` (CLAUDE_PROJECT_DIR) by real path, and not in a
+// review's scratch folder under .foedrum/tmp/. On Windows a network, device or drive-less path,
+// or one on another drive, is refused before anything resolves it.
+export const projectHolds = async (
+  root: string | undefined,
+  dir: string,
+  platform: NodeJS.Platform,
+  realPath: (path: string) => string,
+): Promise<boolean> => {
+  const [{ posix, win32 }, { windowsDrive, windowsPathProblem }, { pathInside, samePath }] =
+    await Promise.all([
+      import('node:path'),
+      import('../src/platform/real-path.ts'),
+      import('../src/platform/paths.ts'),
+    ]);
+  const path = platform === 'win32' ? win32 : posix;
+  if (root === undefined || !path.isAbsolute(root)) return false;
+  if (platform === 'win32') {
+    if (windowsPathProblem(dir) !== undefined) return false;
+    if (windowsDrive(dir) !== windowsDrive(root)) return false;
+  }
+  try {
+    const [project, real] = [realPath(root), realPath(dir)];
+    if (samePath(project, real, platform)) return true;
+    const inside = pathInside(project, real, platform);
+    return inside !== undefined && !/(?:^|\/)\.foedrum\/tmp(?:\/|$)/i.test(inside);
+  } catch {
+    return false;
+  }
 };
 
 export const isGatedCommand = (command: string): boolean => findings(command).gated;
@@ -867,6 +1062,10 @@ export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 
 // Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
 export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
+
+// Whether a directory a command changes into is inside the project the session works in
+// (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
+export type InProject = (dir: string) => Promise<boolean>;
 
 // The pull request `gh pr ready` names: its number, URL or branch (none for the current branch's),
 // and the repository given with -R.
@@ -958,6 +1157,7 @@ export const precheck = async (
     throw new Error('no pull request lookup');
   },
   binaryInstalled: BinaryInstalled = async () => false,
+  inProject: InProject = async () => true,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -997,7 +1197,7 @@ export const precheck = async (
     return { exitCode: 2, stderr: `${movedRunBlocked(`${run.runner} ${run.name.text}`)}\n` };
   }
   // Each reading of a command that runs another finds the same pull request again.
-  const readies = new Map(found.readies.map((target) => [JSON.stringify(target), target]));
+  const readies = new Map(found.readies.map((ready) => [JSON.stringify(ready), ready]));
   if (!found.gated && readies.size === 0) return { exitCode: 0, stderr: '' };
   if (readies.size > 0 && found.gated)
     return { exitCode: 2, stderr: `${READY_COMBINED_BLOCKED}\n` };
@@ -1005,40 +1205,73 @@ export const precheck = async (
   if (readies.size > 0 && found.ghEnv) {
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
   }
+  // Where gh and the check run: the directory the command changes into, if any (#132). The gate
+  // runs that tree's code (npm run check, git, gh) before the command is approved, so a
+  // directory outside the project blocks the command instead.
+  const dirOf = async (dirs: readonly string[], what: string): Promise<string | HookResult> => {
+    if (dirs.length === 0) return cwd;
+    const [path, { homedir }] = await Promise.all([import('node:path'), import('node:os')]);
+    const dir = resolvePlace(cwd, dirs, path, homedir());
+    if (await inProject(dir)) return dir;
+    return { exitCode: 2, stderr: `${outsideBlocked(what, dir)}\n` };
+  };
 
-  for (const target of readies.values()) {
-    const refusal = await readyRefusal(cwd, target, lookupPullRequest);
+  // Without a number, gh marks the pull request of the branch where it runs; with one, the
+  // place only picks the repository, as it does in the hook's working directory.
+  if ([...readies.values()].some(({ target, place }) => place === undefined && !target.pr)) {
+    return { exitCode: 2, stderr: `${READY_PLACE_BLOCKED}\n` };
+  }
+  for (const { target, place } of readies.values()) {
+    const dir = await dirOf(place ?? [], 'gh pr ready');
+    if (typeof dir !== 'string') return dir;
+    const refusal = await readyRefusal(dir, target, lookupPullRequest);
     if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
   }
   if (!found.gated) return { exitCode: 0, stderr: '' };
+  const computed = found.places.find(({ place }) => place === undefined);
+  if (computed !== undefined) {
+    const blocked = computed.push ? PUSH_PLACE_BLOCKED : CREATE_PLACE_BLOCKED;
+    return { exitCode: 2, stderr: `${blocked}\n` };
+  }
+  // Each directory, and whether a push runs there.
+  const trees = new Map<string, boolean>();
+  for (const { place, push } of found.places) {
+    const dir = await dirOf(place ?? [], push ? 'git push' : 'gh pr create');
+    if (typeof dir !== 'string') return dir;
+    trees.set(dir, push || trees.get(dir) === true);
+  }
+  if (trees.size > 1) {
+    return { exitCode: 2, stderr: `${manyPlacesBlocked([...trees.keys()])}\n` };
+  }
+  const [dir = cwd, pushes = false] = [...trees][0] ?? [];
   // A session pushes a branch; commits made on a detached HEAD are on none (#80).
-  if (found.pushes) {
+  if (pushes) {
     let detached: boolean;
     try {
-      detached = await headIsDetached(cwd);
+      detached = await headIsDetached(dir);
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
       return {
         exitCode: 2,
-        stderr: `git push is blocked: could not tell whether HEAD is detached in ${cwd} (${why}).\n`,
+        stderr: `git push is blocked: could not tell whether HEAD is detached in ${dir} (${why}).\n`,
       };
     }
     if (detached) {
       return {
         exitCode: 2,
-        stderr: `git push is blocked: HEAD is detached in ${cwd}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
+        stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
       };
     }
   }
   // A stale tree fails the check deep in an import; say why in one line instead.
-  const stale = await staleReason(cwd);
+  const stale = await staleReason(dir);
   if (stale !== undefined) {
     return {
       exitCode: 2,
       stderr: `node_modules is out of date with package-lock.json (${stale}); run npm ci\n`,
     };
   }
-  const { ok, output } = await runCheck(cwd);
+  const { ok, output } = await runCheck(dir);
   if (ok) return { exitCode: 0, stderr: '' };
   return {
     exitCode: 2,
@@ -1270,6 +1503,14 @@ if (import.meta.main) {
           () => false,
         );
       return lockfileBinary(read, exists)(cwd, name);
+    },
+    // Inside CLAUDE_PROJECT_DIR by real path, as the read guard tells (ADR 0049); without it the
+    // gate cannot tell, and fails closed.
+    async (dir) => {
+      const { realPath } = await import('../src/platform/real-path.ts');
+      return projectHolds(process.env.CLAUDE_PROJECT_DIR, dir, process.platform, (path) =>
+        realPath(path),
+      );
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
