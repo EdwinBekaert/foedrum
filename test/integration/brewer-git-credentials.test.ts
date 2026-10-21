@@ -23,12 +23,15 @@ process.exit(1);
 
 describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
   let dir: TempDir;
-  // A server that answers every request with a demand for a login, so git asks for credentials.
+  // A server that answers every request with a demand for a login, so git asks for credentials,
+  // and keeps the cookie each request sent.
   let server: Server;
   let port: number;
+  const cookies: string[] = [];
   before(async () => {
     dir = makeTempDir('brewer-git-credentials');
-    server = createServer((_request, response) => {
+    server = createServer((request, response) => {
+      cookies.push(request.headers.cookie ?? '');
       response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="foedrum"' });
       response.end();
     });
@@ -78,6 +81,9 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     plant('core.askPass', askPass.replaceAll('\\', '/'));
     plant('core.sshCommand', `${mark} core.sshCommand`);
     plant('protocol.ssh.allow', 'always');
+    const cookieFile = join(run, 'cookies.txt');
+    writeFileSync(cookieFile, '127.0.0.1\tFALSE\t/\tFALSE\t2147483647\tsession\tplanted\n');
+    plant('http.cookieFile', cookieFile.replaceAll('\\', '/'));
     git(run, ['init', '-q', '-b', 'main', repo]);
     git(repo, ['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
   });
@@ -108,6 +114,19 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     assert.notEqual(pushed.exitCode, 0);
     assert.match(pushed.stderr, /terminal prompts disabled/);
     assert.equal(marked(), '');
+  });
+
+  it("sends none of the cookies of the user's cookie file", async () => {
+    cookies.length = 0;
+    await push(`http://127.0.0.1:${port}/acme/app.git`, user);
+    assert.ok(cookies.includes('session=planted'), cookies.join(', '));
+    cookies.length = 0;
+    await push(`http://127.0.0.1:${port}/acme/app.git`, brewer());
+    assert.ok(cookies.length > 0);
+    assert.deepEqual(
+      cookies.filter((cookie) => cookie !== ''),
+      [],
+    );
   });
 
   it('refuses a push over ssh before any ssh command runs', async () => {

@@ -292,4 +292,11 @@ describe('BrewerFrontmatter env', () => {
   it('rejects names that differ only in case', () => {
     assert.equal(accepted({ ...taster, env: { MY_VAR: '1', My_Var: '2' } }), false);
   });
+
+  it('says a GitHub token is refused because a push could carry it, not that the runner sets it', () => {
+    const message = BrewerFrontmatter.safeParse({ ...taster, env: { GH_TOKEN: 'x' } }).error
+      ?.message;
+    assert.match(message ?? '', /GitHub token/);
+    assert.doesNotMatch(message ?? '', /runner sets/);
+  });
 });

@@ -121,6 +121,14 @@ describe('brewerForcedEnv (ADR 0109)', () => {
     );
   });
 
+  it('gives git no cookie file, whose cookies can stand for a login', () => {
+    const config = gitConfig(brewerForcedEnv());
+    assert.deepEqual(
+      config.filter(([key]) => key === 'http.cookieFile'),
+      [['http.cookieFile', '']],
+    );
+  });
+
   it('lets git use local paths as git does by default, git, http and https, and no other transport', () => {
     const protocols = gitConfig(brewerForcedEnv()).filter(([key]) => key.startsWith('protocol.'));
     assert.deepEqual(protocols, [
