@@ -1,6 +1,6 @@
 # 0050. The intake of target-repository issues: aliases, recorded pull request ends and effect deadlines
 
-Date: 2026-10-16 · Status: Accepted · Amends [0008](0008-polling-intake.md) (what the intake records), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (batch ids, the order of a target issue, the end of a pull request, the conditional delete) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (a deadline for every effect) · Amended by [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) and [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0008](0008-polling-intake.md) (what the intake records), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (batch ids, the order of a target issue, the end of a pull request, the conditional delete) and [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (a deadline for every effect) · Amended by [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md)
 
 ## Context
 [ADR 0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) made target-repository issues a work queue that Breweries claim by a ref, and left the wiring to #103. These questions were open:

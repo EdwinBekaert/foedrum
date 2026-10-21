@@ -11,11 +11,14 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { cliFromCheckout } from '../../src/cli/cli-main.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
+import { flagValue, ghOver } from '../helpers/fake-gh.ts';
+import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { config } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { cannedGhLogin, doctorHere, MADE_UP_GH, resolveWithMadeUpGh } from './canned-gh-login.ts';
@@ -304,5 +307,84 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
       doctor.stdout.split('\n').includes(`  ${line.replace(': ', ' (required): ')}`),
       doctor.stdout,
     );
+  });
+});
+
+describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
+  let brewery: TempDir;
+  let store: string;
+  beforeEach(() => {
+    brewery = makeTempDir('cli-order');
+    store = join(brewery.path, '.foedrum', 'index.db');
+  });
+  afterEach(() => removeTree(brewery.path));
+
+  const intake = { alias: 'web', intake: { labels: ['foedrum'] } };
+  const order = (exec: ExecProcess) =>
+    cliFromCheckout(['order', 'web#7'], brewery.path, { exec, resolve: resolveWithMadeUpGh });
+
+  it('claims a target issue through gh, on the host foedrum.jsonc names, and orders it again', async () => {
+    writeFileSync(
+      join(brewery.path, 'foedrum.jsonc'),
+      config({ githubApi: 'http://api.github.localhost' }, intake),
+    );
+    mkdirSync(join(brewery.path, '.foedrum'));
+    const writer = openSqliteEventStore(store);
+    writer.withTransaction((tx) => {
+      const batchId = 'web-7';
+      tx.append({
+        type: 'batch.ordered',
+        batchId,
+        order: { issue: 7, repo: 'acme/web' },
+        routeBy: '2026-10-15T13:00:00.000Z',
+      });
+      tx.append({ type: 'batch.cancelled', batchId, by: 'ann', via: 'comment' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        tx.append({
+          type: 'effect.applied',
+          key: effectKey.encode({ batchId, effect }),
+          result: null,
+        });
+      }
+    });
+    writer.close();
+    const api = fakeGitHubApi({ login: 'ann', issues: {} });
+    const gh = ghOver(api.fetch);
+
+    const { exitCode, stdout, stderr } = await order(gh.exec);
+    assert.equal(stderr, '');
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /^web-7-2 ordered: to be routed by \S+\n$/);
+    assert.deepStrictEqual(api.created, ['acme/web refs/foedrum/claims/issues/7']);
+    assert.deepStrictEqual(
+      [...new Set(gh.calls.map(({ args }) => flagValue(args, '--hostname')))],
+      ['github.localhost'],
+    );
+    const reader = openSqliteEventStore(store, { readOnly: true });
+    const last = reader.eventsAfter(0).at(-1)?.event;
+    reader.close();
+    assert.deepStrictEqual(last?.type === 'batch.ordered' && [last.batchId, last.by, last.via], [
+      'web-7-2',
+      userInfo().username,
+      'terminal',
+    ]);
+  });
+
+  it('says in one line when foedrum.jsonc is missing or does not pass its schema, and asks gh nothing', async () => {
+    const gh = ghOver(fakeGitHubApi({ login: 'ann', issues: {} }).fetch);
+    assert.deepStrictEqual(await order(gh.exec), {
+      exitCode: 1,
+      stdout: '',
+      stderr: `foedrum order: foedrum.jsonc: not found in ${brewery.path}\n`,
+    });
+    writeFileSync(
+      join(brewery.path, 'foedrum.jsonc'),
+      config({ brewery: 'not a repository' }, intake),
+    );
+    const invalid = await order(gh.exec);
+    assert.equal(invalid.exitCode, 1);
+    assert.match(invalid.stderr, /^foedrum order: foedrum\.jsonc: .*brewery.*\n$/);
+    assert.equal(invalid.stderr.split('\n').length, 2, invalid.stderr);
+    assert.deepStrictEqual(gh.calls, []);
   });
 });
