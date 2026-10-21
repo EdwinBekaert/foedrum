@@ -1758,6 +1758,8 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Remove-Item -Recurse -Force .foedrum/tmp/281/run 2>$null',
     'rm -rf .foedrum/tmp/281/run 2>"$log"',
     'Remove-Item -Recurse:$false $p',
+    // A ( ) that starts a command is a group, not an argument.
+    'if (Test-Path .foedrum/tmp/281) { Remove-Item -Recurse .foedrum/tmp/281 }',
     'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
