@@ -2028,6 +2028,30 @@ describe('precheck on forbidden commands', () => {
   }
 });
 
+// gh api can merge a pull request as gh pr merge does: a PUT to its merge endpoint, or the
+// GraphQL mutations that merge it or turn on auto-merge (#297).
+describe('forbiddenReason on a merge through gh api', () => {
+  const allowed = [
+    // A GET only asks whether the pull request is merged.
+    'gh api repos/o/r/pulls/30/merge',
+    'gh api -X GET repos/o/r/pulls/30/merge',
+    'gh api --method=get /repos/o/r/pulls/30/merge',
+    'gh api -X PUT -X GET repos/o/r/pulls/30/merge',
+    'gh api -X PUT repos/o/r/pulls/30/requested_reviewers',
+    'gh api -X PUT repos/o/r/pulls/30/merge/extra',
+    'gh api -X PUT repos/o/r/issues/30/labels -f labels[]=bug',
+    'gh api repos/o/r/pulls/30',
+    'gh api graphql -f query=\'query { repository(owner: "o", name: "r") { pullRequest(number: 30) { merged } } }\'',
+    'gh api graphql -f query=\'mutation { disablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }\'',
+    "git commit -m 'block gh api -X PUT repos/o/r/pulls/30/merge'",
+  ];
+  for (const command of allowed) {
+    it(`allows: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
 // An empty or wrong variable makes a recursive delete remove the wrong tree, so its path must be
 // written as it is (#281).
 describe('forbiddenReason on a recursive delete of a path built from a variable', () => {
