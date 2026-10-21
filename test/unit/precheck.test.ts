@@ -1713,6 +1713,9 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'rm -rfx "$dir"',
     'rm -Prf "$dir"',
     'rm -rW "$dir"',
+    // A redirection written apart from its target fails closed: its target reads as a path.
+    'rm -rf .foedrum/tmp/281/run 2> "$log"',
+    'Remove-Item -Recurse .foedrum/tmp/281/run > $null',
     `Remove-Item ${String.fromCodePoint(0x2013)}Recurse ${String.fromCodePoint(0x2013)}Force $p`,
     `ri ${String.fromCodePoint(0x2014)}r $p`,
     "Remove-Item -Recurse -Force (Join-Path $root 'run')",
@@ -1763,6 +1766,12 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
+    // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
+    'del /q %X%',
+    'rd /q %X%',
+    'del /f/q %X%',
+    'rm --force "$f"',
+    "Remove-Item '-Recurse' $p",
     'echo "rm -rf $dir"',
     'grep -n "rm -rf \\"$dir\\"" CLAUDE.md',
   ];
