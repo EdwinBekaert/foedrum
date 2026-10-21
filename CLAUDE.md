@@ -103,6 +103,7 @@ Everything a session or a test creates stays inside the checkout, so it is visib
 - Tests that need a directory create it under `.foedrum/tmp/tests/`, through a shared test helper, and remove it afterwards.
 - `npm test` and `npm run test:integration` run through `scripts/with-checkout-tmp.ts`, which points `TEMP`, `TMP` and `TMPDIR` at a fresh `.foedrum/tmp/tests/tmpdir-*` folder and removes it afterwards, so node's coverage files, the temp files of the git and npm processes the integration tests start, and anything that uses `os.tmpdir()` stay in the checkout. `NODE_V8_COVERAGE` would not do this: the test runner always works in `os.tmpdir()` and only copies the files there at the end.
 - Delete what you no longer need before opening the pull request.
+- Never `rm -rf` or `Remove-Item -Recurse` a path built from a variable or a substitution (`rm -rf "$dir"`, `rm -rf "$(…)"`): write the literal path, such as `rm -rf .foedrum/tmp/218/run`. An empty or wrong variable removes the wrong tree, and in a session the command stops for the user's approval.
 
 ## Dependencies
 
