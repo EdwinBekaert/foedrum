@@ -1,6 +1,6 @@
 # 0065. The local gate refuses npx of packages that are not in the lockfile
 
-Date: 2026-10-17 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words)
+Date: 2026-10-17 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words) · Amended by [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (more changes of directory)
 
 ## Context
 Sessions kept formatting files with `npx prettier --write …` (#43, #79, #92, #167). Prettier is not in `package-lock.json`, so `npx` downloads its latest version and runs it with no lockfile, no `min-release-age` and no review: a way around the dependency policy ([ADR 0004](0004-built-in-first-dependency-policy.md)) that nothing caught. It also formats differently from Biome, which is how #167 briefly broke a commit. `npm exec`, `pnpm dlx`, `yarn dlx` and `bunx` do the same. The gate already read every Bash and PowerShell command and skipped `npx` as a wrapper word; it guarded pushes, merges and pull requests only.
