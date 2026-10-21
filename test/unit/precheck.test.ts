@@ -407,6 +407,7 @@ describe('precheck on a push from another directory', () => {
     ['pushd ../wt && git push', worktree],
     ['cd -P ../wt && git push', worktree],
     ['env -C ../wt git push', worktree],
+    ['env --chdir=../wt git push', worktree],
     ['sudo -D ../wt git push', worktree],
     ['sudo --chdir=../wt git push', worktree],
     ['bash -c "cd ../wt && git push"', worktree],
