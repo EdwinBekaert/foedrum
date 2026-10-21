@@ -930,6 +930,42 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(await state.flush(), { kind: 'unchanged' });
     });
 
+    // ADR 0107: a flush of out docs alone holds the writer lock too, and removes a stale index.lock.
+    it('removes a stale index.lock before a flush of out docs alone, and pushes them', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      assert.equal((await state.flush()).kind, 'pushed');
+      keep();
+      const indexLock = join(fake.gitDir, 'index.lock');
+      mkdirSync(fake.gitDir, { recursive: true });
+      writeFileSync(indexLock, '');
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.equal(existsSync(indexLock), false);
+      assert.deepEqual(said, [`removed a stale index.lock from the state worktree: ${indexLock}`]);
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+
+    it('leaves out docs alone while another writer holds the writer lock', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      assert.equal((await state.flush()).kind, 'pushed');
+      keep();
+      fake.calls.length = 0;
+      const other = takeFileLock(join(dir.path, 'state.lock'), 0);
+      assert.ok(other !== undefined);
+      try {
+        assert.equal((await state.flush()).kind, 'failed');
+      } finally {
+        other.release();
+      }
+      assert.deepEqual(fake.calls, []);
+      assert.equal(store.keptOutDocs().length, 1);
+    });
+
     it('forgets only the out docs it pushed, not one kept while it pushed', async () => {
       const state = branch();
       await state.start();
