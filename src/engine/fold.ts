@@ -307,8 +307,8 @@ function apply(state: State, event: Event): State {
         ...skipping(batch, event.stepId, true),
         lane: { kind: 'brewing' },
       }));
-    case 'step.started':
-      return updateAttempt(state, event, (current) => {
+    case 'step.started': {
+      const next = updateAttempt(state, event, (current) => {
         if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');
         return {
           ...current,
@@ -317,6 +317,12 @@ function apply(state: State, event: Event): State {
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
         };
       });
+      const { worktree } = event;
+      if (worktree === undefined) return next;
+      return updateBatch(next, event.batchId, (batch) =>
+        startAt(batch, worktree, { commit: worktree.commit, succeeded: false }),
+      );
+    }
     case 'step.finished': {
       let worktree: WorktreeRef | undefined;
       const next = updateAttempt(state, event, (current) => {
@@ -335,7 +341,11 @@ function apply(state: State, event: Event): State {
       // The next attempt continues from this one's branch (ADR 0066).
       const { stepId, attempt } = event;
       const taskTree = { kind: 'attempt', stepId, attempt, repo: worktree.repo } as const;
-      return updateBatch(next, event.batchId, (batch) => ({ ...batch, taskTree }));
+      const { repo, commit } = worktree;
+      return updateBatch(next, event.batchId, (batch) => ({
+        ...startAt(batch, { repo }, { commit, succeeded: true }),
+        taskTree,
+      }));
     }
     case 'input.received': {
       const { stepId, by, via, answers } = event;
@@ -516,6 +526,17 @@ function updateBatch(state: State, batchId: string, update: (batch: Batch) => Ba
 function setLane(state: State, batchId: string, lane: Lane): State {
   return updateBatch(state, batchId, (batch) => ({ ...batch, lane }));
 }
+
+/**
+ * `batch` with `start` in `repo` unless it has one already: its first attempt there, until the
+ * first that succeeded replaces it (ADR 0084).
+ */
+const startAt = (batch: Batch, { repo }: { repo: string }, start: BatchStart): Batch => {
+  const key = repo.toLowerCase();
+  const current = batch.starts?.[key];
+  if (current !== undefined && (current.succeeded || !start.succeeded)) return batch;
+  return { ...batch, starts: { ...batch.starts, [key]: start } };
+};
 
 function updateAttempt(
   state: State,
