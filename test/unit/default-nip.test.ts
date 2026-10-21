@@ -10,8 +10,11 @@ import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { createBrewing } from '../helpers/brewing.ts';
+import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 
 // A Brewery with no recipes/, brewers/ or lenses/ of its own: a folder that does not exist has
 // none, so only Foedrum's defaults load.
@@ -42,6 +45,42 @@ describe('the default Nip', () => {
       'defaults/brewers/cellarman.md',
     ]) {
       assert.ok(loaded.defaults.includes(path), `${path} is not in ${loaded.defaults.join(', ')}`);
+    }
+  });
+
+  it('brews an order through each of its steps, in order, with the fake brewer runner', async () => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const done = behave.succeed();
+      const brewing = createBrewing({
+        store,
+        // The check steps and the action play on the fake runner too: this is about the recipe's
+        // line, not what each step does.
+        runner: fakeBrewerRunner(
+          Object.fromEntries(
+            ['gauge', 'red', 'implement', 'green', 'open-pull-request'].map((id) => [id, [done]]),
+          ),
+        ),
+        recipes: valid(loadRecipes(noFiles)).recipes,
+        clock: () => new Date('2026-10-21T12:00:00.000Z'),
+      });
+      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      assert.ok(
+        brewing.command({
+          kind: 'route',
+          batchId: 'b1',
+          recipe: 'nip',
+          reason: 'label',
+          source: 'label',
+        }),
+      );
+      await brewing.drive();
+      const started = brewing
+        .events()
+        .flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
+      assert.deepEqual(started, ['gauge', 'red', 'implement', 'green', 'open-pull-request']);
+    } finally {
+      store.close();
     }
   });
 });
