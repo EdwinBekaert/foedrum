@@ -514,9 +514,10 @@ describe('runServe', () => {
       assert.deepStrictEqual(reads, ['acme/web', 'acme/web']);
       const batch = log.state().batches.get('12-1');
       assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
-        kind: 'failed',
+        kind: 'blocked',
         stepId: 'brew',
-        reason: `the guard noPush: the remote of acme/web changed during the attempt: refs/heads/main moved from ${'a'.repeat(40)} to ${'b'.repeat(40)}`,
+        blockerKind: 'divergence',
+        summary: `the guard noPush: the remote of acme/web changed during the attempt: refs/heads/main moved from ${'a'.repeat(40)} to ${'b'.repeat(40)}`,
       });
     });
   });

@@ -1,6 +1,7 @@
 // The noPush guard around the brewer runner (ADR 0106): it reads the refs of the target
 // repository's remote before an attempt of a guarded step and after it, and fails the attempt when
-// a ref the engine did not write changed, whatever the attempt's own ending. Runs with the fake
+// a ref the engine did not write changed, whatever the attempt's own ending: as a divergence, so
+// the batch is Stuck however its recipe routes a failure. Runs with the fake
 // brewer runner and a fake remote (ADR 0021).
 
 import assert from 'node:assert/strict';
@@ -97,9 +98,9 @@ describe('guardPushes (ADR 0106)', () => {
     });
     const end = await start(runner).ended;
     assert.deepEqual(end.ending, {
-      kind: 'failed',
-      retryable: false,
-      reason: `the guard noPush: the remote of acme/api changed during the attempt: refs/heads/main moved from ${A} to ${B}`,
+      kind: 'blocked',
+      blockerKind: 'divergence',
+      summary: `the guard noPush: the remote of acme/api changed during the attempt: refs/heads/main moved from ${A} to ${B}`,
     });
     // The remote is read before the brewer starts, and again after it ended.
     assert.deepEqual(order, ['read', 'brewer', 'read']);
@@ -117,9 +118,9 @@ describe('guardPushes (ADR 0106)', () => {
     });
     const end = await start(runner).ended;
     assert.deepEqual(end.ending, {
-      kind: 'failed',
-      retryable: false,
-      reason: `the guard noPush: the remote of acme/api changed during the attempt: refs/heads/sneaky was created at ${C} (and 1 more)`,
+      kind: 'blocked',
+      blockerKind: 'divergence',
+      summary: `the guard noPush: the remote of acme/api changed during the attempt: refs/heads/sneaky was created at ${C} (and 1 more)`,
     });
   });
 
@@ -228,7 +229,7 @@ describe('guardPushes (ADR 0106)', () => {
     while (inner.started.length === 0) await new Promise((resolve) => setImmediate(resolve));
     running.stop();
     const end = await running.ended;
-    assert.equal(end.ending.kind === 'failed' && end.ending.retryable, false);
+    assert.equal(end.ending.kind === 'blocked' && end.ending.blockerKind, 'divergence');
     assert.equal(remote.reads.length, 2);
     assert.equal(remote.signals[1]?.aborted, false);
   });
