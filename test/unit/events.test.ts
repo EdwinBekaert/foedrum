@@ -272,6 +272,9 @@ describe('Event', () => {
     ['a batch id with a slash', { ...valid['batch.ordered'], batchId: 'a/b' }],
     ['a reserved batch id', { ...valid['batch.on_tap'], batchId: 'nul' }],
     ['an unsafe parent batch id', { ...valid['batch.ordered'], parentBatchId: '..' }],
+    // Who ordered it by hand and from where are set together (ADR 0105).
+    ['an order by a person from nowhere', { ...valid['batch.ordered'], by: 'ada' }],
+    ['an order from a surface by nobody', { ...valid['batch.ordered'], via: 'terminal' }],
     ['an unsafe step id', { ...valid['step.scheduled'], stepId: 'Plan' }],
     ['an unsafe skipped step id', { ...valid['step.skipped'], stepId: '..' }],
     [

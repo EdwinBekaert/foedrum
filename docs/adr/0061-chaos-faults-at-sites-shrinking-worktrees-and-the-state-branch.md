@@ -1,6 +1,6 @@
 # 0061. Chaos faults at their sites, shrinking, and the worktree and state branch cases
 
-Date: 2026-10-17 · Status: Accepted · Amends [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) (when a driver cleans an ended batch's worktrees) and [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) (how the harness decides its faults, and what it covers)
+Date: 2026-10-17 · Status: Accepted · Amends [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md) (when a driver cleans an ended batch's worktrees) and [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) (how the harness decides its faults, and what it covers) · Amended by [0107](0107-one-writer-of-the-state-worktree-at-a-time-and-its-stale-index-lock.md)
 
 ## Context
 [ADR 0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) left three things for #144: the worktree cases of [ADR 0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md), the state branch ([ADR 0011](0011-state-in-the-brewery-repository.md), [ADR 0024](0024-state-branch-layout-outbox-and-divergence.md)), and shrinking a failing run.

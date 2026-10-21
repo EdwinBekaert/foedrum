@@ -1,6 +1,6 @@
 # 0030. Only commands that change state are recorded
 
-Date: 2026-10-15 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md)
+Date: 2026-10-15 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) · Amended by [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md)
 
 ## Context
 [ADR 0019](0019-interactive-sessions-and-one-command-layer.md) puts every action behind one typed command and says: "Every command is recorded as an event with **who** issued it and **from where**." The first commands in the registry (#13) are `doctor`, `status` and `replay`, and none of them changes anything: they read the machine or the event store and print.

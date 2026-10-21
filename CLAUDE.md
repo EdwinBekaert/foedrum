@@ -34,7 +34,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - `/brew-sheet [topic | #issue | #pr] [--mermaid]` — in Claude Code, explain a part of Foedrum with one verified picture (`.claude/skills/brew-sheet/`); also how pull request and issue descriptions explain themselves
 - `/brew-last-call <milestone>` — in Claude Code, by hand only, before a milestone closes: its open issues, a prompt audit and sizes of Foedrum's instruction files (with `.claude/rules/`), and one draft pull request with the proposals (`.claude/skills/brew-last-call/`); `node scripts/instruction-sizes.ts [--since <commit>]` prints the sizes
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
-- `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `serve` (the Cellar, until Ctrl+C; ADR 0063), `doctor`, `status`, `stuck`, `replay <batch>`, and the commands that change state (`retry`, `skip`, `answer`, `recipe`, `rewind`, `cancel`); `--help` lists them
+- `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `serve` (the Cellar, until Ctrl+C; ADR 0063), `doctor`, `status`, `stuck`, `replay <batch>`, and the commands that change state (`retry`, `skip`, `answer`, `recipe`, `rewind`, `cancel`, `order`); `--help` lists them
 
 ## Local gate
 
@@ -56,7 +56,9 @@ A project hook in `.claude/settings.json` runs `npm run check` before every `git
   - force pushes in any form (`--force`, `--force-with-lease`, `-f`, a `+refspec`);
   - pushes that delete or mirror remote refs (`--delete`, `-d`, a `:branch` refspec, `--mirror`);
   - `gh pr merge`, also with `-R`/`--repo`;
-  - marking a pull request ready through `gh api` (the GraphQL `markPullRequestReadyForReview` mutation): use `gh pr ready <n>`, which the gate checks; and `gh api graphql` with a query the gate cannot read (`query=@file`, `--input`, a variable);
+  - merging a pull request through `gh api` ([ADR 0108](docs/adr/0108-the-gate-blocks-merges-through-gh-api.md)), with the `gh pr merge` message: a `PUT` (`-X PUT`, `-XPUT`, `-iX PUT`, `--method PUT`, `--method=put`, any case, the last one counting as in gh; or a method computed at run time) to a path or URL ending in `pulls/<n>/merge` before any query string (`repos/{owner}/{repo}/…`, a full `https://` URL, a prefix computed at run time); and a query naming the GraphQL `mergePullRequest`, `enablePullRequestAutoMerge` or `enqueuePullRequest` mutation. A `GET` of `…/pulls/<n>/merge` only asks whether it is merged and passes. Merging branches (`mergeBranch`, `POST repos/<owner>/<repo>/merges`) is left to the ruleset on `main`;
+  - marking a pull request ready through `gh api` (the GraphQL `markPullRequestReadyForReview` mutation): use `gh pr ready <n>`, which the gate checks;
+  - `gh api graphql` with a query the gate cannot read (`query=@file`, `--input`, a variable), since it may merge a pull request or mark one ready;
   - defining a git or gh alias that pushes, merges, opens a pull request or marks one ready (`git config alias.*`, `git -c alias.*=`, `gh alias set`);
   - commands nested too deeply to check (more than 8 levels of shells and substitutions);
   - a recursive delete whose path is built from a variable or a substitution, with one line that says to write the literal path: `rm` with `-r`, `-R` or `--recursive` in any flag form, `Remove-Item` and its aliases (`rm`, `ri`, `del`, `erase`, `rd`, `rmdir`) with `-Recurse`, or cmd's `rd`, `rmdir`, `del` and `erase` with `/s`, given `$x`, `${x}`, `$env:X`, `%X%`, `$( )`, backticks, or in PowerShell `@( )` or a `( )` argument. Literal paths, globs and deletes without recursion pass ([ADR 0102](docs/adr/0102-the-gate-blocks-a-recursive-delete-of-a-path-built-from-a-variable.md));
@@ -127,7 +129,7 @@ Everything a session or a test creates stays inside the checkout, so it is visib
 ## Engine rules
 
 - The engine is deterministic code; it never asks a model to decide what to do next.
-- State changes only by appending events; current state is a pure fold. No mutable state outside the event store, except leases, the state branch's pushed-through marker (ADR 0024), the out docs the store keeps until a flush pushes them (ADR 0103), the work root's Brewery marker and driver locks (ADR 0037), and the time of each status comment's last edit, which a driver keeps to edit an order at most once a minute (ADR 0072).
+- State changes only by appending events; current state is a pure fold. No mutable state outside the event store, except leases, the state branch's pushed-through marker (ADR 0024), the out docs the store keeps until a flush pushes them (ADR 0103), the work root's Brewery marker and driver locks (ADR 0037), the state worktree's writer lock (ADR 0107), and the time of each status comment's last edit, which a driver keeps to edit an order at most once a minute (ADR 0072).
 - Every external side effect (git push, pull request, comment, label) goes through the idempotency ledger, except the state-branch push itself, which is idempotent through the pushed-through marker (ADR 0024), and the claim ref of a target-repository issue, which only one Brewery can create and the claimant finds by its record (ADR 0043).
 - Every wait has a deadline. A batch must never be able to sit silently.
 - Brewers never ask questions mid-run; `AskUserQuestion` is always denied. Questions are a `needs_input` outcome.
@@ -178,7 +180,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Pass multi-line text to git and gh through a file written with the file tool (`-F`, `--body-file`), never through a shell heredoc: text containing the delimiter ends the heredoc early and the rest runs as commands.
 - To update a summary or reply, post a new comment with `gh pr comment <n> --body-file` (or `gh issue comment`) that says what it replaces. Never edit or delete a comment: `gh api` writes ask for approval by design (#48), and `--edit-last` edits the account's last comment, which may be someone else's review posted from the same account.
 - Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
-- Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync.
+- Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync. A new ADR is a new file only: its status line says what it amends or supersedes (`Amends [0024](…)`), and nothing else in `docs/adr/` changes, neither `docs/adr/README.md`'s table nor the older record's status line. The table and the older records' "Amended by" lines are rebuilt when a milestone closes (`/brew-last-call`), so parallel pull requests never edit the same lines there (#312).
 - Merge origin/main right before choosing a new ADR's number, and again before the push. Sessions work in parallel and number ADRs too: #78 and #82 both took 0026.
 
 ## Restarting a session
