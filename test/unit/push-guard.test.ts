@@ -159,6 +159,29 @@ describe('guardPushes (ADR 0106)', () => {
     assert.equal(end.ending.kind, 'succeeded');
   });
 
+  for (const during of [1, 2]) {
+    it(`never fails an attempt for a ref the engine wrote during its read ${during === 1 ? 'before' : 'after'} it`, async () => {
+      const bottle = 'refs/heads/foedrum/acme.brewery/9-1/acme.api';
+      let writes: ReturnType<typeof remoteWrites> | undefined;
+      const remote = fakeRemote();
+      const made = setup({
+        remote,
+        read: (n) => {
+          if (n !== during) return undefined;
+          // The driver's push lands while the guard lists the remote: in this listing or the next.
+          const done = writes?.writing('acme/api', bottle);
+          if (n === 2) remote.refs.set(bottle, C);
+          const listed = remote.listing();
+          if (n === 1) remote.refs.set(bottle, C);
+          done?.();
+          return Promise.resolve(listed);
+        },
+      });
+      writes = made.writes;
+      assert.equal((await start(made.runner).ended).ending.kind, 'succeeded');
+    });
+  }
+
   it('reads nothing for a step without the guard', async () => {
     const { runner, remote, inner } = setup({ guarded: false });
     const end = await start(runner).ended;
@@ -269,7 +292,12 @@ describe('guardPushes (ADR 0106)', () => {
     serving.abort();
     // An abort reaches its listeners at once: git is stopped before anything else runs.
     assert.equal(given.aborted, true);
-    assert.equal((await running.ended).ending.kind, 'blocked');
+    assert.deepEqual((await running.ended).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard noPush cannot read the refs of the remote of acme/api after the attempt: git was stopped',
+    });
   });
 
   it('cancels the attempt before the brewer starts when serve stops during the read before', async () => {

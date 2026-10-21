@@ -362,4 +362,31 @@ describe('runServe: the noPush guard (ADR 0106)', () => {
     assert.deepStrictEqual(github.created, ['acme/web refs/foedrum/claims/issues/7']);
     assert.equal(log.state().batches.get('12-1')?.lane.kind, 'on_tap');
   });
+
+  it("stops the guard's read after the attempt when serve stops, so no git outlives Ctrl+C", async () => {
+    const guarded = guardedSetup();
+    let after: AbortSignal | undefined;
+    let reads = 0;
+    const code = await runServe(
+      guarded,
+      shell({
+        refs: () => async (signal) => {
+          reads++;
+          if (reads === 1) return '';
+          after = signal;
+          // ls-remote hangs until it is stopped.
+          return new Promise((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(new Error('git was stopped'))),
+          );
+        },
+        wait: async () => {
+          calls.push('wait');
+          // Ctrl+C while the read after the attempt runs.
+          if (after !== undefined || calls.length > 40) controller.abort();
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.equal(after?.aborted, true);
+  });
 });
