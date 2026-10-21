@@ -109,10 +109,10 @@ export const fakeStateBranch = (
       life.alive();
       const from = store.pushedThrough()?.eventId ?? 0;
       const pending = store.eventsAfter(from);
-      const last = pending.at(-1);
-      if (last === undefined) return { kind: 'unchanged' };
       // Read after the events: the out doc of a pending step.finished was kept before it.
       const docs = outDocs ? store.keptOutDocs() : [];
+      if (pending.length === 0 && docs.length === 0) return { kind: 'unchanged' };
+      const through = pending.at(-1)?.id ?? from;
       const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
       if (checkAll) for (const { path } of logFiles(files)) paths.add(path);
       const current = new Map([...paths].map((path) => [path, files.get(path)] as const));
@@ -136,10 +136,10 @@ export const fakeStateBranch = (
       // The push landed; the process dies before it hears so.
       life.point('after the push reached the remote');
       store.withTransaction((tx) => {
-        tx.markPushed({ eventId: last.id, commit });
+        tx.markPushed({ eventId: through, commit });
         if (docs.length > 0) tx.forgetOutDocs(docs);
       });
-      return { kind: 'pushed', through: last.id, commit };
+      return { kind: 'pushed', through, commit };
     };
     const startNow = async (): Promise<StartResult> => {
       life.alive();

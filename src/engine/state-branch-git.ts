@@ -254,10 +254,11 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const flushNow = async (checkAll: boolean): Promise<FlushResult> => {
     const from = store.pushedThrough()?.eventId ?? 0;
     const pending = store.eventsAfter(from);
-    const last = pending.at(-1);
-    if (last === undefined) return { kind: 'unchanged' };
     // Read after the events: the out doc of a pending step.finished was kept before it (ADR 0103).
     const outDocs = store.keptOutDocs();
+    // Out docs alone are pushed too: one kept after its events were pushed waits for no event.
+    if (pending.length === 0 && outDocs.length === 0) return { kind: 'unchanged' };
+    const through = pending.at(-1)?.id ?? from;
     const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
     if (checkAll) for (const path of await logFiles()) paths.add(path);
     const current = new Map(
@@ -295,16 +296,17 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     switch (outcome) {
       case 'pushed':
         store.withTransaction((tx) => {
-          tx.markPushed({ eventId: last.id, commit });
+          tx.markPushed({ eventId: through, commit });
           // The branch has them now; a crash before this writes them again, with the same text.
           tx.forgetOutDocs(outDocs);
         });
-        return { kind: 'pushed', through: last.id, commit };
+        return { kind: 'pushed', through, commit };
       case 'rejected': {
         const moved = await remoteHead(worktree).catch(() => undefined);
+        const what = pending.length > 0 ? `events ${from + 1}–${through}` : 'out docs only';
         throw new StateBranchStopError(
           `Another engine pushed to the state branch: ${remoteBranch} is at ${moved ?? 'an unknown commit'}, ` +
-            `and this engine's head ${commit} with events ${from + 1}–${last.id} cannot be pushed. ` +
+            `and this engine's head ${commit} with ${what} cannot be pushed. ` +
             'The engine stops; Foedrum never merges or rewrites state history.',
         );
       }

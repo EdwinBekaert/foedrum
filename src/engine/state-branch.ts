@@ -201,7 +201,8 @@ const outDocFile = (doc: KeptOutDoc): BranchFile => {
  * `current` holds the files to check, as they are in the worktree (missing when absent): at least
  * those the pending events go to. Lines after `pushedThrough` that a crashed flush left behind are
  * replaced; one that differs from the pending event with its id means another engine wrote it, and
- * throws `StateBranchStopError`. Without pending events nothing is planned, out docs neither.
+ * throws `StateBranchStopError`. Without pending events only the out docs are planned: those kept
+ * after their step.finished was pushed, such as an attempt's that Stuck abandoned.
  */
 export const planFlush = (
   current: ReadonlyMap<string, string | undefined>,
@@ -243,7 +244,6 @@ export const planFlush = (
     }
     kept.set(path, text);
   }
-  if (pending.length === 0) return [];
   return [
     ...[...byPath].map(([path, events]) => ({
       path,
