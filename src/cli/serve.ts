@@ -304,6 +304,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       writes,
       // Its own push refuses a move the engine did not make (ADR 0024).
       exempt: (repo, ref) => sameRepo(repo, setup.brewery) && ref === `refs/heads/${STATE_BRANCH}`,
+      // Ctrl+C: no git of the guard outlives serve.
+      signal,
       clock,
     });
     const runner = stepRunner({

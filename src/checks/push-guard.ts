@@ -40,7 +40,7 @@ const messageOf = (error: unknown): string =>
 
 export function guardPushes(options: PushGuardOptions): BrewerRunner {
   const { runner, state, guarded, refs, writes, exempt = () => false } = options;
-  const { clock = () => new Date() } = options;
+  const { clock = () => new Date(), signal: serving = new AbortController().signal } = options;
   // The attempts whose remote it is reading: it reports their progress, so their leases hold.
   const reading = new Map<string, AttemptProgress>();
 
@@ -71,20 +71,21 @@ export function guardPushes(options: PushGuardOptions): BrewerRunner {
 
   const guard = (attempt: AttemptStart, repo: string): RunningAttempt => {
     const key = attemptKey.encode(attempt.ref);
-    // Stops the read before the brewer starts; the read after runs on its own deadline, so a
-    // stopped attempt's push is still found.
-    const before = new AbortController();
+    // A stop of the attempt stops the read before the brewer starts; the read after runs on its
+    // own deadline, so a stopped attempt's push is still found. A stop of serve stops both.
+    const stopped = new AbortController();
+    const before = AbortSignal.any([stopped.signal, serving]);
     let running: RunningAttempt | undefined;
     const ended = (async (): Promise<AttemptEnd> => {
       // Open before the first read, so a write of the engine's that the read sees is in it.
       const window = writes.watch(repo);
       try {
-        const start = await read(key, repo, 'before', before.signal);
-        if (before.signal.aborted) return { ending: { kind: 'cancelled' } };
+        const start = await read(key, repo, 'before', before);
+        if (before.aborted) return { ending: { kind: 'cancelled' } };
         if ('summary' in start) return { ending: blocked(start.summary) };
         running = runner.start(attempt);
         const end = await running.ended;
-        const after = await read(key, repo, 'after', new AbortController().signal);
+        const after = await read(key, repo, 'after', serving);
         if ('summary' in after) return { ...end, ending: blocked(after.summary) };
         const engine = window.close();
         const changed = changedRefs(start, after, (ref) => engine.has(ref) || exempt(repo, ref));
@@ -101,7 +102,7 @@ export function guardPushes(options: PushGuardOptions): BrewerRunner {
     return {
       ended,
       stop: () => {
-        before.abort();
+        stopped.abort();
         running?.stop();
       },
     };
