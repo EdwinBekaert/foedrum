@@ -1638,6 +1638,56 @@ describe('openDriver', () => {
       assert.equal(outcomeOf(driver, plan('b1')), undefined);
       assert.ok(leased(plan('b1')));
     });
+
+    it('lets the lease of the end that threw expire, so the supervisor loses its attempt and retries it', async () => {
+      const { runner, end, started } = handRunner();
+      order('b1');
+      const driver = await open({
+        store: failingFinish(plan('b1'), new Error('the disk is full')),
+        runner,
+      });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      // The heartbeat renews no lease of a run that ended.
+      now = at(4);
+      await driver.tick();
+      now = at(6);
+      await driver.tick();
+      assert.ok(!leased(plan('b1')));
+      const outcome = outcomeOf(driver, plan('b1'));
+      assert.equal(outcome?.kind, 'failed');
+      assert.deepStrictEqual(started.at(-1), plan('b1', 2));
+    });
+
+    it('still reports a rejected run whose blocked end threw, and records the other ends', async () => {
+      const { runner, end, reject } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      order('b2');
+      const full = new Error('the disk is full');
+      const broken = new Error('the stream reader broke');
+      const driver = await open({
+        store: failingFinish(plan('b1'), full),
+        runner,
+        report: (notice) => notices.push(notice),
+      });
+      await driver.drive();
+      reject(plan('b1'), broken);
+      end(plan('b2'));
+      await assert.doesNotReject(driver.drive());
+      assert.deepStrictEqual(
+        notices
+          .filter((notice) => notice.kind === 'command_failed' || notice.kind === 'run_failed')
+          .map((notice) => [notice.kind, 'error' in notice ? notice.error : undefined]),
+        [
+          ['command_failed', full],
+          ['run_failed', broken],
+        ],
+      );
+      assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
+      assert.ok(!leased(plan('b2')));
+    });
   });
 
   describe('a start that is refused', () => {
