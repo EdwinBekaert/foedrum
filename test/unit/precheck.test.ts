@@ -360,7 +360,7 @@ describe('precheck on pushes inside compound commands', () => {
 
 describe('precheck on a push from another directory', () => {
   // The hook runs in the main checkout; the command pushes the tree it names (#132).
-  const gate = async (command: string, tool = 'Bash') => {
+  const gate = async (command: string, tool = 'Bash', detached = false) => {
     const { calls: checks, runCheck } = fakeCheck({ ok: true, output: '' });
     const heads: string[] = [];
     const stale: string[] = [];
@@ -374,7 +374,7 @@ describe('precheck on a push from another directory', () => {
       },
       async (cwd) => {
         heads.push(cwd);
-        return false;
+        return detached;
       },
       async (cwd) => {
         lookups.push(cwd);
@@ -416,6 +416,14 @@ describe('precheck on a push from another directory', () => {
     ['Set-Location -Path ../wt; git push', worktree, 'PowerShell'],
     ['sl ../wt; git push', worktree, 'PowerShell'],
     ['cd..; git push', join(root, '..'), 'PowerShell'],
+    ['cd\\; git push', resolve(root, '\\'), 'PowerShell'],
+    ['chdir ../wt && git push', worktree],
+    ['Set-Location -LiteralPath ../wt; git push', worktree, 'PowerShell'],
+    ['Set-Location -Path:../wt; git push', worktree, 'PowerShell'],
+    ['Push-Location -StackName s ../wt; git push', worktree, 'PowerShell'],
+    // A push and a pull request from one tree: the push still gets its HEAD check.
+    ['cd ../wt && git push && gh pr create --draft', worktree],
+    ['cd ../wt && gh pr create --draft && git push', worktree],
   ];
   for (const [command, dir, tool = 'Bash'] of pushes) {
     it(`checks the pushed tree in ${tool}: ${command}`, async () => {
@@ -426,6 +434,15 @@ describe('precheck on a push from another directory', () => {
       assert.deepEqual(checks, [dir]);
     });
   }
+
+  it('names the pushed tree when its HEAD is detached', async () => {
+    const { result, checks } = await gate('git -C ../wt push', 'Bash', true);
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr: `git push is blocked: HEAD is detached in ${worktree}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
+    });
+    assert.deepEqual(checks, []);
+  });
 
   it('checks the tree of gh pr create after a cd', async () => {
     const { checks, heads } = await gate('cd ../wt && gh pr create --draft');
