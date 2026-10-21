@@ -1366,14 +1366,6 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
     it('refuses a batch id the log has', () => {
       refuses(lanes.cancelled, again('b1', { issue: 100 }), /batch b1 was already ordered/);
     });
-
-    it("refuses the engine's own order the same way, so a terminal and serve never order one issue twice", () => {
-      refuses(
-        lanes.brewing,
-        { kind: 'order', batchId: 'b2', order: { issue: 100 } },
-        /^batch b1 of #100 is still brewing$/,
-      );
-    });
   });
 
   describe('a target-repository issue', () => {
@@ -1412,6 +1404,14 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
 
     it('refuses it while its batch is live', () => {
       refuses([webOrdered], again('web-7-2', web), /^batch web-7 of acme\/web#7 is still ordered$/);
+    });
+
+    it("refuses the intake's order of it the same way, so a terminal and serve never order it twice", () => {
+      refuses(
+        [webOrdered],
+        { kind: 'order', batchId: 'web-7-2', order: web },
+        /^batch web-7 of acme\/web#7 is still ordered$/,
+      );
     });
 
     it('refuses it while the release of its claim is still due', () => {
