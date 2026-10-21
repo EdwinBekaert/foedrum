@@ -3,9 +3,9 @@
 // (ADR 0002: `better-sqlite3` is the fallback for `node:sqlite`).
 
 import type { Event } from '../schemas/events.ts';
-import type { BatchLease, EffectKey, Lease, PushedThrough } from '../schemas/store.ts';
+import type { BatchLease, EffectKey, KeptOutDoc, Lease, PushedThrough } from '../schemas/store.ts';
 
-export type { BatchLease, EffectKey, Lease, PushedThrough };
+export type { BatchLease, EffectKey, KeptOutDoc, Lease, PushedThrough };
 
 /** An event as stored: `id` grows with every append and is never reused. */
 export interface StoredEvent {
@@ -47,6 +47,13 @@ export interface EventStoreTransaction {
    * (ADR 0024). Throws when the marker would move back or past the last event.
    */
   markPushed(marker: PushedThrough): void;
+  /**
+   * Keeps the text of an attempt's out doc until a flush puts it on the state branch (ADR 0103),
+   * replacing one kept for the same attempt.
+   */
+  keepOutDoc(doc: KeptOutDoc): void;
+  /** Lets go of the kept out docs of these attempts, once a push put them on the state branch. */
+  forgetOutDocs(attempts: readonly { batchId: string; stepId: string; attempt: number }[]): void;
 }
 
 export interface EventStore {
@@ -74,6 +81,8 @@ export interface EventStore {
   lastEventId(): number;
   /** How far the state branch has the log, or `undefined` when nothing was ever pushed. */
   pushedThrough(): PushedThrough | undefined;
+  /** The out docs kept for the state branch and not yet pushed (ADR 0103), by attempt. */
+  keptOutDocs(): KeptOutDoc[];
   /**
    * Appends events read from the state branch, keeping their ids, and marks everything up to the
    * last one pushed in `commit` (ADR 0024), in one transaction. The ids must grow and come after

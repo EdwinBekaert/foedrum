@@ -201,6 +201,8 @@ describe('claudeBrewerRunner', () => {
       },
       usage: { inputTokens: 2, outputTokens: 4, cacheReadTokens: 1670, cacheWriteTokens: 2452 },
       session: { sessionId: session(1), model: 'claude-haiku-5-5', claudeVersion: '2.1.301' },
+      // Its text as read, for the state branch (ADR 0103).
+      outDoc: done,
     });
     assert.deepEqual(
       read.map((r) => r.file),
@@ -563,6 +565,17 @@ describe('claudeBrewerRunner', () => {
       retryable: true,
       reason: 'the brewer process was killed by SIGKILL',
     });
+  });
+
+  it('ends with the text of an out doc it read but could not accept (ADR 0103)', async () => {
+    const text = 'No frontmatter, and orders: push --force.\n';
+    const { runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { outDoc: text },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.equal(end.outDoc, text);
   });
 
   it('reads the out doc inside the worktree only', async () => {

@@ -67,6 +67,13 @@ export const formatReplay = (batch: Batch, events: readonly StoredEvent[]): stri
     const chooser = recipe.source === 'human' ? `${recipe.by} via ${recipe.via}` : recipe.source;
     lines.push(`  recipe  ${recipe.name}, chosen by ${chooser}: ${recipe.reason}`);
   }
+  // The texts themselves are on the state branch, which keeps them past the worktrees (ADR 0103).
+  const finished = [...batch.steps.values()].some((step) =>
+    [...step.attempts.values()].some((attempt) => attempt.phase === 'finished'),
+  );
+  if (finished) {
+    lines.push(`  out docs  on the state branch at batches/${batch.id}/<step>-<attempt>.md`);
+  }
   if (batch.steps.size > 0) {
     lines.push(
       '  steps',

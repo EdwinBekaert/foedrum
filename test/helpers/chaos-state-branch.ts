@@ -6,12 +6,13 @@
 // kill point between the steps that a crash could fall between. No git runs (ADR 0021): the
 // shell's git calls are what the state branch's integration tests cover.
 
-import type { EventStore } from '../../src/engine/event-store.ts';
+import type { EventStore, KeptOutDoc } from '../../src/engine/event-store.ts';
 import {
   decideStart,
   isLogPath,
   logPathOf,
   mergeLogs,
+  outDocPath,
   planCatchUp,
   planFlush,
   type StartDecision,
@@ -24,6 +25,8 @@ export const stateBranchKillPoints = [
   'while writing the log',
   'before the push reached the remote',
   'after the push reached the remote',
+  // Between an attempt's out doc kept in the store and its step.finished (ADR 0103).
+  'after an out doc was kept',
 ] as const;
 export type StateBranchKillPoint = (typeof stateBranchKillPoints)[number];
 
@@ -41,8 +44,14 @@ export interface BranchLine {
   event: unknown;
 }
 
-/** `lastKill`: the kill point of the run's last kill so far, if any. */
-export const fakeStateBranch = (lastKill: () => string | undefined) => {
+/**
+ * `lastKill`: the kill point of the run's last kill so far, if any. `outDocs`: a flush also writes
+ * the out docs the store kept, as the shell does (ADR 0103).
+ */
+export const fakeStateBranch = (
+  lastKill: () => string | undefined,
+  { outDocs = false }: { outDocs?: boolean } = {},
+) => {
   // The state worktree's files, as on disk.
   const files = new Map<string, string>();
   const commits = new Map<string, Commit>();
@@ -50,7 +59,14 @@ export const fakeStateBranch = (lastKill: () => string | undefined) => {
   let remoteHead: string | undefined;
   let made = 0;
   /** What each start decided, in order, and the kill point of the run's last kill before it. */
-  const starts: { decision: StartDecision['kind']; after: string | undefined }[] = [];
+  const starts: {
+    decision: StartDecision['kind'];
+    after: string | undefined;
+    /** How many out docs the store kept as it started, in the runs that keep them. */
+    keptOutDocs: number;
+  }[] = [];
+  /** The out docs a store kept, by their path on the branch: what the branch must come to hold. */
+  const kept = new Map<string, string>();
   /** The starts that ended with events committed before them still not on the remote. */
   const behind: string[] = [];
 
@@ -93,13 +109,15 @@ export const fakeStateBranch = (lastKill: () => string | undefined) => {
       life.alive();
       const from = store.pushedThrough()?.eventId ?? 0;
       const pending = store.eventsAfter(from);
-      const last = pending.at(-1);
-      if (last === undefined) return { kind: 'unchanged' };
+      // Read after the events: the out doc of a pending step.finished was kept before it.
+      const docs = outDocs ? store.keptOutDocs() : [];
+      if (pending.length === 0 && docs.length === 0) return { kind: 'unchanged' };
+      const through = pending.at(-1)?.id ?? from;
       const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
       if (checkAll) for (const { path } of logFiles(files)) paths.add(path);
       const current = new Map([...paths].map((path) => [path, files.get(path)] as const));
       // Each file is written whole next to its place and renamed; a kill falls between files.
-      for (const file of planFlush(current, pending, from)) {
+      for (const file of planFlush(current, pending, from, docs)) {
         life.point('while writing the log');
         files.set(file.path, file.text);
       }
@@ -117,8 +135,11 @@ export const fakeStateBranch = (lastKill: () => string | undefined) => {
       remoteHead = commit;
       // The push landed; the process dies before it hears so.
       life.point('after the push reached the remote');
-      store.withTransaction((tx) => tx.markPushed({ eventId: last.id, commit }));
-      return { kind: 'pushed', through: last.id, commit };
+      store.withTransaction((tx) => {
+        tx.markPushed({ eventId: through, commit });
+        if (docs.length > 0) tx.forgetOutDocs(docs);
+      });
+      return { kind: 'pushed', through, commit };
     };
     const startNow = async (): Promise<StartResult> => {
       life.alive();
@@ -133,7 +154,8 @@ export const fakeStateBranch = (lastKill: () => string | undefined) => {
         remoteHead,
         pushedReachesRemote,
       });
-      starts.push({ decision: decision.kind, after: lastKill() });
+      const keptOutDocs = outDocs ? store.keptOutDocs().length : 0;
+      starts.push({ decision: decision.kind, after: lastKill(), keptOutDocs });
       switch (decision.kind) {
         case 'ready':
           return { decision: 'ready' };
@@ -174,8 +196,56 @@ export const fakeStateBranch = (lastKill: () => string | undefined) => {
     };
   };
 
+  /**
+   * The store a driver process of `life` keeps out docs through: each one it committed is noted
+   * in `kept`, also when the process dies right after, and the process may die then (ADR 0103).
+   * `committed` reads the store as a process beside the drivers sees it.
+   */
+  const keeping = (
+    life: Life,
+    store: EventStore,
+    committed: () => readonly KeptOutDoc[],
+  ): Pick<EventStore, 'withTransaction'> => ({
+    withTransaction: (fn) => {
+      const docs: KeptOutDoc[] = [];
+      let result: ReturnType<typeof fn>;
+      try {
+        result = store.withTransaction((tx) =>
+          fn({
+            ...tx,
+            keepOutDoc: (doc) => {
+              tx.keepOutDoc(doc);
+              docs.push(doc);
+            },
+          }),
+        );
+      } finally {
+        const now = committed();
+        for (const doc of docs) {
+          const same = now.some(
+            (other) =>
+              other.batchId === doc.batchId &&
+              other.stepId === doc.stepId &&
+              other.attempt === doc.attempt &&
+              other.text === doc.text,
+          );
+          if (same) kept.set(outDocPath(doc), doc.text);
+        }
+      }
+      if (docs.length > 0) life.point('after an out doc was kept');
+      return result;
+    },
+  });
+
+  /** The files at the remote branch's commit, by path. */
+  const remoteFiles = (): ReadonlyMap<string, string> =>
+    (remoteHead === undefined ? undefined : commits.get(remoteHead)?.files) ?? new Map();
+
   return {
     handle,
+    keeping,
+    kept,
+    remoteFiles,
     starts,
     /** Whether `commit` is the remote branch's commit or one of its ancestors. */
     onRemote: (commit: string): boolean =>

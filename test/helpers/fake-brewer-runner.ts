@@ -121,8 +121,10 @@ export const fakeBrewerRunner = (
     const behaviour =
       typeof scripts === 'function' ? scripts(attempt) : queues.get(attempt.ref.stepId)?.shift();
     if (behaviour === undefined) throw new Error(`No behaviour scripted for ${key}`);
+    // The out doc's text as read, as the real runner ends with it (ADR 0103).
     const end = (facts: AttemptFacts): AttemptEnd => ({
       ending: settleAttempt(facts, attempt.limits),
+      ...(facts.outDoc === undefined ? {} : { outDoc: facts.outDoc }),
     });
     switch (behaviour.kind) {
       case 'settle':

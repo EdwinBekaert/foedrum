@@ -27,6 +27,7 @@ import { combineEffects } from '../engine/effects.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import type { Claimant } from '../engine/issue-claims.ts';
+import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import {
   type BranchPush,
   type PullRequestRepository,
@@ -315,7 +316,15 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     });
     driver = await openDriver({
       store,
-      runner,
+      // Each out doc read is kept for the state branch before its step.finished (ADR 0103).
+      runner: keepOutDocs({
+        runner,
+        store,
+        report: (error, { batchId, stepId, attempt }) =>
+          say(
+            `the out doc of ${batchId} ${stepId}#${attempt} was not kept for the state branch: ${messageOf(error)}`,
+          ),
+      }),
       recipes: setup.recipes,
       clock,
       lock: () => lock,

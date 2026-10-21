@@ -387,7 +387,9 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         turns: seen.turns,
         ...(commits === undefined ? {} : { commits }),
       };
-      return { ending: settleAttempt(facts, limits), ...reported };
+      // The text as read, valid or not, for the state branch (ADR 0103).
+      const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
+      return { ending: settleAttempt(facts, limits), ...reported, ...outDoc };
     };
 
     const ended = run().finally(() => running.delete(key));
