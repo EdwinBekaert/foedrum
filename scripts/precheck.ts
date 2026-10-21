@@ -308,11 +308,11 @@ const COMPUTED = '$';
 // order, or undefined when one of them is computed at run time (#132).
 type Place = readonly string[] | undefined;
 
-// A directory step: a path as written, or undefined when it is computed at run time.
-type Step = string | undefined;
+// A change of directory: the path as written, or undefined when it is computed at run time.
+type Chdir = string | undefined;
 
-const moveTo = (place: Place, step: Step): Place =>
-  place === undefined || step === undefined ? undefined : [...place, step];
+const moveTo = (place: Place, chdir: Chdir): Place =>
+  place === undefined || chdir === undefined ? undefined : [...place, chdir];
 
 interface Invocation {
   program: string;
@@ -320,7 +320,7 @@ interface Invocation {
   // The word that changes directory (cd, pushd, Set-Location, …), when the command is one.
   moves?: Word;
   // The directories a wrapper runs the command in (env -C).
-  steps: Step[];
+  chdirs: Chdir[];
 }
 
 // A word that runs the command after it: its options, those of them that take a value, the
@@ -456,7 +456,7 @@ const LOCATION_VALUE = new Set(['stackname']);
 // Where a change of directory goes: the path it names, or undefined when that is computed at run
 // time or kept by the shell (cd -, ~-, popd, a bare cd, a drive letter's own current directory).
 // bash's cd options (-P, -L, -e) and cmd's /d are skipped.
-const destination = (command: Word, args: Word[]): Step => {
+const destination = (command: Word, args: Word[]): Chdir => {
   const name = command.text.toLowerCase();
   if (name === 'cd..') return '..';
   if (name === 'cd\\') return '\\';
@@ -520,7 +520,7 @@ const getopt = (text: string, withValue: readonly string[]): { option: string; v
 // directory sets `found.movesDir`.
 const invocation = (words: Word[], nested: string[], found: Findings): Invocation | undefined => {
   let rest = words;
-  const steps: Step[] = [];
+  const chdirs: Chdir[] = [];
   for (;;) {
     for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
       rest = rest.slice(skip);
@@ -538,7 +538,7 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
         : CHANGE_DIRECTORY.test(program)
           ? { ...first, text: program }
           : undefined;
-      return { program, args: operands, steps, ...(moved === undefined ? {} : { moves: moved }) };
+      return { program, args: operands, chdirs, ...(moved === undefined ? {} : { moves: moved }) };
     }
     const args = runner?.args ?? operands;
     const run = (name: Word | undefined, lookup: boolean) => {
@@ -558,7 +558,7 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
       if (runner?.wrapper.moves?.includes(option)) found.movesDir = true;
       if (wrapper.chdir?.includes(option)) {
         const dir = value === undefined ? args[i + 1] : { ...word, text: value };
-        steps.push(dir === undefined || dir.dynamic || wrapper.foreign ? undefined : dir.text);
+        chdirs.push(dir === undefined || dir.dynamic || wrapper.foreign ? undefined : dir.text);
         found.movesDir = true;
       }
       if (value !== undefined) {
@@ -937,8 +937,8 @@ const read = (
       const called = invocation(words, reading.nested, found);
       if (called === undefined) continue;
       if (called.moves !== undefined) place = moveTo(place, destination(called.moves, called.args));
-      moved ||= called.moves !== undefined || called.steps.length > 0;
-      reading.place = called.steps.reduce(moveTo, place);
+      moved ||= called.moves !== undefined || called.chdirs.length > 0;
+      reading.place = called.chdirs.reduce(moveTo, place);
       if (readInvocation(called, reading)) runsText = true;
     }
     if (runsText) {
@@ -998,18 +998,18 @@ export type PathModule = typeof import('node:path').posix;
 // into, in order, with Git Bash's /c/… drive paths on Windows and a home path (~, ~/…) expanded.
 export const resolvePlace = (
   cwd: string,
-  steps: readonly string[],
+  dirs: readonly string[],
   path: PathModule,
   home: string,
 ): string => {
-  if (steps.length === 0) return cwd;
+  if (dirs.length === 0) return cwd;
   const windows = path.sep === '\\';
-  const expand = (step: string): string => {
-    if (/^~(?:$|[\\/])/.test(step)) return path.join(home, step.slice(1));
-    const drive = windows ? /^\/([a-z])(?=\/|$)/i.exec(step) : null;
-    return drive === null ? step : `${drive[1]?.toUpperCase()}:\\${step.slice(2)}`;
+  const expand = (dir: string): string => {
+    if (/^~(?:$|[\\/])/.test(dir)) return path.join(home, dir.slice(1));
+    const drive = windows ? /^\/([a-z])(?=\/|$)/i.exec(dir) : null;
+    return drive === null ? dir : `${drive[1]?.toUpperCase()}:\\${dir.slice(2)}`;
   };
-  return path.resolve(cwd, ...steps.map(expand));
+  return path.resolve(cwd, ...dirs.map(expand));
 };
 
 // Whether `dir` is inside the project at `root` (CLAUDE_PROJECT_DIR) by real path, and not in a
@@ -1208,10 +1208,10 @@ export const precheck = async (
   // Where gh and the check run: the directory the command changes into, if any (#132). The gate
   // runs that tree's code (npm run check, git, gh) before the command is approved, so a
   // directory outside the project blocks the command instead.
-  const dirOf = async (steps: readonly string[], what: string): Promise<string | HookResult> => {
-    if (steps.length === 0) return cwd;
+  const dirOf = async (dirs: readonly string[], what: string): Promise<string | HookResult> => {
+    if (dirs.length === 0) return cwd;
     const [path, { homedir }] = await Promise.all([import('node:path'), import('node:os')]);
-    const dir = resolvePlace(cwd, steps, path, homedir());
+    const dir = resolvePlace(cwd, dirs, path, homedir());
     if (await inProject(dir)) return dir;
     return { exitCode: 2, stderr: `${outsideBlocked(what, dir)}\n` };
   };
