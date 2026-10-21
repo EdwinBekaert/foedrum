@@ -91,7 +91,9 @@ const CREATE_PLACE_BLOCKED =
 const READY_PLACE_BLOCKED =
   'gh pr ready is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which pull request it marks ready: give the pull request number.';
 const manyPlacesBlocked = (dirs: string[]): string =>
-  `This command pushes or opens pull requests from more than one checkout (${dirs.join(', ')}): the gate checks one tree per command; run each from a command of its own.`;
+  `This command pushes or opens pull requests from more than one directory (${dirs.join(', ')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.`;
+const outsideBlocked = (what: string, dir: string): string =>
+  `${what} is blocked: it runs in ${dir}, outside the project this session works in, so the gate does not run that tree's code: ${what === 'git push' ? 'push' : `run ${what}`} from inside that checkout.`;
 const VARIABLE_DELETE_BLOCKED =
   'A recursive delete of a path built from a variable or a substitution is blocked: an empty or wrong value removes the wrong tree; write the literal path, such as `rm -rf .foedrum/tmp/218/run` (CLAUDE.md).';
 const downloadBlocked = (run: string): string =>
@@ -537,6 +539,12 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
         steps.push(dir === undefined || dir.dynamic || wrapper.foreign ? undefined : dir.text);
         found.movesDir = true;
       }
+      // A short option with its directory written straight after it, as getopt reads -C../wt.
+      const short = wrapper.chdir?.find((name) => name.length === 2 && word.text.startsWith(name));
+      if (short !== undefined && word.text.length > 2) {
+        steps.push(word.dynamic || wrapper.foreign ? undefined : word.text.slice(2));
+        found.movesDir = true;
+      }
       if (value !== undefined) {
         if (packageOption) run({ ...word, text: value }, false);
         i++;
@@ -917,9 +925,11 @@ const read = (
       if (readInvocation(called, reading)) runsText = true;
     }
     if (runsText) {
-      // Without the options before them, so that bash -c's cd counts where the push runs.
+      // Without the options before them (-c, and cmd's /c), so that the cd of bash -c or cmd /c
+      // counts where the push runs.
+      const option = (word: Word) => word.text.startsWith('-') || /^\/[a-z?]$/i.test(word.text);
       const operands = lexed.segments.map((words) => {
-        const start = words.findIndex((word, i) => i > 0 && !word.text.startsWith('-'));
+        const start = words.findIndex((word, i) => i > 0 && !option(word));
         return start < 0 ? '' : text(words.slice(start));
       });
       reading.nested.push(...lexed.strings, ...operands);
@@ -1097,7 +1107,7 @@ export const precheck = async (
     throw new Error('no pull request lookup');
   },
   binaryInstalled: BinaryInstalled = async () => false,
-  _inProject: InProject = async () => true,
+  inProject: InProject = async () => true,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1145,11 +1155,15 @@ export const precheck = async (
   if (readies.size > 0 && found.ghEnv) {
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
   }
-  // Where gh and the check run: the directory the command changes into, if any (#132).
-  const dirOf = async (steps: readonly string[]): Promise<string> => {
+  // Where gh and the check run: the directory the command changes into, if any (#132). The gate
+  // runs that tree's code (npm run check, git, gh) before the command is approved, so a
+  // directory outside the project blocks the command instead.
+  const dirOf = async (steps: readonly string[], what: string): Promise<string | HookResult> => {
     if (steps.length === 0) return cwd;
     const [path, { homedir }] = await Promise.all([import('node:path'), import('node:os')]);
-    return resolvePlace(cwd, steps, path, homedir());
+    const dir = resolvePlace(cwd, steps, path, homedir());
+    if (await inProject(dir)) return dir;
+    return { exitCode: 2, stderr: `${outsideBlocked(what, dir)}\n` };
   };
 
   // Without a number, gh marks the pull request of the branch where it runs; with one, the
@@ -1158,7 +1172,8 @@ export const precheck = async (
     return { exitCode: 2, stderr: `${READY_PLACE_BLOCKED}\n` };
   }
   for (const { target, place } of readies.values()) {
-    const dir = place === undefined ? cwd : await dirOf(place);
+    const dir = await dirOf(place ?? [], 'gh pr ready');
+    if (typeof dir !== 'string') return dir;
     const refusal = await readyRefusal(dir, target, lookupPullRequest);
     if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
   }
@@ -1171,7 +1186,8 @@ export const precheck = async (
   // Each directory, and whether a push runs there.
   const trees = new Map<string, boolean>();
   for (const { place, push } of found.places) {
-    const dir = await dirOf(place ?? []);
+    const dir = await dirOf(place ?? [], push ? 'git push' : 'gh pr create');
+    if (typeof dir !== 'string') return dir;
     trees.set(dir, push || trees.get(dir) === true);
   }
   if (trees.size > 1) {
@@ -1437,6 +1453,23 @@ if (import.meta.main) {
           () => false,
         );
       return lockfileBinary(read, exists)(cwd, name);
+    },
+    // Inside CLAUDE_PROJECT_DIR by real path, as the read guard tells (ADR 0049); without it the
+    // gate cannot tell, and fails closed.
+    async (dir) => {
+      const root = process.env.CLAUDE_PROJECT_DIR;
+      const { isAbsolute } = await import('node:path');
+      if (root === undefined || !isAbsolute(root)) return false;
+      const [{ realPath }, { pathInside, samePath }] = await Promise.all([
+        import('../src/platform/real-path.ts'),
+        import('../src/platform/paths.ts'),
+      ]);
+      try {
+        const [project, real] = [realPath(root), realPath(dir)];
+        return samePath(project, real) || pathInside(project, real) !== undefined;
+      } catch {
+        return false;
+      }
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
