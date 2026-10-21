@@ -188,7 +188,11 @@ describe('the default Gauger', () => {
     assert.ok(found !== undefined, 'nip has no gauge step');
     const lens = readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'test-design.md'), 'utf8');
     // Not repeated in the brewer file: the brewer and the Taster read the one checklist.
-    assert.doesNotMatch(found.instructions, /Tests that cannot fail/);
+    const copied = lens
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 40 && found.instructions.includes(line));
+    assert.deepEqual(copied, []);
 
     const ref = { batchId: '12-1', stepId: 'gauge', attempt: 1 };
     const events: Event[] = [
