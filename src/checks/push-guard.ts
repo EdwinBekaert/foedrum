@@ -1,0 +1,135 @@
+// The noPush guard, the shell (ADR 0106): around the brewer runner, it reads the refs of the target
+// repository's remote before an attempt of a guarded step starts and after it ends, and blocks the
+// attempt on a divergence when a ref the engine did not write changed. no-push.ts decides.
+
+import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
+import type {
+  AttemptEnd,
+  AttemptStart,
+  BrewerRunner,
+  RunningAttempt,
+} from '../engine/brewer-runner.ts';
+import type { State } from '../engine/fold.ts';
+import type { AttemptProgress } from '../engine/supervisor.ts';
+import { changedRefs, noPushReason, parseRemoteRefs, type RemoteRefs } from './no-push.ts';
+import type { RemoteWrites } from './remote-writes.ts';
+
+export interface PushGuardOptions {
+  runner: BrewerRunner;
+  /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
+  state: () => State;
+  /** Whether the brewer of attempt `ref`'s step has the noPush guard. */
+  guarded: (ref: AttemptRef) => boolean;
+  /**
+   * The refs of `repo`'s remote as `ls-remote --refs` lists them, read outside the clone's
+   * configuration (ADR 0096) and with a deadline; rejects when it cannot read them.
+   */
+  refs: (repo: string, signal: AbortSignal) => Promise<string>;
+  /** The engine's own writes to the remotes. */
+  writes: RemoteWrites;
+  /** Refs the engine writes that guard themselves, such as the state branch (ADR 0024). */
+  exempt?: (repo: string, ref: string) => boolean;
+  /** Aborts every read when serve stops, so no git outlives it; default never. */
+  signal?: AbortSignal;
+  /** Default the system clock. */
+  clock?: () => Date;
+}
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+export function guardPushes(options: PushGuardOptions): BrewerRunner {
+  const { runner, state, guarded, refs, writes, exempt = () => false } = options;
+  const { clock = () => new Date(), signal: serving = new AbortController().signal } = options;
+  // The attempts whose remote it is reading: it reports their progress, so their leases hold.
+  const reading = new Map<string, AttemptProgress>();
+
+  /** The remote's refs, or why they cannot be read; progress is reported meanwhile. */
+  const read = async (
+    key: string,
+    repo: string,
+    when: 'before' | 'after',
+    signal: AbortSignal,
+  ): Promise<RemoteRefs | { summary: string }> => {
+    reading.set(key, { lastProgressAt: clock(), turnsWithoutProgress: 0 });
+    const parsed = await refs(repo, signal).then(parseRemoteRefs, (error: unknown) => ({
+      error: messageOf(error),
+    }));
+    reading.delete(key);
+    return 'error' in parsed
+      ? {
+          summary: `the guard noPush cannot read the refs of the remote of ${repo} ${when} the attempt: ${parsed.error}`,
+        }
+      : parsed;
+  };
+
+  const blocked = (summary: string): AttemptEnd['ending'] => ({
+    kind: 'blocked',
+    blockerKind: 'environment',
+    summary,
+  });
+
+  const guard = (attempt: AttemptStart, repo: string): RunningAttempt => {
+    const key = attemptKey.encode(attempt.ref);
+    // A stop of the attempt stops the read before the brewer starts; the read after runs on its
+    // own deadline, so a stopped attempt's push is still found. A stop of serve stops both.
+    const stopped = new AbortController();
+    const before = AbortSignal.any([stopped.signal, serving]);
+    let running: RunningAttempt | undefined;
+    const ended = (async (): Promise<AttemptEnd> => {
+      // Open before the first read, so a write of the engine's that the read sees is in it.
+      const window = writes.watch(repo);
+      try {
+        const start = await read(key, repo, 'before', before);
+        if (before.aborted) return { ending: { kind: 'cancelled' } };
+        if ('summary' in start) return { ending: blocked(start.summary) };
+        running = runner.start(attempt);
+        // A runner that rejected may have pushed first: the remote is read all the same, and its
+        // error goes on only when nothing changed.
+        const end: { ended: AttemptEnd } | { error: unknown } = await running.ended.then(
+          (ended) => ({ ended }),
+          (error: unknown) => ({ error }),
+        );
+        const after = await read(key, repo, 'after', serving);
+        const engine = window.close();
+        const changed =
+          'summary' in after
+            ? []
+            : changedRefs(start, after, (ref) => engine.has(ref) || exempt(repo, ref));
+        if (changed.length > 0) {
+          // A push is the engine's alone: the remote is not what the engine left, so the batch is
+          // Stuck for a human to look at it, however its recipe routes a failure.
+          const summary = noPushReason(repo, changed);
+          const ending = { kind: 'blocked', blockerKind: 'divergence', summary } as const;
+          return 'ended' in end ? { ...end.ended, ending } : { ending };
+        }
+        if ('error' in end) throw end.error;
+        if ('summary' in after) return { ...end.ended, ending: blocked(after.summary) };
+        return end.ended;
+      } finally {
+        window.close();
+        reading.delete(key);
+      }
+    })();
+    return {
+      ended,
+      stop: () => {
+        stopped.abort();
+        running?.stop();
+      },
+    };
+  };
+
+  return {
+    start: (attempt) => {
+      if (!guarded(attempt.ref)) return runner.start(attempt);
+      const { batchId, stepId, attempt: number } = attempt.ref;
+      const current = state().batches.get(batchId)?.steps.get(stepId)?.attempts.get(number);
+      const repo = current?.phase === 'scheduled' ? undefined : current?.worktree?.repo;
+      // Without a worktree the attempt cannot run: its plan fails it before anything starts.
+      if (repo === undefined) return runner.start(attempt);
+      return guard(attempt, repo);
+    },
+    progress: (ref) => runner.progress(ref) ?? reading.get(attemptKey.encode(ref)),
+  };
+}
