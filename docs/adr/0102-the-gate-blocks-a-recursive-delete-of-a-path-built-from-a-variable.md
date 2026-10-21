@@ -1,4 +1,4 @@
-# 0101. The local gate blocks a recursive delete of a path built from a variable
+# 0102. The local gate blocks a recursive delete of a path built from a variable
 
 Date: 2026-10-21 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words)
 
