@@ -642,6 +642,27 @@ describe('openStateBranch with a fake git', () => {
       return state;
     };
 
+    // ADR 0111: a user's pack-refs whose ref lock a flush removed can set the branch back to its
+    // packed value after the commit; the events are then not on the branch.
+    it('fails without pushing or moving the marker when a commit leaves the branch where it was', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      append(scheduled('b1'));
+      fake.answer = (args) => (args[0] === 'commit' ? ok() : undefined);
+      fake.calls.length = 0;
+
+      const result = await state.flush();
+
+      assert.equal(result.kind, 'failed');
+      assert.match(result.kind === 'failed' ? result.reason : '', /refs\/heads\/foedrum\/state/);
+      assert.equal(fake.find('push'), undefined);
+      assert.equal(store.pushedThrough()?.eventId, 1);
+      // The next tick commits again and pushes.
+      fake.answer = () => undefined;
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 2, commit: sha(101) });
+    });
+
     it('writes, commits and pushes the events after the marker, then moves the marker', async () => {
       const state = await started();
       append(ordered('b1'), released, scheduled('b1'));
