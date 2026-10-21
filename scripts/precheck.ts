@@ -79,7 +79,7 @@ const READY_API_BLOCKED =
 const TOO_DEEP_BLOCKED =
   'This command nests shells or commands too deeply for the gate to check: run git push, gh pr create and gh pr ready as plain commands.';
 const UNREADABLE_QUERY_BLOCKED =
-  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not mark a pull request ready.';
+  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not merge a pull request or mark one ready.';
 const READY_COMBINED_BLOCKED =
   'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
@@ -702,19 +702,20 @@ const unreadableQuery = (args: Word[]): boolean =>
     );
   });
 
-// The method of a `gh api` call, from its last -X or --method: undefined when none is given, and
-// COMPUTED when it is computed at run time.
+// The method of a `gh api` call, from its last -X or --method, also after -i in one group of short
+// flags (-iX PUT): undefined when none is given, and COMPUTED when it is computed at run time.
 const apiMethod = (args: Word[]): string | undefined => {
-  const method = lastOption(args, '-X', '--method');
+  const ungrouped = args.map((arg) => ({ ...arg, text: arg.text.replace(/^-i+X/, '-X') }));
+  const method = lastOption(ungrouped, '-X', '--method');
   return method?.dynamic ? COMPUTED : method?.text.toUpperCase();
 };
 
-// Whether a `gh api` call merges a pull request: a PUT (or a method computed at run time) to
-// pulls/<n>/merge, with or without a leading slash or repos/<owner>/<repo>, or a GraphQL query
-// naming the mutations that merge one or turn on its auto-merge. A GET of the endpoint only asks
-// whether the pull request is merged.
-const MERGE_ENDPOINT = /^\/?(?:repos\/[^/]+\/[^/]+\/)?pulls\/[^/]+\/merge$/;
-const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge)\b/;
+// Whether a `gh api` call merges a pull request: a PUT (or a method computed at run time) to a path
+// or URL ending in pulls/<n>/merge, before any query string, or a GraphQL query naming the
+// mutations that merge one, turn on its auto-merge or add it to the merge queue. A GET of the
+// endpoint only asks whether the pull request is merged.
+const MERGE_ENDPOINT = /(?:^|\/)pulls\/[^/?#]+\/merge(?:[?#].*)?$/s;
+const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest)\b/;
 const apiMerges = (args: Word[]): boolean => {
   const method = apiMethod(args);
   return (
