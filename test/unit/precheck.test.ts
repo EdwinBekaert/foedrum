@@ -342,7 +342,7 @@ describe('precheck on pushes inside compound commands', () => {
     ],
     ['a push after a heredoc', 'Bash', "cat > notes.md <<'EOF'\nnotes\nEOF\ngit push origin main"],
     ['a push after ;', 'Bash', 'npm test; git push'],
-    ['a push inside ( … )', 'Bash', '(cd ../foedrum && git push)'],
+    ['a push inside ( … )', 'Bash', '(npm test && git push)'],
     ['a PowerShell push after ;', 'PowerShell', 'npm run check; git push origin main'],
   ];
   for (const [name, tool, command] of pushes) {
@@ -354,6 +354,55 @@ describe('precheck on pushes inside compound commands', () => {
       assert.deepEqual(calls, [root]);
     });
   }
+});
+
+describe('precheck on a push from another directory', () => {
+  // The hook runs in the main checkout; the command pushes the tree it names (#132).
+  const gate = async (command: string, tool = 'Bash') => {
+    const { calls: checks, runCheck } = fakeCheck({ ok: true, output: '' });
+    const heads: string[] = [];
+    const stale: string[] = [];
+    const lookups: string[] = [];
+    const result = await precheck(
+      hookInput(command, root, tool),
+      runCheck,
+      async (cwd) => {
+        stale.push(cwd);
+        return undefined;
+      },
+      async (cwd) => {
+        heads.push(cwd);
+        return false;
+      },
+      async (cwd) => {
+        lookups.push(cwd);
+        return {
+          number: 5,
+          head: 'a'.repeat(40),
+          comments: [],
+          commits: [],
+          files: ['docs/x/a.md'],
+        };
+      },
+    );
+    return { result, checks, heads, stale, lookups };
+  };
+  it('still checks the hook cwd when nothing changes directory', async () => {
+    const { checks, heads } = await gate('git -c core.x=1 push');
+    assert.deepEqual(heads, [root]);
+    assert.deepEqual(checks, [root]);
+  });
+
+  it('looks up a numbered pull request in the hook cwd after a computed cd', async () => {
+    const { result, lookups } = await gate('cd "$d" && gh pr ready 5');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(lookups, [root]);
+  });
+
+  it('lets a computed cd through when nothing is pushed', async () => {
+    const { result } = await gate('cd "$d" && git status');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
 });
 
 describe('forbiddenReason', () => {
