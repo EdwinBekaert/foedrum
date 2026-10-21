@@ -1500,6 +1500,19 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
         orderedAgain('web-7', web),
       ]);
     });
+
+    it('never counts an issue of the same number in another repository', () => {
+      const api = { issue: 7, repo: 'acme/api' } as const;
+      accepts([webOrdered], again('api-7', api), [orderedAgain('api-7', api)]);
+      const intake = { kind: 'order', batchId: 'api-7', order: api } as const;
+      accepts([webOrdered], intake, [
+        { type: 'batch.ordered', batchId: 'api-7', order: api, routeBy: inAnHour },
+      ]);
+    });
+
+    it('is never counted for a Brewery issue of the same number', () => {
+      accepts([webOrdered], again('7-1', { issue: 7 }), [orderedAgain('7-1', { issue: 7 })]);
+    });
   });
 });
 
