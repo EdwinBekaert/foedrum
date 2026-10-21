@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -46,35 +46,40 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
   let marks: string;
   /** The user's environment: git reads only the configuration this test writes. */
   let user: NodeJS.ProcessEnv;
+  /** Runs git as the user, in `cwd`, with a deadline that only guards against a hang. */
+  const git = (cwd: string, args: string[]) =>
+    execFileSync('git', args, { cwd, env: user, timeout: 60_000, stdio: 'pipe' });
   beforeEach(() => {
     run = join(dir.path, String(++runs));
     repo = join(run, 'repo');
     marks = join(run, 'marks.txt');
-    const script = join(run, 'mark.mjs');
     const global = join(run, 'gitconfig');
-    execFileSync('git', ['init', '-q', '-b', 'main', repo]);
-    writeFileSync(script, MARK);
-    writeFileSync(global, '');
-    const mark = `node "${script.replaceAll('\\', '/')}"`;
-    const plant = (key: string, value: string) =>
-      execFileSync('git', ['config', '--file', global, key, value]);
-    plant('user.name', 'Test');
-    plant('user.email', 't@example.com');
-    plant('credential.helper', `!${mark} credential.helper`);
-    plant(`credential.http://127.0.0.1:${port}.helper`, `!${mark} credential.<url>.helper`);
-    plant('core.askPass', `${mark} core.askPass`);
-    plant('core.sshCommand', `${mark} core.sshCommand`);
-    plant('protocol.ssh.allow', 'always');
+    mkdirSync(run, { recursive: true });
     user = {
       ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name))),
       GIT_CONFIG_GLOBAL: global,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_TERMINAL_PROMPT: '0',
     };
-    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'Initial commit'], {
-      cwd: repo,
-      env: user,
-    });
+    const script = join(run, 'mark.mjs');
+    writeFileSync(script, MARK);
+    writeFileSync(global, '');
+    const mark = `node "${script.replaceAll('\\', '/')}"`;
+    // git starts an askpass program as it is, without a shell: a script of its own.
+    const askPass = join(run, 'askpass.sh');
+    writeFileSync(askPass, `#!/bin/sh\n${mark} core.askPass\nexit 1\n`);
+    chmodSync(askPass, 0o755);
+    const plant = (key: string, value: string) =>
+      git(run, ['config', '--file', global, key, value]);
+    plant('user.name', 'Test');
+    plant('user.email', 't@example.com');
+    plant('credential.helper', `!${mark} credential.helper`);
+    plant(`credential.http://127.0.0.1:${port}.helper`, `!${mark} credential.url.helper`);
+    plant('core.askPass', askPass.replaceAll('\\', '/'));
+    plant('core.sshCommand', `${mark} core.sshCommand`);
+    plant('protocol.ssh.allow', 'always');
+    git(run, ['init', '-q', '-b', 'main', repo]);
+    git(repo, ['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
   });
 
   // Through the runner, not spawnSync: this process's server must answer while git runs.
@@ -88,9 +93,16 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
   const marked = (): string => (existsSync(marks) ? readFileSync(marks, 'utf8') : '');
 
   it("fails a push over http at once, asking none of the user's credential helpers and no askpass program", async () => {
-    // Without the forced variables the user's helper answers: that is what they close.
+    // Without the forced variables git asks each helper, then the askpass program: that is what
+    // they close.
     assert.notEqual((await push(`http://127.0.0.1:${port}/acme/app.git`, user)).exitCode, 0);
-    assert.match(marked(), /^credential\.helper get$/m);
+    for (const planted of [
+      /^credential\.helper get$/m,
+      /^credential\.url\.helper get$/m,
+      /^core\.askPass$/m,
+    ]) {
+      assert.match(marked(), planted);
+    }
     rmSync(marks);
     const pushed = await push(`http://127.0.0.1:${port}/acme/app.git`, brewer());
     assert.notEqual(pushed.exitCode, 0);
@@ -99,6 +111,10 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
   });
 
   it('refuses a push over ssh before any ssh command runs', async () => {
+    // Without the forced variables git runs the user's ssh command.
+    assert.notEqual((await push('ssh://git@foedrum.invalid/acme/app.git', user)).exitCode, 0);
+    assert.match(marked(), /^core\.sshCommand /m);
+    rmSync(marks);
     const pushed = await push('ssh://git@foedrum.invalid/acme/app.git', brewer());
     assert.notEqual(pushed.exitCode, 0);
     assert.match(pushed.stderr, /transport 'ssh' not allowed/);
@@ -107,7 +123,7 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
 
   it('still pushes to a local path, which needs no credential', async () => {
     const origin = join(run, 'origin.git');
-    execFileSync('git', ['init', '-q', '--bare', origin]);
+    git(run, ['init', '-q', '--bare', origin]);
     const pushed = await push(origin, brewer());
     assert.equal(pushed.exitCode, 0, pushed.stderr);
     assert.equal(marked(), '');
