@@ -5,6 +5,11 @@ proves, not with a list of tasks. They are tracked as
 [GitHub milestones](https://github.com/EdwinBekaert/foedrum/milestones). Each closed milestone
 gets a page here that says what it built.
 
+Closing a milestone starts with `/brew-last-call <milestone>` in Claude Code
+(`.claude/skills/brew-last-call/`): it proposes what to do with the milestone's open issues, audits
+and measures Foedrum's own instruction files, and puts every proposed change in one draft pull
+request. The milestone closes after that pull request is merged.
+
 | Milestone | Builds | Exit criterion | Status |
 |---|---|---|---|
 | [M0 — Foundations](m0.md) | The engine underneath everything: event store, state machine, supervisor, driver, fake runner, platform layer, property and chaos tests, CI on three platforms | 1,000 chaos runs with random engine kills: no lost or duplicated side effects, no silent stalls | Closed 2026-10-17 |

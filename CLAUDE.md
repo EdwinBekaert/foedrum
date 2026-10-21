@@ -32,6 +32,7 @@ Use the glossary terms (Brewery, order, sub-order, brewer, recipe, batch, step, 
 - CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm run test:integration`, the property tests again with `FOEDRUM_RUNS=500` (500 seeds per property instead of the check's few), the chaos tests with `FOEDRUM_RUNS=200` (1,000 in the nightly run) and `npm audit` on Windows, macOS and Linux for every pull request, and `npm run check:deps` on one leg; the required check is `ci-ok`
 - `/brew-review [pr-number | branch] [--base <ref>] [--no-comment]` — in Claude Code, review a draft pull request (or the current branch) with `.claude/skills/brew-review/`
 - `/brew-sheet [topic | #issue | #pr] [--mermaid]` — in Claude Code, explain a part of Foedrum with one verified picture (`.claude/skills/brew-sheet/`); also how pull request and issue descriptions explain themselves
+- `/brew-last-call <milestone>` — in Claude Code, by hand only, before a milestone closes: its open issues, a prompt audit and sizes of Foedrum's instruction files, and one draft pull request with the proposals (`.claude/skills/brew-last-call/`); `node scripts/instruction-sizes.ts [--since <commit>]` prints the sizes
 - Run TypeScript directly with `node` (built-in type stripping); no build step for development
 - `node src/cli/main.ts <command>` — the `foedrum` program (its `bin`) from a checkout: `serve` (the Cellar, until Ctrl+C; ADR 0063), `doctor`, `status`, `stuck`, `replay <batch>`, and the commands that change state (`retry`, `skip`, `answer`, `recipe`, `rewind`, `cancel`); `--help` lists them
 
