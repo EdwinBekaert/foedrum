@@ -70,14 +70,16 @@ MSYS_NO_PATHCONV=1 claude -p "/skill-doctor" --permission-mode dontAsk > .foedru
 ## Stage 5: the pull request
 
 1. Apply the edits marked **apply**, including the moves to `.claude/rules/`, in the worktree. Commit them by topic (one commit per file or per finding group), with imperative subjects. They are documentation and prompts: exempt from the red proof, not from review (CLAUDE.md, Tests).
-2. Measure again with `node scripts/instruction-sizes.ts --since <sha>`, so the summary shows what the pull request changes.
-3. Write the description with the file tool to `.foedrum/tmp/<issue>/pr-body.md`:
+2. Rebuild the ADR index (#312): `node scripts/adr-index.ts > .foedrum/tmp/<issue>/adr-index.txt` in the worktree. Pull requests add their record as a new file only, so the table in `docs/adr/README.md` and the older records' "Amended by" lines lag until now; the script rebuilds both from the records' `Amends` and `Supersedes` links and prints one line per change. When it fails, it names the file and line of each record it cannot read; that is a finding for the summary, not something to fix by hand in the table. Commit what it changed alone (`Rebuild the ADR index`), unedited, then check that `node scripts/adr-index.ts --check` exits 0.
+3. Measure again with `node scripts/instruction-sizes.ts --since <sha>`, so the summary shows what the pull request changes.
+4. Write the description with the file tool to `.foedrum/tmp/<issue>/pr-body.md`:
    - **How it works**, as a `/brew-sheet`: what the last call is and what this one proposes;
    - **Milestone state**: the exit criterion and whether it is met; a table of the open issues with the proposal and the reason;
    - **Sizes**: the table before and after the edits, and the commit `<previous>` they are compared with (or that this is the first run);
+   - **ADR index**: the lines `adr-index.txt` holds (rows added or changed, back links added or removed), or that nothing changed;
    - **Findings**: every audit finding with its file, line, disposition and reason; the follow-ups;
    - **Skill usage**: the project's skills and their uses;
    - what a person does next: merge, move or close the issues named, and close the milestone once no open issue blocks its exit criterion;
    - `Closes #<issue>`.
-4. Run the checks (`npm run check`), `git push -u origin docs/last-call-<m>`, and `gh pr create --draft --title "Last call for <M>" --body-file .foedrum/tmp/<issue>/pr-body.md`. Then the usual close: `/brew-review <n>`, address or dismiss every finding, and stop. Never mark it ready, merge it, or move an issue: that is the user's call.
-5. Print the pull request's URL, then remove `.foedrum/tmp/<issue>/` and `.foedrum/tmp/last-call-<m>.md`, each written as a literal path (CLAUDE.md "Temporary files"). The pull request changes `.claude/`, so sessions need a restart after it merges (CLAUDE.md "Restarting a session").
+5. Run the checks (`npm run check`), `git push -u origin docs/last-call-<m>`, and `gh pr create --draft --title "Last call for <M>" --body-file .foedrum/tmp/<issue>/pr-body.md`. Then the usual close: `/brew-review <n>`, address or dismiss every finding, and stop. Never mark it ready, merge it, or move an issue: that is the user's call.
+6. Print the pull request's URL, then remove `.foedrum/tmp/<issue>/` and `.foedrum/tmp/last-call-<m>.md`, each written as a literal path (CLAUDE.md "Temporary files"). The pull request changes `.claude/`, so sessions need a restart after it merges (CLAUDE.md "Restarting a session").
