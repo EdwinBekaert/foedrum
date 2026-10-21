@@ -66,6 +66,8 @@ describe('notedPush', () => {
         'refs/heads/foedrum/acme.brewery/bad',
       ]),
     );
+    // Each write ended with its push: a later window sees neither.
+    assert.deepEqual(writes.watch('acme/api').close(), new Set());
   });
 });
 
@@ -86,5 +88,6 @@ describe('notedClaims', () => {
       window.close(),
       new Set(['refs/foedrum/claims/issues/7', 'refs/foedrum/claims/issues/9']),
     );
+    assert.deepEqual(writes.watch('acme/api').close(), new Set());
   });
 });

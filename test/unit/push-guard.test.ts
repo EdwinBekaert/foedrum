@@ -51,6 +51,7 @@ const setup = ({
   remote = fakeRemote(),
   read,
   exempt,
+  history = events,
 }: {
   /** What the brewer does to the remote, then how its attempt ends. */
   behaviour?: (remote: ReturnType<typeof fakeRemote>) => Behaviour;
@@ -59,6 +60,8 @@ const setup = ({
   /** Answers each read in place of the fake remote, by its number from 1. */
   read?: (n: number, signal: AbortSignal) => Promise<string> | undefined;
   exempt?: (repo: string, ref: string) => boolean;
+  /** The events the driver has recorded. */
+  history?: Event[];
 } = {}) => {
   const writes = remoteWrites();
   const order: string[] = [];
@@ -68,7 +71,7 @@ const setup = ({
   });
   const runner = guardPushes({
     runner: inner,
-    state: () => fold(events),
+    state: () => fold(history),
     guarded: (attempt) => {
       assert.deepEqual(attempt, ref);
       return guarded;
@@ -158,6 +161,34 @@ describe('guardPushes (ADR 0106)', () => {
     assert.equal(end.ending.kind, 'succeeded');
     assert.deepEqual(remote.reads, []);
     assert.equal(inner.started.length, 1);
+  });
+
+  it('starts an attempt with no worktree recorded unguarded: its plan fails it before anything runs', async () => {
+    const { runner, remote, inner } = setup({ history: events.slice(0, 3) });
+    const end = await start(runner).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.deepEqual(remote.reads, []);
+    assert.equal(inner.started.length, 1);
+  });
+
+  it('reports progress while it reads after the attempt, so its lease holds', async () => {
+    let release: (listed: string) => void = () => {};
+    let after = false;
+    const { runner, remote } = setup({
+      read: (n) =>
+        n === 2
+          ? new Promise((resolve) => {
+              after = true;
+              release = resolve;
+            })
+          : undefined,
+    });
+    const running = start(runner);
+    while (!after) await new Promise((resolve) => setImmediate(resolve));
+    assert.notEqual(runner.progress(ref), undefined);
+    release(remote.listing());
+    assert.equal((await running.ended).ending.kind, 'succeeded');
+    assert.equal(runner.progress(ref), undefined);
   });
 
   it('blocks the attempt on its environment, and never starts the brewer, when the remote cannot be read before', async () => {
