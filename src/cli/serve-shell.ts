@@ -77,7 +77,13 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       return openSqliteEventStore(path);
     },
     stateBranch: (store) =>
-      openStateBranch({ store, git, clone: root, worktree: setup.stateWorktree }),
+      openStateBranch({
+        store,
+        git,
+        clone: root,
+        worktree: setup.stateWorktree,
+        out: (line) => out(`foedrum serve: ${line}`),
+      }),
     worktrees: async (repository) => {
       const { repo, source, clone } = repository;
       if (source === 'local') {

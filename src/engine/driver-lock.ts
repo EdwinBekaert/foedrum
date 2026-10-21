@@ -9,7 +9,7 @@
 
 import { linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { takeFileLock } from '../platform/file-lock.ts';
 import { errorCode } from '../platform/remove.ts';
 import { Repo } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
@@ -79,8 +79,6 @@ export class DriverRunningError extends Error {
   }
 }
 
-// SQLite's result code when another connection holds a lock it needs.
-const SQLITE_BUSY = 5;
 /** Windows may free the lock of a process that died a little after the process is gone. */
 const WAIT_MS = 2_000;
 
@@ -140,31 +138,17 @@ export const lockDriver = (workRoot: string, options: DriverLockOptions): Driver
 
   const path = join(workRoot, 'drivers', `${owner}.lock`);
   const holderPath = join(workRoot, 'drivers', `${owner}.holder.json`);
-  // A SQLite database in exclusive locking mode keeps the lock of its first write until it is
-  // closed, and the file lock under it (fcntl, LockFileEx) dies with the process: no stale lock
-  // to detect, and no pid that a new process may reuse. A held lock is waited for `waitMs`.
-  const db = new DatabaseSync(path, { timeout: waitMs });
-  try {
-    db.exec('PRAGMA locking_mode = EXCLUSIVE');
-    db.exec('BEGIN EXCLUSIVE');
-    // The write that takes the exclusive lock for good.
-    db.exec('CREATE TABLE IF NOT EXISTS taken (id INTEGER PRIMARY KEY)');
-    db.exec('INSERT OR REPLACE INTO taken (id) VALUES (1)');
-    db.exec('COMMIT');
-  } catch (error) {
-    db.close();
-    if ((error as { errcode?: unknown }).errcode === SQLITE_BUSY) {
-      throw new DriverRunningError(owner, path, holderOf(holderPath));
-    }
-    throw error;
-  }
+  // A SQLite database in exclusive locking mode (takeFileLock): no stale lock to detect, and no
+  // pid that a new process may reuse. A held lock is waited for `waitMs`.
+  const lock = takeFileLock(path, waitMs);
+  if (lock === undefined) throw new DriverRunningError(owner, path, holderOf(holderPath));
   // Written under the lock, for the message a refused driver shows; nothing decides by it. When
   // it cannot be written, the lock goes too: no handle would be left to release it.
   const holder: DriverHolder = { pid, startedAt: now().toISOString() };
   try {
     writeFileSync(holderPath, `${JSON.stringify(holder)}\n`);
   } catch (error) {
-    db.close();
+    lock.release();
     throw error;
   }
   let held = true;
@@ -180,7 +164,7 @@ export const lockDriver = (workRoot: string, options: DriverLockOptions): Driver
       // The lock first: a holder file a scanner keeps busy must not keep the lock taken. A process
       // that takes the lock in between may lose its holder file here; that only leaves its name
       // out of a refusal's message.
-      db.close();
+      lock.release();
       try {
         rmSync(holderPath, { force: true });
       } catch {
