@@ -809,6 +809,7 @@ describe('openStateBranch with a fake git', () => {
       const sleep = async (ms: number): Promise<void> => {
         waits.push(ms);
         assert.equal(existsSync(indexLock()), true, 'untouched while the other writer holds it');
+        assert.deepEqual(fake.calls, [], 'no git while the other writer holds it');
         if (waits.length === 3) {
           other?.release();
           other = undefined;
@@ -844,7 +845,7 @@ describe('openStateBranch with a fake git', () => {
       }
       assert.equal(waited, 150_000);
       assert.equal(existsSync(indexLock()), true);
-      assert.equal(fake.find('write-tree'), undefined);
+      assert.deepEqual(fake.calls, []);
     });
 
     it('lets the writer lock go after a start that fails, so the next start can take it', async () => {
