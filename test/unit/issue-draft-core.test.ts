@@ -54,6 +54,12 @@ describe('checkDraft', () => {
     assert.doesNotMatch(problem ?? '', /[\p{Cc}\p{Cf}]/u);
   });
 
+  it("keeps the draft text the parser's message shows, escaped", () => {
+    const rightToLeft = String.fromCodePoint(0x202e);
+    const [problem] = problemsOf(`{"title": x\u001b[2J${rightToLeft}}`);
+    assert.match(problem ?? '', /\\u001b\[2J\\u202e/);
+  });
+
   it('refuses JSON that is not an object', () => {
     for (const value of [null, ['t', 'b'], 't', 1]) {
       assert.deepEqual(problemsOf(draft(value)), ['the draft is not a JSON object']);
