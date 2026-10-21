@@ -1,6 +1,6 @@
 // The noPush guard, the shell (ADR 0106): around the brewer runner, it reads the refs of the target
-// repository's remote before an attempt of a guarded step starts and after it ends, and fails the
-// attempt when a ref the engine did not write changed. no-push.ts decides.
+// repository's remote before an attempt of a guarded step starts and after it ends, and blocks the
+// attempt on a divergence when a ref the engine did not write changed. no-push.ts decides.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type {
@@ -85,9 +85,10 @@ export function guardPushes(options: PushGuardOptions): BrewerRunner {
         const engine = window.close();
         const changed = changedRefs(start, after, (ref) => engine.has(ref) || exempt(repo, ref));
         if (changed.length === 0) return end;
-        // A push is the engine's alone: a human looks at the remote before the batch goes on.
-        const reason = noPushReason(repo, changed);
-        return { ...end, ending: { kind: 'failed', retryable: false, reason } };
+        // A push is the engine's alone: the remote is not what the engine left, so the batch is
+        // Stuck for a human to look at it, however its recipe routes a failure.
+        const summary = noPushReason(repo, changed);
+        return { ...end, ending: { kind: 'blocked', blockerKind: 'divergence', summary } };
       } finally {
         window.close();
         reading.delete(key);

@@ -8,7 +8,9 @@ import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import type { ClaudeAttemptPlan } from '../brewers/claude-runner.ts';
 import { createCheckRunner } from '../checks/check-runner.ts';
+import { guardPushes } from '../checks/push-guard.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
+import { notedClaims, notedPush, remoteWrites } from '../checks/remote-writes.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
@@ -33,7 +35,7 @@ import {
   pullRequestActions,
 } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
-import type { StateBranch } from '../engine/state-branch-git.ts';
+import { STATE_BRANCH, type StateBranch } from '../engine/state-branch-git.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -193,12 +195,14 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     await stateBranch.start();
     const worktrees: RepositoryWorktrees[] = [];
     const pushes: PullRequestRepository[] = [];
+    // The engine's own writes to the remotes, which the noPush guard leaves out (ADR 0106).
+    const writes = remoteWrites();
     for (const repository of setup.repositories) {
       const { repo, base } = repository;
       worktrees.push({ repo, base, manager: await shell.worktrees(repository) });
       // The pull request goes into the branch the attempts start from (ADR 0071).
       const into = base.slice(base.indexOf('/') + 1);
-      pushes.push({ repo, base: into, push: shell.push(repository) });
+      pushes.push({ repo, base: into, push: notedPush(shell.push(repository), writes, repo) });
     }
     const client = createGitHubClient({
       exec: shell.gh,
@@ -208,7 +212,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     });
     // One cache of conditional reads for the intake, the marks and the orders' text (ADR 0052).
     const reads = createGitHubReads(client);
-    const claims = githubClaimHost(client);
+    const claims = notedClaims(githubClaimHost(client), writes);
     // gh's login: the status comments and the claim marks count only its own (ADR 0072, ADR 0073).
     const login = await githubLogin(client, signal);
     const claimant: Claimant = { brewery: setup.brewery, login };
@@ -246,11 +250,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       setup.repositories.find((repository) => sameRepo(repository.repo, repo));
     // The clone a repository's worktrees are added to: where git reads an attempt's commits, never
     // its worktree (ADR 0074, ADR 0078).
-    const clone = (repo: string) => {
+    const repositoryCalled = (repo: string) => {
       const repository = repositoryNamed(repo);
       if (repository === undefined) throw new Error(`${repo} is no repository of this Brewery`);
-      return worktreeClonePath(setup.workRoot, repository);
+      return repository;
     };
+    const clone = (repo: string) => worktreeClonePath(setup.workRoot, repositoryCalled(repo));
     const plans = createAttemptPlans({
       state,
       brewers: setup.brewers,
@@ -277,17 +282,28 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       clock,
     });
     const recipeOf = (batchId: string) => state().batches.get(batchId)?.recipe?.name;
-    // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078).
-    const brewer = guardTests({
-      runner: shell.runner(setup.claude, plans.plan),
+    const guardsOf = (batchId: string, stepId: string) =>
+      setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.guards ?? [];
+    // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078),
+    // and one with noPush leaves the remote as it found it (ADR 0106).
+    const brewer = guardPushes({
+      runner: guardTests({
+        runner: shell.runner(setup.claude, plans.plan),
+        state,
+        protects: ({ batchId, stepId }) =>
+          guardsOf(batchId, stepId).includes('testsUnchanged')
+            ? setup.checks.redProof(recipeOf(batchId) ?? '')?.of
+            : undefined,
+        git: shell.git,
+        clone,
+        clock,
+      }),
       state,
-      protects: ({ batchId, stepId }) => {
-        const recipe = recipeOf(batchId) ?? '';
-        const guards = setup.brewers.find(recipe, stepId)?.brewer.guards ?? [];
-        return guards.includes('testsUnchanged') ? setup.checks.redProof(recipe)?.of : undefined;
-      },
-      git: shell.git,
-      clone,
+      guarded: ({ batchId, stepId }) => guardsOf(batchId, stepId).includes('noPush'),
+      refs: async (repo, signal) => shell.refs(repositoryCalled(repo))(signal),
+      writes,
+      // Its own push refuses a move the engine did not make (ADR 0024).
+      exempt: (repo, ref) => sameRepo(repo, setup.brewery) && ref === `refs/heads/${STATE_BRANCH}`,
       clock,
     });
     const runner = stepRunner({

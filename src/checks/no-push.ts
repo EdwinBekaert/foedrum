@@ -60,7 +60,7 @@ const described = ({ ref, from, to }: ChangedRef): string => {
   return `${name} moved from ${from} to ${to}`;
 };
 
-/** Why the guard fails an attempt during which the remote of `repo` changed. */
+/** Why the guard stops an attempt during which the remote of `repo` changed. */
 export function noPushReason(repo: string, changed: readonly ChangedRef[]): string {
   const [first] = changed;
   if (first === undefined) throw new Error('No ref changed');

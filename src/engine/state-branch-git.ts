@@ -73,6 +73,8 @@ export interface StateBranch {
   flush(): Promise<FlushResult>;
 }
 
+/** The branch the events are pushed to, unless the options name another. */
+export const STATE_BRANCH = 'foedrum/state';
 /** The ref of the signing check's test commit; deleted again right away. */
 const PROBE_REF = 'refs/foedrum/signing-check';
 /** A signing prompt that nobody answers must not hold up the start for long. */
@@ -93,7 +95,7 @@ const why = ({ code, stderr }: { code: number | null; stderr: string }): string 
   firstLine(stderr) || (code === null ? 'git did not finish in time' : `git exited with ${code}`);
 
 export const openStateBranch = (options: StateBranchOptions): StateBranch => {
-  const { store, clone, worktree, remote = 'origin', branch = 'foedrum/state' } = options;
+  const { store, clone, worktree, remote = 'origin', branch = STATE_BRANCH } = options;
   const ref = `refs/heads/${branch}`;
   const remoteBranch = `${remote}/${branch}`;
   // --no-verify skips pre-commit and pre-push only. Every call gets core.hooksPath at an empty
