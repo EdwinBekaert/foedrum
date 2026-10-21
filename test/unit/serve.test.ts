@@ -313,6 +313,43 @@ describe('runServe', () => {
     ]);
   });
 
+  it('says in one line when an out doc cannot be kept, and brews on (ADR 0103)', async () => {
+    const runner = (): BrewerRunner => ({
+      start: () => ({
+        ended: Promise.resolve({
+          ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          outDoc: '# Notes\n',
+        }),
+        stop: () => {},
+      }),
+      progress: () => undefined,
+    });
+    const inner = store;
+    store = {
+      ...inner,
+      withTransaction: (fn) =>
+        inner.withTransaction((tx) =>
+          fn({
+            ...tx,
+            keepOutDoc: () => {
+              throw new Error('disk full');
+            },
+          }),
+        ),
+    };
+    assert.equal(await runServe(setup, shell({ runner })), 0);
+    assert.ok(
+      lines.includes(
+        'foedrum serve: the out doc of 12-1 brew#1 was not kept for the state branch: disk full',
+      ),
+      lines.join('\n'),
+    );
+    assert.equal(
+      createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane.kind,
+      'on_tap',
+    );
+  });
+
   it('refuses a second Cellar, opening nothing', async () => {
     const running = new DriverRunningError('cellar', 'drivers/cellar.lock', undefined);
     const code = await runServe(
