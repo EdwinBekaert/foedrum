@@ -1702,6 +1702,7 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'rd /s /q %TEMP%\\run',
     'cmd /c "rmdir /S /Q %X%"',
     'del /s %X%',
+    'erase /s %X%',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
@@ -1727,6 +1728,7 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'rm -rf .foedrum/tmp/*/scratch',
     // rm without recursion, whatever the path.
     'rm -f "$file"',
+    'rm -f -- "$file"',
     'rm "$file"',
     'rm -fv $(ls *.log)',
     // A single-quoted $ is literal in both shells.
@@ -1757,6 +1759,10 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     ['Remove-Item -Recurse -Force $p', 'PowerShell'],
     ['ri -r $env:TEMP', 'PowerShell'],
     ['cmd /c rd /s /q %X%', 'PowerShell'],
+    ['del -Recurse $p', 'PowerShell'],
+    ['erase -Recurse $p', 'PowerShell'],
+    // The shells drop the quotes that split the name.
+    [`r''m -rf "$d"`, 'Bash'],
   ];
   for (const [command, tool] of blocked) {
     it(`blocks without running the check (${tool}): ${command}`, async () => {
@@ -1771,6 +1777,20 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
   for (const command of ['rm -rf .foedrum/tmp/218/run', 'rm -f "$file"']) {
     it(`lets through: ${command}`, async () => {
       const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+      const result = await precheck(hookInput(command, '/work/tree'), runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  // Too wide to read, so the parser would block them: a pass shows the pre-filter let them through
+  // unread, since each has a delete word or a $, but not both.
+  for (const string of ['"$x%d"', '"rm%d"']) {
+    it(`lets through a command of ${string} strings without reading it`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+      const strings = Array.from({ length: 3000 }, (_, i) => string.replace('%d', `${i}`));
+      const command = `bash -c ${strings.join(' ')}`;
+      assert.match(forbiddenReason(command) ?? '', /too deeply/);
       const result = await precheck(hookInput(command, '/work/tree'), runCheck);
       assert.deepEqual(result, { exitCode: 0, stderr: '' });
       assert.deepEqual(calls, []);
