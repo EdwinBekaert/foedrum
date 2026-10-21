@@ -4,6 +4,9 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { type FileLock, takeFileLock } from '../platform/file-lock.ts';
+import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { removeTree } from '../platform/remove.ts';
 import { replaceFile } from '../platform/replace-file.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
@@ -86,6 +89,10 @@ const PUSH_TIMEOUT_MS = 120_000;
 const TREE_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 /** Files are written next to their place and renamed, so a crash never leaves half a log. */
 const TMP_SUFFIX = '.foedrum-tmp';
+// A start waits for another driver's start or flush to let the writer lock go (ADR 0107), longer
+// than that flush's push may take.
+const WRITER_POLL_MS = 250;
+const WRITER_WAIT_MS = 150_000;
 
 const firstLine = (text: string): string =>
   text
@@ -97,7 +104,15 @@ const why = ({ code, stderr }: { code: number | null; stderr: string }): string 
   firstLine(stderr) || (code === null ? 'git did not finish in time' : `git exited with ${code}`);
 
 export const openStateBranch = (options: StateBranchOptions): StateBranch => {
-  const { store, clone, worktree, remote = 'origin', branch = 'foedrum/state' } = options;
+  const {
+    store,
+    clone,
+    worktree,
+    remote = 'origin',
+    branch = 'foedrum/state',
+    out = () => {},
+    sleep = (ms) => delay(ms),
+  } = options;
   const ref = `refs/heads/${branch}`;
   const remoteBranch = `${remote}/${branch}`;
   // --no-verify skips pre-commit and pre-push only. Every call gets core.hooksPath at an empty
@@ -121,6 +136,24 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     if (result.code !== 0) throw new Error(`git ${args[0]} failed: ${why(result)}`);
     return result.stdout;
   };
+  // Every git that writes the worktree's index runs under the writer lock (ADR 0107), so an
+  // index.lock found while it is held was left by a git that no longer runs.
+  const writerLock = join(dirname(worktree), 'state.lock');
+  const takeWriter = async (): Promise<FileLock | undefined> => {
+    await mkdir(dirname(worktree), { recursive: true });
+    return takeFileLock(writerLock, 0);
+  };
+  const otherWriter = `another driver of this work root is writing the state worktree ${worktree}: its writer lock ${writerLock} is held`;
+  let gitDir: string | undefined;
+  const removeLeftIndexLock = async (): Promise<void> => {
+    gitDir ??= (await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim();
+    if (
+      (await removeStaleIndexLock(gitDir, { maxAgeMs: Number.NEGATIVE_INFINITY })) === 'removed'
+    ) {
+      out(`removed a stale index.lock from the state worktree: ${join(gitDir, 'index.lock')}`);
+    }
+  };
+
   const onDisk = (path: string): string => join(worktree, ...path.split('/'));
   const write = async (path: string, text: string): Promise<void> => {
     const file = onDisk(path);
@@ -321,60 +354,90 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     }
   };
 
-  // One flush at a time: a second one waits and then pushes what is left.
+  const startNow = async (): Promise<StartResult> => {
+    await emptyHooks();
+    const remoteSha = await remoteHead(clone);
+    if (remoteSha !== undefined) {
+      await must(clone, ['fetch', '--no-tags', remote, `+${ref}:refs/remotes/${remoteBranch}`]);
+    }
+    if (remoteSha !== undefined) await refuseLinks(remoteSha);
+    await openWorktree(remoteSha);
+    await removeLeftIndexLock();
+    await checkSigning();
+    const pushed = store.pushedThrough();
+    const localHead = await head();
+    const pushedReachesRemote =
+      pushed !== undefined &&
+      remoteSha !== undefined &&
+      (pushed.commit === remoteSha || (await isAncestor(pushed.commit, remoteSha)));
+    const decision = decideStart({
+      branch: remoteBranch,
+      lastEventId: store.lastEventId(),
+      pushed,
+      localHead,
+      remoteHead: remoteSha,
+      pushedReachesRemote,
+    });
+    switch (decision.kind) {
+      case 'ready':
+        return { decision: 'ready' };
+      case 'flush':
+        return { decision: 'flush', flush: await flushNow(localHead !== pushed?.commit) };
+      case 'restore':
+        await restore(localHead, remoteSha as string);
+        return { decision: 'restore' };
+      case 'stop':
+        throw new StateBranchStopError(decision.reason);
+      default: {
+        const unknown: never = decision;
+        throw new Error(`Unknown start decision ${JSON.stringify(unknown)}`);
+      }
+    }
+  };
+
+  // One start or flush at a time in this process: a second flush waits and then pushes what is
+  // left. The writer lock keeps out the other processes of the work root (ADR 0107).
   let queue: Promise<unknown> = Promise.resolve();
-  const serialized = (checkAll: boolean): Promise<FlushResult> => {
-    const run = queue.then(() => flushNow(checkAll));
-    queue = run.catch(() => undefined);
-    return run;
+  const serialized = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = queue.then(run);
+    queue = next.catch(() => undefined);
+    return next;
+  };
+  const asWriter = async <T>(lock: FileLock, run: () => Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } finally {
+      lock.release();
+    }
   };
 
   return {
-    start: async () => {
-      await emptyHooks();
-      const remoteSha = await remoteHead(clone);
-      if (remoteSha !== undefined) {
-        await must(clone, ['fetch', '--no-tags', remote, `+${ref}:refs/remotes/${remoteBranch}`]);
-      }
-      if (remoteSha !== undefined) await refuseLinks(remoteSha);
-      await openWorktree(remoteSha);
-      await checkSigning();
-      const pushed = store.pushedThrough();
-      const localHead = await head();
-      const pushedReachesRemote =
-        pushed !== undefined &&
-        remoteSha !== undefined &&
-        (pushed.commit === remoteSha || (await isAncestor(pushed.commit, remoteSha)));
-      const decision = decideStart({
-        branch: remoteBranch,
-        lastEventId: store.lastEventId(),
-        pushed,
-        localHead,
-        remoteHead: remoteSha,
-        pushedReachesRemote,
-      });
-      switch (decision.kind) {
-        case 'ready':
-          return { decision: 'ready' };
-        case 'flush':
-          return {
-            decision: 'flush',
-            flush: await serialized(localHead !== pushed?.commit),
-          };
-        case 'restore':
-          await restore(localHead, remoteSha as string);
-          return { decision: 'restore' };
-        case 'stop':
-          throw new StateBranchStopError(decision.reason);
-        default: {
-          const unknown: never = decision;
-          throw new Error(`Unknown start decision ${JSON.stringify(unknown)}`);
+    start: () =>
+      serialized(async () => {
+        let lock = await takeWriter();
+        for (let waited = 0; lock === undefined; waited += WRITER_POLL_MS) {
+          if (waited >= WRITER_WAIT_MS) {
+            throw new StateBranchStopError(
+              `For ${WRITER_WAIT_MS / 1000} s, ${otherWriter}. The engine does not start; try again once that driver's flush is done.`,
+            );
+          }
+          await sleep(WRITER_POLL_MS);
+          lock = await takeWriter();
         }
-      }
-    },
+        return asWriter(lock, startNow);
+      }),
 
     writeOutDoc: async (attempt, text) => write(outDocPath(attempt), text),
 
-    flush: () => serialized(false),
+    // Another driver's flush may push this one's events too; the caller retries on its deadline.
+    flush: () =>
+      serialized(async () => {
+        const lock = await takeWriter();
+        if (lock === undefined) return { kind: 'failed', reason: otherWriter };
+        return asWriter(lock, async () => {
+          await removeLeftIndexLock();
+          return flushNow(false);
+        });
+      }),
   };
 };
