@@ -415,6 +415,14 @@ describe('planFlush', () => {
       assert.equal(files.at(-1)?.text, text);
     });
 
+    it('plans only the kept out docs when no event is pending: one kept after its events were pushed', () => {
+      // Stuck abandoned the attempt; its out doc was kept after the flush that pushed the events.
+      const current = new Map([[b1, line(1, ordered('b1'))]]);
+      assert.deepEqual(planFlush(current, [], 1, [doc('# Plan\n')]), [
+        { path: 'batches/b1/plan-1.md', text: '# Plan\n' },
+      ]);
+    });
+
     it('fails closed past LIMIT: a fixed line naming the attempt and its size, none of the text', () => {
       const text = `${'é'.repeat(LIMIT / 2)}x`;
       const files = planFlush(new Map(), [stored(2, finished('b1'))], 1, [doc(text)]);

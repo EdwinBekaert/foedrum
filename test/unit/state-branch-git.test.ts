@@ -765,6 +765,26 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(store.keptOutDocs(), []);
     });
 
+    it('pushes an out doc kept after its events were pushed, moving only the marker’s commit', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      const first = await state.flush();
+      assert.equal(first.kind, 'pushed');
+      // An attempt that Stuck abandoned ends after the flush; no event follows on an idle Brewery.
+      keep();
+
+      const result = await state.flush();
+
+      assert.equal(result.kind, 'pushed');
+      assert.equal(read('batches/b1/plan-2.md'), text);
+      assert.deepEqual(store.keptOutDocs(), []);
+      const marker = store.pushedThrough();
+      assert.equal(marker?.eventId, 2);
+      assert.notEqual(marker?.commit, first.kind === 'pushed' ? first.commit : undefined);
+      assert.deepEqual(await state.flush(), { kind: 'unchanged' });
+    });
+
     it('writes a kept out doc at the next start, when the engine died before its flush', async () => {
       append(ordered('b1'), finished);
       keep();
