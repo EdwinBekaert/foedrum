@@ -264,12 +264,16 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const pending = store.eventsAfter(from);
     const last = pending.at(-1);
     if (last === undefined) return { kind: 'unchanged' };
+    // Read after the events: the out doc of a pending step.finished was kept before it (ADR 0103).
+    const outDocs = store.keptOutDocs();
     const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
     if (checkAll) for (const path of await logFiles()) paths.add(path);
     const current = new Map(
       await Promise.all([...paths].map(async (path) => [path, await read(path)] as const)),
     );
-    for (const file of planFlush(current, pending, from)) await write(file.path, file.text);
+    for (const file of planFlush(current, pending, from, outDocs)) {
+      await write(file.path, file.text);
+    }
     // The branch holds the same bytes on every machine, whatever core.autocrlf says.
     if (!existsSync(onDisk('.gitattributes'))) await write('.gitattributes', '* -text\n');
 
@@ -298,7 +302,11 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const outcome = classifyPush(pushed);
     switch (outcome) {
       case 'pushed':
-        store.withTransaction((tx) => tx.markPushed({ eventId: last.id, commit }));
+        store.withTransaction((tx) => {
+          tx.markPushed({ eventId: last.id, commit });
+          // The branch has them now; a crash before this writes them again, with the same text.
+          tx.forgetOutDocs(outDocs);
+        });
         return { kind: 'pushed', through: last.id, commit };
       case 'rejected': {
         const moved = await remoteHead(worktree).catch(() => undefined);

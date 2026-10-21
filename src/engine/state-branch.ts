@@ -90,6 +90,12 @@ export const outDocPath = ({
   return `batches/${segment(batchId, 'batch id')}/${segment(stepId, 'step id')}-${attempt}.md`;
 };
 
+/**
+ * The most bytes of an out doc's text the state branch keeps (ADR 0103); past it, a fixed line
+ * takes the text's place.
+ */
+export const MAX_BRANCH_OUT_DOC_BYTES = 256 * 1024;
+
 /** Whether `path` is a log file: `events.jsonl` or `batches/<batchId>/events.jsonl`. */
 export const isLogPath = (path: string): boolean => {
   if (path === TOP_LEVEL_LOG) return true;
@@ -178,17 +184,30 @@ export const mergeLogs = (files: readonly BranchFile[]): LoggedEvent[] => {
 };
 
 /**
- * The new text of every log file the pending events go to. `current` holds the files to check,
- * as they are in the worktree (missing when absent): at least those the pending events go to.
- * Lines after `pushedThrough` that a crashed flush left behind are replaced; one that differs
- * from the pending event with its id means another engine wrote it, and throws
- * `StateBranchStopError`.
+ * A kept out doc as a file on the branch: model output, stored as it is and never read back as a
+ * log or an order (ADR 0103). Past `MAX_BRANCH_OUT_DOC_BYTES` a fixed line takes its place.
+ */
+const outDocFile = (doc: KeptOutDoc): BranchFile => {
+  const path = outDocPath(doc);
+  const bytes = Buffer.byteLength(doc.text, 'utf8');
+  if (bytes <= MAX_BRANCH_OUT_DOC_BYTES) return { path, text: doc.text };
+  const text = `[left out: the out doc of ${doc.stepId}#${doc.attempt} is ${bytes} bytes, more than the ${MAX_BRANCH_OUT_DOC_BYTES} the state branch keeps]\n`;
+  return { path, text };
+};
+
+/**
+ * The new text of every log file the pending events go to, then every out doc in `outDocs` at its
+ * `outDocPath`, so each goes into the commit of the step.finished that records it (ADR 0103).
+ * `current` holds the files to check, as they are in the worktree (missing when absent): at least
+ * those the pending events go to. Lines after `pushedThrough` that a crashed flush left behind are
+ * replaced; one that differs from the pending event with its id means another engine wrote it, and
+ * throws `StateBranchStopError`. Without pending events nothing is planned, out docs neither.
  */
 export const planFlush = (
   current: ReadonlyMap<string, string | undefined>,
   pending: readonly StoredEvent[],
   pushedThrough: number,
-  _outDocs: readonly KeptOutDoc[] = [],
+  outDocs: readonly KeptOutDoc[] = [],
 ): BranchFile[] => {
   const byPath = new Map<string, StoredEvent[]>();
   // Each pending line by id, with the file it goes to.
@@ -224,10 +243,14 @@ export const planFlush = (
     }
     kept.set(path, text);
   }
-  return [...byPath].map(([path, events]) => ({
-    path,
-    text: (kept.get(path) ?? '') + events.map(formatLine).join(''),
-  }));
+  if (pending.length === 0) return [];
+  return [
+    ...[...byPath].map(([path, events]) => ({
+      path,
+      text: (kept.get(path) ?? '') + events.map(formatLine).join(''),
+    })),
+    ...outDocs.map(outDocFile),
+  ];
 };
 
 const range = (from: number, to: number): string =>
