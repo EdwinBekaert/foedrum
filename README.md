@@ -38,6 +38,7 @@ flowchart LR
 - [Glossary](docs/glossary.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Dependencies](DEPENDENCIES.md)
+- [Security](SECURITY.md)
 
 ## Contributing
 
