@@ -264,6 +264,37 @@ describe('readKeptBranches', () => {
     assert.equal(calls[0]?.[0], CLONE);
   });
 
+  it("reads a rewound task tree's branch in the clone of its attempt's repository, not the batch's (review of #288)", async () => {
+    const LIB_CLONE = '/src/lib';
+    const { calls, git } = fakeGit((_cwd, args) =>
+      args[0] === 'rev-parse' ? ok(`${TIP}\n`) : ok('1\n'),
+    );
+    const worktree = { repo: 'acme/lib', path: '/work/brew/2', branch, commit: TIP };
+    const attempt = {
+      phase: 'finished',
+      attempt: 2,
+      deadlineAt: '2026-10-15T00:00:00.000Z',
+      worktree,
+      outcome: { kind: 'failed', retryable: true, reason: 'the run broke' },
+    } as const;
+    const rewound: Batch = {
+      ...batch('12-1', 'acme/app'),
+      steps: new Map([['brew', { id: 'brew', inputs: [], attempts: new Map([[2, attempt]]) }]]),
+      taskTree: { kind: 'rewound', shas: { 'acme/app': START, 'acme/lib': TIP } },
+    };
+
+    const readings = await readKeptBranches(state(rewound), new Map([[branch, START]]), {
+      git,
+      cloneOf: (repo) => (repo === 'acme/lib' ? LIB_CLONE : cloneOf(repo)),
+    });
+
+    assert.deepEqual(readings, new Map([[branch, { ...read(1), clone: LIB_CLONE }]]));
+    assert.deepEqual(
+      calls.map((call) => call[0]),
+      [LIB_CLONE, LIB_CLONE],
+    );
+  });
+
   it('says so for a rewound batch whose branch names no attempt it recorded, without asking git (review of #288)', async () => {
     const { calls, git } = fakeGit();
     const rewound: Batch = {

@@ -377,6 +377,21 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
   });
 
+  it("goes on to the rewind's next repository when no attempt wrote in the first (review of #288)", () => {
+    const OTHER = 'f'.repeat(40);
+    const state = rewound([[1, finished('brew', 1, TIP)]]);
+    const found = state.batches.get('12-1');
+    assert.ok(found !== undefined);
+    const batch: Batch = {
+      ...found,
+      taskTree: { kind: 'rewound', shas: { 'acme/lib': OTHER, 'acme/app': TIP } },
+    };
+    assert.deepEqual(
+      worktreeClaims({ ...state, batches: new Map([['12-1', batch]]) }, []).unpushed,
+      new Map([['foedrum/12-1/brew/1', BASE]]),
+    );
+  });
+
   it("names the branch of the last attempt that succeeded when no attempt was made at the rewind's commit (review of #288)", () => {
     // brew/1 succeeded with tip Q; a rewind to Q (say, to retry an action step after it) makes
     // no worktree there, and brew/1's branch is the only ref to Q.
