@@ -121,6 +121,29 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     assert.equal(marked(), '');
   });
 
+  it('gives git the empty values through the Job Object and the platform shell, as the runners start it', async () => {
+    const shown = [
+      // The brewer runner's and the check runner's Job Object (ADR 0039), and a check's shell.
+      await execProcess('git', ['config', '--show-scope', '--get-all', 'credential.helper'], {
+        cwd: repo,
+        env: brewer(),
+        timeoutMs: 60_000,
+        jobObject: true,
+      }),
+      await execProcess('git config --show-scope --get-all credential.helper', [], {
+        cwd: repo,
+        env: brewer(),
+        timeoutMs: 60_000,
+        shell: true,
+        jobObject: true,
+      }),
+    ];
+    for (const { exitCode, stdout, stderr } of shown) {
+      assert.equal(exitCode, 0, stderr);
+      assert.match(stdout, /^command\t\r?$/m);
+    }
+  });
+
   it('still pushes to a local path, which needs no credential', async () => {
     const origin = join(run, 'origin.git');
     git(run, ['init', '-q', '--bare', origin]);
