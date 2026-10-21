@@ -758,7 +758,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       context: 'repo',
       toolbox: 'You may use jq.',
       doneWhen: 'The tests pass.',
-      guards: ['requiresOutDoc', 'noPush', 'requiresCommits', 'scope'],
+      guards: ['requiresOutDoc', 'requiresCommits', 'scope'],
     });
     const files = brewery({
       recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
@@ -774,7 +774,6 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       refused('"context": "repo"'),
       refused('"toolbox"'),
       refused('"doneWhen"'),
-      refused('the guard "noPush"'),
       refused('the guard "scope"'),
     ]);
   });
@@ -810,6 +809,21 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       git: { commit: true },
       produces: 'commits',
       guards: ['requiresOutDoc', 'testsUnchanged'],
+    });
+    const files = brewery({
+      recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
+      brewers: [maltster, brewmaster, cellarman],
+    });
+    assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
+  });
+
+  it('loads a brewer with the noPush guard, which the engine follows (ADR 0106)', () => {
+    const cellarman = brewer('cellarman', {
+      access: 'write',
+      tree: 'task',
+      git: { commit: true },
+      produces: 'commits',
+      guards: ['requiresOutDoc', 'noPush'],
     });
     const files = brewery({
       recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
