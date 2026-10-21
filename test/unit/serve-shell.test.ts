@@ -95,6 +95,24 @@ describe('serveShell', () => {
     ]);
   });
 
+  it('lists the refs of each repository on GitHub from a git directory of the work root, for the noPush guard (ADR 0106)', async () => {
+    const { calls, git } = fakeGit();
+    const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
+    const signal = new AbortController().signal;
+    await shell.refs(web())(signal);
+    await shell.refs(web({ source: 'managed' }))(signal);
+    assert.deepStrictEqual(objectsOf(calls), [clone, managed()]);
+    assert.deepStrictEqual(
+      calls
+        .filter((call) => call.includes('ls-remote'))
+        .map((call) => [call[0], dirname(call[1]?.slice('--git-dir='.length) ?? ''), call.at(-1)]),
+      [
+        [gitDirs(), gitDirs(), github],
+        [gitDirs(), gitDirs(), github],
+      ],
+    );
+  });
+
   it("fetches each repository's base from GitHub into a git directory of the work root, from its clone's objects (ADR 0090)", async () => {
     const { calls, git } = fakeGit((_cwd, args) => {
       if (args.includes('refs/heads/main'))

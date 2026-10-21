@@ -72,6 +72,8 @@ export interface StateBranch {
   flush(): Promise<FlushResult>;
 }
 
+/** The branch the events are pushed to, unless the options name another. */
+export const STATE_BRANCH = 'foedrum/state';
 /** The ref of the signing check's test commit; deleted again right away. */
 const PROBE_REF = 'refs/foedrum/signing-check';
 /** A signing prompt that nobody answers must not hold up the start for long. */
@@ -101,7 +103,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     clone,
     worktree,
     remote = 'origin',
-    branch = 'foedrum/state',
+    branch = STATE_BRANCH,
     out = () => {},
     sleep = (ms) => delay(ms),
   } = options;
