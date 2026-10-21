@@ -16,6 +16,11 @@ describe('isAudited', () => {
     }
   });
 
+  it('takes the path-scoped rules, where a last call moves sections of CLAUDE.md', () => {
+    assert.equal(isAudited('.claude/rules/gate.md'), true);
+    assert.equal(isAudited('.claude/rules/scripts/precheck.md'), true);
+  });
+
   it('leaves out everything else, scaffolding and look-alike names included', () => {
     for (const path of [
       '.claude/settings.json',

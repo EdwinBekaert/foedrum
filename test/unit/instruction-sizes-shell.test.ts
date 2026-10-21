@@ -6,7 +6,7 @@ import type { GitResult } from '../../src/workspace/git.ts';
 
 const ROOT = join('checkout');
 const SHA = '0123456789abcdef0123456789abcdef01234567';
-const SCOPE = ['--', 'CLAUDE.md', '.claude/skills', '.claude/agents', 'defaults'];
+const SCOPE = ['--', 'CLAUDE.md', '.claude/rules', '.claude/skills', '.claude/agents', 'defaults'];
 
 const ok = (stdout: string): GitResult => ({ code: 0, stdout, stderr: '' });
 
