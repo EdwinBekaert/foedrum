@@ -50,7 +50,7 @@ const readOne = async (
   const batchId = attemptRef?.batchId ?? '';
   const batch = state.batches.get(batchId);
   const { taskTree } = batch ?? {};
-  // A rewound task tree is held by an attempt's branch, in the repository that attempt wrote in.
+  // A rewound task tree is held by attempt branches, each in the repository it wrote in (ADR 0101).
   const attempt =
     attemptRef && batch?.steps.get(attemptRef.stepId)?.attempts.get(attemptRef.attempt);
   const repo =

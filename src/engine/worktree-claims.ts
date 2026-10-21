@@ -70,29 +70,29 @@ const worktreesOf = (batch: Batch) =>
     ),
   );
 
-// The branch that holds a batch's task tree in a repository, with its revision: the task tree's
-// attempt's branch, or for a rewind the branch of the last attempt (in the order of the steps) made
-// at its commit, else of the last that succeeded there: the task tree before the rewind, whose
-// branch holds a commit no worktree was made at, as the tip of a step an action step came after.
-const taskTreeBranchOf = (
+// The branches that hold a batch's task tree in a repository, with its revision: the task tree's
+// attempt's branch, or for a rewind the branch of the last attempt made at its commit. When none
+// was (the tip of a step an action step came after, or a failed attempt's work), only git can tell
+// which branch holds the commit, so every attempt branch of the repository is named (ADR 0101).
+const taskTreeBranchesOf = (
   batch: Batch,
   taskTree: TaskTree,
-): { repo: string; branch: string; revision: string } | undefined => {
+): { repo: string; branches: string[]; revision: string } | undefined => {
   switch (taskTree.kind) {
     case 'attempt': {
       const branch = attemptBranch({ batchId: batch.id, ...taskTree });
       const revision = taskTreeStart(batch, { repo: taskTree.repo, base: '' });
-      return { repo: taskTree.repo, branch, revision };
+      return { repo: taskTree.repo, branches: [branch], revision };
     }
     case 'rewound': {
       // A rewind of a Brewery order names one commit per repository; its attempts wrote in one.
       const worktrees = worktreesOf(batch);
       for (const [repo, commit] of Object.entries(taskTree.shas)) {
         const inRepo = worktrees.filter((worktree) => sameRepo(worktree.repo, repo));
-        const held =
-          inRepo.findLast((worktree) => worktree.commit === commit) ??
-          inRepo.findLast((worktree) => worktree.succeeded);
-        if (held !== undefined) return { repo, branch: held.branch, revision: commit };
+        if (inRepo.length === 0) continue;
+        const made = inRepo.findLast((worktree) => worktree.commit === commit);
+        const branches = made === undefined ? inRepo.map(({ branch }) => branch) : [made.branch];
+        return { repo, branches, revision: commit };
       }
       return undefined;
     }
@@ -106,13 +106,13 @@ const taskTreeBranchOf = (
 // The branch of every ended batch's task tree that no push recorded, with the commit the batch
 // started from: the worktree of its first attempt that succeeded was made there (ADR 0066). An
 // attempt that failed before it may have started at a base that moved since. A rewound task tree
-// is a commit, held by an attempt's branch (#255).
+// is a commit, held by attempt branches (ADR 0101).
 const unpushedOf = (state: State): Map<string, string> => {
   const unpushed = new Map<string, string>();
   for (const batch of state.batches.values()) {
     const { taskTree } = batch;
     if (laneStatus(batch.lane) !== 'ended' || taskTree === undefined) continue;
-    const held = taskTreeBranchOf(batch, taskTree);
+    const held = taskTreeBranchesOf(batch, taskTree);
     if (held === undefined) continue;
     const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
     // The revision the push of the openPullRequest action records (ADR 0071). A push the secret
@@ -129,7 +129,7 @@ const unpushedOf = (state: State): Map<string, string> => {
       continue;
     }
     // A batch whose start cannot be found keeps its branch: no tip is ''.
-    unpushed.set(held.branch, start ?? '');
+    for (const branch of held.branches) unpushed.set(branch, start ?? '');
   }
   return unpushed;
 };

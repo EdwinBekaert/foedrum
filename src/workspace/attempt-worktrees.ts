@@ -168,7 +168,7 @@ export interface Claims {
   outDocs?: ReadonlyMap<string, string>;
   /**
    * The branch of each ended batch's task tree that no push recorded (for a rewind, the attempt
-   * branch that holds its commit), by name, with the commit the batch started from: the only ref
+   * branches that may hold its commit, ADR 0101), by name, with the commit the batch started from: the only ref
    * to its commits, kept while it holds any (ADR 0084).
    */
   unpushed?: ReadonlyMap<string, string>;
