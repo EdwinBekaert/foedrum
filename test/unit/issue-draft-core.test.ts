@@ -106,6 +106,20 @@ describe('checkDraft', () => {
     });
   });
 
+  it('finds a repeated key after a nested value', () => {
+    assert.deepEqual(problemsOf('{"body": "b", "x": {"y": [1]}, "title": "a", "title": "c"}'), [
+      'duplicate key "title"',
+      'unexpected key "x"',
+    ]);
+  });
+
+  it('reads an escaped quote as part of its string, not as the end of it', () => {
+    assert.deepEqual(checkDraft('{"title": "x\\", \\"title\\": \\"y", "body": "b"}'), {
+      ok: true,
+      title: 'x", "title": "y',
+    });
+  });
+
   it('refuses a missing title and body', () => {
     assert.deepEqual(problemsOf(draft({})), ['"title" is missing', '"body" is missing']);
   });
