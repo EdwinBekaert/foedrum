@@ -596,6 +596,16 @@ describe('foedrum replay', () => {
     snapshot(t, result.stdout);
   });
 
+  it('points at the out docs on the state branch once an attempt finished, and not before (ADR 0103)', async () => {
+    const finished = await run(['replay', '12-1'], { openStore: () => storeWith(brewery) });
+    assert.match(
+      finished.stdout,
+      /^ {2}out docs {2}on the state branch at batches\/12-1\/<step>-<attempt>\.md$/m,
+    );
+    const none = await run(['replay', '14-1'], { openStore: () => storeWith(brewery) });
+    assert.doesNotMatch(none.stdout, /out docs/);
+  });
+
   it('shows an attempt that needs input and one that was cancelled', async () => {
     const step = { batchId: '11-1', stepId: 'plan' };
     const finished = (attempt: number, outcome: StepOutcome): Event[] => [

@@ -37,6 +37,11 @@ export interface AttemptEnd {
   readings?: readonly GravityReading[];
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };
+  /**
+   * The out doc's text as the runner read it, valid or not; model output, which the state branch
+   * keeps and nothing follows (ADR 0103).
+   */
+  outDoc?: string;
 }
 
 export interface RunningAttempt {
