@@ -107,6 +107,9 @@ export interface Diagnosis {
 
 // package.json's engines.
 const MIN_NODE = [24, 15] as const;
+// git reads GIT_CONFIG_COUNT, which a brewer's forced configuration rests on, since 2.31.0 (ADR 0109).
+const MIN_GIT = [2, 31, 0] as const;
+const GIT_INSTALL = 'install git 2.31.0 or later, https://git-scm.com/downloads';
 // gh keeps its login in the OS keyring by default since 2.26.0 (ADR 0073).
 const MIN_GH = [2, 26, 0] as const;
 const GH_INSTALL =
@@ -278,6 +281,17 @@ const githubProblems = ({ tools, github }: DoctorFacts): Problem[] => {
   return problems;
 };
 
+// git, and one that reads the configuration a brewer's git is given in its environment.
+const gitProblems = (run: ToolRun | undefined): Problem[] => {
+  const version = versionOf(run);
+  if (version === undefined) {
+    return requiredProblems('git', run, 'install git, https://git-scm.com/downloads');
+  }
+  return isBefore(version, MIN_GIT)
+    ? [{ required: true, what: `git ${version} is too old`, fix: GIT_INSTALL }]
+    : [];
+};
+
 // git, gh and claude: Foedrum cannot run brewers without them.
 const requiredProblems = (name: 'git' | 'gh' | 'claude', run: ToolRun | undefined, fix: string) => {
   if (run === undefined) return [{ required: true, what: `${name} not found`, fix }];
@@ -427,7 +441,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
           },
         ]
       : []),
-    ...requiredProblems('git', tools.git, 'install git, https://git-scm.com/downloads'),
+    ...gitProblems(tools.git),
     ...githubProblems(facts),
     ...requiredProblems(
       'claude',

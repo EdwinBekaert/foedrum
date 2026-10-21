@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { diagnose } from '../../src/cli/doctor.ts';
 import { attemptClone, type ServeInputs, serveSetup } from '../../src/cli/serve-config.ts';
+import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import { linux, loggedIn, ran, windows } from '../helpers/doctor-facts.ts';
 import { clone, config, home, local, models, root, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -46,7 +47,7 @@ describe('serveSetup', () => {
     assert.equal(setup.sandbox, true);
     assert.deepStrictEqual(setup.brewerEnv, {
       base: { PATH: '/usr/bin', HOME: home },
-      forced: { npm_config_ignore_scripts: 'true' },
+      forced: brewerForcedEnv(),
     });
     assert.deepStrictEqual(setup.models.models, { quick: 'claude-haiku-5-5' });
     assert.notEqual(setup.recipes.find('stout'), undefined);

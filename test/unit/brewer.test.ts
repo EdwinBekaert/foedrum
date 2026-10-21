@@ -266,6 +266,10 @@ describe('BrewerFrontmatter env', () => {
     ['ENV', 'env'],
     ['*_PROXY', 'https_proxy'],
     ['*_PROXY without a scheme', 'NO_PROXY'],
+    ['a GitHub token (ADR 0109)', 'GH_TOKEN'],
+    ['a GitHub token (ADR 0109)', 'github_token'],
+    ['a GitHub token (ADR 0109)', 'GH_ENTERPRISE_TOKEN'],
+    ['a GitHub token (ADR 0109)', 'GITHUB_ENTERPRISE_TOKEN'],
   ];
   for (const [family, name] of reserved) {
     it(`rejects ${family} (${name})`, () => {
@@ -279,6 +283,8 @@ describe('BrewerFrontmatter env', () => {
       HOMEPAGE: 'x',
       ENVIRONMENT: 'ci',
       GITHUB_REF: 'x',
+      GITHUB_TOKEN_PATH: 'x',
+      MY_GH_TOKEN: 'x',
       PROXY: 'x',
       PATHS: 'x',
     };
@@ -287,5 +293,12 @@ describe('BrewerFrontmatter env', () => {
 
   it('rejects names that differ only in case', () => {
     assert.equal(accepted({ ...taster, env: { MY_VAR: '1', My_Var: '2' } }), false);
+  });
+
+  it('says a GitHub token is refused because a push could carry it, not that the runner sets it', () => {
+    const message = BrewerFrontmatter.safeParse({ ...taster, env: { GH_TOKEN: 'x' } }).error
+      ?.message;
+    assert.match(message ?? '', /GitHub token/);
+    assert.doesNotMatch(message ?? '', /runner sets/);
   });
 });
