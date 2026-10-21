@@ -407,6 +407,8 @@ describe('precheck on a push from another directory', () => {
     ['pushd ../wt && git push', worktree],
     ['cd -P ../wt && git push', worktree],
     ['env -C ../wt git push', worktree],
+    ['sudo -D ../wt git push', worktree],
+    ['sudo --chdir=../wt git push', worktree],
     ['bash -c "cd ../wt && git push"', worktree],
     [`cd ${absolute} && git push`, resolve(absolute)],
     ['Set-Location ../wt; git push', worktree, 'PowerShell'],
@@ -467,6 +469,8 @@ describe('precheck on a push from another directory', () => {
     ['popd && git push'],
     ['cd ~- && git push'],
     ['env -C "$d" git push'],
+    // wsl's directory is a Linux path, which the gate does not map to Windows.
+    ['wsl --cd /mnt/d/wt git push'],
     // A nested command after a change of directory: the gate cannot tell where it runs.
     ['cd ../wt && bash -c "git push"'],
     ['Set-Location $env:WT; git push', 'PowerShell'],
