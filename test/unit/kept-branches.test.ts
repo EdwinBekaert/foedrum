@@ -237,6 +237,33 @@ describe('readKeptBranches', () => {
     });
   });
 
+  it('reads the branch holding a rewound task tree in the clone its attempt wrote in (#255)', async () => {
+    const { calls, git } = fakeGit((_cwd, args) =>
+      args[0] === 'rev-parse' ? ok(`${TIP}\n`) : ok('1\n'),
+    );
+    const worktree = { repo: 'acme/app', path: '/work/brew/2', branch, commit: TIP };
+    const attempt = {
+      phase: 'finished',
+      attempt: 2,
+      deadlineAt: '2026-10-15T00:00:00.000Z',
+      worktree,
+      outcome: { kind: 'failed', retryable: true, reason: 'the run broke' },
+    } as const;
+    const rewound: Batch = {
+      ...batch('12-1', 'acme/app'),
+      steps: new Map([['brew', { id: 'brew', inputs: [], attempts: new Map([[2, attempt]]) }]]),
+      taskTree: { kind: 'rewound', shas: { 'acme/app': TIP } },
+    };
+
+    const readings = await readKeptBranches(state(rewound), new Map([[branch, START]]), {
+      git,
+      cloneOf,
+    });
+
+    assert.deepEqual(readings, new Map([[branch, read(1)]]));
+    assert.equal(calls[0]?.[0], CLONE);
+  });
+
   it('says so for a branch whose batch the state has no task tree for', async () => {
     const { calls, git } = fakeGit();
     const readings = await readKeptBranches(state(), new Map([[branch, START]]), {
