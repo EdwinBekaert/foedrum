@@ -468,11 +468,27 @@ describe('precheck on a push from another directory', () => {
     const { result, checks, heads } = await gate('git -C a push; git -C b push');
     assert.deepEqual(result, {
       exitCode: 2,
-      stderr: `This command pushes or opens pull requests from more than one checkout (${join(root, 'a')}, ${join(root, 'b')}): the gate checks one tree per command; run each from a command of its own.\n`,
+      stderr: `This command pushes or opens pull requests from more than one directory (${join(root, 'a')}, ${join(root, 'b')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.\n`,
     });
     assert.deepEqual(heads, []);
     assert.deepEqual(checks, []);
   });
+
+  // The review of #301: a wrapper's option with its value attached, and cmd's switches before
+  // the command it runs.
+  const attached: [command: string, dir: string][] = [
+    ['env -C../wt git push', worktree],
+    ['sudo -D../wt git push', worktree],
+    ['cmd /c "cd /d ../wt && git push"', worktree],
+  ];
+  for (const [command, dir] of attached) {
+    it(`checks the pushed tree: ${command}`, async () => {
+      const { result, checks, heads } = await gate(command);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(heads, [dir]);
+      assert.deepEqual(checks, [dir]);
+    });
+  }
 
   const PUSH_COMPUTED =
     'git push is blocked: it runs in a directory computed at run time (such as cd "$d" or git -C $d), so the gate cannot tell which tree to check: push from inside the worktree, or name its path as it is.\n';
@@ -533,6 +549,74 @@ describe('precheck on a push from another directory', () => {
   it('lets a computed cd through when nothing is pushed', async () => {
     const { result } = await gate('cd "$d" && git status');
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
+  });
+});
+
+describe('precheck on a push from outside the project', () => {
+  // The project holds the hook's checkout and ../wt; ../other is someone else's tree, whose
+  // check script the gate must not run before the command is approved (review of #301).
+  const other = join(root, '..', 'other');
+  const gate = async (command: string) => {
+    const { calls: checks, runCheck } = fakeCheck({ ok: true, output: '' });
+    const heads: string[] = [];
+    const lookups: string[] = [];
+    const asked: string[] = [];
+    const result = await precheck(
+      hookInput(command, root),
+      runCheck,
+      async () => undefined,
+      async (cwd) => {
+        heads.push(cwd);
+        return false;
+      },
+      async (cwd) => {
+        lookups.push(cwd);
+        return {
+          number: 5,
+          head: 'a'.repeat(40),
+          comments: [],
+          commits: [],
+          files: ['docs/x/a.md'],
+        };
+      },
+      undefined,
+      async (dir) => {
+        asked.push(dir);
+        return dir !== other;
+      },
+    );
+    return { result, checks, heads, lookups, asked };
+  };
+
+  const outside: [command: string, line: string][] = [
+    [
+      'git -C ../other push',
+      `git push is blocked: it runs in ${other}, outside the project this session works in, so the gate does not run that tree's code: push from inside that checkout.`,
+    ],
+    [
+      'cd ../other && gh pr create --draft',
+      `gh pr create is blocked: it runs in ${other}, outside the project this session works in, so the gate does not run that tree's code: run gh pr create from inside that checkout.`,
+    ],
+    [
+      'cd ../other && gh pr ready',
+      `gh pr ready is blocked: it runs in ${other}, outside the project this session works in, so the gate does not run that tree's code: run gh pr ready from inside that checkout.`,
+    ],
+  ];
+  for (const [command, line] of outside) {
+    it(`blocks with one line, running nothing there: ${command}`, async () => {
+      const { result, checks, heads, lookups } = await gate(command);
+      assert.deepEqual(result, { exitCode: 2, stderr: `${line}\n` });
+      assert.deepEqual(checks, []);
+      assert.deepEqual(heads, []);
+      assert.deepEqual(lookups, []);
+    });
+  }
+
+  it('checks a tree inside the project', async () => {
+    const { result, checks, asked } = await gate('git -C ../wt push');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, [join(root, '..', 'wt')]);
+    assert.deepEqual(checks, [join(root, '..', 'wt')]);
   });
 });
 

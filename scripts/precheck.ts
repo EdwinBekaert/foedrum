@@ -1003,6 +1003,10 @@ export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 // Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
 export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
 
+// Whether a directory a command changes into is inside the project the session works in
+// (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
+export type InProject = (dir: string) => Promise<boolean>;
+
 // The pull request `gh pr ready` names: its number, URL or branch (none for the current branch's),
 // and the repository given with -R.
 export interface ReadyTarget {
@@ -1093,6 +1097,7 @@ export const precheck = async (
     throw new Error('no pull request lookup');
   },
   binaryInstalled: BinaryInstalled = async () => false,
+  _inProject: InProject = async () => true,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
