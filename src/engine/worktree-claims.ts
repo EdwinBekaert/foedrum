@@ -49,7 +49,7 @@ const outDocsOf = (state: State, outDoc: OutDocOf): Map<string, string> => {
 };
 
 // The worktree of every attempt of a batch that recorded one, in the order of its steps, with
-// whether the attempt succeeded and its branch, built from the attempt (ADR 0037).
+// its branch, built from the attempt (ADR 0037).
 const worktreesOf = (batch: Batch) =>
   [...batch.steps.values()].flatMap((step) =>
     [...step.attempts.values()].flatMap((attempt) =>
@@ -63,7 +63,6 @@ const worktreesOf = (batch: Batch) =>
                 stepId: step.id,
                 attempt: attempt.attempt,
               }),
-              succeeded: attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
             },
           ]
         : [],
@@ -104,9 +103,9 @@ const taskTreeBranchesOf = (
 };
 
 // The branch of every ended batch's task tree that no push recorded, with the commit the batch
-// started from: the worktree of its first attempt that succeeded was made there (ADR 0066). An
-// attempt that failed before it may have started at a base that moved since. A rewound task tree
-// is a commit, held by attempt branches (ADR 0101).
+// started from (`Batch.starts`): the worktree of its first attempt that succeeded was made there
+// (ADR 0066). An attempt that failed before it may have started at a base that moved since. A
+// rewound task tree is a commit, held by attempt branches (ADR 0101).
 const unpushedOf = (state: State): Map<string, string> => {
   const unpushed = new Map<string, string>();
   for (const batch of state.batches.values()) {
@@ -120,14 +119,14 @@ const unpushedOf = (state: State): Map<string, string> => {
     if (pushed.success && pushed.data.from === held.revision && pushed.data.refused === undefined) {
       continue;
     }
-    const made = worktreesOf(batch).filter((worktree) => sameRepo(worktree.repo, held.repo));
-    const start = made.find((worktree) => worktree.succeeded)?.commit;
+    // In the order of the events, which the steps do not follow after a recipe change (#309).
+    const startedAt = batch.starts?.[held.repo.toLowerCase()];
     // A rewind to the batch's start holds no commit past it. With no attempt that succeeded, the
     // start is its first attempt's, which a base that moved since can only make keep more.
-    const startedAt = start ?? made[0]?.commit;
-    if (taskTree.kind === 'rewound' && held.revision === startedAt) {
+    if (taskTree.kind === 'rewound' && held.revision === startedAt?.commit) {
       continue;
     }
+    const start = startedAt?.succeeded === true ? startedAt.commit : undefined;
     // A batch whose start cannot be found keeps its branch: no tip is ''.
     for (const branch of held.branches) unpushed.set(branch, start ?? '');
   }

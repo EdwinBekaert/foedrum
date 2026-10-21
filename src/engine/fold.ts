@@ -90,6 +90,16 @@ export type TaskTree =
   | { kind: 'attempt'; stepId: string; attempt: number; repo: string }
   | { kind: 'rewound'; shas: Readonly<Record<string, string>> };
 
+/**
+ * The commit a batch started from in a repository (ADR 0084): the worktree's commit of its first
+ * attempt there that succeeded, in the order the finishes came, or of its first attempt there
+ * while none has (`succeeded` false).
+ */
+export interface BatchStart {
+  commit: string;
+  succeeded: boolean;
+}
+
 export interface Batch {
   id: string;
   /** The issue this batch brews: an order or a sub-order. */
@@ -109,6 +119,12 @@ export interface Batch {
   rewinds: readonly Rewind[];
   /** Its task tree; absent while it is the repository's base (ADR 0066). */
   taskTree?: TaskTree;
+  /**
+   * Where it started, by repository in lower case (GitHub names are case-insensitive); absent
+   * while no attempt of it recorded a worktree. Kept in the order of the events, which the steps
+   * do not follow: a recipe change or a route back runs an earlier step again later.
+   */
+  starts?: Readonly<Record<string, BatchStart>>;
   /** How each of its pull requests ended that has ended, by URL; absent while none has. */
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
 }
@@ -291,8 +307,8 @@ function apply(state: State, event: Event): State {
         ...skipping(batch, event.stepId, true),
         lane: { kind: 'brewing' },
       }));
-    case 'step.started':
-      return updateAttempt(state, event, (current) => {
+    case 'step.started': {
+      const next = updateAttempt(state, event, (current) => {
         if (current.phase !== 'scheduled') throw attemptError(event, 'was already started');
         return {
           ...current,
@@ -301,6 +317,10 @@ function apply(state: State, event: Event): State {
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
         };
       });
+      const { worktree } = event;
+      if (worktree === undefined) return next;
+      return updateBatch(next, event.batchId, (batch) => startAt(batch, worktree, false));
+    }
     case 'step.finished': {
       let worktree: WorktreeRef | undefined;
       const next = updateAttempt(state, event, (current) => {
@@ -319,7 +339,11 @@ function apply(state: State, event: Event): State {
       // The next attempt continues from this one's branch (ADR 0066).
       const { stepId, attempt } = event;
       const taskTree = { kind: 'attempt', stepId, attempt, repo: worktree.repo } as const;
-      return updateBatch(next, event.batchId, (batch) => ({ ...batch, taskTree }));
+      const { repo, commit } = worktree;
+      return updateBatch(next, event.batchId, (batch) => ({
+        ...startAt(batch, { repo, commit }, true),
+        taskTree,
+      }));
     }
     case 'input.received': {
       const { stepId, by, via, answers } = event;
@@ -500,6 +524,21 @@ function updateBatch(state: State, batchId: string, update: (batch: Batch) => Ba
 function setLane(state: State, batchId: string, lane: Lane): State {
   return updateBatch(state, batchId, (batch) => ({ ...batch, lane }));
 }
+
+/**
+ * `batch` started at `commit` in `repo` unless it has a start there already: its first attempt
+ * there, until the first that succeeded replaces it (ADR 0084).
+ */
+const startAt = (
+  batch: Batch,
+  { repo, commit }: { repo: string; commit: string },
+  succeeded: boolean,
+): Batch => {
+  const key = repo.toLowerCase();
+  const current = batch.starts?.[key];
+  if (current !== undefined && (current.succeeded || !succeeded)) return batch;
+  return { ...batch, starts: { ...batch.starts, [key]: { commit, succeeded } } };
+};
 
 function updateAttempt(
   state: State,
