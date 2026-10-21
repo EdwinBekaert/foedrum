@@ -492,6 +492,28 @@ const leadingWords = ([first, second]: Word[]): number => {
   return first.dynamic && ASSIGNMENT.test(second?.text ?? '') ? 2 : 0;
 };
 
+// The option a wrapper's word names, and the value the word holds, as getopt reads it: after `=`;
+// a long option or the one long option it is a prefix of (--chd for --chdir); or in a group of
+// short options, the first that takes a value takes the rest of the word (-iC../wt is -i, then
+// -C with ../wt), or the next word when nothing is left (-iC ../wt).
+const getopt = (text: string, withValue: readonly string[]): { option: string; value?: string } => {
+  const [name = '', value] = text.split(/=(.*)/s);
+  const option = (found: string) =>
+    value === undefined ? { option: found } : { option: found, value };
+  if (name === '--' || withValue.includes(name)) return option(name);
+  if (name.startsWith('--')) {
+    const longs = withValue.filter((each) => each.startsWith(name));
+    return option(longs.length === 1 ? (longs[0] ?? name) : name);
+  }
+  for (let j = 1; j < text.length; j++) {
+    const short = `-${text[j]}`;
+    if (!withValue.includes(short)) continue;
+    const rest = text.slice(j + 1);
+    return rest === '' ? { option: short } : { option: short, value: rest };
+  }
+  return { option: name };
+};
+
 // The program and arguments of a simple command, after environment assignments, reserved words,
 // PowerShell assignments and wrapper words. A wrapper option whose value is a command adds it to
 // `nested`; a package a package runner would run goes to `found.packages`, and a change of
@@ -527,7 +549,7 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
     let i = 0;
     while (args[i]?.text.startsWith('-')) {
       const word = args[i] as Word;
-      const [option = '', value] = word.text.split(/=(.*)/s);
+      const { option, value } = getopt(word.text, wrapper.withValue);
       if (option === '--') {
         i++;
         break;
@@ -537,12 +559,6 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
       if (wrapper.chdir?.includes(option)) {
         const dir = value === undefined ? args[i + 1] : { ...word, text: value };
         steps.push(dir === undefined || dir.dynamic || wrapper.foreign ? undefined : dir.text);
-        found.movesDir = true;
-      }
-      // A short option with its directory written straight after it, as getopt reads -C../wt.
-      const short = wrapper.chdir?.find((name) => name.length === 2 && word.text.startsWith(name));
-      if (short !== undefined && word.text.length > 2) {
-        steps.push(word.dynamic || wrapper.foreign ? undefined : word.text.slice(2));
         found.movesDir = true;
       }
       if (value !== undefined) {
@@ -909,6 +925,7 @@ const read = (
   }
   const nested = new Set<string>();
   const aliases = new Set<string>();
+  const unquoted = new Set<string>();
   let moved = false;
   for (const dialect of dialects) {
     const lexed = lex(command, dialect);
@@ -937,14 +954,16 @@ const read = (
     // A string over several lines may be an apostrophe in a comment, a heredoc or a here-string
     // read as a quote, so its lines are read as commands too.
     reading.nested.push(...lexed.strings.filter((string) => /[\r\n]/.test(string)));
-    // Read without quotes, so a stray quote never hides what follows it.
-    if (lexed.unclosed) reading.nested.push(withoutQuotes(command));
+    // Read without quotes, so a stray quote never hides what follows it. It is this command, its
+    // changes of directory included, so it runs where this command does.
+    if (lexed.unclosed) unquoted.add(withoutQuotes(command));
     for (const each of reading.nested) nested.add(each);
     for (const each of reading.aliases) aliases.add(each);
   }
   for (const each of nested) {
     if (each.trim() !== '') read(each, depth + 1, found, DIALECTS, moved ? undefined : base);
   }
+  for (const each of unquoted) read(each, depth + 1, found, DIALECTS, base);
   for (const alias of aliases) {
     const defined = noFindings(found.reads);
     read(alias, depth + 1, defined, DIALECTS, []);
@@ -997,12 +1016,31 @@ export const resolvePlace = (
 // review's scratch folder under .foedrum/tmp/. On Windows a network, device or drive-less path,
 // or one on another drive, is refused before anything resolves it.
 export const projectHolds = async (
-  _root: string | undefined,
-  _dir: string,
-  _platform: NodeJS.Platform,
-  _realPath: (path: string) => string,
+  root: string | undefined,
+  dir: string,
+  platform: NodeJS.Platform,
+  realPath: (path: string) => string,
 ): Promise<boolean> => {
-  throw new Error('not implemented');
+  const [{ posix, win32 }, { windowsDrive, windowsPathProblem }, { pathInside, samePath }] =
+    await Promise.all([
+      import('node:path'),
+      import('../src/platform/real-path.ts'),
+      import('../src/platform/paths.ts'),
+    ]);
+  const path = platform === 'win32' ? win32 : posix;
+  if (root === undefined || !path.isAbsolute(root)) return false;
+  if (platform === 'win32') {
+    if (windowsPathProblem(dir) !== undefined) return false;
+    if (windowsDrive(dir) !== windowsDrive(root)) return false;
+  }
+  try {
+    const [project, real] = [realPath(root), realPath(dir)];
+    if (samePath(project, real, platform)) return true;
+    const inside = pathInside(project, real, platform);
+    return inside !== undefined && !/(?:^|\/)\.foedrum\/tmp(?:\/|$)/i.test(inside);
+  } catch {
+    return false;
+  }
 };
 
 export const isGatedCommand = (command: string): boolean => findings(command).gated;
@@ -1469,19 +1507,10 @@ if (import.meta.main) {
     // Inside CLAUDE_PROJECT_DIR by real path, as the read guard tells (ADR 0049); without it the
     // gate cannot tell, and fails closed.
     async (dir) => {
-      const root = process.env.CLAUDE_PROJECT_DIR;
-      const { isAbsolute } = await import('node:path');
-      if (root === undefined || !isAbsolute(root)) return false;
-      const [{ realPath }, { pathInside, samePath }] = await Promise.all([
-        import('../src/platform/real-path.ts'),
-        import('../src/platform/paths.ts'),
-      ]);
-      try {
-        const [project, real] = [realPath(root), realPath(dir)];
-        return samePath(project, real) || pathInside(project, real) !== undefined;
-      } catch {
-        return false;
-      }
+      const { realPath } = await import('../src/platform/real-path.ts');
+      return projectHolds(process.env.CLAUDE_PROJECT_DIR, dir, process.platform, (path) =>
+        realPath(path),
+      );
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
