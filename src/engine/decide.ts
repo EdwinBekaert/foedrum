@@ -41,7 +41,8 @@ export type HumanCommand =
   | ({ kind: 'cancel' } & Issuer)
   /**
    * A new batch of an issue a person orders by hand (`foedrum order`, ADR 0105): refused while the
-   * issue has a live batch, or while the release of its last claim is still due.
+   * issue has a live batch, while its last claim is held or being released, or when it is a
+   * sub-order (`orderRefusal`).
    */
   | ({ kind: 'order_again'; order: OrderRef } & Issuer);
 
