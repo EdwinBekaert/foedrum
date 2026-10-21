@@ -1703,6 +1703,23 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'cmd /c "rmdir /S /Q %X%"',
     'del /s %X%',
     'erase /s %X%',
+    // Found in the review of #293: cmd's switches written together, a quoted option in bash, BSD
+    // rm's own flags, PowerShell's typographic dashes and a ( ) or @( ) argument.
+    'rd /s/q %X%',
+    'del /f/s/q %X%',
+    'rmdir /Q/S %X%',
+    `rm '-rf' "$dir"`,
+    'rm "-r" $dir',
+    'rm -rfx "$dir"',
+    'rm -Prf "$dir"',
+    'rm -rW "$dir"',
+    `Remove-Item ${String.fromCodePoint(0x2013)}Recurse ${String.fromCodePoint(0x2013)}Force $p`,
+    `ri ${String.fromCodePoint(0x2014)}r $p`,
+    "Remove-Item -Recurse -Force (Join-Path $root 'run')",
+    'Remove-Item -Recurse -Path ($dir)',
+    'Remove-Item -Recurse -Force (Get-Location)',
+    'Remove-Item -Recurse @($p)',
+    'rm -Recurse (Resolve-Path ..)',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
@@ -1737,6 +1754,10 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Remove-Item -Recurse:$true -Force .foedrum/tmp/218/run',
     'Remove-Item -Force $p',
     'Remove-Item $p',
+    // A redirection is no path, and -Recurse:$false does not recurse.
+    'Remove-Item -Recurse -Force .foedrum/tmp/281/run 2>$null',
+    'rm -rf .foedrum/tmp/281/run 2>"$log"',
+    'Remove-Item -Recurse:$false $p',
     'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
@@ -1763,6 +1784,8 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     ['erase -Recurse $p', 'PowerShell'],
     // The shells drop the quotes that split the name.
     [`r''m -rf "$d"`, 'Bash'],
+    // Computed without a $, % or backtick.
+    ['Remove-Item -Recurse -Force (Get-Location)', 'PowerShell'],
   ];
   for (const [command, tool] of blocked) {
     it(`blocks without running the check (${tool}): ${command}`, async () => {
