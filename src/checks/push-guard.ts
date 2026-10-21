@@ -61,8 +61,10 @@ export function guardPushes(options: PushGuardOptions): BrewerRunner {
       : parsed;
   };
 
-  const blocked = (summary: string): AttemptEnd => ({
-    ending: { kind: 'blocked', blockerKind: 'environment', summary },
+  const blocked = (summary: string): AttemptEnd['ending'] => ({
+    kind: 'blocked',
+    blockerKind: 'environment',
+    summary,
   });
 
   const guard = (attempt: AttemptStart, repo: string): RunningAttempt => {
@@ -77,11 +79,11 @@ export function guardPushes(options: PushGuardOptions): BrewerRunner {
       try {
         const start = await read(key, repo, 'before', before.signal);
         if (before.signal.aborted) return { ending: { kind: 'cancelled' } };
-        if ('summary' in start) return blocked(start.summary);
+        if ('summary' in start) return { ending: blocked(start.summary) };
         running = runner.start(attempt);
         const end = await running.ended;
         const after = await read(key, repo, 'after', new AbortController().signal);
-        if ('summary' in after) return { ...end, ending: blocked(after.summary).ending };
+        if ('summary' in after) return { ...end, ending: blocked(after.summary) };
         const engine = window.close();
         const changed = changedRefs(start, after, (ref) => engine.has(ref) || exempt(repo, ref));
         if (changed.length === 0) return end;
