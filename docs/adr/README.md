@@ -97,8 +97,9 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0095](0095-the-cleanups-read-a-worktree-through-its-record-and-run-no-fsmonitor-or-hook.md) | The cleanups read a worktree through its record, and run no fsmonitor command or hook there (amends 0029 and 0074) | Accepted |
 | [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) | The engine's git reaches the remote outside the clone's configuration (amends 0012, 0029, 0071 and 0090) | Accepted |
 | [0097](0097-npm-run-demo-is-a-script-on-serve-s-seams-with-the-tests-fakes.md) | `npm run demo` is a development script on serve's seams, with the tests' fakes | Accepted |
-| [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) | Foedrum's defaults load under the Brewery's files, and a brewer input can name a lens (amends 0041 and 0053) | Accepted |
+| [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) | Foedrum's defaults load under the Brewery's files, and a brewer input can name a lens (amends 0041 and 0053) | Accepted, amended by 0100 |
 | [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) | A rejected run end is blocked on the environment, not a failed tick (amends 0028) | Accepted |
+| [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) | Nip ships with a default Cellarman, and the default brewers name the builder alias (amends 0098) | Accepted |
 
 ## Template
 
