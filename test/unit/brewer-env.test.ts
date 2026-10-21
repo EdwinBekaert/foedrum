@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { brewerBaseEnv, buildBrewerEnv } from '../../src/engine/brewer-env.ts';
+import { brewerBaseEnv, brewerForcedEnv, buildBrewerEnv } from '../../src/engine/brewer-env.ts';
 
 const forced = {
   PATH: '/usr/bin:/bin',
@@ -92,6 +92,73 @@ describe('buildBrewerEnv (#81)', () => {
       [{ Path: 'C:\\base' }, { TZ: 'UTC' }, { PATH: 'C:\\Windows' }],
     );
   });
+});
+
+/** The configuration pairs `env` gives git through GIT_CONFIG_COUNT, in order. */
+const gitConfig = (env: Record<string, string>): [string, string | undefined][] =>
+  Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, n) => [
+    env[`GIT_CONFIG_KEY_${n}`] ?? '',
+    env[`GIT_CONFIG_VALUE_${n}`],
+  ]);
+
+describe('brewerForcedEnv (ADR 0109)', () => {
+  it('keeps npm from running lifecycle scripts', () => {
+    assert.equal(brewerForcedEnv().npm_config_ignore_scripts, 'true');
+  });
+
+  it('turns off git prompting on the terminal', () => {
+    assert.equal(brewerForcedEnv().GIT_TERMINAL_PROMPT, '0');
+  });
+
+  it("empties git's list of credential helpers and its askpass program, over every config file", () => {
+    const config = gitConfig(brewerForcedEnv());
+    assert.deepEqual(
+      config.filter(([key]) => key === 'credential.helper' || key === 'core.askPass'),
+      [
+        ['credential.helper', ''],
+        ['core.askPass', ''],
+      ],
+    );
+  });
+
+  it('lets git use local paths as git does by default, git, http and https, and no other transport', () => {
+    const protocols = gitConfig(brewerForcedEnv()).filter(([key]) => key.startsWith('protocol.'));
+    assert.deepEqual(protocols, [
+      ['protocol.allow', 'never'],
+      ['protocol.file.allow', 'user'],
+      ['protocol.git.allow', 'always'],
+      ['protocol.http.allow', 'always'],
+      ['protocol.https.allow', 'always'],
+      ['protocol.ssh.allow', 'never'],
+    ]);
+  });
+
+  it('names a key and a value for every pair it counts, and no pair it does not', () => {
+    const env = brewerForcedEnv();
+    const count = Number(env.GIT_CONFIG_COUNT);
+    assert.ok(Number.isInteger(count) && count > 0, env.GIT_CONFIG_COUNT);
+    const named = Object.keys(env).filter((name) => /^GIT_CONFIG_(?:KEY|VALUE)_/.test(name));
+    assert.deepEqual(
+      named.sort(),
+      Array.from({ length: count }, (_, n) => [`GIT_CONFIG_KEY_${n}`, `GIT_CONFIG_VALUE_${n}`])
+        .flat()
+        .sort(),
+    );
+  });
+
+  for (const platform of ['linux', 'darwin', 'win32'] as const) {
+    it(`lets neither the base nor a brewer's env undo it on ${platform}`, () => {
+      const forced = brewerForcedEnv();
+      const undo = {
+        git_config_count: '0',
+        GIT_CONFIG_COUNT: '0',
+        GIT_CONFIG_VALUE_0: 'store',
+        GIT_TERMINAL_PROMPT: '1',
+      };
+      const env = buildBrewerEnv({ base: undo, brewer: undo, forced, platform });
+      for (const [name, value] of Object.entries(forced)) assert.equal(env[name], value, name);
+    });
+  }
 });
 
 describe('brewerBaseEnv (ADR 0063)', () => {

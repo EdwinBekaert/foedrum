@@ -61,6 +61,14 @@ export function brewerBaseEnv(
   );
 }
 
+/**
+ * The runner's forced variables (brewers-and-recipes §1.1): npm runs no lifecycle script, and git
+ * holds no credential that lets a push succeed (ADR 0109).
+ */
+export function brewerForcedEnv(): Record<string, string> {
+  throw new Error('not implemented');
+}
+
 /** The layers merged in order; a later layer replaces a name of an earlier one. */
 export function buildBrewerEnv(layers: BrewerEnvLayers): Record<string, string> {
   const { base, brewer, forced, platform } = layers;

@@ -266,6 +266,10 @@ describe('BrewerFrontmatter env', () => {
     ['ENV', 'env'],
     ['*_PROXY', 'https_proxy'],
     ['*_PROXY without a scheme', 'NO_PROXY'],
+    ['a GitHub token (ADR 0109)', 'GH_TOKEN'],
+    ['a GitHub token (ADR 0109)', 'github_token'],
+    ['a GitHub token (ADR 0109)', 'GH_ENTERPRISE_TOKEN'],
+    ['a GitHub token (ADR 0109)', 'GITHUB_ENTERPRISE_TOKEN'],
   ];
   for (const [family, name] of reserved) {
     it(`rejects ${family} (${name})`, () => {
