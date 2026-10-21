@@ -61,8 +61,10 @@ class FakeGit {
   /** The files of the remote branch, written into a new worktree. */
   files: Record<string, string> = {};
   signing = false;
-  /** The worktree's git folder, where git keeps its index.lock. */
+  /** The worktree's git folder, where git keeps its index.lock and HEAD.lock. */
   gitDir = '';
+  /** The clone's common git folder, where git keeps the branch's ref lock. */
+  commonDir = '';
   private next = 100;
   answer: (args: string[]) => GitResult | undefined = () => undefined;
 
@@ -90,6 +92,12 @@ class FakeGit {
     if (['write-tree', 'add', 'commit'].includes(command ?? '') && existsSync(lock)) {
       return exit(128, `fatal: Unable to create '${lock}': File exists.\n`);
     }
+    const refLock = join(this.commonDir, 'refs', 'heads', 'foedrum', 'state.lock');
+    const headLock = join(this.gitDir, 'HEAD.lock');
+    if (command === 'commit' && (existsSync(refLock) || existsSync(headLock))) {
+      const held = existsSync(refLock) ? refLock : headLock;
+      return exit(128, `fatal: cannot lock ref 'HEAD': Unable to create '${held}': File exists.\n`);
+    }
     switch (command) {
       case 'ls-remote':
         return this.remote === undefined
@@ -106,6 +114,8 @@ class FakeGit {
         return ok();
       case 'rev-parse':
         if (rest[0] === '--absolute-git-dir') return ok(`${this.gitDir}\n`);
+        if (rest.join(' ') === '--path-format=absolute --git-common-dir')
+          return ok(`${this.commonDir}\n`);
         if (rest.includes('refs/heads/foedrum/state'))
           return this.localBranch ? ok(sha(1)) : exit(1);
         return this.head === undefined ? exit(1) : ok(`${this.head}\n`);
@@ -169,6 +179,7 @@ describe('openStateBranch with a fake git', () => {
     store = openSqliteEventStore(':memory:');
     fake = new FakeGit(worktree);
     fake.gitDir = join(dir.path, 'clone-git', 'worktrees', 'state');
+    fake.commonDir = join(dir.path, 'clone-git');
   });
   afterEach(() => {
     said.length = 0;
@@ -856,6 +867,89 @@ describe('openStateBranch with a fake git', () => {
       const after = takeFileLock(writerLock(), 0);
       assert.ok(after !== undefined);
       after.release();
+    });
+  });
+
+  // #306: a git commit killed while it updated the branch leaves the branch's ref lock in the
+  // clone's common git folder, and HEAD.lock in the worktree's git folder; under the writer lock
+  // (ADR 0107) both are stale at once, like index.lock.
+  describe('a stale ref lock and HEAD.lock', () => {
+    const refLock = () => join(fake.commonDir, 'refs', 'heads', 'foedrum', 'state.lock');
+    const headLock = () => join(fake.gitDir, 'HEAD.lock');
+    const leaveLocks = (): void => {
+      mkdirSync(dirname(refLock()), { recursive: true });
+      writeFileSync(refLock(), '');
+      mkdirSync(fake.gitDir, { recursive: true });
+      writeFileSync(headLock(), '');
+    };
+    const removedLines = () => [
+      `removed a stale HEAD.lock from the state worktree: ${headLock()}`,
+      `removed a stale refs/heads/foedrum/state.lock from the state worktree: ${refLock()}`,
+    ];
+
+    it('are removed at the start, whose flush then commits and pushes, saying so', async () => {
+      append(ordered('b1'));
+      leaveLocks();
+
+      const result = await branch().start();
+
+      assert.deepEqual(result, {
+        decision: 'flush',
+        flush: { kind: 'pushed', through: 1, commit: sha(100) },
+      });
+      assert.equal(existsSync(refLock()), false);
+      assert.equal(existsSync(headLock()), false);
+      assert.deepEqual(said, removedLines());
+    });
+
+    it('are removed by a flush that meets them, which then commits and pushes', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLocks();
+
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 1, commit: sha(100) });
+
+      assert.equal(existsSync(refLock()), false);
+      assert.equal(existsSync(headLock()), false);
+      assert.deepEqual(said, removedLines());
+    });
+
+    it('leaves the files beside them alone', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLocks();
+      const beside = [
+        join(fake.commonDir, 'refs', 'heads', 'foedrum', 'other.lock'),
+        join(fake.commonDir, 'packed-refs.lock'),
+        join(fake.gitDir, 'ORIG_HEAD.lock'),
+      ];
+      for (const path of beside) writeFileSync(path, '');
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      for (const path of beside) assert.equal(existsSync(path), true, path);
+    });
+
+    it('are left alone while another writer holds the writer lock: the flush fails at once', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLocks();
+      fake.calls.length = 0;
+      const other = takeFileLock(join(dir.path, 'state.lock'), 0);
+      assert.ok(other !== undefined);
+      try {
+        const result = await state.flush();
+        assert.equal(result.kind, 'failed');
+        assert.equal(existsSync(refLock()), true);
+        assert.equal(existsSync(headLock()), true);
+        assert.deepEqual(fake.calls, []);
+        assert.deepEqual(said, []);
+      } finally {
+        other.release();
+      }
     });
   });
 
