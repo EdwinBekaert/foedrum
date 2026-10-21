@@ -187,6 +187,102 @@ describe('rebuilding the ADR index', () => {
     }
   });
 
+  it('reverses Generalises and Extends too, after what supersedes and amends', () => {
+    const result = built(readmeWith([]), [
+      record(A, 'First', 'Accepted'),
+      record(B, 'Second', 'Accepted · Generalises [0001](0001-a.md)'),
+      record(C, 'Third', 'Accepted · Extends [0001](0001-a.md)'),
+      record('0004-d.md', 'Fourth', 'Accepted · Amends [0001](0001-a.md)'),
+    ]);
+    assert.deepEqual(
+      result.records.map((file) => [file.name, statusLine(file)]),
+      [
+        [
+          A,
+          'Date: 2026-10-01 · Status: Accepted · Amended by [0004](0004-d.md) · Generalised by [0002](0002-b.md) · Extended by [0003](0003-c.md)',
+        ],
+      ],
+    );
+    assert.equal(
+      result.readme,
+      readmeWith([
+        '| [0001](0001-a.md) | First | Accepted, amended by 0004; generalised by 0002; extended by 0003 |',
+        '| [0002](0002-b.md) | Second (generalises 0001) | Accepted |',
+        '| [0003](0003-c.md) | Third (extends 0001) | Accepted |',
+        '| [0004](0004-d.md) | Fourth (amends 0001) | Accepted |',
+      ]),
+    );
+  });
+
+  it('takes no link or back phrase from inside parentheses', () => {
+    const result = built(readmeWith([]), [
+      record(
+        A,
+        'First',
+        'Accepted (once amended by [0003](0003-c.md)) · Amended by [0002](0002-b.md)',
+      ),
+      record(B, 'Second', 'Accepted · Amends [0001](0001-a.md) (as [0003](0003-c.md) did)'),
+      record(C, 'Third', 'Accepted'),
+    ]);
+    assert.deepEqual(result.records, []);
+    assert.match(result.readme, /\| \[0003\]\(0003-c\.md\) \| Third \| Accepted \|/);
+  });
+
+  it('keeps a number once across two clauses of one kind, and the first takes the new ones', () => {
+    const result = built(readmeWith([]), [
+      record(
+        A,
+        'First',
+        'Accepted, amended by [0002](0002-b.md) (first) · Amended by [0002](0002-b.md) and [0004](0004-d.md)',
+      ),
+      record(B, 'Second', 'Accepted · Amends [0001](0001-a.md)'),
+      record(C, 'Third', 'Accepted · Amends [0001](0001-a.md)'),
+      record('0004-d.md', 'Fourth', 'Accepted'),
+    ]);
+    assert.deepEqual(
+      result.records.map((file) => [file.name, statusLine(file)]),
+      [
+        [
+          A,
+          'Date: 2026-10-01 · Status: Accepted, amended by [0002](0002-b.md) (first) and [0003](0003-c.md)',
+        ],
+      ],
+    );
+  });
+
+  it('fails on a back clause it cannot drop from the text around it', () => {
+    const result = rebuild(readmeWith([]), [
+      record(A, 'First', 'Accepted · Amended by [0002](0002-b.md) for now'),
+      record(B, 'Second', 'Accepted'),
+    ]);
+    assert.deepEqual(result, {
+      ok: false,
+      problems: ['0001-a.md:3: cannot drop "Amended by [0002](0002-b.md)" from its text'],
+    });
+  });
+
+  it('ignores other files, drops the row of a record that is gone, escapes pipes, keeps a BOM', () => {
+    const bom = String.fromCodePoint(0xfeff);
+    const first = record(A, 'First', 'Accepted');
+    const result = built(readmeWith(['| [0009](0009-gone.md) | Gone | Accepted |']), [
+      { name: A, text: `${bom}${first.text}` },
+      record(B, 'Second | more', 'Accepted · Amends [0001](0001-a.md)'),
+      { name: 'notes.txt', text: 'not a record' },
+    ]);
+    assert.deepEqual(
+      result.records.map((file) => file.text.startsWith(`${bom}# 0001. First\n`)),
+      [true],
+    );
+    assert.equal(
+      result.readme,
+      readmeWith([
+        '| [0001](0001-a.md) | First | Accepted, amended by 0002 |',
+        '| [0002](0002-b.md) | Second \\| more (amends 0001) | Accepted |',
+      ]),
+    );
+    assert.ok(result.changes.includes('README.md: row 0009 removed'));
+  });
+
   it('fails on a link to a number with no record, naming the file and line', () => {
     const result = rebuild(readmeWith([]), [
       record(A, 'First', 'Accepted'),

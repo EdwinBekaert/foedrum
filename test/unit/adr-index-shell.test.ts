@@ -78,6 +78,16 @@ describe('node scripts/adr-index.ts', () => {
     );
   });
 
+  it('leaves the README alone when only a status line changes', () => {
+    const current =
+      '# Records\n\n| # | Decision | Status |\n|---|---|---|\n| [0001](0001-a.md) | First | Accepted, amended by 0002 |\n| [0002](0002-b.md) | Second (amends 0001) | Accepted |\n\n## Template\n';
+    const result = runWith([], { 'README.md': current, '0001-a.md': FIRST, '0002-b.md': SECOND });
+    assert.deepEqual(
+      { code: result.code, written: result.written },
+      { code: 0, written: ['0001-a.md'] },
+    );
+  });
+
   it('reads only the README and the record files, never a folder or another file', () => {
     const reads: string[] = [];
     const code = run(['--check'], {
