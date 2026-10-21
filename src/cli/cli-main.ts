@@ -52,6 +52,12 @@ export const cliFromCheckout = async (
         const cloneOf = (repo: string) => attemptClone(files, homedir(), repo);
         return readKeptBranches(state, unpushed, { git: runGit, cloneOf });
       },
+      config: () => {
+        throw new Error('not implemented');
+      },
+      claims: () => {
+        throw new Error('not implemented');
+      },
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
     });

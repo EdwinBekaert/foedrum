@@ -72,3 +72,7 @@ export const RewindCommand = z.strictObject({
     ),
 });
 export type RewindCommand = z.infer<typeof RewindCommand>;
+
+/** `<alias>#<n>`: an issue of the repository with that alias; `#<n>` or `<n>`: a Brewery issue. */
+export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: z.string() });
+export type OrderCommand = z.infer<typeof OrderCommand>;

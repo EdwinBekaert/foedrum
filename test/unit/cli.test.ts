@@ -59,6 +59,8 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   surface: 'terminal',
   now: () => new Date(D1),
   readKeptBranches: async () => assert.fail('no kept branch to read'),
+  config: () => assert.fail('no foedrum.jsonc to read'),
+  claims: () => assert.fail('no claim host to reach'),
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   ...overrides,
 });

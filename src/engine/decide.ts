@@ -36,7 +36,12 @@ export type HumanCommand =
   | ({ kind: 'recipe'; recipe: string; reason: string } & Issuer)
   /** `shas`: the commit of each repository at `toStepId`, by `owner/name`. */
   | ({ kind: 'rewind'; toStepId: string; shas: Readonly<Record<string, string>> } & Issuer)
-  | ({ kind: 'cancel' } & Issuer);
+  | ({ kind: 'cancel' } & Issuer)
+  /**
+   * A new batch of an issue a person orders by hand (`foedrum order`, ADR 0105): refused while the
+   * issue has a live batch, or while the release of its last claim is still due.
+   */
+  | ({ kind: 'order_again'; order: OrderRef } & Issuer);
 
 /** How an attempt ended: a step outcome, or a brewer's `blocked` out doc with its blocker kind. */
 export type Ending = StepOutcome | { kind: 'blocked'; blockerKind: BlockerKind; summary: string };
@@ -287,6 +292,8 @@ function run(draft: Draft, command: Command): Event[] {
       draft.push({ type: 'batch.cancelled', batchId, by, via });
       break;
     }
+    case 'order_again':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);

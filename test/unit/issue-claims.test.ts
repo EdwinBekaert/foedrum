@@ -13,6 +13,7 @@ import {
   claimIssue,
   claimLabel,
   claimRef,
+  claimStanding,
   isCandidate,
   type PullRequestState,
   releaseClaim,
@@ -499,5 +500,70 @@ describe('claimEffectsDue', () => {
     assert.equal(github.issue(repo, 7).comments.length, 2);
     assert.equal(github.refs.has(`${repo}#7`), false);
     assert.equal(kills, 6);
+  });
+});
+
+describe('claimStanding: whether an issue may be claimed again (ADR 0105)', () => {
+  const pr = 'https://github.com/acme/app/pull/3';
+  const batch = (lane: Lane): ClaimedBatch => ({ batchId: 'app-7', repo, issue: 7, lane });
+  const open = (): PullRequestState => 'open';
+  const releases = ['release.label', 'release.comment', 'release.ref'];
+  const applied =
+    (...effects: string[]) =>
+    (key: EffectKey): boolean =>
+      key.batchId === 'app-7' && effects.includes(key.effect);
+  const remindAt = '2026-10-18T09:00:00.000Z';
+  const live: Lane[] = [
+    { kind: 'ordered', routeBy: now },
+    { kind: 'brewing' },
+    { kind: 'conditioning', on: { kind: 'merge', pullRequest: pr }, remindAt },
+    {
+      kind: 'stuck',
+      reason: { kind: 'routing', deadlineAt: now },
+      options: ['retry', 'recipe', 'cancel'],
+      remindAt,
+    },
+  ];
+
+  for (const lane of live) {
+    it(`is held while the batch is ${lane.kind}, whatever the ledger has`, () => {
+      assert.equal(claimStanding(batch(lane), open, applied(...releases)), 'held');
+    });
+  }
+
+  it('is held while a pull request of a batch on tap has no recorded end', () => {
+    const lane: Lane = { kind: 'on_tap', pullRequests: [pr] };
+    assert.equal(claimStanding(batch(lane), open, applied(...releases)), 'held');
+  });
+
+  for (const [why, lane, ended] of [
+    ['cancelled', { kind: 'cancelled', by: 'ada', via: 'terminal' }, open],
+    ['on tap with its pull request merged', { kind: 'on_tap', pullRequests: [pr] }, () => 'merged'],
+    ['on tap with its pull request closed', { kind: 'on_tap', pullRequests: [pr] }, () => 'closed'],
+    ['on tap without a pull request', { kind: 'on_tap', pullRequests: [] }, open],
+  ] as const) {
+    it(`is releasing once the batch is ${why}, until every release effect is applied`, () => {
+      const ends = ended as (url: string) => PullRequestState;
+      assert.equal(claimStanding(batch(lane), ends, applied()), 'releasing');
+      assert.equal(claimStanding(batch(lane), ends, applied('release.label')), 'releasing');
+      assert.equal(
+        claimStanding(batch(lane), ends, applied('release.label', 'release.comment')),
+        'releasing',
+      );
+      assert.equal(
+        claimStanding(batch(lane), ends, applied('release.label', 'release.ref')),
+        'releasing',
+      );
+      assert.equal(claimStanding(batch(lane), ends, applied(...releases)), 'released');
+    });
+  }
+
+  it("counts only this batch's release effects", () => {
+    const other = (key: EffectKey): boolean =>
+      key.batchId === 'app-8' && releases.includes(key.effect);
+    assert.equal(
+      claimStanding(batch({ kind: 'cancelled', by: 'ada', via: 'terminal' }), open, other),
+      'releasing',
+    );
   });
 });

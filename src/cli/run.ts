@@ -5,7 +5,9 @@
 import { parseArgs } from 'node:util';
 import type { EventStore } from '../engine/event-store.ts';
 import type { State } from '../engine/fold.ts';
+import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
+import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
@@ -43,6 +45,16 @@ export interface CliContext {
     state: State,
     unpushed: ReadonlyMap<string, string>,
   ) => Promise<ReadonlyMap<string, BranchReading>>;
+  /**
+   * The Brewery's `foedrum.jsonc`, checked against its schema; throws with one line when it is
+   * missing or does not pass. Only `order` of a target issue reads it (ADR 0105).
+   */
+  config: () => BreweryConfig;
+  /**
+   * The claim refs on the GitHub host `config` names, through gh's own login (ADR 0073). Only
+   * `order` of a target issue calls it.
+   */
+  claims: (config: BreweryConfig) => ClaimHost;
   /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
   serve: () => Promise<CliResult>;
 }

@@ -8,12 +8,15 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { commands } from '../../src/cli/commands.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { invalidRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import { linux } from '../helpers/doctor-facts.ts';
+import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const cwd = join(sep, 'work', 'brewery');
@@ -93,6 +96,8 @@ describe('foedrum: commands that change state', () => {
     surface: 'terminal',
     now: () => t0,
     readKeptBranches: async () => assert.fail('no kept branch to read'),
+    config: () => assert.fail('no foedrum.jsonc to read'),
+    claims: () => assert.fail('no claim host to reach'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     ...overrides,
   });
@@ -148,6 +153,7 @@ describe('foedrum: commands that change state', () => {
       recipe: ['recipe', '25-1', 'stout', 'start over'],
       rewind: ['rewind', '26-1', 'plan', `acme/app=${SHA}`],
       cancel: ['cancel', '23-1'],
+      order: ['order', '#99'],
     };
     const names = commands.filter((command) => command.changesState).map(({ name }) => name);
     assert.deepStrictEqual(names, Object.keys(lines));
@@ -431,6 +437,8 @@ describe('foedrum stuck', () => {
       surface: 'terminal',
       now: () => t0,
       readKeptBranches: async () => assert.fail('no kept branch to read'),
+      config: () => assert.fail('no foedrum.jsonc to read'),
+      claims: () => assert.fail('no claim host to reach'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     });
   const append = (...events: Event[]) =>
@@ -488,5 +496,256 @@ describe('foedrum stuck', () => {
       ].join('\n'),
       stderr: '',
     });
+  });
+});
+
+describe('foedrum order: order an issue again (ADR 0105)', () => {
+  let store: EventStore;
+  let github: FakeGitHub;
+  const checks = { build: null, typecheck: null, lint: null, format: null, test: null };
+  const config = BreweryConfig.parse({
+    brewery: 'acme/brewery',
+    repositories: {
+      'acme/web': { checks, alias: 'web', intake: { labels: ['foedrum'] } },
+      'acme/docs': { checks, alias: 'docs' },
+    },
+  });
+  const record = (brewery: string, issue: number): string =>
+    JSON.stringify({ brewery, issue, claimedAt: iso(-60) });
+
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+    github = fakeGitHub();
+    const log = createCommandLog({ store, recipes });
+    const issue = (command: Parameters<typeof log.issue>[0]) =>
+      assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+    const cancel = (batchId: string) =>
+      issue({ kind: 'cancel', batchId, by: 'octocat', via: 'comment' });
+    const release = (batchId: string) => {
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        const key = effectKey.encode({ batchId, effect });
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: null } });
+      }
+    };
+    // 21-1 was cancelled and 22-1 brews; web-7 was cancelled and its claim released, web-8 was
+    // cancelled and its release is still due, web-9 brews.
+    issue({ kind: 'order', batchId: '21-1', order: { issue: 21 } });
+    cancel('21-1');
+    issue({ kind: 'order', batchId: '22-1', order: { issue: 22 } });
+    issue({ kind: 'route', batchId: '22-1', recipe: 'pint', reason: 'label', source: 'label' });
+    for (const number of [7, 8, 9]) {
+      issue({
+        kind: 'order',
+        batchId: `web-${number}`,
+        order: { issue: number, repo: 'acme/web' },
+      });
+    }
+    cancel('web-7');
+    release('web-7');
+    cancel('web-8');
+    issue({ kind: 'route', batchId: 'web-9', recipe: 'pint', reason: 'label', source: 'label' });
+  });
+  afterEach(() => store.close());
+
+  const context = (overrides: Partial<CliContext> = {}): CliContext => ({
+    cwd,
+    gatherDoctorFacts: async () => linux(),
+    openStore: () => assert.fail('order opens the store for writing'),
+    openWritableStore: () => ({ ...store, close: () => {} }),
+    recipes: () => recipes,
+    user: () => 'ada',
+    surface: 'terminal',
+    now: () => t0,
+    readKeptBranches: async () => assert.fail('no kept branch to read'),
+    config: () => config,
+    claims: (given) => {
+      assert.equal(given, config);
+      return github.host;
+    },
+    serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    ...overrides,
+  });
+  const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
+    runCli(argv, context(overrides));
+  const lastId = () => store.lastEventId();
+  const last = (): Event | undefined => store.eventsAfter(0).at(-1)?.event;
+  const ok = (stdout: string): CliResult => ({ exitCode: 0, stdout, stderr: '' });
+  const refused = (reason: string): CliResult => ({
+    exitCode: 1,
+    stdout: '',
+    stderr: `foedrum order: ${reason}\n`,
+  });
+  const reached = (): number => [...github.calls.values()].reduce((sum, n) => sum + n, 0);
+  const ordered = `ordered: to be routed by ${iso(60)}`;
+
+  describe('a target-repository issue', () => {
+    it('claims it again and orders it as <alias>-<n>-<k>, recorded with who and from where', async () => {
+      assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web-7-2 ${ordered}\n`));
+      assert.deepStrictEqual(last(), {
+        type: 'batch.ordered',
+        batchId: 'web-7-2',
+        order: { issue: 7, repo: 'acme/web' },
+        routeBy: iso(60),
+        by: 'ada',
+        via: 'terminal',
+      });
+      assert.deepStrictEqual(JSON.parse(github.refs.get('acme/web#7') ?? 'null'), {
+        brewery: 'acme/brewery',
+        issue: 7,
+        claimedAt: t0.toISOString(),
+      });
+    });
+
+    it('orders an issue whose claim is its own already', async () => {
+      github.setRef('acme/web', 7, record('acme/brewery', 7));
+      assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web-7-2 ${ordered}\n`));
+    });
+
+    it('orders an issue it never brewed as <alias>-<n>', async () => {
+      assert.deepStrictEqual(await run(['order', 'web#5']), ok(`web-5 ${ordered}\n`));
+    });
+
+    it('refuses an issue another Brewery holds, naming it, and appends nothing', async () => {
+      const before = lastId();
+      github.setRef('acme/web', 7, record('other/brewery', 7));
+      assert.deepStrictEqual(
+        await run(['order', 'web#7']),
+        refused('acme/web#7 is claimed by other/brewery'),
+      );
+      github.setRef('acme/web', 7, 'not a record');
+      assert.deepStrictEqual(
+        await run(['order', 'web#7']),
+        refused('acme/web#7 is claimed by a ref whose record cannot be read'),
+      );
+      assert.equal(lastId(), before);
+    });
+
+    it('refuses an issue with a live batch before it claims anything', async () => {
+      assert.deepStrictEqual(
+        await run(['order', 'web#9']),
+        refused('batch web-9 of acme/web#9 is still brewing'),
+      );
+      assert.equal(reached(), 0);
+    });
+
+    it('refuses an issue whose last release is still due before it claims anything', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['order', 'web#8']),
+        refused(
+          'the release of the claim of batch web-8 is still due: foedrum serve applies it, then order acme/web#8 again',
+        ),
+      );
+      assert.equal(reached(), 0);
+      assert.equal(lastId(), before);
+    });
+
+    it('refuses an alias foedrum.jsonc does not name', async () => {
+      assert.deepStrictEqual(
+        await run(['order', 'www#7']),
+        refused('foedrum.jsonc names no repository with the alias www'),
+      );
+    });
+
+    it('refuses a repository without an intake: nothing would mark or route its issue', async () => {
+      assert.deepStrictEqual(
+        await run(['order', 'docs#3']),
+        refused(
+          'acme/docs has no intake in foedrum.jsonc; order only issues of a repository with one',
+        ),
+      );
+      assert.equal(reached(), 0);
+    });
+
+    it("refuses without the Brewery's name, which its claim records", async () => {
+      const { brewery: _, ...nameless } = config;
+      assert.deepStrictEqual(
+        await run(['order', 'web#7'], { config: () => nameless }),
+        refused('foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)'),
+      );
+    });
+
+    it('fails with one line when foedrum.jsonc does not load or the claim fails, appending nothing', async () => {
+      const before = lastId();
+      const broken = () => {
+        throw new Error('foedrum.jsonc: repositories: Required');
+      };
+      assert.deepStrictEqual(
+        await run(['order', 'web#7'], { config: broken }),
+        refused('foedrum.jsonc: repositories: Required'),
+      );
+      const down = {
+        ...github.host,
+        create: async () => {
+          throw new Error('gh: HTTP 502');
+        },
+      };
+      assert.deepStrictEqual(
+        await run(['order', 'web#7'], { claims: () => down }),
+        refused('gh: HTTP 502'),
+      );
+      assert.equal(lastId(), before);
+    });
+  });
+
+  describe('a Brewery issue', () => {
+    const noConfig = {
+      config: () => assert.fail('a Brewery issue needs no foedrum.jsonc'),
+      claims: () => assert.fail('a Brewery issue is never claimed'),
+    };
+
+    for (const issue of ['#21', '21']) {
+      it(`orders ${issue} again as <n>-<k>, without reading foedrum.jsonc or claiming`, async () => {
+        assert.deepStrictEqual(await run(['order', issue], noConfig), ok(`21-2 ${ordered}\n`));
+        assert.deepStrictEqual(last(), {
+          type: 'batch.ordered',
+          batchId: '21-2',
+          order: { issue: 21 },
+          routeBy: iso(60),
+          by: 'ada',
+          via: 'terminal',
+        });
+      });
+    }
+
+    it('refuses an issue with a live batch', async () => {
+      assert.deepStrictEqual(
+        await run(['order', '#22'], noConfig),
+        refused('batch 22-1 of #22 is still brewing'),
+      );
+    });
+  });
+
+  it('records the surface and the user it is given, as every command does', async () => {
+    for (const argv of [
+      ['order', 'web#7'],
+      ['order', '#21'],
+    ]) {
+      await run(argv, { user: () => 'grace', surface: 'plugin' });
+      const event = last();
+      assert.deepStrictEqual(
+        event?.type === 'batch.ordered' && [event.by, event.via],
+        ['grace', 'plugin'],
+        argv.join(' '),
+      );
+    }
+  });
+
+  for (const given of ['Web#7', 'web#0', 'web#', 'web-7', '#x', 'web#7x', '#-1', 'w-b#7', '']) {
+    it(`refuses ${JSON.stringify(given)} as a mistake of the command line`, async () => {
+      assert.deepStrictEqual(await run(['order', given]), {
+        exitCode: 2,
+        stdout: '',
+        stderr: `foedrum order: invalid <issue> ${JSON.stringify(given)}: Must be <alias>#<n> of a target repository, or #<n> of the Brewery\n`,
+      });
+    });
+  }
+
+  it('fails without creating a store where there is none, and claims nothing', async () => {
+    assert.deepStrictEqual(
+      await run(['order', 'web#7'], { openWritableStore: () => undefined }),
+      refused(`no event store at ${storePath}`),
+    );
+    assert.equal(reached(), 0);
   });
 });

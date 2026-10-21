@@ -15,6 +15,7 @@ import {
   AnswerCommand,
   CancelCommand,
   DoctorCommand,
+  OrderCommand,
   RecipeCommand,
   ReplayCommand,
   RetryCommand,
@@ -280,5 +281,15 @@ export const commands: readonly RegisteredCommand[] = [
     schema: CancelCommand,
     handler: async ({ batch }, context) =>
       changeBrewery('cancel', context, (_state, issued) => ({ kind: 'cancel', ...issued(batch) })),
+  }),
+  define({
+    name: 'order',
+    summary: 'Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery',
+    changesState: true,
+    positionals: ['issue'],
+    schema: OrderCommand,
+    handler: async () => {
+      throw new Error('not implemented');
+    },
   }),
 ];

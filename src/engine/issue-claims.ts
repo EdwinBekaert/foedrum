@@ -284,6 +284,19 @@ const releaseOf = (
   }
 };
 
+/**
+ * Where the claim of a batch stands: `held` while the batch is live or a pull request of it has no
+ * recorded end, `releasing` once its release is due and until `applied` has every effect of it,
+ * then `released` (ADR 0105).
+ */
+export const claimStanding = (
+  _batch: ClaimedBatch,
+  _pullRequest: (url: string) => PullRequestState,
+  _applied: (key: BatchEffectKey) => boolean,
+): 'held' | 'releasing' | 'released' => {
+  throw new Error('not implemented');
+};
+
 // The assignee keeps every Brewery off an issue that is not done, until a person decides.
 const available = ' Unassign the issue to make it available again.';
 
