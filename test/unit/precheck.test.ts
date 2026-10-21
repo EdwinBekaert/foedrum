@@ -872,6 +872,9 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
     "Start-Process gh -ArgumentList 'pr','merge','30'",
     '"C:\\Program Files\\GitHub CLI\\gh.exe" pr merge 30',
     '$gh pr merge 30',
+    // A brace group runs its commands; only a {name} inside a word is text in bash.
+    '{ gh pr merge 30; }',
+    'x{a}; gh pr merge 30',
   ];
   for (const command of merges) {
     it(`forbids merging a pull request: ${command}`, () => {
@@ -2051,6 +2054,7 @@ describe('forbiddenReason on a merge through gh api', () => {
     'gh api -X PUT "$base/pulls/30/merge"',
     'gh api -iX PUT repos/o/r/pulls/30/merge',
     'gh api -iXPUT repos/o/r/pulls/30/merge',
+    'gh api -X=PUT repos/o/r/pulls/30/merge',
     `gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
     `gh api graphql -F query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
@@ -2083,6 +2087,7 @@ describe('forbiddenReason on a merge through gh api', () => {
     'gh api -X PUT -X GET repos/o/r/pulls/30/merge',
     'gh api -X PUT repos/o/r/pulls/30/requested_reviewers',
     'gh api -X PUT repos/o/r/pulls/30/merge/extra',
+    'gh api -X PUT repos/o/r/xpulls/30/merge',
     'gh api -X PUT repos/o/r/issues/30/labels -f labels[]=bug',
     'gh api -X $method repos/o/r/pulls/30',
     'gh api -i repos/o/r/pulls/30/merge',
