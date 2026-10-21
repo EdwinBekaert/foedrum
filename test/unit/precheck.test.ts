@@ -1671,6 +1671,48 @@ describe('precheck on forbidden commands', () => {
   }
 });
 
+// An empty or wrong variable makes a recursive delete remove the wrong tree, so its path must be
+// written as it is (#281).
+describe('forbiddenReason on a recursive delete of a path built from a variable', () => {
+  const allowed = [
+    'rm -rf .foedrum/tmp/218/run',
+    "rm -rf '.foedrum/tmp/my run'",
+    'rm -rf .foedrum/tmp/218/*',
+    'rm -rf .foedrum/tmp/*/scratch',
+    // rm without recursion, whatever the path.
+    'rm -f "$file"',
+    'rm "$file"',
+    'rm -fv $(ls *.log)',
+    // A single-quoted $ is literal in both shells.
+    "rm -rf '$dir'",
+    'Remove-Item -Recurse -Force .foedrum/tmp/218/run',
+    'Remove-Item -Recurse:$true -Force .foedrum/tmp/218/run',
+    'Remove-Item -Force $p',
+    'Remove-Item $p',
+    'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
+    'rd /s /q .foedrum\\tmp\\218',
+    'del %X%',
+    'echo "rm -rf $dir"',
+    'grep -n "rm -rf \\"$dir\\"" CLAUDE.md',
+  ];
+  for (const command of allowed) {
+    it(`allows: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+describe('precheck on a recursive delete of a path built from a variable', () => {
+  for (const command of ['rm -rf .foedrum/tmp/218/run', 'rm -f "$file"']) {
+    it(`lets through: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+      const result = await precheck(hookInput(command, '/work/tree'), runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 // npx and its relatives download a package the lockfile did not install, past the dependency
 // guard (#175).
 describe('precheck on npx and the commands that run a package like it', () => {
