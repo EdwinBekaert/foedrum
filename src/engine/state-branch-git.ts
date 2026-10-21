@@ -15,7 +15,6 @@ import {
   isLogPath,
   logPathOf,
   mergeLogs,
-  outDocPath,
   planCatchUp,
   planFlush,
   remoteCommitOf,
@@ -57,15 +56,8 @@ export interface StateBranch {
    */
   start(): Promise<StartResult>;
   /**
-   * Writes the out doc of an attempt into the state worktree. Call it before appending the event
-   * that refers to it, so both go into the same commit.
-   */
-  writeOutDoc(
-    attempt: { batchId: string; stepId: string; attempt: number },
-    text: string,
-  ): Promise<void>;
-  /**
-   * Commits and pushes every event after the pushed-through marker; call it at every step
+   * Commits and pushes every event after the pushed-through marker, with the out docs the store
+   * kept (ADR 0103); call it at every step
    * boundary. Throws `StateBranchStopError` when the push is rejected: another engine wrote.
    * A `failed` flush leaves events only in the local store, so the caller retries it on its own
    * deadline (the supervisor tick), not only at the next boundary, which may never come.
@@ -376,8 +368,6 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         }
       }
     },
-
-    writeOutDoc: async (attempt, text) => write(outDocPath(attempt), text),
 
     flush: () => serialized(false),
   };
