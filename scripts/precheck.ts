@@ -321,11 +321,14 @@ interface Invocation {
 }
 
 // A word that runs the command after it: its options, those of them that take a value, the
-// options whose value is itself a command, and how many operands come before the command.
+// options whose value is itself a command, how many operands come before the command, and the
+// options that run it in another directory, whose path the gate can resolve unless it is `foreign`.
 interface Wrapper {
   withValue: readonly string[];
   runs?: readonly string[];
   operands?: number;
+  chdir?: readonly string[];
+  foreign?: boolean;
 }
 
 const WRAPPERS = new Map<string, Wrapper>([
@@ -336,14 +339,29 @@ const WRAPPERS = new Map<string, Wrapper>([
     {
       withValue: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'],
       runs: ['-S', '--split-string'],
+      chdir: ['-C', '--chdir'],
     },
   ],
   ['exec', { withValue: ['-a'] }],
-  // wsl runs git in Linux against the same checkout; -e ends its options like --.
-  ['wsl', { withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'] }],
+  // wsl runs git in Linux against the same checkout; -e ends its options like --. Its --cd is a
+  // Linux path.
+  [
+    'wsl',
+    {
+      withValue: ['-d', '--distribution', '-u', '--user', '--cd', '--shell-type'],
+      chdir: ['--cd'],
+      foreign: true,
+    },
+  ],
   ['nice', { withValue: ['-n', '--adjustment'] }],
   ['nohup', { withValue: [] }],
-  ['sudo', { withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '-h', '-p', '-r', '-t'] }],
+  [
+    'sudo',
+    {
+      withValue: ['-u', '--user', '-g', '--group', '-C', '-D', '--chdir', '-h', '-p', '-r', '-t'],
+      chdir: ['-D', '--chdir'],
+    },
+  ],
   ['time', { withValue: ['-f', '--format', '-o', '--output'] }],
   ['timeout', { withValue: ['-s', '--signal', '-k', '--kill-after'], operands: 1 }],
   [
@@ -513,9 +531,9 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
       }
       const packageOption = runner?.wrapper.packages.includes(option) === true;
       if (runner?.wrapper.moves?.includes(option)) found.movesDir = true;
-      if (program === 'env' && (option === '-C' || option === '--chdir')) {
+      if (wrapper.chdir?.includes(option)) {
         const dir = value === undefined ? args[i + 1] : { ...word, text: value };
-        steps.push(dir === undefined || dir.dynamic ? undefined : dir.text);
+        steps.push(dir === undefined || dir.dynamic || wrapper.foreign ? undefined : dir.text);
         found.movesDir = true;
       }
       if (value !== undefined) {
