@@ -490,9 +490,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         runs.delete(key);
         // The step boundary: an attempt that ended is recorded, also in a batch another driver
         // took meanwhile, and lets its lease go, also when Stuck abandoned it and its finish is
-        // refused (I2).
-        if (!issue({ kind: 'finish', ...ref, ...end }, (tx) => tx.releaseLease(key))) {
-          releaseAttempt(key);
+        // refused (I2). An end whose record throws keeps its lease until it expires, and the
+        // supervisor loses the attempt; the other ends of the pass go on (#278).
+        const command = { kind: 'finish', ...ref, ...end } as const;
+        try {
+          if (!issue(command, (tx) => tx.releaseLease(key))) releaseAttempt(key);
+        } catch (error) {
+          report({ kind: 'command_failed', command, error });
         }
         if (rejected !== undefined) report({ kind: 'run_failed', ref, error: rejected.error });
         // An attempt of an ended batch held its worktree until now.
