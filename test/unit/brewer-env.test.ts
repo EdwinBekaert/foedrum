@@ -129,6 +129,14 @@ describe('brewerForcedEnv (ADR 0109)', () => {
     );
   });
 
+  it("sends no empty login, through which Negotiate would answer with the user's own", () => {
+    const config = gitConfig(brewerForcedEnv());
+    assert.deepEqual(
+      config.filter(([key]) => key === 'http.emptyAuth'),
+      [['http.emptyAuth', 'false']],
+    );
+  });
+
   it('lets git use local paths as git does by default, git, http and https, and no other transport', () => {
     const protocols = gitConfig(brewerForcedEnv()).filter(([key]) => key.startsWith('protocol.'));
     assert.deepEqual(protocols, [

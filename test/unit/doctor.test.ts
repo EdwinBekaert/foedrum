@@ -94,6 +94,20 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
     }
   });
 
+  it("is not ok with a git older than 2.31.0, which ignores a brewer's forced configuration (ADR 0109)", () => {
+    assert.deepEqual(problems(linux({ git: ran('/usr/bin/git', 'git version 2.30.9\n') })), [
+      {
+        required: true,
+        what: 'git 2.30.9 is too old',
+        fix: 'install git 2.31.0 or later, https://git-scm.com/downloads',
+      },
+    ]);
+    for (const version of ['2.31.0', '2.47.1.windows.1', '3.0.0']) {
+      const facts = linux({ git: ran('/usr/bin/git', `git version ${version}\n`) });
+      assert.equal(diagnose(facts).ok, true, version);
+    }
+  });
+
   it('is not ok when gh does not answer its version', () => {
     assert.deepEqual(required(linux({ gh: ran('/usr/bin/gh', 'boom\n', 1) })), [
       'gh at /usr/bin/gh did not report a version',
