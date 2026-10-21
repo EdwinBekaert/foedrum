@@ -20,6 +20,7 @@ import {
   type ProcessOutcome,
   type PullRequestFacts,
   precheck,
+  projectHolds,
   type ReadyTarget,
   type RunProcess,
   resolvePlace,
@@ -481,6 +482,13 @@ describe('precheck on a push from another directory', () => {
     ['env -C../wt git push', worktree],
     ['sudo -D../wt git push', worktree],
     ['cmd /c "cd /d ../wt && git push"', worktree],
+    // Second round: getopt's option groups and abbreviated long options, and a reading of a
+    // command with an unclosed quote in one dialect (PowerShell does not escape with \).
+    ['env -iC ../wt git push', worktree],
+    ['env -iC../wt git push', worktree],
+    ['env --chd=../wt git push', worktree],
+    ['env --chd ../wt git push', worktree],
+    ['bash -c "cd ../wt && echo it\\\\\'s && git push"', worktree],
   ];
   for (const [command, dir] of attached) {
     it(`checks the pushed tree: ${command}`, async () => {
@@ -628,6 +636,61 @@ describe('precheck on a push from outside the project', () => {
       assert.deepEqual(asked, []);
     });
   }
+});
+
+describe('projectHolds', () => {
+  // A real-path resolver that records what it was asked, as the identity.
+  const resolver = (fails = false) => {
+    const calls: string[] = [];
+    const realPath = (path: string): string => {
+      calls.push(path);
+      if (fails) throw new Error('EACCES');
+      return path;
+    };
+    return { calls, realPath };
+  };
+  const project = 'D:\\code\\foedrum';
+  const cases: [name: string, root: string | undefined, dir: string, holds: boolean][] = [
+    ['the project itself', project, project, true],
+    ['a worktree', project, `${project}\\.claude\\worktrees\\x`, true],
+    ['a sibling folder', project, 'D:\\code\\other', false],
+    // A review's scratch clone may hold someone else's branch.
+    ['a scratch clone', project, `${project}\\.foedrum\\tmp\\132\\scratch\\tree`, false],
+    [
+      "a worktree's scratch clone",
+      project,
+      `${project}\\.claude\\worktrees\\x\\.foedrum\\tmp\\s\\tree`,
+      false,
+    ],
+    ['no project', undefined, `${project}\\wt`, false],
+    ['a relative project', 'foedrum', `${project}\\wt`, false],
+  ];
+  for (const [name, root, dir, holds] of cases) {
+    it(`is ${holds} for ${name}`, async () => {
+      const { realPath } = resolver();
+      assert.equal(await projectHolds(root, dir, 'win32', realPath), holds);
+    });
+  }
+
+  // Resolving these would reach the network or a device before the command is approved.
+  for (const dir of ['\\\\host\\share\\wt', '\\\\?\\D:\\code\\foedrum', 'E:\\wt']) {
+    it(`refuses ${dir} without resolving it`, async () => {
+      const { calls, realPath } = resolver();
+      assert.equal(await projectHolds(project, dir, 'win32', realPath), false);
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  it('refuses a directory it cannot resolve', async () => {
+    const { realPath } = resolver(true);
+    assert.equal(await projectHolds(project, `${project}\\wt`, 'win32', realPath), false);
+  });
+
+  it('compares POSIX paths', async () => {
+    const { realPath } = resolver();
+    assert.equal(await projectHolds('/srv/foedrum', '/srv/foedrum/wt', 'linux', realPath), true);
+    assert.equal(await projectHolds('/srv/foedrum', '/srv/other', 'linux', realPath), false);
+  });
 });
 
 describe('resolvePlace', () => {

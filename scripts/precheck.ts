@@ -993,6 +993,18 @@ export const resolvePlace = (
   return path.resolve(cwd, ...steps.map(expand));
 };
 
+// Whether `dir` is inside the project at `root` (CLAUDE_PROJECT_DIR) by real path, and not in a
+// review's scratch folder under .foedrum/tmp/. On Windows a network, device or drive-less path,
+// or one on another drive, is refused before anything resolves it.
+export const projectHolds = async (
+  _root: string | undefined,
+  _dir: string,
+  _platform: NodeJS.Platform,
+  _realPath: (path: string) => string,
+): Promise<boolean> => {
+  throw new Error('not implemented');
+};
+
 export const isGatedCommand = (command: string): boolean => findings(command).gated;
 
 export const forbiddenReason = (command: string): string | undefined =>
