@@ -47,6 +47,13 @@ describe('checkDraft', () => {
     assert.deepEqual(rest, []);
   });
 
+  it("quotes the parser's message, so the draft text it shows cannot forge a line or reach the terminal", () => {
+    const rightToLeft = String.fromCodePoint(0x202e);
+    const [problem] = problemsOf(`{"title": "t",\n"body": x\u001b[2J${rightToLeft}}`);
+    assert.match(problem ?? '', /^the draft is not JSON: ".*"$/);
+    assert.doesNotMatch(problem ?? '', /[\p{Cc}\p{Cf}]/u);
+  });
+
   it('refuses JSON that is not an object', () => {
     for (const value of [null, ['t', 'b'], 't', 1]) {
       assert.deepEqual(problemsOf(draft(value)), ['the draft is not a JSON object']);
@@ -63,6 +70,13 @@ describe('checkDraft', () => {
   it('quotes an unexpected key, so a line break in it cannot forge another line', () => {
     assert.deepEqual(problemsOf(draft({ title: 't', body: 'b', 'x\nok': 1 })), [
       'unexpected key "x\\nok"',
+    ]);
+  });
+
+  it('escapes a format character in an unexpected key, so it cannot reorder the line', () => {
+    const key = `a${String.fromCodePoint(0x202e)}b`;
+    assert.deepEqual(problemsOf(draft({ title: 't', body: 'b', [key]: 1 })), [
+      'unexpected key "a\\u202eb"',
     ]);
   });
 
@@ -96,6 +110,17 @@ describe('checkDraft', () => {
     assert.deepEqual(problemsOf(draft({ title: 'red \u001b[31m title', body: 'b' })), [
       '"title" has a control character',
     ]);
+  });
+
+  it('refuses a title with a format character, which can show the user another title', () => {
+    for (const codePoint of [0x202e, 0x2066, 0x200b, 0x200d, 0xfeff]) {
+      const title = `safe${String.fromCodePoint(codePoint)}title`;
+      assert.deepEqual(
+        problemsOf(draft({ title, body: 'b' })),
+        ['"title" has an invisible format character'],
+        codePoint.toString(16),
+      );
+    }
   });
 
   it('refuses a title over 256 characters and a body over 65,536', () => {
