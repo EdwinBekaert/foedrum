@@ -641,7 +641,7 @@ const deletesComputedPath = (program: string, args: Word[]): boolean => {
   );
 };
 
-// The commands pwsh or powershell runs:the rest of the line after -Command (or any prefix of
+// The commands pwsh or powershell runs: the rest of the line after -Command (or any prefix of
 // it, such as -c), a decoded -EncodedCommand, and each other operand, since Windows PowerShell
 // reads its first operand as a command.
 const powershellCommands = (args: Word[]): string[] => {
