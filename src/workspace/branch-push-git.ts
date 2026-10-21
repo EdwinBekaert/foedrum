@@ -256,3 +256,14 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
   };
 };
+
+/**
+ * Every ref of the remote Foedrum names, as `ls-remote --refs` lists them, from a git directory of
+ * its own (ADR 0096): what the noPush guard compares before and after an attempt (ADR 0106).
+ */
+export const listRemoteRefs = (
+  _options: Pick<BranchPushOptions, 'git' | 'clone' | 'own'>,
+  _signal?: AbortSignal,
+): Promise<string> => {
+  throw new Error('not implemented');
+};
