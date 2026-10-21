@@ -3,7 +3,7 @@
 // others change state, and parse untrusted input into the engine's human commands (ADR 0025).
 
 import { Repo } from './events.ts';
-import { PathSafeId } from './ids.ts';
+import { PathSafeId, RepositoryAlias } from './ids.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { CommitSha } from './store.ts';
 import { z } from './zod.ts';
@@ -72,3 +72,33 @@ export const RewindCommand = z.strictObject({
     ),
 });
 export type RewindCommand = z.infer<typeof RewindCommand>;
+
+/** An issue `foedrum order` names: of the target repository with `alias`, or of the Brewery. */
+export interface OrderTarget {
+  alias?: string;
+  issue: number;
+}
+
+// `<alias>#<n>`, `#<n>` or `<n>`; `undefined` when it is none of them. `#` starts a comment in
+// bash and PowerShell, so a Brewery issue may go without it.
+const splitIssue = (text: string): OrderTarget | undefined => {
+  const parts = /^(?:([^#]*)#)?([1-9][0-9]*)$/.exec(text);
+  const [, alias, digits = ''] = parts ?? [];
+  const issue = Number(digits);
+  if (parts === null || !Number.isSafeInteger(issue)) return undefined;
+  if (alias === undefined || alias === '') return { issue };
+  return RepositoryAlias.safeParse(alias).success ? { alias, issue } : undefined;
+};
+
+/** `<alias>#<n>`: an issue of the repository with that alias; `#<n>` or `<n>`: a Brewery issue. */
+export const OrderCommand = z.strictObject({
+  command: z.literal('order'),
+  issue: z
+    .string()
+    .refine(
+      (text) => splitIssue(text) !== undefined,
+      'Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
+    )
+    .transform((text) => splitIssue(text) as OrderTarget),
+});
+export type OrderCommand = z.infer<typeof OrderCommand>;

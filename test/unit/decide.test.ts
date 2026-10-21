@@ -7,9 +7,16 @@ import {
   type RecordedEvent,
   stuckOptions,
 } from '../../src/engine/decide.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
-import type { Event, StuckOption, StuckReason, WaitCondition } from '../../src/schemas/events.ts';
+import type {
+  Event,
+  OrderRef,
+  StuckOption,
+  StuckReason,
+  WaitCondition,
+} from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
@@ -1297,6 +1304,216 @@ describe('decide cancel', () => {
       );
     });
   }
+});
+
+describe('decide order_again: a person orders an issue again (ADR 0105)', () => {
+  const from = { by: 'ada', via: 'terminal' } as const;
+  const again = (batchId: string, order: OrderRef): Command => ({
+    kind: 'order_again',
+    batchId,
+    ...from,
+    order,
+  });
+  const orderedAgain = (batchId: string, order: OrderRef): Event => ({
+    type: 'batch.ordered',
+    batchId,
+    order,
+    routeBy: inAnHour,
+    ...from,
+  });
+
+  describe('a Brewery issue', () => {
+    it('orders it again once its batch was cancelled, recorded with who and from where', () => {
+      accepts(lanes.cancelled, again('b2', { issue: 100 }), [orderedAgain('b2', { issue: 100 })]);
+    });
+
+    it('orders it again once its batch is on tap', () => {
+      accepts(lanes.on_tap, again('b2', { issue: 100 }), [orderedAgain('b2', { issue: 100 })]);
+    });
+
+    it('orders an issue that never had a batch', () => {
+      accepts([], again('b1', { issue: 100 }), [orderedAgain('b1', { issue: 100 })]);
+    });
+
+    for (const lane of ['ordered', 'brewing', 'conditioning', 'stuck'] as const) {
+      it(`refuses it while its batch is ${lane}`, () => {
+        refuses(
+          lanes[lane],
+          again('b2', { issue: 100 }),
+          new RegExp(`^batch b1 of #100 is still ${lane}$`),
+        );
+      });
+    }
+
+    it('looks only at the batches of that issue', () => {
+      accepts(lanes.brewing, again('b2', { issue: 101 }), [orderedAgain('b2', { issue: 101 })]);
+    });
+
+    it('refuses a sub-order: its decomposition orders it', () => {
+      const decomposed: Event = {
+        type: 'order.decomposed',
+        batchId: 'b1',
+        subOrders: [{ issue: 101, repo: 'acme/api' }],
+        dependencies: [],
+      };
+      refuses(
+        [ordered, decomposed],
+        again('b2', { issue: 101 }),
+        /^issue #101 is a sub-order of #100; its decomposition orders it$/,
+      );
+    });
+
+    it('refuses a batch id the log has', () => {
+      refuses(lanes.cancelled, again('b1', { issue: 100 }), /batch b1 was already ordered/);
+    });
+
+    it("refuses a live batch's own id as ordered before, not as live", () => {
+      refuses(lanes.brewing, again('b1', { issue: 100 }), /batch b1 was already ordered/);
+    });
+
+    it('refuses it while a later batch is live, past one that ended', () => {
+      const b2: Event = { ...ordered, batchId: 'b2' };
+      refuses(
+        [...lanes.cancelled, b2],
+        again('b3', { issue: 100 }),
+        /^batch b2 of #100 is still ordered$/,
+      );
+    });
+  });
+
+  describe('a target-repository issue', () => {
+    const web = { issue: 7, repo: 'acme/web' } as const;
+    const webOrdered: Event = {
+      type: 'batch.ordered',
+      batchId: 'web-7',
+      order: web,
+      routeBy: inAnHour,
+    };
+    const webCancelled: Event[] = [
+      webOrdered,
+      { type: 'batch.cancelled', batchId: 'web-7', by: 'octocat', via: 'plugin' },
+    ];
+    const applied = (...effects: string[]): Event[] =>
+      effects.map((effect) => ({
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: 'web-7', effect }),
+        result: null,
+      }));
+    const released = applied('release.label', 'release.comment', 'release.ref');
+
+    it('orders it again once its batch was cancelled and its claim released', () => {
+      accepts([...webCancelled, ...released], again('web-7-2', web), [
+        orderedAgain('web-7-2', web),
+      ]);
+    });
+
+    it('compares its repository ignoring case', () => {
+      refuses(
+        [webOrdered],
+        again('web-7-2', { issue: 7, repo: 'Acme/Web' }),
+        /^batch web-7 of acme\/web#7 is still ordered$/,
+      );
+    });
+
+    it('refuses it while its batch is live', () => {
+      refuses([webOrdered], again('web-7-2', web), /^batch web-7 of acme\/web#7 is still ordered$/);
+    });
+
+    it('refuses it while a later batch is live, past one that ended and was released', () => {
+      const later: Event = { ...webOrdered, batchId: 'web-7-2' };
+      const events = [...webCancelled, ...released, later];
+      const refused = /^batch web-7-2 of acme\/web#7 is still ordered$/;
+      refuses(events, again('web-7-3', web), refused);
+      refuses(events, { kind: 'order', batchId: 'web-7-3', order: web }, refused);
+    });
+
+    it("refuses the intake's order of a live batch's own id as ordered before", () => {
+      refuses([webOrdered], { kind: 'order', batchId: 'web-7', order: web }, /already ordered/);
+    });
+
+    it("refuses the intake's order of it the same way, so a terminal and serve never order it twice", () => {
+      refuses(
+        [webOrdered],
+        { kind: 'order', batchId: 'web-7-2', order: web },
+        /^batch web-7 of acme\/web#7 is still ordered$/,
+      );
+    });
+
+    it('refuses it while the release of its claim is still due', () => {
+      for (const events of [
+        webCancelled,
+        [...webCancelled, ...applied('release.label', 'release.comment')],
+      ]) {
+        refuses(
+          events,
+          again('web-7-2', web),
+          /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then order acme\/web#7 again$/,
+        );
+      }
+    });
+
+    it('refuses it while a pull request of its batch on tap has no recorded end', () => {
+      const onTapEvents: Event[] = [
+        webOrdered,
+        {
+          type: 'batch.recipe_chosen',
+          batchId: 'web-7',
+          recipe: 'nip',
+          reason: 'r',
+          source: 'label',
+        },
+        {
+          type: 'step.scheduled',
+          batchId: 'web-7',
+          stepId: 'patch',
+          attempt: 1,
+          deadlineAt: inAnHour,
+        },
+        { type: 'step.started', batchId: 'web-7', stepId: 'patch', attempt: 1 },
+        {
+          type: 'step.finished',
+          batchId: 'web-7',
+          stepId: 'patch',
+          attempt: 1,
+          outcome: { kind: 'succeeded', output: null },
+        },
+        { type: 'batch.on_tap', batchId: 'web-7', pullRequests: [pullRequest] },
+      ];
+      refuses(
+        onTapEvents,
+        again('web-7-2', web),
+        /^batch web-7 of acme\/web#7 holds its claim until its pull requests end$/,
+      );
+      accepts(
+        [
+          ...onTapEvents,
+          { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'closed' },
+          ...released,
+        ],
+        again('web-7-2', web),
+        [orderedAgain('web-7-2', web)],
+      );
+    });
+
+    it('never counts a Brewery issue of the same number', () => {
+      accepts([{ ...ordered, order: { issue: 7 } }], again('web-7', web), [
+        orderedAgain('web-7', web),
+      ]);
+    });
+
+    it('never counts an issue of the same number in another repository', () => {
+      const api = { issue: 7, repo: 'acme/api' } as const;
+      accepts([webOrdered], again('api-7', api), [orderedAgain('api-7', api)]);
+      const intake = { kind: 'order', batchId: 'api-7', order: api } as const;
+      accepts([webOrdered], intake, [
+        { type: 'batch.ordered', batchId: 'api-7', order: api, routeBy: inAnHour },
+      ]);
+    });
+
+    it('is never counted for a Brewery issue of the same number', () => {
+      accepts([webOrdered], again('7-1', { issue: 7 }), [orderedAgain('7-1', { issue: 7 })]);
+    });
+  });
 });
 
 describe('decide: a step its recipe file no longer has (review of #151)', () => {

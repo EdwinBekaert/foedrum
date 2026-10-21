@@ -141,5 +141,6 @@ Commands:
   recipe <batch> <recipe> <reason>    Brew a batch with another recipe, from its first step
   rewind <batch> <step> <commits>...  Take a Stuck batch back to a step, each repository at its commit
   cancel <batch>                      Cancel a batch
+  order <issue>                       Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
 
 `;

@@ -140,6 +140,25 @@ const read = <T>(
   return undefined;
 };
 
+/** What a command that needs the Brewery's name says when foedrum.jsonc has none. */
+export const NAME_THE_BREWERY =
+  'foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)';
+
+/** The host gh reaches GitHub on, with its own login, for `config`'s `githubApi` (ADR 0073). */
+export const githubHostname = (config: BreweryConfig): string =>
+  githubHostOf(config.githubApi ?? DEFAULT_API) ?? 'github.com';
+
+/**
+ * foedrum.jsonc's text read against its schema, for a command of the checkout `root`; throws with
+ * one line when the file is missing or does not pass.
+ */
+export const readBreweryConfig = (text: string | undefined, root: string): BreweryConfig => {
+  const problems: string[] = [];
+  const config = read('foedrum.jsonc', text, BreweryConfig, `not found in ${root}`, problems);
+  if (config === undefined) throw new Error(problems.join(' '));
+  return config;
+};
+
 // GitHub names are case-insensitive: the two files may spell one differently.
 const sameName = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
 
@@ -193,7 +212,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     );
   }
   if (config !== undefined && config.brewery === undefined) {
-    problems.push('foedrum.jsonc: name the Brewery with "brewery": "<owner>/<name>" (ADR 0063)');
+    problems.push(NAME_THE_BREWERY);
   }
   if (config !== undefined && (config.users ?? []).length === 0) {
     problems.push(
@@ -271,7 +290,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         pollEveryMs: durationMs(config.pollEvery ?? DEFAULT_POLL),
         repositories: intakeRepositories(config),
       },
-      github: { hostname: githubHostOf(config.githubApi ?? DEFAULT_API) ?? 'github.com' },
+      github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
       brewerEnv: {

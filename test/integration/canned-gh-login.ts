@@ -85,5 +85,7 @@ export const doctorHere = async (
     surface: 'terminal',
     now: () => new Date(),
     readKeptBranches: notForDoctor('kept branches'),
+    config: notForDoctor('foedrum.jsonc'),
+    claims: notForDoctor('claims'),
     serve: notForDoctor('serve'),
   });
