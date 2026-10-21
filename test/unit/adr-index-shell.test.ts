@@ -58,6 +58,17 @@ describe('node scripts/adr-index.ts', () => {
     assert.match(result.out, /^docs\/adr\/0001-a\.md:3: amended by 0002 added$/m);
   });
 
+  it('with --check exits 1 on a single difference', () => {
+    const result = runWith(['--check'], {
+      'README.md': README.replace('| First | Accepted |', '| First | Proposed |'),
+      '0001-a.md': FIRST,
+    });
+    assert.deepEqual(
+      { code: result.code, out: result.out },
+      { code: 1, out: 'docs/adr/README.md: row 0001 changed\n' },
+    );
+  });
+
   it('with --check exits 0 and prints nothing when the index is up to date', () => {
     const result = runWith(['--check'], { 'README.md': README, '0001-a.md': FIRST });
     assert.deepEqual(

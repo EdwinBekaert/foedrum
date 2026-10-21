@@ -283,6 +283,20 @@ describe('rebuilding the ADR index', () => {
     assert.ok(result.changes.includes('0001-a.md:3: amended by 0002 named twice'));
   });
 
+  it('keeps a CRLF README byte for byte, and ends a new row in CRLF', () => {
+    const crlf = (rows: string[]): string => readmeWith(rows).replaceAll('\n', '\r\n');
+    const first = '| [0001](0001-a.md) | First | Accepted |';
+    const files = [record(A, 'First', 'Accepted')];
+    assert.deepEqual(built(crlf([first]), files), {
+      ok: true,
+      readme: crlf([first]),
+      records: [],
+      changes: [],
+    });
+    const added = built(crlf([]), files);
+    assert.equal(added.readme, crlf([first]));
+  });
+
   it('fails on a back clause it cannot drop from the text around it', () => {
     const result = rebuild(readmeWith([]), [
       record(A, 'First', 'Accepted · Amended by [0002](0002-b.md) for now'),
