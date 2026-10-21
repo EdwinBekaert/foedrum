@@ -76,6 +76,36 @@ describe('the default Nip', () => {
     ]);
   });
 
+  it('sends a Cellarman whose change fails the green checks back to try again, once', async () => {
+    const done = behave.succeed();
+    const started = await brewNip({
+      gauge: [done],
+      red: [done],
+      implement: [done, done],
+      green: [behave.fail(false), done],
+      'open-pull-request': [done],
+    });
+    assert.deepEqual(started, [
+      'gauge',
+      'red',
+      'implement',
+      'green',
+      'implement',
+      'green',
+      'open-pull-request',
+    ]);
+  });
+
+  it('goes no further when the red proof refuses the tests a second time', async () => {
+    const done = behave.succeed();
+    const started = await brewNip({
+      gauge: [done, done, done],
+      red: [behave.fail(false), behave.fail(false), done],
+      implement: [done],
+    });
+    assert.deepEqual(started, ['gauge', 'red', 'gauge', 'red']);
+  });
+
   it('sends a Gauger whose tests the red proof refuses back to write them again, once', async () => {
     const done = behave.succeed();
     const started = await brewNip({
