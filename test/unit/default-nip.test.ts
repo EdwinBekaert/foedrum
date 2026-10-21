@@ -76,6 +76,42 @@ describe('the default Nip', () => {
     ]);
   });
 
+  it('sends a Gauger whose tests the red proof refuses back to write them again, once', async () => {
+    const done = behave.succeed();
+    const started = await brewNip({
+      gauge: [done, done],
+      red: [behave.fail(false), done],
+      implement: [done],
+      green: [done],
+      'open-pull-request': [done],
+    });
+    assert.deepEqual(started, [
+      'gauge',
+      'red',
+      'gauge',
+      'red',
+      'implement',
+      'green',
+      'open-pull-request',
+    ]);
+  });
+
+  it("gives Cellarman the Gauger's out doc and the testsUnchanged guard, and both brewers commit", () => {
+    const { brewers } = valid(loadRecipes(noFiles));
+    const cellarman = brewers.find('nip', 'implement')?.brewer;
+    assert.ok(cellarman !== undefined, 'nip has no implement step');
+    assert.ok(cellarman.guards.includes('testsUnchanged'), JSON.stringify(cellarman.guards));
+    assert.ok(
+      cellarman.inputs.some(({ from }) => from === 'step:gauge'),
+      JSON.stringify(cellarman.inputs),
+    );
+    for (const step of ['gauge', 'implement']) {
+      const brewer = brewers.find('nip', step)?.brewer;
+      assert.equal(brewer?.produces, 'commits', step);
+      assert.ok(brewer.guards.includes('requiresCommits'), step);
+    }
+  });
+
   it("plans Nip's steps from the defaults in a Brewery without its own nip.jsonc and gauger.md", () => {
     const loaded = valid(loadRecipes(noFiles));
     assert.deepEqual(loaded.recipes.find('nip')?.steps, [
