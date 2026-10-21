@@ -2,7 +2,9 @@
 // folder while it writes the index and deletes it when done; a git that is killed (at its
 // deadline, or with its tree) leaves it behind, and every later git command that writes the
 // index then fails with "Unable to create '…/index.lock': File exists". Run this only for a
-// worktree no git command of this Foedrum is running in; the age guards against another one.
+// worktree no git command of this Foedrum is running in; the age guards against another one. A
+// caller that knows by a lock of its own that no git writes the index (the state worktree under
+// its writer lock, ADR 0107) passes `maxAgeMs: -Infinity` instead of relying on the age.
 
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
