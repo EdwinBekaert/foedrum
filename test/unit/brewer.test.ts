@@ -283,6 +283,8 @@ describe('BrewerFrontmatter env', () => {
       HOMEPAGE: 'x',
       ENVIRONMENT: 'ci',
       GITHUB_REF: 'x',
+      GITHUB_TOKEN_PATH: 'x',
+      MY_GH_TOKEN: 'x',
       PROXY: 'x',
       PATHS: 'x',
     };

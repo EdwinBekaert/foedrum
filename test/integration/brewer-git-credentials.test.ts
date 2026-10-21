@@ -59,7 +59,10 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     const global = join(run, 'gitconfig');
     mkdirSync(run, { recursive: true });
     user = {
-      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name))),
+      // No git variable and no proxy of the machine's: the requests reach the local server.
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => !/^GIT_|_PROXY$/i.test(name)),
+      ),
       GIT_CONFIG_GLOBAL: global,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_TERMINAL_PROMPT: '0',
@@ -86,6 +89,8 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     plant('http.cookieFile', cookieFile.replaceAll('\\', '/'));
     git(run, ['init', '-q', '-b', 'main', repo]);
     git(repo, ['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+    // A helper in the clone's own configuration, as a brewer could plant in its worktree's.
+    git(repo, ['config', '--local', 'credential.helper', `!${mark} clone.credential.helper`]);
   });
 
   // Through the runner, not spawnSync: this process's server must answer while git runs.
@@ -95,7 +100,11 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
       env,
       timeoutMs: 60_000,
     });
-  const brewer = (): NodeJS.ProcessEnv => ({ ...user, ...brewerForcedEnv() });
+  // The user's environment without its own GIT_TERMINAL_PROMPT, so only the forced one counts.
+  const brewer = (): NodeJS.ProcessEnv => ({
+    ...Object.fromEntries(Object.entries(user).filter(([name]) => name !== 'GIT_TERMINAL_PROMPT')),
+    ...brewerForcedEnv(),
+  });
   const marked = (): string => (existsSync(marks) ? readFileSync(marks, 'utf8') : '');
 
   it("fails a push over http at once, asking none of the user's credential helpers and no askpass program", async () => {
@@ -105,6 +114,7 @@ describe("a brewer's git and the user's push credentials (ADR 0109)", () => {
     for (const planted of [
       /^credential\.helper get$/m,
       /^credential\.url\.helper get$/m,
+      /^clone\.credential\.helper get$/m,
       /^core\.askPass$/m,
     ]) {
       assert.match(marked(), planted);
