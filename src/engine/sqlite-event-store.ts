@@ -7,7 +7,7 @@ import {
   type StatementSync,
 } from 'node:sqlite';
 import { Event } from '../schemas/events.ts';
-import { BatchLease, Lease, PushedThrough } from '../schemas/store.ts';
+import { BatchLease, KeptOutDoc, Lease, PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import {
   DuplicateEffectError,
@@ -89,6 +89,16 @@ const migrations = [
     batch_id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
     expires_at INTEGER NOT NULL
+  ) STRICT;
+  `,
+  `
+  -- The out doc text of each attempt until a flush puts it on the state branch (ADR 0103).
+  CREATE TABLE out_docs (
+    batch_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (batch_id, step_id, attempt)
   ) STRICT;
   `,
 ];
@@ -205,6 +215,16 @@ export const openSqliteEventStore = (
       'ON CONFLICT (attempt_key) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at',
   );
   const releaseLease = db.prepare('DELETE FROM leases WHERE attempt_key = ?');
+  const putOutDoc = db.prepare(
+    'INSERT INTO out_docs (batch_id, step_id, attempt, text) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT (batch_id, step_id, attempt) DO UPDATE SET text = excluded.text',
+  );
+  const deleteOutDoc = db.prepare(
+    'DELETE FROM out_docs WHERE batch_id = ? AND step_id = ? AND attempt = ?',
+  );
+  const selectOutDocs = db.prepare(
+    'SELECT batch_id, step_id, attempt, text FROM out_docs ORDER BY batch_id, step_id, attempt',
+  );
   const selectEvents = db.prepare('SELECT id, body FROM events WHERE id > ? ORDER BY id LIMIT ?');
   const selectAnyEvent = db.prepare('SELECT 1 FROM events LIMIT 1');
   // The earliest due deadline of a batch is its earliest pending deadline.
@@ -391,6 +411,17 @@ export const openSqliteEventStore = (
         ensureLive();
         markPushed(marker);
       },
+      keepOutDoc: (doc) => {
+        ensureLive();
+        const { batchId, stepId, attempt, text } = KeptOutDoc.parse(doc);
+        putOutDoc.run(batchId, stepId, attempt, text);
+      },
+      forgetOutDocs: (attempts) => {
+        ensureLive();
+        for (const { batchId, stepId, attempt } of attempts) {
+          deleteOutDoc.run(batchId, stepId, attempt);
+        }
+      },
     };
     return {
       tx,
@@ -458,6 +489,16 @@ export const openSqliteEventStore = (
     lastEventId,
 
     pushedThrough,
+
+    keptOutDocs: () =>
+      rows<{ batch_id: string; step_id: string; attempt: number; text: string }>(selectOutDocs).map(
+        (row) => ({
+          batchId: row.batch_id,
+          stepId: row.step_id,
+          attempt: row.attempt,
+          text: row.text,
+        }),
+      ),
 
     restore: (log, commit) =>
       withTransaction(() => {

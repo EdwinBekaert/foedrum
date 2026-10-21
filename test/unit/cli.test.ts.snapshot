@@ -77,6 +77,7 @@ Events
 State
   lane    brewing: implement #1 started
   recipe  feature, chosen by label: label recipe:feature
+  out docs  on the state branch at batches/12-1/<step>-<attempt>.md
   steps
     plan       #1 finished: failed: the out doc is missing; #2 finished: succeeded
     implement  #1 started

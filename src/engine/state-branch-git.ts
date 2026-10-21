@@ -18,7 +18,6 @@ import {
   isLogPath,
   logPathOf,
   mergeLogs,
-  outDocPath,
   planCatchUp,
   planFlush,
   remoteCommitOf,
@@ -64,15 +63,8 @@ export interface StateBranch {
    */
   start(): Promise<StartResult>;
   /**
-   * Writes the out doc of an attempt into the state worktree. Call it before appending the event
-   * that refers to it, so both go into the same commit.
-   */
-  writeOutDoc(
-    attempt: { batchId: string; stepId: string; attempt: number },
-    text: string,
-  ): Promise<void>;
-  /**
-   * Commits and pushes every event after the pushed-through marker; call it at every step
+   * Commits and pushes every event after the pushed-through marker, with the out docs the store
+   * kept (ADR 0103); call it at every step
    * boundary. Throws `StateBranchStopError` when the push is rejected: another engine wrote.
    * A `failed` flush leaves events only in the local store, so the caller retries it on its own
    * deadline (the supervisor tick), not only at the next boundary, which may never come.
@@ -299,14 +291,19 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const flushNow = async (checkAll: boolean): Promise<FlushResult> => {
     const from = store.pushedThrough()?.eventId ?? 0;
     const pending = store.eventsAfter(from);
-    const last = pending.at(-1);
-    if (last === undefined) return { kind: 'unchanged' };
+    // Read after the events: the out doc of a pending step.finished was kept before it (ADR 0103).
+    const outDocs = store.keptOutDocs();
+    // Out docs alone are pushed too: one kept after its events were pushed waits for no event.
+    if (pending.length === 0 && outDocs.length === 0) return { kind: 'unchanged' };
+    const through = pending.at(-1)?.id ?? from;
     const paths = new Set(pending.map((stored) => logPathOf(stored.event)));
     if (checkAll) for (const path of await logFiles()) paths.add(path);
     const current = new Map(
       await Promise.all([...paths].map(async (path) => [path, await read(path)] as const)),
     );
-    for (const file of planFlush(current, pending, from)) await write(file.path, file.text);
+    for (const file of planFlush(current, pending, from, outDocs)) {
+      await write(file.path, file.text);
+    }
     // The branch holds the same bytes on every machine, whatever core.autocrlf says.
     if (!existsSync(onDisk('.gitattributes'))) await write('.gitattributes', '* -text\n');
 
@@ -335,13 +332,18 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     const outcome = classifyPush(pushed);
     switch (outcome) {
       case 'pushed':
-        store.withTransaction((tx) => tx.markPushed({ eventId: last.id, commit }));
-        return { kind: 'pushed', through: last.id, commit };
+        store.withTransaction((tx) => {
+          tx.markPushed({ eventId: through, commit });
+          // The branch has them now; a crash before this writes them again, with the same text.
+          tx.forgetOutDocs(outDocs);
+        });
+        return { kind: 'pushed', through, commit };
       case 'rejected': {
         const moved = await remoteHead(worktree).catch(() => undefined);
+        const what = pending.length > 0 ? `events ${from + 1}–${through}` : 'out docs only';
         throw new StateBranchStopError(
           `Another engine pushed to the state branch: ${remoteBranch} is at ${moved ?? 'an unknown commit'}, ` +
-            `and this engine's head ${commit} with events ${from + 1}–${last.id} cannot be pushed. ` +
+            `and this engine's head ${commit} with ${what} cannot be pushed. ` +
             'The engine stops; Foedrum never merges or rewrites state history.',
         );
       }
@@ -426,8 +428,6 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         }
         return asWriter(lock, startNow);
       }),
-
-    writeOutDoc: async (attempt, text) => write(outDocPath(attempt), text),
 
     // Another driver's flush may push this one's events too; the caller retries on its deadline.
     flush: () =>

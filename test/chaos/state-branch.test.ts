@@ -7,6 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { outDocPath } from '../../src/engine/state-branch.ts';
 import type { ChaosChecks, ChaosEngine, ChaosRun, Life } from '../helpers/chaos.ts';
 import { restsWithEffectsOnce } from '../helpers/chaos-checks.ts';
 import { holdsAcrossKills, trialChaos } from '../helpers/chaos-shrink.ts';
@@ -133,6 +134,87 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   'a start with everything pushed': (engine) =>
     branchOf(engine).starts.some(({ decision }) => decision === 'ready'),
 };
+
+const withOutDocs = { stateBranch: true, outDocs: true };
+
+/**
+ * Every step.finished on the remote whose attempt kept an out doc has it at its outDocPath in the
+ * same commit, and every out doc there is the text its store kept (ADR 0103).
+ */
+const outDocsWithTheirEvents = ({ engine }: ChaosRun): void => {
+  const branch = branchOf(engine);
+  const files = branch.remoteFiles();
+  for (const { event } of branch.remoteLines()) {
+    const finished = event as { type: string; batchId: string; stepId: string; attempt: number };
+    if (finished.type !== 'step.finished') continue;
+    const path = outDocPath(finished);
+    const text = branch.kept.get(path);
+    if (text !== undefined)
+      assert.equal(files.get(path), text, `${path} is with its step.finished`);
+  }
+  for (const [path, text] of files) {
+    if (path.endsWith('.md')) assert.equal(text, branch.kept.get(path), `${path} is the kept text`);
+  }
+};
+
+const outDocChecks: ChaosChecks = {
+  afterMove: (run, move, survived) => {
+    checks.afterMove?.(run, move, survived);
+    outDocsWithTheirEvents(run);
+  },
+  atEnd: async (run) => {
+    await checks.atEnd?.(run);
+    outDocsWithTheirEvents(run);
+    // At rest, every out doc a store kept is on the remote, and the store keeps none any more.
+    const branch = branchOf(run.engine);
+    const files = branch.remoteFiles();
+    for (const [path, text] of branch.kept)
+      assert.equal(files.get(path), text, `${path} is pushed`);
+    assert.deepEqual(run.engine.store().keptOutDocs(), [], 'the store let go of every pushed doc');
+  },
+};
+
+/** What the runs that keep out docs must reach between them. */
+const outDocGoals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
+  'an out doc on the remote': (engine) =>
+    [...branchOf(engine).remoteFiles().keys()].some((path) => path.endsWith('.md')),
+  // The attempt is lost with its process; the next driver records its step.finished, and the
+  // flush puts the out doc kept before the kill next to it.
+  'killed after an out doc was kept, before its step.finished': (engine) =>
+    killedAt(engine, 'after an out doc was kept'),
+  // The store kept the out doc through the kill; the next start's flush writes it again.
+  'a start after a kill with out docs kept, which flushed them': (engine) =>
+    branchOf(engine).starts.some(
+      (start) => start.after !== undefined && start.decision === 'flush' && start.keptOutDocs > 0,
+    ),
+};
+
+describe('out docs on the state branch across kills (ADR 0103)', () => {
+  it('puts every kept out doc next to its step.finished, and every one on the remote at rest', () =>
+    holdsAcrossKills(dir.path, outDocChecks, withOutDocs));
+
+  it('reach every out doc case', async () => {
+    const wanted = Object.keys(outDocGoals);
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 30 && wanted.some((what) => !seen.has(what)); seed++) {
+      const reaching: ChaosChecks = {
+        ...outDocChecks,
+        atEnd: async (run) => {
+          await outDocChecks.atEnd?.(run);
+          for (const [what, reached] of Object.entries(outDocGoals)) {
+            if (reached(run.engine)) seen.add(what);
+          }
+        },
+      };
+      const failure = await trialChaos(dir.path, { seed }, reaching, withOutDocs);
+      if (failure !== undefined) throw failure.error;
+    }
+    assert.deepEqual(
+      wanted.filter((what) => !seen.has(what)),
+      [],
+    );
+  });
+});
 
 describe('the state branch across kills', () => {
   it('holds the store’s first events once, never ahead of its marker, and every event at rest', () =>

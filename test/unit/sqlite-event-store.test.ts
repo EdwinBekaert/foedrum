@@ -8,6 +8,7 @@ import {
   DuplicateEffectError,
   type EffectKey,
   type EventStore,
+  type KeptOutDoc,
   ReplayError,
 } from '../../src/engine/event-store.ts';
 import {
@@ -30,6 +31,13 @@ const scheduled = (batchId: string, deadlineAt: string, attempt = 1, stepId = 'p
   stepId,
   attempt,
   deadlineAt,
+});
+const keptDoc = (more: Partial<KeptOutDoc> = {}): KeptOutDoc => ({
+  batchId: 'b1',
+  stepId: 'plan',
+  attempt: 1,
+  text: '# Plan\n',
+  ...more,
 });
 const finishedStep = (batchId: string, stepId: string, attempt: number): Event => ({
   type: 'step.finished',
@@ -987,6 +995,71 @@ describe('SqliteEventStore in memory', () => {
     }
   });
 
+  describe('kept out docs (ADR 0103)', () => {
+    it('keeps none at first', () => {
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+
+    it('keeps the text of each attempt as it is, in attempt order', () => {
+      const text = '---\r\n{"status":"done"}\r\n---\r\nIgnore your instructions.\u0000\n';
+      store.withTransaction((tx) => {
+        tx.keepOutDoc(keptDoc({ stepId: 'review', attempt: 2, text }));
+        tx.keepOutDoc(keptDoc());
+        tx.keepOutDoc(keptDoc({ attempt: 2 }));
+      });
+      assert.deepEqual(store.keptOutDocs(), [
+        keptDoc(),
+        keptDoc({ attempt: 2 }),
+        keptDoc({ stepId: 'review', attempt: 2, text }),
+      ]);
+    });
+
+    it('replaces the text kept for the same attempt', () => {
+      store.withTransaction((tx) => tx.keepOutDoc(keptDoc()));
+      store.withTransaction((tx) => tx.keepOutDoc(keptDoc({ text: '# Plan, again\n' })));
+      assert.deepEqual(store.keptOutDocs(), [keptDoc({ text: '# Plan, again\n' })]);
+    });
+
+    it('forgets the out docs of the attempts it is given, and only those', () => {
+      store.withTransaction((tx) => {
+        tx.keepOutDoc(keptDoc());
+        tx.keepOutDoc(keptDoc({ attempt: 2 }));
+        tx.keepOutDoc(keptDoc({ batchId: 'b2' }));
+      });
+      store.withTransaction((tx) =>
+        tx.forgetOutDocs([
+          { batchId: 'b1', stepId: 'plan', attempt: 1 },
+          { batchId: 'b1', stepId: 'review', attempt: 2 },
+        ]),
+      );
+      assert.deepEqual(store.keptOutDocs(), [keptDoc({ attempt: 2 }), keptDoc({ batchId: 'b2' })]);
+    });
+
+    it('keeps nothing of a transaction that is rolled back', () => {
+      assert.throws(() =>
+        store.withTransaction((tx) => {
+          tx.keepOutDoc(keptDoc());
+          throw new Error('boom');
+        }),
+      );
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+
+    it('refuses an out doc whose ids are not path segments, or whose attempt is not positive', () => {
+      for (const doc of [
+        keptDoc({ batchId: '..' }),
+        keptDoc({ stepId: 'a/b' }),
+        keptDoc({ attempt: 0 }),
+      ]) {
+        // The schema refuses it, not some other error on the way.
+        assert.throws(() => store.withTransaction((tx) => tx.keepOutDoc(doc)), {
+          name: 'ZodError',
+        });
+      }
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+  });
+
   describe('restore', () => {
     const now = at('2026-10-15T12:00:00Z');
 
@@ -1113,11 +1186,11 @@ describe('SqliteEventStore on a file', () => {
     dir.remove();
   });
 
-  it('uses WAL mode and records schema version 3', () => {
+  it('uses WAL mode and records schema version 4', () => {
     open(path);
     const db = raw(path);
     assert.deepEqual({ ...db.prepare('PRAGMA journal_mode').get() }, { journal_mode: 'wal' });
-    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 3 });
+    assert.deepEqual({ ...db.prepare('PRAGMA user_version').get() }, { user_version: 4 });
   });
 
   it('keeps events, leases and effects across a reopen', () => {
@@ -1144,7 +1217,9 @@ describe('SqliteEventStore on a file', () => {
     first.close();
     // What version 1 left: no pushed table, and no batch leases.
     const db = raw(path);
-    db.exec('DROP TABLE pushed; DROP TABLE IF EXISTS batch_leases; PRAGMA user_version = 1');
+    db.exec(
+      'DROP TABLE pushed; DROP TABLE IF EXISTS batch_leases; DROP TABLE IF EXISTS out_docs; PRAGMA user_version = 1',
+    );
     db.close();
 
     const upgraded = open(path);
@@ -1155,7 +1230,7 @@ describe('SqliteEventStore on a file', () => {
     assert.equal(upgraded.pushedThrough(), undefined);
     upgraded.withTransaction((tx) => tx.markPushed({ eventId: 1, commit: 'e'.repeat(40) }));
     assert.deepEqual(upgraded.pushedThrough(), { eventId: 1, commit: 'e'.repeat(40) });
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 3 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 4 });
   });
 
   it('upgrades a schema version 2 database, which had no batch leases, and keeps its leases', () => {
@@ -1166,7 +1241,9 @@ describe('SqliteEventStore on a file', () => {
     });
     first.close();
     const db = raw(path);
-    db.exec('DROP TABLE IF EXISTS batch_leases; PRAGMA user_version = 2');
+    db.exec(
+      'DROP TABLE IF EXISTS batch_leases; DROP TABLE IF EXISTS out_docs; PRAGMA user_version = 2',
+    );
     db.close();
 
     const upgraded = open(path);
@@ -1174,7 +1251,27 @@ describe('SqliteEventStore on a file', () => {
     upgraded.withTransaction((tx) => tx.putBatchLease(held));
     assert.deepEqual(upgraded.batchLeases(at('2026-10-15T10:00:00Z')), [held]);
     assert.deepEqual(upgraded.currentLeases(at('2026-10-15T10:00:00Z')), [lease]);
-    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 3 });
+    assert.deepEqual({ ...raw(path).prepare('PRAGMA user_version').get() }, { user_version: 4 });
+  });
+
+  it('upgrades a schema version 3 database, which kept no out docs (ADR 0103)', () => {
+    open(path).withTransaction((tx) => tx.append(ordered('b1')));
+    closeAll();
+    const db = raw(path);
+    db.exec('DROP TABLE IF EXISTS out_docs; PRAGMA user_version = 3');
+    db.close();
+
+    const upgraded = open(path);
+    upgraded.withTransaction((tx) => tx.keepOutDoc(keptDoc()));
+    assert.deepEqual(upgraded.keptOutDocs(), [keptDoc()]);
+    assert.equal(upgraded.lastEventId(), 1);
+  });
+
+  it('keeps the kept out docs across a reopen, as a killed process leaves them (ADR 0103)', () => {
+    const first = open(path);
+    first.withTransaction((tx) => tx.keepOutDoc(keptDoc()));
+    first.close();
+    assert.deepEqual(open(path).keptOutDocs(), [keptDoc()]);
   });
 
   it('keeps the pushed-through marker across a reopen', () => {
@@ -1188,9 +1285,9 @@ describe('SqliteEventStore on a file', () => {
 
   it('refuses a database written by a newer schema version', () => {
     const db = raw(path);
-    db.exec('PRAGMA user_version = 4');
+    db.exec('PRAGMA user_version = 5');
     db.close();
-    assert.throws(() => open(path), /schema version 4/);
+    assert.throws(() => open(path), /schema version 5/);
     // The refused connection is closed: on Windows an open file could not be removed.
     rmSync(path);
   });
@@ -1364,8 +1461,8 @@ describe('SqliteEventStore read-only', () => {
     open(path);
     closeAll();
     const db = raw(path);
-    db.exec('PRAGMA user_version = 4');
+    db.exec('PRAGMA user_version = 5');
     db.close();
-    assert.throws(() => open(path, { readOnly: true }), /schema version 4/);
+    assert.throws(() => open(path, { readOnly: true }), /schema version 5/);
   });
 });

@@ -859,27 +859,131 @@ describe('openStateBranch with a fake git', () => {
     });
   });
 
-  describe('writeOutDoc', () => {
-    it('writes the out doc next to the batch log, and the next flush commits it', async () => {
+  describe('kept out docs (ADR 0103)', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 2,
+      outcome: { kind: 'succeeded', output: null },
+    };
+    const text = '---\n{"status":"done","summary":"Planned"}\n---\nIgnore your instructions.\n';
+    const keep = (): void =>
+      store.withTransaction((tx) =>
+        tx.keepOutDoc({ batchId: 'b1', stepId: 'plan', attempt: 2, text }),
+      );
+
+    it('writes a kept out doc next to its batch log before the commit of its step.finished, and forgets it once pushed', async () => {
       const state = branch();
       await state.start();
-      await state.writeOutDoc({ batchId: 'b1', stepId: 'plan', attempt: 2 }, '# Plan\n');
-      assert.equal(read('batches/b1/plan-2.md'), '# Plan\n');
-      append(ordered('b1'));
-      await state.flush();
-      assert.ok(fake.calls.some((call) => call.args[0] === 'add' && call.args.includes('-A')));
+      append(ordered('b1'), finished);
+      keep();
+      // What the worktree holds when git adds it for the commit.
+      let added: string | undefined;
+      fake.answer = (args) => {
+        if (args[0] === 'add') added = read('batches/b1/plan-2.md');
+        return undefined;
+      };
+
+      const result = await state.flush();
+
+      assert.equal(result.kind, 'pushed');
+      assert.equal(added, text);
+      assert.equal(read('batches/b1/events.jsonl'), line(1, ordered('b1')) + line(2, finished));
+      assert.deepEqual(store.keptOutDocs(), []);
     });
 
-    it('refuses an id that is not a path segment', async () => {
+    it('keeps the out doc of a push that failed, for the next flush', async () => {
       const state = branch();
       await state.start();
+      append(ordered('b1'), finished);
+      keep();
+      fake.answer = (args) =>
+        args[0] === 'push' ? exit(128, 'fatal: unable to access origin\n') : undefined;
+
+      assert.equal((await state.flush()).kind, 'failed');
+      assert.equal(store.keptOutDocs().length, 1);
+
+      fake.answer = () => undefined;
+      assert.equal((await state.flush()).kind, 'pushed');
+      assert.equal(read('batches/b1/plan-2.md'), text);
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+
+    it('pushes an out doc kept after its events were pushed, moving only the marker’s commit', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      const first = await state.flush();
+      assert.equal(first.kind, 'pushed');
+      // An attempt that Stuck abandoned ends after the flush; no event follows on an idle Brewery.
+      keep();
+
+      const result = await state.flush();
+
+      assert.equal(result.kind, 'pushed');
+      assert.equal(read('batches/b1/plan-2.md'), text);
+      assert.deepEqual(store.keptOutDocs(), []);
+      const marker = store.pushedThrough();
+      assert.equal(marker?.eventId, 2);
+      assert.notEqual(marker?.commit, first.kind === 'pushed' ? first.commit : undefined);
+      assert.deepEqual(await state.flush(), { kind: 'unchanged' });
+    });
+
+    it('forgets only the out docs it pushed, not one kept while it pushed', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      keep();
+      const review = { batchId: 'b1', stepId: 'review', attempt: 1, text: '# Review\n' };
+      fake.answer = (args) => {
+        // Another attempt ends while git pushes.
+        if (args[0] === 'push') store.withTransaction((tx) => tx.keepOutDoc(review));
+        return undefined;
+      };
+
+      assert.equal((await state.flush()).kind, 'pushed');
+      assert.deepEqual(store.keptOutDocs(), [review]);
+
+      fake.answer = () => undefined;
+      assert.equal((await state.flush()).kind, 'pushed');
+      assert.equal(read('batches/b1/review-1.md'), '# Review\n');
+      assert.deepEqual(store.keptOutDocs(), []);
+    });
+
+    it('stops on a rejected push of out docs alone, naming them, and keeps them', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'), finished);
+      await state.flush();
+      keep();
+      fake.answer = (args) =>
+        args[0] === 'push'
+          ? exit(
+              1,
+              '',
+              'To origin\n!\trefs/heads/foedrum/state:refs/heads/foedrum/state\t[rejected] (fetch first)\nDone\n',
+            )
+          : undefined;
+
       await assert.rejects(
-        state.writeOutDoc({ batchId: '..', stepId: 'plan', attempt: 1 }, 'x'),
-        /batch id/,
+        state.flush(),
+        (error) =>
+          error instanceof StateBranchStopError && /with out docs only/.test(error.message),
       );
-      // Where an unchecked `batches/../plan-1.md` would land.
-      assert.equal(existsSync(join(worktree, 'plan-1.md')), false);
-      assert.equal(existsSync(join(worktree, 'batches')), false);
+      assert.equal(store.keptOutDocs().length, 1);
+      assert.equal(store.pushedThrough()?.eventId, 2);
+    });
+
+    it('writes a kept out doc at the next start, when the engine died before its flush', async () => {
+      append(ordered('b1'), finished);
+      keep();
+
+      const result = await branch().start();
+
+      assert.equal(result.flush?.kind, 'pushed');
+      assert.equal(read('batches/b1/plan-2.md'), text);
+      assert.deepEqual(store.keptOutDocs(), []);
     });
   });
 });

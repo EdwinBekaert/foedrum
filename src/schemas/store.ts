@@ -137,3 +137,16 @@ export const Lease = z.strictObject({
   expiresAt: z.date(),
 });
 export type Lease = z.infer<typeof Lease>;
+
+/**
+ * The text of an attempt's out doc, kept in the store from the attempt's end until a flush puts it
+ * on the state branch at `outDocPath` (ADR 0103). Model output: stored, never followed. Kept in the
+ * store's out docs table, never in the log, so it has no JSON Schema file.
+ */
+export const KeptOutDoc = z.strictObject({
+  batchId: PathSafeId,
+  stepId: PathSafeId,
+  attempt: Attempt,
+  text: z.string(),
+});
+export type KeptOutDoc = z.infer<typeof KeptOutDoc>;

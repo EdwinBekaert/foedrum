@@ -294,6 +294,62 @@ describe('runServe', () => {
     assert.match(status[0]?.body ?? '', /<!-- foedrum:\["12-1","status\.\d+"\] -->$/);
   });
 
+  it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
+    const text = '---\n{"status":"done","summary":"Brewed"}\n---\nNotes.\n';
+    const runner = (): BrewerRunner => ({
+      start: () => ({
+        ended: Promise.resolve({
+          ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          outDoc: text,
+        }),
+        stop: () => {},
+      }),
+      progress: () => undefined,
+    });
+    assert.equal(await runServe(setup, shell({ runner })), 0);
+    // The stub state branch never pushes, so the store still keeps it.
+    assert.deepStrictEqual(store.keptOutDocs(), [
+      { batchId: '12-1', stepId: 'brew', attempt: 1, text },
+    ]);
+  });
+
+  it('says in one line when an out doc cannot be kept, and brews on (ADR 0103)', async () => {
+    const runner = (): BrewerRunner => ({
+      start: () => ({
+        ended: Promise.resolve({
+          ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          outDoc: '# Notes\n',
+        }),
+        stop: () => {},
+      }),
+      progress: () => undefined,
+    });
+    const inner = store;
+    store = {
+      ...inner,
+      withTransaction: (fn) =>
+        inner.withTransaction((tx) =>
+          fn({
+            ...tx,
+            keepOutDoc: () => {
+              throw new Error('disk full');
+            },
+          }),
+        ),
+    };
+    assert.equal(await runServe(setup, shell({ runner })), 0);
+    assert.ok(
+      lines.includes(
+        'foedrum serve: the out doc of 12-1 brew#1 was not kept for the state branch: disk full',
+      ),
+      lines.join('\n'),
+    );
+    assert.equal(
+      createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane.kind,
+      'on_tap',
+    );
+  });
+
   it('refuses a second Cellar, opening nothing', async () => {
     const running = new DriverRunningError('cellar', 'drivers/cellar.lock', undefined);
     const code = await runServe(
