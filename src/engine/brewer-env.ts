@@ -64,12 +64,13 @@ export function brewerBaseEnv(
 /**
  * What git reads after every configuration file (ADR 0109): no credential helper and no askpass
  * program, wherever the user's or the clone's configuration set them (an empty helper clears the
- * list), and every transport refused but local paths, as git allows them by default, git, http and
- * https, so neither ssh nor a remote helper can reach a key or a login.
+ * list), no cookie file, and every transport refused but local paths, as git allows them by
+ * default, git, http and https, so neither ssh nor a remote helper can reach a key or a login.
  */
 const NO_PUSH_CREDENTIALS: readonly (readonly [string, string])[] = [
   ['credential.helper', ''],
   ['core.askPass', ''],
+  ['http.cookieFile', ''],
   ['protocol.allow', 'never'],
   ['protocol.file.allow', 'user'],
   ['protocol.git.allow', 'always'],
