@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   type CheckResult,
@@ -16,11 +16,13 @@ import {
   type LookupPullRequest,
   lockfileBinary,
   npmCheck,
+  type PathModule,
   type ProcessOutcome,
   type PullRequestFacts,
   precheck,
   type ReadyTarget,
   type RunProcess,
+  resolvePlace,
 } from '../../scripts/precheck.ts';
 import type { RunOptions } from '../../scripts/process-runner.ts';
 
@@ -387,10 +389,117 @@ describe('precheck on a push from another directory', () => {
     );
     return { result, checks, heads, stale, lookups };
   };
+  const worktree = join(root, '..', 'wt');
+  const absolute = resolve(root, 'elsewhere').replaceAll('\\', '/');
+
+  const pushes: [command: string, dir: string, tool?: string][] = [
+    ['git -C ../wt push', worktree],
+    ['git -C ../wt push', worktree, 'PowerShell'],
+    // The last -C wins, resolved against the ones before it, as git reads them.
+    ['git -C a -C b push', join(root, 'a', 'b')],
+    [`git -C a -C ${absolute} push -u origin x`, resolve(absolute)],
+    ['cd ../wt && git push', worktree],
+    ['cd ../wt; git push', worktree],
+    ['cd a && cd b && git push', join(root, 'a', 'b')],
+    ['cd a && git -C b push', join(root, 'a', 'b')],
+    ['cd ../wt && npm test && git push 2>&1 | tail -5', worktree],
+    ['(cd ../wt && git push)', worktree],
+    ['pushd ../wt && git push', worktree],
+    ['cd -P ../wt && git push', worktree],
+    ['env -C ../wt git push', worktree],
+    ['bash -c "cd ../wt && git push"', worktree],
+    [`cd ${absolute} && git push`, resolve(absolute)],
+    ['Set-Location ../wt; git push', worktree, 'PowerShell'],
+    ['Set-Location -Path ../wt; git push', worktree, 'PowerShell'],
+    ['sl ../wt; git push', worktree, 'PowerShell'],
+    ['cd..; git push', join(root, '..'), 'PowerShell'],
+  ];
+  for (const [command, dir, tool = 'Bash'] of pushes) {
+    it(`checks the pushed tree in ${tool}: ${command}`, async () => {
+      const { result, checks, heads, stale } = await gate(command, tool);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(heads, [dir]);
+      assert.deepEqual(stale, [dir]);
+      assert.deepEqual(checks, [dir]);
+    });
+  }
+
+  it('checks the tree of gh pr create after a cd', async () => {
+    const { checks, heads } = await gate('cd ../wt && gh pr create --draft');
+    assert.deepEqual(checks, [worktree]);
+    assert.deepEqual(heads, []);
+  });
+
+  for (const command of ['cd ../wt && gh pr ready', 'cd ../wt && gh pr ready 5']) {
+    it(`looks the pull request up where gh runs: ${command}`, async () => {
+      const { result, lookups } = await gate(command);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(lookups, [worktree]);
+    });
+  }
+
   it('still checks the hook cwd when nothing changes directory', async () => {
     const { checks, heads } = await gate('git -c core.x=1 push');
     assert.deepEqual(heads, [root]);
     assert.deepEqual(checks, [root]);
+  });
+
+  it('blocks pushes from two trees in one command with one line', async () => {
+    const { result, checks, heads } = await gate('git -C a push; git -C b push');
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr: `This command pushes or opens pull requests from more than one checkout (${join(root, 'a')}, ${join(root, 'b')}): the gate checks one tree per command; run each from a command of its own.\n`,
+    });
+    assert.deepEqual(heads, []);
+    assert.deepEqual(checks, []);
+  });
+
+  const PUSH_COMPUTED =
+    'git push is blocked: it runs in a directory computed at run time (such as cd "$d" or git -C $d), so the gate cannot tell which tree to check: push from inside the worktree, or name its path as it is.\n';
+  const computed: [command: string, tool?: string][] = [
+    ['cd "$d" && git push'],
+    ['cd $d; git push'],
+    ['git -C $d push'],
+    ['git -C "$(git rev-parse --show-toplevel)" push'],
+    ['git -C a -C "$d" push'],
+    ['cd - && git push'],
+    ['cd && git push'],
+    ['popd && git push'],
+    ['cd ~- && git push'],
+    ['env -C "$d" git push'],
+    // A nested command after a change of directory: the gate cannot tell where it runs.
+    ['cd ../wt && bash -c "git push"'],
+    ['Set-Location $env:WT; git push', 'PowerShell'],
+    ['Pop-Location; git push', 'PowerShell'],
+    ['D:; git push', 'PowerShell'],
+  ];
+  for (const [command, tool = 'Bash'] of computed) {
+    it(`blocks a push from a directory computed at run time in ${tool}: ${command}`, async () => {
+      const { result, checks, heads } = await gate(command, tool);
+      assert.deepEqual(result, { exitCode: 2, stderr: PUSH_COMPUTED });
+      assert.deepEqual(heads, []);
+      assert.deepEqual(checks, []);
+    });
+  }
+
+  it('blocks gh pr create from a directory computed at run time', async () => {
+    const { result, checks } = await gate('cd "$d" && gh pr create --draft');
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr:
+        'gh pr create is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which tree to check: run it from inside the worktree, or name its path as it is.\n',
+    });
+    assert.deepEqual(checks, []);
+  });
+
+  it('blocks gh pr ready without a number from a directory computed at run time', async () => {
+    const { result, lookups } = await gate('cd "$d" && gh pr ready');
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr:
+        'gh pr ready is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which pull request it marks ready: give the pull request number.\n',
+    });
+    assert.deepEqual(lookups, []);
   });
 
   it('looks up a numbered pull request in the hook cwd after a computed cd', async () => {
@@ -403,6 +512,26 @@ describe('precheck on a push from another directory', () => {
     const { result } = await gate('cd "$d" && git status');
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
   });
+});
+
+describe('resolvePlace', () => {
+  const home = { win32: 'C:\\Users\\dev', posix: '/home/dev' };
+  const cases: [name: string, path: PathModule, cwd: string, steps: string[], dir: string][] = [
+    ['no step', win32, 'D:\\code\\foedrum', [], 'D:\\code\\foedrum'],
+    ['a relative step', win32, 'D:\\code\\foedrum', ['..\\wt'], 'D:\\code\\wt'],
+    ["Git Bash's drive path", win32, 'D:\\code\\foedrum', ['/c/work/wt'], 'C:\\work\\wt'],
+    ["Git Bash's drive root", win32, 'D:\\code\\foedrum', ['/e'], 'E:\\'],
+    ['a home path', win32, 'D:\\code', ['~/wt'], 'C:\\Users\\dev\\wt'],
+    ['home', posix, '/srv/foedrum', ['~'], '/home/dev'],
+    ['steps in order', posix, '/srv/foedrum', ['a', '../b', 'c'], '/srv/foedrum/b/c'],
+    ['an absolute step', posix, '/srv/foedrum', ['a', '/d/code'], '/d/code'],
+  ];
+  for (const [name, path, cwd, steps, dir] of cases) {
+    it(`resolves ${name} (${path === win32 ? 'win32' : 'posix'})`, () => {
+      const given = path === win32 ? home.win32 : home.posix;
+      assert.equal(resolvePlace(cwd, steps, path, given), dir);
+    });
+  }
 });
 
 describe('forbiddenReason', () => {

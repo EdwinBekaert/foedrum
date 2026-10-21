@@ -848,6 +848,20 @@ const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Fin
   return found;
 };
 
+// node:path's posix or win32 functions; a type, so the module still has no static imports.
+export type PathModule = typeof import('node:path').posix;
+
+// The directory a command runs in: the hook's working directory, then each directory it changes
+// into, in order, with Git Bash's /c/… drive paths on Windows and a home path (~, ~/…) expanded.
+export const resolvePlace = (
+  _cwd: string,
+  _steps: readonly string[],
+  _path: PathModule,
+  _home: string,
+): string => {
+  throw new Error('not implemented');
+};
+
 export const isGatedCommand = (command: string): boolean => findings(command).gated;
 
 export const forbiddenReason = (command: string): string | undefined =>
