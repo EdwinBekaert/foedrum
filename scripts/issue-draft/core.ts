@@ -16,6 +16,16 @@ const length = (text: string): number => [...text].length;
 
 const lineBreak = /[\n\v\f\r\u0085\u2028\u2029]/u;
 const control = /\p{Cc}/u;
+// Bidi overrides and zero-width characters: a title can show the user other text than it files.
+const format = /\p{Cf}/gu;
+
+// Model-written text in a problem line: JSON.stringify escapes line breaks and control
+// characters, so the text cannot forge an output line, and format characters are escaped too.
+const quote = (text: string): string =>
+  JSON.stringify(text).replace(format, (char) => {
+    const hex = (char.codePointAt(0) ?? 0).toString(16);
+    return hex.length > 4 ? `\\u{${hex}}` : `\\u${hex.padStart(4, '0')}`;
+  });
 
 const fieldProblem = (
   draft: Record<string, unknown>,
@@ -29,6 +39,7 @@ const fieldProblem = (
     if (value.trim() === '') return '"title" is empty';
     if (lineBreak.test(value)) return '"title" is more than one line';
     if (control.test(value)) return '"title" has a control character';
+    if (value.match(format) !== null) return '"title" has an invisible format character';
   }
   const count = length(value);
   return count > limit ? `"${key}" has ${count} characters, more than ${limit}` : undefined;
@@ -41,13 +52,13 @@ export const checkDraft = (text: string): DraftCheck => {
     // A draft saved on Windows may start with a byte order mark (CLAUDE.md, Cross-platform).
     draft = JSON.parse(text.replace(/^\uFEFF/, ''));
   } catch (error) {
-    return { ok: false, problems: [`the draft is not JSON: ${(error as Error).message}`] };
+    // The parser's message quotes the draft's text.
+    return { ok: false, problems: [`the draft is not JSON: ${quote((error as Error).message)}`] };
   }
   if (!isObject(draft)) return { ok: false, problems: ['the draft is not a JSON object'] };
-  // A key is model output; quoted, its control characters cannot forge an output line.
   const problems = Object.keys(draft)
     .filter((key) => key !== 'title' && key !== 'body')
-    .map((key) => `unexpected key ${JSON.stringify(key)}`);
+    .map((key) => `unexpected key ${quote(key)}`);
   for (const problem of [
     fieldProblem(draft, 'title', titleLimit),
     fieldProblem(draft, 'body', bodyLimit),
