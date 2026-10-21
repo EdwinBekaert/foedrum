@@ -676,16 +676,17 @@ const positionals = (args: Word[], optionsWithValue: Set<string>): Word[] => {
   return result;
 };
 
-// The value of gh's last -R or --repo, given as the next word, after `=`, or joined to -R as gh
-// reads it: the last one wins.
-const repoOption = (args: Word[]): Word | undefined => {
-  let repo: Word | undefined;
+// The value of gh's last short or long option (-R or --repo, -X or --method), given as the next
+// word, after `=`, or joined to the short option as gh reads it: the last one wins.
+const lastOption = (args: Word[], short: string, long: string): Word | undefined => {
+  const joinedOption = new RegExp(`^(?:${short}=?|${long}=)(.+)$`, 's');
+  let value: Word | undefined;
   for (const [i, arg] of args.entries()) {
-    const joined = /^(?:-R=?|--repo=)(.+)$/s.exec(arg.text);
-    if (arg.text === '-R' || arg.text === '--repo') repo = args[i + 1];
-    else if (joined !== null) repo = { ...arg, text: joined[1] ?? '' };
+    const joined = joinedOption.exec(arg.text);
+    if (arg.text === short || arg.text === long) value = args[i + 1];
+    else if (joined !== null) value = { ...arg, text: joined[1] ?? '' };
   }
-  return repo;
+  return value;
 };
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
@@ -701,24 +702,11 @@ const unreadableQuery = (args: Word[]): boolean =>
     );
   });
 
-// The method of a `gh api` call, from its last -X or --method (given as the next word, after `=`,
-// or joined to -X), as gh reads it; undefined when none is given, and COMPUTED when it is computed
-// at run time.
+// The method of a `gh api` call, from its last -X or --method: undefined when none is given, and
+// COMPUTED when it is computed at run time.
 const apiMethod = (args: Word[]): string | undefined => {
-  let method: string | undefined;
-  for (const [i, arg] of args.entries()) {
-    const joined = /^(?:-X=?|--method=)(.+)$/s.exec(arg.text);
-    const word =
-      arg.text === '-X' || arg.text === '--method'
-        ? args[i + 1]
-        : joined === null
-          ? undefined
-          : arg;
-    if (word !== undefined) {
-      method = word.dynamic ? COMPUTED : (joined?.[1] ?? word.text).toUpperCase();
-    }
-  }
-  return method;
+  const method = lastOption(args, '-X', '--method');
+  return method?.dynamic ? COMPUTED : method?.text.toUpperCase();
 };
 
 // Whether a `gh api` call merges a pull request: a PUT (or a method computed at run time) to
@@ -740,7 +728,7 @@ const apiMerges = (args: Word[]): boolean => {
 // repository.
 const readReady = (args: Word[], pr: Word | undefined, { found, place }: Reading): void => {
   if (args.some((arg) => arg.text === '--undo')) return;
-  const repo = repoOption(args);
+  const repo = lastOption(args, '-R', '--repo');
   if (args.some((arg) => arg.dynamic || /^@\w/.test(arg.text))) {
     found.reasons.push(READY_COMPUTED_BLOCKED);
   } else {
