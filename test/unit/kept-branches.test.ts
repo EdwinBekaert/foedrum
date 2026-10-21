@@ -264,6 +264,23 @@ describe('readKeptBranches', () => {
     assert.equal(calls[0]?.[0], CLONE);
   });
 
+  it('says so for a rewound batch whose branch names no attempt it recorded, without asking git (review of #288)', async () => {
+    const { calls, git } = fakeGit();
+    const rewound: Batch = {
+      ...batch('12-1', 'acme/app'),
+      taskTree: { kind: 'rewound', shas: { 'acme/app': TIP } },
+    };
+    const readings = await readKeptBranches(state(rewound), new Map([[branch, START]]), {
+      git,
+      cloneOf,
+    });
+    assert.deepEqual(readings.get(branch), {
+      kind: 'unread',
+      reason: 'no task tree of batch 12-1 in the event store',
+    });
+    assert.deepEqual(calls, []);
+  });
+
   it('says so for a branch whose batch the state has no task tree for', async () => {
     const { calls, git } = fakeGit();
     const readings = await readKeptBranches(state(), new Map([[branch, START]]), {

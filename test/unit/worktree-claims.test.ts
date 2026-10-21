@@ -340,6 +340,43 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', '']]));
   });
 
+  it("names nothing of a task tree rewound to its first succeeded attempt's commit, not a failed one's before it (review of #288)", () => {
+    const OLD = 'a'.repeat(40);
+    const state = rewound([[1, finished('brew', 1, TIP)]]);
+    const found = state.batches.get('12-1');
+    assert.ok(found !== undefined);
+    const steps = new Map(found.steps);
+    const failed = finished('plan', 1, OLD, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the run broke',
+    });
+    steps.set(
+      'plan',
+      step('plan', [
+        [1, failed],
+        [2, finished('plan', 2, BASE)],
+      ]),
+    );
+    const batch: Batch = {
+      ...found,
+      steps,
+      taskTree: { kind: 'rewound', shas: { 'acme/app': BASE } },
+    };
+    assert.deepEqual(
+      worktreeClaims({ ...state, batches: new Map([['12-1', batch]]) }, []).unpushed,
+      new Map(),
+    );
+  });
+
+  it("names nothing when no attempt wrote in the rewind's repository (review of #288)", () => {
+    const elsewhere = failedAt(1, TIP);
+    assert.ok(elsewhere.phase === 'finished' && elsewhere.worktree !== undefined);
+    const inLib = { ...elsewhere, worktree: { ...elsewhere.worktree, repo: 'acme/lib' } };
+    const state = noneSucceeded([[1, inLib]]);
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
+  });
+
   it("keeps the branch holding a rewound task tree in the cleanup's plan, with ADR 0084's line (#255)", () => {
     const state = rewound([
       [1, finished('brew', 1, TIP)],
