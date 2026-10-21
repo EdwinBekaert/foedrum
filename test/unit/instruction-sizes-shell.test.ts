@@ -111,6 +111,41 @@ describe('node scripts/instruction-sizes.ts', () => {
     );
   });
 
+  it('counts a file git lists twice once, as during a merge conflict', async () => {
+    const result = await runWith(
+      [],
+      { ...TOPLEVEL, [LS_FILES]: ok('CLAUDE.md\0CLAUDE.md\0') },
+      { [join(ROOT, 'CLAUDE.md')]: 'a\n' },
+    );
+    assert.equal(result.out, 'file\tbytes\tlines\nCLAUDE.md\t2\t1\ntotal\t2\t1\n');
+  });
+
+  it('exits 1 with the git error when git cannot read the earlier commit', async () => {
+    const since = {
+      ...TOPLEVEL,
+      [LS_FILES]: ok('CLAUDE.md\0'),
+      'rev-parse --verify --quiet --end-of-options v0.1^{commit}': ok(`${SHA}\n`),
+    };
+    const files = { [join(ROOT, 'CLAUDE.md')]: 'a\n' };
+    const noTree = await runWith(['--since', 'v0.1'], since, files);
+    assert.deepEqual(
+      { code: noTree.code, out: noTree.out, err: noTree.err },
+      { code: 1, out: '', err: 'git ls-tree failed: fatal: unknown\n' },
+    );
+    const noBlob = await runWith(
+      ['--since', 'v0.1'],
+      {
+        ...since,
+        [['ls-tree', '-r', '-z', '--name-only', SHA, ...SCOPE].join(' ')]: ok('CLAUDE.md\0'),
+      },
+      files,
+    );
+    assert.deepEqual(
+      { code: noBlob.code, out: noBlob.out, err: noBlob.err },
+      { code: 1, out: '', err: 'git cat-file failed: fatal: unknown\n' },
+    );
+  });
+
   it('exits 1 outside a checkout', async () => {
     const result = await runWith([], {}, {});
     assert.deepEqual(
