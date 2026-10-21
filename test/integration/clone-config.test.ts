@@ -14,7 +14,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { removeTree } from '../../src/platform/remove.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
-import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
+import { listRemoteRefs, openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import { inClone } from '../../src/workspace/clone-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -146,6 +146,13 @@ describe("the engine's network git and the clone's configuration (ADR 0096)", ()
       await push.push(tip, bottle);
       assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), tip);
       assert.equal(await push.remoteTip(bottle), tip);
+      // Every ref, as the noPush guard reads them (ADR 0106).
+      const listed = await listRemoteRefs({
+        git: runGit,
+        clone: user,
+        own: { url: origin, root: join(run, 'git') },
+      });
+      assert.ok(listed.split(/\r?\n/).includes(`${tip}\trefs/heads/${bottle}`), listed);
 
       // Main moves on in another clone; the next attempt starts at it.
       const main = commit(other, 'merged.txt');

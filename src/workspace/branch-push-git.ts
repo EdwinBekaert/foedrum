@@ -102,6 +102,10 @@ const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan re
 /** A push or fetch of a large repository takes a while; the effect's deadline aborts it sooner. */
 const TRANSFER_TIMEOUT_MS = 300_000;
 
+/** The listing of every ref of a remote: a round trip, and all its pull requests' refs on GitHub. */
+const LIST_TIMEOUT_MS = 60_000;
+const LIST_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
 const SHA = /^[0-9a-f]{40}$/;
 // A base branch as git reads it in a refspec: never an option, a second refspec or a range.
 const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
@@ -112,6 +116,18 @@ const FOEDRUM_BRANCH = /^foedrum\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$
 const aborts = (signal: AbortSignal | undefined): GitOptions =>
   signal === undefined ? {} : { signal };
 
+// A git directory of the call's own, reaching the remote by the URL Foedrum names (ADR 0096).
+const remotely = async <T>(
+  { git, clone, own }: Pick<BranchPushOptions, 'git' | 'clone' | 'own'>,
+  signal: AbortSignal | undefined,
+  use: (dir: OwnGitDir) => Promise<T>,
+): Promise<T> => {
+  if (own === undefined) {
+    throw new Error(`The pushes from ${clone} name no URL to reach the remote by`);
+  }
+  return withOwnGitDir(git, clone, own, signal, use);
+};
+
 const foedrumBranch = (branch: string): string => {
   if (!FOEDRUM_BRANCH.test(branch)) {
     throw new Error(`${JSON.stringify(branch)} is no branch in foedrum/`);
@@ -120,18 +136,8 @@ const foedrumBranch = (branch: string): string => {
 };
 
 export const openBranchPush = (options: BranchPushOptions): BranchPush => {
-  const { git, clone, remote = 'origin', own } = options;
+  const { git, clone, remote = 'origin' } = options;
   const local = inClone(git);
-  // A git directory of the call's own, reaching the remote by the URL Foedrum names (ADR 0096).
-  const remotely = <T>(
-    signal: AbortSignal | undefined,
-    use: (dir: OwnGitDir) => Promise<T>,
-  ): Promise<T> => {
-    if (own === undefined) {
-      throw new Error(`The pushes from ${clone} name no URL to reach the remote by`);
-    }
-    return withOwnGitDir(git, clone, own, signal, use);
-  };
   return {
     commit: async (revision, signal) => {
       const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', `${revision}^{commit}`];
@@ -157,7 +163,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     // pruned since), takes part.
     baseTip: async (name, signal) => {
       if (!BRANCH_NAME.test(name)) throw new Error(`${JSON.stringify(name)} is no branch name`);
-      return remotely(signal, async (dir) => {
+      return remotely(options, signal, async (dir) => {
         // The clone's own origin/<base>: where the fetch starts.
         const known = await local(
           clone,
@@ -186,7 +192,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;
-      const listed = await remotely(signal, (dir) =>
+      const listed = await remotely(options, signal, (dir) =>
         dir.run(['ls-remote', '--refs', dir.url, ref]),
       );
       for (const line of listed.split(/\r?\n/)) {
@@ -200,7 +206,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const refspec = `${commit}:refs/heads/${foedrumBranch(branch)}`;
       // Never by force, and by the commit's sha: no ref of the clone names what is pushed. No hook
       // runs: the git directory has none, and `--no-verify` alone would skip only pre-push.
-      await remotely(signal, (dir) =>
+      await remotely(options, signal, (dir) =>
         dir.run(['push', '--no-verify', dir.url, refspec], { timeoutMs: TRANSFER_TIMEOUT_MS }),
       );
     },
@@ -255,4 +261,20 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       ];
     },
   };
+};
+
+/**
+ * Every ref of the remote Foedrum names, as `ls-remote --refs` lists them, from a git directory of
+ * its own (ADR 0096): what the noPush guard compares before and after an attempt (ADR 0106).
+ */
+export const listRemoteRefs = (
+  options: Pick<BranchPushOptions, 'git' | 'clone' | 'own'>,
+  signal?: AbortSignal,
+): Promise<string> => {
+  return remotely(options, signal, (dir) =>
+    dir.run(['ls-remote', '--refs', dir.url], {
+      timeoutMs: LIST_TIMEOUT_MS,
+      maxOutputBytes: LIST_MAX_OUTPUT_BYTES,
+    }),
+  );
 };
