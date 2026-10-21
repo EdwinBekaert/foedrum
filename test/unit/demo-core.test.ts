@@ -19,7 +19,8 @@ import {
   TARGET,
 } from '../../scripts/demo/core.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
-import type { BreweryFile } from '../../src/engine/recipe-files.ts';
+import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import type { BreweryFile, BreweryFiles } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 
 const root = resolve('/repo/.claude/worktrees/193-demo');
@@ -55,8 +56,8 @@ describe('scratchFolder', () => {
 describe('the demo Brewery', () => {
   const work = resolve('/scratch/work');
   const clone = resolve('/scratch/web');
-  /** The Brewery's files, and what serve makes of them. */
-  const demo = () => {
+  /** The Brewery's files, and what serve makes of them, with `defaults` under them. */
+  const demo = (defaults?: BreweryFiles['defaults']) => {
     const files = breweryFiles();
     const of = (folder: string): BreweryFile[] =>
       Object.entries(files)
@@ -71,7 +72,11 @@ describe('the demo Brewery', () => {
         config: files['foedrum.jsonc'],
         local: localConfig(work, clone),
         models: files['models.jsonc'],
-        brewery: { recipes: of('recipes'), brewers: of('brewers') },
+        brewery: {
+          recipes: of('recipes'),
+          brewers: of('brewers'),
+          ...(defaults === undefined ? {} : { defaults }),
+        },
       },
       diagnosis: DIAGNOSIS,
     });
@@ -90,6 +95,11 @@ describe('the demo Brewery', () => {
       [{ repo: TARGET, source: 'local', clone }],
     );
     assert.equal(setup.sandbox, false);
+  });
+
+  it("is one serve accepts under Foedrum's own defaults, as serve reads them (ADR 0098)", () => {
+    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    assert.equal(ready.kind, 'ready', JSON.stringify(ready));
   });
 
   it('routes the order to a recipe whose brewer gets a second attempt after the crash, then opens the pull request', () => {
