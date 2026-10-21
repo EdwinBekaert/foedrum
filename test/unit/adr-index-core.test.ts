@@ -250,6 +250,39 @@ describe('rebuilding the ADR index', () => {
     );
   });
 
+  it('writes a partial supersede into the older record as partial', () => {
+    const result = built(readmeWith([]), [
+      record(A, 'First', 'Accepted · Amends [0002](0002-b.md)'),
+      record(B, 'Second', 'Accepted'),
+      record(C, 'Third', "Accepted · Supersedes [0001](0001-a.md)'s client and [0002](0002-b.md)"),
+    ]);
+    assert.deepEqual(
+      result.records.map((file) => [file.name, statusLine(file)]),
+      [
+        [
+          A,
+          'Date: 2026-10-01 · Status: Accepted · Amends [0002](0002-b.md) · Partly superseded by [0003](0003-c.md)',
+        ],
+        [
+          B,
+          'Date: 2026-10-01 · Status: Accepted · Superseded by [0003](0003-c.md) · Amended by [0001](0001-a.md)',
+        ],
+      ],
+    );
+  });
+
+  it('drops a back link named twice, and says so', () => {
+    const result = built(readmeWith([]), [
+      record(A, 'First', 'Accepted · Amended by [0002](0002-b.md) and [0002](0002-b.md)'),
+      record(B, 'Second', 'Accepted · Amends [0001](0001-a.md)'),
+    ]);
+    assert.deepEqual(
+      result.records.map((file) => [file.name, statusLine(file)]),
+      [[A, 'Date: 2026-10-01 · Status: Accepted · Amended by [0002](0002-b.md)']],
+    );
+    assert.ok(result.changes.includes('0001-a.md:3: amended by 0002 named twice'));
+  });
+
   it('fails on a back clause it cannot drop from the text around it', () => {
     const result = rebuild(readmeWith([]), [
       record(A, 'First', 'Accepted · Amended by [0002](0002-b.md) for now'),
