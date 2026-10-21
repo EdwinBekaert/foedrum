@@ -118,4 +118,12 @@ describe('formatReport', () => {
     const atTarget = formatReport([{ file: 'CLAUDE.md', now: { bytes: 900, lines: 200 } }]);
     assert.equal(atTarget.at(-1), 'total\t900\t200');
   });
+
+  it('holds only CLAUDE.md to that target, not a long skill or default', () => {
+    const report = formatReport([
+      { file: '.claude/skills/brew-review/SKILL.md', now: { bytes: 900, lines: 300 } },
+      { file: 'defaults/long.md', now: { bytes: 900, lines: 300 } },
+    ]);
+    assert.equal(report.at(-1), 'total\t1800\t600');
+  });
 });
