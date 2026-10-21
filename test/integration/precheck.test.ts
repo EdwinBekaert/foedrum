@@ -161,6 +161,55 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
+  // A push from another directory runs that tree's check only inside CLAUDE_PROJECT_DIR (#132).
+  it('runs the check of a pushed tree inside the project, and nothing outside it', async () => {
+    const folder = makeTempDir('pushed-tree');
+    try {
+      const project = join(folder.path, 'project');
+      // Each tree's check names its tree, so the output says where the check ran.
+      for (const [dir, name] of [
+        [project, 'project'],
+        [join(project, 'wt'), 'wt'],
+        [join(folder.path, 'other'), 'other'],
+      ] as const) {
+        mkdirSync(dir, { recursive: true });
+        const check = `node ${JSON.stringify(npmStub)} run check ${name}`;
+        writeFileSync(
+          join(dir, 'package.json'),
+          `${JSON.stringify({ private: true, scripts: { check } })}\n`,
+        );
+      }
+      const { CLAUDE_PROJECT_DIR: _, ...env } = envWithoutNpm();
+      const gate = (command: string, projectDir?: string) =>
+        run(process.execPath, [script], hookInput(command, project), {
+          cwd: root,
+          env: projectDir === undefined ? env : { ...env, CLAUDE_PROJECT_DIR: projectDir },
+        });
+      for (const [command, name] of [
+        ['git -C wt push', 'wt'],
+        // The project's own folder is inside it.
+        ['git -C . push', 'project'],
+      ] as const) {
+        const inside = await gate(command, project);
+        assert.equal(inside.code, 2);
+        assert.match(inside.stderr, new RegExp(`stub npm: run check ${name}\\b`));
+      }
+      for (const [command, projectDir] of [
+        ['git -C ../other push', project],
+        ['git -C wt push', undefined],
+        // A CLAUDE_PROJECT_DIR that is not absolute tells the gate nothing.
+        ['git -C wt push', 'project'],
+      ] as const) {
+        const blocked = await gate(command, projectDir);
+        assert.equal(blocked.code, 2);
+        assert.match(blocked.stderr, /^git push is blocked: it runs in .*, outside the project/);
+        assert.doesNotMatch(blocked.stderr, /stub npm/);
+      }
+    } finally {
+      folder.remove();
+    }
+  });
+
   it('lets npx run a binary in node_modules/.bin of the package around cwd, and no other', async () => {
     const project = makeTempDir('npx-binaries');
     try {

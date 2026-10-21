@@ -19,7 +19,10 @@ export type Notice =
    * store, or the core and decide disagree, which is a bug.
    */
   | { kind: 'refused'; command: EngineCommand; reason: string }
-  /** Deciding or appending a command threw; the tick goes on with the other commands. */
+  /**
+   * Deciding or appending a command threw; the tick goes on with the other commands. A driver also
+   * reports a finish it recorded this way when the read of the state after it throws (#289).
+   */
   | { kind: 'command_failed'; command: EngineCommand; error: unknown }
   /** The flush of the state branch failed; the next tick retries it. */
   | { kind: 'flush_failed'; reason: string }

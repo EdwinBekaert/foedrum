@@ -485,24 +485,27 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
       // Let the runs that ended settle their promises.
       await new Promise((resolve) => setImmediate(resolve));
-      for (const { ref, end, rejected } of ended.splice(0)) {
+      // One end at a time off the queue, so none is dropped when the handling of another throws.
+      for (let next = ended.shift(); next !== undefined; next = ended.shift()) {
+        const { ref, end, rejected } = next;
         const key = attemptKey.encode(ref);
         runs.delete(key);
         // The step boundary: an attempt that ended is recorded, also in a batch another driver
         // took meanwhile, and lets its lease go, also when Stuck abandoned it and its finish is
         // refused (I2). An end whose record throws keeps its lease until it expires, and the
-        // supervisor loses the attempt; the other ends of the pass go on (#278).
+        // supervisor loses the attempt; a throw from the read after it is reported the same way.
+        // Either way the other ends of the pass go on (#278, #289).
         const command = { kind: 'finish', ...ref, ...end } as const;
         try {
           if (!issue(command, (tx) => tx.releaseLease(key))) releaseAttempt(key);
+          // An attempt of an ended batch held its worktree until now.
+          if (cleaners.length > 0 && batchIsOver(log.state(), ref.batchId)) {
+            toClean.add(ref.batchId);
+          }
         } catch (error) {
           report({ kind: 'command_failed', command, error });
         }
         if (rejected !== undefined) report({ kind: 'run_failed', ref, error: rejected.error });
-        // An attempt of an ended batch held its worktree until now.
-        if (cleaners.length > 0 && batchIsOver(log.state(), ref.batchId)) {
-          toClean.add(ref.batchId);
-        }
         moved = true;
       }
       noteEnded();
