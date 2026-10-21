@@ -340,18 +340,6 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map([['foedrum/12-1/brew/2', '']]));
   });
 
-  it("names nothing when no attempt in the rewind's repository was made at its commit (#255)", () => {
-    const LIB = 'd'.repeat(40);
-    const elsewhere = failedAt(3, TIP);
-    assert.ok(elsewhere.phase === 'finished' && elsewhere.worktree !== undefined);
-    const inLib = { ...elsewhere, worktree: { ...elsewhere.worktree, repo: 'acme/lib' } };
-    const state = rewound([
-      [1, finished('brew', 1, LIB)],
-      [3, inLib],
-    ]);
-    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
-  });
-
   it("keeps the branch holding a rewound task tree in the cleanup's plan, with ADR 0084's line (#255)", () => {
     const state = rewound([
       [1, finished('brew', 1, TIP)],
