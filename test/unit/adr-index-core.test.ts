@@ -114,9 +114,9 @@ describe('rebuilding the ADR index', () => {
       record(C, 'Third', "Accepted · Supersedes [0001](0001-a.md)'s client"),
     ];
     const readme = readmeWith([
-      '| [0001](0001-a.md) | First | Accepted, superseded by 0003; amended by 0002 |',
+      '| [0001](0001-a.md) | First | Accepted, amended by 0002; partly superseded by 0003 |',
       '| [0002](0002-b.md) | Second (amends 0001) | Accepted |',
-      '| [0003](0003-c.md) | Third (supersedes 0001) | Accepted |',
+      '| [0003](0003-c.md) | Third (supersedes part of 0001) | Accepted |',
     ]);
     assert.deepEqual(built(readme, files), { ok: true, readme, records: [], changes: [] });
   });
