@@ -1,6 +1,6 @@
 # 0092. `foedrum status` lists the task-tree branches the cleanup keeps
 
-Date: 2026-10-20 · Status: Accepted · Amends [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) (nothing reminds anyone of a kept branch)
+Date: 2026-10-20 · Status: Accepted, amended by #255 (a rewound task tree's branch is listed too) · Amends [0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) (nothing reminds anyone of a kept branch)
 
 ## Context
 [ADR 0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md) keeps the branch of an ended batch's task tree when no push recorded it (`Claims.unpushed`) and its tip is not the batch's start. Its consequences say nothing reminds anyone of such a branch beyond the cleanup's `kept branch` line, which `foedrum serve` prints once and which scrolls away. The branches pile up in the clone, and each holds work someone may want (#232).
@@ -13,7 +13,7 @@ Date: 2026-10-20 · Status: Accepted · Amends [0084](0084-a-batch-s-commits-end
 ## Consequences
 - A kept branch shows up every time someone looks at the batches, with the line that ends it. It still stays until someone drops it; status does not drop it.
 - `foedrum status` now runs git when there is a kept branch, so it can be slower then, and a clone that is gone or not a repository is named on its line instead of failing the command.
-- A rewound task tree is still a commit, not a branch, and names nothing to keep (#255).
+- A rewound task tree is a commit, not a branch: since #255 the claims name the attempt branch that holds it ([ADR 0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md)), and `foedrum status` reads that branch in the clone of the repository its attempt wrote in.
 
 ## Alternatives considered
 - **`foedrum doctor`:** doctor checks the machine's tools and the isolation level before anything brews, and reads no event store. A kept branch belongs to a batch, and status is where batches are read, so the reminder sits next to the batch it is about.
