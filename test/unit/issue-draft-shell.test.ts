@@ -38,6 +38,22 @@ describe('node scripts/issue-draft.ts <draft.json>', () => {
     assert.match(result.out, /^cannot read the draft: ENOENT[^\n]*\n$/);
   });
 
+  it('keeps only the first line of a read error, so it stays one problem', () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = run(['d/1.json'], {
+      readFile: () => {
+        throw new Error('EACCES: permission denied\nsecond line');
+      },
+      out: (text) => out.push(text),
+      err: (text) => err.push(text),
+    });
+    assert.deepEqual(
+      { code, out: out.join(''), err: err.join('') },
+      { code: 1, out: 'cannot read the draft: EACCES: permission denied\n', err: '' },
+    );
+  });
+
   it('exits 2 with the usage when the draft is not named', () => {
     assert.deepEqual(runWith([], {}), {
       code: 2,
