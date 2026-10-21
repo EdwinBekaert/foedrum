@@ -28,9 +28,10 @@ describe('remoteWrites', () => {
     writes.writing('acme/api', 'refs/heads/one')();
     const second = writes.watch('acme/api');
     writes.writing('acme/api', 'refs/heads/two')();
-    assert.deepEqual(first.close(), new Set(['refs/heads/one', 'refs/heads/two']));
+    const seen = first.close();
     writes.writing('acme/api', 'refs/heads/three')();
-    assert.deepEqual(second.close(), new Set(['refs/heads/two']));
+    assert.deepEqual(seen, new Set(['refs/heads/one', 'refs/heads/two']));
+    assert.deepEqual(second.close(), new Set(['refs/heads/two', 'refs/heads/three']));
   });
 });
 
