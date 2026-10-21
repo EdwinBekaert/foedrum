@@ -182,6 +182,34 @@ describe('guardPushes (ADR 0106)', () => {
     });
   }
 
+  it('still reads after an attempt whose runner rejected, and reports a push before the error', async () => {
+    const remote = fakeRemote();
+    const rejecting = (moved: boolean) => {
+      const runner = guardPushes({
+        runner: {
+          start: () => {
+            if (moved) remote.refs.set('refs/heads/main', B);
+            return { ended: Promise.reject(new Error('git diff failed')), stop: () => {} };
+          },
+          progress: () => undefined,
+        },
+        state: () => fold(events),
+        guarded: () => true,
+        refs: async () => remote.listing(),
+        writes: remoteWrites(),
+      });
+      return runner.start({ ref, limits: defaultLimits }).ended;
+    };
+    // Nothing moved: the runner's error goes on as it was.
+    await assert.rejects(rejecting(false), { message: 'git diff failed' });
+    const end = await rejecting(true).catch((error: Error) => ({ ending: error.message }));
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'divergence',
+      summary: `the guard noPush: the remote of acme/api changed during the attempt: refs/heads/main moved from ${A} to ${B}`,
+    });
+  });
+
   it('reads nothing for a step without the guard', async () => {
     const { runner, remote, inner } = setup({ guarded: false });
     const end = await start(runner).ended;

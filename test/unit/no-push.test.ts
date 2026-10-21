@@ -48,6 +48,12 @@ describe('changedRefs', () => {
     assert.deepEqual(changedRefs(same, refs({ 'refs/heads/main': A }), none), []);
   });
 
+  it("leaves out a merge queue's branches, which GitHub writes and nobody can push", () => {
+    const before = refs({ 'refs/heads/gh-readonly-queue/main/pr-7-abc': A });
+    const after = refs({ 'refs/heads/gh-readonly-queue/main/pr-8-def': B });
+    assert.deepEqual(changedRefs(before, after, none), []);
+  });
+
   it("leaves out the refs the engine wrote, and GitHub's own refs/pull/, which nobody can push", () => {
     const before = refs({ 'refs/pull/7/merge': A, 'refs/heads/foedrum/x': A });
     const after = refs({
