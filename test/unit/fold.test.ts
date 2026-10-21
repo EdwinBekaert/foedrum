@@ -814,6 +814,75 @@ describe('fold', () => {
     });
   });
 
+  describe("the batch's start (ADR 0084)", () => {
+    const ranAt = (
+      stepId: string,
+      attempt: number,
+      commit: string,
+      outcome: Extract<Event, { type: 'step.finished' }>['outcome'],
+      repo = 'acme/app',
+    ): Event[] => [
+      { type: 'step.scheduled', batchId: 'b1', stepId, attempt, deadlineAt },
+      {
+        type: 'step.started',
+        batchId: 'b1',
+        stepId,
+        attempt,
+        worktree: {
+          repo,
+          path: `work/${repo}/attempts/b1/${stepId}/${attempt}`,
+          branch: `foedrum/b1/${stepId}/${attempt}`,
+          commit,
+        },
+      },
+      { type: 'step.finished', batchId: 'b1', stepId, attempt, outcome },
+    ];
+    const succeeded = { kind: 'succeeded', output: null } as const;
+    const failed = { kind: 'failed', retryable: true, reason: 'tests fail' } as const;
+    const [OLD, BASE, TIP] = ['a', 'b', 'c'].map((c) => c.repeat(40)) as [string, string, string];
+
+    it('is the first attempt while none succeeded, then the first that succeeded', () => {
+      const tried = [ordered, ...ranAt('plan', 1, OLD, failed), ...ranAt('plan', 2, BASE, failed)];
+      assert.deepStrictEqual(batch(fold(tried)).starts, {
+        'acme/app': { commit: OLD, succeeded: false },
+      });
+      const state = fold([
+        ...tried,
+        ...ranAt('plan', 3, BASE, succeeded),
+        ...ranAt('implement', 1, TIP, succeeded),
+      ]);
+      assert.deepStrictEqual(batch(state).starts, {
+        'acme/app': { commit: BASE, succeeded: true },
+      });
+    });
+
+    it('follows the order of the events, not of the steps (#309)', () => {
+      // tests#1 failed, implement#1 succeeded at the base; a new recipe ran tests#2 at its tip.
+      const state = fold([
+        ordered,
+        ...ranAt('tests', 1, BASE, failed),
+        ...ranAt('implement', 1, BASE, succeeded),
+        ...ranAt('tests', 2, TIP, succeeded),
+      ]);
+      assert.deepStrictEqual(batch(state).starts, {
+        'acme/app': { commit: BASE, succeeded: true },
+      });
+    });
+
+    it('is kept per repository, in lower case', () => {
+      const state = fold([
+        ordered,
+        ...ranAt('plan', 1, BASE, succeeded, 'Acme/App'),
+        ...ranAt('lib', 1, OLD, failed, 'acme/lib'),
+        ...ranAt('app', 1, TIP, succeeded, 'acme/app'),
+      ]);
+      assert.deepStrictEqual(batch(state).starts, {
+        'acme/app': { commit: BASE, succeeded: true },
+        'acme/lib': { commit: OLD, succeeded: false },
+      });
+    });
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
