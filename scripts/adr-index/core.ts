@@ -226,6 +226,8 @@ interface Rewritten {
 const rewrite = (
   record: Parsed,
   expected: Map<Kind, Set<string>>,
+  /** The records that supersede only part of this one. */
+  partlyBy: Set<string>,
   fileOf: Map<string, string>,
   problems: string[],
 ): Rewritten => {
@@ -238,14 +240,19 @@ const rewrite = (
         ? clausesIn(segment, index).filter((clause) => clause.kind === kind)
         : [],
     );
-    const credited = new Set(clauses.flatMap((clause) => clause.entries.map((e) => e.number)));
-    const added = [...want].filter((number) => !credited.has(number)).sort(byNumber);
+    const named = clauses.flatMap((clause) => clause.entries.map((e) => e.number));
+    const credited = new Set(named);
+    const allAdded = [...want].filter((number) => !credited.has(number)).sort(byNumber);
     const removed = [...credited].filter((number) => !want.has(number)).sort(byNumber);
-    if (added.length === 0 && removed.length === 0) continue;
+    const twice = [...credited]
+      .filter((n) => named.indexOf(n) !== named.lastIndexOf(n))
+      .sort(byNumber);
+    if (allAdded.length === 0 && removed.length === 0 && twice.length === 0) continue;
     changes.push(
       `${kind} by ${[
-        added.length > 0 ? `${listed(added)} added` : '',
+        allAdded.length > 0 ? `${listed(allAdded)} added` : '',
         removed.length > 0 ? `${listed(removed)} removed` : '',
+        twice.length > 0 ? `${listed(twice)} named twice` : '',
       ]
         .filter((part) => part !== '')
         .join(', ')}`,
@@ -254,17 +261,26 @@ const rewrite = (
       number,
       text: `[${number}](${fileOf.get(number)})`,
     });
-    if (clauses.length === 0) {
+    // A new segment goes after the last one that links forward or back.
+    const insert = (text: string): void => {
       const after = segments.reduce(
         (last, segment, index) =>
           forwardKind(segment) !== undefined || clausesIn(segment, index).length > 0 ? index : last,
         0,
       );
-      segments.splice(
-        after + 1,
-        0,
-        `${capitalised(kind)} by ${listed(added.map((number) => fresh(number).text))}`,
-      );
+      segments.splice(after + 1, 0, text);
+    };
+    // A record that supersedes only part of this one gets a segment of its own that says so.
+    const part = allAdded.filter((number) => kind === 'superseded' && partlyBy.has(number));
+    const added = allAdded.filter((number) => !part.includes(number));
+    const insertPart = (): void => {
+      if (part.length > 0) insert(`Partly superseded by ${listed(part.map((n) => fresh(n).text))}`);
+    };
+    if (clauses.length === 0) {
+      if (added.length > 0) {
+        insert(`${capitalised(kind)} by ${listed(added.map((number) => fresh(number).text))}`);
+      }
+      insertPart();
       continue;
     }
     // Each clause keeps its own entries that still hold, once; the first takes the new ones.
@@ -296,6 +312,7 @@ const rewrite = (
       }
     }
     segments = segments.filter((_, index) => !dropped.has(index));
+    insertPart();
   }
   return { segments, changes };
 };
@@ -416,10 +433,10 @@ export const rebuild = (readme: string, records: AdrFile[]): Rebuild => {
   const rows: string[] = [];
   for (const record of parsed) {
     const kinds = expected.get(record.number) ?? new Map<Kind, Set<string>>();
-    const { segments, changes } = rewrite(record, kinds, fileOf, problems);
     const partlyBy = new Set(
       parsed.filter((other) => other.partly.has(record.number)).map((other) => other.number),
     );
+    const { segments, changes } = rewrite(record, kinds, partlyBy, fileOf, problems);
     rows.push(row(record, kinds, partlyBy));
     if (changes.length === 0) continue;
     const lines = [...record.lines];
