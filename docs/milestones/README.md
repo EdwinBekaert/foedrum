@@ -8,7 +8,8 @@ gets a page here that says what it built.
 Closing a milestone starts with `/brew-last-call <milestone>` in Claude Code
 (`.claude/skills/brew-last-call/`): it proposes what to do with the milestone's open issues, audits
 and measures Foedrum's own instruction files, and puts every proposed change in one draft pull
-request. The milestone closes after that pull request is merged.
+request. The milestone closes after that pull request is merged and no open issue blocks its exit
+criterion.
 
 | Milestone | Builds | Exit criterion | Status |
 |---|---|---|---|
