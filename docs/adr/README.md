@@ -68,7 +68,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted, amended by 0082 |
 | [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066, 0068 and 0073 |
 | [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) | Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required (amends 0025, 0032 and 0053) | Accepted, amended by 0069 and 0078 |
-| [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) | The local gate refuses npx of packages that are not in the lockfile (amends 0045 and 0056) | Accepted |
+| [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) | The local gate refuses npx of packages that are not in the lockfile (amends 0045 and 0056) | Accepted, amended by 0104 |
 | [0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md) | The task tree continues from the latest succeeded attempt (amends 0029, 0037, 0059 and 0063) | Accepted, amended by 0078 |
 | [0067](0067-a-pull-request-of-only-plain-docs-needs-no-review-summary.md) | A pull request of only plain documentation needs no review summary (amends 0060) | Accepted |
 | [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) | The intake in `foedrum serve`: Brewery orders, routing by label, and relabelled issues (amends 0008, 0032, 0050, 0052 and 0063) | Accepted, amended by 0072 |
@@ -102,7 +102,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) | Nip ships with a default Cellarman, and the default brewers name the builder alias (amends 0098) | Accepted |
 | [0101](0101-the-cleanup-keeps-the-attempt-branches-that-hold-a-rewound-task-tree.md) | The cleanup keeps the attempt branches that hold a rewound task tree (amends 0084 and 0092) | Accepted |
 | [0102](0102-the-gate-blocks-a-recursive-delete-of-a-path-built-from-a-variable.md) | The local gate blocks a recursive delete of a path built from a variable (amends 0045 and 0056) | Accepted |
-| [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) | The local gate checks the tree a command pushes, not the hook's working directory (amends 0045 and 0060) | Accepted |
+| [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) | The local gate checks the tree a command pushes, not the hook's working directory (amends 0045, 0060 and 0065) | Accepted |
 
 ## Template
 
