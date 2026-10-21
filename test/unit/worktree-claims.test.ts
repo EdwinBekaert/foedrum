@@ -587,6 +587,25 @@ describe('worktreeClaims: the start in the order of the events (#309)', () => {
     assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
   });
 
+  it('finds the start of a rewind that names the repository in another case (review of #317)', () => {
+    const state = fold([
+      ...brewed,
+      stuck('implement'),
+      {
+        type: 'batch.rewound',
+        batchId: '2-1',
+        toStepId: 'review',
+        shas: { 'Acme/App': BASE },
+        ...human,
+      },
+      ...ran('review', 2, BASE, failed),
+      stuck('review'),
+      skip,
+      onTap,
+    ]);
+    assert.deepEqual(worktreeClaims(state, []).unpushed, new Map());
+  });
+
   it("names the task tree's branch with the commit of the first attempt that succeeded, not of the first step", () => {
     const state = fold([...brewed, onTap]);
     assert.deepEqual(
