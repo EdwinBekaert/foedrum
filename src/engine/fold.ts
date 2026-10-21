@@ -319,9 +319,7 @@ function apply(state: State, event: Event): State {
       });
       const { worktree } = event;
       if (worktree === undefined) return next;
-      return updateBatch(next, event.batchId, (batch) =>
-        startAt(batch, worktree, { commit: worktree.commit, succeeded: false }),
-      );
+      return updateBatch(next, event.batchId, (batch) => startAt(batch, worktree, false));
     }
     case 'step.finished': {
       let worktree: WorktreeRef | undefined;
@@ -343,7 +341,7 @@ function apply(state: State, event: Event): State {
       const taskTree = { kind: 'attempt', stepId, attempt, repo: worktree.repo } as const;
       const { repo, commit } = worktree;
       return updateBatch(next, event.batchId, (batch) => ({
-        ...startAt(batch, { repo }, { commit, succeeded: true }),
+        ...startAt(batch, { repo, commit }, true),
         taskTree,
       }));
     }
@@ -528,14 +526,18 @@ function setLane(state: State, batchId: string, lane: Lane): State {
 }
 
 /**
- * `batch` with `start` in `repo` unless it has one already: its first attempt there, until the
- * first that succeeded replaces it (ADR 0084).
+ * `batch` started at `commit` in `repo` unless it has a start there already: its first attempt
+ * there, until the first that succeeded replaces it (ADR 0084).
  */
-const startAt = (batch: Batch, { repo }: { repo: string }, start: BatchStart): Batch => {
+const startAt = (
+  batch: Batch,
+  { repo, commit }: { repo: string; commit: string },
+  succeeded: boolean,
+): Batch => {
   const key = repo.toLowerCase();
   const current = batch.starts?.[key];
-  if (current !== undefined && (current.succeeded || !start.succeeded)) return batch;
-  return { ...batch, starts: { ...batch.starts, [key]: start } };
+  if (current !== undefined && (current.succeeded || !succeeded)) return batch;
+  return { ...batch, starts: { ...batch.starts, [key]: { commit, succeeded } } };
 };
 
 function updateAttempt(
