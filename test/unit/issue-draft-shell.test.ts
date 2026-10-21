@@ -38,6 +38,22 @@ describe('node scripts/issue-draft.ts <draft.json>', () => {
     assert.match(result.out, /^cannot read the draft: ENOENT[^\n]*\n$/);
   });
 
+  it('escapes control and format characters in a read error, such as those of the path', () => {
+    const rightToLeft = String.fromCodePoint(0x202e);
+    const out: string[] = [];
+    const code = run(['d/1.json'], {
+      readFile: () => {
+        throw new Error(`ENOENT: open 'd/x\u001b[2J${rightToLeft}\r.json'`);
+      },
+      out: (text) => out.push(text),
+      err: () => {},
+    });
+    assert.deepEqual(
+      { code, out: out.join('') },
+      { code: 1, out: "cannot read the draft: ENOENT: open 'd/x\\u001b[2J\\u202e\\u000d.json'\n" },
+    );
+  });
+
   it('keeps only the first line of a read error, so it stays one problem', () => {
     const out: string[] = [];
     const err: string[] = [];

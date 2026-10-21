@@ -86,6 +86,26 @@ describe('checkDraft', () => {
     ]);
   });
 
+  it('refuses a key given twice, since GitHub may keep another value than the check read', () => {
+    assert.deepEqual(problemsOf('{"title": "a", "body": "b", "title": "c"}'), [
+      'duplicate key "title"',
+    ]);
+    // An escaped name is the same key.
+    assert.deepEqual(problemsOf('{"t\\u0069tle": "a\\nb", "body": "b", "title": "ok"}'), [
+      'duplicate key "title"',
+    ]);
+  });
+
+  it('looks for duplicates only among the keys of the draft itself', () => {
+    assert.deepEqual(problemsOf('{"title": "a", "body": {"title": 1, "body": 2}}'), [
+      '"body" is not a string',
+    ]);
+    assert.deepEqual(checkDraft('{"title": "a {\\"title\\": [1]}", "body": "\\"title\\":"}'), {
+      ok: true,
+      title: 'a {"title": [1]}',
+    });
+  });
+
   it('refuses a missing title and body', () => {
     assert.deepEqual(problemsOf(draft({})), ['"title" is missing', '"body" is missing']);
   });
