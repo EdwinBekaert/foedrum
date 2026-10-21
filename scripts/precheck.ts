@@ -2,7 +2,8 @@
 // `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push` and
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
 // summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
-// its relatives when they would run a package the lockfile did not install (#175).
+// its relatives when they would run a package the lockfile did not install (#175), and a recursive
+// delete of a path built from a variable or a substitution (#281).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
@@ -34,6 +35,15 @@ const MAX_OUTPUT_CHARS = 4000;
 // push, merge and ready for a git or gh whose name is computed at run time; pwsh and powershell
 // for an encoded command; npx, npm, dlx and bun for a package runner (#175).
 const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
+// A delete (rm, rd, ri, del, erase, Remove-Item) of a path that may hold a variable or a
+// substitution ($, %, a backtick or PowerShell's ( ), read before the shells' characters are
+// dropped) (#281).
+const MAY_DELETE = /rm|rd|ri|del|erase|remove/i;
+const MAY_COMPUTE = /[$%`(]/;
+const mayNeedTheGate = (text: string): boolean => {
+  const plain = normalised(text);
+  return MAY_NEED_THE_GATE.test(plain) || (MAY_DELETE.test(plain) && MAY_COMPUTE.test(text));
+};
 
 // PowerShell reads typographic quotes as quotes; bash does not.
 const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
@@ -73,6 +83,8 @@ const READY_COMBINED_BLOCKED =
   'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
   'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
+const VARIABLE_DELETE_BLOCKED =
+  'A recursive delete of a path built from a variable or a substitution is blocked: an empty or wrong value removes the wrong tree; write the literal path, such as `rm -rf .foedrum/tmp/218/run` (CLAUDE.md).';
 const downloadBlocked = (run: string): string =>
   `\`${run}\` would download a package that isn't in package-lock.json. Use the project's tools: \`npm run lint -- --write\` formats with Biome.`;
 const movedRunBlocked = (run: string): string =>
@@ -242,6 +254,14 @@ const lex = (source: string, dialect: Dialect): Lexed => {
     } else if (char === ' ' || char === '\t') {
       endWord();
       i++;
+    } else if (char === '(' && dialect === 'powershell' && isDelete(segment[0] ?? word)) {
+      // An argument of a delete: PowerShell computes it, as in (Join-Path $root run) (#281).
+      const end = closingParen(command, i);
+      if (end >= 0) {
+        lexed.substitutions.push(command.slice(i + 1, end - 1));
+        add(command.slice(i, end), true);
+      }
+      i = end;
     } else if (SEPARATORS.has(char)) {
       endSegment();
       i++;
@@ -594,6 +614,60 @@ const readGh = (args: Word[], literal: boolean, { found, aliases }: Reading): vo
   }
 };
 
+// Whether an option word tells a delete to recurse. rm takes -r or -R in a group of its short
+// options, or --recursive or a prefix of it; PowerShell's Remove-Item and its aliases (rm too)
+// take -Recurse or a prefix of it, also as -Recurse:<value> but not -Recurse:$false; cmd's rd and
+// del take /s, also among other switches written together (/s/q). GNU and BSD rm's flags may share
+// the group, and bash drops quotes around it; PowerShell reads a quoted word as a value, and an en
+// dash, em dash or horizontal bar as a parameter's dash.
+const POSIX_RECURSIVE = /^-[dfiIvPWxrR]*[rR][dfiIvPWxrR]*$/;
+const PARAMETER = new RegExp(
+  `^[-${String.fromCodePoint(0x2013, 0x2014, 0x2015)}]([a-z]+)(?::(.*))?$`,
+  'is',
+);
+const recursesPowershell = (word: Word): boolean => {
+  const [, name, value] = PARAMETER.exec(word.text) ?? [];
+  return (
+    !word.quoted &&
+    name !== undefined &&
+    'recurse'.startsWith(name.toLowerCase()) &&
+    value?.toLowerCase() !== '$false'
+  );
+};
+const recursesRm = (word: Word): boolean =>
+  POSIX_RECURSIVE.test(word.text) ||
+  (word.text.length > 2 && '--recursive'.startsWith(word.text)) ||
+  recursesPowershell(word);
+const recursesCmd = (word: Word): boolean =>
+  /^(?:\/[a-z]+)+$/i.test(word.text) && word.text.toLowerCase().split('/').includes('s');
+const REMOVE_ITEM = new Set(['remove-item', 'ri', 'del', 'erase', 'rd', 'rmdir']);
+const CMD_DELETES = new Set(['rd', 'rmdir', 'del', 'erase']);
+const isDelete = (word: Word | undefined): boolean =>
+  word !== undefined &&
+  !word.dynamic &&
+  (programName(word.text) === 'rm' || REMOVE_ITEM.has(programName(word.text)));
+
+// A recursive delete whose path holds a variable or a substitution: bash's and PowerShell's $…,
+// $( ) and bash's backticks, which the lexer marks as computed, PowerShell's @( ), and cmd's %…%
+// (#281). A PowerShell switch given a value (-Recurse:$true) and a redirection (2>$null) are no
+// path.
+const deletesComputedPath = (program: string, args: Word[]): boolean => {
+  const recurses =
+    program === 'rm'
+      ? recursesRm
+      : REMOVE_ITEM.has(program)
+        ? (word: Word) =>
+            recursesPowershell(word) || (CMD_DELETES.has(program) && recursesCmd(word))
+        : undefined;
+  if (recurses === undefined || !args.some(recurses)) return false;
+  return args.some((word) => {
+    const switchValue = /^\$(?:true|false)$/i.test(PARAMETER.exec(word.text)?.[2] ?? '');
+    const redirection = /^\d?>/.test(word.text);
+    if (switchValue || redirection) return false;
+    return word.dynamic || word.text.startsWith('@(') || /%[^%\s]+%/.test(word.text);
+  });
+};
+
 // The commands pwsh or powershell runs: the rest of the line after -Command (or any prefix of
 // it, such as -c), a decoded -EncodedCommand, and each other operand, since Windows PowerShell
 // reads its first operand as a command.
@@ -695,6 +769,7 @@ const START_PROCESS = new Set(['start-process', 'start', 'saps']);
 const readInvocation = ({ program, args }: Invocation, reading: Reading): boolean => {
   if (program === 'git' || program === COMPUTED) readGit(args, program === 'git', reading);
   if (program === 'gh' || program === COMPUTED) readGh(args, program === 'gh', reading);
+  if (deletesComputedPath(program, args)) reading.found.reasons.push(VARIABLE_DELETE_BLOCKED);
   const { nested } = reading;
   const codeOptions = INTERPRETERS.get(program);
   if (codeOptions !== undefined) {
@@ -884,7 +959,7 @@ export const precheck = async (
   },
   binaryInstalled: BinaryInstalled = async () => false,
 ): Promise<HookResult> => {
-  if (!MAY_NEED_THE_GATE.test(normalised(input))) return { exitCode: 0, stderr: '' };
+  if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
@@ -899,7 +974,7 @@ export const precheck = async (
   if (typeof command !== 'string') return { exitCode: 0, stderr: '' };
   // The input test above only skips parsing; the command decides, so a cwd, transcript path or
   // description that spells git does not send the call to the parser (#152).
-  if (!MAY_NEED_THE_GATE.test(normalised(command))) return { exitCode: 0, stderr: '' };
+  if (!mayNeedTheGate(command)) return { exitCode: 0, stderr: '' };
   const found = findings(command, TOOL_DIALECTS.get(parsed.tool_name));
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };

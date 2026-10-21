@@ -1671,6 +1671,167 @@ describe('precheck on forbidden commands', () => {
   }
 });
 
+// An empty or wrong variable makes a recursive delete remove the wrong tree, so its path must be
+// written as it is (#281).
+describe('forbiddenReason on a recursive delete of a path built from a variable', () => {
+  const blocked = [
+    // rm with -r, -R or --recursive, alone, in a group or as a prefix GNU rm accepts.
+    'rm -rf "$dir"',
+    'rm -fr $dir',
+    'rm -Rf ${dir}',
+    'rm -r -f "$dir/run"',
+    'rm --recursive --force "$dir"',
+    'rm --rec "$dir"',
+    'rm -rfv -- "$dir"',
+    'rm -rf "$(pwd)/run"',
+    'rm -rf `pwd`/run',
+    'rm -rf "$HOME/.cache"',
+    // PowerShell's Remove-Item and its aliases, with -Recurse or a prefix of it.
+    'Remove-Item -Recurse -Force $p',
+    'Remove-Item -Recurse -Force -LiteralPath $p',
+    'Remove-Item -Path:$p -Recurse',
+    'Remove-Item -Recurse "$env:TEMP\\run"',
+    'remove-item -rec $(Get-Location)',
+    'rm -Recurse $p',
+    'del -Recurse $p',
+    'ri -r $p',
+    'erase -Recurse $p',
+    'rmdir -Recurse $p',
+    'rd -Recurse $p',
+    // cmd's rd and del with /s and a %variable%.
+    'rd /s /q %TEMP%\\run',
+    'cmd /c "rmdir /S /Q %X%"',
+    'del /s %X%',
+    'erase /s %X%',
+    // Found in the review of #293: cmd's switches written together, a quoted option in bash, BSD
+    // rm's own flags, PowerShell's typographic dashes and a ( ) or @( ) argument.
+    'rd /s/q %X%',
+    'del /f/s/q %X%',
+    'rmdir /Q/S %X%',
+    `rm '-rf' "$dir"`,
+    'rm "-r" $dir',
+    'rm -rfx "$dir"',
+    'rm -Prf "$dir"',
+    'rm -rW "$dir"',
+    // A redirection written apart from its target fails closed: its target reads as a path.
+    'rm -rf .foedrum/tmp/281/run 2> "$log"',
+    'Remove-Item -Recurse .foedrum/tmp/281/run > $null',
+    `Remove-Item ${String.fromCodePoint(0x2013)}Recurse ${String.fromCodePoint(0x2013)}Force $p`,
+    `ri ${String.fromCodePoint(0x2014)}r $p`,
+    "Remove-Item -Recurse -Force (Join-Path $root 'run')",
+    'Remove-Item -Recurse -Path ($dir)',
+    'Remove-Item -Recurse -Force (Get-Location)',
+    'Remove-Item -Recurse @($p)',
+    'rm -Recurse (Resolve-Path ..)',
+    // Through wrappers, compound commands and other shells.
+    'sudo rm -rf "$dir"',
+    'cd x && rm -rf "$dir"',
+    'for d in a b; do rm -rf "$d"; done',
+    'bash -c "rm -rf $dir"',
+    'bash -c \'rm -rf "$dir"\'',
+    'pwsh -Command "Remove-Item -Recurse $p"',
+    "pwsh -c 'Remove-Item -Recurse -Force $p'",
+  ];
+  for (const command of blocked) {
+    it(`blocks: ${command}`, () => {
+      assert.equal(
+        forbiddenReason(command),
+        'A recursive delete of a path built from a variable or a substitution is blocked: an empty or wrong value removes the wrong tree; write the literal path, such as `rm -rf .foedrum/tmp/218/run` (CLAUDE.md).',
+      );
+    });
+  }
+
+  const allowed = [
+    'rm -rf .foedrum/tmp/218/run',
+    "rm -rf '.foedrum/tmp/my run'",
+    'rm -rf .foedrum/tmp/218/*',
+    'rm -rf .foedrum/tmp/*/scratch',
+    // rm without recursion, whatever the path.
+    'rm -f "$file"',
+    'rm -f -- "$file"',
+    'rm "$file"',
+    'rm -fv $(ls *.log)',
+    // A single-quoted $ is literal in both shells.
+    "rm -rf '$dir'",
+    'Remove-Item -Recurse -Force .foedrum/tmp/218/run',
+    'Remove-Item -Recurse:$true -Force .foedrum/tmp/218/run',
+    'Remove-Item -Force $p',
+    'Remove-Item $p',
+    // A redirection is no path, and -Recurse:$false does not recurse.
+    'Remove-Item -Recurse -Force .foedrum/tmp/281/run 2>$null',
+    'rm -rf .foedrum/tmp/281/run 2>"$log"',
+    'Remove-Item -Recurse:$false $p',
+    // A ( ) that starts a command is a group, not an argument.
+    'if (Test-Path .foedrum/tmp/281) { Remove-Item -Recurse .foedrum/tmp/281 }',
+    'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
+    'rd /s /q .foedrum\\tmp\\218',
+    'del %X%',
+    // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
+    'del /q %X%',
+    'rd /q %X%',
+    'del /f/q %X%',
+    'rm --force "$f"',
+    "Remove-Item '-Recurse' $p",
+    'echo "rm -rf $dir"',
+    'grep -n "rm -rf \\"$dir\\"" CLAUDE.md',
+  ];
+  for (const command of allowed) {
+    it(`allows: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+describe('precheck on a recursive delete of a path built from a variable', () => {
+  // None of these mention git, gh or the other words of the pre-filter, so it must let them reach
+  // the reader (#281).
+  const blocked: [command: string, tool: string][] = [
+    ['rm -rf "$dir"', 'Bash'],
+    ['rm -rf `pwd`/run', 'Bash'],
+    ['Remove-Item -Recurse -Force $p', 'PowerShell'],
+    ['ri -r $env:TEMP', 'PowerShell'],
+    ['cmd /c rd /s /q %X%', 'PowerShell'],
+    ['del -Recurse $p', 'PowerShell'],
+    ['erase -Recurse $p', 'PowerShell'],
+    // The shells drop the quotes that split the name.
+    [`r''m -rf "$d"`, 'Bash'],
+    // Computed without a $, % or backtick.
+    ['Remove-Item -Recurse -Force (Get-Location)', 'PowerShell'],
+  ];
+  for (const [command, tool] of blocked) {
+    it(`blocks without running the check (${tool}): ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const result = await precheck(hookInput(command, '/work/tree', tool), runCheck);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /write the literal path/);
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  for (const command of ['rm -rf .foedrum/tmp/218/run', 'rm -f "$file"']) {
+    it(`lets through: ${command}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+      const result = await precheck(hookInput(command, '/work/tree'), runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  // Too wide to read, so the parser would block them: a pass shows the pre-filter let them through
+  // unread, since each has a delete word or a $, but not both.
+  for (const string of ['"$x%d"', '"rm%d"']) {
+    it(`lets through a command of ${string} strings without reading it`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
+      const strings = Array.from({ length: 3000 }, (_, i) => string.replace('%d', `${i}`));
+      const command = `bash -c ${strings.join(' ')}`;
+      assert.match(forbiddenReason(command) ?? '', /too deeply/);
+      const result = await precheck(hookInput(command, '/work/tree'), runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 // npx and its relatives download a package the lockfile did not install, past the dependency
 // guard (#175).
 describe('precheck on npx and the commands that run a package like it', () => {

@@ -1,6 +1,6 @@
 # 0045. The local gate reads commands as the shells would, and assumes the worst of what it cannot read
 
-Date: 2026-10-16 · Status: Accepted · Amended by [0056](0056-the-gate-pre-filter-reads-the-command.md), [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) and [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md)
+Date: 2026-10-16 · Status: Accepted · Amended by [0056](0056-the-gate-pre-filter-reads-the-command.md), [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md), [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) and [0102](0102-the-gate-blocks-a-recursive-delete-of-a-path-built-from-a-variable.md)
 
 ## Context
 The local gate (`scripts/precheck.ts`, a PreToolUse hook on the Bash and PowerShell tools) blocks force pushes, deleting and mirroring pushes and `gh pr merge`, blocks a push from a detached HEAD, and runs `npm run check` before `git push` and `gh pr create`. Until now it split the command on separators, ignored quotes and took the first word as the program.
