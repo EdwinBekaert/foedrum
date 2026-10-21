@@ -105,6 +105,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: worktreeClonePath(workRoot, repository),
         own: ownRemote(repository.repo),
       }),
+    refs: () => () => Promise.reject(new Error('not implemented')),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     exec: execProcess,
     gh: execProcess,

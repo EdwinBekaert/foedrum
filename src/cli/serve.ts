@@ -74,6 +74,11 @@ export interface ServeShell {
    * worktrees are added to: the user's, or the managed one.
    */
   push: (repository: ServeRepository) => BranchPush;
+  /**
+   * The refs of the repository on GitHub, as `ls-remote --refs` lists them, read from a git
+   * directory of Foedrum's own (ADR 0096): what the noPush guard compares (ADR 0106).
+   */
+  refs: (repository: ServeRepository) => (signal: AbortSignal) => Promise<string>;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,
