@@ -65,8 +65,8 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) | Attempt plans from the brewer of the step, and on tap without a pull request (amends 0043, 0047 and 0053) | Accepted, amended by 0062, 0063, 0066, 0071, 0074, 0078, 0084 and 0106 |
 | [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) | The local gate refuses `gh pr ready` until the review summary for the head is on the pull request (amends 0045 and 0056) | Accepted, amended by 0104 |
 | [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) | Chaos faults at their sites, shrinking, and the worktree and state branch cases (amends 0037 and 0051) | Accepted |
-| [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted, amended by 0082 and 0106 |
-| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066, 0068 and 0073 |
+| [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) | Brewers never allow git with no fixed subcommand, and `noPush` still waits for the remote (amends 0042, 0046, 0057 and 0059) | Accepted, amended by 0082, 0106 and 0109 |
+| [0063](0063-foedrum-serve-its-configuration-and-wiring.md) | `foedrum serve`: its configuration and wiring (amends 0012, 0037, 0044 and 0059) | Accepted, amended by 0066, 0068, 0073 and 0109 |
 | [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) | Test-first recipes reach the engine: when, onBlocked rounds, and a red proof required (amends 0025, 0032 and 0053) | Accepted, amended by 0069 and 0078 |
 | [0065](0065-the-gate-refuses-npx-of-packages-not-in-the-lockfile.md) | The local gate refuses npx of packages that are not in the lockfile (amends 0045 and 0056) | Accepted, amended by 0104 |
 | [0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md) | The task tree continues from the latest succeeded attempt (amends 0029, 0037, 0059 and 0063) | Accepted, amended by 0078 |
@@ -104,7 +104,8 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0102](0102-the-gate-blocks-a-recursive-delete-of-a-path-built-from-a-variable.md) | The local gate blocks a recursive delete of a path built from a variable (amends 0045 and 0056) | Accepted |
 | [0103](0103-out-docs-reach-the-state-branch-through-the-store.md) | Out docs reach the state branch through the store (amends 0002, 0024 and 0081) | Accepted |
 | [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) | The local gate checks the tree a command pushes, not the hook's working directory (amends 0045, 0060 and 0065) | Accepted |
-| [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) | The noPush guard compares the remote's refs around each attempt (amends 0042, 0059 and 0062) | Accepted |
+| [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) | The noPush guard compares the remote's refs around each attempt (amends 0042, 0059 and 0062) | Accepted, amended by 0109 |
+| [0109](0109-a-brewer-s-git-holds-no-push-credential.md) | A brewer's git holds no push credential (amends 0062, 0063 and 0106) | Accepted |
 
 ## Template
 

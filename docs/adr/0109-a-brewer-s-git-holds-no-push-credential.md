@@ -1,0 +1,72 @@
+# 0109. A brewer's git holds no push credential
+
+Date: 2026-10-21 · Status: Accepted · Amends [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) (where the credentials it left to #299 stand), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (the variables the runner forces) and [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) (what it left to #299)
+
+## Context
+Pushing is always the engine's job (brewers-and-recipes §1). [ADR 0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) closes git's own spellings of a push at the allowlist, and [ADR 0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) finds a push after the attempt, however it was spelled. Neither stops the push from succeeding: a brewer, or a script an allowed command runs (`npm test` in a repository a writing brewer edits), that reaches `git push` pushes with the maintainer's login.
+
+A brewer's environment is a minimal base, its own `env`, then the runner's forced variables ([ADR 0028](0028-brewer-runner-outcomes-environment-and-test-first.md), [ADR 0063](0063-foedrum-serve-its-configuration-and-wiring.md)). The base leaves out every token variable, `GIT_ASKPASS`, `SSH_ASKPASS` and `SSH_AUTH_SOCK`, and a brewer's `env` may not name `GIT_*` or `SSH_*`. But the base keeps `HOME`, `USERPROFILE` and `APPDATA`, which `claude` needs to find its login, and through them git reads the user's configuration:
+
+- **Credential helpers.** `gh auth setup-git` writes `credential.https://github.com.helper = !gh auth git-credential` to `~/.gitconfig` ([ADR 0073](0073-github-only-through-gh-s-own-login.md)); Git for Windows's own system configuration sets `credential.helper = manager`. A helper answers from the OS keyring, where gh keeps its login on Windows and macOS, so hiding `~/.config/gh` ([ADR 0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md)) does not hide it. git asks every helper it is given "when a username or password credential is needed" ([git-config](https://git-scm.com/docs/git-config), `credential.helper`).
+- **Askpass programs.** Without a helper, git runs `GIT_ASKPASS`, else `core.askPass`, else `SSH_ASKPASS`, else "the user is prompted on the terminal" ([gitcredentials](https://git-scm.com/docs/gitcredentials), "Requesting credentials"). `core.askPass` can come from any configuration file.
+- **ssh.** Over ssh, git runs `ssh`, or `core.sshCommand` from the configuration ([git-config](https://git-scm.com/docs/git-config), `core.sshCommand`), which finds the user's keys in `~/.ssh` and the agent through `SSH_AUTH_SOCK`.
+
+On the sandboxed level, Claude Code's sandbox already keeps a brewer's shell off the network ("allowed domains, which start empty", and in `dontAsk` mode a host outside them is "Refused", [Sandboxing](https://code.claude.com/docs/en/sandboxing), "What the sandbox restricts" and "Hosts outside your allowed domains") and hides `~/.ssh` and git's credential store (ADR 0087). On the permissions-only level (native Windows) nothing does, and check steps run outside the sandbox on every level ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)), with the same forced variables (`createCheckRunner` builds their environment with `buildBrewerEnv`).
+
+## Decision
+
+### The forced variables
+`brewerForcedEnv` (`src/engine/brewer-env.ts`) is the runner's forced layer, which `serveSetup` passes to the brewer runner and the check runner alike. The layer goes last, so neither the base nor a brewer's `env` can replace a name in it, in any case on Windows (ADR 0028).
+
+| Variable | Value | Why |
+|---|---|---|
+| `npm_config_ignore_scripts` | `true` | As before (ADR 0063) |
+| `GIT_TERMINAL_PROMPT` | `0` | "git will not prompt on the terminal (e.g., when asking for HTTP authentication)" ([git](https://git-scm.com/docs/git), environment). With no helper and no askpass program left, a push that needs a login fails at once instead of waiting for input no one gives |
+| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>` | the pairs below | They "will override values in configuration files, but will be overridden by any explicit options passed via `git -c`" ([git-config](https://git-scm.com/docs/git-config), environment): every file, system, global, the clone's and a worktree's, is read before them |
+
+| Key | Value | Why |
+|---|---|---|
+| `credential.helper` | empty | "If `credential.helper` is configured to the empty string, this resets the helper list to empty" (gitcredentials). The reset clears the helpers of `credential.<url>.helper` too, `gh auth setup-git`'s among them (Verification) |
+| `core.askPass` | empty | Takes the place of an askpass program the configuration names; an empty one runs nothing, and git goes on to the terminal prompt, which `GIT_TERMINAL_PROMPT` refuses (Verification). `GIT_ASKPASS` and `SSH_ASKPASS`, which come before and after it, are not in the environment |
+| `protocol.allow` | `never` | "a user defined default policy for all protocols which don't explicitly have a policy" (git-config, `protocol.allow`): every remote helper (`ext`, `codecommit::` and the like, each "named by their protocol"), which may carry credentials of its own |
+| `protocol.file.allow` | `user` | Local paths and `file://` URLs, with git's own default policy, `user`: usable from a command, not from one git runs without the user's input, such as a recursive submodule clone |
+| `protocol.git.allow`, `protocol.http.allow`, `protocol.https.allow` | `always` | git's default for them. `git://` is anonymous; http and https now reach no credential |
+| `protocol.ssh.allow` | `never` | The ssh transport, whatever the user's configuration allows by name: git refuses it before any ssh command runs, so neither `core.sshCommand`, the keys in `~/.ssh` nor the agent take part. The whole transport, because git cannot be told to use ssh without the user's keys |
+
+So a push from a brewer's process, or a check step's, over https finds no helper, no askpass program and no terminal, and fails with `could not read Username for '<url>': terminal prompts disabled`; over ssh or a remote helper it fails with `transport '<name>' not allowed`. The remote is never asked for anything a login could answer.
+
+### Names a brewer's `env` may not set
+`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`, in any case, join the reserved names of `BrewerFrontmatter.env` (`src/schemas/brewer.ts`): a token there would let a script push with it in the URL, and Foedrum never holds one (ADR 0073). The base already leaves them out, and the sandbox unsets them for sandboxed commands (ADR 0087).
+
+### The settings do not change
+The attempt settings already do what settings can on the level that has a sandbox (ADR 0087): no network, `~/.ssh` and git's credential store hidden, the token variables unset. On the permissions-only level, settings cannot change what an allowed command's git reads; the environment can, and a sandboxed command inherits it ("Inherited from Claude Code", Sandboxing, "What the sandbox restricts"), so the forced variables hold on every level.
+
+### What a brewer can still undo, and what catches it
+The forced layer stops a brewer's frontmatter, not a command it runs. A command that clears or replaces the variables (`env -u GIT_CONFIG_COUNT`, a script that sets a `GIT_CONFIG_COUNT` of its own) gets the user's configuration back, and `git -c credential.helper=…` overrides the pairs; ADR 0062 keeps `git -c` out of the allowlist, but a script can run it. What this closes is a push that a brewer or a script makes with git as the environment gives it, which is what a misled brewer, or a script it runs, does. A process that works to get the credentials back is the [noPush guard](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md)'s to find and the OS sandbox's (#190) to stop; gh's keyring login stays out of reach of the allowlist itself, which never lets a brewer start `gh` or `git credential` ([ADR 0082](0082-brewers-never-allow-gh.md)).
+
+### Not covered
+- **Credentials written as configuration values**: `http.extraHeader` (what `actions/checkout` writes to a clone's configuration), a token in a remote's URL, a client certificate. A Brewery whose clones carry one must not run untrusted repositories.
+- **Tools other than git**: `npm publish` with a registry token, `curl` with a token from a file. `~/.npmrc` and the token variables are hidden on the sandboxed level only (ADR 0087).
+- **The engine's own git** reads the user's configuration on purpose (ADR 0096): it does not run with the brewer's environment.
+
+## Consequences
+- A brewer, or a check step, cannot fetch or clone a **private** repository over https, nor anything over ssh, public or not. A user's `url."git@github.com:".insteadOf = https://github.com/` turns every https URL of that host into ssh, so for such a user a brewer cannot even fetch a public GitHub repository; a Brewery whose brewers need to fetch names its approach (a public mirror, a dependency vendored into the repository) in a new ADR. Brewers rarely need it: the engine fetches every attempt's worktree before it starts (ADR 0096).
+- **Check steps**: a repository's tests that clone a private dependency, use an ssh remote, or test a credential helper fail under Foedrum, while they pass in the user's own shell. Tests that make local repositories and push or clone between them by path pass, as do tests that set a `GIT_CONFIG_COUNT` of their own for their own git calls (theirs replaces Foedrum's for those calls).
+- Commits keep the user's identity, line endings and the rest of their configuration: only the keys above change.
+- `test/unit/brewer-env.test.ts` checks the layer (the pairs, their count, the prompt, that neither the base nor a brewer's `env` can replace them), `test/unit/serve-config.test.ts` that serve forces it, and `test/unit/brewer.test.ts` that a brewer's `env` may not name a token. `test/integration/brewer-git-credentials.test.ts` runs real git, with a user configuration that plants a credential helper, one for the remote's URL, an askpass program, an ssh command and ssh allowed by name, against a local server that asks for a login: without the forced variables the helper answers; with them a push over http fails with terminal prompts disabled, one over ssh is refused, none of the planted commands runs, and a push to a local path still works. CI runs it on Windows, macOS and Linux.
+- **Unverified against `claude`.** That Claude Code passes the forced variables, empty values included, to the commands its Bash and PowerShell tools run comes from the docs' "Inherited from Claude Code" for sandboxed commands, not from a run; the opt-in real-claude tests (ADR 0057) do not run a command that reads them.
+
+## Verification
+On 2026-10-21, with git 2.56.0.windows.2, in a scratch folder with `GIT_CONFIG_GLOBAL` at a file that set `credential.https://github.com.helper` and `credential.helper` to a script that answered a login and wrote a mark, and `core.askPass` to the same script:
+- `git credential fill` for `https://github.com` returned the script's login; with `GIT_CONFIG_COUNT=1`, `credential.helper` and an empty value it ran neither helper and failed with `could not read Username for 'https://github.com': terminal prompts disabled`, after trying the askpass program; with `core.askPass` empty as a second pair it ran no askpass program either.
+- With the protocol pairs above, `git ls-remote` of `git@nowhere.invalid:x/y.git` and of `codecommit::us-east-1://x` failed with `transport 'ssh' not allowed` and `transport 'codecommit' not allowed`; a clone of a local bare repository by path succeeded, and failed with `GIT_PROTOCOL_FROM_USER=0`, as git's default `user` policy does; `git -c protocol.ssh.allow=always ls-remote` reached ssh, as the docs say of `-c`.
+- An empty `GIT_CONFIG_VALUE_0` set by node's `spawnSync` on Windows reached git directly and through Git Bash (`git config --show-scope --get-all credential.helper` printed `command` with an empty value).
+
+## Alternatives considered
+- **`GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` at the null device, or `GIT_CONFIG_NOSYSTEM`.** They drop every helper of those files at once ([git](https://git-scm.com/docs/git), environment), but with them the user's identity, which a brewer's commits need, Git for Windows's line-ending settings and every other key; and the clone's own configuration still applies.
+- **`GIT_ALLOW_PROTOCOL=file:git:http:https`.** It also overrides `-c`, but each listed protocol gets `always` ([git](https://git-scm.com/docs/git), environment), so local paths would lose git's `user` policy, which keeps a recursive submodule clone from using them; the pairs keep it. Neither the variable nor the pairs hold against a command that clears the environment.
+- **A `HOME` of the attempt's own.** It would hide `~/.gitconfig`, `~/.ssh` and the rest, but `claude` finds its login and settings there, and it is #135's question, with the identity problem above.
+- **`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`.** It removes credential variables from the subprocesses Claude Code starts, recognised "by its variable name or by the shape of its value", but leaves `GITHUB_TOKEN`, `GH_TOKEN` and the enterprise ones "in place, so that `gh` and scripts that call the GitHub API keep working" ([Environment variables](https://code.claude.com/docs/en/env-vars), "What the subprocess environment scrub removes"); it does not touch git's configuration files, and check steps are not Claude Code's subprocesses.
+- **An empty `GIT_ASKPASS`.** git's docs say a set `GIT_ASKPASS` is run, not what an empty one does, and the base already leaves it out; the `core.askPass` pair covers the configuration, where the user's askpass would come from.
+- **A failing `GIT_SSH_COMMAND`, and keeping ssh.** It would need a program that fails on every platform and still let a helper or agent answer through a wrapper the user configured; refusing the transport is in git's docs and happens before any command runs.
+- **Resetting each `credential.<url>.helper` by URL.** The URLs are the user's, unknown to Foedrum; the empty `credential.helper` clears them all.
