@@ -1566,13 +1566,13 @@ describe('openDriver', () => {
   });
 
   describe('an end whose record throws (#278)', () => {
+    const bound = (target: object, name: string | symbol) => {
+      const value = Reflect.get(target, name);
+      return typeof value === 'function' ? value.bind(target) : value;
+    };
     /** `store`, whose next append of `ref`'s finish throws `error` once. */
     const failingFinish = (ref: AttemptRef, error: Error): EventStore => {
       let armed = true;
-      const bound = (target: object, name: string | symbol) => {
-        const value = Reflect.get(target, name);
-        return typeof value === 'function' ? value.bind(target) : value;
-      };
       return new Proxy(store, {
         get: (target, name) =>
           name !== 'withTransaction'
@@ -1686,6 +1686,77 @@ describe('openDriver', () => {
         ],
       );
       assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
+      assert.ok(!leased(plan('b2')));
+    });
+
+    it('records the other ends of its pass when the read after an end throws (#289)', async () => {
+      const { runner, end } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      order('b2');
+      const broken = new Error('the store could not be read');
+      // The first read of the store after b1's finish is committed throws: the batchIsOver check.
+      let state: 'waiting' | 'armed' | 'thrown' = 'waiting';
+      const failingRead = new Proxy(store, {
+        get: (target, name) => {
+          if (name === 'eventsAfter') {
+            return (after: number) => {
+              if (state === 'armed') {
+                state = 'thrown';
+                throw broken;
+              }
+              return target.eventsAfter(after);
+            };
+          }
+          if (name !== 'withTransaction') return bound(target, name);
+          return <T>(fn: (tx: EventStoreTransaction) => T): T => {
+            let finished = false;
+            const result = target.withTransaction((tx) =>
+              fn(
+                new Proxy(tx, {
+                  get: (inner, key) =>
+                    key !== 'append'
+                      ? bound(inner, key)
+                      : (event: Event) => {
+                          finished ||=
+                            event.type === 'step.finished' &&
+                            attemptKey.encode(event) === attemptKey.encode(plan('b1'));
+                          return inner.append(event);
+                        },
+                }),
+              ),
+            );
+            if (finished && state === 'waiting') state = 'armed';
+            return result;
+          };
+        },
+      });
+      const driver = await open({
+        store: failingRead,
+        runner,
+        alsoCleans: [fakeWorktrees({ root: 'attempt-settings' })],
+        report: (notice) => notices.push(notice),
+      });
+      await driver.drive();
+      end(plan('b1'));
+      end(plan('b2'));
+      // Now or on the next drive: no end of the pass is left behind.
+      await driver.drive().catch(() => {});
+      await driver.drive().catch(() => {});
+      assert.equal(state, 'thrown');
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'command_failed'),
+        [
+          {
+            kind: 'command_failed',
+            command: { kind: 'finish', ...plan('b1'), ending: succeeded },
+            error: broken,
+          },
+        ],
+      );
+      assert.equal(outcomeOf(driver, plan('b1'))?.kind, 'succeeded');
+      assert.equal(outcomeOf(driver, plan('b2'))?.kind, 'succeeded');
+      assert.ok(!leased(plan('b1')));
       assert.ok(!leased(plan('b2')));
     });
   });
