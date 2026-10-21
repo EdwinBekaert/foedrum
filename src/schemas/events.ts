@@ -223,18 +223,23 @@ const recipeChosen = z.discriminatedUnion('source', [
 ]);
 
 export const Event = z.discriminatedUnion('type', [
-  z.strictObject({
-    type: z.literal('batch.ordered'),
-    batchId: BatchId,
-    order: OrderRef,
-    parentBatchId: BatchId.optional(),
-    // An Ordered batch waits to be routed, never silently: this is its deadline (ADR 0032).
-    routeBy: Timestamp,
-    // Who ordered it by hand, and from where (`foedrum order`, ADR 0105); absent for the intake's
-    // orders and sub-orders.
-    by: NonEmpty.optional(),
-    via: Surface.optional(),
-  }),
+  z
+    .strictObject({
+      type: z.literal('batch.ordered'),
+      batchId: BatchId,
+      order: OrderRef,
+      parentBatchId: BatchId.optional(),
+      // An Ordered batch waits to be routed, never silently: this is its deadline (ADR 0032).
+      routeBy: Timestamp,
+      // Who ordered it by hand, and from where (`foedrum order`, ADR 0105); absent for the intake's
+      // orders and sub-orders.
+      by: NonEmpty.optional(),
+      via: Surface.optional(),
+    })
+    .refine(
+      ({ by, via }) => (by === undefined) === (via === undefined),
+      'Must name both who ordered it (by) and from where (via), or neither',
+    ),
   recipeChosen,
   // `route`: the onFail or onBlocked route that scheduled the attempt, which counts its rounds.
   z.strictObject({
