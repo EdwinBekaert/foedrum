@@ -752,7 +752,9 @@ const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
       found.gated = true;
       found.places.push({ place: reading.place, push: false });
     } else if (action?.text === 'ready') readReady(args, name, reading);
-  } else if (group?.text === 'api' || group?.dynamic) {
+  }
+  // A group computed at run time may be pr or api, so it is read as both.
+  if (group?.text === 'api' || group?.dynamic) {
     if (args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))) {
       found.reasons.push(READY_API_BLOCKED);
     } else if (apiMerges(args)) found.reasons.push(PR_MERGE_BLOCKED);
