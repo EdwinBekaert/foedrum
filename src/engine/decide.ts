@@ -17,7 +17,9 @@ import type {
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
+import { effectKey } from './effect-key.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
+import { claimStanding, same } from './issue-claims.ts';
 import { openedPullRequest } from './pull-request.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
@@ -179,6 +181,9 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'order': {
       const { batchId, order, parentBatchId } = command;
+      // The intake's claim of a target issue waits on the code host between its read and this
+      // order, so `foedrum order` may have ordered the issue in between (ADR 0105).
+      if (order.repo !== undefined) refuseOrder(draft.state, batchId, order, busy);
       draft.push({
         type: 'batch.ordered',
         batchId,
@@ -292,14 +297,86 @@ function run(draft: Draft, command: Command): Event[] {
       draft.push({ type: 'batch.cancelled', batchId, by, via });
       break;
     }
-    case 'order_again':
-      throw new Error('not implemented');
+    case 'order_again': {
+      const { batchId, order, by, via } = command;
+      refuseOrder(draft.state, batchId, order, orderRefusal);
+      draft.push({
+        type: 'batch.ordered',
+        batchId,
+        order: { ...order },
+        routeBy: draft.after(draft.context.routingMs),
+        by,
+        via,
+      });
+      break;
+    }
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);
     }
   }
   return draft.events;
+}
+
+/**
+ * Why a person may not order `order` again now (ADR 0105), or undefined: the issue is a sub-order,
+ * which its decomposition orders, or `busy` says why.
+ */
+export function orderRefusal(state: State, order: OrderRef): string | undefined {
+  const { issue, repo } = order;
+  const subOrder = repo === undefined ? state.subOrders.get(issue) : undefined;
+  if (subOrder !== undefined) {
+    return `issue #${issue} is a sub-order of #${subOrder.order}; its decomposition orders it`;
+  }
+  return busy(state, order);
+}
+
+/**
+ * Why the issue of `order` may not get a new batch now, or undefined: one of its batches is live,
+ * or the claim of a target issue's batch is still held or being released. A new claim made before
+ * that release would lose its ref to it.
+ */
+function busy(state: State, order: OrderRef): string | undefined {
+  const { issue, repo } = order;
+  for (const batch of state.batches.values()) {
+    if (batch.issue !== issue) continue;
+    const ofRepo = batch.repo;
+    if (ofRepo === undefined ? repo !== undefined : repo === undefined || !same(ofRepo, repo)) {
+      continue;
+    }
+    const of = `batch ${batch.id} of ${ofRepo ?? ''}#${issue}`;
+    if (nonTerminal.includes(batch.lane.kind)) return `${of} is still ${batch.lane.kind}`;
+    if (ofRepo === undefined) continue;
+    const ends = batch.pullRequestEnds ?? {};
+    const standing = claimStanding(
+      { batchId: batch.id, repo: ofRepo, issue, lane: batch.lane },
+      (url) => ends[url] ?? 'open',
+      (key) => state.effects.has(effectKey.encode(key)),
+    );
+    switch (standing) {
+      case 'held':
+        return `${of} holds its claim until its pull requests end`;
+      case 'releasing':
+        return `the release of the claim of batch ${batch.id} is still due: foedrum serve applies it, then order ${ofRepo}#${issue} again`;
+      case 'released':
+        continue;
+      default:
+        return standing satisfies never;
+    }
+  }
+  return undefined;
+}
+
+/** Refuses `order` for `why`, unless `batchId` was ordered before: the fold says so instead. */
+function refuseOrder(
+  state: State,
+  batchId: string,
+  order: OrderRef,
+  why: (state: State, order: OrderRef) => string | undefined,
+): void {
+  if (state.batches.has(batchId)) return;
+  const refusal = why(state, order);
+  if (refusal !== undefined) throw new Refusal(refusal);
 }
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */

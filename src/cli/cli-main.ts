@@ -5,13 +5,15 @@ import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { breweryRecipes } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
+import { githubClaimHost } from '../github/claims.ts';
+import { createGitHubClient } from '../github/client.ts';
 import { userName } from '../platform/env.ts';
 import { runGit } from '../workspace/git.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { readKeptBranches } from './kept-branches-git.ts';
 import { type CliResult, runCli } from './run.ts';
-import { attemptClone } from './serve-config.ts';
+import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.ts';
 
 /**
  * Runs one command (`argv`) of the command layer in the Brewery checkout `cwd`. doctor's and
@@ -52,12 +54,16 @@ export const cliFromCheckout = async (
         const cloneOf = (repo: string) => attemptClone(files, homedir(), repo);
         return readKeptBranches(state, unpushed, { git: runGit, cloneOf });
       },
-      config: () => {
-        throw new Error('not implemented');
-      },
-      claims: () => {
-        throw new Error('not implemented');
-      },
+      config: () => readBreweryConfig(readText('foedrum.jsonc'), cwd),
+      // gh's own login, never a token (ADR 0073), through the runner a test gives.
+      claims: (config) =>
+        githubClaimHost(
+          createGitHubClient({
+            ...(options?.exec === undefined ? {} : { exec: options.exec }),
+            hostname: githubHostname(config),
+            cwd,
+          }),
+        ),
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
     });

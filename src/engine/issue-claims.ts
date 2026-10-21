@@ -290,11 +290,14 @@ const releaseOf = (
  * then `released` (ADR 0105).
  */
 export const claimStanding = (
-  _batch: ClaimedBatch,
-  _pullRequest: (url: string) => PullRequestState,
-  _applied: (key: BatchEffectKey) => boolean,
+  batch: ClaimedBatch,
+  pullRequest: (url: string) => PullRequestState,
+  applied: (key: BatchEffectKey) => boolean,
 ): 'held' | 'releasing' | 'released' => {
-  throw new Error('not implemented');
+  if (releaseOf(batch.lane, pullRequest) === undefined) return 'held';
+  // Only the keys count, and no key names the claimant: its Brewery and login are in the text.
+  const release = claimEffectsDue(batch, { brewery: batch.repo, login: '' }, pullRequest);
+  return release.every(({ key }) => applied(key)) ? 'released' : 'releasing';
 };
 
 // The assignee keeps every Brewery off an issue that is not done, until a person decides.
