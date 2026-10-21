@@ -77,8 +77,9 @@ const taskTreeBranchOf = (
     }
     case 'rewound': {
       // A rewind of a Brewery order names one commit per repository; its attempts wrote in one.
+      const worktrees = worktreesOf(batch);
       for (const [repo, commit] of Object.entries(taskTree.shas)) {
-        const made = worktreesOf(batch).findLast(
+        const made = worktrees.findLast(
           (worktree) =>
             sameRepo(worktree.repo, repo) && worktree.commit.toLowerCase() === commit.toLowerCase(),
         );
