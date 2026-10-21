@@ -540,6 +540,21 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(readdirSync(hooks()), []);
     });
 
+    // ADR 0111: no auto gc or maintenance outlives the writer lock and takes the branch's ref lock.
+    it('runs every git call with auto gc and maintenance off', async () => {
+      fake.remote = sha(5);
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      await state.flush();
+
+      assert.ok(fake.find('commit'));
+      for (const call of fake.calls) {
+        assert.equal(call.config?.['gc.auto'], '0', call.args.join(' '));
+        assert.equal(call.config?.['maintenance.auto'], 'false', call.args.join(' '));
+      }
+    });
+
     it('refuses a hooks folder that is not empty', async () => {
       mkdirSync(hooks(), { recursive: true });
       writeFileSync(join(hooks(), 'post-commit'), '#!/bin/sh\n');
