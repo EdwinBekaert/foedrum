@@ -45,7 +45,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0039](0039-windows-job-objects-through-a-powershell-helper.md) | On Windows, a process tree that must not outlive a kill runs in a Job Object (amends 0010) | Accepted |
 | [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) | Brett covers `scripts/`, and only a test the mutant makes fail kills it (amends 0017 and 0034) | Accepted, amended by 0054 |
 | [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) | Untrusted input in per-prompt nonce tags (amends 0018 and 0019) | Accepted, amended by 0098 |
-| [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047, 0062 and 0087 |
+| [0042](0042-the-claude-command-line-and-stream-contract.md) | The `claude` command line and the stream the brewer runner reads (amends 0003, 0019 and 0028) | Accepted, amended by 0046, 0047, 0062, 0087 and 0106 |
 | [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) | Target-repository issues as a work queue, claimed by a ref (amends 0008, 0013, 0024, 0029 and 0033) | Accepted, amended by 0050 |
 | [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051, 0055 and 0063 |
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted, amended by 0056, 0060, 0065 and 0102 |
@@ -102,7 +102,7 @@ Each record captures one decision: context, decision, consequences and the alter
 | [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) | Nip ships with a default Cellarman, and the default brewers name the builder alias (amends 0098) | Accepted |
 | [0101](0101-the-cleanup-keeps-the-attempt-branches-that-hold-a-rewound-task-tree.md) | The cleanup keeps the attempt branches that hold a rewound task tree (amends 0084 and 0092) | Accepted |
 | [0102](0102-the-gate-blocks-a-recursive-delete-of-a-path-built-from-a-variable.md) | The local gate blocks a recursive delete of a path built from a variable (amends 0045 and 0056) | Accepted |
-| [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) | The noPush guard compares the remote's refs around each attempt (amends 0059 and 0062) | Accepted |
+| [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) | The noPush guard compares the remote's refs around each attempt (amends 0042, 0059 and 0062) | Accepted |
 
 ## Template
 
