@@ -319,8 +319,8 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Innkeeper | Router: picks a recipe for an order (lean call) | haiku | low |
 | Maltster | Gathers context: relevant code, history, constraints | sonnet | high |
 | Brewmaster | Writes the plan with acceptance criteria | opus | medium |
-| Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | sonnet | high |
-| Cellarman | Makes the Gauger's tests pass without changing them | sonnet | high |
+| Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | builder (sonnet) | high |
+| Cellarman | Makes the Gauger's tests pass without changing them | builder (sonnet) | high |
 | Taster | Reviews a diff through one lens (read-only) | opus | medium |
 | Brett | Mutation check: proposes plausible bugs; the engine confirms which ones the tests miss (advisory by default) | sonnet | medium |
 | Cooper | Fixes review findings | sonnet | high |
