@@ -6,6 +6,7 @@ import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/proce
 import {
   type BudgetOptions,
   budgetReporter,
+  npmTestReporter,
   recordCpuTime,
   remeasureAlone,
   runsInCi,
@@ -388,6 +389,61 @@ describe('budgetReporter outside CI and in CI (ADR 0136)', () => {
       overLines(lines)[0] ?? '',
       /^✖ test\/unit\/a\.test\.ts used 5\.50 s of CPU time alone \(6\.00 s in the run\), over the 5 s budget/,
     );
+  });
+
+  it('with CI unset, lists every file over its limit, also one below the costliest files listed', async () => {
+    const { lines, failed } = await report(
+      [...timed(fileC, 16_500, 16_000), ...timed(fileA, 6500, 6000)],
+      5000,
+      1,
+      { ci: false },
+    );
+    assert.equal(failed, false);
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith('  ⚠')).map((line) => line.split(' used')[0]),
+      ['  ⚠ test/property/c.test.ts', '  ⚠ test/unit/a.test.ts'],
+    );
+  });
+});
+
+// npm test's own reporter reads CI from the environment it is given, process.env by default.
+describe('npmTestReporter (ADR 0136)', () => {
+  const run = async (env: NodeJS.ProcessEnv) => {
+    let failed = false;
+    const measured: string[] = [];
+    const reporter = npmTestReporter(
+      {
+        cwd,
+        fail: () => {
+          failed = true;
+        },
+        remeasure: async (file) => {
+          measured.push(file);
+          return 6000;
+        },
+      },
+      env,
+    );
+    const source = (async function* () {
+      yield* timed(fileA, 6500, 6000);
+    })();
+    let output = '';
+    for await (const chunk of reporter(source)) output += chunk;
+    return { output, failed, measured };
+  };
+
+  it('with CI unset, reports a unit file over the budget and fails nothing', async () => {
+    const { output, failed, measured } = await run({});
+    assert.equal(failed, false);
+    assert.deepEqual(measured, []);
+    assert.match(output, /^ {2}⚠ test\/unit\/a\.test\.ts used 6\.00 s of CPU time/m);
+  });
+
+  it('with CI set, fails the run for a unit file over the budget', async () => {
+    const { output, failed, measured } = await run({ CI: 'true' });
+    assert.equal(failed, true);
+    assert.deepEqual(measured, [fileA, fileA, fileA]);
+    assert.match(output, /^✖ test\/unit\/a\.test\.ts used 6\.00 s of CPU time/m);
   });
 });
 
