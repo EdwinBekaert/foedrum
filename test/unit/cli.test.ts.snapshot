@@ -143,5 +143,6 @@ Commands:
   rewind <batch> <step> <commits>...  Take a Stuck batch back to a step, each repository at its commit
   cancel <batch>                      Cancel a batch
   order <issue>                       Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
+  brew <issue> [--as <name>]          Brew an issue's batch here until it is on tap, Stuck or needs input
 
 `;
