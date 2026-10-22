@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, brewOwner, runBrew } from '../../src/cli/brew.ts';
+import { brewFromCheckout } from '../../src/cli/brew-main.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -75,6 +76,20 @@ describe('brewOwner', () => {
       assert.ok('refused' in owner, JSON.stringify(env));
       assert.match(owner.refused, /--as <name>/);
     }
+  });
+});
+
+describe('brewFromCheckout', () => {
+  it('refuses with exit 2, reading nothing of the Brewery, when no --as or session names the driver', async () => {
+    const input = { command: 'brew', issue: { issue: 12 } } as const;
+    const issued = { by: 'ann', via: 'terminal' } as const;
+    const options = { exec: () => assert.fail('no tool is asked'), resolve: () => assert.fail() };
+    assert.deepStrictEqual(await brewFromCheckout('no-brewery', input, issued, options, {}), {
+      exitCode: 2,
+      stdout: '',
+      stderr:
+        'foedrum brew: no Claude Code session names the driver (CLAUDE_CODE_SESSION_ID); give --as <name>\n',
+    });
   });
 });
 
