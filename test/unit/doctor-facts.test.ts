@@ -343,6 +343,26 @@ describe('gatherDoctorFacts: the Brewery config', () => {
   });
 });
 
+describe("gatherDoctorFacts: the local gate's denylist (ADR 0114)", () => {
+  it('keeps where the list is and whether it is set, never its text', async () => {
+    const { shell } = fakeShell();
+    const path = '/home/ada/.config/foedrum/denylist.txt';
+    const facts = await gatherDoctorFacts({
+      ...shell,
+      denylist: () => ({ kind: 'set', path, text: 'examplecorp\n' }),
+    });
+    assert.deepEqual(facts.denylist, { kind: 'set', path });
+    assert.doesNotMatch(JSON.stringify(facts), /examplecorp/);
+    const unreadable = await gatherDoctorFacts({
+      ...shell,
+      denylist: () => ({ kind: 'unreadable', path, why: 'EACCES' }),
+    });
+    assert.deepEqual(unreadable.denylist, { kind: 'unreadable', path, why: 'EACCES' });
+    // Without a way to look, it has none.
+    assert.equal('denylist' in (await gatherDoctorFacts(shell)), false);
+  });
+});
+
 describe('gatherDoctorFacts: the recipe files (ADR 0053)', () => {
   it("keeps the Brewery's recipe and brewer files, when it can read them", async () => {
     const { shell } = fakeShell();

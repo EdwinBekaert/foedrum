@@ -21,10 +21,20 @@ import { flagValue, ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { config } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-import { cannedGhLogin, doctorHere, MADE_UP_GH, resolveWithMadeUpGh } from './canned-gh-login.ts';
+import {
+  cannedGhLogin,
+  doctorHere,
+  MADE_UP_GH,
+  noDenylist,
+  resolveWithMadeUpGh,
+} from './canned-gh-login.ts';
 
 const foedrumIn = (cwd: string, args: string[]) =>
-  cliFromCheckout(args, cwd, { exec: cannedGhLogin(), resolve: resolveWithMadeUpGh });
+  cliFromCheckout(args, cwd, {
+    exec: cannedGhLogin(),
+    resolve: resolveWithMadeUpGh,
+    denylist: noDenylist,
+  });
 
 describe('foedrum doctor and serve through cliFromCheckout', () => {
   let dir: TempDir;
@@ -42,7 +52,11 @@ describe('foedrum doctor and serve through cliFromCheckout', () => {
       files.push(file);
       return canned(file, execArgs, options);
     };
-    await cliFromCheckout(args, dir.path, { exec, resolve: resolveWithMadeUpGh });
+    await cliFromCheckout(args, dir.path, {
+      exec,
+      resolve: resolveWithMadeUpGh,
+      denylist: noDenylist,
+    });
     return files;
   };
 

@@ -206,6 +206,112 @@ describe('precheck on a stale node_modules', () => {
   }
 });
 
+// The personal denylist's scan of what a push sends (ADR 0114), injected: its own tests are in
+// denylist-shell.test.ts.
+describe('precheck with a personal denylist', () => {
+  const upToDate = async (): Promise<string | undefined> => undefined;
+  const fakeScan = (answer: () => Promise<string | undefined>) => {
+    const calls: string[] = [];
+    const remotes: (string | null | undefined)[] = [];
+    const deniedPush = async (dir: string, ...pushed: (string | null | undefined)[]) => {
+      calls.push(dir);
+      remotes.push(...pushed);
+      return answer();
+    };
+    return { calls, remotes, deniedPush };
+  };
+  const gate = (
+    command: string,
+    runCheck: (cwd: string) => Promise<CheckResult>,
+    deniedPush: (
+      dir: string,
+      ...remotes: (string | null | undefined)[]
+    ) => Promise<string | undefined>,
+    detached = false,
+  ) =>
+    precheck(
+      hookInput(command, '/work/tree'),
+      runCheck,
+      upToDate,
+      async () => detached,
+      undefined,
+      undefined,
+      undefined,
+      deniedPush,
+    );
+  const REFUSAL = 'git push is blocked: it would send a word on your denylist (ADR 0114), at x';
+
+  it('blocks a push with the scan’s line, before the check, in the tree it pushes', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => REFUSAL);
+    const result = await gate('git -C sub push', runCheck, scan.deniedPush);
+    assert.deepEqual(result, { exitCode: 2, stderr: `${REFUSAL}\n` });
+    assert.deepEqual(scan.calls, [resolve('/work/tree', 'sub')]);
+    assert.deepEqual(calls, []);
+  });
+
+  it('runs the check when the scan finds nothing', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => undefined);
+    const result = await gate('git push', runCheck, scan.deniedPush);
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(scan.calls, ['/work/tree']);
+    assert.deepEqual(calls, ['/work/tree']);
+  });
+
+  it('blocks the push when the scan fails', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => {
+      throw new Error('no git');
+    });
+    const result = await gate('git push', runCheck, scan.deniedPush);
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /^git push is blocked: could not check it against your denylist/);
+    assert.match(result.stderr, /no git/);
+    assert.deepEqual(calls, []);
+  });
+
+  // The scan reads against the remote the push goes to (ADR 0114): the one the command names, none
+  // when it names none (the scan asks git), and null when it is computed at run time.
+  const remotes: [string, (string | null | undefined)[]][] = [
+    ['git push', [undefined]],
+    ['git push -u origin 131-denylist', ['origin']],
+    ['git push --set-upstream work HEAD', ['work']],
+    ['git push -o ci.skip --repo=mirror', ['mirror']],
+    ['git push --repo mirror', ['mirror']],
+    ['git push --push-option ci.skip origin', ['origin']],
+    ['git push https://example.com/o/r.git HEAD', ['https://example.com/o/r.git']],
+    ['git push "$remote" HEAD', [null]],
+    ['git push origin && git push work', ['origin', 'work']],
+  ];
+  for (const [command, expected] of remotes) {
+    it(`scans against the remote the push names: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const scan = fakeScan(async () => undefined);
+      await gate(command, runCheck, scan.deniedPush);
+      assert.deepEqual(scan.remotes, expected);
+    });
+  }
+
+  // One scan for the command, so its git calls stay within one deadline budget.
+  it('scans once for a command that pushes to two remotes, with both', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => undefined);
+    await gate('git push origin && git push work', runCheck, scan.deniedPush);
+    assert.deepEqual(scan.calls, ['/work/tree']);
+    assert.deepEqual(scan.remotes, ['origin', 'work']);
+  });
+
+  it('does not scan a push from a detached HEAD, or what pushes nothing', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => REFUSAL);
+    await gate('git push', runCheck, scan.deniedPush, true);
+    await gate('gh pr create --draft', runCheck, scan.deniedPush);
+    await gate('git status', runCheck, scan.deniedPush);
+    assert.deepEqual(scan.calls, []);
+  });
+});
+
 describe('precheck on a detached HEAD', () => {
   // A HEAD check that records where it looked and answers with the given state.
   const fakeHead = (detached: boolean) => {
@@ -2179,8 +2285,72 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     });
   }
 
+  // gh joins a literal path to the REST prefix without resolving its dot segments, so whether
+  // x/../graphql reaches the GraphQL endpoint is up to the server: the gate takes it at its worst
+  // (#329).
+  const dotted = [
+    'x/../graphql',
+    './graphql',
+    '../graphql',
+    '/api/v3/../graphql',
+    'a/./graphql/',
+    // Dot segments after it, and the same segments percent-encoded, which a server may decode.
+    'graphql/x/..',
+    'graphql/.',
+    'x/%2e%2e/graphql',
+    'x/%2E%2E/graphql',
+    'x/../%67raphql',
+  ];
+  for (const endpoint of dotted) {
+    for (const query of unreadable) {
+      const unquoted = query.replaceAll('"', '');
+      for (const command of [
+        `gh api ${endpoint} ${query}`,
+        `bash -c 'gh api ${endpoint} ${unquoted}'`,
+        `pwsh -Command "gh api ${endpoint} ${unquoted}"`,
+      ]) {
+        it(`forbids a query it cannot read through a path with dot segments: ${command}`, () => {
+          assert.match(
+            forbiddenReason(command) ?? '',
+            /^gh api graphql with a query the gate cannot read/,
+          );
+        });
+      }
+    }
+    it(`allows a readable query through a path with dot segments: ${endpoint}`, () => {
+      assert.equal(
+        forbiddenReason(`gh api ${endpoint} -f query='query { viewer { login } }'`),
+        undefined,
+      );
+    });
+  }
+
+  // A % that starts no escape leaves the path as it is, dot segments still resolved.
+  it('forbids a query it cannot read through a dotted path with a stray %', () => {
+    assert.match(
+      forbiddenReason('gh api x/%zz/../../graphql --input body.json') ?? '',
+      /^gh api graphql with a query the gate cannot read/,
+    );
+  });
+
+  // The endpoint itself percent-encoded, which the server may decode (#329).
+  for (const endpoint of ['%67raphql', '/%67raphql', 'https://api.github.com/%67raphql']) {
+    it(`forbids a query it cannot read through a percent-encoded endpoint: ${endpoint}`, () => {
+      assert.match(
+        forbiddenReason(`gh api ${endpoint} --input body.json`) ?? '',
+        /^gh api graphql with a query the gate cannot read/,
+      );
+    });
+  }
+
   const allowed = [
     'gh api "$base/repos/o/r/issues" --input body.json',
+    // A dot segment elsewhere, or a last segment that only starts with graphql, is no endpoint.
+    'gh api repos/o/r/../r/contents/a.json --input body.json',
+    'gh api ../graphql-tools --input body.json',
+    'gh api repos/o/r/contents/.graphql --input body.json',
+    'gh api repos/o/graphql/.. --input body.json',
+    'gh api repos/o/r/contents/%67raphql --input body.json',
     // A REST path that names graphql elsewhere is not the GraphQL endpoint.
     'gh api repos/o/graphql/contents/a.json -F query=@a.txt',
     'gh api /repos/o/graphql-tools/issues --input body.json',
