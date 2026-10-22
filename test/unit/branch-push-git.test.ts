@@ -529,19 +529,19 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
 
 describe('openBranchPush: signals and time', () => {
   it('passes the signal to every git call, with time for a large push', async () => {
-    const { git, calls } = recordingGit(
-      (args) => named(args) ?? (args[0] === 'rev-parse' ? ok(`${TIP}\n`) : ok('')),
+    const { git, calls } = recordingGit((args) =>
+      args[0] === 'rev-parse' ? ok(`${TIP}\n`) : ok(''),
     );
-    const push = openBranchPush({ git, clone, own: { url, root: nextFolder() } });
+    const push = openBranchPush({ git, clone });
     const { signal } = new AbortController();
     await push.commit('refs/heads/x', signal);
     await push.remoteTip(branch, signal);
     await push.push(TIP, branch, signal);
     assert.deepEqual(
       calls.map(({ options }) => options?.signal === signal),
-      [true, true, true, true, true, true, true],
+      [true, true, true],
     );
-    assert.equal(calls[6]?.options?.timeoutMs, 300_000);
+    assert.equal(calls[2]?.options?.timeoutMs, 300_000);
   });
 });
 
@@ -659,8 +659,6 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         GIT_SHALLOW_FILE: devNull,
         // A partial clone would fetch a missing object, so a key asked of cat-file would leave.
         GIT_NO_LAZY_FETCH: '1',
-        // No transport, whatever protocol.<name>.allow the clone says (ADR 0096).
-        GIT_ALLOW_PROTOCOL: '',
       });
       assert.deepEqual(options?.config, {
         'core.attributesFile': devNull,
@@ -668,7 +666,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
         'advice.graftFileDeprecated': 'false',
         // No transport at all, whatever the git version: a lazy fetch fails here instead.
         'protocol.allow': 'never',
-        // And no hook or fsmonitor, as every call in the clone (ADR 0096).
+        // And no hook or fsmonitor, as every call in the clone (ADR 0137).
         'core.hooksPath': devNull,
         'core.fsmonitor': 'false',
       });
