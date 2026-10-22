@@ -204,6 +204,76 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
+  // What real git prints for messages, authors and a merge's conflict resolution, and a commit
+  // another remote has, read against the remote the push goes to (ADR 0114).
+  it('finds a word in a message, an author, a merge and a commit another remote has', async () => {
+    const project = makeTempDir('denied-merge');
+    const list = `${project.path}-list.txt`;
+    try {
+      const git = (args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+      const write = (text: string) => writeFileSync(join(project.path, 'a.md'), text);
+      git(['init', '-q', '-b', 'main']);
+      write('base\n');
+      git(['add', 'a.md']);
+      git(['commit', '-q', '-m', 'Initial commit']);
+      git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+      git(['checkout', '-q', '-b', 'side']);
+      write('side for examplecorp\n');
+      git(['commit', '-q', '-am', 'Side']);
+      const side = git(['rev-parse', 'HEAD']).trim();
+      // A private mirror has the side commit; the push to origin still sends it.
+      git(['update-ref', 'refs/remotes/work/side', 'HEAD']);
+      git(['checkout', '-q', 'main']);
+      write('main\n');
+      git(['commit', '-q', '-am', 'Tidy\n\nFor Acme Widget, see the notes']);
+      const tidy = git(['rev-parse', 'HEAD']).trim();
+      git([
+        'commit',
+        '-q',
+        '--allow-empty',
+        '--author',
+        'AcmeWidget Bot <bot@example.com>',
+        '-m',
+        'Empty',
+      ]);
+      const empty = git(['rev-parse', 'HEAD']).trim();
+      try {
+        git(['merge', '-q', 'side']);
+      } catch {
+        // The conflict is the point: its resolution is a line the merge adds of its own.
+      }
+      write('resolved for ExampleCorp\n');
+      git(['add', 'a.md']);
+      git(['commit', '-q', '--no-edit']);
+      const merge = git(['rev-parse', 'HEAD']).trim();
+      writeFileSync(list, 'examplecorp\nacmewidget\n');
+      const { code, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', project.path),
+        { cwd: root, env: envWithoutNpm({ FOEDRUM_DENYLIST: list }) },
+      );
+      assert.equal(code, 2, stderr);
+      for (const place of [
+        `commit ${tidy.slice(0, 7)} message line 3`,
+        `commit ${empty.slice(0, 7)} author`,
+        `commit ${side.slice(0, 7)} a.md:1`,
+        `commit ${merge.slice(0, 7)} a.md:1`,
+      ]) {
+        assert.ok(stderr.includes(place), `${place} in ${stderr}`);
+      }
+      assert.doesNotMatch(stderr, /example ?corp|acme ?widget/i);
+    } finally {
+      await removeTree(project.path);
+      rmSync(list, { force: true });
+    }
+  });
+
   // A push from another directory runs that tree's check only inside CLAUDE_PROJECT_DIR (#132).
   it('runs the check of a pushed tree inside the project, and nothing outside it', async () => {
     const folder = makeTempDir('pushed-tree');

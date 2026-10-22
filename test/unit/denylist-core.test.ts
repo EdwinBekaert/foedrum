@@ -189,6 +189,43 @@ describe('scanPatches', () => {
     ]);
   });
 
+  it('reads nothing of a deleted file, not even its path', () => {
+    const log = [
+      `\0${sha('c')}`,
+      '',
+      'diff --git a/old/acme-widget.txt b/old/acme-widget.txt',
+      'deleted file mode 100644',
+      '--- a/old/acme-widget.txt',
+      '+++ /dev/null',
+      '@@ -1 +0,0 @@',
+      '-acme widget',
+      '',
+    ].join('\n');
+    assert.deepEqual(scanPatches(log, list), []);
+  });
+
+  // git marks a last line without a newline after it, on each side; the marker is no line.
+  it('reads the lines around a "No newline at end of file" marker', () => {
+    const log = [
+      `\0${sha('d')}`,
+      '',
+      'diff --git a/end.txt b/end.txt',
+      '@@ -1 +1 @@',
+      '-old',
+      '\\ No newline at end of file',
+      '+we ship to ExampleCorp',
+      '\\ No newline at end of file',
+      'diff --git a/next.txt b/next.txt',
+      '@@ -0,0 +1 @@',
+      '+acme widget',
+      '',
+    ].join('\n');
+    assert.deepEqual(scanPatches(log, list), [
+      'commit ddddddd end.txt:1',
+      'commit ddddddd next.txt:1',
+    ]);
+  });
+
   it('finds nothing in an empty log', () => {
     assert.deepEqual(scanPatches('', list), []);
   });
