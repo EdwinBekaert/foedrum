@@ -41,7 +41,7 @@ export const testsFor = (
 };
 
 // The test files among `sources`, in every layer, that reach one of `targets` through imports
-// at any depth, or name one in a string: the tests the coverage delta runs.
+// at any depth, or name one in a string: the tests a coverage run by hand needs.
 export const coveringTestsFor = (
   sources: ReadonlyMap<string, string>,
   targets: readonly string[],
