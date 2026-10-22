@@ -8,6 +8,7 @@ import type { State } from '../engine/fold.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
+import type { ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
@@ -57,6 +58,8 @@ export interface CliContext {
   claims: (config: BreweryConfig) => ClaimHost;
   /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
   serve: () => Promise<CliResult>;
+  /** Opens a finished attempt's session in its worktree (ADR 0126); claude has the terminal. */
+  resume: (input: ResumeCommand) => Promise<CliResult>;
 }
 
 export interface CliResult {

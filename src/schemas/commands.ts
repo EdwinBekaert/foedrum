@@ -20,6 +20,14 @@ export type StuckCommand = z.infer<typeof StuckCommand>;
 export const ReplayCommand = z.strictObject({ command: z.literal('replay'), batch: PathSafeId });
 export type ReplayCommand = z.infer<typeof ReplayCommand>;
 
+/** `foedrum resume <batch> [<step>[#<n>]]` (ADR 0126); resume reads the step and its attempt. */
+export const ResumeCommand = z.strictObject({
+  command: z.literal('resume'),
+  batch: PathSafeId,
+  step: NonEmpty.optional(),
+});
+export type ResumeCommand = z.infer<typeof ResumeCommand>;
+
 export const RetryCommand = z.strictObject({ command: z.literal('retry'), batch: PathSafeId });
 export type RetryCommand = z.infer<typeof RetryCommand>;
 

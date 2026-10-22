@@ -30,6 +30,20 @@ const refuse = (what: string, value: unknown): never => {
   throw new Error(`claude ${what} is not valid: ${JSON.stringify(value)}`);
 };
 
+/** An attempt's session as an engineer opens it (ADR 0126): its model and guards, interactive. */
+export interface ResumeCall {
+  model: string;
+  effort: BrewerFrontmatter['effort'];
+  settingsFile: string;
+  tools: readonly string[];
+  sessionId: string;
+}
+
+/** The arguments of an interactive `claude` that resumes an attempt's session. */
+export function resumeArgs(_call: ResumeCall): string[] {
+  throw new Error('not implemented');
+}
+
 /** The arguments of `claude` for one attempt. */
 export function claudeArgs(call: ClaudeCall): string[] {
   const { model, effort, maxTurns, settingsFile, tools, session } = call;

@@ -48,6 +48,8 @@ export interface RegisteredCommand {
   changesState: boolean;
   /** The positional arguments, in order: each is a field of the command's input. */
   positionals: readonly string[];
+  /** The positional arguments after those that may be left out, in order. */
+  optional?: readonly string[];
   /** The field that takes the positional arguments after those, one or more, as a list. */
   rest?: string;
   /** Validates the input against the command's schema, then runs its handler. */
@@ -59,6 +61,7 @@ interface CommandDefinition<S extends z.ZodType> {
   summary: string;
   changesState: boolean;
   positionals: readonly string[];
+  optional?: readonly string[];
   rest?: string;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
