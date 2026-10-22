@@ -25,6 +25,12 @@ const cleanMessages = ok(`\0${sha}\nAda\nada@example.com\nAda\nada@example.com\n
 const cleanPatches = ok(`\0${sha}\n\ndiff --git a/plan.md b/plan.md\n@@ -0,0 +1 @@\n+a plan\n`);
 
 describe('pushRefusal', () => {
+  // The hook gives the gate 600 s; the HEAD check takes up to 10 s and npm run check 540 s, so the
+  // two git calls must fit in the 50 s between them.
+  it('fits its two git calls between the HEAD check and the check, under the hook', () => {
+    assert.ok(2 * DENYLIST_GIT_TIMEOUT_MS <= 600_000 - 10_000 - 540_000);
+  });
+
   it('runs no git without a list, or with a list of only comments', async () => {
     for (const state of [{ kind: 'none', path: PATH } as const, set('# none yet\n\n')]) {
       const git = fakeGit(cleanMessages, cleanPatches);
