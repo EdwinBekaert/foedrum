@@ -1,8 +1,21 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lutimesSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
-import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
+import {
+  type CleanReport,
+  cleanOwnGitDirs,
+  openAttemptWorktrees,
+} from '../../src/workspace/attempt-worktrees-git.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import {
   BASE,
@@ -342,6 +355,53 @@ describe('openAttemptWorktrees with a fake git', () => {
           /^could not clean the git directories in .*git-dirs: /,
         );
         assert.ok(report.done.includes('removed batch folder 12-1'));
+      });
+
+      it('leaves a link named <uuid>.git alone, and what it points at', async () => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        const target = join(dir.path, 'elsewhere');
+        mkdirSync(target, { recursive: true });
+        mkdirSync(gitDirs, { recursive: true });
+        symlinkSync(target, join(gitDirs, `${uuid}.git`), 'junction');
+        // The link and what it points at both older than the floor.
+        lutimesSync(join(gitDirs, `${uuid}.git`), at, at);
+        aged(target, at);
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended);
+
+        assert.deepEqual(report.done, []);
+        assert.deepEqual(report.failed, []);
+        assert.ok(existsSync(join(gitDirs, `${uuid}.git`)));
+        assert.ok(existsSync(target));
+      });
+
+      // Two old git directories in the root, and the report a cleanup of it fills.
+      const twoOld = (): { gitDirs: string; report: CleanReport } => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        for (const name of [uuid, young]) {
+          mkdirSync(join(gitDirs, `${name}.git`), { recursive: true });
+          aged(join(gitDirs, `${name}.git`), at);
+        }
+        return { gitDirs, report: { done: [], kept: [], failed: [] } };
+      };
+      const removeAll = async (path: string) => rmSync(path, { recursive: true });
+
+      it('reports a git directory it cannot remove, and removes the others', async () => {
+        const { gitDirs, report } = twoOld();
+        const remove = async (path: string) => {
+          if (path.endsWith(`${uuid}.git`)) throw new Error('EBUSY: resource busy or locked');
+          await removeAll(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat, remove });
+
+        assert.deepEqual(report.failed, [
+          `could not clean git directory ${uuid}.git: EBUSY: resource busy or locked`,
+        ]);
+        assert.deepEqual(report.done, [
+          `removed git directory ${young}.git: a stopped call left it`,
+        ]);
       });
     });
   });
