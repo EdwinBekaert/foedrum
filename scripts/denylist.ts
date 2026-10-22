@@ -183,24 +183,25 @@ export interface GhFiles {
 /**
  * Reads the file a gh text names (ADR 0132), or throws why it will not: only a regular file of at
  * most GH_FILE_MAX_BYTES, so standard input as a path (/dev/stdin), a FIFO or a device never
- * blocks or empties the gate; on Windows never a network or drive-less path, before anything
- * touches it, nor a POSIX path, which Git Bash maps elsewhere for gh.
+ * blocks or empties the gate. The file as written is never a ~ path, which bash leaves as it is
+ * after @ or in quotes and PowerShell always does, so gh may read a folder named ~; on Windows
+ * never a network or device path, before anything touches it, nor a rooted or drive-relative one
+ * (/tmp/…, /c/…, \…, D:…), which Git Bash, PowerShell or the drive's own folder send elsewhere.
  */
 export const ghFileReader =
   (files: GhFiles, platform: NodeJS.Platform) =>
   (cwd: string, path: readonly string[]): string => {
+    const file = path.at(-1) ?? '';
+    if (file.startsWith('~')) throw new Error('a ~ path: give the path without ~');
     const resolved = files.resolve(cwd, path);
     if (platform === 'win32') {
-      const problem = windowsPathProblem(resolved);
-      if (problem !== undefined) {
-        throw new Error(
-          `a ${problem === 'network' ? 'network or device' : 'drive-less'} path, which the gate does not open`,
-        );
+      const problem = windowsPathProblem(file) ?? windowsPathProblem(resolved);
+      if (problem === 'network') {
+        throw new Error('a network or device path, which the gate does not open');
       }
-      // Git Bash rewrites /tmp/… and the like for gh.exe; only /c/… is a drive the gate reads too.
-      if (path.some((part) => /^\/(?![A-Za-z](?:\/|$))/.test(part))) {
+      if (problem === 'no-drive') {
         throw new Error(
-          'a POSIX path, which Git Bash maps elsewhere for gh: give a Windows or relative path',
+          'a rooted or drive-relative path, which gh may read from another folder: give a Windows or relative path',
         );
       }
     }

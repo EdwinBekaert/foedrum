@@ -174,9 +174,12 @@ export type GhText =
 /** Whether a line of text holds an entry of `list`. */
 export const holdsEntry = (text: string, list: readonly string[]): boolean => matcher(list)(text);
 
-/** The places of a text gh would send, `<where> line <n>`, for each line that holds an entry. */
+/**
+ * The places of a text gh would send, `<where> line <n>`, for each line that holds an entry. A
+ * literal \n, \r or \t (GitHub shows it as it is) parts the words on either side of it.
+ */
 export const textPlaces = (where: string, text: string, list: readonly string[]): string[] =>
-  deniedLines(text, list).map((line) => `${where} line ${line}`);
+  deniedLines(text.replace(/\\[nrt]/g, ' '), list).map((line) => `${where} line ${line}`);
 
 // The strings of a JSON value, keys too, by the top-level field they are in.
 const fieldStrings = (value: unknown, field: string): [string, string][] => {

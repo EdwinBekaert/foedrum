@@ -123,7 +123,13 @@ interface Word {
   text: string;
   dynamic: boolean;
   quoted: boolean;
+  // When PowerShell turns an escape in it (`n, `t, `u{…}, …) into another character, which the
+  // lexer keeps as the letter after the backtick.
+  escaped?: boolean;
 }
+
+// The letters PowerShell reads as an escape after a backtick, rather than as themselves.
+const POWERSHELL_ESCAPES = /^[0abefnrtuv]$/;
 
 interface Lexed {
   // The simple commands, split at ; & | ( ) { } and line breaks outside quotes.
@@ -166,6 +172,9 @@ const lex = (source: string, dialect: Dialect): Lexed => {
     word.text += text;
     word.dynamic ||= dynamic;
     return word;
+  };
+  const markEscape = (escaping: Word, next: string) => {
+    if (dialect === 'powershell' && POWERSHELL_ESCAPES.test(next)) escaping.escaped = true;
   };
   const endWord = () => {
     if (word !== undefined) segment.push(word);
@@ -248,7 +257,7 @@ const lex = (source: string, dialect: Dialect): Lexed => {
         lexed.strings.push(quoted.text.slice(start));
         return j + 1;
       } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\\n'.includes(next))) {
-        add(next);
+        markEscape(add(next), next);
         j += 2;
       } else if (char === '$' || (char === '`' && dialect === 'bash')) {
         j = expansion(j);
@@ -268,7 +277,7 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       // A line continuation, before LF or CRLF, joins the lines.
       const next = command[i + 1];
       const crlf = next === '\r' && command[i + 2] === '\n';
-      add(next === '\n' || crlf ? '' : (next ?? ''));
+      markEscape(add(next === '\n' || crlf ? '' : (next ?? '')), next ?? '');
       i += crlf ? 3 : 2;
     } else if (char === ' ' || char === '\t') {
       endWord();
@@ -812,6 +821,9 @@ const ghText = (
   place: Place,
 ): GhText => {
   if (value.dynamic) return { kind: 'unreadable', command, field, why: 'computed at run time' };
+  if (value.escaped) {
+    return { kind: 'unreadable', command, field, why: 'a text with a PowerShell escape' };
+  }
   if (!file) return { kind: 'text', command, field, text: value.text };
   if (value.text === '-') {
     return { kind: 'unreadable', command, field, why: 'read from standard input' };
