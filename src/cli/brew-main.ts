@@ -5,7 +5,8 @@
 import type { BrewCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
-import { brewOwner, runBrew } from './brew.ts';
+import { runBrew } from './brew.ts';
+import { brewOwner } from './driver-owner.ts';
 import type { CliResult } from './run.ts';
 import { readServeSetup, type StartOptions } from './serve-main.ts';
 import { listenWhileServing, serveShell } from './serve-shell.ts';

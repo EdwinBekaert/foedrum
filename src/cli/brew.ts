@@ -13,7 +13,6 @@ import { sameRepo } from '../engine/task-tree.ts';
 import { githubOrderLabels } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
-import { PathSafeId } from '../schemas/ids.ts';
 import { type OrderClaim, orderIssue } from './commands.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
@@ -40,29 +39,6 @@ export const BREW_EXIT = {
   refused: 5,
   cancelled: 6,
 } as const;
-
-/** The variable Claude Code sets to its session's id in its tools' processes. */
-const SESSION = 'CLAUDE_CODE_SESSION_ID';
-
-/**
- * The driver's owner (ADR 0123): `--as`, else `session-<id>` of the Claude Code session the command
- * runs in, which a resume by id keeps; else why there is none.
- */
-export const brewOwner = (
-  as: string | undefined,
-  env: Readonly<Record<string, string | undefined>>,
-): { owner: string } | { refused: string } => {
-  if (as !== undefined) return { owner: as };
-  const id = env[SESSION];
-  if (id === undefined || id === '') {
-    return { refused: `no Claude Code session names the driver (${SESSION}); give --as <name>` };
-  }
-  const owner = `session-${id.toLowerCase()}`;
-  if (PathSafeId.safeParse(owner).success) return { owner };
-  return {
-    refused: `the Claude Code session ${JSON.stringify(id)} names no driver; give --as <name>`,
-  };
-};
 
 /** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
 const latestBatch = (

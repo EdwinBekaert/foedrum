@@ -6,8 +6,9 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { type BrewRequest, brewOwner, runBrew } from '../../src/cli/brew.ts';
+import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import { brewFromCheckout } from '../../src/cli/brew-main.ts';
+import { brewOwner } from '../../src/cli/driver-owner.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
