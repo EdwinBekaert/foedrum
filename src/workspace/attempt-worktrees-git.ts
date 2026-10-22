@@ -18,6 +18,7 @@ import {
   attemptFolder,
   type BatchFolderFact,
   type Claims,
+  isOwnGitDir,
   type ListedFact,
   managedClonePath,
   parseAttemptFolder,
@@ -189,13 +190,16 @@ export const cleanOwnGitDirs = async (
     return;
   }
   const entries = [];
-  for (const entry of listed) {
+  // Only a candidate is read: nothing else in the root is touched, not even by an lstat.
+  for (const entry of listed.filter((each) => isOwnGitDir(each.name, each.isDirectory()))) {
     try {
       const { mtimeMs } = await io.lstat(join(root, entry.name));
-      entries.push({ name: entry.name, directory: entry.isDirectory(), modifiedMs: mtimeMs });
+      entries.push({ name: entry.name, directory: true, modifiedMs: mtimeMs });
     } catch (error) {
-      // Gone since the listing, as a running call removes its own: nothing left to judge.
-      if (errorCode(error) !== 'ENOENT') {
+      // Gone since the listing, as a running call removes its own, or still going on Windows,
+      // whose delete-pending entry fails with EPERM: nothing left to judge.
+      const code = errorCode(error);
+      if (code !== 'ENOENT' && code !== 'EPERM') {
         report.failed.push(
           `could not clean git directory ${entry.name}: ${(error as Error).message}`,
         );

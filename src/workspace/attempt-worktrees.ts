@@ -61,6 +61,10 @@ export interface OwnGitDirEntry {
 // The name `withOwnGitDir` gives a git directory: a `randomUUID`, which is lower case, and `.git`.
 const OWN_GIT_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.git$/;
 
+/** Whether an entry of the root could be a git directory of Foedrum's own: the only ones read. */
+export const isOwnGitDir = (name: string, directory: boolean): boolean =>
+  directory && OWN_GIT_DIR.test(name);
+
 /**
  * The git directories a stopped call left that a cleanup removes (ADR 0130): `<uuid>.git`
  * directories older than the floor. Anything else in the root stays.
@@ -69,7 +73,7 @@ export const planOwnGitDirs = (entries: readonly OwnGitDirEntry[], now: number):
   entries
     .filter(
       ({ name, directory, modifiedMs }) =>
-        directory && OWN_GIT_DIR.test(name) && now - modifiedMs > OWN_GIT_DIR_FLOOR_MS,
+        isOwnGitDir(name, directory) && now - modifiedMs > OWN_GIT_DIR_FLOOR_MS,
     )
     .map(({ name }) => name);
 
