@@ -23,9 +23,10 @@ import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import type { TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
-import type { Command } from '../schemas/primitives.ts';
+import { type Command, durationMs } from '../schemas/primitives.ts';
 import type { Git } from '../workspace/git.ts';
 import {
+  commandLine,
   type PlannedCheck,
   passed,
   planChecks,
@@ -150,28 +151,66 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       : reading;
   };
 
-  /** Runs one check in the worktree, killed before the attempt's deadline or at the stop. */
+  /**
+   * Runs one command line in the worktree, killed before the attempt's deadline, at `timeoutMs`
+   * when that is sooner, or at the stop.
+   */
+  const runLine = (
+    through: ExecProcess,
+    command: string,
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    signal: AbortSignal,
+    { maxOutputBytes, timeoutMs = Infinity }: { maxOutputBytes?: number; timeoutMs?: number } = {},
+  ): Promise<ExecResult> => {
+    // The process runner kills the tree before the step's deadline, also when no tick comes:
+    // early enough that the kill's grace ends and the reading is recorded before a tick expires
+    // the attempt and loses it.
+    const left = Date.parse(deadlineAt) - clock().getTime();
+    return through(command, [], {
+      cwd: worktree.path,
+      env,
+      timeoutMs: Math.max(1, Math.min(timeoutMs, left - KILL_MARGIN_MS)),
+      signal,
+      shell: true,
+      jobObject: true,
+      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+    });
+  };
+
+  /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
   const runCheck = (
     check: Extract<PlannedCheck, { kind: 'run' }>,
     worktree: WorktreeRef,
     deadlineAt: string,
     signal: AbortSignal,
     maxOutputBytes?: number,
-  ): Promise<ExecResult> => {
-    // The process runner kills the tree before the step's deadline, also when no tick comes:
-    // early enough that the kill's grace ends and the reading is recorded before a tick expires
-    // the attempt and loses it.
-    const left = Date.parse(deadlineAt) - clock().getTime();
-    const timeoutMs = Math.max(1, left - KILL_MARGIN_MS);
-    return exec(check.command, [], {
-      cwd: worktree.path,
-      env,
-      timeoutMs,
-      signal,
-      shell: true,
-      jobObject: true,
+  ): Promise<ExecResult> =>
+    runLine(exec, check.command, worktree, deadlineAt, signal, {
       ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
     });
+
+  /**
+   * The reading of the repository's setup, run in the worktree before the step's checks through
+   * `through`, with the network, outside every sandbox (ADR 0140).
+   */
+  const runSetup = async (
+    found: RepositorySetup,
+    through: ExecProcess,
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    signal: AbortSignal,
+  ): Promise<GravityReading> => {
+    const setup = {
+      kind: 'run',
+      setup: true,
+      command: commandLine(found.command, platform),
+    } as const;
+    const result = await runLine(through, setup.command, worktree, deadlineAt, signal, {
+      timeoutMs: durationMs(found.timeout),
+    });
+    const reading = readingOf(setup, result);
+    return reading.result === 'skipped' ? reading : { ...reading, unsandboxed: true };
   };
 
   /**
@@ -185,6 +224,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     deadlineAt: string,
     of: string,
     signal: AbortSignal,
+    before: readonly GravityReading[],
   ): Promise<AttemptEnd> => {
     const recipe = batch.recipe?.name ?? '';
     const report = options.testReport(worktree.repo);
@@ -226,7 +266,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const limit = file === undefined ? MAX_REPORT_BYTES : undefined;
     const result = await runCheck(check, worktree, deadlineAt, signal, limit);
     const reading = readingIn(check, result);
-    const readings = [reading];
+    const readings = [...before, reading];
     // A check that did not exit read no report: it ends as any check does (ADR 0069).
     if (reading.result !== 'exited') return { ending: settleReadings(readings), readings };
     const failed = (why: string): AttemptEnd => ({
@@ -280,8 +320,18 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const refs = checks.find(recipe, stepId);
     if (refs === undefined)
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
+    // The repository's setup first, once, so the checks find what it installed (ADR 0140).
+    // Without one, the first check starts at once, before the engine could stop the attempt.
+    const found = options.setup?.of(worktree.repo);
+    const before =
+      options.setup === undefined || found === undefined
+        ? []
+        : [await runSetup(found, options.setup.exec, worktree, current.deadlineAt, signal)];
+    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
     const of = checks.proves(recipe, stepId);
-    if (of !== undefined) return proveRed(batch, ref, worktree, current.deadlineAt, of, signal);
+    if (of !== undefined) {
+      return proveRed(batch, ref, worktree, current.deadlineAt, of, signal, before);
+    }
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
     if (named !== undefined) {
@@ -294,7 +344,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       }
       repository = found;
     }
-    const readings: GravityReading[] = [];
+    const readings: GravityReading[] = [...before];
     for (const check of planChecks(refs, repository, platform)) {
       if (check.kind === 'skip') {
         readings.push({ result: 'skipped', check: check.check });

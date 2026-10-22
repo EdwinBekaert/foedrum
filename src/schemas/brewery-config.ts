@@ -100,7 +100,7 @@ const RepositoryConfig = z
     setup: z
       .strictObject({ command: Command, timeout: Duration })
       .optional()
-      .describe('Runs once per worktree, before the first step'),
+      .describe("Runs in a check step's worktree before its checks, with the network (ADR 0140)"),
     tools: z
       .array(CeilingTool)
       .default([])

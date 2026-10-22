@@ -242,6 +242,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         tools: repository.tools,
         checks: repository.checks,
         ...(repository.testReport === undefined ? {} : { testReport: repository.testReport }),
+        ...(repository.setup === undefined ? {} : { setup: repository.setup }),
       };
     },
   );
