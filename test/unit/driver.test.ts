@@ -903,6 +903,21 @@ describe('openDriver', () => {
       );
     });
 
+    it('draws a new random session id for each attempt by default', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager() });
+      await driver.drive();
+      end(plan('b1'), { kind: 'failed', retryable: true, reason: 'flaky' });
+      await driver.drive();
+      const ids = recorded('step.started').map(({ session }) => session?.id ?? '');
+      assert.equal(ids.length, 2);
+      assert.notEqual(ids[0], ids[1]);
+      for (const id of ids) {
+        assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      }
+    });
+
     it('records no session for an attempt that runs no brewer, as a check step', async () => {
       const { runner, end } = handRunner();
       order('b1');
