@@ -700,17 +700,20 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
 // decode and resolve it (#329).
 const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
 const GRAPHQL_PATH = /\/graphql\/?(?:[?#].*)?$/is;
+// An endpoint with its percent-escapes decoded, as the server may read it; a % that starts no
+// escape leaves it as it is.
+const decoded = (text: string): string => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+};
 // The segments of a literal endpoint's path, percent-escapes decoded and . and .. resolved, or
 // undefined when it has no dot segment.
 const resolvedSegments = (text: string): string[] | undefined => {
   const path = text.replace(/^[a-z][\w+.-]*:\/\/[^/?#]*/is, '').replace(/[?#].*$/s, '');
-  let decoded = path;
-  try {
-    decoded = decodeURIComponent(path);
-  } catch {
-    // A % that starts no escape stays as it is.
-  }
-  const segments = decoded.split('/');
+  const segments = decoded(path).split('/');
   if (!segments.some((segment) => segment === '.' || segment === '..')) return undefined;
   const kept: string[] = [];
   for (const segment of segments) {
@@ -720,7 +723,7 @@ const resolvedSegments = (text: string): string[] | undefined => {
   return kept;
 };
 const isGraphqlEndpoint = (arg: Word): boolean =>
-  GRAPHQL_ENDPOINT.test(arg.text) ||
+  GRAPHQL_ENDPOINT.test(decoded(arg.text)) ||
   /^graphql$/i.test(resolvedSegments(arg.text)?.at(-1) ?? '') ||
   (arg.dynamic && GRAPHQL_PATH.test(arg.text));
 
