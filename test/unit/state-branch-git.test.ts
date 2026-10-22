@@ -989,19 +989,26 @@ describe('openStateBranch with a fake git', () => {
     });
 
     it('asks git for the two folders once, at the start', async () => {
+      const lookups = () =>
+        fake.calls
+          .filter(
+            (call) =>
+              call.args.includes('--absolute-git-dir') || call.args.includes('--git-common-dir'),
+          )
+          .map((call) => ({ cwd: call.cwd, asked: call.args.at(-1) }));
       const state = branch();
       await state.start();
+      assert.deepEqual(lookups(), [
+        { cwd: clone, asked: '--git-common-dir' },
+        { cwd: worktree, asked: '--absolute-git-dir' },
+      ]);
       append(ordered('b1'));
       leaveLocks();
       fake.calls.length = 0;
 
       assert.equal((await state.flush()).kind, 'pushed');
 
-      const lookups = fake.calls.filter(
-        (call) =>
-          call.args.includes('--absolute-git-dir') || call.args.includes('--git-common-dir'),
-      );
-      assert.deepEqual(lookups, []);
+      assert.deepEqual(lookups(), []);
       assert.deepEqual(said, removedLines());
     });
 
