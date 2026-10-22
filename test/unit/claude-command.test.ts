@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { win32 } from 'node:path';
 import { describe, it } from 'node:test';
-import { type ClaudeCall, claudeArgs } from '../../src/brewers/claude-command.ts';
+import { type ClaudeCall, claudeArgs, resumeArgs } from '../../src/brewers/claude-command.ts';
 import { jobObjectCommand, windowsArgument } from '../../src/platform/job-object.ts';
 import { spawnCommand } from '../../src/platform/processes.ts';
 
@@ -117,5 +117,24 @@ describe('claudeArgs', () => {
     const helper = jobObjectCommand(spawnCommand(claude, args, 'win32', {}), long('worktree'));
     const full = [helper.file, ...helper.args].map(windowsArgument).join(' ');
     assert.ok(full.length < 32_767, `the helper's command line is ${full.length} characters`);
+  });
+});
+
+describe('resumeArgs', () => {
+  const call = {
+    model: 'claude-sonnet-5-5',
+    effort: 'high' as const,
+    settingsFile: '/work/attempt-settings/12-1/plan/1.json',
+    tools: ['Read'],
+    sessionId: '0f8fad5b-d9cb-469f-a165-70867728950e',
+  };
+
+  it('refuses a model, tools or session id that is not valid, as claudeArgs does (ADR 0126)', () => {
+    assert.throws(() => resumeArgs({ ...call, model: '--model' }), /claude model is not valid/);
+    assert.throws(() => resumeArgs({ ...call, tools: [] }), /claude tools is not valid/);
+    assert.throws(
+      () => resumeArgs({ ...call, sessionId: '--dangerous' }),
+      /claude session id is not valid/,
+    );
   });
 });
