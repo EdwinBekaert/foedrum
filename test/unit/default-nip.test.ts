@@ -98,7 +98,7 @@ describe('the default Nip', () => {
     ]);
   });
 
-  it("gives the Cellarman's second attempt after a failed green check the failing test's reading (#341, ADR 0128)", async () => {
+  it("records a failed green check's route so the Cellarman's second attempt reads the failing test (#341, ADR 0128)", async () => {
     const store = openSqliteEventStore(':memory:');
     try {
       const done = behave.succeed();
