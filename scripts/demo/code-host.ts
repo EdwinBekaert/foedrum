@@ -9,7 +9,7 @@ import type { ExecProcess } from '../../src/platform/processes.ts';
 import { errorCode } from '../../src/platform/remove.ts';
 import { ghOver } from '../../test/helpers/fake-gh.ts';
 import { type FakeApiPull, fakeGitHubApi } from '../../test/helpers/fake-github-api.ts';
-import { BREWERY, LOGIN, ORDER } from './core.ts';
+import { BREW_ORDER, BREWERY, LOGIN, ORDER } from './core.ts';
 
 /** Where the code host keeps its writes: one JSON line each. */
 export interface Journal {
@@ -35,9 +35,9 @@ interface Write {
 
 /** The code host, with every write in `journal` made again first. */
 export const codeHost = async (journal: Journal): Promise<CodeHost> => {
-  // A copy: the fake changes an issue's labels and assignees in place.
-  const order = { ...ORDER, labels: [...ORDER.labels] };
-  const api = fakeGitHubApi({ login: LOGIN, issues: { [BREWERY]: [order] } });
+  // Copies: the fake changes an issue's labels and assignees in place.
+  const issues = [ORDER, BREW_ORDER].map((order) => ({ ...order, labels: [...order.labels] }));
+  const api = fakeGitHubApi({ login: LOGIN, issues: { [BREWERY]: issues } });
   for (const line of journal.lines()) {
     const { method, url, body } = JSON.parse(line) as Write;
     await api.fetch(url, { method, ...(body === undefined ? {} : { body }) });

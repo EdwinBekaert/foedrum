@@ -1,11 +1,12 @@
-// npm run demo's decisions (ADR 0097): where its scratch folder may be, the Brewery it makes
-// there, the order on the fake code host, and whether a run ended as it should. The shell is
-// scripts/demo.ts; one life of the Cellar is scripts/demo/cellar.ts.
+// npm run demo's decisions (ADR 0097, ADR 0139): where its scratch folder may be, the Brewery it
+// makes there, the orders on the fake code host, and whether a run ended as it should. The shell is
+// scripts/demo.ts; one life of the Cellar, or foedrum brew's run, is scripts/demo/cellar.ts.
 
 import nodePath, { dirname, join, type PlatformPath } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
+import { NIP_ORDER, nipBreweryFiles } from '../../test/helpers/nip-fixture.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
 
 /** The Brewery the demo makes, and its one target repository. */
@@ -15,16 +16,13 @@ export const TARGET = 'demo/web';
 export const USER = 'ann';
 export const LOGIN = 'cellar-bot';
 
-/** The issue the demo orders: in the Brewery's repository, labelled for its recipe. */
-export const ORDER = {
-  number: 1,
-  title: 'Greet the visitors',
-  body: 'Add a greeting.txt that says hello.',
-  labels: ['recipe:stout'],
-  author: USER,
-};
+/** The issue the Cellar brews: the Nip fixture's, in the Brewery's repository, labelled for Nip. */
+export const ORDER = { ...NIP_ORDER, author: USER };
 
-/** The issue foedrum brew brews (#366): a stub until the demo brews with Nip. */
+/**
+ * The issue `foedrum brew` brews: the same order again, filed unlabelled so the Cellar leaves it,
+ * and labelled for Nip by the demo once the Cellar has stopped.
+ */
 export const BREW_ORDER = { ...ORDER, number: 2, labels: [] as string[] };
 
 /**
@@ -76,11 +74,14 @@ export const gitEnvOf = (
   GIT_CONFIG_NOSYSTEM: '1',
 });
 
-/** How a life of the Cellar ends: killed mid-attempt, or once the batch is on tap. */
-export type Life = 'crash' | 'finish';
+/**
+ * How a life of the Cellar ends: killed mid-attempt, or once the batch is on tap; or `brew`,
+ * foedrum brew's run of the second order instead of the Cellar.
+ */
+export type Life = 'crash' | 'finish' | 'brew';
 
 /** The line the Cellar prints right before its process is killed. */
-export const CRASH_LINE = 'demo: the brewer committed; the Cellar is killed mid-attempt';
+export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is killed mid-attempt';
 /** The start of the line the Cellar prints once the batch is on tap. */
 export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
 /** The start of foedrum brew's last line once the second order's batch is on tap. */
@@ -114,59 +115,16 @@ export const scratchFolder = (
   return path;
 };
 
-// Its brewer commits with no red proof before it, so the recipe says testFirst: false (ADR 0064),
-// and the commits go into a pull request (ADR 0084).
-const RECIPE = {
-  name: 'stout',
-  description: 'Brews an order in one step and opens its pull request.',
-  steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
-  testFirst: false,
-};
-
-// As the docs' example brewer, with a second attempt for the one the crash takes (ADR 0074).
-const BREWER = `---
-{
-  "name": "cellarman",
-  "description": "Brews the order.",
-  "version": 1,
-  "inputs": [{ "name": "order", "from": "order" }],
-  "output": { "doc": "brew.md", "schema": "outDoc" },
-  "produces": "commits",
-  "model": "quick",
-  "effort": "low",
-  "tools": { "allow": ["Read", "Write"] },
-  "access": "write",
-  "tree": "task",
-  "git": { "commit": true },
-  "deadline": "10m",
-  "maxAttempts": 2
-}
----
-Brew the order in {order}.
-`;
-
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
-
-/** The Brewery's files, by path relative to its checkout. */
-export const breweryFiles = (): Record<string, string> => ({
-  'foedrum.jsonc': json({
-    brewery: BREWERY,
-    users: [USER],
-    repositories: {
-      [TARGET]: { checks: { build: null, typecheck: null, lint: null, format: null, test: null } },
-    },
-  }),
-  // The model a brewer would get; the scripted one asks none. Foedrum's default brewers name
-  // builder, so serve checks it too (ADR 0098).
-  'models.jsonc': json({ models: { quick: 'claude-haiku-5-5', builder: 'claude-haiku-5-5' } }),
-  '.gitignore': '.foedrum/\n',
-  'recipes/stout.jsonc': json(RECIPE),
-  'brewers/cellarman.md': BREWER,
-});
+/**
+ * The Brewery's files, by path relative to its checkout: the Nip fixture's, whose recipe and
+ * brewers come from Foedrum's defaults (ADR 0098).
+ */
+export const breweryFiles = (): Record<string, string> =>
+  nipBreweryFiles({ brewery: BREWERY, target: TARGET, user: USER });
 
 /** `.foedrum/local.jsonc`: the work root and the user's clone of the target repository. */
 export const localConfig = (workRoot: string, clone: string): string =>
-  json({ workRoot, clones: { [TARGET]: clone } });
+  `${JSON.stringify({ workRoot, clones: { [TARGET]: clone } }, null, 2)}\n`;
 
 /** How a life of the Cellar ends, read from its store. */
 export type LifeEnd =
@@ -237,10 +195,12 @@ export interface DemoRun {
   crash: ProcessOutcome;
   /** The second, started again on the same Brewery. */
   restart: ProcessOutcome;
+  /** foedrum brew's run of the second order. */
+  brew: ProcessOutcome;
   /** The pull requests on the fake code host. */
   pulls: readonly { title: string; head: string; base: string }[];
-  /** The comments on the order's issue there. */
-  comments: readonly { author: string; body: string }[];
+  /** The comments on each order's issue there, by issue number. */
+  comments: ReadonlyMap<number, readonly { author: string; body: string }[]>;
   /** The foedrum commands the walkthrough ran, and how each ended. */
   commands?: readonly { argv: readonly string[]; exitCode: number; stderr: string }[];
 }
@@ -257,7 +217,7 @@ const ending = ({ exitCode, killed }: ProcessOutcome): string =>
 
 /** What went wrong in a run, one line each; none when it ended as it should. */
 export const problemsOf = (run: DemoRun): string[] => {
-  const { crash, restart, pulls, comments } = run;
+  const { crash, restart, brew, pulls, comments } = run;
   const problems: string[] = [];
   // Killed by the process itself, never by the runner: a deadline means it never crashed.
   if (crash.exitCode === 0 || crash.killed !== undefined || !crash.output.includes(CRASH_LINE)) {
@@ -270,9 +230,15 @@ export const problemsOf = (run: DemoRun): string[] => {
       `the batch is not on tap after the restart (${ending(restart)}):\n${tail(restart.output)}`,
     );
   }
-  if (pulls.length !== 1) problems.push(`the code host has ${pulls.length} pull requests, not 1`);
-  if (comments.length !== 1) {
-    problems.push(`the order has ${comments.length} status comments, not 1`);
+  if (brew.exitCode !== 0 || !brew.output.includes(BREW_ON_TAP_LINE)) {
+    problems.push(
+      `foedrum brew did not put batch 2-1 on tap (${ending(brew)}):\n${tail(brew.output)}`,
+    );
+  }
+  if (pulls.length !== 2) problems.push(`the code host has ${pulls.length} pull requests, not 2`);
+  for (const { number } of [ORDER, BREW_ORDER]) {
+    const count = comments.get(number)?.length ?? 0;
+    if (count !== 1) problems.push(`order #${number} has ${count} status comments, not 1`);
   }
   for (const { argv, exitCode, stderr } of run.commands ?? []) {
     if (exitCode !== 0) {
