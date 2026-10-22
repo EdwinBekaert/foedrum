@@ -138,10 +138,28 @@ describe('selectRules', () => {
       files: ['a.ts'],
       lens: 'correctness',
     }).selected;
-    assert.ok(
-      priced !== undefined && priced.tokens >= 100 && priced.tokens <= 110,
-      `${priced?.tokens}`,
-    );
+    // The heading, its blank line and the line break after the body count too: 418 characters.
+    assert.equal(priced?.tokens, Math.ceil(418 / 4));
+  });
+
+  it('orders globs before a language alone before the whole repository, then by id', () => {
+    const own = [
+      rule('whole', {}, 'W.'),
+      rule('language', { language: 'typescript' }, 'L.'),
+      rule('globs-b', { globs: ['**'] }, 'G.'),
+      rule('globs-a', { globs: ['**'] }, 'G.'),
+    ];
+    const all = selectRules(own, { files: ['a.ts'], lens: 'correctness' });
+    assert.deepEqual(ids(all.selected), ['globs-a', 'globs-b', 'language', 'whole']);
+  });
+
+  it('matches a folder that starts with a dot only by a glob that names it', () => {
+    const own = [
+      rule('any', { globs: ['**'] }, 'A.'),
+      rule('dot', { globs: ['.claude/**'] }, 'D.'),
+    ];
+    const selected = selectRules(own, { files: ['.claude/x.md'], lens: 'correctness' }).selected;
+    assert.deepEqual(ids(selected), ['dot']);
   });
 });
 
@@ -207,6 +225,13 @@ describe('proposeRule', () => {
   it('proposes a lesson seen once when the author asks for it, and none for an unknown lesson', () => {
     assert.equal(proposeRule(fixtureSeen(), 'no-shell-spawns', true)?.reviews, 1);
     assert.equal(proposeRule(fixtureSeen(), 'never-seen', true), undefined);
+  });
+
+  it('lists a source once when one finding was recorded twice', () => {
+    const [first] = fixtureSeen();
+    assert.ok(first !== undefined);
+    const again = { ...first, review: 'https://github.com/acme/foedrum/pull/103' };
+    assert.equal(proposeRule([first, again], first.lesson, false)?.rule.source, first.source);
   });
 
   it('writes a rule file that a later review selects for a matching file only', () => {

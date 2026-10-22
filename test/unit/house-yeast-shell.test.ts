@@ -78,6 +78,8 @@ describe('node scripts/house-yeast.ts select', () => {
       ...fixtureRules,
       'review/files.txt': 'M\tdocs/glossary.md\n',
     });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.files['out.md'] ?? '', /## lf-only/);
     assert.doesNotMatch(result.files['out.md'] ?? '', /lease-deadline/);
     assert.doesNotMatch(result.out, /lease-deadline/);
   });
