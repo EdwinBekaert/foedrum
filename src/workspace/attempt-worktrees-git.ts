@@ -86,8 +86,9 @@ export interface AttemptWorktrees {
    */
   recreate(ref: AttemptRef, commit: string): Promise<AttemptWorktree>;
   /**
-   * Removes the worktrees, folders and local branches that nothing claims, and stale index.lock
-   * files of kept worktrees no attempt runs in. At engine start without `batchId` (crash
+   * Removes the worktrees, folders and local branches that nothing claims, stale index.lock
+   * files of kept worktrees no attempt runs in, and the git directories of its own that a
+   * stopped call left over an hour ago (ADR 0130). At engine start without `batchId` (crash
    * repair); with it, when that batch has ended.
    */
   clean(claims: Claims, scope?: { batchId?: string }): Promise<CleanReport>;
@@ -163,13 +164,26 @@ const removeEmptyFolders = async (path: string): Promise<boolean> => {
   return true;
 };
 
-// Removes the git directories of its own that a stopped call left in `root` (ADR 0130).
-const cleanOwnGitDirs = async (root: string, now: number, report: CleanReport): Promise<void> => {
+/** The file system calls the cleanup of the git directories makes; injected by tests. */
+export interface OwnGitDirsIo {
+  lstat: (path: string) => Promise<{ mtimeMs: number }>;
+  remove: (path: string) => Promise<void>;
+}
+
+const OWN_GIT_DIRS_IO: OwnGitDirsIo = { lstat, remove: (path) => removeTree(path) };
+
+/** Removes the git directories of its own that a stopped call left in `root` (ADR 0130). */
+export const cleanOwnGitDirs = async (
+  root: string,
+  now: number,
+  report: CleanReport,
+  io: OwnGitDirsIo = OWN_GIT_DIRS_IO,
+): Promise<void> => {
   let names: string[];
   try {
     const entries = [];
     for (const entry of await entriesOf(root)) {
-      const { mtimeMs } = await lstat(join(root, entry.name));
+      const { mtimeMs } = await io.lstat(join(root, entry.name));
       entries.push({ name: entry.name, directory: entry.isDirectory(), modifiedMs: mtimeMs });
     }
     names = planOwnGitDirs(entries, now);
@@ -181,7 +195,7 @@ const cleanOwnGitDirs = async (root: string, now: number, report: CleanReport): 
   }
   for (const name of names) {
     try {
-      await removeTree(join(root, name));
+      await io.remove(join(root, name));
       report.done.push(`removed git directory ${name}: a stopped call left it`);
     } catch (error) {
       report.failed.push(`could not clean git directory ${name}: ${(error as Error).message}`);
