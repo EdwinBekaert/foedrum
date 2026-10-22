@@ -5,7 +5,7 @@
 
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { resolveExecutable } from './executables.ts';
 import type { ExecProcess, ExecResult } from './processes.ts';
 import { realPath as realPathOf } from './real-path.ts';
@@ -29,7 +29,8 @@ export const SEATBELT_PROFILE = [
   // The Keychain's service, where gh keeps its login on macOS (ADR 0073).
   '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
   '(deny file-write*)',
-  '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null"))',
+  // Its output and terminal too, as bwrap's own /dev allows.
+  '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))',
   '(deny file-read* (subpath (param "HOME")))',
   // A later rule wins: the worktree and its repository may sit in the home folder.
   '(allow file-read* (subpath (param "WORKTREE")) (subpath (param "GIT_DIR")))',
@@ -88,20 +89,27 @@ const systemTemp: TempFolders = {
 
 /**
  * The repository a worktree's `.git` file names: a linked worktree's record sits in
- * `<repository>/worktrees/<name>`, and git reads the repository too. Undefined without such a file.
+ * `<repository>/worktrees/<name>`, and git reads the repository too. Only when that record's
+ * `gitdir` file names the worktree's `.git` back: a check writes its worktree, `.git` included, and
+ * must not name the home folder or /run for a later check's sandbox to let in (review of #357).
+ * Undefined otherwise.
  */
 export const worktreeGitDir = (worktree: string): string | undefined => {
-  let text: string;
   try {
-    text = readFileSync(join(worktree, '.git'), 'utf8');
+    const text = readFileSync(join(worktree, '.git'), 'utf8');
+    const named = /^gitdir: (.+)$/m.exec(text)?.[1]?.trim();
+    if (named === undefined) return undefined;
+    const record = resolve(worktree, named);
+    if (basename(dirname(record)) !== 'worktrees') return undefined;
+    // Written by git outside the worktree, where no check writes.
+    const back = readFileSync(join(record, 'gitdir'), 'utf8').trim();
+    return resolve(record, back) === resolve(worktree, '.git')
+      ? dirname(dirname(record))
+      : undefined;
   } catch {
     // No file, or a folder: a repository inside the worktree, which is bound anyway.
     return undefined;
   }
-  const named = /^gitdir: (.+)$/m.exec(text)?.[1]?.trim();
-  if (named === undefined) return undefined;
-  const record = isAbsolute(named) ? named : resolve(worktree, named);
-  return basename(dirname(record)) === 'worktrees' ? dirname(dirname(record)) : record;
 };
 
 export interface SandboxedChecksOptions {
@@ -130,6 +138,16 @@ const unstarted = (why: string): ExecResult => {
 };
 
 /**
+ * The run of a sandbox, read as a check that could not start when the sandbox itself failed:
+ * bwrap and sandbox-exec name themselves at the start of what they write then, before the
+ * command line runs.
+ */
+const sandboxRun = (tool: string, result: ExecResult): ExecResult =>
+  result.exitCode !== null && result.exitCode !== 0 && result.stderr.startsWith(`${tool}: `)
+    ? unstarted(result.stderr.trim())
+    : result;
+
+/**
  * A process runner that starts each command line (`shell: true`) in the check sandbox of the
  * platform, and every other call as `exec` would. On native Windows a line runs as before.
  */
@@ -141,13 +159,18 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
   return async (file, args, call) => {
     if (call.shell !== true || platform === 'win32') return exec(file, args, call);
-    const gitDir = gitDirOf(call.cwd);
-    const paths: CheckSandboxPaths = {
-      home: realPath(options.home ?? homedir()),
-      worktree: realPath(call.cwd),
-      gitDir: gitDir === undefined ? undefined : realPath(gitDir),
-    };
     // Never unsandboxed outside Windows: a check that cannot have its sandbox does not run.
+    let paths: CheckSandboxPaths;
+    try {
+      const gitDir = gitDirOf(call.cwd);
+      paths = {
+        home: realPath(options.home ?? homedir()),
+        worktree: realPath(call.cwd),
+        gitDir: gitDir === undefined ? undefined : realPath(gitDir),
+      };
+    } catch (error) {
+      return unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`);
+    }
     if (platform !== 'darwin') {
       const bwrap = findBwrap();
       if (bwrap === undefined) {
@@ -155,23 +178,40 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
           'bubblewrap (bwrap) is not on PATH: check steps run only in its sandbox here; install bubblewrap',
         );
       }
-      return exec(bwrap, bwrapArgs(paths, file), { ...call, shell: false });
+      return sandboxRun(
+        'bwrap',
+        await exec(bwrap, bwrapArgs(paths, file), { ...call, shell: false }),
+      );
     }
     if (!hasSandboxExec()) {
       return unstarted(`${SANDBOX_EXEC} is not there: check steps run only in its sandbox here`);
     }
-    const folder = temp.make();
+    let folder: string;
+    let real: string;
     try {
-      const real = realPath(folder);
+      folder = temp.make();
+    } catch (error) {
+      return unstarted(`the check's temporary folder cannot be made: ${messageOf(error)}`);
+    }
+    try {
+      try {
+        real = realPath(folder);
+      } catch (error) {
+        return unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`);
+      }
       // An empty home the check may write, as bwrap's hidden one is.
       const env = { ...(call.env ?? process.env), TMPDIR: real, HOME: real };
-      return await exec(SANDBOX_EXEC, seatbeltArgs({ ...paths, temp: real }, file), {
+      const result = await exec(SANDBOX_EXEC, seatbeltArgs({ ...paths, temp: real }, file), {
         ...call,
         env,
         shell: false,
       });
+      return sandboxRun('sandbox-exec', result);
     } finally {
       await temp.remove(folder);
     }
   };
 }
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
