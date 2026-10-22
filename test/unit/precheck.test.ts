@@ -1807,6 +1807,9 @@ describe('precheck on gh pr ready', () => {
     ['Bash', 'GH_REPO=owner/other gh pr ready 160'],
     ['Bash', 'export GH_REPO=owner/other; gh pr ready 160'],
     ['Bash', 'env GH_HOST=example.com gh pr ready 160'],
+    // A line continuation inside the name (#158).
+    ['Bash', 'GH_RE\\\nPO=owner/other gh pr ready 160'],
+    ['Bash', 'GH_RE\\\r\nPO=owner/other gh pr ready 160'],
     ['PowerShell', "$env:GH_REPO = 'owner/other'; gh pr ready 160"],
   ];
   for (const [tool, command] of ghRepo) {
