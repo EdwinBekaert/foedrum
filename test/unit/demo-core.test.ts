@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import {
@@ -50,6 +50,38 @@ describe('scratchFolder', () => {
     ]) {
       assert.throws(() => scratchFolder(root, asked, root), /\.foedrum[\\/]tmp/, asked);
     }
+  });
+
+  it('refuses a folder on another drive, whose path relative to .foedrum/tmp is absolute', () => {
+    const root = 'D:\\repo';
+    assert.equal(win32.relative(win32.join(root, '.foedrum', 'tmp'), 'E:\\demo'), 'E:\\demo');
+    assert.throws(
+      () => scratchFolder(root, 'E:\\demo', root, win32),
+      /works only in a folder inside D:\\repo\\\.foedrum\\tmp, not in E:\\demo/,
+    );
+  });
+
+  it('refuses a Windows folder beside .foedrum/tmp, or .foedrum/tmp itself, on the same drive', () => {
+    const root = 'D:\\repo';
+    for (const asked of ['D:\\repo\\.foedrum\\other', 'D:\\repo\\.foedrum\\tmp', 'D:\\repo']) {
+      assert.throws(
+        () => scratchFolder(root, asked, root, win32),
+        /works only in a folder inside D:\\repo\\\.foedrum\\tmp/,
+        asked,
+      );
+    }
+  });
+
+  it('keeps a Windows folder inside .foedrum/tmp, asked from another drive or with a lower-case drive letter', () => {
+    const root = 'D:\\repo';
+    assert.equal(
+      scratchFolder(root, 'D:\\repo\\.foedrum\\tmp\\x', 'E:\\', win32),
+      'D:\\repo\\.foedrum\\tmp\\x',
+    );
+    assert.equal(
+      scratchFolder(root, 'd:\\repo\\.foedrum\\tmp\\x', 'E:\\', win32),
+      'd:\\repo\\.foedrum\\tmp\\x',
+    );
   });
 });
 
