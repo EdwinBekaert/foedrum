@@ -110,12 +110,19 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const ref = `refs/heads/${branch}`;
   const remoteBranch = `${remote}/${branch}`;
   // --no-verify skips pre-commit and pre-push only. Every call gets core.hooksPath at an empty
-  // folder Foedrum owns, next to the worktree, so no hook of the clone runs (ADR 0024).
+  // folder Foedrum owns, next to the worktree, so no hook of the clone runs (ADR 0024). Auto gc
+  // and maintenance are off, so no git outlives the writer lock and takes the branch's ref lock
+  // after it (ADR 0115).
   const hooks = join(dirname(worktree), 'no-hooks');
   const git: Git = (cwd, args, gitOptions) =>
     options.git(cwd, args, {
       ...gitOptions,
-      config: { ...gitOptions?.config, 'core.hooksPath': hooks },
+      config: {
+        ...gitOptions?.config,
+        'core.hooksPath': hooks,
+        'gc.auto': '0',
+        'maintenance.auto': 'false',
+      },
     });
   const emptyHooks = async (): Promise<void> => {
     await mkdir(hooks, { recursive: true });

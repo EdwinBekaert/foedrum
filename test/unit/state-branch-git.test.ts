@@ -540,7 +540,7 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(readdirSync(hooks()), []);
     });
 
-    // ADR 0111: no auto gc or maintenance outlives the writer lock and takes the branch's ref lock.
+    // ADR 0115: no auto gc or maintenance outlives the writer lock and takes the branch's ref lock.
     it('runs every git call with auto gc and maintenance off', async () => {
       fake.remote = sha(5);
       const state = branch();
