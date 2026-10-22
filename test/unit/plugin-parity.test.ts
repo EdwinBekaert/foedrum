@@ -57,6 +57,8 @@ describe('the plugin and the terminal (ADR 0125)', () => {
         frontmatter.split(/\r?\n/).includes('disable-model-invocation: true'),
         `${name} may be invoked by the model`,
       );
+      // A command line is an inline code span: a fenced block would go unread here.
+      assert.doesNotMatch(text, /^```/m, `${name} has a fenced block`);
       // Every inline code span that names a command of the registry is a command line to run.
       const runs = [...text.matchAll(/`foedrum ([a-z]+)\b[^`]*`/g)].filter(([, command]) =>
         registry.has(command ?? ''),
@@ -65,7 +67,11 @@ describe('the plugin and the terminal (ADR 0125)', () => {
         runs.some(([, command]) => command === name),
         `${name} does not run foedrum ${name}`,
       );
-      for (const [span] of runs) assert.ok(span.includes(' --via plugin'), `${name}: ${span}`);
+      // Before any `--`, after which every argument is a positional one.
+      for (const [span] of runs) {
+        const [options = ''] = span.split(' -- ');
+        assert.ok(options.includes(' --via plugin'), `${name}: ${span}`);
+      }
     }
   });
 
