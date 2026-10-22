@@ -33,7 +33,7 @@ const firstLine = ({ code, stderr }: GitResult): string =>
 export const countCommits =
   (shared: Git): CountCommits =>
   async (clone, branch, since, signal) => {
-    // The clone's configuration is a brewer's to write: no transport, hook or fsmonitor (ADR 0096).
+    // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
     const git = inClone(shared);
     if (!SHA.test(since)) return { kind: 'uncounted', reason: `${since} is no full commit sha` };
     if (!ATTEMPT_BRANCH.test(branch)) {

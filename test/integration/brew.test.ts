@@ -1,14 +1,15 @@
 // `foedrum brew` (ADR 0123) on the machine, with no Cellar running: the demo's scratch Brewery and
 // target repository with bare remotes (ADR 0097), real git, the real driver lock and event store,
 // the state branch, the attempt worktrees of the user's clone and serve's pushes, with two seams
-// of the demo's own: its scripted brewer for claude and its in-process code host for gh. The order
-// has no batch yet: brew orders it, routes it by its label, brews it and opens its pull request.
+// of the demo's own: the Nip fixture's scripted Gauger and Cellarman for claude and its in-process
+// code host for gh. The order has no batch yet: brew orders it, routes it by its label to Nip,
+// brews it and opens its pull request.
 
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { DEMO_GIT_CONFIG, scriptedBrewer } from '../../scripts/demo/brewer.ts';
+import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import { codeHost } from '../../scripts/demo/code-host.ts';
 import {
   BREWERY,
@@ -28,6 +29,7 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { type Git, runGit } from '../../src/workspace/git.ts';
 import { hangGuardMs } from '../helpers/load.ts';
+import { NIP_SCRIPT, NIP_TARGET_FILES, scriptedNip } from '../helpers/nip-fixture.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('foedrum brew', () => {
@@ -62,7 +64,7 @@ describe('foedrum brew', () => {
       await must(clone, ['push', '-q', 'origin', 'main']);
       return clone;
     };
-    const web = await repository('web', { 'README.md': '# web\n' });
+    const web = await repository('web', NIP_TARGET_FILES);
     const root = await repository('brewery', breweryFiles());
     mkdirSync(join(root, '.foedrum'));
     writeFileSync(join(root, '.foedrum', 'local.jsonc'), localConfig(join(scratch, 'work'), web));
@@ -96,15 +98,14 @@ describe('foedrum brew', () => {
       ...machine,
       intervalMs: 50,
       // Only a guard against a hang (ADR 0075): brew stops, closing its driver, and the exit
-      // code below says it never got there.
-      signal: AbortSignal.any([machine.signal, AbortSignal.timeout(hangGuardMs)]),
+      // code below says it never got there. Nip's seven attempts take long on a loaded machine.
+      signal: AbortSignal.any([machine.signal, AbortSignal.timeout(5 * hangGuardMs)]),
       runner: (_claude, plan) =>
-        scriptedBrewer({
+        scriptedNip({
           plan,
           git,
+          config: DEMO_GIT_CONFIG,
           write: (path, text) => writeFileSync(path, text),
-          life: 'finish',
-          crash: () => assert.fail('the brewer of this life never crashes'),
         }),
       gh: host.exec,
     };
@@ -119,7 +120,7 @@ describe('foedrum brew', () => {
     const output = lines.join('\n');
     assert.equal(exitCode, 0, output);
     assert.ok(lines.includes(`foedrum brew: ordered #${ORDER.number} as batch 1-1`), output);
-    assert.ok(lines.includes('foedrum brew: routed batch 1-1 to the recipe stout'), output);
+    assert.ok(lines.includes('foedrum brew: routed batch 1-1 to the recipe nip'), output);
     // One pull request on the code host, from the batch's bottle branch into main, with the
     // brewer's commit pushed to the target's remote.
     const branch = `foedrum/${BREWERY.replace('/', '.')}/1-1/${TARGET.replace('/', '.')}`;
@@ -135,7 +136,7 @@ describe('foedrum brew', () => {
       '--format=%s',
       branch,
     ]);
-    assert.match(tip.stdout, /^Greet the visitors/);
+    assert.equal(tip.stdout.trim(), NIP_SCRIPT.implement?.[1]?.message);
     const [pull] = host.pulls();
     assert.equal(
       lines.at(-1),

@@ -3,6 +3,8 @@ import { join, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import {
+  BREW_ON_TAP_LINE,
+  BREW_ORDER,
   BREWERY,
   breweryFiles,
   CRASH_LINE,
@@ -134,17 +136,22 @@ describe('the demo Brewery', () => {
     assert.equal(ready.kind, 'ready', JSON.stringify(ready));
   });
 
-  it('routes the order to a recipe whose brewer gets a second attempt after the crash, then opens the pull request', () => {
-    const { files, ready } = demo();
+  it("routes the order to Nip from Foedrum's defaults, whose Gauger gets a second attempt after the crash", () => {
+    const { files, ready } = demo(
+      readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults,
+    );
     assert.equal(ready.kind, 'ready');
     if (ready.kind !== 'ready') return;
-    const name = ORDER.labels[0]?.replace(/^recipe:/, '') ?? '';
-    const recipe = ready.setup.recipes.find(name);
-    assert.ok(recipe !== undefined, name);
-    assert.ok(files[`recipes/${name}.jsonc`]?.includes('openPullRequest'));
-    const brewer = ready.setup.brewers.find(name, 'brew')?.brewer;
-    assert.ok((brewer?.maxAttempts ?? 1) >= 2, JSON.stringify(brewer));
-    assert.equal(brewer?.produces, 'commits');
+    assert.deepStrictEqual(ORDER.labels, ['recipe:nip']);
+    assert.ok(ready.setup.recipes.find('nip') !== undefined);
+    assert.ok(!Object.keys(files).some((path) => path.startsWith('recipes/')));
+    const gauger = ready.setup.brewers.find('nip', 'gauge')?.brewer;
+    assert.ok((gauger?.maxAttempts ?? 1) >= 2, JSON.stringify(gauger));
+  });
+
+  it('files the order foedrum brew brews unlabelled, so the Cellar leaves it', () => {
+    assert.notEqual(BREW_ORDER.number, ORDER.number);
+    assert.deepStrictEqual(BREW_ORDER.labels, []);
   });
 
   it('ignores its own .foedrum folder', () => {
@@ -154,15 +161,20 @@ describe('the demo Brewery', () => {
 
 describe('problemsOf', () => {
   const pull = { title: ORDER.title, head: 'foedrum/demo.brewery/1-1/demo.web', base: 'main' };
+  const comment = [{ author: 'cellar-bot', body: 'On tap' }];
   const run = (fields: Partial<DemoRun> = {}): DemoRun => ({
     crash: { exitCode: 1, output: `started\n${CRASH_LINE}\n` },
     restart: { exitCode: 0, output: `${ON_TAP_LINE}: https://example.test/pull/1\n` },
-    pulls: [pull],
-    comments: [{ author: 'cellar-bot', body: 'On tap' }],
+    brew: { exitCode: 0, output: `${BREW_ON_TAP_LINE}: https://example.test/pull/3\n` },
+    pulls: [pull, pull],
+    comments: new Map([
+      [ORDER.number, comment],
+      [BREW_ORDER.number, comment],
+    ]),
     ...fields,
   });
 
-  it('finds nothing in a run that crashed, came back and went on tap with one pull request and one comment', () => {
+  it('finds nothing in a run that crashed, came back and went on tap, and whose brew went on tap, each with one pull request and one comment', () => {
     assert.deepStrictEqual(problemsOf(run()), []);
   });
 
@@ -192,6 +204,16 @@ describe('problemsOf', () => {
     assert.match(problemsOf(run({ restart: timedOut })).join('\n'), /not on tap/);
   });
 
+  it('says when foedrum brew did not end with its batch on tap', () => {
+    const problems = problemsOf(run({ brew: { exitCode: 5, output: 'foedrum brew: refused\n' } }));
+    assert.match(problems.join('\n'), /foedrum brew did not put batch 2-1 on tap.*refused/s);
+    // Each half alone: a brew that ends well short of on tap, or fails after it.
+    const stuck = { exitCode: 0, output: 'foedrum brew: batch 2-1 is stuck\n' };
+    assert.match(problemsOf(run({ brew: stuck })).join('\n'), /did not put batch 2-1 on tap/);
+    const failed = { exitCode: 1, output: `${BREW_ON_TAP_LINE}: https://example.test/pull/3\n` };
+    assert.match(problemsOf(run({ brew: failed })).join('\n'), /did not put batch 2-1 on tap/);
+  });
+
   it('says when foedrum status or replay failed, with what it said', () => {
     const problems = problemsOf(
       run({
@@ -213,10 +235,22 @@ describe('problemsOf', () => {
     ]);
   });
 
-  it('counts the pull requests and the comments', () => {
-    assert.match(problemsOf(run({ pulls: [] })).join('\n'), /0 pull requests, not 1/);
-    assert.match(problemsOf(run({ pulls: [pull, pull] })).join('\n'), /2 pull requests, not 1/);
-    assert.match(problemsOf(run({ comments: [] })).join('\n'), /0 status comments, not 1/);
+  it('counts the pull requests, and the comments of each order', () => {
+    assert.match(problemsOf(run({ pulls: [pull] })).join('\n'), /1 pull requests, not 2/);
+    assert.match(
+      problemsOf(run({ pulls: [pull, pull, pull] })).join('\n'),
+      /3 pull requests, not 2/,
+    );
+    const doubled = new Map([
+      [ORDER.number, [...comment, ...comment]],
+      [BREW_ORDER.number, comment],
+    ]);
+    assert.deepStrictEqual(problemsOf(run({ comments: doubled })), [
+      'order #1 has 2 status comments, not 1',
+    ]);
+    assert.deepStrictEqual(problemsOf(run({ comments: new Map([[ORDER.number, comment]]) })), [
+      'order #2 has 0 status comments, not 1',
+    ]);
   });
 });
 
