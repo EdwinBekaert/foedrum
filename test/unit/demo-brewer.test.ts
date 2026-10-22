@@ -112,6 +112,23 @@ describe('the demo brewers', () => {
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
   });
 
+  it('cancel an attempt stopped while the Cellar shows it, before the brewer writes', async () => {
+    let looked = (): void => {};
+    const { runner, log } = brewers('crash', {
+      started: async () => {
+        log.push('started');
+        await new Promise<void>((done) => (looked = done));
+      },
+    });
+    const run = runner.start(start);
+    await settled();
+    run.stop();
+    looked();
+    const { ending } = await run.ended;
+    assert.equal(ending.kind, 'cancelled', JSON.stringify(ending));
+    assert.deepStrictEqual(log, ['started']);
+  });
+
   it('brew on when the Cellar cannot show the attempt: showing it never fails it', async () => {
     const { runner } = brewers('finish', {
       started: async () => {

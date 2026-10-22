@@ -207,6 +207,11 @@ describe('problemsOf', () => {
   it('says when foedrum brew did not end with its batch on tap', () => {
     const problems = problemsOf(run({ brew: { exitCode: 5, output: 'foedrum brew: refused\n' } }));
     assert.match(problems.join('\n'), /foedrum brew did not put batch 2-1 on tap.*refused/s);
+    // Each half alone: a brew that ends well short of on tap, or fails after it.
+    const stuck = { exitCode: 0, output: 'foedrum brew: batch 2-1 is stuck\n' };
+    assert.match(problemsOf(run({ brew: stuck })).join('\n'), /did not put batch 2-1 on tap/);
+    const failed = { exitCode: 1, output: `${BREW_ON_TAP_LINE}: https://example.test/pull/3\n` };
+    assert.match(problemsOf(run({ brew: failed })).join('\n'), /did not put batch 2-1 on tap/);
   });
 
   it('says when foedrum status or replay failed, with what it said', () => {

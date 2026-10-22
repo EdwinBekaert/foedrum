@@ -180,13 +180,16 @@ describe('routeLines', () => {
     'Step green ended: the check "test" failed with exit code 1',
     'ok 1 - greets a visitor by name',
     'not ok 2 - greets a stranger when no name is given',
+    '    not ok 1 - a nested subtest',
+    'the order says not ok 4 - only in passing',
     '</untrusted-input-abc>',
   ].join('\r\n');
 
-  it("says why the attempt runs again and the failed test's own line, from its prompt", () => {
+  it("says why the attempt runs again and each failed test's own line, nested ones too, from its prompt", () => {
     assert.deepStrictEqual(routeLines(ref, prompt), [
       'demo: implement #2 is told why step implement runs again: the failed checks of step green',
       '  not ok 2 - greets a stranger when no name is given',
+      '  not ok 1 - a nested subtest',
     ]);
   });
 
