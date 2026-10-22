@@ -28,7 +28,13 @@ const unavailable = (): string | undefined => {
       try {
         const paths = { home: probeDir.path, worktree: probeDir.path, gitDir: undefined };
         const probe = spawnSync(bwrap, bwrapArgs(paths, 'true'), { timeout: 30_000 });
-        return probe.status === 0 ? undefined : 'bwrap cannot make its sandbox here';
+        if (probe.status === 0) return undefined;
+        // bwrap's own line, such as Ubuntu's AppArmor refusing its user namespace.
+        const said =
+          String(probe.stderr ?? '')
+            .trim()
+            .split('\n')[0] ?? '';
+        return `bwrap cannot make its sandbox here: ${said}`;
       } finally {
         probeDir.remove();
       }

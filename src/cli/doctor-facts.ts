@@ -127,6 +127,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(['npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
   ]);
   const [login, credentials] = await asking;
+  const restrictsUserns = shell.restrictsUserns?.();
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
@@ -134,6 +135,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
     github: { host, login, credentials },
     ...(jobObject === undefined ? {} : { jobObject }),
+    ...(restrictsUserns === undefined ? {} : { restrictsUserns }),
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
     ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),

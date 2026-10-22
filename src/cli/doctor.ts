@@ -173,6 +173,14 @@ const sandboxedAdvice = (wsl: boolean) =>
 const wsl2OrContainer = (windows: boolean) =>
   permissionsOnlyAdvice('In WSL2, the sandboxed level', { wsl: true, windows });
 
+/**
+ * Ubuntu 24.04 and later keep bwrap from making the user namespaces its sandbox needs, unless an
+ * AppArmor profile lets it: Claude Code's sandbox docs, "Ubuntu 24.04 and later: allow bubblewrap to
+ * create user namespaces" (ADR 0076). Seen on CI's ubuntu leg (#357).
+ */
+const USERNS_ADVICE =
+  'AppArmor restricts unprivileged user namespaces here (kernel.apparmor_restrict_unprivileged_userns is 1), so bwrap cannot make its sandbox unless a profile lets it: brewers\' sandboxed commands and check steps then do not start. Add the AppArmor profile for /usr/bin/bwrap that Claude Code\'s sandbox docs give (https://code.claude.com/docs/en/sandboxing, "Ubuntu 24.04 and later: allow bubblewrap to create user namespaces"), then run sudo systemctl reload apparmor.';
+
 /** The first dotted number a version command printed; `undefined` when it failed. */
 const versionOf = (run: ToolRun | undefined): string | undefined =>
   run?.exitCode === 0 ? /\d+(?:\.\d+)+/.exec(run.output)?.[0] : undefined;
@@ -441,7 +449,11 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
 /** What doctor reports for the facts; `ok` when nothing required is missing. */
 export const diagnose = (facts: DoctorFacts): Diagnosis => {
   const { tools } = facts;
-  const { isolation, advice, problems: sandboxProblems } = isolationOf(facts);
+  const { isolation, advice: levelAdvice, problems: sandboxProblems } = isolationOf(facts);
+  const advice =
+    facts.platform === 'linux' && facts.restrictsUserns === true
+      ? [...levelAdvice, USERNS_ADVICE]
+      : levelAdvice;
   const recipes = recipesOf(facts);
   const problems: Problem[] = [
     ...(isTooOld(facts.node)
