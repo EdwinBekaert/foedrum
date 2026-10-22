@@ -11,9 +11,12 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
+import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecProcess, execProcessWith, processSpawner } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { linux } from '../helpers/doctor-facts.ts';
 import {
   cuedTimers,
   descheduled,
@@ -45,6 +48,16 @@ const defaultsInUse = (['recipes', 'brewers', 'lenses'] as const).flatMap((folde
   return names.sort().map((name) => `defaults/${folder}/${name}`);
 });
 const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
+// The default brewers' prompts (ADR 0141), as doctor's core measures them from the files a Brewery
+// at `root` loads: their sizes change with every edit of a default brewer or lens.
+const promptLines = (root: string): string[] => {
+  const facts = { ...linux(), brewery: readBreweryFiles(root) };
+  const lines = formatDiagnosis(diagnose(facts)).split('\n');
+  const start = lines.indexOf('Brewer prompts (instructions and lens inputs, ADR 0141):');
+  // Foedrum's defaults have brewers, so the block is always there.
+  assert.notEqual(start, -1);
+  return lines.slice(start, lines.indexOf('', start) + 1);
+};
 // doctorHere gives doctor no denylist, so it never reads the user's own (ADR 0114).
 const DENYLIST_LINE =
   'Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or /made-up/denylist.txt, ADR 0114)';
@@ -205,6 +218,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         '',
+        ...promptLines(dir.path),
         'Foedrum has everything it needs.',
         '',
       ].join('\n'),
@@ -243,6 +257,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         '',
+        ...promptLines(dir.path),
         'Problems:',
         '  npm not found: Foedrum is installed and updated with npm, which comes with Node',
         `  gh is not logged in to ${host} (required): run gh auth login --hostname ${host}`,
@@ -290,6 +305,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         '',
+        ...promptLines(dir.path),
         'Foedrum has everything it needs.',
         '',
       ].join('\n'),
