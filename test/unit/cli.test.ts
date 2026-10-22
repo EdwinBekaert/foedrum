@@ -260,8 +260,8 @@ describe('foedrum: the command line', () => {
 
   it('refuses an unknown command', async () => {
     assertUsageError(
-      await run(['brew', '13']),
-      'foedrum: unknown command "brew"; run foedrum --help for the commands',
+      await run(['pour', '13']),
+      'foedrum: unknown command "pour"; run foedrum --help for the commands',
     );
   });
 
