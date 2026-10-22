@@ -22,7 +22,7 @@ export type NextStep =
   | { kind: 'retry'; lines: string[] }
   | { kind: 'fail'; lines: string[] };
 
-export const MAX_ATTEMPTS = 2;
+export const MAX_TRIES = 2;
 
 type Json = Record<string, unknown>;
 
@@ -80,8 +80,8 @@ export const readAudit = (exitCode: number, stdout: string): AuditResult => {
 const mayPass = (statusCode: number | undefined): boolean =>
   statusCode === undefined || statusCode >= 500;
 
-// What to do after `attempt` (1-based) answered `result`.
-export const nextStep = (result: AuditResult, attempt: number): NextStep => {
+// What to do after try number `tried` (from 1) answered `result`.
+export const nextStep = (result: AuditResult, tried: number): NextStep => {
   switch (result.kind) {
     case 'clean':
       return { kind: 'pass', lines: ['no advisories for the runtime dependencies'] };
@@ -99,11 +99,11 @@ export const nextStep = (result: AuditResult, attempt: number): NextStep => {
     case 'endpoint-error': {
       const what = `the advisory endpoint failed: ${result.message}`;
       if (!mayPass(result.statusCode)) return { kind: 'fail', lines: [what] };
-      return attempt < MAX_ATTEMPTS
+      return tried < MAX_TRIES
         ? { kind: 'retry', lines: [`${what}; trying again`] }
         : {
             kind: 'fail',
-            lines: [`${what}, ${attempt} times; an outage is not a clean report, run CI again`],
+            lines: [`${what}, ${tried} times; an outage is not a clean report, run CI again`],
           };
     }
     case 'unreadable':

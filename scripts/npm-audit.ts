@@ -4,7 +4,7 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
-import { MAX_ATTEMPTS, nextStep, readAudit } from './npm-audit/core.ts';
+import { MAX_TRIES, nextStep, readAudit } from './npm-audit/core.ts';
 
 export type Wait = (ms: number) => Promise<void>;
 
@@ -34,7 +34,7 @@ export const auditAdvisories = async (
     };
   }
   const lines: string[] = [];
-  for (let attempt = 1; ; attempt++) {
+  for (let tried = 1; ; tried++) {
     const { exitCode, stdout, stderr, killed } = await exec(
       execPath,
       [npmCli, 'audit', '--omit=dev', '--json'],
@@ -42,11 +42,12 @@ export const auditAdvisories = async (
     );
     if (exitCode === null) {
       const why = whyKilled(killed, NPM_TIMEOUT_MS) ?? 'no exit code';
-      return { ok: false, lines: [...lines, `npm audit did not finish (${why})`, stderr.trim()] };
+      const said = stderr.trim() === '' ? [] : [stderr.trim()];
+      return { ok: false, lines: [...lines, `npm audit did not finish (${why})`, ...said] };
     }
-    const step = nextStep(readAudit(exitCode, stdout), attempt);
+    const step = nextStep(readAudit(exitCode, stdout), tried);
     if (step.kind !== 'pass' && stderr.trim() !== '') lines.push(stderr.trim());
-    lines.push(...step.lines.map((line) => `attempt ${attempt} of ${MAX_ATTEMPTS}: ${line}`));
+    lines.push(...step.lines.map((line) => `try ${tried} of ${MAX_TRIES}: ${line}`));
     if (step.kind !== 'retry') return { ok: step.kind === 'pass', lines };
     await wait(RETRY_WAIT_MS);
   }

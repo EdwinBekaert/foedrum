@@ -18,7 +18,7 @@ npm's exit code does not tell an outage from a finding. Its documentation says `
   - an endpoint error with any other status (a 4xx) fails at once, since asking again will not change it;
   - anything else fails at once, also an exit 0 without a clean report, so an outage is never read as "no advisories".
 
-  npm gets 360 s per attempt, above its own 300 s fetch timeout; a killed npm fails without a retry.
+  npm gets 360 s per try, above its own 300 s fetch timeout; a killed npm fails without a retry.
 - **Between runs.** An advisory published between two CI runs is reported by Dependabot alerts ([ADR 0113](0113-github-s-security-features-on-the-foedrum-repository.md)), which watch the dependency graph continuously; the nightly run audits again. Six legs did not narrow that gap, since they ran at the same moment.
 
 ## Consequences
