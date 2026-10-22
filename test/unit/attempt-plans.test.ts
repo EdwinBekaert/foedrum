@@ -182,6 +182,71 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it('gives an attempt an onBlocked route scheduled the out doc that blocked, last (#341, ADR 0128)', async () => {
+    const routing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [
+            { id: 'brew', brewer: 'brewmaster' },
+            {
+              id: 'taste',
+              brewer: 'brewmaster',
+              onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+            },
+          ]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            inputs: [{ name: 'order', from: 'order' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(routing.valid, routing.valid ? '' : routing.problems.join('\n'));
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const tasteTree = join('/work', 'taste-1');
+    const taste = { batchId: '12-1', stepId: 'taste', attempt: 1 };
+    const second = { ...ref, attempt: 2 };
+    const events: Event[] = [
+      ...ordered,
+      started,
+      { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...taste, deadlineAt },
+      {
+        type: 'step.started',
+        ...taste,
+        worktree: {
+          repo: 'acme/api',
+          path: tasteTree,
+          branch: 'foedrum/12-1/taste/1',
+          commit: 'c'.repeat(40),
+        },
+      },
+      {
+        type: 'step.finished',
+        ...taste,
+        outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): Too bitter' },
+      },
+      { type: 'step.scheduled', ...second, deadlineAt, route: { from: 'taste', why: 'findings' } },
+      { ...started, attempt: 2 },
+    ];
+    const doc = '---\n{ "status": "blocked" }\n---\nHalve the hops.';
+    const blocked = { [join(tasteTree, 'brew.md')]: { kind: 'text', text: doc } } as const;
+    const { plans, reads } = setup(events, blocked, undefined, routing.brewers);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    assert.deepEqual(reads.at(-1), { file: join(tasteTree, 'brew.md'), root: tasteTree });
+    assert.match(
+      prompt,
+      /name="order">[\s\S]*source="why step brew runs again: the findings of step taste" name="route">\n[^<]*Too bitter[\s\S]*Halve the hops\.\n<\/untrusted-input-[0-9a-f]+>$/,
+    );
+  });
+
   it("throws, naming the input, when the order's text is larger than 1 MiB (review of #165)", async () => {
     const { plans } = setup(undefined, {}, 'x'.repeat(1024 * 1024 + 1));
     await assert.rejects(

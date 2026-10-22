@@ -13,7 +13,7 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
-import type { ClaudeAttemptPlan } from './claude-runner.ts';
+import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
   type InputSource,
@@ -196,6 +196,35 @@ export function answersOf(batch: Batch, stepId: string): PromptInput | undefined
   if (answers.length === 0) return undefined;
   const text = answers.map(({ q, answer }) => `Q: ${q}\nA: ${answer}`).join('\n\n');
   return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
+}
+
+/** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
+export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
+
+/** What sent an attempt back along the route that scheduled it, and where to read the rest. */
+export interface PlannedRoute {
+  source: Extract<InputSource, { kind: 'route' }>;
+  /** What the event log says: the routing attempt's reason and its readings that did not pass. */
+  text: string;
+  /** The out doc of the attempt that blocked with findings, in its worktree. */
+  outDoc?: { path: string; root: string };
+}
+
+/**
+ * What sent attempt `ref` back, from the latest finished attempt of the step its route came from;
+ * none when no route scheduled it (ADR 0128). `outDocOf` names a step's out doc file.
+ */
+export function routeOf(
+  _batch: Batch,
+  _ref: AttemptRef,
+  _outDocOf: (stepId: string) => string | undefined,
+): PlannedRoute | undefined {
+  throw new Error('not implemented');
+}
+
+/** The route input of `planned`, with the out doc as it was read, held to its limit (ADR 0128). */
+export function routeInput(_planned: PlannedRoute, _outDoc?: OutDocRead): PromptInput {
+  throw new Error('not implemented');
 }
 
 /** One example out doc of the contract: the keys every status shares, then the status's own key. */
