@@ -235,13 +235,10 @@ export function routeOf(
   const reason = outcome.kind === 'failed' ? outcome.reason : outcome.kind;
   // A red proof's reason quotes its test run, whose tail alone was filtered (#188).
   const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
-  const parts = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading)];
+  const text = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading)].join('\n\n');
   const doc = outDocOf(from);
-  if (why === 'failed' || worktree === undefined || doc === undefined) {
-    return { source, text: parts.join('\n\n') };
-  }
-  const outDoc = { path: join(worktree.path, doc), root: worktree.path };
-  return { source, text: parts.join('\n\n'), outDoc };
+  if (why === 'failed' || worktree === undefined || doc === undefined) return { source, text };
+  return { source, text, outDoc: { path: join(worktree.path, doc), root: worktree.path } };
 }
 
 const leftOutReason = '[left out: a reason that looks like a secret]';
