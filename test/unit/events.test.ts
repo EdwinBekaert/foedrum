@@ -587,6 +587,12 @@ describe("step.finished's claude (ADR 0116)", () => {
     accepts(Event, finished(claude));
     accepts(Event, valid['step.finished']);
   });
+  for (const field of ['version', 'model'] as const) {
+    it(`rejects claude without its ${field}, or with an empty one`, () => {
+      rejects(Event, finished(without(claude, field)));
+      rejects(Event, finished({ ...claude, [field]: '' }));
+    });
+  }
   it('rejects an unknown field', () => rejects(Event, finished({ ...claude, sessionId: 's1' })));
 });
 
