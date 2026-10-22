@@ -7,6 +7,7 @@
 import { parse } from 'node:path';
 import { doctorFromCheckout } from '../../src/cli/doctor-main.ts';
 import { runCli } from '../../src/cli/run.ts';
+import type { DenylistState } from '../../src/platform/denylist.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecProcess, execProcess } from '../../src/platform/processes.ts';
 
@@ -28,6 +29,9 @@ export const CANNED_GH_VERSION = '9999.0.0';
 /** The PATH lookup, but gh is `MADE_UP_GH`, whether this machine has a gh or not. */
 export const resolveWithMadeUpGh = (name: string): string | undefined =>
   name === 'gh' ? MADE_UP_GH : resolveExecutable(name);
+
+/** No denylist, so doctor never reads the user's own (ADR 0114). */
+export const noDenylist = (): DenylistState => ({ kind: 'none', path: '/made-up/denylist.txt' });
 
 // gh's version answer is made up on purpose: gh 2.102.0's two lines with a version and date no
 // release has, so a row that shows it proves the canned answer was used. The login answers are
@@ -77,7 +81,7 @@ export const doctorHere = async (
 ) =>
   runCli(['doctor'], {
     cwd,
-    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec, resolve }),
+    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec, resolve, denylist: noDenylist }),
     openStore: notForDoctor('store'),
     openWritableStore: notForDoctor('store'),
     recipes: notForDoctor('recipes'),
