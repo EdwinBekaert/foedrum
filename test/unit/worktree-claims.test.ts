@@ -614,3 +614,177 @@ describe('worktreeClaims: the start in the order of the events (#309)', () => {
     );
   });
 });
+
+describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
+  const at = '2026-10-15T13:00:00.000Z';
+  const expiresAt = new Date(at);
+  const ref = (attempt: number) => ({ batchId: '3-1', stepId: 'implement', attempt });
+  const leaseOf = (attempt: number) => ({
+    attemptKey: attemptKey.encode(ref(attempt)),
+    owner: 'driver',
+    expiresAt,
+  });
+  // A lease's claims as a set: the attempts it claims, in attempt order, whatever order the
+  // claims come in.
+  const claimedBy = (state: State, attempt: number) =>
+    worktreeClaims(state, [leaseOf(attempt)])
+      .leased.map((claimed) => {
+        assert.deepEqual({ ...claimed, attempt: 0 }, { ...ref(attempt), attempt: 0 });
+        return claimed.attempt;
+      })
+      .sort((a, b) => a - b);
+  const path = (attempt: number) => `work/acme.app/attempts/3-1/implement/${attempt}`;
+  const crashed = { kind: 'failed', retryable: true, reason: 'crash' } as const;
+  // An attempt of implement that resumes the session `resumes` runs in the worktree of the
+  // attempt that started it, `in`, and has none of its own; any other gets its own.
+  const started = (attempt: number, session: { id: string; resumes?: string; in?: number }) => {
+    const own = session.in ?? attempt;
+    return [
+      { type: 'step.scheduled', batchId: '3-1', stepId: 'implement', attempt, deadlineAt: at },
+      {
+        type: 'step.started',
+        batchId: '3-1',
+        stepId: 'implement',
+        attempt,
+        session: {
+          id: session.id,
+          ...(session.resumes === undefined ? {} : { resumes: session.resumes }),
+          worktree: path(own),
+        },
+        ...(session.in === undefined
+          ? {
+              worktree: {
+                repo: 'acme/app',
+                path: path(attempt),
+                branch: `foedrum/3-1/implement/${attempt}`,
+                commit: 'a'.repeat(40),
+              },
+            }
+          : {}),
+      },
+    ] satisfies Event[];
+  };
+  const finished = (attempt: number): Event => ({
+    type: 'step.finished',
+    batchId: '3-1',
+    stepId: 'implement',
+    attempt,
+    outcome: crashed,
+  });
+  const ordered: Event = {
+    type: 'batch.ordered',
+    batchId: '3-1',
+    order: { issue: 3 },
+    routeBy: at,
+  };
+
+  it('claims the attempt whose session a live lease continues, with its own', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 2), [1, 2]);
+  });
+
+  it('follows session.resumes back through a chain of resumed attempts', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      finished(2),
+      ...started(3, { id: 's3', resumes: 's2', in: 1 }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 3), [1, 2, 3]);
+  });
+
+  it('claims every attempt of a session that kept its id when it was resumed', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's1', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 2), [1, 2]);
+  });
+
+  it('claims nothing for a resumed attempt that ended, and nothing back from a fresh one', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      finished(2),
+      ...started(3, { id: 's3' }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, []).leased, []);
+    assert.deepEqual(claimedBy(state, 3), [3]);
+  });
+
+  it('claims only back along the chain: a lease of the resumed attempt claims no later one', () => {
+    // Stuck abandoned attempt 1, whose lease is live until its run has stopped (ADR 0055).
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 1), [1]);
+  });
+
+  it('claims every attempt of a session that kept its id, later ones too: one session, one worktree', () => {
+    // A lease covers its attempt's session (ADR 0019); attempt 2, abandoned by Stuck, still holds
+    // one while attempt 3 waits to resume the same session in the same worktree (ADR 0055).
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's1', resumes: 's1', in: 1 }),
+      ...started(3, { id: 's1', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 2), [1, 2, 3]);
+  });
+
+  it('stops at a session the log does not hold, and at a loop', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1', resumes: 's2', in: 2 }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      finished(2),
+      ...started(3, { id: 's3', resumes: 'gone' }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 2), [1, 2]);
+    assert.deepEqual(claimedBy(state, 3), [3]);
+  });
+
+  it('keeps the worktree a resumed attempt runs in when its batch ends under it', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      { type: 'batch.cancelled', batchId: '3-1', by: 'octocat', via: 'terminal' },
+    ]);
+    const folders = [{ batchId: '3-1', attempts: ['implement/1'] }];
+
+    const plan = planClean(
+      { worktrees: [], branches: [], folders },
+      worktreeClaims(state, [leaseOf(2)]),
+      '/work',
+    );
+
+    assert.deepEqual(plan, {
+      actions: [],
+      kept: ['kept folder 3-1/implement/1: its attempt holds a live lease'],
+    });
+  });
+});

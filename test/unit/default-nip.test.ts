@@ -243,6 +243,7 @@ describe('the default Gauger', () => {
       {
         type: 'step.started',
         ...ref,
+        session: { id: '0f8fad5b-d9cb-469f-a165-70867728950e', worktree: join('/work', 'gauge-1') },
         worktree: {
           repo: 'acme/api',
           path: join('/work', 'gauge-1'),
@@ -266,7 +267,6 @@ describe('the default Gauger', () => {
         read: () => ({ kind: 'missing' }),
         makeFolder: () => {},
       },
-      sessionId: () => '0f8fad5b-d9cb-469f-a165-70867728950e',
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
     });
     const { prompt } = await plans.plan({

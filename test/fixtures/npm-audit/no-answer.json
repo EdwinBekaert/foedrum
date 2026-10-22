@@ -1,0 +1,6 @@
+{
+  "npm": "11.19.0",
+  "exitCode": 1,
+  "stdout": "{\n  \"message\": \"request to http://127.0.0.1:PORT/-/npm/v1/security/advisories/bulk failed, reason: socket hang up\",\n  \"error\": {\n    \"summary\": \"\",\n    \"detail\": \"\"\n  }\n}\n",
+  "stderr": "npm warn audit request to http://127.0.0.1:PORT/-/npm/v1/security/advisories/bulk failed, reason: socket hang up\nnpm error audit endpoint returned an error\nnpm error A complete log of this run can be found in: /home/runner/.npm/_logs/2026-10-22T08_01_57_882Z-debug-0.log\n"
+}

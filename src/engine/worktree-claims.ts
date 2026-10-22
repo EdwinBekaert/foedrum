@@ -133,6 +133,36 @@ const unpushedOf = (state: State): Map<string, string> => {
   return unpushed;
 };
 
+// A leased attempt and every attempt of the sessions it continues, back through `session.resumes`:
+// a resumed attempt runs in the worktree of the attempt that started its session, and has none of
+// its own (ADR 0029). A lease covers its attempt's session (ADR 0019), so a session that kept its
+// id when resumed claims every attempt it ran in, later ones too: they all run in one worktree.
+const continuedBy = (state: State, ref: AttemptRef): AttemptRef[] => {
+  const batch = state.batches.get(ref.batchId);
+  if (batch === undefined) return [ref];
+  const sessions = [...batch.steps.values()].flatMap((step) =>
+    [...step.attempts.values()].flatMap((attempt) => {
+      if (attempt.phase === 'scheduled' || attempt.session === undefined) return [];
+      const of = { batchId: batch.id, stepId: step.id, attempt: attempt.attempt };
+      return [{ key: attemptKey.encode(of), ref: of, session: attempt.session }];
+    }),
+  );
+  const claimed = new Map([[attemptKey.encode(ref), ref]]);
+  const followed = new Set<string>();
+  const pending = [sessions.find(({ key }) => claimed.has(key))?.session.resumes];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (id === undefined || followed.has(id)) continue;
+    followed.add(id);
+    for (const continued of sessions) {
+      if (continued.session.id !== id) continue;
+      claimed.set(continued.key, continued.ref);
+      pending.push(continued.session.resumes);
+    }
+  }
+  return [...claimed.values()];
+};
+
 /** The claims of the folded state and the leases alive now (`EventStore.currentLeases`). */
 export const worktreeClaims = (
   state: State,
@@ -143,7 +173,7 @@ export const worktreeClaims = (
   // A lease under any other key holds no attempt the engine knows (ADR 0027).
   leased: leases.flatMap((lease): AttemptRef[] => {
     const ref = attemptKey.decode(lease.attemptKey);
-    return ref === undefined ? [] : [ref];
+    return ref === undefined ? [] : continuedBy(state, ref);
   }),
   ...(outDoc === undefined ? {} : { outDocs: outDocsOf(state, outDoc) }),
   unpushed: unpushedOf(state),

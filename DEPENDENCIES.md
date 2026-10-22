@@ -82,7 +82,7 @@ Local tarballs and directories are still allowed (`allow-file` and `allow-direct
 ## Continuous integration (planned)
 
 - `npm ci` only, with a committed lockfile.
-- `npm audit signatures` and `npm audit --omit=dev`.
+- `npm audit signatures` on every leg, and `npm audit --omit=dev` once per run, with one retry when the advisory endpoint fails ([ADR 0119](docs/adr/0119-npm-audit-runs-once-per-ci-run-with-one-retry-on-an-outage.md)).
 - GitHub Actions pinned to commit SHAs.
 - Releases published with npm trusted publishing and provenance.
 

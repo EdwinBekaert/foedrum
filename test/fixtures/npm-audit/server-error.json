@@ -1,0 +1,6 @@
+{
+  "npm": "11.19.0",
+  "exitCode": 1,
+  "stdout": "{\n  \"message\": \"503 Service Unavailable - POST http://127.0.0.1:PORT/-/npm/v1/security/advisories/bulk\",\n  \"method\": \"POST\",\n  \"uri\": \"http://127.0.0.1:PORT/-/npm/v1/security/advisories/bulk\",\n  \"headers\": {\n    \"content-type\": [\n      \"text/html\"\n    ],\n    \"date\": [\n      \"Thu, 22 Oct 2026 08:01:10 GMT\"\n    ],\n    \"connection\": [\n      \"keep-alive\"\n    ],\n    \"keep-alive\": [\n      \"timeout=5\"\n    ],\n    \"transfer-encoding\": [\n      \"chunked\"\n    ],\n    \"x-fetch-attempts\": [\n      \"1\"\n    ]\n  },\n  \"statusCode\": 503,\n  \"body\": \"<html><body><h1>503 Service Unavailable</h1></body></html>\\n\",\n  \"error\": {\n    \"summary\": \"\",\n    \"detail\": \"\"\n  }\n}\n",
+  "stderr": "npm warn audit 503 Service Unavailable - POST http://127.0.0.1:PORT/-/npm/v1/security/advisories/bulk\nnpm error audit endpoint returned an error\nnpm error A complete log of this run can be found in: /home/runner/.npm/_logs/2026-10-22T08_01_09_655Z-debug-0.log\n"
+}
