@@ -53,11 +53,21 @@ const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'"
 // The raw hook input, or its command, without the quotes and escape characters that bash,
 // PowerShell and cmd drop, so a name they split (gi''t, g\it, g`it, g^h) still matches the
 // pre-filter. A backslash before u stays, for a JSON escape. A line continuation (\, ` or ^ before
-// a newline, also \r\n) goes first, as it is or as JSON escapes it (#158).
+// a newline, also \r\n) goes first (#158).
 const normalised = (input: string): string =>
   foldQuotes(input)
-    .replace(/(?:\\\\|[`^])(?:\\r)?\\n|[\\`^]\r?\n/g, '')
+    .replace(/[\\`^]\r?\n/g, '')
     .replace(/["'`^]|\\(?!u)/g, '');
+
+// The raw hook input with JSON's \\, \n and \r escapes decoded, one escape at a time, so the
+// pre-filter sees the line breaks of the command and never takes the n of \\npx for one (#158).
+const JSON_ESCAPES = new Map([
+  ['\\\\', '\\'],
+  ['\\n', '\n'],
+  ['\\r', '\r'],
+]);
+const jsonLineBreaks = (input: string): string =>
+  input.replace(/\\[\\nr]/g, (pair) => JSON_ESCAPES.get(pair) ?? pair);
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 // gh flags that can appear before the `pr` action and take the next token as their value.
@@ -1264,7 +1274,7 @@ export const precheck = async (
   inProject: InProject = async () => true,
   deniedPush: DeniedPush = async () => undefined,
 ): Promise<HookResult> => {
-  if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
+  if (!mayNeedTheGate(jsonLineBreaks(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
