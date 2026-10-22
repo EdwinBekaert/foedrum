@@ -2325,6 +2325,14 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     });
   }
 
+  // A % that starts no escape leaves the path as it is, dot segments still resolved.
+  it('forbids a query it cannot read through a dotted path with a stray %', () => {
+    assert.match(
+      forbiddenReason('gh api x/%zz/../../graphql --input body.json') ?? '',
+      /^gh api graphql with a query the gate cannot read/,
+    );
+  });
+
   // The endpoint itself percent-encoded, which the server may decode (#329).
   for (const endpoint of ['%67raphql', '/%67raphql', 'https://api.github.com/%67raphql']) {
     it(`forbids a query it cannot read through a percent-encoded endpoint: ${endpoint}`, () => {
