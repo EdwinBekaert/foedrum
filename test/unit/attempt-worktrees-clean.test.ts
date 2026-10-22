@@ -439,6 +439,43 @@ describe('openAttemptWorktrees with a fake git', () => {
         });
       });
 
+      it('never reads an entry it would leave alone', async () => {
+        const { gitDirs, report } = twoOld();
+        mkdirSync(join(gitDirs, 'notes'));
+        writeFileSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`), 'a file\n');
+        const read: string[] = [];
+        const reading = async (path: string) => {
+          read.push(path);
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: reading, remove: removeAll });
+
+        assert.deepEqual(
+          read.sort(),
+          [join(gitDirs, `${uuid}.git`), join(gitDirs, `${young}.git`)].sort(),
+        );
+        assert.deepEqual(report.failed, []);
+      });
+
+      it('skips one Windows still deletes, which fails its lstat with EPERM', async () => {
+        const { gitDirs, report } = twoOld();
+        const pending = async (path: string) => {
+          if (path.endsWith(`${young}.git`)) {
+            throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+          }
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: pending, remove: removeAll });
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [],
+        });
+      });
+
       it('reports an entry it cannot read, and removes the others', async () => {
         const { gitDirs, report } = twoOld();
         const denied = async (path: string) => {
