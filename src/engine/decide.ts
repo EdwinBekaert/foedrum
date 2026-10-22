@@ -4,6 +4,7 @@
 
 import type {
   Answer,
+  ClaudeReport,
   Event,
   GravityReading,
   OrderRef,
@@ -78,6 +79,8 @@ export type EngineCommand =
       usage?: Usage;
       /** A check step's gravity readings (ADR 0069). */
       readings?: readonly GravityReading[];
+      /** What claude reported in its init event, when it came (ADR 0116). */
+      claude?: ClaudeReport;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -382,7 +385,7 @@ function refuseOrder(
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, readings } = command;
+  const { batchId, stepId, attempt, ending, usage, readings, claude } = command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
@@ -401,6 +404,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     outcome,
     ...(usage === undefined ? {} : { usage }),
     ...(readings === undefined ? {} : { readings: [...readings] }),
+    ...(claude === undefined ? {} : { claude }),
   });
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
   const batch = draft.batch(batchId);

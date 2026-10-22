@@ -19,7 +19,6 @@ const question = {
 const session = {
   id: '3f2c9a1e-0b7d-4c55-9e1a-2d8f6b4c0a11',
   worktree: 'work/acme/batches/b1/lib-core',
-  claudeVersion: '2.1.300',
 };
 
 const without = (value: object, key: string): unknown =>
@@ -569,12 +568,32 @@ describe('SessionRef', () => {
     accepts(SessionRef, { ...session, resumes: '0c1d2e3f-0000-4000-8000-000000000000' });
   });
 
-  for (const field of ['id', 'worktree', 'claudeVersion'] as const) {
+  for (const field of ['id', 'worktree'] as const) {
     it(`rejects a session without ${field}`, () =>
       rejects(SessionRef, { ...session, [field]: undefined }));
   }
   it('rejects an empty resumed session id', () => rejects(SessionRef, { ...session, resumes: '' }));
   it('rejects an unknown field', () => rejects(SessionRef, { ...session, model: 'opus' }));
+  // What claude reported goes on step.finished, once its init came (ADR 0116).
+  it("rejects claude's version", () =>
+    rejects(SessionRef, { ...session, claudeVersion: '2.1.300' }));
+});
+
+describe("step.finished's claude (ADR 0116)", () => {
+  const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
+  const finished = (value: unknown) => ({ ...valid['step.finished'], claude: value });
+
+  it('accepts the version and the model claude reported, or neither', () => {
+    accepts(Event, finished(claude));
+    accepts(Event, valid['step.finished']);
+  });
+  for (const field of ['version', 'model'] as const) {
+    it(`rejects claude without its ${field}, or with an empty one`, () => {
+      rejects(Event, finished(without(claude, field)));
+      rejects(Event, finished({ ...claude, [field]: '' }));
+    });
+  }
+  it('rejects an unknown field', () => rejects(Event, finished({ ...claude, sessionId: 's1' })));
 });
 
 describe('WorktreeRef', () => {

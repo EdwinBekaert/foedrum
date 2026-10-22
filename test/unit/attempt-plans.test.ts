@@ -1,6 +1,7 @@
 // The attempt plans' shell (#148, ADR 0059): for the attempt the driver started, it finds the
 // brewer of its step in the batch's recipe, reads the brewer's inputs and makes the folder of the
-// settings file, then plans the attempt. The files, the order's text and the ids are fakes.
+// settings file, then plans the attempt in the session the driver recorded. The files, the order's
+// text and the ids are fakes.
 
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
@@ -61,6 +62,8 @@ const ordered: Event[] = [
 const started: Event = {
   type: 'step.started',
   ...ref,
+  // The session the driver chose for the attempt (ADR 0116).
+  session: { id: sessionId, worktree },
   worktree: {
     repo: 'acme/api',
     path: worktree,
@@ -101,7 +104,6 @@ const setup = (
       },
       makeFolder: (path) => folders.push(path),
     },
-    sessionId: () => sessionId,
     random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
   });
   return { plans, folders, reads, sizes, orders };
@@ -141,7 +143,7 @@ describe('createAttemptPlans: plan', () => {
     assert.deepEqual(reads, []);
   });
 
-  it("plans the attempt in the worktree the driver recorded, with the repository's tools", async () => {
+  it("plans the attempt in the worktree and the session the driver recorded, with the repository's tools", async () => {
     const { plans } = setup();
     const plan = await plans.plan(start);
     assert.equal(plan.cwd, worktree);
@@ -212,6 +214,12 @@ describe('createAttemptPlans: plan', () => {
   it('throws when the attempt has no worktree', async () => {
     const { plans } = setup([...ordered, { type: 'step.started', ...ref }]);
     await assert.rejects(plans.plan(start), /attempt brew#1 of batch 12-1 has no worktree/);
+  });
+
+  it('throws when the driver recorded no session for the attempt (ADR 0116)', async () => {
+    const { session: _, ...unrecorded } = started as Extract<Event, { type: 'step.started' }>;
+    const { plans } = setup([...ordered, unrecorded]);
+    await assert.rejects(plans.plan(start), /attempt brew#1 of batch 12-1 has no session/);
   });
 
   it('throws when the step left its recipe', async () => {

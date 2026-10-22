@@ -267,16 +267,11 @@
             "worktree": {
               "type": "string",
               "pattern": "\\S"
-            },
-            "claudeVersion": {
-              "type": "string",
-              "pattern": "\\S"
             }
           },
           "required": [
             "id",
-            "worktree",
-            "claudeVersion"
+            "worktree"
           ],
           "additionalProperties": false
         },
@@ -658,6 +653,24 @@
               }
             ]
           }
+        },
+        "claude": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "model": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "version",
+            "model"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

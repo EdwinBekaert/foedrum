@@ -12,6 +12,7 @@ import { guardPushes } from '../checks/push-guard.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
 import { notedClaims, notedPush, remoteWrites } from '../checks/remote-writes.ts';
 import { guardTests } from '../checks/tests-guard.ts';
+import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -309,13 +310,14 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       signal,
       clock,
     });
+    const isCheck = ({ batchId, stepId }: AttemptRef) => {
+      const recipe = recipeOf(batchId);
+      return recipe !== undefined && setup.checks.find(recipe, stepId) !== undefined;
+    };
     const runner = stepRunner({
       brewer,
       check: checks,
-      isCheck: ({ batchId, stepId }) => {
-        const recipe = recipeOf(batchId);
-        return recipe !== undefined && setup.checks.find(recipe, stepId) !== undefined;
-      },
+      isCheck,
       // A batch whose red proof would run needs its repository's test report from the start, so
       // no brewer spends tokens on a batch that cannot prove its tests red (ADR 0017).
       refuse: ({ batchId }) => {
@@ -357,6 +359,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       limits: plans.limits,
       outDoc: plans.outDoc,
       worktrees,
+      // A check step runs no claude, so it has no session (ADR 0116).
+      brews: (ref) => !isCheck(ref),
       alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
       effects,
       actions,
