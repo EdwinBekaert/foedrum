@@ -1335,6 +1335,28 @@ describe('precheck on words split by line continuations', () => {
       assert.deepEqual(calls, []);
     });
   }
+
+  // A backslash before n that is no line continuation keeps its n, in the raw input as in the
+  // command (#158, review of #355).
+  const backslashN: string[] = [
+    'bash -c "\\\\npx some-pkg"',
+    '"C:\\\\tools\\\\npx.cmd" cowsay',
+    'x=`\\npx cowsay`',
+  ];
+  for (const command of backslashN) {
+    it(`still reads npx after a backslash: ${JSON.stringify(command)}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2, result.stderr);
+      assert.match(result.stderr, /would download a package/);
+      assert.deepEqual(calls, []);
+    });
+  }
 });
 
 describe('forbiddenReason on the bypasses found in the second review', () => {
