@@ -538,6 +538,8 @@ describe('precheck on a push from another directory', () => {
     // A pull request after the push: only the push is checked (ADR 0135).
     ['cd ../wt && git push && gh pr create --draft', worktree],
     ['cd ../wt && gh pr create --draft && git push', worktree],
+    // gh pr create's directory is no tree to check, so it adds no second one.
+    ['git -C ../wt push && cd a && gh pr create --draft', worktree],
   ];
   for (const [command, dir, tool = 'Bash'] of pushes) {
     it(`checks the pushed tree in ${tool}: ${command}`, async () => {
