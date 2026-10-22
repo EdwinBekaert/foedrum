@@ -160,6 +160,22 @@ describe('scanPatches', () => {
     assert.deepEqual(scanPatches(log, list), ['commit bbbbbbb src/merged.ts:1']);
   });
 
+  // A line with + in one column only is in the other parent: that parent's commits brought it,
+  // and they are read on their own or are on the remote already (ADR 0114).
+  it('reads only the lines a merge adds of its own, not those one parent brought', () => {
+    const log = [
+      `\0${sha('e')}`,
+      '',
+      'diff --cc src/m.ts',
+      '@@@ -1,1 -1,1 +1,3 @@@',
+      ' +from main, examplecorp',
+      '+ from side, acme widget',
+      '++its own, examplecorp',
+      '',
+    ].join('\n');
+    assert.deepEqual(scanPatches(log, list), ['commit eeeeeee src/m.ts:3']);
+  });
+
   it('never names a path that holds a word, and skips the path of a deleted file', () => {
     const log = [
       `\0${sha('c')}`,
