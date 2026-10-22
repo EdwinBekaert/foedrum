@@ -1320,6 +1320,15 @@ describe('precheck on words split by line continuations', () => {
     });
   }
 
+  // Bash removes a backslash-newline inside double quotes too (#359).
+  const FORCE =
+    'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
+  for (const newline of ['\n', '\r\n']) {
+    const command = `bash -c "g\\${newline}it push -f"`;
+    it(`blocks a force push split inside a nested shell's string: ${JSON.stringify(command)}`, () => {
+      assert.equal(forbiddenReason(command), FORCE);
+    });
+  }
   // A backslash before n that is no line continuation keeps its n, in the raw input as in the
   // command (#158, review of #355).
   const backslashN: string[] = [
