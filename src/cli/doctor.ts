@@ -419,20 +419,48 @@ const promptSizes = ({ brewers }: Catalog): PromptSize[] =>
 /** A text compared without its outer and repeated white space or its letter case. */
 const normal = (text: string): string => text.trim().replace(/\s+/g, ' ').toLowerCase();
 
+const BOM = String.fromCodePoint(0xfeff);
+
+/**
+ * An ATX heading's text, without its closing `#`s; `undefined` when `line` is no heading. String
+ * operations past the opening, so a long run of spaces is read once, never backtracked over.
+ */
+const headingOf = (line: string): string | undefined => {
+  const open = /^ {0,3}#{1,6}(?:[ \t]|$)/.exec(line);
+  if (open === null) return undefined;
+  const text = line.slice(open[0].length).trim();
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '#') end -= 1;
+  // The closing `#`s count only after white space, or as the whole text.
+  if (end === 0) return '';
+  return end === text.length || !/[ \t]/.test(text[end - 1] ?? '')
+    ? text
+    : text.slice(0, end).trim();
+};
+
 /**
  * The headings and marked lines of a Markdown text, outside fenced code (ADR 0141): an ATX
- * heading by its text, and a line or list item that starts with a bold phrase by that phrase.
+ * heading by its text, and a line or list item that starts with a bold phrase by that phrase. A
+ * fence closes only with its own character, at least as long, and a backtick fence's opening
+ * line holds no other backtick, as in CommonMark.
  */
 const marksOf = (text: string): { what: string; text: string }[] => {
   const marks: { what: string; text: string }[] = [];
-  let fenced = false;
-  for (const line of text.split(/\r?\n/)) {
-    if (/^ {0,3}(?:```|~~~)/.test(line)) {
-      fenced = !fenced;
+  let fence: { char: string; length: number } | undefined;
+  const lines = (text.startsWith(BOM) ? text.slice(BOM.length) : text).split(/\r?\n/);
+  for (const line of lines) {
+    if (fence !== undefined) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1];
+      if (close?.[0] === fence.char && close.length >= fence.length) fence = undefined;
       continue;
     }
-    if (fenced) continue;
-    const heading = /^ {0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$/.exec(line)?.[1];
+    const open = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/.exec(line);
+    const run = open?.[1] ?? open?.[2];
+    if (run !== undefined) {
+      fence = { char: run[0] ?? '', length: run.length };
+      continue;
+    }
+    const heading = headingOf(line);
     if (heading !== undefined && heading !== '') {
       marks.push({ what: 'heading', text: heading });
       continue;
@@ -445,8 +473,11 @@ const marksOf = (text: string): { what: string; text: string }[] => {
 
 /** What a Brewery file that replaces a default drops from it (ADR 0141). */
 const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
+  const replaces = `${own.path} replaces ${replaced.path}`;
+  // A copy doctor could not read is compared with nothing: its problem line says why.
+  if (!('text' in own)) return `${replaces} (ADR 0141)`;
   const marks = 'text' in replaced ? marksOf(replaced.text) : [];
-  const kept = new Set(('text' in own ? marksOf(own.text) : []).map((mark) => normal(mark.text)));
+  const kept = new Set(marksOf(own.text).map((mark) => normal(mark.text)));
   const dropped = [
     ...new Set(
       marks
@@ -454,7 +485,6 @@ const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
         .map(({ what, text }) => `${what} "${text.trim()}"`),
     ),
   ];
-  const replaces = `${own.path} replaces ${replaced.path}`;
   if (marks.length === 0) return `${replaces} (ADR 0141)`;
   return dropped.length === 0
     ? `${replaces} and keeps every heading and marked line of it (ADR 0141)`
