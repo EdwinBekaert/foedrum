@@ -55,7 +55,7 @@ export const seatbeltProfile = (parents: number): string => {
 const foldersAbove = (home: string, paths: readonly string[]): string[] => {
   const inHome = (folder: string) => {
     const path = posix.relative(home, folder);
-    return path !== '..' && !path.startsWith('../') && !posix.isAbsolute(path);
+    return path !== '..' && !path.startsWith('../');
   };
   const folders = new Set<string>();
   for (const path of paths) {
