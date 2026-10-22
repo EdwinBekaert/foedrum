@@ -86,6 +86,7 @@ export const otherSpendTexts = [
   "API Error: You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage",
   "You've hit your monthly spend limit - raise it at https://claude.ai/settings/usage",
   "You've hit your monthly spend limit · ",
+  "You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage\nSee https://status.claude.com",
   'Credit balance is too low.',
   'Credit balance is too low\nSee https://platform.claude.com/settings/billing',
 ] as const;
