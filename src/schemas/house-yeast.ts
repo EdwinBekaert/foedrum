@@ -21,3 +21,16 @@ export const HouseYeastRule = z.strictObject({
   status: z.enum(['active', 'retired']),
 });
 export type HouseYeastRule = z.infer<typeof HouseYeastRule>;
+
+// A lesson seen once in a review of Foedrum's own pull requests, one line of the main checkout's
+// .foedrum/house-yeast-candidates.jsonl until the state branch carries candidates (ADR 0122).
+export const HouseYeastCandidate = z.strictObject({
+  lesson: PathSafeId.describe('The id of the rule the lesson would become'),
+  review: NonEmpty.describe('The pull request reviewed, or the branch of a local run'),
+  source: NonEmpty.describe('The finding or comment that taught the lesson'),
+  seen: z.iso.date(),
+  kind: HouseYeastRule.shape.kind,
+  scope: HouseYeastRule.shape.scope,
+  rule: NonEmpty.describe('The rule in one or two sentences'),
+});
+export type HouseYeastCandidate = z.infer<typeof HouseYeastCandidate>;
