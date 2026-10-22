@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { auditAdvisories, RETRY_WAIT_MS } from '../../scripts/npm-audit.ts';
-import type { ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 
 const cwd = join('/work', 'tree');
 const execPath = '/usr/local/bin/node';
@@ -24,8 +24,10 @@ const answer = (name: string): ExecResult => {
 // A fake runner that answers each call with the next result, and a wait that records its delays.
 const fake = (...results: ExecResult[]) => {
   const calls: { file: string; args: readonly string[]; cwd: string }[] = [];
-  const exec: ExecProcess = async (file, args, options) => {
-    calls.push({ file, args, cwd: options.cwd });
+  const options: ExecOptions[] = [];
+  const exec: ExecProcess = async (file, args, given) => {
+    calls.push({ file, args, cwd: given.cwd });
+    options.push(given);
     const next = results.shift();
     if (next === undefined) throw new Error('npm ran more often than the test expected');
     return next;
@@ -34,10 +36,18 @@ const fake = (...results: ExecResult[]) => {
   const wait = async (ms: number) => {
     waits.push(ms);
   };
-  return { calls, exec, waits, wait };
+  return { calls, options, exec, waits, wait };
 };
 
 describe('auditAdvisories', () => {
+  it('gives npm a deadline of 360 s and the stop signal', async () => {
+    const { options, exec, wait } = fake(answer('clean'));
+    const stop = new AbortController().signal;
+    await auditAdvisories(cwd, env, execPath, exec, wait, stop);
+    assert.equal(options[0]?.timeoutMs, 360_000);
+    assert.equal(options[0]?.signal, stop);
+  });
+
   it('runs npm audit --omit=dev --json once and passes a clean report', async () => {
     const { calls, exec, waits, wait } = fake(answer('clean'));
     const run = await auditAdvisories(cwd, env, execPath, exec, wait);

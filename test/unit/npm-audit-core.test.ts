@@ -81,6 +81,11 @@ describe('readAudit', () => {
     assert.equal(readAudit(1, '[]').kind, 'unreadable');
     assert.equal(readAudit(1, 'null').kind, 'unreadable');
   });
+
+  it('never reads an object without a report or an error message as an endpoint error', () => {
+    assert.equal(readAudit(1, '{"error":{"summary":"","detail":""}}').kind, 'unreadable');
+    assert.equal(readAudit(1, '{"message":{"text":"503"},"statusCode":503}').kind, 'unreadable');
+  });
 });
 
 describe('nextStep', () => {
@@ -108,6 +113,16 @@ describe('nextStep', () => {
     const result = read('no-answer');
     assert.equal(nextStep(result, 1).kind, 'retry');
     assert.equal(nextStep(result, 2).kind, 'fail');
+  });
+
+  it('retries from status 500 and fails below it', () => {
+    const error = (statusCode: number): AuditResult => ({
+      kind: 'endpoint-error',
+      statusCode,
+      message: `${statusCode}`,
+    });
+    assert.equal(nextStep(error(500), 1).kind, 'retry');
+    assert.equal(nextStep(error(499), 1).kind, 'fail');
   });
 
   it('fails on a client error at once', () => {
