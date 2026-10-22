@@ -218,7 +218,7 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
     );
     mkdirSync(join(dir.path, 'user'));
     // git's own global configuration: an identity for the brewer's commit, and the repository on
-    // GitHub, which every fetch, ls-remote and push reaches by its URL (ADR 0096), at the local
+    // GitHub, which the base fetch and the noPush listing reach by its URL (ADR 0090), at the local
     // origin. Nothing of the user's global configuration takes part.
     const gitConfig = join(dir.path, 'gitconfig');
     writeFileSync(gitConfig, '');

@@ -72,29 +72,19 @@ describe('openAttemptWorktrees with a fake git', () => {
       const worktree = await open(git).create(attempt, 'origin/main');
 
       assert.deepEqual(worktree, { path, branch, commit: BASE });
-      const own = join(workRoot, 'git');
-      const gitDir = `--git-dir=${join(own, 'f1.git')}`;
-      const refs = ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/'];
+      // The fetch runs in the clone, by its remote, and prunes: a branch the remote made again
+      // as a folder never stops it (ADR 0137). No maintenance outlives it and no submodule's
+      // remote is fetched (review of #370).
       assert.deepEqual(calls, [
-        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
-        [own, gitDir, 'init', '--bare', '--quiet', '--template=', '--object-format=sha1'],
-        [clone, ...refs],
-        [clone, 'config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'],
         [
-          own,
-          gitDir,
+          clone,
           'fetch',
           '--quiet',
-          '--no-tags',
-          '--no-write-fetch-head',
-          '--no-recurse-submodules',
-          '--no-auto-maintenance',
           '--prune',
-          '--end-of-options',
-          url,
-          '+refs/heads/*:refs/remotes/origin/*',
+          '--no-auto-maintenance',
+          '--no-recurse-submodules',
+          'origin',
         ],
-        [own, gitDir, ...refs],
         [clone, 'rev-parse', '--verify', '--quiet', '--end-of-options', 'origin/main^{commit}'],
         [clone, 'worktree', 'list', '--porcelain', '-z'],
         [clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
@@ -102,136 +92,7 @@ describe('openAttemptWorktrees with a fake git', () => {
       ]);
     });
 
-    it("fetches into a git directory of its own from the clone's remote refs, and writes back only the refs that moved (ADR 0096)", async () => {
-      const own = join(workRoot, 'git');
-      const OLD = 'a'.repeat(40);
-      const { calls, options, git } = fakeGit((cwd, args) => {
-        if (args.includes('for-each-ref')) {
-          // origin/HEAD and origin/main as the clone has them; main moves, and a branch is new.
-          const before = `${BASE} refs/remotes/origin/HEAD\n${BASE} refs/remotes/origin/main\n${OLD} refs/remotes/origin/old\n`;
-          const after = `${BASE} refs/remotes/origin/HEAD\n${TIP} refs/remotes/origin/main\n${OLD} refs/remotes/origin/old\n${TIP} refs/remotes/origin/new\n`;
-          return ok(cwd === clone ? before : after);
-        }
-        if (args.includes('origin/main^{commit}')) return ok(`${TIP}\n`);
-        if (args[0] === 'rev-parse' && !args.includes('--show-object-format')) return failed('');
-        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
-        return undefined;
-      });
-
-      await open(git).create(attempt, 'origin/main');
-
-      const updates = calls.flatMap((call, i) =>
-        call.includes('update-ref') ? [{ cwd: call[0], stdin: options[i]?.stdin }] : [],
-      );
-      assert.deepEqual(updates, [
-        {
-          cwd: own,
-          stdin: `update refs/remotes/origin/HEAD ${BASE}\nupdate refs/remotes/origin/main ${BASE}\nupdate refs/remotes/origin/old ${OLD}\n`,
-        },
-        {
-          cwd: clone,
-          stdin: `update refs/remotes/origin/main ${TIP}\nupdate refs/remotes/origin/new ${TIP}\n`,
-        },
-      ]);
-      const fetch = calls.findIndex((call) => call.includes('fetch'));
-      assert.equal(options[fetch]?.env?.GIT_OBJECT_DIRECTORY, join(clone, '.git', 'objects'));
-      assert.deepEqual(options[fetch]?.config, {
-        'core.hooksPath': devNull,
-        'gc.auto': '0',
-        'maintenance.auto': 'false',
-      });
-      assert.equal(existsSync(join(own, 'f1.git')), false);
-    });
-
-    it('prunes the tracking refs the remote no longer has, before the updates, and keeps origin/HEAD (review of #266)', async () => {
-      const OLD = 'a'.repeat(40);
-      const { calls, options, git } = fakeGit((cwd, args) => {
-        if (args.includes('for-each-ref')) {
-          // The remote deleted x and made x/y: git cannot have both refs at once.
-          const before = `${BASE} refs/remotes/origin/HEAD\n${BASE} refs/remotes/origin/main\n${OLD} refs/remotes/origin/x\n`;
-          const after = `${BASE} refs/remotes/origin/main\n${TIP} refs/remotes/origin/x/y\n`;
-          return ok(cwd === clone ? before : after);
-        }
-        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
-        if (args[0] === 'rev-parse') return failed('');
-        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
-        return undefined;
-      });
-
-      await open(git).create(attempt, 'origin/main');
-
-      const fetch = calls.find((call) => call.includes('fetch'));
-      assert.ok(fetch?.includes('--prune'), fetch?.join(' '));
-      const written = calls.flatMap((call, i) =>
-        call[0] === clone && call.includes('update-ref') ? [options[i]?.stdin] : [],
-      );
-      assert.deepEqual(written, [
-        `delete refs/remotes/origin/x ${OLD}\n`,
-        `update refs/remotes/origin/x/y ${TIP}\n`,
-      ]);
-    });
-
-    it('fetches into a partial clone with its filter, from the URL Foedrum names as a promisor of its own git directory, so a delta of a file the clone lacks resolves (review of #266)', async () => {
-      const own = join(workRoot, 'git');
-      const gitDir = `--git-dir=${join(own, 'f1.git')}`;
-      const { calls, options, git } = fakeGit((_cwd, args) => {
-        // As git 2.56 makes a blobless clone: a promisor remote, no extensions.partialClone.
-        if (args.includes('--get-regexp')) return ok('remote.origin.promisor true\n');
-        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
-        if (args[0] === 'rev-parse') return failed('');
-        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
-        return undefined;
-      });
-
-      await open(git).create(attempt, 'origin/main');
-
-      const configs = calls.filter((call) => call[1] === gitDir && call[2] === 'config');
-      assert.deepEqual(
-        configs.map((call) => call.slice(2)),
-        [
-          ['config', 'core.repositoryformatversion', '1'],
-          ['config', 'extensions.partialClone', 'foedrum'],
-        ],
-      );
-      const fetch = calls.findIndex((call) => call.includes('fetch'));
-      assert.deepEqual(calls[fetch]?.slice(-4), [
-        '--filter=blob:none',
-        '--end-of-options',
-        'foedrum',
-        '+refs/heads/*:refs/remotes/origin/*',
-      ]);
-      assert.deepEqual(options[fetch]?.config, {
-        'remote.foedrum.url': url,
-        'remote.foedrum.promisor': 'true',
-        'remote.foedrum.partialclonefilter': 'blob:none',
-        'core.hooksPath': devNull,
-        'gc.auto': '0',
-        'maintenance.auto': 'false',
-      });
-    });
-
-    it('fetches a clone whose promisor setting is false as a full clone, by the URL, with no promisor (review of #266)', async () => {
-      const gitDir = `--git-dir=${join(workRoot, 'git', 'f1.git')}`;
-      const { calls, git } = fakeGit((_cwd, args) => {
-        if (args.includes('--get-regexp')) return ok('remote.origin.promisor false\n');
-        if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
-        if (args[0] === 'rev-parse') return failed('');
-        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
-        return undefined;
-      });
-
-      await open(git).create(attempt, 'origin/main');
-
-      assert.deepEqual(
-        calls.filter((call) => call[1] === gitDir && call[2] === 'config'),
-        [],
-      );
-      const fetch = calls.find((call) => call.includes('fetch'));
-      assert.equal(fetch?.at(-2), url);
-      assert.ok(!fetch?.some((arg) => arg.startsWith('--filter')), fetch?.join(' '));
-    });
-
-    it('runs every git call in the clone with no transport, hook or fsmonitor, and the checkout with no hook or fsmonitor (ADR 0096)', async () => {
+    it('runs every git call in the clone with no hook or fsmonitor (ADR 0137)', async () => {
       const { calls, options, git } = fakeGit((_cwd, args) => {
         if (args.includes('origin/main^{commit}')) return ok(`${BASE}\n`);
         if (args[0] === 'rev-parse' && !args.includes('--show-object-format')) return failed('');
@@ -244,16 +105,31 @@ describe('openAttemptWorktrees with a fake git', () => {
       const inClone = calls.flatMap((call, i) => (call[0] === clone ? [{ call, i }] : []));
       assert.ok(inClone.length >= 5, String(inClone.length));
       for (const { call, i } of inClone) {
-        const { env, config } = options[i] ?? {};
+        const { config } = options[i] ?? {};
         assert.equal(config?.['core.hooksPath'], devNull, call.join(' '));
         assert.equal(config?.['core.fsmonitor'], 'false', call.join(' '));
-        if (call[1] === 'worktree' && call[2] === 'add') continue;
-        // The checkout of a partial clone downloads its files; nothing else in the clone may.
-        assert.equal(config?.['protocol.allow'], 'never', call.join(' '));
-        assert.equal(env?.GIT_NO_LAZY_FETCH, '1', call.join(' '));
-        // Over any protocol.<name>.allow of the clone's configuration (review of #266).
-        assert.equal(env?.GIT_ALLOW_PROTOCOL, '', call.join(' '));
       }
+    });
+
+    it('fetches by the remote it is given', async () => {
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args.includes('upstream/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse') return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+      const worktrees = openAttemptWorktrees({
+        git,
+        workRoot,
+        repo: 'acme/app',
+        clone,
+        remote: 'upstream',
+        own: { url, root: join(workRoot, 'git') },
+      });
+
+      await worktrees.create(attempt, 'upstream/main');
+
+      assert.equal(calls.find((call) => call.includes('fetch'))?.at(-1), 'upstream');
     });
 
     it('throws, without adding anything, when the fetch or the base fails', async () => {
