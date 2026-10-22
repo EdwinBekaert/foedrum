@@ -1,6 +1,6 @@
 # 0076. Check steps run in an OS sandbox of Foedrum's own, with no network
 
-Date: 2026-10-22 · Status: Accepted · Amends [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (checks no longer run outside the OS sandbox)
+Date: 2026-10-22 · Status: Accepted · Amends [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (checks no longer run outside the OS sandbox), [0010](0010-cross-platform-and-isolation-levels.md) (the minimum level's first use; bubblewrap for check steps on Linux) and [0031](0031-cmd-and-bat-files-through-cmd-exe.md) (a check's line reaches `/bin/sh -c` as arguments of the sandbox)
 
 ## Context
 A gravity reading runs a repository's command line (`npm test`, `make`) in an attempt worktree of its own (ADR 0069). What that line runs is code an earlier brewer may have written: `npm test` runs the worktree's `package.json` script, which a brewer steered by an injected issue can change. ADR 0069 ran it as the Cellar's user, with the network and the home folder, and said so in one line at `foedrum serve`'s start. Since [ADR 0073](0073-github-only-through-gh-s-own-login.md) the maintainer's GitHub login lives in `gh`'s keyring, so such a script could run `gh auth token` or `gh api` and act as the maintainer (#190).
@@ -25,9 +25,9 @@ We test our wrapper's arguments and profile, and in `test/integration/` that a r
 | Native Windows | as before: cmd.exe through `shellCommand` in a Job Object (ADR 0069, ADR 0039) |
 
 - **The wrapper is a process runner** (`sandboxedChecks`, `src/platform/check-sandbox.ts`): `serve`'s shell hands the check runner a runner that starts each command line through the sandbox and otherwise passes the call to `execProcess`, so the deadline, the stop, the output limit and the tree kill (ADR 0035) are the same. The arguments are built by pure functions (`bwrapArgs`, `seatbeltArgs`), tested with a fake runner.
-- **Never unsandboxed outside Windows.** On Linux and macOS a check whose sandbox cannot start (no `bwrap` on `PATH`, no `/usr/bin/sandbox-exec`) does not run: it reads `unstarted` with the reason, and the step is blocked on its environment (ADR 0069's table). ADR 0010's permissions-only Linux (bubblewrap or socat missing, WSL 1) therefore needs bubblewrap for check steps; `foedrum doctor` already asks for it. On WSL 1, where bwrap cannot make its namespaces, the check is unstarted with bwrap's own message.
-- **Native Windows** has no sandbox for shell commands (ADR 0010), and brewers there are not OS-sandboxed either, so a check adds no new reach. It runs as ADR 0069 says, and each reading of a command that ran says `"unsandboxed": true`, so the event log and the state branch show it. `foedrum serve`'s start line about checks outside the sandbox now prints only on native Windows: `check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)`.
-- **A Brewery that requires the sandboxed level** (`"isolation": { "minimum": "sandboxed" }` in `foedrum.jsonc`, ADR 0010) and has a check step does not start serve below it: `serveSetup` refuses with `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (<doctor's why>) (ADR 0076)`. It is the first use of the key: ADR 0010's refusal of writing brewers below the minimum is not built yet, and is not this decision's.
+- **Never unsandboxed outside Windows.** On Linux and macOS a check whose sandbox cannot start (no `bwrap` on `PATH`, no `/usr/bin/sandbox-exec`) does not run: it reads `unstarted` with the reason, and the step is blocked on its environment (ADR 0069's table). ADR 0010's permissions-only Linux (bubblewrap or socat missing, WSL 1) therefore needs bubblewrap for check steps; `foedrum doctor` already asks for it. Where the sandbox itself fails before the command line runs (WSL 1, or a kernel or AppArmor rule against unprivileged namespaces, where bwrap cannot make its namespaces; a sandbox-exec that cannot apply its profile), the tool says so on stderr under its own name (`bwrap: …`, `sandbox-exec: …`) and exits non-zero: that run is read as `unstarted` with the tool's message, never as a failed check. A check that prints such a line itself only blocks its own step. So does a home folder, worktree or temporary folder that cannot be resolved or made.
+- **Native Windows** has no sandbox for shell commands (ADR 0010), and brewers there are not OS-sandboxed either, so a check adds no new reach. It runs as ADR 0069 says, and each reading of a command that ran says `"unsandboxed": true`, so the event log and the state branch show it to whoever reads them without knowing the Cellar's platform (`foedrum replay`, a reviewer of the state branch). `foedrum serve`'s start line about checks outside the sandbox now prints only on native Windows: `check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)`.
+- **A Brewery that requires the sandboxed level** (`"isolation": { "minimum": "sandboxed" }` in `foedrum.jsonc`, ADR 0010) and has a check step does not start serve below it: `serveSetup` refuses with `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (<doctor's why>) (ADR 0076)`. It is the first use of the key: ADR 0010's refusal of writing brewers below the minimum is not built yet, and is not this decision's. The key takes `sandboxed` and `permissions only`, the levels doctor finds; the container level joins it when Foedrum runs brewers in containers.
 
 ### Linux and WSL2: bwrap
 In this order, since bwrap applies them in order:
@@ -38,9 +38,9 @@ In this order, since bwrap applies them in order:
 | `--unshare-net` | No network: a namespace of its own with no interface to the host's |
 | `--ro-bind / /` | The system read-only: compilers, interpreters and the libraries they load |
 | `--dev /dev --proc /proc` | A device and process tree of the sandbox's own |
-| `--tmpfs /tmp --tmpfs /run` | A writable temporary folder that goes with the sandbox, and `/run` hidden: it holds the user's D-Bus socket (`/run/user/<uid>/bus`), through which the Secret Service hands out gh's login. A socket on a read-only bind can still be connected to, so hiding is what closes it |
+| `--tmpfs /tmp --tmpfs /run` | A writable temporary folder that goes with the sandbox, and `/run` hidden: it holds the user's D-Bus socket (`/run/user/<uid>/bus`), through which the Secret Service hands out gh's login, and on WSL2 the interop socket that starts Windows programs outside the sandbox. A socket on a read-only bind can still be connected to, so hiding is what closes it. A system that keeps its programs under `/run` (NixOS's `/run/current-system`) does not suit check steps |
 | `--tmpfs <home>` | The home folder hidden, replaced by an empty writable one that goes with the sandbox: tools that write a cache under `~` still run |
-| `--ro-bind <git dir> <git dir>` | The worktree's repository, read-only, when the worktree's `.git` file names one: git commands in a check read the history (the clone sits under the work root, often in the home folder) |
+| `--ro-bind <git dir> <git dir>` | The worktree's repository, read-only, when the worktree's `.git` file names a record `<repository>/worktrees/<name>` whose `gitdir` file names that `.git` back: git commands in a check read the history (the clone sits under the work root, often in the home folder). A check writes its worktree, `.git` included, so without the record's answer a check could name the home folder or `/run` for a later check of the step to have bound in (review of #357); git writes the record, outside every check's reach |
 | `--bind <worktree> <worktree>` | The worktree writable, last, so it is mounted over the hidden home it may sit in |
 | `--chdir <worktree> --setenv TMPDIR /tmp` | Start in the worktree; temp files in the sandbox's `/tmp` |
 
@@ -55,11 +55,12 @@ One profile for every check, with the paths as parameters (`-D`), never written 
 (deny network*)
 (deny mach-lookup (global-name "com.apple.SecurityServer"))
 (deny file-write*)
-(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null"))
+(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))
 (deny file-read* (subpath (param "HOME")))
 (allow file-read* (subpath (param "WORKTREE")) (subpath (param "GIT_DIR")))
 ```
 
+- Writes are allowed only in the worktree, `TEMP`, and the check's own output and terminal (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, `/dev/fd/*`). Unlike Linux, where `/tmp` is the sandbox's own, `/tmp` itself is not writable: a check that writes a fixed `/tmp` path fails on macOS; use `TMPDIR`.
 - `TEMP` is a folder Foedrum makes for the check under the system temp folder (`os.tmpdir()`) and removes after it; the check gets it as `TMPDIR` and as `HOME`, so tools that write under `~` find an empty home they may write. `GIT_DIR` is the worktree's repository, as on Linux, or the worktree again when it has none. All are real paths: Seatbelt matches real paths, and macOS's temp folder is under the link `/var`.
 - `com.apple.SecurityServer` is the Keychain's service, where gh keeps its login on macOS (ADR 0073): denied, so `security find-generic-password` gets nothing.
 
@@ -77,7 +78,7 @@ A check reads a tree; it fetches nothing. Dependencies are installed before it b
 - A check that needs the network (a test against a live service, an install) fails in the sandbox until its repository moves that to `setup` (#349); one that needs a toolchain installed in the home folder (`~/.nvm`, `~/.cargo`, `~/.rustup`, `~/.sdkman`) does not find it. Install toolchains outside the home folder for check steps.
 - `sandbox-exec` is deprecated. When macOS removes it, checks there are unstarted with the reason, never run unsandboxed.
 - A reading may carry `unsandboxed`; existing logs and state branches still fold.
-- `foedrum doctor`'s advice still says check steps run outside the sandbox on every level; it changes with #345, which is rewriting that part of doctor.
+- `foedrum doctor`'s advice still says check steps run outside the sandbox on every level until #190. `src/cli/doctor.ts` is being changed by #345 meanwhile, so that line changes in a follow-up after it merges.
 - The integration test (`test/integration/check-sandbox.test.ts`) runs where the sandbox runs: on macOS, and on Linux where `bwrap` is installed and can make its namespaces; elsewhere it skips with that reason.
 
 ## Alternatives considered
