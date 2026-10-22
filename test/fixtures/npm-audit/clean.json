@@ -1,0 +1,6 @@
+{
+  "npm": "11.19.0",
+  "exitCode": 0,
+  "stdout": "{\n  \"auditReportVersion\": 2,\n  \"vulnerabilities\": {},\n  \"metadata\": {\n    \"vulnerabilities\": {\n      \"info\": 0,\n      \"low\": 0,\n      \"moderate\": 0,\n      \"high\": 0,\n      \"critical\": 0,\n      \"total\": 0\n    },\n    \"dependencies\": {\n      \"prod\": 2,\n      \"dev\": 32,\n      \"optional\": 28,\n      \"peer\": 0,\n      \"peerOptional\": 0,\n      \"total\": 33\n    }\n  }\n}\n",
+  "stderr": ""
+}
