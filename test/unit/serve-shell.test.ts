@@ -94,6 +94,31 @@ describe('serveShell', () => {
     assert.deepStrictEqual(started, ['/usr/bin/bwrap']);
   });
 
+  it("starts a repository's setup as it is, outside the OS sandbox, with the network (ADR 0140)", async () => {
+    const { git } = fakeGit();
+    const started: string[] = [];
+    const checks = {
+      exec: async (file: string) => {
+        started.push(file);
+        return { exitCode: 0, stdout: '', stderr: '', output: '' };
+      },
+      platform: 'linux' as const,
+      findBwrap: () => '/usr/bin/bwrap',
+      realPath: (path: string) => path,
+      gitDirOf: () => undefined,
+      home: '/home/brewer',
+    };
+    const shell = serveShell(setup, {
+      root: 'brewery',
+      git,
+      out: () => {},
+      listen: () => {},
+      checks,
+    });
+    await shell.setup('npm ci', [], { cwd: '/work/wt', shell: true });
+    assert.deepStrictEqual(started, ['npm ci']);
+  });
+
   const managed = () => join(workRoot, 'acme.web', 'clone.git');
   const gitDirs = () => join(workRoot, 'acme.web', 'git-dirs');
   const github = 'https://github.com/acme/web.git';

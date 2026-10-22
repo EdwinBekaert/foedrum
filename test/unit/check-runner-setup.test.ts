@@ -60,11 +60,15 @@ const run = ({
   /** `null`: the repository has no setup. */
   prepare = { command: 'npm ci', timeout: '10m' } as RepositorySetup | null,
   script = {} as Script,
+  /** How the test check answers. */
+  check = { output: 'ok 1\n' } as Script,
+  /** `false`: foedrum.jsonc lists no checks of the repository. */
+  listed = true,
   platform = 'linux' as NodeJS.Platform,
   clock = () => now,
 } = {}) => {
   const calls: string[] = [];
-  const checks = fakeExec('check', calls, { output: 'ok 1\n' });
+  const checks = fakeExec('check', calls, check);
   const setup = fakeExec('setup', calls, script);
   const stepChecks: StepChecks = {
     find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? ['test'] : undefined),
@@ -76,13 +80,10 @@ const run = ({
   const runner = createCheckRunner({
     state: () => fold(events),
     checks: stepChecks,
-    repositoryChecks: () => ({
-      build: null,
-      typecheck: null,
-      lint: null,
-      format: null,
-      test: 'npm test',
-    }),
+    repositoryChecks: () =>
+      listed
+        ? { build: null, typecheck: null, lint: null, format: null, test: 'npm test' }
+        : undefined,
     testReport: () => undefined,
     exec: checks.exec,
     setup: {
@@ -205,6 +206,15 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
       unstarted.ending,
       environment('the setup "npm ci" could not start: spawn /bin/sh ENOENT'),
     );
+  });
+
+  it('runs no setup for a step that is blocked before its checks: the repository lists none', async () => {
+    const { calls, started } = run({ listed: false });
+    const end = await started.ended;
+    assert.deepEqual(calls, []);
+    assert.deepEqual(end, {
+      ending: environment('foedrum.jsonc lists no checks of acme/api for the check "test"'),
+    });
   });
 
   it('kills the setup when the engine stops the attempt: it is cancelled', async () => {

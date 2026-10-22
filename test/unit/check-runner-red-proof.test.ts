@@ -207,6 +207,13 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
+  it('runs no setup for a red proof that is blocked before its run: no test report (ADR 0140)', async () => {
+    const { order, run } = setup({ prepare: 'npm ci', report: null });
+    const end = await run();
+    assert.equal(end.ending.kind, 'blocked');
+    assert.deepEqual(order, []);
+  });
+
   it('says on native Windows that the red run ran unsandboxed (ADR 0076)', async () => {
     const end = await setup({ platform: 'win32' }).run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
