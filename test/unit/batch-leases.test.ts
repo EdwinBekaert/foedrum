@@ -129,8 +129,8 @@ describe('takeOver (ADR 0124)', () => {
     store = {
       ...inner,
       withTransaction: (fn) => {
-        lease('cellar', at(8));
         store = inner;
+        lease('cellar', at(8));
         return inner.withTransaction(fn);
       },
     };
