@@ -135,6 +135,35 @@ describe('sandboxedChecks on Linux and WSL2: bwrap', () => {
     ]);
   });
 
+  it('reads a bwrap that could not make its sandbox as a check that could not start, with its message', async () => {
+    const stderr = 'bwrap: setting up uid map: Permission denied\n';
+    const { exec } = fake({ exitCode: 1, stderr, output: stderr });
+    const run = sandboxedChecks(options(exec, { platform: 'linux' }));
+    const result = await run(line, [], call);
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.output, /bwrap: setting up uid map: Permission denied/);
+  });
+
+  it("keeps a check's own failure, whatever it prints", async () => {
+    const output = 'not ok 1 - bwrap: not mentioned first\n';
+    const { exec } = fake({ exitCode: 1, stdout: output, output });
+    const run = sandboxedChecks(options(exec, { platform: 'linux' }));
+    assert.equal((await run(line, [], call)).exitCode, 1);
+  });
+
+  it('does not run the line when a path cannot be resolved: it could not start, and says why', async () => {
+    const { calls, exec } = fake();
+    const realPath = (): string => {
+      throw new Error('EACCES: permission denied');
+    };
+    const run = sandboxedChecks(options(exec, { platform: 'linux', realPath }));
+    const result = await run(line, [], call);
+    assert.deepEqual(calls, []);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /EACCES/);
+  });
+
   it('does not run the line without bwrap: it could not start, and says why', async () => {
     const { calls, exec } = fake();
     const run = sandboxedChecks(options(exec, { platform: 'linux', findBwrap: () => undefined }));
@@ -199,7 +228,7 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
         '(deny network*)',
         '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
         '(deny file-write*)',
-        '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null"))',
+        '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))',
         '(deny file-read* (subpath (param "HOME")))',
         '(allow file-read* (subpath (param "WORKTREE")) (subpath (param "GIT_DIR")))',
         '',
@@ -223,6 +252,34 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
     );
     await assert.rejects(run(line, [], call), /spawn failed/);
     assert.deepEqual(removed, [temp]);
+  });
+
+  it('reads a sandbox-exec that could not apply its profile as a check that could not start', async () => {
+    const stderr = 'sandbox-exec: sandbox_apply: Operation not permitted\n';
+    const { exec } = fake({ exitCode: 71, stderr, output: stderr });
+    const run = sandboxedChecks(options(exec, { platform: 'darwin', temp: folders().temp }));
+    const result = await run(line, [], call);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /sandbox-exec: sandbox_apply: Operation not permitted/);
+  });
+
+  it('does not run the line when its temporary folder cannot be made: it could not start, and says why', async () => {
+    const { calls, exec } = fake();
+    const { removed } = folders();
+    const temp = {
+      make: (): string => {
+        throw new Error('ENOSPC: no space left on device');
+      },
+      remove: async (path: string) => {
+        removed.push(path);
+      },
+    };
+    const run = sandboxedChecks(options(exec, { platform: 'darwin', temp }));
+    const result = await run(line, [], call);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(removed, []);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /ENOSPC/);
   });
 
   it('does not run the line without sandbox-exec: it could not start, and says why', async () => {
@@ -266,11 +323,42 @@ describe('worktreeGitDir', () => {
     return { dir, path };
   };
 
-  it("names the repository a linked worktree's record sits in", () => {
-    const repository = join('/work', 'clone', '.git');
-    const { dir, path } = worktreeWith(`gitdir: ${join(repository, 'worktrees', 'green-1')}\n`);
+  /** A repository with the record of a linked worktree whose `gitdir` file holds `back`. */
+  const recordIn = (dir: string, back: string) => {
+    const repository = join(dir, 'clone', '.git');
+    const record = join(repository, 'worktrees', 'green-1');
+    mkdirSync(record, { recursive: true });
+    writeFileSync(join(record, 'gitdir'), `${back}\n`);
+    return { repository, record };
+  };
+
+  it("names the repository a linked worktree's record sits in, when the record names the worktree back", () => {
+    const { dir } = worktreeWith(undefined);
     try {
-      assert.equal(worktreeGitDir(path), repository);
+      const { repository, record } = recordIn(dir.path, join(dir.path, 'linked', '.git'));
+      const linked = join(dir.path, 'linked');
+      mkdirSync(linked);
+      writeFileSync(join(linked, '.git'), `gitdir: ${record}\n`);
+      assert.equal(worktreeGitDir(linked), repository);
+    } finally {
+      dir.remove();
+    }
+  });
+
+  // A check writes its worktree, `.git` included: a later check of the step must not get the
+  // home folder or /run bound back in by naming it there (review of #357).
+  it('names none when the record does not name the worktree back, as a rewritten .git would', () => {
+    const { dir, path } = worktreeWith(undefined);
+    try {
+      const { record } = recordIn(dir.path, join(dir.path, 'other', '.git'));
+      const forged = join(dir.path, 'forged');
+      mkdirSync(forged);
+      writeFileSync(join(forged, '.git'), `gitdir: ${record}\n`);
+      assert.equal(worktreeGitDir(forged), undefined);
+      // A folder that is no worktree record, such as the home folder.
+      writeFileSync(join(forged, '.git'), `gitdir: ${join(dir.path, 'home')}\n`);
+      assert.equal(worktreeGitDir(forged), undefined);
+      assert.equal(worktreeGitDir(path), undefined);
     } finally {
       dir.remove();
     }
@@ -285,10 +373,13 @@ describe('worktreeGitDir', () => {
     }
   });
 
-  it('resolves a relative record against the worktree, and keeps one outside worktrees/', () => {
-    const { dir, path } = worktreeWith('gitdir: ../repo.git\r\n');
+  it('resolves a relative record against the worktree, and names none outside worktrees/', () => {
+    const { dir, path } = worktreeWith('gitdir: ../clone/.git/worktrees/green-1\r\n');
     try {
-      assert.equal(worktreeGitDir(path), join(dir.path, 'repo.git'));
+      const { repository } = recordIn(dir.path, join(path, '.git'));
+      assert.equal(worktreeGitDir(path), repository);
+      writeFileSync(join(path, '.git'), 'gitdir: ../repo.git\n');
+      assert.equal(worktreeGitDir(path), undefined);
     } finally {
       dir.remove();
     }
