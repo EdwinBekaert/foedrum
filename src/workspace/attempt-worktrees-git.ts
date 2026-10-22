@@ -4,7 +4,6 @@
 
 import { type Dirent, existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
-import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
@@ -29,7 +28,7 @@ import {
   type Target,
   worktreeStatus,
 } from './attempt-worktrees.ts';
-import { fetchIntoClone, gitWith, inClone, type OwnRemote } from './clone-git.ts';
+import { inClone, type OwnRemote } from './clone-git.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 import { parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
@@ -47,11 +46,11 @@ export interface AttemptWorktreesOptions {
    * managed clone (`source: managed`, from `ensureManagedClone`).
    */
   clone: string;
-  /** The clone's remote whose tracking refs (`refs/remotes/<remote>/`) the fetch moves; default `origin`. */
+  /** The clone's remote the fetch reaches; default `origin`. */
   remote?: string;
   /**
-   * The remote as Foedrum names it, which the fetch reaches from a git directory of its own,
-   * never through the clone's configuration (ADR 0096).
+   * The remote as Foedrum names it: its `root` is where the base fetch makes its git directories,
+   * which the cleanup clears of what a stopped call left (ADR 0130, ADR 0137).
    */
   own: OwnRemote;
   /** The clock for the age of a stale index.lock. */
@@ -219,13 +218,8 @@ export const cleanOwnGitDirs = async (
 
 export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptWorktrees => {
   const { workRoot, repo, clone, own, remote = 'origin', now = Date.now } = options;
-  // Every attempt worktree shares the clone's configuration, which a brewer can write: git there
-  // runs with no transport, hook or fsmonitor (ADR 0096).
+  // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
   const git = inClone(options.git);
-  // The checkout of a partial clone downloads its files, so it keeps its transport.
-  const checkout = gitWith(options.git, {
-    config: { 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
-  });
   const root = join(workRoot, repoFolder(repo), 'attempts');
   const okGit = gitThrough(git);
   // git lists worktrees by their real path, so the attempts root is compared through links
@@ -264,11 +258,20 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     const status = await statusOf(okGit, clone, record, path);
     return status.ok ? worktreeStatus(status.stdout, outDoc) : { state: 'dirty' };
   };
-  // One fetch at a time: concurrent fetches write the same refs of the clone.
+  // One fetch at a time: concurrent fetches in one clone fail on git's ref locks. With `--prune`,
+  // a branch the remote deleted and made again as a folder never stops it (review of #266). No
+  // maintenance that would outlive the call, and no submodule's remote (review of #370).
   let fetching: Promise<unknown> = Promise.resolve();
-  const fetchOnce = (): Promise<void> => {
+  const fetchArgs = [
+    'fetch',
+    '--quiet',
+    '--prune',
+    '--no-auto-maintenance',
+    '--no-recurse-submodules',
+  ];
+  const fetchOnce = (): Promise<string> => {
     const fetched = fetching.then(() =>
-      fetchIntoClone(options.git, clone, own, { remote, timeoutMs: FETCH_TIMEOUT_MS }),
+      must(git, clone, [...fetchArgs, remote], { timeoutMs: FETCH_TIMEOUT_MS }),
     );
     fetching = fetched.catch(() => undefined);
     return fetched;
@@ -307,7 +310,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
           await removeWorktree(okGit, clone, { kind: 'prune', record: plan.prune });
         }
         const args = plan.newBranch ? ['-b', branch, '--', path, plan.at] : ['--', path, branch];
-        await must(checkout, clone, ['worktree', 'add', ...args], { timeoutMs: FETCH_TIMEOUT_MS });
+        await must(git, clone, ['worktree', 'add', ...args], { timeoutMs: FETCH_TIMEOUT_MS });
         return { path, branch, commit: plan.newBranch ? plan.at : (branchTip ?? '') };
       }
       default: {
