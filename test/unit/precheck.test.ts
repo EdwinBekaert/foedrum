@@ -655,6 +655,14 @@ describe('precheck on a push from another directory', () => {
     const { result } = await gate('cd "$d" && git status');
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
   });
+
+  // The push before it checked the tree the pull request opens (ADR 0135).
+  it('lets gh pr create through from a directory computed at run time, checking nothing', async () => {
+    const { result, checks, heads } = await gate('cd "$d" && gh pr create --draft');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(checks, []);
+    assert.deepEqual(heads, []);
+  });
 });
 
 describe('precheck on a push from outside the project', () => {
@@ -712,6 +720,14 @@ describe('precheck on a push from outside the project', () => {
       assert.deepEqual(lookups, []);
     });
   }
+
+  // gh pr create runs none of that tree's code (ADR 0135).
+  it('lets gh pr create through from outside the project, running nothing there', async () => {
+    const { result, checks, heads } = await gate('cd ../other && gh pr create --draft');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(checks, []);
+    assert.deepEqual(heads, []);
+  });
 
   it('checks a tree inside the project', async () => {
     const { result, checks, asked } = await gate('git -C ../wt push');
@@ -1746,6 +1762,17 @@ describe('precheck on gh pr ready', () => {
       assert.deepEqual(checks, []);
     });
   }
+
+  // Opening a pull request pushes nothing, so the lookup sees the head it marks ready (ADR 0135).
+  it('looks the pull request up when gh pr create is in the same command', async () => {
+    const { result, lookups, checks } = await ready(
+      'gh pr create --draft && gh pr ready 160',
+      facts([summary(c3.sha)], [c1, c2, c3]),
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(lookups, [['/work/tree', { pr: '160' }]]);
+    assert.deepEqual(checks, []);
+  });
 
   it('looks up the repository of the last -R, as gh does', async () => {
     const { lookups } = await ready(
