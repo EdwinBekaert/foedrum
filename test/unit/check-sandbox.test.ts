@@ -277,6 +277,33 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
     assert.match(result.output, /sandbox-exec: sandbox_apply: Operation not permitted/);
   });
 
+  it('gives the temporary folder by its real path: Seatbelt matches real paths, and macOS keeps it under the /var link', async () => {
+    const { calls, exec } = fake();
+    const { removed, temp: made } = folders();
+    const realPath = (path: string) => (path === temp ? `/real${temp}` : path);
+    const run = sandboxedChecks(options(exec, { platform: 'darwin', temp: made, realPath }));
+    await run(line, [], call);
+    assert.equal(calls[0]?.args[7], `TEMP=/real${temp}`);
+    assert.equal(calls[0]?.options.env?.TMPDIR, `/real${temp}`);
+    assert.equal(calls[0]?.options.env?.HOME, `/real${temp}`);
+    assert.deepEqual(removed, [temp]);
+  });
+
+  it('removes the temporary folder when its real path cannot be read, running nothing', async () => {
+    const { calls, exec } = fake();
+    const { removed, temp: made } = folders();
+    const realPath = (path: string) => {
+      if (path === temp) throw new Error('ELOOP: too many links');
+      return path;
+    };
+    const run = sandboxedChecks(options(exec, { platform: 'darwin', temp: made, realPath }));
+    const result = await run(line, [], call);
+    assert.deepEqual(calls, []);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /ELOOP/);
+    assert.deepEqual(removed, [temp]);
+  });
+
   it("keeps the check's result when its temporary folder cannot be removed, and says so", async () => {
     const { exec } = fake({ exitCode: 1, output: 'not ok 1\n' });
     const temp = {
