@@ -766,6 +766,33 @@ describe('openDriver', () => {
       );
     });
 
+    it('makes no worktree of an attempt another driver leased after the pass read its leases (ADR 0124)', async () => {
+      const { runner, started } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const key = attemptKey.encode(plan('b1'));
+      const other = { attemptKey: key, owner: 'session-7', expiresAt: at(5) };
+      // Once armed, the first transaction of the drive (the claim) ends with session-7, which lost
+      // the batch to a takeover, leasing plan#1 to start it.
+      let armed = false;
+      const late: EventStore = {
+        ...store,
+        withTransaction: (fn) => {
+          const result = store.withTransaction(fn);
+          if (armed) {
+            armed = false;
+            store.withTransaction((tx) => tx.putLease(other));
+          }
+          return result;
+        },
+      };
+      const driver = await open({ runner, store: late, ...worktreesOf(manager) });
+      armed = true;
+      await driver.drive();
+      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(store.currentLeases(now), [other]);
+    });
+
     it('gives the cleanup the out doc of each step of the ended batch (ADR 0081)', async () => {
       const { runner, end } = handRunner();
       const manager = fakeWorktrees();

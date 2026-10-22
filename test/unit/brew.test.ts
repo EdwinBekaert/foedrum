@@ -592,6 +592,20 @@ describe('runBrew', () => {
       assert.equal(started.length > 0, true);
     });
 
+    it('takes nothing over when it refuses the batch for its labels: exit 5', async () => {
+      log().issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '14-1', owner: 'cellar', expiresAt: cellarUntil }),
+      );
+      const two = { ...takes, target: { issue: 14 } };
+      assert.equal(await runBrew(setup, shell(behave.succeed()), two), 5);
+      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
+      assert.equal(
+        store.batchLeases(t0).find(({ batchId }) => batchId === '14-1')?.owner,
+        'cellar',
+      );
+    });
+
     it('brews as before when no other driver holds the batch, recording no handover', async () => {
       store.withTransaction((tx) => tx.releaseBatchLease('12-1'));
       assert.equal(await runBrew(setup, shell(behave.succeed()), takes), 0);
