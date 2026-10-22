@@ -154,9 +154,9 @@ export const runBrew = async (
       );
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
-    // --take: the batch is this driver's at once; the one that held it stops (ADR 0124).
     if (leased !== undefined) {
+      if (request.take !== true) return refuse(drivenBy(leased));
+      // --take: the batch is this driver's at once; the one that held it stops (ADR 0124).
       const handover = { batchId: leased.batchId, owner, by, via, now: clock(), leaseMs };
       const decision = takeOver(log, handover);
       if (decision.kind === 'refused') return refuse(decision.reason);
