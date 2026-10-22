@@ -1329,6 +1329,25 @@ describe('precheck on words split by line continuations', () => {
       assert.equal(forbiddenReason(command), FORCE);
     });
   }
+  for (const newline of ['\n', '\r\n']) {
+    const command = `git "pu\\${newline}sh" -f`;
+    it(`blocks a force push split inside double quotes: ${JSON.stringify(command)}`, () => {
+      assert.equal(forbiddenReason(command), FORCE);
+    });
+    it(`runs the check like git push: ${JSON.stringify(`git "pu\\${newline}sh"`)}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const command = `git "pu\\${newline}sh"`;
+      const input = JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      const result = await precheck(input, runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, ['/work/tree']);
+    });
+  }
+
   // A backslash before n that is no line continuation keeps its n, in the raw input as in the
   // command (#158, review of #355).
   const backslashN: string[] = [
