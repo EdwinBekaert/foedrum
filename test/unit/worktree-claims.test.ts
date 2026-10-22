@@ -14,7 +14,6 @@ import {
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { planClean } from '../../src/workspace/attempt-worktrees.ts';
-import { sessionRef } from '../helpers/sessions.ts';
 
 const batch = (id: string, lane: Lane): Batch => ({
   id,
@@ -647,11 +646,11 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
         batchId: '3-1',
         stepId: 'implement',
         attempt,
-        session: sessionRef({
+        session: {
           id: session.id,
           ...(session.resumes === undefined ? {} : { resumes: session.resumes }),
           worktree: path(own),
-        }),
+        },
         ...(session.in === undefined
           ? {
               worktree: {

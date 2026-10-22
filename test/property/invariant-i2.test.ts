@@ -10,7 +10,6 @@ import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
 import { forEachSeed, holdsInScenarios } from '../helpers/property.ts';
-import { sessionRef } from '../helpers/sessions.ts';
 
 it('I2: at most one live lease per attempt and per worktree', () =>
   holdsInScenarios({
@@ -64,11 +63,11 @@ it('I2 with resumed attempts: each live lease claims the worktree it runs in and
             {
               type: 'step.started',
               ...ref,
-              session: sessionRef({
+              session: {
                 id,
                 ...(resumed === undefined ? {} : { resumes: resumed.id }),
                 worktree,
-              }),
+              },
               ...(resumed === undefined
                 ? {
                     worktree: {
