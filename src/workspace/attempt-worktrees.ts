@@ -42,6 +42,23 @@ export const managedClonePath = (workRoot: string, repo: string): string =>
 export const ownGitDirsRoot = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'git-dirs');
 
+/** An entry of the git directories' root. */
+export interface OwnGitDirEntry {
+  name: string;
+  /** Whether it is a directory, not a file or a link. */
+  directory: boolean;
+  /** When it last changed, in ms since the epoch: never before it was made. */
+  modifiedMs: number;
+}
+
+/**
+ * The git directories a stopped call left that a cleanup removes (ADR 0130): `<uuid>.git`
+ * directories older than the floor. Anything else in the root stays.
+ */
+export const planOwnGitDirs = (_entries: readonly OwnGitDirEntry[], _now: number): string[] => {
+  throw new Error('not implemented');
+};
+
 // A path segment that is also a component of a branch name: git refuses `..` anywhere and a
 // `.lock` ending (git check-ref-format).
 const refSegment = (id: string): boolean =>

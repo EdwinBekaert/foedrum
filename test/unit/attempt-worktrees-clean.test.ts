@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
@@ -284,6 +284,65 @@ describe('openAttemptWorktrees with a fake git', () => {
         'removed batch folder 12-1',
       ]);
       assert.equal(existsSync(join(root, '12-1')), false);
+    });
+
+    describe('the git directories of its own a stopped call left (ADR 0130)', () => {
+      const uuid = '0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d';
+      const young = 'f1e2d3c4-b5a6-4978-8a6b-5c4d3e2f1a0b';
+      // In seconds, as utimesSync takes them.
+      const at = 1_800_000_000;
+      const now = () => (at + 2 * 3600) * 1000;
+      const noWorktrees = () =>
+        fakeGit((_cwd, args) => {
+          if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+          if (args[0] === 'worktree' && args[1] === 'list') {
+            return ok(porcelain([{ path: clone, branch: 'main' }]));
+          }
+          return undefined;
+        });
+      const aged = (path: string, seconds: number) => utimesSync(path, seconds, seconds);
+
+      it('removes the old ones, keeps the young, and leaves everything else alone', async () => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        mkdirSync(join(gitDirs, `${uuid}.git`, 'refs', 'heads'), { recursive: true });
+        writeFileSync(join(gitDirs, `${uuid}.git`, 'HEAD'), 'ref: refs/heads/main\n');
+        mkdirSync(join(gitDirs, `${young}.git`));
+        mkdirSync(join(gitDirs, 'notes'));
+        writeFileSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`), 'a file\n');
+        aged(join(gitDirs, `${uuid}.git`), at);
+        aged(join(gitDirs, `${young}.git`), at + 2 * 3600 - 60);
+        aged(join(gitDirs, 'notes'), at);
+        aged(join(gitDirs, `${young.replace('f1', 'a1')}.git`), at);
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended);
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [],
+        });
+        assert.equal(existsSync(join(gitDirs, `${uuid}.git`)), false);
+        assert.ok(existsSync(join(gitDirs, `${young}.git`)));
+        assert.ok(existsSync(join(gitDirs, 'notes')));
+        assert.ok(existsSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`)));
+      });
+
+      it('reports a root it cannot read, and cleans the worktrees still', async () => {
+        mkdirSync(join(path, 'leftover'), { recursive: true });
+        mkdirSync(workRoot, { recursive: true });
+        writeFileSync(join(workRoot, 'git-dirs'), 'not a folder\n');
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended);
+
+        assert.equal(report.failed.length, 1);
+        assert.match(
+          report.failed[0] ?? '',
+          /^could not clean the git directories in .*git-dirs: /,
+        );
+        assert.ok(report.done.includes('removed batch folder 12-1'));
+      });
     });
   });
 });
