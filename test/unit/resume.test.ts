@@ -39,6 +39,10 @@ const S5 = '6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d';
 const commit = (char: string) => char.repeat(40);
 const pathOf = (ref: AttemptRef) => join(workRoot, 'attempts', ref.batchId, ref.stepId, '1');
 
+const recipes = fakeRecipes({
+  pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+});
+
 const loaded = loadRecipes({
   recipes: [
     {
@@ -57,6 +61,7 @@ const loaded = loadRecipes({
         effort: 'high',
         access: 'write',
         tools: { allow: ['Read', 'Edit'], deny: ['WebFetch'] },
+        env: { FOEDRUM_MODE: 'coder' },
       }),
     },
   ],
@@ -104,7 +109,7 @@ describe('foedrum resume (ADR 0126)', () => {
     said = [];
     const log = createCommandLog({
       store,
-      recipes: fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }) }),
+      recipes,
     });
     const issue = (command: Parameters<typeof log.issue>[0]) =>
       assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
@@ -140,7 +145,7 @@ describe('foedrum resume (ADR 0126)', () => {
     // 21-1 planned in S1, then got Stuck implementing in S2; 23-1 brews its plan in S3. 24-1
     // planned in S4, then got Stuck on an implement attempt that ran no brewer. 26-1 was cancelled
     // while its plan ran in S5. 27-1 waits to be routed.
-    for (const batchId of ['21-1', '23-1', '24-1', '26-1', '27-1']) {
+    for (const batchId of ['21-1', '23-1', '24-1', '26-1', '27-1', '28-1']) {
       issue({ kind: 'order', batchId, order: { issue: Number(batchId.slice(0, 2)) } });
       if (batchId === '27-1') continue;
       issue({ kind: 'route', batchId, recipe: 'pint', reason: 'label', source: 'label' });
@@ -155,6 +160,9 @@ describe('foedrum resume (ADR 0126)', () => {
     start('24-1', 'implement', undefined, commit('5'));
     finish('24-1', 'implement', false);
     start('26-1', 'plan', S5, commit('6'));
+    // 28-1's log names a session id that is no UUID (a state branch edited by hand).
+    start('28-1', 'plan', '../../x', commit('7'));
+    finish('28-1', 'plan', false);
     issue({ kind: 'cancel', batchId: '26-1', by: 'ada', via: 'terminal' });
   });
   afterEach(() => store.close());
@@ -257,7 +265,13 @@ describe('foedrum resume (ADR 0126)', () => {
         ],
         cwd: pathOf(implement),
         // The brewer's base and forced variables, with the terminal's own: never a token.
-        env: { PATH: '/bin', TERM: 'xterm-256color', LANG: 'C.UTF-8', GIT_TERMINAL_PROMPT: '0' },
+        env: {
+          PATH: '/bin',
+          TERM: 'xterm-256color',
+          LANG: 'C.UTF-8',
+          FOEDRUM_MODE: 'coder',
+          GIT_TERMINAL_PROMPT: '0',
+        },
       },
     ]);
   });
@@ -461,6 +475,52 @@ describe('foedrum resume (ADR 0126)', () => {
       stderr: '',
     });
     nothingOpened();
+  });
+
+  it('refuses a batch that started brewing again while the setup was read, and claims nothing', async () => {
+    const setupWhileRetried = async () => {
+      const log = createCommandLog({ store, recipes });
+      const retried = log.issue({ kind: 'retry', batchId: '21-1', by: 'ada', via: 'terminal' }, t0);
+      assert.equal(retried.kind, 'accepted');
+      return { kind: 'ready' as const, setup };
+    };
+    assert.deepEqual(
+      await resume(undefined, { setup: setupWhileRetried }),
+      refused('batch 21-1 is brewing; resuming a running batch is not supported yet (#338)'),
+    );
+    nothingOpened();
+  });
+
+  it('refuses a session id that is no UUID before it looks for a transcript', async () => {
+    const result = await resumeOf('28-1', undefined, {
+      sessionFound: () => assert.fail('no transcript to look for'),
+    });
+    assert.deepEqual(
+      result,
+      refused(
+        'attempt plan#1 of batch 28-1 records the session id "../../x", which is no session id',
+      ),
+    );
+    nothingOpened();
+  });
+
+  it("passes the terminal's own variables on, by any case on Windows", async () => {
+    const env = {
+      Term: 'xterm',
+      WT_SESSION: 'a-tab',
+      TERM_PROGRAM_VERSION: '1.95',
+      LC_CTYPE: 'UTF-8',
+      GITHUB_TOKEN: 'a token',
+    };
+    await resume(undefined, { env, platform: 'win32' });
+    const { PATH, GIT_TERMINAL_PROMPT, FOEDRUM_MODE, ...terminal } = started[0]?.env ?? {};
+    assert.deepEqual([PATH, GIT_TERMINAL_PROMPT, FOEDRUM_MODE], ['/bin', '0', 'coder']);
+    assert.deepEqual(terminal, {
+      Term: 'xterm',
+      WT_SESSION: 'a-tab',
+      TERM_PROGRAM_VERSION: '1.95',
+      LC_CTYPE: 'UTF-8',
+    });
   });
 
   it('refuses when stdin is not a terminal, and opens nothing', async () => {
