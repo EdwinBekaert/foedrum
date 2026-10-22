@@ -1,7 +1,8 @@
 // A stand-in for the Anthropic Messages API on 127.0.0.1, for tests that run the real `claude`
 // CLI without a login and without spending tokens: `claude` talks to it through
 // ANTHROPIC_BASE_URL. Its "model" calls its tools one by one, each once a result of the one before
-// came, then answers `done`.
+// came, then answers `done`. A function picks the tools from each call's body instead, so one fake
+// can play several brewers, each in a session of its own.
 
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -56,9 +57,12 @@ const streamed = (message: Record<string, unknown>, content: Block[]): string =>
   ].join('');
 
 export const startFakeMessagesApi = async (
-  tools: ToolCall | readonly ToolCall[],
+  tools: ToolCall | readonly ToolCall[] | ((body: string) => readonly ToolCall[]),
 ): Promise<FakeMessagesApi> => {
-  const script: readonly ToolCall[] = Array.isArray(tools) ? tools : [tools];
+  const fixed: readonly ToolCall[] =
+    typeof tools === 'function' ? [] : Array.isArray(tools) ? tools : [tools];
+  const scriptOf = (body: string): readonly ToolCall[] =>
+    typeof tools === 'function' ? tools(body) : fixed;
   let calls = 0;
   const bodies: string[] = [];
   const server = createServer((request, response) => {
@@ -79,7 +83,7 @@ export const startFakeMessagesApi = async (
       bodies.push(body);
       // The next tool is the one after as many as have a result.
       const results = JSON.stringify(parsed.messages).split('"tool_result"').length - 1;
-      const tool = script[results];
+      const tool = scriptOf(body)[results];
       const answered = tool === undefined;
       const content: Block[] = answered
         ? [{ type: 'text', text: 'done' }]
