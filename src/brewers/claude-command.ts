@@ -24,6 +24,9 @@ export interface ClaudeCall {
 const toolName = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Whether `id` is a session id claude takes: a UUID. */
+export const isSessionId = (id: string): boolean => uuid.test(id);
+
 // The values come from validated brewers and the runner itself, so a bad one is a defect; it
 // must never reach cmd.exe for npm's claude.cmd (ADR 0031) or read as an option.
 const refuse = (what: string, value: unknown): never => {
@@ -59,7 +62,7 @@ export function resumeArgs(call: ResumeCall): string[] {
 const checkCall = (model: string, tools: readonly string[], sessionId: string): void => {
   if (!ModelId.safeParse(model).success) refuse('model', model);
   if (tools.length === 0 || !tools.every((tool) => toolName.test(tool))) refuse('tools', tools);
-  if (!uuid.test(sessionId)) refuse('session id', sessionId);
+  if (!isSessionId(sessionId)) refuse('session id', sessionId);
 };
 
 // The guards of an attempt's session, however it runs.

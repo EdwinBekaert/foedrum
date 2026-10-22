@@ -6,7 +6,7 @@
 import { join } from 'node:path';
 import { attemptPermissions, modelOf, settingsFileOf, toolsOf } from '../brewers/attempt-plan.ts';
 import { attemptSettings } from '../brewers/attempt-settings.ts';
-import { resumeArgs } from '../brewers/claude-command.ts';
+import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
@@ -98,7 +98,17 @@ export const sessionFoundIn = (
 };
 
 /** What a terminal program reads to draw itself: the only variables of this process claude gets. */
-const TERMINAL_NAMES = ['TERM', 'COLORTERM', 'TERM_PROGRAM', 'LANG', 'LC_ALL'];
+const TERMINAL_NAMES = [
+  'TERM',
+  'COLORTERM',
+  'TERM_PROGRAM',
+  'TERM_PROGRAM_VERSION',
+  // Windows Terminal's.
+  'WT_SESSION',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+];
 
 const terminalEnv = (
   env: Readonly<Record<string, string | undefined>>,
@@ -138,6 +148,14 @@ const finishedTarget = (state: State, ref: AttemptRef): Target | Refused => {
   return { ref, session, worktree };
 };
 
+/** Why a batch that a driver brews now is refused: taking one over is #338. */
+const runningRefusal = (state: State, batchId: string): string | undefined => {
+  const lane = state.batches.get(batchId)?.lane.kind;
+  return lane === 'ordered' || lane === 'brewing'
+    ? `batch ${batchId} is ${lane}; resuming a running batch is not supported yet (#338)`
+    : undefined;
+};
+
 /**
  * The attempt `foedrum resume` opens (ADR 0126): the one `step` names as `<step>#<n>`, else the
  * latest that started with a session and finished, in the order of the log, of the step or of
@@ -151,10 +169,8 @@ const targetOf = (
 ): Target | Refused => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return { refused: `no batch ${batchId} in the event store` };
-  if (batch.lane.kind === 'ordered' || batch.lane.kind === 'brewing') {
-    const running = `batch ${batchId} is ${batch.lane.kind}`;
-    return { refused: `${running}; resuming a running batch is not supported yet (#338)` };
-  }
+  const running = runningRefusal(state, batchId);
+  if (running !== undefined) return { refused: running };
   const at = step?.lastIndexOf('#') ?? -1;
   const stepId = at < 0 ? step : step?.slice(0, at);
   const attempt = at < 0 ? undefined : step?.slice(at + 1);
@@ -201,6 +217,13 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const { ref, session, worktree } = target;
     const { batchId } = ref;
     const label = `${batchId} ${labelOf(ref)}`;
+    // From the log, so checked before it names a file or reaches claude's command line.
+    if (!isSessionId(session.id)) {
+      const id = JSON.stringify(session.id);
+      return failed(
+        `attempt ${labelOf(ref)} of batch ${batchId} records the session id ${id}, which is no session id`,
+      );
+    }
     // A Claude Code session cannot hand its terminal to claude: the engineer runs it in one.
     if (shell.terminal.claudeCode) {
       const run = `run this in a terminal in ${shell.cwd}:\n  foedrum resume ${label}\n`;
@@ -238,10 +261,17 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const owner = `resume-${shell.pid}`;
     const key = attemptKey.encode(ref);
     const named = `attempt ${labelOf(ref)} of batch ${batchId}`;
-    // Takes or renews the lease, unless another owner's is alive: then that lease.
-    const claim = (): Lease | undefined =>
+    // Takes or renews the lease, unless another owner's is alive: then that lease. The first
+    // claim also refuses a batch that a driver took up since the log was read (serve's setup
+    // takes seconds), in the transaction, so no attempt of the step starts in between.
+    const claim = (first: boolean): Lease | string | undefined =>
       store.withTransaction((tx) => {
         const now = shell.now();
+        if (first) {
+          const latest = fold(store.eventsAfter(0).map(({ event }) => event));
+          const running = runningRefusal(latest, batchId);
+          if (running !== undefined) return running;
+        }
         const other = store
           .currentLeases(now)
           .find((lease) => lease.attemptKey === key && lease.owner !== owner);
@@ -253,15 +283,16 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
         });
         return undefined;
       });
-    const other = claim();
+    const other = claim(true);
+    if (typeof other === 'string') return failed(other);
     if (other !== undefined) {
       return failed(`${named} is open in ${other.owner} until ${other.expiresAt.toISOString()}`);
     }
     // A renewal never ends the session: what goes wrong is said on the terminal.
     const renew = (): void => {
       try {
-        const taken = claim();
-        if (taken !== undefined) {
+        const taken = claim(false);
+        if (typeof taken === 'object') {
           const ends = 'the cleanup may remove its worktree once that claim ends';
           shell.say(`foedrum resume: lost the claim on ${named} to ${taken.owner}: ${ends}`);
         }
