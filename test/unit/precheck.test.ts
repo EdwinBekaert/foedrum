@@ -2115,6 +2115,9 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     '/graphql',
     'https://api.github.com/graphql',
     'https://ghe.example.com/api/graphql',
+    'https://api.github.com/graphql?x=1',
+    'https://api.github.com/graphql/',
+    'HTTPS://API.GITHUB.COM/GRAPHQL',
   ];
   const unreadable = ['-F query=@merge.graphql', '--input body.json', '-f query="$q"'];
   for (const endpoint of endpoints) {
