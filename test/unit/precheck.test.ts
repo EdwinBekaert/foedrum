@@ -2372,6 +2372,9 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Get-ChildItem $d | Write-Output\nRemove-Item -Recurse .foedrum/tmp/218',
     'if (Test-Path $d) { Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse }',
     "Remove-Item -Force '@o'",
+    // $_ and $PSItem are the pipeline's own object, which came from a literal path here.
+    'Get-ChildItem .foedrum/tmp/218 | Where-Object { $_.PSIsContainer } | Remove-Item -Recurse',
+    'Get-ChildItem .foedrum/tmp/218 | Where-Object { $PSItem.Name -ne "keep" } | ri -r',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
     // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
