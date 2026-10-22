@@ -2163,7 +2163,24 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     });
   }
 
+  // An endpoint built at run time is taken at its worst when its literal text still ends in
+  // /graphql, as for the merge endpoint (ADR 0108).
+  for (const command of [
+    'gh api "$base/graphql" --input body.json',
+    'gh api "${host}/api/graphql" -F query=@merge.graphql',
+    'gh api "$base/graphql?x=1" -f query="$q"',
+    'gh api "$env:GH_API/graphql" --input body.json',
+  ]) {
+    it(`forbids a query it cannot read through an endpoint built at run time: ${command}`, () => {
+      assert.match(
+        forbiddenReason(command) ?? '',
+        /^gh api graphql with a query the gate cannot read/,
+      );
+    });
+  }
+
   const allowed = [
+    'gh api "$base/repos/o/r/issues" --input body.json',
     // A REST path that names graphql elsewhere is not the GraphQL endpoint.
     'gh api repos/o/graphql/contents/a.json -F query=@a.txt',
     'gh api /repos/o/graphql-tools/issues --input body.json',
