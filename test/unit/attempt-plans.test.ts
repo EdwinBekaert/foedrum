@@ -385,6 +385,42 @@ describe('createAttemptPlans: plan', () => {
       assert.doesNotMatch(plan.prompt, /untrusted-input|Which flag/);
     });
 
+    it("starts an answered attempt that fell back fresh with the brewer's inputs and every round's answers (ADR 0118)", async () => {
+      const own = join('/work', 'brew-2');
+      const events: Event[] = [
+        ...ordered,
+        received('Which file?', 'cli.ts'),
+        started,
+        asked,
+        received('Which flag?', '--json'),
+        { type: 'step.scheduled', ...second, deadlineAt, answered: true },
+        {
+          type: 'step.started',
+          ...second,
+          session: {
+            id: sessionId,
+            worktree: own,
+            fallback: 'the worktree of brew#1 could not be recreated: gone',
+          },
+          worktree: {
+            repo: 'acme/api',
+            path: own,
+            branch: 'foedrum/12-1/brew/2',
+            commit: 'c'.repeat(40),
+          },
+        },
+      ];
+      const { plans, orders } = setup(events);
+      const plan = await plans.plan({ ...start, ref: second });
+      assert.deepEqual(plan.call.session, { kind: 'new', id: sessionId });
+      assert.equal(orders.length, 1, "it reads the order's text");
+      assert.match(plan.prompt, /name="guide">/);
+      assert.match(
+        plan.prompt,
+        /name="answers">\nQ: Which file\?\nA: cli\.ts\n\nQ: Which flag\?\nA: --json\n<\//,
+      );
+    });
+
     it("resumes the session of an answered attempt with this round's answers alone (#327, ADR 0118)", async () => {
       const events: Event[] = [
         ...ordered,

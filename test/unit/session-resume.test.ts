@@ -85,6 +85,21 @@ describe('resumeOf', () => {
     assert.equal(resumeOf(batchOf([scheduled(1, false)]), plan(1)), undefined);
   });
 
+  it('has nothing to resume for an unmarked attempt after one that asked, as a rewind schedules (ADR 0118)', () => {
+    const asked: StepOutcome = {
+      kind: 'needs_input',
+      questions: [
+        {
+          q: 'Which flag?',
+          options: ['--json', '--yaml'],
+          recommended: '--json',
+          whyBlocking: 'x',
+        },
+      ],
+    };
+    assert.equal(resumeOf(batchOf([...fresh(1, asked), scheduled(2, false)]), plan(2)), undefined);
+  });
+
   it('has nothing to resume when the attempt before it ran no session, as a check step', () => {
     const noSession: Event[] = [
       { type: 'step.scheduled', ...plan(1), deadlineAt },
