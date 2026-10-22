@@ -291,6 +291,10 @@ describe('precheck with a personal denylist', () => {
     ['git push 2> /dev/null origin', ['origin']],
     ['git push >>push.log origin', ['origin']],
     ['git push 1>out.txt 2>&1 work', ['work']],
+    ['git push -u origin 131-denylist 2>&1', ['origin']],
+    ['git push origin 131-denylist >out.txt', ['origin']],
+    ['git push origin 131-denylist 2>/dev/null', ['origin']],
+    ['git push &>push.log', [undefined]],
   ];
   for (const [command, expected] of remotes) {
     it(`scans against the remote the push names: ${command}`, async () => {
