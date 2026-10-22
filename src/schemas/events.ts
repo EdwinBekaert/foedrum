@@ -265,13 +265,16 @@ export const Event = z.discriminatedUnion('type', [
   recipeChosen,
   // `route`: the onFail or onBlocked route that scheduled the attempt, which counts its rounds.
   // `retry`: it runs because the attempt before it failed, so a brewer that resumes continues
-  // that attempt's session (ADR 0117).
+  // that attempt's session (ADR 0117). `answered`: it runs because a human answered the
+  // questions of the attempt before it, so a brewer that resumes continues that session with the
+  // answers (ADR 0118).
   z.strictObject({
     type: z.literal('step.scheduled'),
     ...step,
     deadlineAt: Timestamp,
     route: ScheduleRoute.optional(),
     retry: z.literal(true).optional(),
+    answered: z.literal(true).optional(),
   }),
   // The step's `when` was false when the batch reached it, so it did not run (ADR 0064).
   z.strictObject({

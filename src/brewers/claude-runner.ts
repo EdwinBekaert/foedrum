@@ -12,8 +12,9 @@ import {
   readSync,
   realpathSync,
   statSync,
+  unlinkSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { attemptKey } from '../engine/attempt-key.ts';
 import {
   type AttemptEnd,
@@ -79,6 +80,11 @@ export interface ClaudeRunnerDeps {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Reads the out doc only inside `root`, the worktree. */
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
+    /**
+     * Removes the out doc a run before left, only inside `root`, the worktree, before a run that
+     * resumes its session there (ADR 0118); throws when it cannot.
+     */
+    clearOutDoc: (file: string, root: string) => void;
   };
   now: () => Date;
   /** Resolves after `ms`, or at once when `signal` aborts. */
@@ -156,6 +162,23 @@ export function readOutDocFile(
   } catch (error) {
     return { kind: 'unread', reason: messageOf(error) };
   }
+}
+
+/**
+ * Removes the out doc `file` a run before left in `root`, the worktree, so a resumed run is read by
+ * what it writes itself (ADR 0118); nothing when there is none. Throws when it cannot.
+ */
+export function clearOutDocFile(file: string, root: string): void {
+  const found = lstatSync(file, { throwIfNoEntry: false });
+  // A folder is no out doc, and the read after the run says so.
+  if (found === undefined || found.isDirectory()) return;
+  // A linked folder on its path (a junction needs no privilege on Windows), or `..`, could lead
+  // out of the worktree; a link in its place goes itself, never the file it points at.
+  const real = join(realpathSync(dirname(file)), basename(file));
+  if (pathInside(realpathSync(root), real) === undefined) {
+    throw new Error(`the out doc ${file} is outside the worktree`);
+  }
+  unlinkSync(file);
 }
 
 /** How the process ended, from what the stream process answered. */
@@ -310,6 +333,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         if (prepared === undefined) return cancelled();
         plan = prepared;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
+        // A resumed run is read by the out doc it writes, never the one the run before left,
+        // such as its needs_input (ADR 0118).
+        if (plan.call.session.kind === 'resume') {
+          deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
+        }
         args = claudeArgs({ ...plan.call, settingsFile: plan.settingsFile });
       } catch (error) {
         return unstartable(error);
@@ -416,7 +444,11 @@ export function claudeBrewerRunner(
   return claudeBrewerRunnerWith({
     ...options,
     stream: streamProcess,
-    files: { writeSettings: writeAttemptSettings, readOutDoc: readOutDocFile },
+    files: {
+      writeSettings: writeAttemptSettings,
+      readOutDoc: readOutDocFile,
+      clearOutDoc: clearOutDocFile,
+    },
     now: () => new Date(),
     wait: waitFor,
     commits: countCommits(runGit),

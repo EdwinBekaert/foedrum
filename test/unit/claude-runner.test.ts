@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import {
+  existsSync,
   linkSync,
   mkdirSync,
   openSync,
@@ -20,6 +21,7 @@ import {
   type ClaudeAttemptPlan,
   type ClaudeRunnerDeps,
   claudeBrewerRunnerWith,
+  clearOutDocFile,
   readOutDocFile,
   waitFor,
 } from '../../src/brewers/claude-runner.ts';
@@ -103,6 +105,8 @@ const setup = (
     commits?: CommitsSeen;
     /** Runs while the commits are counted, before the count answers. */
     whileCounting?: () => void;
+    /** Why removing the out doc a run before left fails, if it does. */
+    clearFails?: string;
   } = {},
 ) => {
   const counts: {
@@ -117,6 +121,8 @@ const setup = (
   const waits: number[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
   const read: { file: string; maxBytes: number; root: string }[] = [];
+  /** Each out doc cleared, with how many starts of claude came before it. */
+  const cleared: { file: string; root: string; starts: number }[] = [];
   let clock = 0;
   const deps: ClaudeRunnerDeps = {
     claude: '/opt/claude/bin/claude',
@@ -148,6 +154,10 @@ const setup = (
         if (typeof text === 'object') return { kind: 'unread', reason: text.unread };
         return { kind: 'text', text };
       },
+      clearOutDoc: (file, root) => {
+        cleared.push({ file, root, starts: calls.length });
+        if (more.clearFails !== undefined) throw new Error(more.clearFails);
+      },
     },
     now: () => {
       clock += 1;
@@ -164,7 +174,7 @@ const setup = (
       return more.commits ?? { kind: 'counted', count: 1 };
     },
   };
-  return { calls, written, read, waits, counts, runner: claudeBrewerRunnerWith(deps) };
+  return { calls, written, read, cleared, waits, counts, runner: claudeBrewerRunnerWith(deps) };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });
@@ -208,6 +218,44 @@ describe('claudeBrewerRunner', () => {
       ending.kind === 'failed' ? ending.reason : '',
       /^claude could not resume the session: No conversation found with session ID/,
     );
+  });
+
+  // Review of #380: a resumed run that writes no out doc would otherwise be read by the one the
+  // run before left, such as its needs_input, and ask its questions again.
+  it('removes the out doc a run before left before claude resumes its session, and only then (ADR 0118)', async () => {
+    const resuming = plan();
+    const resume: ClaudeAttemptPlan = {
+      ...resuming,
+      call: { ...resuming.call, session: { kind: 'resume', id: session(1) } },
+    };
+    const resumed = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => resume },
+    );
+    await resumed.runner.start(attempt).ended;
+    assert.deepEqual(resumed.cleared, [
+      { file: resolve('/work/tree', 'plan.md'), root: '/work/tree', starts: 0 },
+    ]);
+
+    const fresh = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+    await fresh.runner.start(attempt).ended;
+    assert.deepEqual(fresh.cleared, []);
+  });
+
+  it('does not start claude when the out doc a run before left cannot be removed (ADR 0118)', async () => {
+    const resuming = plan();
+    const resume: ClaudeAttemptPlan = {
+      ...resuming,
+      call: { ...resuming.call, session: { kind: 'resume', id: session(1) } },
+    };
+    const { calls, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => resume, clearFails: 'EBUSY: resource busy or locked' },
+    );
+    const { ending } = await runner.start(attempt).ended;
+    assert.deepEqual(calls, []);
+    assert.equal(ending.kind, 'failed');
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /EBUSY/);
   });
 
   it('succeeds with the out doc, the usage and the session of a clean run', async () => {
@@ -966,6 +1014,37 @@ describe('readOutDocFile', () => {
       kind: 'unread',
       reason: 'it is not a regular file',
     });
+  });
+});
+
+describe('clearOutDocFile (ADR 0118)', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('clear-out-doc');
+  });
+  afterEach(() => dir.remove());
+
+  it('removes the out doc a run before left, and does nothing when there is none', () => {
+    writeFileSync(join(dir.path, 'plan.md'), 'needs input');
+    clearOutDocFile(join(dir.path, 'plan.md'), dir.path);
+    assert.equal(existsSync(join(dir.path, 'plan.md')), false);
+    clearOutDocFile(join(dir.path, 'plan.md'), dir.path);
+  });
+
+  // A brewer can make a folder of the out doc's path a link out of its worktree.
+  it('removes nothing outside the worktree, through a linked folder or ..', () => {
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(worktree);
+    mkdirSync(join(dir.path, 'outside'));
+    writeFileSync(join(dir.path, 'outside', 'plan.md'), 'not the worktree');
+    symlinkSync(join(dir.path, 'outside'), join(worktree, 'out'), 'junction');
+    for (const file of [
+      join(worktree, 'out', 'plan.md'),
+      join(worktree, '..', 'outside', 'plan.md'),
+    ]) {
+      assert.throws(() => clearOutDocFile(file, worktree), /outside the worktree/, file);
+    }
+    assert.equal(existsSync(join(dir.path, 'outside', 'plan.md')), true);
   });
 });
 

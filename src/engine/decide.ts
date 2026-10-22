@@ -636,7 +636,7 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
   const { stepId } = reason;
   draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
   draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
-  schedule(draft, batchId, stepId);
+  schedule(draft, batchId, stepId, { answered: true });
 }
 
 /**
@@ -657,14 +657,15 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
 
 /**
  * Schedules the next attempt of `stepId`, with the deadline its recipe gives it, the route that
- * sent the batch there, if one did, and whether it runs because the attempt before it failed: a
- * retry, whose brewer may resume that attempt's session (ADR 0117).
+ * sent the batch there, if one did, and whether it runs because the attempt before it failed (a
+ * retry, ADR 0117) or a human answered its questions (ADR 0118): then its brewer may resume that
+ * attempt's session.
  */
 function schedule(
   draft: Draft,
   batchId: string,
   stepId: string,
-  { route, retry }: { route?: ScheduleRoute; retry?: true } = {},
+  { route, retry, answered }: { route?: ScheduleRoute; retry?: true; answered?: true } = {},
 ): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
@@ -677,6 +678,7 @@ function schedule(
     deadlineAt: draft.after(recipeOf(draft, batch).deadlineMs(stepId)),
     ...(route === undefined ? {} : { route }),
     ...(retry === undefined ? {} : { retry }),
+    ...(answered === undefined ? {} : { answered }),
   });
 }
 

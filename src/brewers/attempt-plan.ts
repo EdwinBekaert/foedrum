@@ -59,10 +59,11 @@ export interface PlanFacts {
   /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;
   /**
-   * Whether it resumes that session after a failure; its prompt is then a short one, since the
-   * session holds the instructions and the inputs (ADR 0117).
+   * Why it resumes that session, if it does: after a failure, or after a human answered its
+   * questions. Its prompt is then a short one, since the session holds the instructions and the
+   * inputs, with only the answers as an input (ADR 0117, ADR 0118).
    */
-  resumes?: boolean;
+  resumes?: Resumed;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
 }
@@ -199,10 +200,19 @@ export function inputsOf(
 
 /**
  * The answers a human gave to the questions of `stepId`, every round in order, as the in-doc of
- * its next attempt, which starts a new session (ADR 0006); none when nobody answered.
+ * its next attempt, which starts a new session (ADR 0006); or only the latest round's, for an
+ * attempt that resumes the session that holds the rounds before (ADR 0118). None when nobody
+ * answered.
  */
-export function answersOf(batch: Batch, stepId: string): PromptInput | undefined {
-  const answers = (batch.steps.get(stepId)?.inputs ?? []).flatMap((input) => input.answers);
+export function answersOf(
+  batch: Batch,
+  stepId: string,
+  rounds: 'every' | 'latest' = 'every',
+): PromptInput | undefined {
+  const inputs = batch.steps.get(stepId)?.inputs ?? [];
+  const answers = (rounds === 'every' ? inputs : inputs.slice(-1)).flatMap(
+    (input) => input.answers,
+  );
   if (answers.length === 0) return undefined;
   const text = answers.map(({ q, answer }) => `Q: ${q}\nA: ${answer}`).join('\n\n');
   return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
@@ -378,19 +388,36 @@ export function attemptPermissions(
   return { allow, deny: brewer.tools.deny, sandbox };
 }
 
-/** What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117). */
-export const goOn = (doc: string): string =>
-  `The run before this one ended before the step was done. Go on with the step where it stopped, then write ${doc} as your instructions say.`;
+/** Why an attempt resumes the session before it: a retry (ADR 0117), or an answer (ADR 0118). */
+export type Resumed = 'retry' | 'answered';
+
+/**
+ * What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117), with the
+ * answers below when a human answered its questions (ADR 0118).
+ */
+export function goOn(doc: string, why: Resumed): string {
+  switch (why) {
+    case 'retry':
+      return `The run before this one ended before the step was done. Go on with the step where it stopped, then write ${doc} as your instructions say.`;
+    case 'answered':
+      return `A human answered the questions the run before this one asked. Go on with the step where it stopped, with the answers below, then write ${doc} as your instructions say.`;
+    default: {
+      const unhandled: never = why;
+      throw new Error(`Unhandled resume ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
 
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
-  const { brewer, worktree, models, env, sessionId, resumes = false } = facts;
+  const { brewer, worktree, models, env, sessionId, resumes } = facts;
   const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox);
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
-  const instructions = resumes
-    ? goOn(brewer.output.doc)
-    : `${facts.instructions.trimEnd()}\n\n${contract}`;
+  const instructions =
+    resumes === undefined
+      ? `${facts.instructions.trimEnd()}\n\n${contract}`
+      : goOn(brewer.output.doc, resumes);
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
     const { name, source } = assembled.input;
@@ -408,7 +435,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
       effort: brewer.effort,
       ...(maxTurns === undefined ? {} : { maxTurns }),
       tools: toolsOf(allow),
-      session: { kind: resumes ? 'resume' : 'new', id: sessionId },
+      session: { kind: resumes === undefined ? 'new' : 'resume', id: sessionId },
     },
     permissions,
     settingsFile: facts.settingsFile,

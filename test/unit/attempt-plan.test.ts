@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  answersOf,
   attemptLimits,
   gitRulesOf,
   inputsOf,
@@ -452,6 +453,44 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
       .find((read) => read.valid && read.frontmatter.status === 'blocked');
     assert.ok(blocked?.valid && blocked.frontmatter.status === 'blocked');
     assert.equal(blocked.frontmatter.blockerKind, 'findings');
+  });
+});
+
+describe('answersOf (ADR 0006, ADR 0118)', () => {
+  const rounds: Event[] = [
+    {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 1 },
+      routeBy: '2026-10-22T13:00:00.000Z',
+    },
+    {
+      type: 'step.scheduled',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 1,
+      deadlineAt: '2026-10-22T13:00:00.000Z',
+    },
+    ...['first', 'second', 'third'].map(
+      (round): Event => ({
+        type: 'input.received',
+        batchId: 'b1',
+        stepId: 'plan',
+        by: 'ada',
+        via: 'terminal',
+        answers: [{ q: `Which ${round}?`, answer: round }],
+      }),
+    ),
+  ];
+  it('gives every round in order, or the latest round alone for a resumed session', () => {
+    const batch = fold(rounds).batches.get('b1');
+    assert.ok(batch !== undefined);
+    assert.equal(
+      answersOf(batch, 'plan')?.text,
+      'Q: Which first?\nA: first\n\nQ: Which second?\nA: second\n\nQ: Which third?\nA: third',
+    );
+    assert.equal(answersOf(batch, 'plan', 'latest')?.text, 'Q: Which third?\nA: third');
+    assert.equal(answersOf(batch, 'gauge', 'latest'), undefined);
   });
 });
 

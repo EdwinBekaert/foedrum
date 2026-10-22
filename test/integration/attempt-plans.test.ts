@@ -20,6 +20,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import type { Answer } from '../../src/schemas/events.ts';
 import { repoFolder } from '../../src/workspace/attempt-worktrees.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
@@ -109,13 +110,19 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
   const worktreeOf = () =>
     join(realpathSync(workRoot), repoFolder('acme/api'), 'attempts', batchId, 'brew', '1');
 
-  /** Brews the order's one-step recipe while the fake model calls `tools`, until it leaves brewing. */
-  const brewWith = async (tools: (worktree: string) => ToolCall[]) => {
+  /**
+   * Brews the order's one-step recipe while the fake model calls `tools`, until it leaves brewing;
+   * when it asks and `answers` are given, answers it once and brews on.
+   */
+  const brewWith = async (
+    tools: (worktree: string) => readonly ToolCall[] | ((body: string) => readonly ToolCall[]),
+    { text = brewer, answers }: { text?: string; answers?: readonly Answer[] } = {},
+  ) => {
     const worktree = worktreeOf();
     api = await startFakeMessagesApi(tools(worktree));
     const loaded = loadRecipes({
       recipes: [{ path: 'recipes/stout.jsonc', text: recipe }],
-      brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
+      brewers: [{ path: 'brewers/cellarman.md', text }],
     });
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
     // A minimal base: only what a process needs to start on each platform, so no token of the
@@ -176,6 +183,8 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       takes: () => true,
       stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       limits: plans.limits,
+      // As serve and brew wire it: a brewer with retryMode resume continues its session (ADR 0118).
+      resumes: ({ stepId }) => loaded.brewers.find('stout', stepId)?.brewer.retryMode === 'resume',
       worktrees: [
         {
           repo: 'acme/api',
@@ -191,10 +200,19 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       ],
     });
     const lane = () => driver?.state().batches.get(batchId)?.lane;
-    const deadline = Date.now() + 120_000;
-    while (lane()?.kind === 'brewing' && Date.now() < deadline) {
-      await driver.tick();
-      await sleep(100);
+    const brewing = async () => {
+      const deadline = Date.now() + 120_000;
+      while (lane()?.kind === 'brewing' && Date.now() < deadline) {
+        await driver?.tick();
+        await sleep(100);
+      }
+    };
+    await brewing();
+    const asked = lane();
+    if (answers !== undefined && asked?.kind === 'stuck' && asked.reason.kind === 'needs_input') {
+      const answer = { kind: 'answer', batchId, by: 'octocat', via: 'terminal', answers } as const;
+      assert.equal(log.issue({ ...answer, answers: [...answers] }, new Date()).kind, 'accepted');
+      await brewing();
     }
     const events = store
       .eventsAfter(0)
@@ -272,6 +290,67 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       first,
       /Commit your changes with git add and git commit before you write brew\.md/,
     );
+  });
+
+  it('gives a brewer that resumes the answer to its question in the same session, in the same worktree (#327, ADR 0118)', async () => {
+    const resuming = brewer.replace(
+      '"maxAttempts": 1',
+      '"maxAttempts": 1,\n  "retryMode": "resume"',
+    );
+    const question = {
+      q: 'Which flag?',
+      options: ['--json', '--format=json'],
+      recommended: '--json',
+      whyBlocking: 'Scripts will depend on it',
+    };
+    const asking = (worktree: string): ToolCall => ({
+      name: 'Write',
+      input: {
+        file_path: join(worktree, 'brew.md'),
+        content: outDoc({ status: 'needs_input', summary: 'Asked', questions: [question] }),
+      },
+    });
+    // Before the answer it asks; after it, the resumed session reads its out doc, which the Write
+    // tool needs before it writes the file again, then commits and is done.
+    const script = (worktree: string) => (body: string) =>
+      body.includes('A: --format=json')
+        ? [
+            asking(worktree),
+            { name: 'Read', input: { file_path: join(worktree, 'brew.md') } },
+            ...committing(worktree),
+          ]
+        : [asking(worktree)];
+    const answers = [{ q: question.q, answer: '--format=json' }];
+    const { worktree, events, bodies } = await brewWith(script, { text: resuming, answers });
+    const starts = events.flatMap((event) =>
+      event.type === 'step.started' && event.stepId === 'brew' ? [event] : [],
+    );
+    const [first, second] = starts;
+    assert.equal(starts.length, 2);
+    // The second attempt continues the first's session where it made its worktree (ADR 0117).
+    assert.ok(first?.session !== undefined);
+    assert.deepEqual(second?.session, {
+      id: first.session.id,
+      resumes: first.session.id,
+      worktree,
+    });
+    assert.equal(second?.worktree, undefined);
+    const finished = events.filter((event) => event.type === 'step.finished');
+    assert.deepEqual(
+      finished.slice(0, 2).map((event) => event.type === 'step.finished' && event.outcome.kind),
+      ['needs_input', 'succeeded'],
+    );
+    // claude sent the model the first run's conversation and then the answer, in nonce tags.
+    const resumed = bodies.find((body) => body.includes('A: --format=json')) ?? '';
+    assert.match(resumed, /A human answered the questions the run before this one asked\./);
+    assert.match(resumed, /Brew the order in \{order\}\./);
+    assert.match(
+      resumed,
+      /source=\\"answers to the questions of step brew\\" name=\\"answers\\">\\nQ: Which flag\?\\nA: --format=json/,
+    );
+    // Its commit is on the branch of the worktree it ran in.
+    const { branch, commit } = first.worktree ?? assert.fail('brew#1 has no worktree');
+    assert.equal(git(clone, ['log', '--format=%s', `${commit}..${branch}`]), 'Add a --json flag\n');
   });
 
   it('goes Stuck on a divergence when the brewer says done but committed nothing (#196)', async () => {

@@ -767,7 +767,6 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
     const refused = (what: string) =>
       `recipes/stout.jsonc: step "brew" has the brewer "cellarman", with ${what}, which the engine does not follow yet (ADR 0059)`;
     assert.deepEqual(problemsOf(files), [
-      refused('"retryMode": "resume"'),
       refused('"houseYeast": true'),
       refused('"skills"'),
       refused('"mcp"'),
@@ -839,6 +838,12 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       brewers: [brewer('maltster', { guards: ['requiresOutDoc'], retryMode: 'fresh' }), brewmaster],
     });
     assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
+  });
+
+  it('loads a brewer whose retries and answers resume its session (#327, ADR 0118)', () => {
+    const files = brewery({ brewers: [brewer('maltster', { retryMode: 'resume' }), brewmaster] });
+    const found = loaded(loadRecipes(files)).find('pale');
+    assert.equal(found?.firstStep, 'maltster');
   });
 
   it('loads requiresCommits: a done of every brewer that produces commits needs a commit (ADR 0074)', () => {

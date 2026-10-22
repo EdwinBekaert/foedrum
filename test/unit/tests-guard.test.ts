@@ -164,6 +164,59 @@ describe('guardTests (ADR 0078)', () => {
     );
   });
 
+  it('reads the worktree and branch a resumed attempt ran in, for its own and the proven step (#327, ADR 0117)', async () => {
+    const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
+    const crashed = { kind: 'failed', retryable: true, reason: 'claude crashed' } as const;
+    const session = (stepId: string) => ({
+      id: `${stepId}-session`,
+      worktree: join(root, stepId, '1'),
+    });
+    /** Attempt 1 of `stepId` crashed; attempt 2 resumed its session, with no worktree of its own. */
+    const resumedOnce = (stepId: string, start: string): Event[] => {
+      const at = (attempt: number) => ({ batchId: '12-1', stepId, attempt });
+      return [
+        { type: 'step.scheduled', ...at(1), deadlineAt },
+        {
+          type: 'step.started',
+          ...at(1),
+          session: session(stepId),
+          worktree: worktree(stepId, start),
+        },
+        { type: 'step.finished', ...at(1), outcome: crashed, claude },
+        { type: 'step.scheduled', ...at(2), deadlineAt, retry: true },
+        {
+          type: 'step.started',
+          ...at(2),
+          session: { ...session(stepId), resumes: `${stepId}-session` },
+        },
+      ];
+    };
+    const events: Event[] = [
+      ...ordered,
+      ...resumedOnce('gauge', gaugeStart),
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'gauge',
+        attempt: 2,
+        outcome: { kind: 'succeeded', output: null },
+        claude,
+      },
+      ...resumedOnce('implement', implementStart),
+    ];
+    const { calls, runner } = setup({ events });
+    const end = await runner.start({ ref: { ...ref, attempt: 2 }, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'failed');
+    // Where each worktree started, to the branch of the attempt that made it (ADR 0117).
+    assert.deepEqual(
+      calls.map(({ args }) => args.slice(args.indexOf('--dst-prefix=b/') + 1).join(' ')),
+      [
+        `${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`,
+        `${implementStart} refs/heads/foedrum/12-1/implement/1 -- :(literal)test/add.test.mjs`,
+      ],
+    );
+  });
+
   it('lets through a brewer that only adds a fixture (done when, #176)', async () => {
     const { runner } = setup({ changes: ok(fixture) });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;

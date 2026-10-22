@@ -198,6 +198,10 @@
         "retry": {
           "type": "boolean",
           "const": true
+        },
+        "answered": {
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [

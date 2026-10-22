@@ -42,6 +42,8 @@ export type Attempt =
       route?: ScheduleRoute;
       /** Scheduled because the attempt before it failed (ADR 0117). */
       retry?: true;
+      /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
+      answered?: true;
       abandoned?: true;
     }
   | {
@@ -51,6 +53,8 @@ export type Attempt =
       route?: ScheduleRoute;
       /** Scheduled because the attempt before it failed (ADR 0117). */
       retry?: true;
+      /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
+      answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
       abandoned?: true;
@@ -62,6 +66,8 @@ export type Attempt =
       route?: ScheduleRoute;
       /** Scheduled because the attempt before it failed (ADR 0117). */
       retry?: true;
+      /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
+      answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;
@@ -293,7 +299,7 @@ function apply(state: State, event: Event): State {
       }));
     }
     case 'step.scheduled': {
-      const { batchId, stepId, attempt, deadlineAt, route, retry } = event;
+      const { batchId, stepId, attempt, deadlineAt, route, retry, answered } = event;
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
@@ -308,6 +314,7 @@ function apply(state: State, event: Event): State {
               deadlineAt,
               ...(route === undefined ? {} : { route }),
               ...(retry === undefined ? {} : { retry }),
+              ...(answered === undefined ? {} : { answered }),
             }),
           }),
         };

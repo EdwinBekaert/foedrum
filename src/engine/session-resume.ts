@@ -1,6 +1,6 @@
-// Which session a retry resumes (ADR 0117): the one of the attempt before it, when claude started
-// it and an attempt of it has a worktree to run in again. Pure: the driver recreates the worktree
-// and records the start.
+// Which session a retry or an answered attempt resumes (ADR 0117, ADR 0118): the one of the
+// attempt before it, when claude started it and an attempt of it has a worktree to run in again.
+// Pure: the driver recreates the worktree and records the start.
 
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -51,14 +51,16 @@ export function ranIn(
 
 /**
  * How attempt `ref` of `batch` starts when its brewer resumes; undefined when it has no session to
- * resume: it is no retry, or the attempt before it ran no session. A route comes after its step
- * succeeded, and that session's branch holds the task tree, which a failure resumed on it would
- * move: so only a retry resumes, and never one after a success (ADR 0117).
+ * resume: it is no retry and answers no questions, or the attempt before it ran no session. A
+ * route comes after its step succeeded, and that session's branch holds the task tree, which a
+ * failure resumed on it would move: so only a retry or an answered attempt resumes, and never one
+ * after a success (ADR 0117, ADR 0118).
  */
 export function resumeOf(batch: Batch, ref: AttemptRef): Resumption | undefined {
   const step = batch.steps.get(ref.stepId);
   const current = step?.attempts.get(ref.attempt);
-  if (step === undefined || current?.retry !== true) return undefined;
+  const resumable = current?.retry === true || current?.answered === true;
+  if (step === undefined || !resumable) return undefined;
   const before = Math.max(...[...step.attempts.keys()].filter((n) => n < ref.attempt));
   const previous = step.attempts.get(before);
   if (previous === undefined || previous.phase === 'scheduled') return undefined;
