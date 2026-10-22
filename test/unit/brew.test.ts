@@ -356,4 +356,52 @@ describe('runBrew', () => {
       'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1>, then brew again',
     ]);
   });
+
+  it('drives on, as the same owner, the batch it left needing input once it is answered: exit 0', async () => {
+    assert.equal(await runBrew(setup, shell(behave.needInput()), request), 4);
+    const answers = [{ q: question.q, answer: 'sqlite' }];
+    log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
+    const before = lines.length;
+    // The next process of the same owner takes the lock again.
+    const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
+    assert.equal(await runBrew(setup, again, request), 0);
+    const second = lines.slice(before);
+    assert.ok(!second.some((line) => /ordered|routed|driven by/.test(line)), second.join('\n'));
+    assert.deepStrictEqual(started, ['brew#1', 'brew#2']);
+    assert.match(second.at(-1) ?? '', /^foedrum brew: batch 12-1 is on tap: /);
+  });
+
+  it('stops with who cancelled the batch when it is cancelled while it brews: exit 6', async () => {
+    let waits = 0;
+    const running = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+    const cancelled = shell(running, {
+      wait: async () => {
+        waits++;
+        if (waits === 1) {
+          log().issue({ kind: 'cancel', batchId: '12-1', by: 'bob', via: 'terminal' }, t0);
+        }
+        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+      },
+    });
+    assert.equal(await runBrew(setup, cancelled, request), 6);
+    assert.equal(lines.at(-1), 'foedrum brew: batch 12-1 was cancelled by bob via terminal');
+  });
+
+  it('refuses the batch, naming its new driver, when another driver takes it while it brews: exit 5', async () => {
+    const expiresAt = new Date(t0.getTime() + 60_000);
+    const running = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+    const taken = shell(running, {
+      wait: async () => {
+        // The lease of a driver that took the batch, as an expired lease of this one would let it.
+        store.withTransaction((tx) =>
+          tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+        );
+      },
+    });
+    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.equal(
+      lines.at(-1),
+      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
+    );
+  });
 });
