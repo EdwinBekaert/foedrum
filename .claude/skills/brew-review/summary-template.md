@@ -46,7 +46,7 @@ Verdicts: correctness approve · security approve · …
 ### House yeast
 
 - Selected: <lens>: <rule ids> · … (or "no rules match")
-- Cut by the budget: <id> (<lens>) … (or "none") · Invalid rule files: <path>: <reason> (or "none")
+- Cut by the budget: <id> (<lens>) … (or "none") · Invalid rule files: <path>: <reason> (or "none") · Without a scope, due for curation: <id> … (or "none")
 - Candidates recorded: <id>: seen in <n> reviews · … (or "none")
 - Rules proposed: `<path>` in `<hash>` (seen in <n> reviews / asked for) (or "none")
 - Promotion candidates: each structural rule proposed or selected, with the check it could become (a Biome rule, a guard like `scripts/check-test-layers.ts`, a unit test that reads the source) or why none fits (or "none")
