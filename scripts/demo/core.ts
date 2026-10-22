@@ -24,6 +24,9 @@ export const ORDER = {
   author: USER,
 };
 
+/** The issue foedrum brew brews (#366): a stub until the demo brews with Nip. */
+export const BREW_ORDER = { ...ORDER, number: 2, labels: [] as string[] };
+
 /**
  * What serve would learn from doctor: no claude is started, so none is looked for, and no brewer
  * runs in Claude Code's sandbox.
@@ -80,6 +83,8 @@ export type Life = 'crash' | 'finish';
 export const CRASH_LINE = 'demo: the brewer committed; the Cellar is killed mid-attempt';
 /** The start of the line the Cellar prints once the batch is on tap. */
 export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
+/** The start of foedrum brew's last line once the second order's batch is on tap. */
+export const BREW_ON_TAP_LINE = 'foedrum brew: batch 2-1 is on tap';
 
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against

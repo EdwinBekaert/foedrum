@@ -22,6 +22,15 @@ export interface ScriptedBrewerOptions {
   started?: (ref: AttemptStart['ref']) => Promise<void>;
 }
 
+/** The demo's brewers on the Nip fixture (#366). */
+export interface DemoBrewersOptions extends ScriptedBrewerOptions {
+  brewed?: (ref: AttemptStart['ref'], prompt: string) => void;
+}
+
+export const demoBrewers = (_options: DemoBrewersOptions): BrewerRunner => {
+  throw new Error('not implemented');
+};
+
 /** The file the brewer writes, and what it says. */
 export const GREETING = { file: 'greeting.txt', text: 'Hello, and welcome to the Brewery.\n' };
 

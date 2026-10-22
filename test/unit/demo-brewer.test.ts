@@ -1,79 +1,89 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { GREETING, scriptedBrewer } from '../../scripts/demo/brewer.ts';
+import { type DemoBrewersOptions, demoBrewers } from '../../scripts/demo/brewer.ts';
 import type { Life } from '../../scripts/demo/core.ts';
+import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import type { AttemptStart } from '../../src/engine/brewer-runner.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
+import { NIP_SCRIPT } from '../helpers/nip-fixture.ts';
 
-const cwd = resolve('/work/demo.web/attempts/1-1/brew/1');
-const start: AttemptStart = {
-  ref: { batchId: '1-1', stepId: 'brew', attempt: 1 },
-  limits: { outDoc: { file: 'brew.md', schema: OutDocFrontmatter } },
-};
+const cwd = resolve('/work/demo.web/attempts/1-1/gauge/1');
+const startOf = (stepId: string, attempt: number): AttemptStart => ({
+  ref: { batchId: '1-1', stepId, attempt },
+  limits: { outDoc: { file: 'gauge.md', schema: OutDocFrontmatter } },
+});
+const start = startOf('gauge', 1);
+const plan = async () => ({ cwd, prompt: 'Gauge the order' }) as unknown as ClaudeAttemptPlan;
 
-/** The brewer with a git that answers `code` and records every call and write in `log`. */
-const brewer = (life: Life, code = 0) => {
+/** The brewers with a git that answers `code` and records every call and write in `log`. */
+const brewers = (life: Life, options: Partial<DemoBrewersOptions> = {}, code = 0) => {
   const log: string[] = [];
   const git: Git = async (at, args): Promise<GitResult> => {
-    log.push(`git ${at} ${args.join(' ')}`);
+    log.push(`git ${at} ${args.slice(0, 1).join(' ')}`);
     return { code, stdout: '', stderr: code === 0 ? '' : 'fatal: no identity' };
   };
-  const runner = scriptedBrewer({
-    plan: async () => ({ cwd }),
+  const runner = demoBrewers({
+    plan,
     git,
-    write: (path, text) => log.push(`write ${path} ${JSON.stringify(text)}`),
+    write: (path) => log.push(`write ${path}`),
     life,
     crash: () => log.push('crash'),
+    ...options,
   });
   return { runner, log };
 };
 
 /** Lets every pending promise and git call settle. */
-const settled = () => new Promise((done) => setTimeout(done, 0));
+const settled = async () => {
+  for (let n = 0; n < 5; n += 1) await new Promise((done) => setTimeout(done, 0));
+};
 
-describe('the demo brewer', () => {
-  it('writes the greeting, commits it in the attempt worktree and succeeds', async () => {
-    const { runner, log } = brewer('finish');
+describe('the demo brewers', () => {
+  it("play the Gauger of the Nip fixture: its test and out doc, committed in the attempt's worktree", async () => {
+    const prompts: string[] = [];
+    const { runner, log } = brewers('finish', {
+      brewed: (ref, prompt) => prompts.push(`${ref.stepId}#${ref.attempt} ${prompt}`),
+    });
     const { ending } = await runner.start(start).ended;
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
-    assert.equal(log[0], `write ${join(cwd, GREETING.file)} ${JSON.stringify(GREETING.text)}`);
-    assert.deepStrictEqual(
-      log.slice(1).map((line) => line.split(' ').slice(0, 3).join(' ')),
-      [`git ${cwd} add`, `git ${cwd} commit`],
-    );
-    assert.ok(!log.includes('crash'));
+    const files = Object.keys(NIP_SCRIPT.gauge?.[0]?.files ?? {});
+    assert.deepStrictEqual(log, [
+      ...files.map((file) => `write ${join(cwd, file)}`),
+      `write ${join(cwd, 'gauge.md')}`,
+      `git ${cwd} add`,
+      `git ${cwd} commit`,
+    ]);
+    assert.deepStrictEqual(prompts, ['gauge#1 Gauge the order']);
   });
 
-  it('in the life that crashes, is killed once the commit is made, before the attempt ends', async () => {
-    const { runner, log } = brewer('crash');
+  it("play the Gauger's script for a retry of an attempt lost with an earlier process", async () => {
+    const { runner } = brewers('finish');
+    const { ending } = await runner.start(startOf('gauge', 2)).ended;
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+  });
+
+  it('in the life that crashes, are killed once the commit is made, before the attempt ends', async () => {
+    const { runner, log } = brewers('crash');
     let ended = false;
-    const run = runner.start(start);
-    void run.ended.then(() => {
+    void runner.start(start).ended.then(() => {
       ended = true;
     });
     await settled();
-    await settled();
     assert.equal(log.at(-1), 'crash');
-    assert.match(log.at(-2) ?? '', / commit /);
+    assert.match(log.at(-2) ?? '', / commit$/);
     assert.equal(ended, false);
-    // Running until then, as a brewer whose process the crash took with it.
-    assert.ok(runner.progress(start.ref) !== undefined);
   });
 
-  it('in the life that crashes, does not crash once the attempt was stopped while it committed', async () => {
-    const log: string[] = [];
+  it('in the life that crashes, do not crash once the attempt was stopped while it committed', async () => {
     let commit = (): void => {};
-    const git: Git = async (_at, args) => {
-      if (args[0] === 'commit') await new Promise<void>((done) => (commit = done));
-      return { code: 0, stdout: '', stderr: '' };
-    };
-    const runner = scriptedBrewer({
-      plan: async () => ({ cwd }),
-      git,
-      write: () => {},
-      life: 'crash',
+    const log: string[] = [];
+    const { runner } = brewers('crash', {
+      git: async (_at, args) => {
+        if (args[0] === 'commit') await new Promise<void>((done) => (commit = done));
+        return { code: 0, stdout: '', stderr: '' };
+      },
       crash: () => log.push('crash'),
     });
     const run = runner.start(start);
@@ -86,18 +96,9 @@ describe('the demo brewer', () => {
     assert.deepStrictEqual(log, []);
   });
 
-  it('lets the Cellar look at the attempt once it has started, before the brewer writes', async () => {
-    const log: string[] = [];
+  it('let the Cellar look at the attempt once it has started, before the brewer writes', async () => {
     let looked = (): void => {};
-    const runner = scriptedBrewer({
-      plan: async () => ({ cwd }),
-      git: async (_at, args) => {
-        log.push(`git ${args[0]}`);
-        return { code: 0, stdout: '', stderr: '' };
-      },
-      write: () => log.push('write'),
-      life: 'finish',
-      crash: () => log.push('crash'),
+    const { runner, log } = brewers('finish', {
       started: async (ref) => {
         log.push(`started ${ref.stepId}#${ref.attempt}`);
         await new Promise<void>((done) => (looked = done));
@@ -105,35 +106,24 @@ describe('the demo brewer', () => {
     });
     const run = runner.start(start);
     await settled();
-    assert.deepStrictEqual(log, ['started brew#1']);
+    assert.deepStrictEqual(log, ['started gauge#1']);
     looked();
     const { ending } = await run.ended;
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
-    assert.deepStrictEqual(log, ['started brew#1', 'write', 'git add', 'git commit']);
   });
 
-  it('brews on when the Cellar cannot show the attempt: showing it never fails it', async () => {
-    const log: string[] = [];
-    const runner = scriptedBrewer({
-      plan: async () => ({ cwd }),
-      git: async (_at, args) => {
-        log.push(`git ${args[0]}`);
-        return { code: 0, stdout: '', stderr: '' };
-      },
-      write: () => log.push('write'),
-      life: 'finish',
-      crash: () => log.push('crash'),
+  it('brew on when the Cellar cannot show the attempt: showing it never fails it', async () => {
+    const { runner } = brewers('finish', {
       started: async () => {
         throw new Error('the store is locked');
       },
     });
     const { ending } = await runner.start(start).ended;
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
-    assert.deepStrictEqual(log, ['write', 'git add', 'git commit']);
   });
 
-  it('fails the attempt, not the tick, when git cannot commit, and does not crash', async () => {
-    const { runner, log } = brewer('crash', 128);
+  it('fail the attempt, not the tick, when git cannot commit, and do not crash', async () => {
+    const { runner, log } = brewers('crash', {}, 128);
     const { ending } = await runner.start(start).ended;
     assert.equal(ending.kind, 'failed');
     assert.match(JSON.stringify(ending), /no identity/);

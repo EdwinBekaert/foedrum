@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { codeHost, fileJournal, type Journal } from '../../scripts/demo/code-host.ts';
-import { BREWERY, LOGIN, ORDER, TARGET } from '../../scripts/demo/core.ts';
+import { BREW_ORDER, BREWERY, LOGIN, ORDER, TARGET } from '../../scripts/demo/core.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const api = 'https://api.github.com';
@@ -40,6 +40,23 @@ describe('the demo code host', () => {
     assert.equal(result.exitCode, 0, result.output);
     assert.match(result.stdout, /^HTTP\/1\.1 200/);
     assert.match(result.stdout, new RegExp(`"login":"${LOGIN}"`));
+  });
+
+  it('lists the second order only once it is labelled, also for the next code host', async () => {
+    const journal = memoryJournal();
+    const first = await codeHost(journal);
+    const labelled = `/repos/${BREWERY}/issues?labels=${ORDER.labels.join(',')}`;
+    const numbers = async (host: { fetch: typeof fetch }) =>
+      ((await (await send(host, 'GET', labelled)).json()) as { number: number }[]).map(
+        ({ number }) => number,
+      );
+    assert.deepStrictEqual(await numbers(first), [ORDER.number]);
+    const labels = `/repos/${BREWERY}/issues/${BREW_ORDER.number}/labels`;
+    assert.equal((await send(first, 'POST', labels, { labels: ORDER.labels })).status, 200);
+    assert.deepStrictEqual(await numbers(await codeHost(journal)), [
+      ORDER.number,
+      BREW_ORDER.number,
+    ]);
   });
 
   it('keeps a pull request and a comment for the next code host opened on its journal', async () => {

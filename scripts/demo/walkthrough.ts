@@ -8,10 +8,30 @@ import type { Event } from '../../src/schemas/events.ts';
 
 /** The demo's one batch: its order is the Brewery's first issue, decomposed into one batch. */
 export const BATCH = '1-1';
+/** The attempt foedrum resume names: the Cellarman's second, the one the failed check sent back. */
+export const RESUMED = 'implement#2';
+
+/** What an attempt sent back by a route was told, from its prompt (#366). */
+export const routeLines = (
+  _ref: { stepId: string; attempt: number },
+  _prompt: string,
+): string[] => {
+  throw new Error('not implemented');
+};
 
 /** One step of the walkthrough: its heading, and what to look for in it. */
 export interface Step {
-  id: 'diagnosis' | 'order' | 'brewing' | 'restart' | 'pull-request' | 'on-tap' | 'replay';
+  id:
+    | 'diagnosis'
+    | 'order'
+    | 'brewing'
+    | 'restart'
+    | 'checks'
+    | 'pull-request'
+    | 'on-tap'
+    | 'brew'
+    | 'resume'
+    | 'replay';
   title: string;
   lookFor: string;
 }
