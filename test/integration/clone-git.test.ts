@@ -1,17 +1,17 @@
 // The engine's git in a clone that attempt worktrees share, with real git: a bare origin, the
 // user's clone and a managed repository's blobless one, and the worktree manager's fetch, the base
-// fetch from a git directory of Foedrum's own (ADR 0090) and the push (ADR 0137). Every remote is a
-// local bare repository: nothing reaches the network.
+// fetch and the noPush listing from a git directory of Foedrum's own (ADR 0090, ADR 0106) and the
+// push (ADR 0137). Every remote is a local bare repository: nothing reaches the network.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { removeTree } from '../../src/platform/remove.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
-import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
+import { listRemoteRefs, openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -61,6 +61,55 @@ describe("the engine's git in a clone", () => {
     git(path, ['commit', '-q', '-m', name]);
     return git(path, ['rev-parse', 'HEAD']).trim();
   };
+
+  it("lists the remote's refs for the noPush guard past an insteadOf planted in the clone, directly or through an include (ADR 0106)", async () => {
+    const tip = commit(other, 'pushed.txt');
+    git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/foedrum/x/y']);
+    const nowhere = join(run, 'nowhere.git');
+    const included = join(run, 'included.gitconfig');
+    writeFileSync(included, '');
+    git(run, ['config', '--file', included, `url.${nowhere}.insteadOf`, origin]);
+    git(user, ['config', 'include.path', included]);
+    // The plant works: git in the clone no longer reaches the origin.
+    assert.throws(() => git(user, ['ls-remote', 'origin']));
+    const listed = await listRemoteRefs({
+      git: runGit,
+      clone: user,
+      own: { url: origin, root: join(run, 'git') },
+    });
+    assert.ok(listed.split(/\r?\n/).includes(`${tip}\trefs/heads/foedrum/x/y`), listed);
+  });
+
+  it("fetches, adds a worktree and pushes past hooks of the clone's that fail (ADR 0137)", async () => {
+    const hooks = join(run, 'hooks');
+    mkdirSync(hooks);
+    for (const hook of ['reference-transaction', 'post-checkout', 'pre-push']) {
+      writeFileSync(join(hooks, hook), '#!/bin/sh\nexit 1\n');
+      chmodSync(join(hooks, hook), 0o755);
+    }
+    git(user, ['config', 'core.hooksPath', hooks]);
+    // The hooks work: a ref update of git's own in the clone fails.
+    assert.throws(() => git(user, ['update-ref', 'refs/heads/probe', 'HEAD']));
+    const main = commit(other, 'merged.txt');
+    git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/main']);
+    const worktrees = openAttemptWorktrees({
+      git: runGit,
+      workRoot: join(run, 'work'),
+      repo: 'acme/app',
+      clone: user,
+      own: { url: origin, root: join(run, 'git') },
+    });
+    const made = await worktrees.create(attempt, 'origin/main');
+    assert.equal(made.commit, main);
+    // The brewer's own commit, with the hooks out of its way.
+    writeFileSync(join(made.path, 'plan.txt'), 'plan\n');
+    const off = ['-c', `core.hooksPath=${join(run, 'no-hooks')}`];
+    git(made.path, [...off, 'add', 'plan.txt']);
+    git(made.path, [...off, 'commit', '-q', '-m', 'plan']);
+    const tip = git(made.path, ['rev-parse', 'HEAD']).trim();
+    await openBranchPush({ git: runGit, clone: user }).push(tip, bottle);
+    assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), tip);
+  });
 
   it('fetches past a branch the remote deleted and made again as a folder, which the clone still tracks (review of #266)', async () => {
     git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/x']);
