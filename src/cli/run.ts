@@ -64,6 +64,8 @@ export interface CliContext {
    * the terminal.
    */
   brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  /** The environment, for the Claude Code session that names a driver (ADR 0123, ADR 0124). */
+  env: Readonly<Record<string, string | undefined>>;
   /** Opens a finished attempt's session in its worktree (ADR 0126); claude has the terminal. */
   resume: (input: ResumeCommand) => Promise<CliResult>;
 }
@@ -98,13 +100,14 @@ const SERVE = { name: 'serve', summary: "Run the Cellar: brew the Brewery's batc
 
 const usage = (): CliResult => {
   const serve = [SERVE.name, SERVE.summary];
-  const rows = commands.map(({ name, summary, positionals, optional = [], rest, options = {} }) => [
+  const rows = commands.map(({ name, summary, positionals, optional = [], rest, ...more }) => [
     [
       name,
       ...positionals.map((positional) => `<${positional}>`),
       ...optional.map((positional) => `[<${positional}>]`),
       ...(rest === undefined ? [] : [`<${rest}>...`]),
-      ...Object.entries(options).map(([option, value]) => `[--${option} <${value}>]`),
+      ...Object.entries(more.options ?? {}).map(([option, value]) => `[--${option} <${value}>]`),
+      ...(more.flags ?? []).map((flag) => `[--${flag}]`),
     ].join(' '),
     summary,
   ]);
@@ -121,7 +124,7 @@ const usage = (): CliResult => {
 // or without one when it is about the whole list.
 const invalid = (
   prefix: string,
-  input: Record<string, string | string[]>,
+  input: Record<string, string | string[] | true>,
   error: z.ZodError,
 ): CliResult => {
   const [issue] = error.issues;
@@ -150,14 +153,16 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     return usageError(`foedrum: unknown command ${JSON.stringify(name)}; ${SEE_HELP}`);
   }
   const prefix = `foedrum ${name}`;
-  // The options the command takes, each with a value: a field of its input.
+  // The options the command takes, each with a value or, a flag, without: a field of its input.
   const known = Object.keys(command?.options ?? {});
+  const flags = command?.flags ?? [];
   // Not strict, so an unknown option is a token this can name instead of parseArgs' message.
   const { tokens } = parseArgs({
     args: rest,
     options: {
       help: { type: 'boolean', short: 'h' },
       ...Object.fromEntries(known.map((option) => [option, { type: 'string' } as const])),
+      ...Object.fromEntries(flags.map((flag) => [flag, { type: 'boolean' } as const])),
     },
     allowPositionals: true,
     strict: false,
@@ -165,8 +170,15 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   });
   const options = tokens.filter((token) => token.kind === 'option');
   if (options.some((option) => option.name === 'help')) return usage();
-  const optionValues: Record<string, string> = {};
+  const optionValues: Record<string, string | true> = {};
   for (const option of options) {
+    if (flags.includes(option.name)) {
+      if (option.value !== undefined) {
+        return usageError(`${prefix}: ${option.rawName} takes no value`);
+      }
+      optionValues[option.name] = true;
+      continue;
+    }
     if (!known.includes(option.name)) {
       return usageError(`${prefix}: unknown option "${option.rawName}"`);
     }
@@ -189,7 +201,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   }
   const missing = [...required, ...(restField === undefined ? [] : [restField])][values.length];
   if (missing !== undefined) return usageError(`${prefix}: missing <${missing}>`);
-  const input: Record<string, string | string[]> = Object.fromEntries(
+  const input: Record<string, string | string[] | true> = Object.fromEntries(
     positionals.map((field, i) => [field, values[i] ?? '']),
   );
   if (restField !== undefined) input[restField] = values.slice(positionals.length);

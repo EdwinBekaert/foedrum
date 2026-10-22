@@ -45,7 +45,12 @@ export type HumanCommand =
    * issue has a live batch, while its last claim is held or being released, or when it is a
    * sub-order (`orderRefusal`).
    */
-  | ({ kind: 'order_again'; order: OrderRef } & Issuer);
+  | ({ kind: 'order_again'; order: OrderRef } & Issuer)
+  /**
+   * Hands the batch from the driver `from`, whose live lease runs `until`, to the driver `to`
+   * (ADR 0124); the caller reads that lease in the transaction that appends.
+   */
+  | ({ kind: 'take_over'; from: string; to: string; until: string } & Issuer);
 
 /** How an attempt ended: a step outcome, or a brewer's `blocked` out doc with its blocker kind. */
 export type Ending = StepOutcome | { kind: 'blocked'; blockerKind: BlockerKind; summary: string };
@@ -312,6 +317,12 @@ function run(draft: Draft, command: Command): Event[] {
         by,
         via,
       });
+      break;
+    }
+    case 'take_over': {
+      const { batchId, by, via, from, to, until } = command;
+      requireLane(draft.batch(batchId), 'take over', nonTerminal);
+      draft.push({ type: 'batch.taken_over', batchId, by, via, from, to, until });
       break;
     }
     default: {

@@ -48,6 +48,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.rewound':
     case 'batch.on_tap':
     case 'batch.cancelled':
+    case 'batch.taken_over':
     case 'pull_request.ended':
       return event.batchId;
     default: {

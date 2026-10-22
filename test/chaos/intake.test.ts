@@ -61,7 +61,12 @@ const killable = (log: CommandLog, after: number): CommandLog => {
     issue: (command, now, also) => {
       alive();
       const decision = log.issue(command, now, also);
-      if (decision.kind === 'accepted' && command.kind === 'order' && ++accepted === after) {
+      if (
+        decision.kind === 'accepted' &&
+        typeof command !== 'function' &&
+        command.kind === 'order' &&
+        ++accepted === after
+      ) {
         dead = true;
       }
       return decision;

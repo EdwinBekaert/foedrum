@@ -31,12 +31,17 @@ const heldByTheDown = ({ engine }: ChaosRun): Set<string> => {
 
 /**
  * Every batch's pending deadline is ahead: its running attempts', its routing deadline or its
- * reminder. Except a batch a driver that is down holds.
+ * reminder. Except a batch a driver that is down holds, and one taken over in this move: the
+ * supervisor of the driver it went to may have skipped it before, and acts at its next tick
+ * (ADR 0124).
  */
 export const nothingOverdue = (run: ChaosRun): void => {
   const { engine } = run;
   const now = engine.now().getTime();
   const waiting = heldByTheDown(run);
+  for (const { move, batchId, accepted, command } of engine.interjections) {
+    if (accepted && command.kind === 'take_over' && move === run.moves.length) waiting.add(batchId);
+  }
   for (const batch of engine.state().batches.values()) {
     if (waiting.has(batch.id)) continue;
     const { lane } = batch;
@@ -80,7 +85,8 @@ export const nothingOverdue = (run: ChaosRun): void => {
  * is in the ledger, except in a batch a driver that is down holds. Once that lease expired, the
  * other driver takes the batch over (ADR 0044). And except in a batch a terminal command changed
  * in this move: one that came after the drivers' last drive waits for their next (ADR 0044). And
- * except an attempt whose step still has a live lease of an attempt the log shows over.
+ * except an attempt whose step still has a live lease of an attempt the log shows over. And except
+ * the effects of a batch taken over, until the lease the takeover took has run out (ADR 0124).
  */
 export const nothingLeftWaiting = (run: ChaosRun): void => {
   const { engine } = run;
@@ -93,19 +99,32 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
   // its run ends or the lease expires, and the next attempt of the step waits for that (I2, #150);
   // its deadline still runs (nothingOverdue). A lease of an attempt not over does not count: no
   // later attempt of its step is scheduled while it runs.
+  const holders = new Map(
+    engine
+      .store()
+      .batchLeases(engine.now())
+      .map(({ batchId, owner }) => [batchId, owner]),
+  );
   const leased = new Set(
     engine
       .store()
       .currentLeases(engine.now())
-      .flatMap(({ attemptKey: key }) => attemptKey.decode(key) ?? [])
-      .filter((ref) => {
-        const attempt = state.batches
-          .get(ref.batchId)
-          ?.steps.get(ref.stepId)
-          ?.attempts.get(ref.attempt);
-        return attempt?.phase === 'finished' || attempt?.abandoned === true;
+      .flatMap(({ attemptKey: key, owner }) => {
+        const ref = attemptKey.decode(key);
+        return ref === undefined ? [] : [{ ref, owner }];
       })
-      .map((ref) => `${ref.batchId} ${ref.stepId}`),
+      .filter(({ ref, owner }) => {
+        const batch = state.batches.get(ref.batchId);
+        const attempt = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+        // Or the scheduled attempt's own, in a batch taken over from the driver that leased it
+        // to start it (ADR 0124); a lease its batch's holder left behind still counts.
+        const handedOver =
+          attempt?.phase === 'scheduled' &&
+          batch?.takeover !== undefined &&
+          holders.get(ref.batchId) !== owner;
+        return attempt?.phase === 'finished' || attempt?.abandoned === true || handedOver;
+      })
+      .map(({ ref }) => `${ref.batchId} ${ref.stepId}`),
   );
   for (const batch of state.batches.values()) {
     if (waiting.has(batch.id) || batch.lane.kind !== 'brewing') continue;
@@ -118,8 +137,14 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
       );
     }
   }
+  // Effects of a batch taken over wait for the lease the takeover took (ADR 0124).
+  const now = engine.now().getTime();
+  const handedOver = (batchId: string): boolean => {
+    const until = state.batches.get(batchId)?.takeover?.until;
+    return until !== undefined && Date.parse(until) > now;
+  };
   for (const key of effectsDue(state)) {
-    if (waiting.has(key.batchId)) continue;
+    if (waiting.has(key.batchId) || handedOver(key.batchId)) continue;
     const text = effectKey.encode(key);
     assert.ok(state.effects.has(text), `effect ${text} is due and not in the ledger`);
   }

@@ -101,4 +101,5 @@ export const doctorHere = async (
     serve: notForDoctor('serve'),
     brew: notForDoctor('brew'),
     resume: notForDoctor('resume'),
+    env: {},
   });

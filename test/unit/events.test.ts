@@ -122,6 +122,15 @@ const valid: Record<Event['type'], Event> = {
   },
   'batch.on_tap': { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
   'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'comment' },
+  'batch.taken_over': {
+    type: 'batch.taken_over',
+    batchId: 'b1',
+    by: 'octocat',
+    via: 'terminal',
+    from: 'cellar',
+    to: 'session-7',
+    until: '2026-10-15T12:05:00.000Z',
+  },
   'pull_request.ended': {
     type: 'pull_request.ended',
     batchId: 'app-7',

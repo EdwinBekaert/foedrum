@@ -64,6 +64,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   brew: async () => assert.fail('no brew here'),
   resume: async () => assert.fail('no session to resume'),
+  env: {},
   ...overrides,
 });
 
@@ -649,6 +650,24 @@ describe('foedrum brew (ADR 0123)', () => {
     assertUsageError(
       await run(['retry', '12-1', '--as', 'ann']),
       'foedrum retry: unknown option "--as"',
+    );
+  });
+
+  it('hands --take on as a flag, which takes no value (ADR 0124)', async () => {
+    const asked: unknown[] = [];
+    const brew = async (input: unknown) => {
+      asked.push(input);
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+    assert.equal((await run(['brew', '12', '--take', '--as', 'ann'], { brew })).exitCode, 0);
+    assert.deepEqual(asked, [{ command: 'brew', issue: { issue: 12 }, as: 'ann', take: true }]);
+    assertUsageError(
+      await run(['brew', '12', '--take=yes'], { brew }),
+      'foedrum brew: --take takes no value',
+    );
+    assertUsageError(
+      await run(['cancel', '12-1', '--take']),
+      'foedrum cancel: unknown option "--take"',
     );
   });
 });

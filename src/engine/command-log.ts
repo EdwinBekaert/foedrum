@@ -22,6 +22,12 @@ export interface CommandLogOptions {
   routingMs?: number;
 }
 
+/**
+ * A command, or what makes one from the reads of the transaction that appends it, such as a batch
+ * lease (ADR 0124): the command, or why there is none.
+ */
+export type Issuable = Command | ((tx: EventStoreTransaction) => Command | { refused: string });
+
 export interface CommandLog {
   /** The folded state of every event committed so far. */
   state(): State;
@@ -29,7 +35,7 @@ export interface CommandLog {
    * Decides `command` at `now` against every event committed so far and appends its events with
    * `also`'s writes, in one transaction. A refused command appends nothing and `also` does not run.
    */
-  issue(command: Command, now: Date, also?: (tx: EventStoreTransaction) => void): Decision;
+  issue(command: Issuable, now: Date, also?: (tx: EventStoreTransaction) => void): Decision;
 }
 
 export const createCommandLog = (options: CommandLogOptions): CommandLog => {
@@ -50,14 +56,16 @@ export const createCommandLog = (options: CommandLogOptions): CommandLog => {
   };
 
   const issue = (
-    command: Command,
+    command: Issuable,
     now: Date,
     also: (tx: EventStoreTransaction) => void = () => {},
   ): Decision => {
     // The write transaction holds the store's write lock from its start, so what it reads first
     // is every committed event, and nothing else is appended before its own events.
     return store.withTransaction((tx) => {
-      const decided = decide(state(), command, { now, recipes, reminderMs, routingMs });
+      const made = typeof command === 'function' ? command(tx) : command;
+      if ('refused' in made) return { kind: 'refused', reason: made.refused };
+      const decided = decide(state(), made, { now, recipes, reminderMs, routingMs });
       if (decided.kind === 'accepted') {
         for (const event of decided.events) tx.append(event);
         also(tx);

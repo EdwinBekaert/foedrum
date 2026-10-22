@@ -130,19 +130,20 @@ exports[`foedrum: the command line > lists the commands for --help and -h 1`] = 
 Usage: foedrum <command> [arguments]
 
 Commands:
-  serve                               Run the Cellar: brew the Brewery's batches until Ctrl+C
-  doctor                              Check the tools Foedrum needs and the isolation level
-  status                              List the batches and their lanes
-  stuck                               List the Stuck batches with their options and questions
-  replay <batch>                      Show a batch's events and its folded state
-  resume <batch> [<step>]             Open a finished brewer attempt's Claude Code session in its worktree
-  retry <batch>                       Give the step a Stuck batch stopped at another attempt
-  skip <batch>                        Go on after the step a Stuck batch stopped at
-  answer <batch> <answers>...         Answer a Stuck batch's questions, one answer each, in order
-  recipe <batch> <recipe> <reason>    Brew a batch with another recipe, from its first step
-  rewind <batch> <step> <commits>...  Take a Stuck batch back to a step, each repository at its commit
-  cancel <batch>                      Cancel a batch
-  order <issue>                       Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
-  brew <issue> [--as <name>]          Brew an issue's batch here until it is on tap, Stuck or needs input
+  serve                                Run the Cellar: brew the Brewery's batches until Ctrl+C
+  doctor                               Check the tools Foedrum needs and the isolation level
+  status                               List the batches and their lanes
+  stuck                                List the Stuck batches with their options and questions
+  replay <batch>                       Show a batch's events and its folded state
+  resume <batch> [<step>]              Open a finished brewer attempt's Claude Code session in its worktree
+  retry <batch>                        Give the step a Stuck batch stopped at another attempt
+  skip <batch>                         Go on after the step a Stuck batch stopped at
+  answer <batch> <answers>...          Answer a Stuck batch's questions, one answer each, in order
+  recipe <batch> <recipe> <reason>     Brew a batch with another recipe, from its first step
+  rewind <batch> <step> <commits>...   Take a Stuck batch back to a step, each repository at its commit
+  cancel <batch>                       Cancel a batch
+  order <issue>                        Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
+  brew <issue> [--as <name>] [--take]  Brew an issue's batch here until it is on tap, Stuck or needs input
+  takeover <batch> [--as <name>]       Hand a batch from the driver that holds it to another: --as, else this session
 
 `;

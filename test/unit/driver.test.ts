@@ -505,6 +505,59 @@ describe('openDriver', () => {
       );
     });
 
+    it('starts no attempt whose own lease another driver holds: one that lost the batch to a takeover was starting it (ADR 0124)', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const key = attemptKey.encode(plan('b1'));
+      store.withTransaction((tx) =>
+        tx.putLease({ attemptKey: key, owner: 'session-7', expiresAt: at(3) }),
+      );
+      const driver = await open({ runner });
+      await driver.drive();
+      assert.deepStrictEqual(started, [], 'plan#1 waits');
+      now = at(3);
+      await driver.drive();
+      assert.deepStrictEqual(started, [plan('b1')]);
+    });
+
+    it('records no start in a batch taken over after its claim, and loses the batch (ADR 0124)', async () => {
+      const { runner, started } = handRunner();
+      const notices: DriverNotice[] = [];
+      order('b1');
+      const holder = { batchId: 'b1', owner: 'session-7', expiresAt: at(5) };
+      // Once armed, the second read of b1's lease (the start's, after the claim's) finds the
+      // lease taken over in between.
+      let armed = false;
+      let reads = 0;
+      const takenOver: EventStore = {
+        ...store,
+        withTransaction: (fn) =>
+          store.withTransaction((tx) =>
+            fn({
+              ...tx,
+              batchLease: (batchId) => {
+                if (armed && ++reads === 2) tx.putBatchLease(holder);
+                return tx.batchLease(batchId);
+              },
+            }),
+          ),
+      };
+      const driver = await open({
+        runner,
+        store: takenOver,
+        report: (notice) => notices.push(notice),
+      });
+      armed = true;
+      await driver.drive();
+      assert.deepStrictEqual(started, []);
+      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'step.started'));
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'batch_lost'),
+        [{ kind: 'batch_lost', batchId: 'b1', holder }],
+      );
+      assert.deepStrictEqual(driver.held(), []);
+    });
+
     describe('a retry while the run that Stuck abandoned still holds its lease (#150)', () => {
       // plan stalls after 10 minutes without progress; a stopped run ends only when the test
       // ends it, or never.
@@ -711,6 +764,56 @@ describe('openDriver', () => {
         notices.map((notice) => notice.kind),
         ['cleaned'],
       );
+    });
+
+    it('makes no worktree of an attempt another driver leased after the pass read its leases (ADR 0124)', async () => {
+      const { runner, started } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const key = attemptKey.encode(plan('b1'));
+      const other = { attemptKey: key, owner: 'session-7', expiresAt: at(5) };
+      // Once armed, the first transaction of the drive (the claim) ends with session-7, which lost
+      // the batch to a takeover, leasing plan#1 to start it.
+      let armed = false;
+      const late: EventStore = {
+        ...store,
+        withTransaction: (fn) => {
+          const result = store.withTransaction(fn);
+          if (armed) {
+            armed = false;
+            store.withTransaction((tx) => tx.putLease(other));
+          }
+          return result;
+        },
+      };
+      const driver = await open({ runner, store: late, ...worktreesOf(manager) });
+      armed = true;
+      await driver.drive();
+      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(
+        manager.calls.filter((call) => call.kind === 'create'),
+        [],
+      );
+      assert.deepStrictEqual(store.currentLeases(now), [other]);
+    });
+
+    it("keeps another driver's lease of an attempt whose worktree it could not make (ADR 0124)", async () => {
+      const { runner } = handRunner();
+      const key = attemptKey.encode(plan('b1'));
+      const other = { attemptKey: key, owner: 'session-7', expiresAt: at(5) };
+      // While the first worktree is made, another driver leases the attempt; then the make fails.
+      let creates = 0;
+      const manager: FakeWorktrees = {
+        ...fakeWorktrees(),
+        create: async () => {
+          if (creates++ === 0) store.withTransaction((tx) => tx.putLease(other));
+          throw new Error('the folder is in the way');
+        },
+      };
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
+      assert.deepStrictEqual(store.currentLeases(now), [other]);
     });
 
     it('gives the cleanup the out doc of each step of the ended batch (ADR 0081)', async () => {
@@ -1503,6 +1606,22 @@ describe('openDriver', () => {
       await driver.applyEffects();
       assert.deepStrictEqual(host.applied, ['["b1","plan",1,"comment"]']);
       assert.equal(batchLease('b1')?.owner, 'cellar');
+    });
+
+    it("applies nothing of a batch taken over to it before the old holder's lease ran out (ADR 0124)", async () => {
+      const host = fakeHost();
+      succeededPlan();
+      const handover = { by: 'ada', via: 'terminal', from: 'session-7', to: 'cellar' } as const;
+      const until = at(3).toISOString();
+      intake.issue({ kind: 'take_over', batchId: 'b1', ...handover, until }, now);
+      holdFor('cellar', 'b1');
+      const driver = await open({ effects: { due: commentsDue, target: host.target } });
+      now = at(2);
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, []);
+      now = at(3);
+      await driver.applyEffects();
+      assert.deepStrictEqual(host.applied, ['["b1","plan",1,"comment"]']);
     });
 
     it('applies nothing of a free batch it does not take', async () => {

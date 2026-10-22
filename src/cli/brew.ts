@@ -4,6 +4,7 @@
 // routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
 // Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
 
+import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
@@ -13,7 +14,6 @@ import { sameRepo } from '../engine/task-tree.ts';
 import { githubOrderLabels } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
-import { PathSafeId } from '../schemas/ids.ts';
 import { type OrderClaim, orderIssue } from './commands.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
@@ -26,9 +26,11 @@ export interface BrewRequest {
   target: OrderTarget;
   /** The driver's owner: its lock's and its leases' (ADR 0037). */
   owner: string;
-  /** Who runs it, recorded on an order it makes (ADR 0105). */
+  /** Who runs it, recorded on an order it makes (ADR 0105) and on a takeover (ADR 0124). */
   by: string;
   via: Surface;
+  /** `--take`: take the batch over from the driver that holds it, instead of refusing it. */
+  take?: true;
 }
 
 /** How `foedrum brew` ends (ADR 0123); 2, a wrong command line, is the terminal's. */
@@ -40,29 +42,6 @@ export const BREW_EXIT = {
   refused: 5,
   cancelled: 6,
 } as const;
-
-/** The variable Claude Code sets to its session's id in its tools' processes. */
-const SESSION = 'CLAUDE_CODE_SESSION_ID';
-
-/**
- * The driver's owner (ADR 0123): `--as`, else `session-<id>` of the Claude Code session the command
- * runs in, which a resume by id keeps; else why there is none.
- */
-export const brewOwner = (
-  as: string | undefined,
-  env: Readonly<Record<string, string | undefined>>,
-): { owner: string } | { refused: string } => {
-  if (as !== undefined) return { owner: as };
-  const id = env[SESSION];
-  if (id === undefined || id === '') {
-    return { refused: `no Claude Code session names the driver (${SESSION}); give --as <name>` };
-  }
-  const owner = `session-${id.toLowerCase()}`;
-  if (PathSafeId.safeParse(owner).success) return { owner };
-  return {
-    refused: `the Claude Code session ${JSON.stringify(id)} names no driver; give --as <name>`,
-  };
-};
 
 /** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
 const latestBatch = (
@@ -175,7 +154,7 @@ export const runBrew = async (
       );
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined) return refuse(drivenBy(leased));
+    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068).
     let recipe: string | undefined;
     if (latest === undefined || latest.lane.kind === 'ordered') {
@@ -193,6 +172,18 @@ export const runBrew = async (
       // Checked before anything is ordered or claimed, as the intake leaves it unrouted.
       if (recipe !== undefined && setup.recipes.find(recipe) === undefined) {
         return refuse(`${named} carries recipe:${recipe}, which names no recipe of this Brewery`);
+      }
+    }
+    // --take, once nothing else refuses the brew: the batch is this driver's at once, and the one
+    // that held it stops (ADR 0124). A lease that lapsed meanwhile leaves nothing to take over.
+    if (leased !== undefined) {
+      const handover = { batchId: leased.batchId, owner, by, via, now: clock(), leaseMs };
+      const decision = takeOver(log, handover);
+      const [handed] = decision.kind === 'accepted' ? decision.events : [];
+      if (handed?.type === 'batch.taken_over') {
+        say(`took batch ${leased.batchId} over from ${handed.from}`);
+      } else if (heldElsewhere(leased.batchId) !== undefined && decision.kind === 'refused') {
+        return refuse(decision.reason);
       }
     }
     if (latest === undefined) {

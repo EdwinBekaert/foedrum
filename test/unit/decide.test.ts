@@ -1314,6 +1314,35 @@ describe('decide cancel', () => {
   }
 });
 
+describe('decide take_over: a person hands a batch to another driver (ADR 0124)', () => {
+  const handover = { from: 'cellar', to: 'session-7', until: '2026-10-15T12:05:00.000Z' };
+  const takeOver: Command = { kind: 'take_over', batchId: 'b1', ...by, ...handover };
+
+  for (const lane of ['ordered', 'brewing', 'conditioning', 'stuck'] as const) {
+    it(`records the handover of a batch that is ${lane}, leaving its lane`, () => {
+      accepts(lanes[lane], takeOver, [
+        { type: 'batch.taken_over', batchId: 'b1', ...by, ...handover },
+      ]);
+    });
+  }
+
+  for (const [lane, events] of otherLanes('ordered', 'brewing', 'conditioning', 'stuck')) {
+    it(`refuses a batch that is ${lane}`, () => {
+      refuses(
+        events,
+        takeOver,
+        new RegExp(
+          `batch b1 is ${lane}; take over needs it ordered, brewing, conditioning or stuck`,
+        ),
+      );
+    });
+  }
+
+  it('refuses a batch that was never ordered', () => {
+    refuses([], takeOver, /batch b1 was never ordered/);
+  });
+});
+
 describe('decide order_again: a person orders an issue again (ADR 0105)', () => {
   const from = { by: 'ada', via: 'terminal' } as const;
   const again = (batchId: string, order: OrderRef): Command => ({

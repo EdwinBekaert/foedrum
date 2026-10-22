@@ -313,6 +313,7 @@ export const openSqliteEventStore = (
       case 'bottle.opened':
       case 'release.observed':
       case 'batch.rewound':
+      case 'batch.taken_over':
       case 'pull_request.ended':
         return;
       default: {

@@ -98,6 +98,16 @@ export interface Rewind {
   shas: Readonly<Record<string, string>>;
 }
 
+/** A person's handover of a batch from the driver `from` to `to` (ADR 0124). */
+export interface Takeover {
+  by: string;
+  via: Surface;
+  from: string;
+  to: string;
+  /** When `from`'s lease would have expired: no effect of the batch is applied before it. */
+  until: string;
+}
+
 /**
  * Where a batch's task tree is (ADR 0066): the branch of its latest attempt that succeeded with a
  * worktree, or the commits of its latest rewind, whichever was recorded last.
@@ -133,6 +143,8 @@ export interface Batch {
   /** The steps whose latest record is a skip (ADR 0064); absent while none is. */
   skipped?: ReadonlySet<string>;
   rewinds: readonly Rewind[];
+  /** Its latest handover from one driver to another (ADR 0124); absent while it had none. */
+  takeover?: Takeover;
   /** Its task tree; absent while it is the repository's base (ADR 0066). */
   taskTree?: TaskTree;
   /**
@@ -471,6 +483,13 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
+    case 'batch.taken_over': {
+      const { by, via, from, to, until } = event;
+      return updateBatch(state, event.batchId, (batch) => ({
+        ...batch,
+        takeover: { by, via, from, to, until },
+      }));
+    }
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
     case 'pull_request.ended': {

@@ -6,7 +6,8 @@
 
 import { join } from 'node:path';
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
-import { createCommandLog } from '../engine/command-log.ts';
+import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
+import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
@@ -29,10 +30,12 @@ import {
   SkipCommand,
   StatusCommand,
   StuckCommand,
+  TakeoverCommand,
 } from '../schemas/commands.ts';
 import type { OrderRef, Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
+import { brewOwner } from './driver-owner.ts';
 import { keptBranchLines } from './kept-branches.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
@@ -57,6 +60,8 @@ export interface RegisteredCommand {
   rest?: string;
   /** The options it takes, each with a value and a field of its own: the value's name, by option. */
   options?: Readonly<Record<string, string>>;
+  /** The options it takes without a value, each a field of its own that is true when given. */
+  flags?: readonly string[];
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -69,6 +74,7 @@ interface CommandDefinition<S extends z.ZodType> {
   optional?: readonly string[];
   rest?: string;
   options?: Readonly<Record<string, string>>;
+  flags?: readonly string[];
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }
@@ -134,17 +140,14 @@ type Issued = (batchId: string) => { batchId: string; by: string; via: Surface }
 // host. Never creates a store.
 const changeBrewery = async (
   command: string,
-  { cwd, openWritableStore, recipes, user, surface, now }: CliContext,
+  context: CliContext,
   build: (
     state: () => State,
     issued: Issued,
   ) => HumanCommand | { refused: string } | Promise<HumanCommand | { refused: string }>,
-): Promise<CliResult> => {
-  const path = storePath(cwd);
-  const store = openWritableStore(path);
-  if (store === undefined) return failed(command, `no event store at ${path}`);
-  try {
-    const log = createCommandLog({ store, recipes: recipes() });
+): Promise<CliResult> =>
+  writeBrewery(command, context, async (log) => {
+    const { user, surface, now } = context;
     const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
     const human = await build(() => log.state(), issued);
     if ('refused' in human) return failed(command, human.refused);
@@ -153,6 +156,20 @@ const changeBrewery = async (
     // Accepted, so the batch exists.
     const { lane, detail } = describeLane(log.state().batches.get(human.batchId) as Batch);
     return done(`${human.batchId} ${lane}${detail === '' ? '' : `: ${detail}`}\n`);
+  });
+
+// Runs `use` on the command log of the Brewery's store, opened for writing and closed after; one
+// line when there is no store or the fold refuses the log. Never creates a store.
+const writeBrewery = async (
+  command: string,
+  { cwd, openWritableStore, recipes }: CliContext,
+  use: (log: CommandLog) => Promise<CliResult>,
+): Promise<CliResult> => {
+  const path = storePath(cwd);
+  const store = openWritableStore(path);
+  if (store === undefined) return failed(command, `no event store at ${path}`);
+  try {
+    return await use(createCommandLog({ store, recipes: recipes() }));
   } catch (error) {
     if (error instanceof InvalidLogError) return failed(command, error.message);
     throw error;
@@ -404,9 +421,41 @@ export const commands: readonly RegisteredCommand[] = [
     changesState: true,
     positionals: ['issue'],
     options: { as: 'name' },
+    flags: ['take'],
     schema: BrewCommand,
     // A driver of its own on the machine, run by the terminal (ADR 0123).
     handler: async (input, context) =>
       context.brew(input, { by: context.user(), via: context.surface }),
+  }),
+  define({
+    name: 'takeover',
+    summary: 'Hand a batch from the driver that holds it to another: --as, else this session',
+    changesState: true,
+    positionals: ['batch'],
+    options: { as: 'name' },
+    schema: TakeoverCommand,
+    // The lease goes to the new owner at once; its driver renews it from its next tick (ADR 0124).
+    handler: async ({ batch, as }, context) => {
+      const owner = brewOwner(as, context.env);
+      if ('refused' in owner) {
+        return { exitCode: 2, stdout: '', stderr: `foedrum takeover: ${owner.refused}\n` };
+      }
+      return writeBrewery('takeover', context, async (log) => {
+        const request = {
+          batchId: batch,
+          owner: owner.owner,
+          by: context.user(),
+          via: context.surface,
+          now: context.now(),
+          leaseMs: defaultLeaseMs,
+        };
+        const decision = takeOver(log, request);
+        if (decision.kind === 'refused') return failed('takeover', decision.reason);
+        const [handed] = decision.events;
+        if (handed?.type !== 'batch.taken_over') throw new Error('A takeover recorded no handover');
+        const { from, to, until } = handed;
+        return done(`${batch} handed from ${from} to ${to}; its effects wait until ${until}\n`);
+      });
+    },
   }),
 ];
