@@ -1,0 +1,114 @@
+// The audit:advisories shell with a fake process runner and a fake wait (ADR 0021): how many times
+// it runs npm, what it passes, and when it waits. What npm's output means is in
+// npm-audit-core.test.ts; the fixtures are npm 11.19.0's own output.
+
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import { auditAdvisories, RETRY_WAIT_MS } from '../../scripts/npm-audit.ts';
+import type { ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+
+const cwd = join('/work', 'tree');
+const execPath = '/usr/local/bin/node';
+const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
+const env = { npm_execpath: npmCli };
+
+const answer = (name: string): ExecResult => {
+  const { exitCode, stdout, stderr } = JSON.parse(
+    readFileSync(join(import.meta.dirname, '..', 'fixtures', 'npm-audit', `${name}.json`), 'utf8'),
+  );
+  return { exitCode, stdout, stderr, output: stderr + stdout };
+};
+
+// A fake runner that answers each call with the next result, and a wait that records its delays.
+const fake = (...results: ExecResult[]) => {
+  const calls: { file: string; args: readonly string[]; cwd: string }[] = [];
+  const exec: ExecProcess = async (file, args, options) => {
+    calls.push({ file, args, cwd: options.cwd });
+    const next = results.shift();
+    if (next === undefined) throw new Error('npm ran more often than the test expected');
+    return next;
+  };
+  const waits: number[] = [];
+  const wait = async (ms: number) => {
+    waits.push(ms);
+  };
+  return { calls, exec, waits, wait };
+};
+
+describe('auditAdvisories', () => {
+  it('runs npm audit --omit=dev --json once and passes a clean report', async () => {
+    const { calls, exec, waits, wait } = fake(answer('clean'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, true);
+    assert.deepEqual(calls, [
+      { file: execPath, args: [npmCli, 'audit', '--omit=dev', '--json'], cwd },
+    ]);
+    assert.deepEqual(waits, []);
+  });
+
+  it('fails on findings without a retry', async () => {
+    const { calls, exec, waits, wait } = fake(answer('findings'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(waits, []);
+    assert.ok(run.lines.some((line) => line.includes('minimist (critical)')));
+  });
+
+  it('waits and runs again after a server error, and passes a clean second report', async () => {
+    const { calls, exec, waits, wait } = fake(answer('server-error'), answer('clean'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, true);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(waits, [RETRY_WAIT_MS]);
+    assert.ok(run.lines.some((line) => line.includes('503')));
+  });
+
+  it('fails on findings after a server error', async () => {
+    const { calls, exec, wait } = fake(answer('server-error'), answer('findings'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.equal(calls.length, 2);
+  });
+
+  it('fails on a second server error, and runs npm no third time', async () => {
+    const { calls, exec, waits, wait } = fake(answer('server-error'), answer('server-error'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(waits, [RETRY_WAIT_MS]);
+  });
+
+  it("shows npm's stderr when an attempt is not clean", async () => {
+    const { exec, wait } = fake(answer('client-error'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.ok(
+      run.lines.some((line) => line.includes('npm error audit endpoint returned an error')),
+    );
+  });
+
+  it('fails without a retry when npm is killed', async () => {
+    const { calls, exec, wait } = fake({
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      output: '',
+      killed: 'timed-out',
+    });
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.equal(calls.length, 1);
+    assert.ok(run.lines.some((line) => line.includes('timed out')));
+  });
+
+  it('fails without running anything when npm_execpath is not set', async () => {
+    const { calls, exec, wait } = fake();
+    const run = await auditAdvisories(cwd, {}, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.equal(calls.length, 0);
+    assert.ok(run.lines.some((line) => line.includes('npm_execpath')));
+  });
+});
