@@ -1,6 +1,6 @@
 # 0129. A spend limit or a too-low credit balance blocks on the environment
 
-Date: 2026-10-22 · Status: Accepted · Amends [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md)
+Date: 2026-10-22 · Status: Accepted · Amends [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) and [0091](0091-a-run-out-usage-window-blocks-on-the-environment.md)
 
 ## Context
 [ADR 0091](0091-a-run-out-usage-window-blocks-on-the-environment.md) reads the four usage-window messages of Claude Code's error reference and leaves a spend limit (`You've hit your monthly spend limit`) a retryable error, because a spend limit "does not block until a reset". It blocks for longer than that: until a human acts. The same reference ([code.claude.com/docs/en/errors](https://code.claude.com/docs/en/errors), "You've hit your monthly spend limit" and "Credit balance is too low", read 2026-10-22) gives:
