@@ -275,6 +275,14 @@ describe('routeInput', () => {
     }
   });
 
+  it(`keeps a text of exactly ${MAX_ROUTE_INPUT_BYTES} bytes whole`, () => {
+    const failed: PlannedRoute = {
+      source: { kind: 'route', step: 'implement', from: 'green', why: 'failed' },
+      text: 'x'.repeat(MAX_ROUTE_INPUT_BYTES),
+    };
+    assert.equal(routeInput(failed).text, failed.text);
+  });
+
   it('is the text of a failed check as it is', () => {
     const failed: PlannedRoute = {
       source: { kind: 'route', step: 'implement', from: 'green', why: 'failed' },
