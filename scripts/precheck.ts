@@ -693,11 +693,16 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
 // prefix (api.github.com/graphql); or a full URL, which gh uses as it is, ending in /graphql
 // (api.github.com/graphql, <host>/api/graphql on GitHub Enterprise Server), before any query
 // string (#314). An endpoint built at run time is taken at its worst when its literal text still
-// ends in /graphql ("$base/graphql"), as for the merge endpoint.
+// ends in /graphql ("$base/graphql"), as for the merge endpoint. So is a literal path whose last
+// segment is graphql and which has a . or .. segment (x/../graphql): gh joins it to the REST
+// prefix without resolving them, and the server may (#329).
 const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
 const GRAPHQL_PATH = /\/graphql\/?(?:[?#].*)?$/is;
+const DOTTED_GRAPHQL_PATH = /^(?:[^?#]*\/)?\.\.?\/(?:[^?#]*\/)?graphql\/?(?:[?#].*)?$/is;
 const isGraphqlEndpoint = (arg: Word): boolean =>
-  GRAPHQL_ENDPOINT.test(arg.text) || (arg.dynamic && GRAPHQL_PATH.test(arg.text));
+  GRAPHQL_ENDPOINT.test(arg.text) ||
+  DOTTED_GRAPHQL_PATH.test(arg.text) ||
+  (arg.dynamic && GRAPHQL_PATH.test(arg.text));
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
 // (query=@…), its input (--input) or a value computed at run time, also with the field flag
