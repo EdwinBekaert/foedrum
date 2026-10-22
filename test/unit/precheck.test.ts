@@ -879,9 +879,9 @@ describe('forbiddenReason', () => {
   }
 });
 
-// The bypasses from the independent review of #30 (#42): wrappers, other shells, aliases,
-// substitutions, variables and quoted paths. Each case is a force push or a merge in disguise.
-describe('forbiddenReason through wrappers, other shells and aliases', () => {
+// The bypasses from the independent review of #30 (#42): wrappers, other shells, substitutions,
+// variables and quoted paths. Each case is a force push or a merge in disguise.
+describe('forbiddenReason through wrappers and other shells', () => {
   const encoded = (command: string): string => Buffer.from(command, 'utf16le').toString('base64');
   const forcePushes = [
     // Wrapper words before the program.
@@ -1107,7 +1107,7 @@ describe('forbiddenReason on quoting details', () => {
   }
 });
 
-describe('isGatedCommand through wrappers, other shells and aliases', () => {
+describe('isGatedCommand through wrappers and other shells', () => {
   const gated = [
     'command git push',
     'env FOO=1 git push -u origin 42-harden-gate',
