@@ -2305,6 +2305,7 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     // #296: a ( ) argument after an assignment.
     '$null = Remove-Item -Recurse (Join-Path $root run)',
     '$r = rm -Recurse -Force (Get-Location)',
+    '. Remove-Item -Recurse (Get-Location)',
     // #296: a pipeline whose earlier stage is computed, into a recursive delete.
     '$p | Remove-Item -Recurse',
     'Get-ChildItem $d | Remove-Item -Recurse',
@@ -2360,6 +2361,10 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     '$p | Remove-Item',
     '$p | Write-Output; Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
     'Test-Path $d || Remove-Item -Recurse .foedrum/tmp/218',
+    'Get-ChildItem $d | Write-Output && Remove-Item -Recurse .foedrum/tmp/218',
+    'Get-ChildItem $d | Write-Output\nRemove-Item -Recurse .foedrum/tmp/218',
+    'if (Test-Path $d) { Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse }',
+    "Remove-Item -Force '@o'",
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
     // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
@@ -2393,6 +2398,9 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     [`r''m -rf "$d"`, 'Bash'],
     // Computed without a $, % or backtick.
     ['Remove-Item -Recurse -Force (Get-Location)', 'PowerShell'],
+    // #296's forms.
+    ['rd/s/q %X%', 'PowerShell'],
+    ['$p | Remove-Item -Recurse', 'PowerShell'],
   ];
   for (const [command, tool] of blocked) {
     it(`blocks without running the check (${tool}): ${command}`, async () => {
@@ -2404,7 +2412,12 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     });
   }
 
-  for (const command of ['rm -rf .foedrum/tmp/218/run', 'rm -f "$file"']) {
+  // Bash reads no pipeline into a delete: rm reads no paths from its input (ADR 0138).
+  for (const command of [
+    'rm -rf .foedrum/tmp/218/run',
+    'rm -f "$file"',
+    'ls "$d" | xargs rm -rf .foedrum/tmp/218',
+  ]) {
     it(`lets through: ${command}`, async () => {
       const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
       const result = await precheck(hookInput(command, '/work/tree'), runCheck);
