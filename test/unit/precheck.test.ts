@@ -1323,6 +1323,14 @@ describe('precheck on words split by line continuations', () => {
   // Bash removes a backslash-newline inside double quotes too (#359).
   const FORCE =
     'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
+  // Bash may keep the CR of a backslash-CRLF: the PowerShell reading of the nested string still
+  // reads its next line as a command. An escaped backslash keeps its newline (review of #372).
+  it('still reads the line after a backslash-CRLF in double quotes as a command', () => {
+    assert.equal(forbiddenReason('bash -c "echo \\\r\ngit push -f"'), FORCE);
+  });
+  it('reads no push after an escaped backslash and a newline', () => {
+    assert.equal(forbiddenReason('git "pu\\\\\nsh" -f'), undefined);
+  });
   for (const newline of ['\n', '\r\n']) {
     const command = `bash -c "g\\${newline}it push -f"`;
     it(`blocks a force push split inside a nested shell's string: ${JSON.stringify(command)}`, () => {
@@ -2318,6 +2326,11 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Get-ChildItem $d\n| Remove-Item -Recurse',
     'Get-ChildItem $d | Where-Object { $_.PSIsContainer } | Remove-Item -Recurse',
     '$p | & Remove-Item -Recurse',
+    // Round 2 of that review: a variable that only starts like $_, and a literal delete inside a
+    // stage of a pipeline from a computed source, which fails closed.
+    '$_d | Remove-Item -Recurse',
+    'Get-ChildItem $PSItems | Remove-Item -Recurse',
+    '$d | ForEach-Object { Remove-Item -Recurse .foedrum/tmp/x }',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
@@ -2375,6 +2388,9 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     // $_ and $PSItem are the pipeline's own object, which came from a literal path here.
     'Get-ChildItem .foedrum/tmp/218 | Where-Object { $_.PSIsContainer } | Remove-Item -Recurse',
     'Get-ChildItem .foedrum/tmp/218 | Where-Object { $PSItem.Name -ne "keep" } | ri -r',
+    // An @ inside a path is no splat.
+    'rm -rf .foedrum/tmp/a@b',
+    'Remove-Item -Recurse .foedrum/tmp/a@b',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
     // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
@@ -2431,6 +2447,8 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     'rm -rf .foedrum/tmp/218/run',
     'rm -f "$file"',
     'ls "$d" | xargs rm -rf .foedrum/tmp/218',
+    // The pre-filter passes a delete word with an @ to the reader, which lets a path through.
+    'rm -rf .foedrum/tmp/a@b',
   ]) {
     it(`lets through: ${command}`, async () => {
       const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
