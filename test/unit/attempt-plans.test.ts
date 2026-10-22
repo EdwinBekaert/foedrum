@@ -337,6 +337,49 @@ describe('createAttemptPlans: plan', () => {
       );
       assert.doesNotMatch(plan.prompt, /untrusted-input/);
     });
+
+    it("resumes the session of an answered attempt with this round's answers alone (#327, ADR 0118)", async () => {
+      const received = (q: string, answer: string): Event => ({
+        type: 'input.received',
+        batchId: '12-1',
+        stepId: 'brew',
+        by: 'octocat',
+        via: 'terminal',
+        answers: [{ q, answer }],
+      });
+      const question = { options: ['a', 'b'], recommended: 'a', whyBlocking: 'It decides' };
+      const asked: Event = {
+        type: 'step.finished',
+        ...ref,
+        outcome: { kind: 'needs_input', questions: [{ q: 'Which flag?', ...question }] },
+        claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+      };
+      const events: Event[] = [
+        ...ordered,
+        // An earlier round, which the session already holds.
+        received('Which file?', 'cli.ts'),
+        started,
+        asked,
+        received('Which flag?', '--json'),
+        { type: 'step.scheduled', ...second, deadlineAt, answered: true },
+        resumed,
+      ];
+      const { plans, reads, orders } = setup(events);
+      const plan = await plans.plan({ ...start, ref: second });
+      assert.equal(plan.cwd, recreated);
+      assert.deepEqual(plan.call.session, { kind: 'resume', id: sessionId });
+      assert.deepEqual(reads, [], 'the session holds its inputs');
+      assert.deepEqual(orders, []);
+      assert.match(
+        plan.prompt,
+        /^A human answered the questions the run before this one asked\. Go on with the step where it stopped, with the answers below, then write brew\.md as your instructions say\./,
+      );
+      assert.match(
+        plan.prompt,
+        /source="answers to the questions of step brew" name="answers">\nQ: Which flag\?\nA: --json\n<\//,
+      );
+      assert.doesNotMatch(plan.prompt, /Which file\?/);
+    });
   });
 
   it("throws, naming the input, when the order's text is larger than 1 MiB (review of #165)", async () => {

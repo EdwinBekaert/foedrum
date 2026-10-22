@@ -1074,6 +1074,41 @@ describe('openDriver', () => {
       assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
     });
 
+    it('resumes the session whose questions a human answered, in the worktree it made (#327, ADR 0118)', async () => {
+      const { runner, end, started: ran } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      const question = {
+        q: 'Which cache?',
+        options: ['sqlite', 'redis'],
+        recommended: 'sqlite',
+        whyBlocking: 'It sets the schema',
+      };
+      end(plan('b1'), { kind: 'needs_input', questions: [question] }, inSession(first));
+      await driver.drive();
+      const answers = [{ q: 'Which cache?', answer: 'redis' }];
+      const answer = {
+        kind: 'answer',
+        batchId: 'b1',
+        by: 'ada',
+        via: 'terminal',
+        answers,
+      } as const;
+      assert.equal(intake.issue(answer, now).kind, 'accepted');
+      await driver.drive();
+      const resumed = started().at(-1);
+      assert.equal(resumed?.attempt, 2);
+      assert.deepStrictEqual(resumed.session, {
+        id: first,
+        resumes: first,
+        worktree: folder('plan', 1),
+      });
+      assert.equal(resumed.worktree, undefined);
+      assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
+    });
+
     it('recreates the worktree at the commit its maker recorded, and records the path it gave back', async () => {
       const { runner, end } = handRunner();
       const made = 'd'.repeat(40);

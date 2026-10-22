@@ -42,6 +42,8 @@ export type Attempt =
       route?: ScheduleRoute;
       /** Scheduled because the attempt before it failed (ADR 0117). */
       retry?: true;
+      /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
+      answered?: true;
       abandoned?: true;
     }
   | {
@@ -51,6 +53,8 @@ export type Attempt =
       route?: ScheduleRoute;
       /** Scheduled because the attempt before it failed (ADR 0117). */
       retry?: true;
+      /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
+      answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
       abandoned?: true;
@@ -62,6 +66,8 @@ export type Attempt =
       route?: ScheduleRoute;
       /** Scheduled because the attempt before it failed (ADR 0117). */
       retry?: true;
+      /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
+      answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;

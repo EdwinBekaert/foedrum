@@ -25,7 +25,7 @@ import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
+import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-22T12:00:00.000Z');
@@ -512,6 +512,54 @@ describe('runBrew', () => {
     assert.ok(!second.some((line) => /ordered|routed|driven by/.test(line)), second.join('\n'));
     assert.deepStrictEqual(started, ['brew#1', 'brew#2']);
     assert.match(second.at(-1) ?? '', /^foedrum brew: batch 12-1 is on tap: /);
+  });
+
+  it('resumes the session of a brewer with retryMode resume once its questions are answered, in its worktree (#327, ADR 0118)', async () => {
+    const files = serveInputs().files;
+    const resuming = brewer.replace(
+      '"maxAttempts": 1',
+      '"maxAttempts": 1,\n  "retryMode": "resume"',
+    );
+    const inputs = serveInputs({
+      files: {
+        ...files,
+        local: local({ workRoot: dir.path }),
+        brewery: { ...files.brewery, brewers: [{ path: 'brewers/cellarman.md', text: resuming }] },
+      },
+    });
+    const ready = serveSetup(inputs);
+    const resumes = ready.kind === 'ready' ? ready.setup : assert.fail(JSON.stringify(ready));
+    // claude's init came, so its session is there to resume (ADR 0117).
+    const runnerOf = (brew: Behaviour) =>
+      fakeBrewerRunner(
+        (attempt) => {
+          started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
+          return brew;
+        },
+        {
+          session: () => ({ sessionId: 's', model: 'claude-haiku-5-5', claudeVersion: '2.1.301' }),
+        },
+      );
+    const asking = shell(behave.needInput(), { runner: () => runnerOf(behave.needInput()) });
+    assert.equal(await runBrew(resumes, asking, request), 4);
+    const answers = [{ q: question.q, answer: 'sqlite' }];
+    log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
+    const again = shell(behave.succeed(), {
+      lock: () => fakeLock('ann'),
+      runner: () => runnerOf(behave.succeed()),
+    });
+    assert.equal(await runBrew(resumes, again, request), 0);
+    const starts = store
+      .eventsAfter(0)
+      .flatMap(({ event }) => (event.type === 'step.started' ? [event] : []));
+    const [first, second] = starts;
+    assert.equal(second?.attempt, 2);
+    assert.deepStrictEqual(second.session, {
+      id: first?.session?.id,
+      resumes: first?.session?.id,
+      worktree: first?.worktree?.path,
+    });
+    assert.equal(second.worktree, undefined);
   });
 
   it('stops with who cancelled the batch when it is cancelled while it brews: exit 6', async () => {

@@ -227,6 +227,34 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
+  it("reads the proven step's commits on the branch of the worktree its resumed attempt ran in (#327, ADR 0117)", async () => {
+    const [scheduled, started] = gauged;
+    assert.ok(started?.type === 'step.started');
+    const gauge = (attempt: number) => ({ batchId: '12-1', stepId: 'gauge', attempt });
+    const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
+    const session = { id: 'gauge-session', worktree: gaugeTree };
+    const resumed: Event[] = [
+      ...(scheduled === undefined ? [] : [scheduled]),
+      { ...started, session },
+      {
+        type: 'step.finished',
+        ...gauge(1),
+        outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+        claude,
+      },
+      { type: 'step.scheduled', ...gauge(2), deadlineAt, retry: true },
+      // No worktree of its own: it ran in gauge#1's (ADR 0029).
+      { type: 'step.started', ...gauge(2), session: { ...session, resumes: session.id } },
+      { type: 'step.finished', ...gauge(2), outcome: { kind: 'succeeded', output: null }, claude },
+    ];
+    const { order, run } = setup({ events: [...ordered, ...resumed, ...redStarted] });
+    await run();
+    assert.match(
+      order[0] ?? '',
+      new RegExp(` ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in `),
+    );
+  });
+
   it('rejects a red run that fails on a compile error (done when, #176)', async () => {
     const { run } = setup({ test: { exitCode: 1, stdout: compileError } });
     const end = await run();

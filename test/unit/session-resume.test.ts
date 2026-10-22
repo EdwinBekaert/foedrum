@@ -59,6 +59,27 @@ describe('resumeOf', () => {
     });
   });
 
+  it('resumes the session of the attempt whose questions a human answered (#327, ADR 0118)', () => {
+    const asked: StepOutcome = {
+      kind: 'needs_input',
+      questions: [
+        {
+          q: 'Which flag?',
+          options: ['--json', '--yaml'],
+          recommended: '--json',
+          whyBlocking: 'x',
+        },
+      ],
+    };
+    const answered: Event = { type: 'step.scheduled', ...plan(2), deadlineAt, answered: true };
+    assert.deepStrictEqual(resumeOf(batchOf([...fresh(1, asked), answered]), plan(2)), {
+      kind: 'resume',
+      session: id(1),
+      from: plan(1),
+      worktree: worktree(1),
+    });
+  });
+
   it('has nothing to resume for an attempt that is no retry, or a first attempt', () => {
     assert.equal(resumeOf(batchOf([...fresh(1), scheduled(2, false)]), plan(2)), undefined);
     assert.equal(resumeOf(batchOf([scheduled(1, false)]), plan(1)), undefined);

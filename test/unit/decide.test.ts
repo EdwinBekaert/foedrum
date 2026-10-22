@@ -953,8 +953,9 @@ describe('decide retry and answer: the step a human names, never skipped (ADR 00
       const decision = decide(fold(stuck()), command, skipping);
       assert.deepStrictEqual(decision, decide(fold(stuck()), command, context));
       assert.ok(decision.kind === 'accepted');
-      // An answer is no retry: its attempt gets the answers (ADR 0117).
-      const expected = command.kind === 'retry' ? retried('plan', 2) : next('plan', 2);
+      // An answer is no retry: its attempt is marked answered, and gets the answers (ADR 0118).
+      const expected =
+        command.kind === 'retry' ? retried('plan', 2) : { ...next('plan', 2), answered: true };
       assert.deepStrictEqual(decision.events.at(-1), expected);
     });
   }
@@ -1034,11 +1035,11 @@ describe('decide answer: Stuck → brewing', () => {
   });
   const keep = [{ q: question.q, answer: 'keep' }];
 
-  it('records the answers and schedules the next attempt of the step that asked', () => {
+  it('records the answers and schedules the next attempt of the step that asked, marked answered (ADR 0118)', () => {
     accepts(lanes.stuck, answer(keep), [
       { type: 'input.received', batchId: 'b1', stepId: 'plan', ...by, answers: keep },
       { type: 'batch.resumed', batchId: 'b1', ...by, action: 'answer' },
-      next('plan', 2),
+      { ...next('plan', 2), answered: true },
     ]);
   });
 
