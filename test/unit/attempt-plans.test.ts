@@ -338,22 +338,24 @@ describe('createAttemptPlans: plan', () => {
       assert.doesNotMatch(plan.prompt, /untrusted-input/);
     });
 
+    // The answers to the questions of brew#1, and of an earlier round, which its session holds.
+    const received = (q: string, answer: string): Event => ({
+      type: 'input.received',
+      batchId: '12-1',
+      stepId: 'brew',
+      by: 'octocat',
+      via: 'terminal',
+      answers: [{ q, answer }],
+    });
+    const question = { options: ['a', 'b'], recommended: 'a', whyBlocking: 'It decides' };
+    const asked: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'needs_input', questions: [{ q: 'Which flag?', ...question }] },
+      claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+    };
+
     it("resumes the session of an answered attempt with this round's answers alone (#327, ADR 0118)", async () => {
-      const received = (q: string, answer: string): Event => ({
-        type: 'input.received',
-        batchId: '12-1',
-        stepId: 'brew',
-        by: 'octocat',
-        via: 'terminal',
-        answers: [{ q, answer }],
-      });
-      const question = { options: ['a', 'b'], recommended: 'a', whyBlocking: 'It decides' };
-      const asked: Event = {
-        type: 'step.finished',
-        ...ref,
-        outcome: { kind: 'needs_input', questions: [{ q: 'Which flag?', ...question }] },
-        claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
-      };
       const events: Event[] = [
         ...ordered,
         // An earlier round, which the session already holds.
@@ -379,6 +381,47 @@ describe('createAttemptPlans: plan', () => {
         /source="answers to the questions of step brew" name="answers">\nQ: Which flag\?\nA: --json\n<\//,
       );
       assert.doesNotMatch(plan.prompt, /Which file\?/);
+    });
+
+    it('gives a fresh retry after a resume that found no session every round of answers (ADR 0118)', async () => {
+      const third = { ...ref, attempt: 3 };
+      const own = join('/work', 'brew-3');
+      const reason = 'claude could not resume the session: No conversation found';
+      const events: Event[] = [
+        ...ordered,
+        received('Which file?', 'cli.ts'),
+        started,
+        asked,
+        received('Which flag?', '--json'),
+        { type: 'step.scheduled', ...second, deadlineAt, answered: true },
+        resumed,
+        // It ended before claude's init: no report, so its retry starts fresh (ADR 0117).
+        { type: 'step.finished', ...second, outcome: { kind: 'failed', retryable: true, reason } },
+        { type: 'step.scheduled', ...third, deadlineAt, retry: true },
+        {
+          type: 'step.started',
+          ...third,
+          session: {
+            id: sessionId,
+            worktree: own,
+            fallback: 'brew#2 has no session claude started',
+          },
+          worktree: {
+            repo: 'acme/api',
+            path: own,
+            branch: 'foedrum/12-1/brew/3',
+            commit: 'c'.repeat(40),
+          },
+        },
+      ];
+      const { plans } = setup(events);
+      const plan = await plans.plan({ ...start, ref: third });
+      assert.equal(plan.cwd, own);
+      assert.deepEqual(plan.call.session, { kind: 'new', id: sessionId });
+      assert.match(
+        plan.prompt,
+        /name="answers">\nQ: Which file\?\nA: cli\.ts\n\nQ: Which flag\?\nA: --json\n<\//,
+      );
     });
   });
 
