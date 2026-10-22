@@ -33,6 +33,7 @@
     "lint": "biome check",
     "test": "node scripts/with-checkout-tmp.ts --import ./scripts/test-cpu-time.ts --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=./scripts/spec-reporter.ts --test-reporter-destination=stdout --test-reporter=./scripts/test-budget-reporter.ts --test-reporter-destination=stdout \"test/{unit,property,chaos}/**/*.test.ts\"",
     "test:integration": "node scripts/with-checkout-tmp.ts --import ./scripts/lower-priority.ts --test \"test/integration/**/*.test.ts\"",
+    "audit:advisories": "node scripts/npm-audit.ts",
     "check": "node scripts/check.ts",
     "check:deps": "node scripts/check-deps.ts",
     "demo": "node scripts/demo.ts",
