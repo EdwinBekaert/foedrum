@@ -207,8 +207,10 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (!SHA.test(commit)) throw new Error(`${commit} is no full commit sha`);
       const refspec = `${commit}:refs/heads/${foedrumBranch(branch)}`;
       // Never by force, and by the commit's sha: no ref of the clone names what is pushed. No hook
-      // of the clone's runs: `--no-verify` alone would skip only pre-push.
-      await gitOutput(local, clone, ['push', '--no-verify', remote, refspec], {
+      // of the clone's runs: `--no-verify` alone would skip only pre-push. Only this one ref goes,
+      // whatever push.followTags or push.recurseSubmodules say: nothing past the ledger.
+      const args = ['push', '--no-verify', '--no-follow-tags', '--no-recurse-submodules'];
+      await gitOutput(local, clone, [...args, remote, refspec], {
         ...aborts(signal),
         timeoutMs: TRANSFER_TIMEOUT_MS,
       });

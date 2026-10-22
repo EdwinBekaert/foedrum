@@ -260,11 +260,19 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     return status.ok ? worktreeStatus(status.stdout, outDoc) : { state: 'dirty' };
   };
   // One fetch at a time: concurrent fetches in one clone fail on git's ref locks. With `--prune`,
-  // a branch the remote deleted and made again as a folder never stops it (review of #266).
+  // a branch the remote deleted and made again as a folder never stops it (review of #266). No
+  // maintenance that would outlive the call, and no submodule's remote (review of #370).
   let fetching: Promise<unknown> = Promise.resolve();
+  const fetchArgs = [
+    'fetch',
+    '--quiet',
+    '--prune',
+    '--no-auto-maintenance',
+    '--no-recurse-submodules',
+  ];
   const fetchOnce = (): Promise<string> => {
     const fetched = fetching.then(() =>
-      must(git, clone, ['fetch', '--quiet', '--prune', remote], { timeoutMs: FETCH_TIMEOUT_MS }),
+      must(git, clone, [...fetchArgs, remote], { timeoutMs: FETCH_TIMEOUT_MS }),
     );
     fetching = fetched.catch(() => undefined);
     return fetched;
