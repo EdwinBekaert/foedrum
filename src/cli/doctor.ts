@@ -504,7 +504,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
 const denylistLine = (denylist: DenylistFact): string => {
   switch (denylist.kind) {
     case 'set':
-      return `Denylist: ${denylist.path} (the local gate blocks its words in what leaves the machine, ADR 0114)`;
+      return `Denylist: ${denylist.path} (the local gate blocks its words in what git push sends, ADR 0114)`;
     case 'none':
       return `Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or ${denylist.path}, ADR 0114)`;
     case 'unreadable':
