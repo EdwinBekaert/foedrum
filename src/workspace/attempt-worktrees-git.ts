@@ -22,6 +22,7 @@ import {
   managedClonePath,
   parseAttemptFolder,
   planClean,
+  planOwnGitDirs,
   planWorktree,
   repoFolder,
   type Target,
@@ -160,6 +161,32 @@ const removeEmptyFolders = async (path: string): Promise<boolean> => {
     if (errorCode(error) !== 'ENOENT') throw error;
   });
   return true;
+};
+
+// Removes the git directories of its own that a stopped call left in `root` (ADR 0130).
+const cleanOwnGitDirs = async (root: string, now: number, report: CleanReport): Promise<void> => {
+  let names: string[];
+  try {
+    const entries = [];
+    for (const entry of await entriesOf(root)) {
+      const { mtimeMs } = await lstat(join(root, entry.name));
+      entries.push({ name: entry.name, directory: entry.isDirectory(), modifiedMs: mtimeMs });
+    }
+    names = planOwnGitDirs(entries, now);
+  } catch (error) {
+    report.failed.push(
+      `could not clean the git directories in ${root}: ${(error as Error).message}`,
+    );
+    return;
+  }
+  for (const name of names) {
+    try {
+      await removeTree(join(root, name));
+      report.done.push(`removed git directory ${name}: a stopped call left it`);
+    } catch (error) {
+      report.failed.push(`could not clean git directory ${name}: ${(error as Error).message}`);
+    }
+  }
 };
 
 export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptWorktrees => {
@@ -357,6 +384,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
           }
         }
       }
+      await cleanOwnGitDirs(own.root, now(), report);
       return report;
     },
   };

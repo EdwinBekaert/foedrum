@@ -42,6 +42,13 @@ export const managedClonePath = (workRoot: string, repo: string): string =>
 export const ownGitDirsRoot = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'git-dirs');
 
+/**
+ * How old a git directory of Foedrum's own must be before a cleanup removes it: far longer than
+ * the longest call can keep one, its 300 s transfer and the minute each of its local calls may
+ * take (ADR 0130).
+ */
+export const OWN_GIT_DIR_FLOOR_MS = 3_600_000;
+
 /** An entry of the git directories' root. */
 export interface OwnGitDirEntry {
   name: string;
@@ -51,13 +58,20 @@ export interface OwnGitDirEntry {
   modifiedMs: number;
 }
 
+// The name `withOwnGitDir` gives a git directory: a `randomUUID`, which is lower case, and `.git`.
+const OWN_GIT_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.git$/;
+
 /**
  * The git directories a stopped call left that a cleanup removes (ADR 0130): `<uuid>.git`
  * directories older than the floor. Anything else in the root stays.
  */
-export const planOwnGitDirs = (_entries: readonly OwnGitDirEntry[], _now: number): string[] => {
-  throw new Error('not implemented');
-};
+export const planOwnGitDirs = (entries: readonly OwnGitDirEntry[], now: number): string[] =>
+  entries
+    .filter(
+      ({ name, directory, modifiedMs }) =>
+        directory && OWN_GIT_DIR.test(name) && now - modifiedMs > OWN_GIT_DIR_FLOOR_MS,
+    )
+    .map(({ name }) => name);
 
 // A path segment that is also a component of a branch name: git refuses `..` anywhere and a
 // `.lock` ending (git check-ref-format).
