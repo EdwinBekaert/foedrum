@@ -66,9 +66,8 @@ export const cliFromCheckout = async (
         ),
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
-      brew: async () => {
-        throw new Error('not implemented');
-      },
+      // Loaded only for brew, as for serve.
+      brew: async (input) => (await import('./brew-main.ts')).brewFromCheckout(cwd, input, options),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

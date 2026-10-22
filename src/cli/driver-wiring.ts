@@ -70,8 +70,8 @@ export interface WiringOptions {
   takes: (batchId: string) => boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
-  /** A driver's notice as one line. */
-  notice: (notice: DriverNotice) => string;
+  /** Reports a driver's notice. */
+  report: (notice: DriverNotice) => void;
 }
 
 /**
@@ -82,7 +82,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, say, notice }: WiringOptions,
+  { takes, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -259,7 +259,7 @@ export const wireDriver = async (
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,
-    report: (each) => say(notice(each)),
+    report,
   });
   opened.driver = driver;
   return { store, stateBranch, driver, reads, claims, claimant };

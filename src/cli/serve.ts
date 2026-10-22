@@ -18,6 +18,7 @@ import type { StateBranch } from '../engine/state-branch-git.ts';
 import { GitHubRateLimited } from '../github/client.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { ExecProcess } from '../platform/processes.ts';
+import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
@@ -68,8 +69,6 @@ export interface ServeShell {
   intervalMs?: number;
 }
 
-/** The Cellar's driver owner (ADR 0037). */
-const OWNER = 'cellar';
 /** The supervisor's interval (ADR 0027). */
 const INTERVAL_MS = 5000;
 
@@ -147,7 +146,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
   try {
-    lock = shell.lock(setup.workRoot, { brewery: setup.brewery, owner: OWNER });
+    lock = shell.lock(setup.workRoot, { brewery: setup.brewery, owner: CELLAR_OWNER });
   } catch (error) {
     say(messageOf(error));
     return 1;
@@ -159,7 +158,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       // The Cellar takes every free batch (ADR 0044).
       takes: () => true,
       say,
-      notice: formatNotice,
+      report: (notice) => say(formatNotice(notice)),
     });
     // GitHub's rate limit holds requests until then: no pass starts before it (ADR 0052).
     let pausedUntil = 0;

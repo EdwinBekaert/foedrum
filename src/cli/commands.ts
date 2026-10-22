@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
-import type { StoredEvent } from '../engine/event-store.ts';
+import type { EventStore, StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { batchOf } from '../engine/state-branch.ts';
@@ -16,7 +16,9 @@ import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
+  BrewCommand,
   CancelCommand,
+  CELLAR_OWNER,
   DoctorCommand,
   OrderCommand,
   RecipeCommand,
@@ -50,6 +52,8 @@ export interface RegisteredCommand {
   positionals: readonly string[];
   /** The field that takes the positional arguments after those, one or more, as a list. */
   rest?: string;
+  /** The options it takes, each with a value and a field of its own: the value's name, by option. */
+  options?: Readonly<Record<string, string>>;
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -60,6 +64,7 @@ interface CommandDefinition<S extends z.ZodType> {
   changesState: boolean;
   positionals: readonly string[];
   rest?: string;
+  options?: Readonly<Record<string, string>>;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }
@@ -92,7 +97,11 @@ const failed = (command: string, message: string): CliResult => ({
 const readBrewery = async (
   command: string,
   { cwd, openStore }: CliContext,
-  show: (events: readonly StoredEvent[], state: State) => CliResult | Promise<CliResult>,
+  show: (
+    events: readonly StoredEvent[],
+    state: State,
+    store: EventStore,
+  ) => CliResult | Promise<CliResult>,
 ): Promise<CliResult> => {
   const path = storePath(cwd);
   const store = openStore(path);
@@ -106,7 +115,7 @@ const readBrewery = async (
       if (error instanceof InvalidLogError) return failed(command, error.message);
       throw error;
     }
-    return await show(events, state);
+    return await show(events, state, store);
   } finally {
     store.close();
   }
@@ -232,12 +241,19 @@ export const commands: readonly RegisteredCommand[] = [
     positionals: [],
     schema: StatusCommand,
     handler: async (_input, context) =>
-      readBrewery('status', context, async (_events, state) => {
+      readBrewery('status', context, async (_events, state, store) => {
         // The task-tree branches the cleanup keeps (ADR 0084), read only when there are any.
         const unpushed = worktreeClaims(state, []).unpushed ?? new Map<string, string>();
         const readings =
           unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
-        return done(formatStatus(state, keptBranchLines(unpushed, readings)));
+        // The batches an interactive driver holds now, by its owner (ADR 0123).
+        const interactive = new Map(
+          store
+            .batchLeases(context.now())
+            .filter(({ owner }) => owner !== CELLAR_OWNER)
+            .map(({ batchId, owner }) => [batchId, owner]),
+        );
+        return done(formatStatus(state, keptBranchLines(unpushed, readings), interactive));
       }),
   }),
   define({
@@ -368,5 +384,15 @@ export const commands: readonly RegisteredCommand[] = [
         }),
       );
     },
+  }),
+  define({
+    name: 'brew',
+    summary: "Brew an issue's batch here until it is on tap, Stuck or needs input",
+    changesState: true,
+    positionals: ['issue'],
+    options: { as: 'name' },
+    schema: BrewCommand,
+    // A driver of its own on the machine, run by the terminal (ADR 0123).
+    handler: async (input, context) => context.brew(input),
   }),
 ];
