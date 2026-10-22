@@ -98,6 +98,15 @@ describe('node scripts/house-yeast.ts select', () => {
     assert.match(result.out, /^selected lf-only/m);
   });
 
+  it('flags a rule without a scope as due for curation also when the budget cuts it', () => {
+    const result = runWith([...select, 'correctness', 'out.md', '--budget', '10'], {
+      ...fixtureRules,
+      'review/files.txt': 'M\tsrc/engine/lease.ts\n',
+    });
+    assert.match(result.out, /^cut lf-only /m);
+    assert.match(result.out, /^no scope lf-only: selected for every change, due for curation$/m);
+  });
+
   it('writes that no rule matches when the folder has no rules', () => {
     const result = runWith([...select, 'security', 'out.md'], { 'review/files.txt': 'M\ta.ts\n' });
     assert.equal(result.code, 0, result.err);

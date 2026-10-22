@@ -150,6 +150,14 @@ describe('selectRules', () => {
     assert.equal(priced?.tokens, Math.ceil(418 / 4));
   });
 
+  it('keeps the rules within about 2,000 tokens when no budget is given', () => {
+    // Each rule costs a little over 700 tokens: two fit, the third would pass 2,000.
+    const own = ['a', 'b', 'c'].map((id) => rule(id, {}, 'x'.repeat(2800)));
+    const selection = selectRules(own, { files: ['a.ts'], lens: 'correctness' });
+    assert.deepEqual(ids(selection.selected), ['a', 'b']);
+    assert.deepEqual(ids(selection.cut), ['c']);
+  });
+
   it('orders globs before a language alone before the whole repository, then by id', () => {
     const own = [
       rule('whole', {}, 'W.'),
