@@ -11,12 +11,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { diagnose, formatDiagnosis } from '../../src/cli/doctor.ts';
-import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecProcess, execProcessWith, processSpawner } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { linux } from '../helpers/doctor-facts.ts';
 import {
   cuedTimers,
   descheduled,
@@ -48,15 +45,31 @@ const defaultsInUse = (['recipes', 'brewers', 'lenses'] as const).flatMap((folde
   return names.sort().map((name) => `defaults/${folder}/${name}`);
 });
 const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
-// The default brewers' prompts (ADR 0141), as doctor's core measures them from the files a Brewery
-// at `root` loads: their sizes change with every edit of a default brewer or lens.
-const promptLines = (root: string): string[] => {
-  const facts = { ...linux(), brewery: readBreweryFiles(root) };
-  const lines = formatDiagnosis(diagnose(facts)).split('\n');
+// The default brewers' prompts (ADR 0141), read from the report, since their sizes change with
+// every edit of a default brewer or lens: one row per file in defaults/brewers/, by its name and
+// path, with its bytes and their estimate in tokens. Their measure is in test/unit/doctor.test.ts.
+const defaultBrewers = existsSync(join(defaultsRoot, 'brewers'))
+  ? readdirSync(join(defaultsRoot, 'brewers'))
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => parse(name).name)
+      .sort()
+  : [];
+const promptBlock = (report: string): string[] => {
+  const lines = report.split('\n');
   const start = lines.indexOf('Brewer prompts (instructions and lens inputs, ADR 0141):');
-  // Foedrum's defaults have brewers, so the block is always there.
   assert.notEqual(start, -1);
-  return lines.slice(start, lines.indexOf('', start) + 1);
+  const rows = lines.slice(start + 1, lines.indexOf('', start));
+  assert.deepEqual(
+    rows.map(
+      (row) => /^ {2}(\S+) +defaults\/brewers\/\1\.md +\d+ bytes +~\d+ tokens$/.exec(row)?.[1],
+    ),
+    defaultBrewers,
+  );
+  for (const row of rows) {
+    const [, bytes = '', tokens = ''] = /(\d+) bytes +~(\d+) tokens$/.exec(row) ?? [];
+    assert.equal(Number(tokens), Math.ceil(Number(bytes) / 4));
+  }
+  return [lines[start] ?? '', ...rows, ''];
 };
 // doctorHere gives doctor no denylist, so it never reads the user's own (ADR 0114).
 const DENYLIST_LINE =
@@ -218,7 +231,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         '',
-        ...promptLines(dir.path),
+        ...promptBlock(run.report),
         'Foedrum has everything it needs.',
         '',
       ].join('\n'),
@@ -257,7 +270,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         '',
-        ...promptLines(dir.path),
+        ...promptBlock(run.report),
         'Problems:',
         '  npm not found: Foedrum is installed and updated with npm, which comes with Node',
         `  gh is not logged in to ${host} (required): run gh auth login --hostname ${host}`,
@@ -305,7 +318,7 @@ describe('foedrum doctor with stub tools', () => {
         DEFAULTS_LINE,
         DENYLIST_LINE,
         '',
-        ...promptLines(dir.path),
+        ...promptBlock(run.report),
         'Foedrum has everything it needs.',
         '',
       ].join('\n'),
