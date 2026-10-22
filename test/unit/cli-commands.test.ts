@@ -309,7 +309,7 @@ describe('foedrum: commands that change state', () => {
 
     it('takes --via=terminal, and the answers before or after it', async () => {
       assert.equal((await run(['answer', '21-1', '--via=terminal', 'sqlite', 'yes'])).exitCode, 0);
-      const [answered] = appended(2);
+      const [answered] = appended(3);
       assert.equal(answered?.type === 'input.received' && answered.via, 'terminal');
       assert.deepStrictEqual(
         answered?.type === 'input.received' && answered.answers.map(({ answer }) => answer),
