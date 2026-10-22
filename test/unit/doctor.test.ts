@@ -11,7 +11,11 @@ import {
   formatDiagnosis,
   githubHostOfConfig,
 } from '../../src/cli/doctor.ts';
-import { INVALID_RECIPES, invalidRecipes } from '../../src/engine/recipe-files.ts';
+import {
+  type BreweryFile,
+  INVALID_RECIPES,
+  invalidRecipes,
+} from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import { readDoc } from '../../src/schemas/read.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
@@ -1035,5 +1039,72 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
     assert.equal(diagnosis.notices, undefined);
     assert.equal(diagnosis.prompts, undefined);
     assert.doesNotMatch(formatDiagnosis(diagnosis), /Notices|Brewer prompts/);
+  });
+});
+
+describe('diagnose: the headings and marked lines a Brewery file drops from its default (ADR 0141)', () => {
+  // The notice for a Brewery lens `copy` that replaces a default lens `original`.
+  const replacing = (original: string, copy: string | BreweryFile) => {
+    const own: BreweryFile =
+      typeof copy === 'string' ? { path: 'lenses/style.md', text: copy } : copy;
+    const { notices = [] } = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [],
+        lenses: [own],
+        defaults: { lenses: [{ path: 'defaults/lenses/style.md', text: original }] },
+      },
+    });
+    return notices.filter((notice) => notice.includes(' replaces '));
+  };
+  const drops = (what: string) =>
+    `lenses/style.md replaces defaults/lenses/style.md and drops: ${what} (ADR 0141)`;
+
+  it('closes a fence only with the same character, at least as long, and opens none on inline code', () => {
+    const original = [
+      '````md',
+      '```',
+      '# Inside the long fence',
+      '```',
+      '````',
+      '# After',
+      '~~~',
+      '# Inside the tilde fence',
+      '```',
+      '~~~',
+      '```npm test``` runs the tests',
+      '**Rule.** Keep it.',
+      '',
+    ].join('\n');
+    assert.deepEqual(replacing(original, 'Nothing.\n'), [
+      drops('heading "After", marked line "Rule."'),
+    ]);
+  });
+
+  it('names only the replacement when the Brewery file cannot be read', () => {
+    const unreadable = { path: 'lenses/style.md', unreadable: 'EACCES: permission denied' };
+    assert.deepEqual(replacing('# Style\n\n**Rule.** Keep it.\n', unreadable), [
+      'lenses/style.md replaces defaults/lenses/style.md (ADR 0141)',
+    ]);
+  });
+
+  it('reads a heading on the first line after a byte order mark', () => {
+    const bom = String.fromCodePoint(0xfeff);
+    assert.deepEqual(replacing('# Style\n', `${bom}# Style\n`), [
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+  });
+
+  it('reads a long heading line in time linear in its length', () => {
+    const line = `# a${' '.repeat(20_000)}x\n`;
+    const before = process.cpuUsage();
+    const notices = replacing(line, line);
+    const used = process.cpuUsage(before);
+    assert.deepEqual(notices, [
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+    // About 900 ms of CPU with a regular expression that backtracks over the spaces.
+    assert.ok((used.user + used.system) / 1000 < 100, `${used.user + used.system} µs`);
   });
 });
