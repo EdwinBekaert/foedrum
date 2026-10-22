@@ -122,6 +122,8 @@ const usage = (): CliResult => {
     '',
     'Commands:',
     ...columns([serve, ...rows]),
+    '',
+    `Every command takes --via <${VIA.join('|')}> but serve: the surface its events record.`,
   ];
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 };
