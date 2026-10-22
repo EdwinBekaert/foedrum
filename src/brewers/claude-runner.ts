@@ -381,6 +381,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         outDocUnread: out.kind === 'unread' ? out.reason : undefined,
         streamError: seen.streamError,
         usageLimit: seen.usageLimit,
+        spendLimit: seen.spendLimit,
         ...(seen.garbage === undefined ? {} : { garbage: seen.garbage }),
         denials: seen.denials,
         deniedTools: seen.deniedTools,

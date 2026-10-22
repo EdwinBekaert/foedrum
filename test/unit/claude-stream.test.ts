@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readClaudeStream, type StreamAsk } from '../../src/brewers/claude-stream.ts';
 import {
+  documentedSpendLimits,
   documentedUsageLimits,
   limitResults,
   otherLimitTexts,
+  otherSpendTexts,
   rejectedRateLimit,
 } from '../fixtures/claude-usage-limits.ts';
 import { cpuTimeMs, descheduled } from '../helpers/load.ts';
@@ -283,6 +285,42 @@ describe('readClaudeStream', () => {
         const said = assistant('msg_1', [{ type: 'text', text }]);
         const { facts } = readAll([init(), said, end], asked);
         assert.equal(facts.usageLimit, undefined);
+      }
+    }
+  });
+
+  // #257, ADR 0129: a spend limit or a too-low credit balance, read only in the documented
+  // forms, from either arm of an error result; any other text stays a stream error.
+  it('reads a spend limit from an error result only in a documented form', () => {
+    const expected = new Map<string, unknown>([
+      ...documentedSpendLimits.map(({ text, spendLimit }) => [text, spendLimit] as const),
+      ...otherSpendTexts.map((text) => [text, undefined] as const),
+      ...documentedUsageLimits.map(({ text }) => [text, undefined] as const),
+    ]);
+    const reply = assistant('msg_1', [{ type: 'text', text: 'working' }]);
+    for (const [text, spendLimit] of expected) {
+      for (const end of limitResults(text)) {
+        for (const before of [[], [reply, rejectedRateLimit]]) {
+          const { facts } = readAll([init(), ...before, end], asked);
+          assert.deepEqual(facts.spendLimit, spendLimit, `${text} after ${before[0]}`);
+          assert.equal(facts.environment, undefined);
+          assert.notEqual(facts.streamError, undefined);
+        }
+      }
+    }
+    for (const end of limitResults("  You've hit your individual usage limit\n")) {
+      const { facts } = readAll([init(), end], asked);
+      assert.deepEqual(facts.spendLimit, { kind: 'spend', limit: 'individual usage limit' });
+    }
+  });
+
+  it('reads no spend limit from a result that reported no error, nor from the model', () => {
+    for (const { text } of documentedSpendLimits) {
+      for (const end of limitResults(text, false)) {
+        const said = assistant('msg_1', [{ type: 'text', text }]);
+        const { facts } = readAll([init(), said, end], asked);
+        assert.equal(facts.spendLimit, undefined);
+        assert.equal(facts.streamError, undefined);
       }
     }
   });

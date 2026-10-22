@@ -24,7 +24,7 @@ import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.
 export const cliFromCheckout = async (
   argv: string[],
   cwd: string,
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve'>>,
+  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>>,
 ): Promise<CliResult> => {
   const readText = (...path: string[]): string | undefined => {
     const file = join(cwd, ...path);
@@ -69,6 +69,9 @@ export const cliFromCheckout = async (
       // Loaded only for brew, as for serve.
       brew: async (input, issued) =>
         (await import('./brew-main.ts')).brewFromCheckout(cwd, input, issued, options),
+      // Loaded only for resume: it brings serve's setup and the worktrees.
+      resume: async (input) =>
+        (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, options),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

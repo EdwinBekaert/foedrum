@@ -2,7 +2,7 @@
 // attempts root, and carries out what attempt-worktrees.ts decides. Git runs only through the
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
-import { existsSync } from 'node:fs';
+import { type Dirent, existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -18,10 +18,12 @@ import {
   attemptFolder,
   type BatchFolderFact,
   type Claims,
+  isOwnGitDir,
   type ListedFact,
   managedClonePath,
   parseAttemptFolder,
   planClean,
+  planOwnGitDirs,
   planWorktree,
   repoFolder,
   type Target,
@@ -85,8 +87,9 @@ export interface AttemptWorktrees {
    */
   recreate(ref: AttemptRef, commit: string): Promise<AttemptWorktree>;
   /**
-   * Removes the worktrees, folders and local branches that nothing claims, and stale index.lock
-   * files of kept worktrees no attempt runs in. At engine start without `batchId` (crash
+   * Removes the worktrees, folders and local branches that nothing claims, stale index.lock
+   * files of kept worktrees no attempt runs in, and the git directories of its own that a
+   * stopped call left over an hour ago (ADR 0130). At engine start without `batchId` (crash
    * repair); with it, when that batch has ended.
    */
   clean(claims: Claims, scope?: { batchId?: string }): Promise<CleanReport>;
@@ -160,6 +163,58 @@ const removeEmptyFolders = async (path: string): Promise<boolean> => {
     if (errorCode(error) !== 'ENOENT') throw error;
   });
   return true;
+};
+
+/** The file system calls the cleanup of the git directories makes; injected by tests. */
+export interface OwnGitDirsIo {
+  lstat: (path: string) => Promise<{ mtimeMs: number }>;
+  remove: (path: string) => Promise<void>;
+}
+
+const OWN_GIT_DIRS_IO: OwnGitDirsIo = { lstat, remove: (path) => removeTree(path) };
+
+/** Removes the git directories of its own that a stopped call left in `root` (ADR 0130). */
+export const cleanOwnGitDirs = async (
+  root: string,
+  now: number,
+  report: CleanReport,
+  io: OwnGitDirsIo = OWN_GIT_DIRS_IO,
+): Promise<void> => {
+  let listed: Dirent[];
+  try {
+    listed = await entriesOf(root);
+  } catch (error) {
+    report.failed.push(
+      `could not clean the git directories in ${root}: ${(error as Error).message}`,
+    );
+    return;
+  }
+  const entries = [];
+  // Only a candidate is read: nothing else in the root is touched, not even by an lstat.
+  for (const entry of listed.filter((each) => isOwnGitDir(each.name, each.isDirectory()))) {
+    try {
+      const { mtimeMs } = await io.lstat(join(root, entry.name));
+      entries.push({ name: entry.name, directory: true, modifiedMs: mtimeMs });
+    } catch (error) {
+      // Gone since the listing, as a running call removes its own, or still going on Windows,
+      // whose delete-pending entry fails with EPERM: nothing left to judge.
+      const code = errorCode(error);
+      if (code !== 'ENOENT' && code !== 'EPERM') {
+        report.failed.push(
+          `could not clean git directory ${entry.name}: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
+  const names = planOwnGitDirs(entries, now);
+  for (const name of names) {
+    try {
+      await io.remove(join(root, name));
+      report.done.push(`removed git directory ${name}: a stopped call left it`);
+    } catch (error) {
+      report.failed.push(`could not clean git directory ${name}: ${(error as Error).message}`);
+    }
+  }
 };
 
 export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptWorktrees => {
@@ -357,6 +412,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
           }
         }
       }
+      await cleanOwnGitDirs(own.root, now(), report);
       return report;
     },
   };

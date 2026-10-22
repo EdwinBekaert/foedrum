@@ -23,6 +23,7 @@ import {
   OrderCommand,
   RecipeCommand,
   ReplayCommand,
+  ResumeCommand,
   RetryCommand,
   RewindCommand,
   SkipCommand,
@@ -50,6 +51,8 @@ export interface RegisteredCommand {
   changesState: boolean;
   /** The positional arguments, in order: each is a field of the command's input. */
   positionals: readonly string[];
+  /** The positional arguments after those that may be left out, in order. */
+  optional?: readonly string[];
   /** The field that takes the positional arguments after those, one or more, as a list. */
   rest?: string;
   /** The options it takes, each with a value and a field of its own: the value's name, by option. */
@@ -63,6 +66,7 @@ interface CommandDefinition<S extends z.ZodType> {
   summary: string;
   changesState: boolean;
   positionals: readonly string[];
+  optional?: readonly string[];
   rest?: string;
   options?: Readonly<Record<string, string>>;
   schema: S;
@@ -282,6 +286,15 @@ export const commands: readonly RegisteredCommand[] = [
           ),
         );
       }),
+  }),
+  define({
+    name: 'resume',
+    summary: "Open a finished brewer attempt's Claude Code session in its worktree",
+    changesState: false,
+    positionals: ['batch'],
+    optional: ['step'],
+    schema: ResumeCommand,
+    handler: async (input, context) => context.resume(input),
   }),
   define({
     name: 'retry',

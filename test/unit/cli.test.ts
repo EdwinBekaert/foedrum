@@ -63,6 +63,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   claims: () => assert.fail('no claim host to reach'),
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   brew: async () => assert.fail('no brew here'),
+  resume: async () => assert.fail('no session to resume'),
   ...overrides,
 });
 
@@ -240,6 +241,25 @@ describe('foedrum: the command line', () => {
     };
     assert.deepEqual(await run(['serve'], { serve }), result);
     assert.equal(served, 1);
+  });
+
+  it('runs foedrum resume through its context, with or without its step (ADR 0126)', async () => {
+    const inputs: unknown[] = [];
+    const resume = async (input: unknown) => {
+      inputs.push(input);
+      return { exitCode: 3, stdout: '', stderr: '' };
+    };
+    assert.equal((await run(['resume', '12-1'], { resume })).exitCode, 3);
+    assert.equal((await run(['resume', '12-1', 'plan#2'], { resume })).exitCode, 3);
+    assert.deepEqual(inputs, [
+      { command: 'resume', batch: '12-1' },
+      { command: 'resume', batch: '12-1', step: 'plan#2' },
+    ]);
+    assertUsageError(
+      await run(['resume', '12-1', 'plan', 'now'], { resume }),
+      'foedrum resume: unexpected argument "now"',
+    );
+    assertUsageError(await run(['resume'], { resume }), 'foedrum resume: missing <batch>');
   });
 
   it('refuses an argument to foedrum serve, which takes none', async () => {

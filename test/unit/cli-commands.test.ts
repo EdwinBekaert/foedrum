@@ -100,6 +100,7 @@ describe('foedrum: commands that change state', () => {
     claims: () => assert.fail('no claim host to reach'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     brew: async () => assert.fail('no brew here'),
+    resume: async () => assert.fail('no session to resume'),
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
@@ -445,6 +446,7 @@ describe('foedrum stuck', () => {
       claims: () => assert.fail('no claim host to reach'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
       brew: async () => assert.fail('no brew here'),
+      resume: async () => assert.fail('no session to resume'),
     });
   const append = (...events: Event[]) =>
     store.withTransaction((tx) => {
@@ -569,6 +571,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     },
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     brew: async () => assert.fail('no brew here'),
+    resume: async () => assert.fail('no session to resume'),
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>

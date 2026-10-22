@@ -730,6 +730,26 @@ describe('claudeBrewerRunner', () => {
     }
   });
 
+  // #257, ADR 0129: no request goes through until a human raises the limit, so retrying now
+  // would spend the step's attempts on the same refusal.
+  it('blocks on the environment when a spend limit refused it', async () => {
+    const [initLine] = fixture('success.jsonl');
+    for (const end of limitResults("You've hit your org's monthly spend limit")) {
+      const { calls, runner } = setup(
+        { lines: [initLine ?? '', end], result: exited(1) },
+        { outDoc: undefined },
+      );
+      const ended = await runner.start(attempt).ended;
+      assert.deepEqual(ended.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary:
+          "claude hit its org's monthly spend limit: no request goes through until the limit is raised, then retry the step",
+      });
+      assert.equal(calls.length, 1);
+    }
+  });
+
   it('fails, retryably, with the reason when the out doc was not read', async () => {
     const { read, runner } = setup(
       { lines: fixture('success.jsonl'), result: exited(0) },

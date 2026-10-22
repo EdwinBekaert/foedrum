@@ -8,7 +8,7 @@ import type { State } from '../engine/fold.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { BrewCommand } from '../schemas/commands.ts';
+import type { BrewCommand, ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
@@ -64,6 +64,8 @@ export interface CliContext {
    * the terminal.
    */
   brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  /** Opens a finished attempt's session in its worktree (ADR 0126); claude has the terminal. */
+  resume: (input: ResumeCommand) => Promise<CliResult>;
 }
 
 export interface CliResult {
@@ -96,10 +98,11 @@ const SERVE = { name: 'serve', summary: "Run the Cellar: brew the Brewery's batc
 
 const usage = (): CliResult => {
   const serve = [SERVE.name, SERVE.summary];
-  const rows = commands.map(({ name, summary, positionals, rest, options = {} }) => [
+  const rows = commands.map(({ name, summary, positionals, optional = [], rest, options = {} }) => [
     [
       name,
       ...positionals.map((positional) => `<${positional}>`),
+      ...optional.map((positional) => `[<${positional}>]`),
       ...(rest === undefined ? [] : [`<${rest}>...`]),
       ...Object.entries(options).map(([option, value]) => `[--${option} <${value}>]`),
     ].join(' '),
@@ -162,13 +165,13 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   });
   const options = tokens.filter((token) => token.kind === 'option');
   if (options.some((option) => option.name === 'help')) return usage();
-  const given: Record<string, string> = {};
+  const optionValues: Record<string, string> = {};
   for (const option of options) {
     if (!known.includes(option.name)) {
       return usageError(`${prefix}: unknown option "${option.rawName}"`);
     }
     if (option.value === undefined) return usageError(`${prefix}: ${option.rawName} needs a value`);
-    given[option.name] = option.value;
+    optionValues[option.name] = option.value;
   }
   const values = tokens.flatMap((token) => (token.kind === 'positional' ? [token.value] : []));
   if (command === undefined) {
@@ -176,18 +179,21 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     if (extra !== undefined) return usageError(`${prefix}: unexpected argument "${extra}"`);
     return context.serve();
   }
-  const { positionals, rest: restField } = command;
-  const extra = values[positionals.length];
+  const { positionals: required, optional = [], rest: restField } = command;
+  // The optional ones that were given, in order.
+  const given = optional.slice(0, Math.max(0, values.length - required.length));
+  const positionals = [...required, ...given];
+  const extra = values[required.length + optional.length];
   if (extra !== undefined && restField === undefined) {
     return usageError(`${prefix}: unexpected argument "${extra}"`);
   }
-  const missing = [...positionals, ...(restField === undefined ? [] : [restField])][values.length];
+  const missing = [...required, ...(restField === undefined ? [] : [restField])][values.length];
   if (missing !== undefined) return usageError(`${prefix}: missing <${missing}>`);
   const input: Record<string, string | string[]> = Object.fromEntries(
     positionals.map((field, i) => [field, values[i] ?? '']),
   );
   if (restField !== undefined) input[restField] = values.slice(positionals.length);
-  Object.assign(input, given);
+  Object.assign(input, optionValues);
   try {
     const result = await command.run({ command: name, ...input }, context);
     return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;

@@ -3,8 +3,9 @@
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
 // summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
 // its relatives when they would run a package the lockfile did not install (#175), and a recursive
-// delete of a path built from a variable or a substitution (#281). The checks run in the tree the
-// command pushes: the directory it changes into with cd, git -C and the like (#132).
+// delete of a path built from a variable or a substitution (#281), and a push whose commits hold a
+// word on the user's personal denylist (#131). The checks run in the tree the command pushes: the
+// directory it changes into with cd, git -C and the like (#132).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
@@ -610,7 +611,7 @@ interface Findings {
   reasons: string[];
   gated: boolean;
   // Where each push and gh pr create runs, and whether it is a push.
-  places: { place: Place; push: boolean }[];
+  places: { place: Place; push: boolean; remote?: string | null | undefined }[];
   // The pull requests `gh pr ready` marks ready, each needing its review summary, and where gh
   // runs.
   readies: { target: ReadyTarget; place: Place }[];
@@ -637,6 +638,26 @@ interface Reading {
 const gitAlias = (value: string): string =>
   value.startsWith('!') ? value.slice(1) : `git ${value}`;
 
+// git push's options that take the next word as their value.
+const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack', '--exec']);
+
+// The remote a push names, as git reads it: its first operand, else --repo; undefined when it names
+// none, and null when it is computed at run time (ADR 0114).
+const pushRemote = (args: Word[]): string | null | undefined => {
+  let repo: Word | undefined;
+  let operand: Word | undefined;
+  for (let i = 0; i < args.length && operand === undefined; i++) {
+    const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
+    if (arg.text === '--') operand = args[i + 1];
+    else if (arg.text === '--repo') repo = args[++i];
+    else if (arg.text.startsWith('--repo=')) repo = { ...arg, text: arg.text.slice(7) };
+    else if (!arg.text.startsWith('-')) operand = arg;
+    else if (PUSH_OPTIONS_WITH_VALUE.has(arg.text)) i++;
+  }
+  const remote = operand ?? repo;
+  return remote === undefined ? undefined : remote.dynamic ? null : remote.text;
+};
+
 const readGit = (args: Word[], literal: boolean, { found, aliases, place }: Reading): void => {
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
@@ -653,7 +674,7 @@ const readGit = (args: Word[], literal: boolean, { found, aliases, place }: Read
   const subcommand = args[i];
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
     found.gated = true;
-    found.places.push({ place: gitPlace, push: true });
+    found.places.push({ place: gitPlace, push: true, remote: pushRemote(args.slice(i + 1)) });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
@@ -693,11 +714,38 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
 // prefix (api.github.com/graphql); or a full URL, which gh uses as it is, ending in /graphql
 // (api.github.com/graphql, <host>/api/graphql on GitHub Enterprise Server), before any query
 // string (#314). An endpoint built at run time is taken at its worst when its literal text still
-// ends in /graphql ("$base/graphql"), as for the merge endpoint.
+// ends in /graphql ("$base/graphql"), as for the merge endpoint. So is a literal path with a . or ..
+// segment, also percent-encoded, whose last segment is graphql once they are resolved
+// (x/../graphql, graphql/x/.., x/%2e%2e/graphql): gh sends the path as it is, and the server may
+// decode and resolve it (#329).
 const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
 const GRAPHQL_PATH = /\/graphql\/?(?:[?#].*)?$/is;
+// An endpoint with its percent-escapes decoded, as the server may read it; a % that starts no
+// escape leaves it as it is.
+const decoded = (text: string): string => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+};
+// The segments of a literal endpoint's path, percent-escapes decoded and . and .. resolved, or
+// undefined when it has no dot segment.
+const resolvedSegments = (text: string): string[] | undefined => {
+  const path = text.replace(/^[a-z][\w+.-]*:\/\/[^/?#]*/is, '').replace(/[?#].*$/s, '');
+  const segments = decoded(path).split('/');
+  if (!segments.some((segment) => segment === '.' || segment === '..')) return undefined;
+  const kept: string[] = [];
+  for (const segment of segments) {
+    if (segment === '..') kept.pop();
+    else if (segment !== '.' && segment !== '') kept.push(segment);
+  }
+  return kept;
+};
 const isGraphqlEndpoint = (arg: Word): boolean =>
-  GRAPHQL_ENDPOINT.test(arg.text) || (arg.dynamic && GRAPHQL_PATH.test(arg.text));
+  GRAPHQL_ENDPOINT.test(decoded(arg.text)) ||
+  /^graphql$/i.test(resolvedSegments(arg.text)?.at(-1) ?? '') ||
+  (arg.dynamic && GRAPHQL_PATH.test(arg.text));
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
 // (query=@…), its input (--input) or a value computed at run time, also with the field flag
@@ -1107,6 +1155,14 @@ export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 // Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
 export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
 
+// Why a command's pushes from `dir` to `remotes` would send a word on the personal denylist, or
+// undefined (ADR 0114); rejects when it cannot tell. Each remote is the one a push names, undefined
+// when it names none, and null when it is computed at run time.
+export type DeniedPush = (
+  dir: string,
+  ...remotes: (string | null | undefined)[]
+) => Promise<string | undefined>;
+
 // Whether a directory a command changes into is inside the project the session works in
 // (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
 export type InProject = (dir: string) => Promise<boolean>;
@@ -1202,6 +1258,7 @@ export const precheck = async (
   },
   binaryInstalled: BinaryInstalled = async () => false,
   inProject: InProject = async () => true,
+  deniedPush: DeniedPush = async () => undefined,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1306,6 +1363,17 @@ export const precheck = async (
         stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
       };
     }
+    // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
+    // nothing runs. One scan for the command, with every remote it pushes to.
+    const remotes = new Set(found.places.flatMap(({ push, remote }) => (push ? [remote] : [])));
+    let denied: string | undefined;
+    try {
+      denied = await deniedPush(dir, ...remotes);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
+    }
+    if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
   }
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(dir);
@@ -1555,6 +1623,20 @@ if (import.meta.main) {
       return projectHolds(process.env.CLAUDE_PROJECT_DIR, dir, process.platform, (path) =>
         realPath(path),
       );
+    },
+    // The personal denylist, FOEDRUM_DENYLIST or ~/.config/foedrum/denylist.txt (ADR 0114).
+    async (dir, remote) => {
+      const [{ pushRefusal }, { readDenylist }, { execProcess }, { homedir }, { readFileSync }] =
+        await Promise.all([
+          import('./denylist.ts'),
+          import('../src/platform/denylist.ts'),
+          import('../src/platform/processes.ts'),
+          import('node:os'),
+          import('node:fs'),
+        ]);
+      const readList = () =>
+        readDenylist(process.env, homedir(), (path) => readFileSync(path, 'utf8'));
+      return pushRefusal(readList, execProcess)(dir, remote);
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
