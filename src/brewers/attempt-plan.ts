@@ -395,7 +395,7 @@ export type Resumed = 'retry' | 'answered';
  * What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117), with the
  * answers below when a human answered its questions (ADR 0118).
  */
-export const goOn = (doc: string, why: Resumed = 'retry'): string =>
+export const goOn = (doc: string, why: Resumed): string =>
   why === 'retry'
     ? `The run before this one ended before the step was done. Go on with the step where it stopped, then write ${doc} as your instructions say.`
     : `A human answered the questions the run before this one asked. Go on with the step where it stopped, with the answers below, then write ${doc} as your instructions say.`;

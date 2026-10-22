@@ -177,7 +177,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
       const { worktree, madeBy } = ranIn;
-      const session = startedOf(batch, ref)?.session;
+      const started = startedOf(batch, ref);
+      const session = started?.session;
       if (session === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no session`);
       }
@@ -187,7 +188,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       // A resumed session holds the inputs its first attempt read and the answers of the rounds
       // before, so an answered attempt gets this round's alone (ADR 0118). Only a retry or an
       // answered attempt resumes one, which no route scheduled (ADR 0117).
-      const answered = startedOf(batch, ref)?.answered === true;
+      const answered = started?.answered === true;
       const resumes: Resumed | undefined =
         session.resumes === undefined ? undefined : answered ? 'answered' : 'retry';
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
