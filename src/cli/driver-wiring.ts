@@ -67,6 +67,8 @@ export interface Wired {
 export interface WiringOptions {
   /** Whether the driver takes a free batch (ADR 0044). */
   takes: (batchId: string) => boolean;
+  /** Which batches its owner held at its start it drives on; every one by default (ADR 0123). */
+  drivesOn?: (batchId: string) => boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
   /** Reports a driver's notice. */
@@ -81,7 +83,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, say, report }: WiringOptions,
+  { takes, drivesOn, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -249,6 +251,7 @@ export const wireDriver = async (
     clock,
     lock: () => lock,
     takes,
+    ...(drivesOn === undefined ? {} : { drivesOn }),
     stateBranch,
     limits: plans.limits,
     outDoc: plans.outDoc,

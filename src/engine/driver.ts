@@ -254,6 +254,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     worktrees = [],
     brews = () => true,
     sessionId = randomUUID,
+    drivesOn = () => true,
     alsoCleans = [],
     effects,
     actions,
@@ -293,7 +294,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     held = new Set(
       store
         .batchLeases(clock())
-        .filter((lease) => lease.owner === owner)
+        .filter((lease) => lease.owner === owner && drivesOn(lease.batchId))
         .map((lease) => lease.batchId),
     );
   } catch (error) {

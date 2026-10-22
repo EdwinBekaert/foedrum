@@ -152,6 +152,8 @@ export const runBrew = async (
     const { store, driver, reads, claims } = await wireDriver(setup, shell, opened, {
       // This batch alone, once it is known (ADR 0044).
       takes: (id) => id === batchId,
+      // None of the batches this owner left earlier: they lapse within a lease (ADR 0123).
+      drivesOn: () => false,
       say,
       report: (notice) => {
         if (notice.kind === 'batch_lost' && notice.batchId === batchId) holder = notice.holder;
