@@ -625,6 +625,15 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
     owner: 'driver',
     expiresAt,
   });
+  // A lease's claims as a set: the attempts it claims, in attempt order, whatever order the
+  // claims come in.
+  const claimedBy = (state: State, attempt: number) =>
+    worktreeClaims(state, [leaseOf(attempt)])
+      .leased.map((claimed) => {
+        assert.deepEqual({ ...claimed, attempt: 0 }, { ...ref(attempt), attempt: 0 });
+        return claimed.attempt;
+      })
+      .sort((a, b) => a - b);
   const path = (attempt: number) => `work/acme.app/attempts/3-1/implement/${attempt}`;
   const crashed = { kind: 'failed', retryable: true, reason: 'crash' } as const;
   // An attempt of implement that resumes the session `resumes` runs in the worktree of the
@@ -678,7 +687,7 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
       ...started(2, { id: 's2', resumes: 's1', in: 1 }),
     ]);
 
-    assert.deepEqual(worktreeClaims(state, [leaseOf(2)]).leased, [ref(2), ref(1)]);
+    assert.deepEqual(claimedBy(state, 2), [1, 2]);
   });
 
   it('follows session.resumes back through a chain of resumed attempts', () => {
@@ -691,7 +700,7 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
       ...started(3, { id: 's3', resumes: 's2', in: 1 }),
     ]);
 
-    assert.deepEqual(worktreeClaims(state, [leaseOf(3)]).leased, [ref(3), ref(2), ref(1)]);
+    assert.deepEqual(claimedBy(state, 3), [1, 2, 3]);
   });
 
   it('claims every attempt of a session that kept its id when it was resumed', () => {
@@ -702,7 +711,7 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
       ...started(2, { id: 's1', resumes: 's1', in: 1 }),
     ]);
 
-    assert.deepEqual(worktreeClaims(state, [leaseOf(2)]).leased, [ref(2), ref(1)]);
+    assert.deepEqual(claimedBy(state, 2), [1, 2]);
   });
 
   it('claims nothing for a resumed attempt that ended, and nothing back from a fresh one', () => {
@@ -716,7 +725,7 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
     ]);
 
     assert.deepEqual(worktreeClaims(state, []).leased, []);
-    assert.deepEqual(worktreeClaims(state, [leaseOf(3)]).leased, [ref(3)]);
+    assert.deepEqual(claimedBy(state, 3), [3]);
   });
 
   it('claims only back along the chain: a lease of the resumed attempt claims no later one', () => {
@@ -727,7 +736,7 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
       ...started(2, { id: 's2', resumes: 's1', in: 1 }),
     ]);
 
-    assert.deepEqual(worktreeClaims(state, [leaseOf(1)]).leased, [ref(1)]);
+    assert.deepEqual(claimedBy(state, 1), [1]);
   });
 
   it('stops at a session the log does not hold, and at a loop', () => {
@@ -740,8 +749,8 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
       ...started(3, { id: 's3', resumes: 'gone' }),
     ]);
 
-    assert.deepEqual(worktreeClaims(state, [leaseOf(2)]).leased, [ref(2), ref(1)]);
-    assert.deepEqual(worktreeClaims(state, [leaseOf(3)]).leased, [ref(3)]);
+    assert.deepEqual(claimedBy(state, 2), [1, 2]);
+    assert.deepEqual(claimedBy(state, 3), [3]);
   });
 
   it('keeps the worktree a resumed attempt runs in when its batch ends under it', () => {
