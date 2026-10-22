@@ -156,7 +156,8 @@ export interface Facts {
 /**
  * What the engine's state says about the worktrees: whether each batch it knows is still live
  * (it may brew again: ordered, brewing, conditioning or Stuck) or has ended (on tap or
- * cancelled), and which attempts hold a live lease.
+ * cancelled), and which attempts hold a live lease: the leased attempt and every attempt whose
+ * session it continues, whose worktree it runs in (ADR 0029).
  */
 export interface Claims {
   batches: ReadonlyMap<string, 'live' | 'ended'>;
