@@ -165,6 +165,30 @@ describe('two drivers on one store', () => {
   it('start each attempt once, under its batch lease, and apply no effect twice', () =>
     holdsAcrossKills(dir.path, checks, { drivers }));
 
+  // With worktrees a retry resumes the session of the attempt before it, in that attempt's
+  // worktree (ADR 0117): two drivers never run two attempts in one worktree at once.
+  // Not the removals: a driver that stalls loses its attempt while the run goes on, and ADR 0029
+  // lets the worktree of a lost attempt go once its batch ended.
+  it('hold with worktrees too, where retries resume, never two attempts in one worktree', () => {
+    const oneAtATime = ({ engine }: ChaosRun): void => {
+      const twice = (engine.clone?.violations ?? []).filter((what) =>
+        / started in .* while /.test(what),
+      );
+      assert.deepStrictEqual(twice, [], 'no two attempts ran in one worktree at once');
+    };
+    const inWorktrees: ChaosChecks = {
+      afterMove: (run, move, survived) => {
+        checks.afterMove?.(run, move, survived);
+        oneAtATime(run);
+      },
+      atEnd: (run) => {
+        checks.atEnd?.(run);
+        oneAtATime(run);
+      },
+    };
+    return holdsAcrossKills(dir.path, inWorktrees, { drivers, worktrees: true });
+  });
+
   /** How many seeds the coverage test may try before it fails. */
   const maxSeeds = 30;
 

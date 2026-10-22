@@ -1159,6 +1159,40 @@ describe('openDriver', () => {
       });
     });
 
+    it('starts the attempt a route schedules fresh: its step succeeded, and that branch holds the task tree', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      const routing = fakeRecipes({
+        pint: fakeRecipe({
+          steps: ['plan', 'implement'],
+          routes: { implement: { failed: 'plan' } },
+        }),
+      });
+      order('b1');
+      const driver = await open({
+        runner,
+        recipes: routing,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+        sessionId: ids(),
+        resumes: () => true,
+      });
+      await driver.drive();
+      end(plan('b1'), succeeded, inSession(first));
+      await driver.drive();
+      const implement = { batchId: 'b1', stepId: 'implement', attempt: 1 };
+      const final: Ending = { kind: 'failed', retryable: false, reason: 'tests fail' };
+      end(implement, final, inSession('0f8fad5b-d9cb-469f-a165-708677289501'));
+      await driver.drive();
+      const routed = started().at(-1);
+      assert.equal(routed?.stepId, 'plan');
+      assert.equal(routed.attempt, 2);
+      assert.deepStrictEqual(routed.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289502',
+        worktree: folder('plan', 2),
+      });
+      assert.ok(!manager.calls.some((call) => call.kind === 'recreate'));
+    });
+
     it('starts fresh, saying why, when the worktree of the session cannot be recreated', async () => {
       const { runner, end, started: ran } = handRunner();
       const manager = fakeWorktrees({ refuseRecreate: () => 'The commit is no commit in clone' });
