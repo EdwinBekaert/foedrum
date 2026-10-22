@@ -12,14 +12,18 @@ import {
   scanPatches,
 } from './denylist/core.ts';
 
-/** Each git call's deadline: a local, read-only log answers within seconds, and the two calls fit
- * between the HEAD check (10 s) and npm run check (540 s) under the hook's 600 s. */
-export const DENYLIST_GIT_TIMEOUT_MS = 20_000;
+/** Each git call's deadline: a local, read-only call answers within seconds, and the three calls
+ * fit between the HEAD check (10 s) and npm run check (540 s) under the hook's 600 s. */
+export const DENYLIST_GIT_TIMEOUT_MS = 15_000;
 
-// The commits no remote-tracking ref has: what a push of the branch can send. git reads them as
+// The commits the remote's tracking refs do not have: what a push of the branch to it can send.
+// Another remote's refs (a private mirror) say nothing of what this one has. git reads them as
 // stored (no replace refs) and prints paths as they are.
 const GIT = ['--no-replace-objects', '-c', 'core.quotePath=false', '-c', 'log.showRoot=true'];
-const COMMITS = ['HEAD', '--not', '--remotes'];
+const commits = (remote: string): string[] => ['HEAD', '--not', `--remotes=${remote}`];
+// A remote's name, which git reads as a pattern of its tracking refs: no glob, URL or path.
+const REMOTE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+const PUSH_REF = ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'];
 const PLAIN = ['--no-color', '--no-notes', '--no-show-signature', '--no-mailmap'];
 const MESSAGES = [...GIT, 'log', `--format=${MESSAGE_FORMAT}`, '--encoding=UTF-8', ...PLAIN];
 // Added lines only, merges as combined diffs (what the merge adds of its own), binary files as
@@ -45,12 +49,14 @@ const PATCHES = [
 ];
 
 /**
- * Why `git push` in `dir` may not run: the commits it would send hold a word on the list, the
- * list cannot be read, or git cannot show the commits. Undefined without a list.
+ * Why `git push` in `dir` to `remote` may not run: the commits it would send hold a word on the
+ * list, the list cannot be read, the remote is computed at run time or no name, or git cannot show
+ * the commits. Undefined without a list. A push that names no remote goes where git's `@{push}`
+ * says, or else to origin.
  */
 export const pushRefusal =
   (readList: () => DenylistState, exec: ExecProcess) =>
-  async (dir: string, _remote?: string | null): Promise<string | undefined> => {
+  async (dir: string, remote?: string | null): Promise<string | undefined> => {
     const state = readList();
     if (state.kind === 'none') return undefined;
     if (state.kind === 'unreadable') {
@@ -58,9 +64,19 @@ export const pushRefusal =
     }
     const list = parseDenylist(state.text);
     if (list.length === 0) return undefined;
+    if (remote === null || (remote !== undefined && !REMOTE_NAME.test(remote))) {
+      return `git push is blocked: its remote is ${remote === null ? 'computed at run time' : 'a URL or a path'}, so the gate cannot tell which commits it sends to check them against your denylist (ADR 0114); name the remote, such as origin.`;
+    }
+    const options = { cwd: dir, timeoutMs: DENYLIST_GIT_TIMEOUT_MS };
+    let target = remote;
+    if (target === undefined) {
+      const pushRef = await exec('git', PUSH_REF, options);
+      const named = pushRef.exitCode === 0 ? pushRef.stdout.trim().split('/')[0] : undefined;
+      target = named !== undefined && REMOTE_NAME.test(named) ? named : 'origin';
+    }
     const outputs: string[] = [];
     for (const args of [MESSAGES, PATCHES]) {
-      const { exitCode, stdout, killed } = await exec('git', [...args, ...COMMITS], {
+      const { exitCode, stdout, killed } = await exec('git', [...args, ...commits(target)], {
         cwd: dir,
         timeoutMs: DENYLIST_GIT_TIMEOUT_MS,
       });

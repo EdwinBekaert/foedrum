@@ -611,7 +611,7 @@ interface Findings {
   reasons: string[];
   gated: boolean;
   // Where each push and gh pr create runs, and whether it is a push.
-  places: { place: Place; push: boolean }[];
+  places: { place: Place; push: boolean; remote?: string | null | undefined }[];
   // The pull requests `gh pr ready` marks ready, each needing its review summary, and where gh
   // runs.
   readies: { target: ReadyTarget; place: Place }[];
@@ -638,6 +638,26 @@ interface Reading {
 const gitAlias = (value: string): string =>
   value.startsWith('!') ? value.slice(1) : `git ${value}`;
 
+// git push's options that take the next word as their value.
+const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack', '--exec']);
+
+// The remote a push names, as git reads it: its first operand, else --repo; undefined when it names
+// none, and null when it is computed at run time (ADR 0114).
+const pushRemote = (args: Word[]): string | null | undefined => {
+  let repo: Word | undefined;
+  let operand: Word | undefined;
+  for (let i = 0; i < args.length && operand === undefined; i++) {
+    const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
+    if (arg.text === '--') operand = args[i + 1];
+    else if (arg.text === '--repo') repo = args[++i];
+    else if (arg.text.startsWith('--repo=')) repo = { ...arg, text: arg.text.slice(7) };
+    else if (!arg.text.startsWith('-')) operand = arg;
+    else if (PUSH_OPTIONS_WITH_VALUE.has(arg.text)) i++;
+  }
+  const remote = operand ?? repo;
+  return remote === undefined ? undefined : remote.dynamic ? null : remote.text;
+};
+
 const readGit = (args: Word[], literal: boolean, { found, aliases, place }: Reading): void => {
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
@@ -654,7 +674,7 @@ const readGit = (args: Word[], literal: boolean, { found, aliases, place }: Read
   const subcommand = args[i];
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
     found.gated = true;
-    found.places.push({ place: gitPlace, push: true });
+    found.places.push({ place: gitPlace, push: true, remote: pushRemote(args.slice(i + 1)) });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
@@ -1340,15 +1360,19 @@ export const precheck = async (
         stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
       };
     }
-    // What the push sends, against the personal denylist (ADR 0114); without one, nothing runs.
-    let denied: string | undefined;
-    try {
-      denied = await deniedPush(dir);
-    } catch (error) {
-      const why = error instanceof Error ? error.message : String(error);
-      denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
+    // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
+    // nothing runs.
+    const remotes = new Set(found.places.flatMap(({ push, remote }) => (push ? [remote] : [])));
+    for (const remote of remotes) {
+      let denied: string | undefined;
+      try {
+        denied = await deniedPush(dir, remote);
+      } catch (error) {
+        const why = error instanceof Error ? error.message : String(error);
+        denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
+      }
+      if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
     }
-    if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
   }
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(dir);
