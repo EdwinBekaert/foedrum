@@ -9,6 +9,8 @@ import {
   lostAttemptLine,
   PAUSE_PROMPT,
   pausesBetweenSteps,
+  RESUMED,
+  routeLines,
   STEPS,
   splitOutput,
   stepLines,
@@ -16,11 +18,29 @@ import {
 import type { Event } from '../../src/schemas/events.ts';
 
 describe('the walkthrough steps', () => {
-  it('go from the diagnosis to the replay, in the order a batch lives them', () => {
+  it('go from the diagnosis to the replay, in the order a batch lives them, with brew and resume after on tap', () => {
     assert.deepStrictEqual(
       STEPS.map(({ id }) => id),
-      ['diagnosis', 'order', 'brewing', 'restart', 'pull-request', 'on-tap', 'replay'],
+      [
+        'diagnosis',
+        'order',
+        'brewing',
+        'restart',
+        'checks',
+        'pull-request',
+        'on-tap',
+        'brew',
+        'resume',
+        'replay',
+      ],
     );
+  });
+
+  it("name the commands of brew and resume, the latter with the Cellarman's second attempt", () => {
+    const title = (id: string) => STEPS.find((step) => step.id === id)?.title;
+    assert.equal(title('brew'), 'foedrum brew 2 --as ann');
+    assert.equal(title('resume'), `foedrum resume 1-1 ${RESUMED}`);
+    assert.equal(RESUMED, 'implement#2');
   });
 
   it('each have a heading and one line that says what to look for', () => {
@@ -33,7 +53,7 @@ describe('the walkthrough steps', () => {
   });
 
   it('are numbered in their headings, each heading its own', () => {
-    assert.equal(headingOf(2), `Step 3 of 7: ${STEPS[2]?.title}`);
+    assert.equal(headingOf(2), `Step 3 of 10: ${STEPS[2]?.title}`);
     assert.equal(new Set(STEPS.map((_, index) => headingOf(index))).size, STEPS.length);
   });
 
@@ -149,6 +169,32 @@ describe('lostAttemptLine', () => {
   it('says nothing of an attempt that failed some other way', () => {
     const failed = { ...lost, outcome: { kind: 'failed', retryable: true, reason: 'no commit' } };
     assert.equal(of(started(1), failed, started(2)), undefined);
+  });
+});
+
+describe('routeLines', () => {
+  const ref = { stepId: 'implement', attempt: 2 };
+  const prompt = [
+    'Make the tests pass.',
+    '<untrusted-input-abc name="route" source="why step implement runs again: the failed checks of step green">',
+    'Step green ended: the check "test" failed with exit code 1',
+    'ok 1 - greets a visitor by name',
+    'not ok 2 - greets a stranger when no name is given',
+    '    not ok 1 - a nested subtest',
+    'the order says not ok 4 - only in passing',
+    '</untrusted-input-abc>',
+  ].join('\r\n');
+
+  it("says why the attempt runs again and each failed test's own line, nested ones too, from its prompt", () => {
+    assert.deepStrictEqual(routeLines(ref, prompt), [
+      'demo: implement #2 is told why step implement runs again: the failed checks of step green',
+      '  not ok 2 - greets a stranger when no name is given',
+      '  not ok 1 - a nested subtest',
+    ]);
+  });
+
+  it('says nothing for an attempt no route scheduled', () => {
+    assert.deepStrictEqual(routeLines(ref, 'Make the tests pass.\nnot ok 2 - a test'), []);
   });
 });
 

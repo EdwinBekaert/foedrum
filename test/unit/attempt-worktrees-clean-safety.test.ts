@@ -119,12 +119,8 @@ describe('openAttemptWorktrees with a fake git', () => {
 
       await open(git).clean({ batches: new Map([['12-1', 'ended' as const]]), leased: [] });
 
-      // With the clone's own settings (ADR 0096): no transport either.
-      const config = {
-        'core.fsmonitor': 'false',
-        'core.hooksPath': devNull,
-        'protocol.allow': 'never',
-      };
+      // As every engine call in the clone (ADR 0137).
+      const config = { 'core.fsmonitor': 'false', 'core.hooksPath': devNull };
       assert.deepEqual(configs, [
         { command: 'status', config },
         { command: 'remove', config },

@@ -14,8 +14,8 @@ export type RepositoryChecks = Readonly<Record<CheckName, Command | null>>;
 /** A check ready to run: its command line on this platform, or a skip. */
 export type PlannedCheck =
   | { kind: 'skip'; check: CheckName }
-  /** `check` is absent for a Brewery's literal command. */
-  | { kind: 'run'; check?: CheckName; command: string };
+  /** `check` is absent for a Brewery's literal command and a repository's setup (ADR 0140). */
+  | { kind: 'run'; check?: CheckName; setup?: true; command: string };
 
 /** What the process runner answered for one command. */
 export interface CheckRun {
@@ -95,6 +95,7 @@ export function readingOf(
 ): GravityReading {
   const ran = {
     ...(check.check === undefined ? {} : { check: check.check }),
+    ...(check.setup === undefined ? {} : { setup: check.setup }),
     command: check.command,
   };
   // Secrets out first, so the bound never keeps half of one.
@@ -128,15 +129,52 @@ const lastLine = (text: string): string | undefined =>
     .filter((line) => line !== '')
     .at(-1);
 
+const environment = (summary: string): Ending => ({
+  kind: 'blocked',
+  blockerKind: 'environment',
+  summary,
+});
+
+/**
+ * A setup that did not pass: no fact about the tree under check, so never a failure along
+ * `onFail`, but the attempt's environment, or a cancel at the engine's stop (ADR 0140).
+ */
+function settleSetup(reading: Exclude<GravityReading, { result: 'skipped' }>): Ending {
+  const setup = `the setup "${reading.command}"`;
+  switch (reading.result) {
+    case 'exited':
+      return environment(`${setup} failed with exit code ${reading.exitCode}`);
+    case 'signaled':
+      return environment(`${setup} was ended by ${reading.signal}`);
+    case 'killed':
+      switch (reading.killed) {
+        case 'stopped':
+          return { kind: 'cancelled' };
+        case 'timed-out':
+          return environment(`${setup} did not finish within its timeout or the step's deadline`);
+        case 'too-much-output':
+          return environment(`${setup} wrote more output than the process runner's limit`);
+        default: {
+          const unhandled: never = reading.killed;
+          throw new Error(`Unhandled kill ${JSON.stringify(unhandled)}`);
+        }
+      }
+    case 'unstarted': {
+      const why = lastLine(reading.tail);
+      return environment(`${setup} could not start${why === undefined ? '' : `: ${why}`}`);
+    }
+    default: {
+      const unhandled: never = reading;
+      throw new Error(`Unhandled reading ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
 /** The step's outcome from its readings: the first that did not pass decides (ADR 0069). */
 export function settleReadings(readings: readonly GravityReading[]): Ending {
   const decisive = readings.find((reading) => !passed(reading));
   if (decisive === undefined) return { kind: 'succeeded', output: null };
-  const environment = (summary: string): Ending => ({
-    kind: 'blocked',
-    blockerKind: 'environment',
-    summary,
-  });
+  if (decisive.result !== 'skipped' && decisive.setup === true) return settleSetup(decisive);
   switch (decisive.result) {
     case 'skipped':
       throw new Error('A skipped check passes');

@@ -1,7 +1,7 @@
-// The pushes of the openPullRequest action (ADR 0071), the shell: git reads in the repository's
-// clone, never in an attempt's worktree (ADR 0066), and reaches the remote from a git directory of
-// its own, never through the clone's configuration (ADR 0096). Git runs only through the injected
-// `Git`, so unit tests pass a fake one (ADR 0021).
+// The pushes of the openPullRequest action (ADR 0071), the shell: git in the repository's clone,
+// never in an attempt's worktree (ADR 0066), with no hook or fsmonitor (ADR 0137); the base is
+// fetched from a git directory of its own (ADR 0090). Git runs only through the injected `Git`, so
+// unit tests pass a fake one (ADR 0021).
 
 import { devNull } from 'node:os';
 import type { BranchPush } from '../engine/pull-request-actions.ts';
@@ -27,11 +27,14 @@ export interface BranchPushOptions {
   git: Git;
   /** The clone the attempt worktrees are added to: the user's, or the managed one. */
   clone: string;
-  /** The clone's remote whose `<remote>/<base>` the base fetch starts from; default `origin`. */
+  /**
+   * The clone's remote, which the push and its lookup reach, and whose `<remote>/<base>` the base
+   * fetch starts from; default `origin`.
+   */
   remote?: string;
   /**
-   * The remote as Foedrum names it, which the push, its lookup and the base fetch reach
-   * (ADR 0090, ADR 0096); without it they refuse.
+   * The remote as Foedrum names it, which the base fetch reaches (ADR 0090); without it, it
+   * refuses.
    */
   own?: OwnRemote;
 }
@@ -112,7 +115,7 @@ const FOEDRUM_BRANCH = /^foedrum\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$
 const aborts = (signal: AbortSignal | undefined): GitOptions =>
   signal === undefined ? {} : { signal };
 
-// A git directory of the call's own, reaching the remote by the URL Foedrum names (ADR 0096).
+// A git directory of the call's own, reaching the remote by the URL Foedrum names (ADR 0090).
 const remotely = async <T>(
   { git, clone, own }: Pick<BranchPushOptions, 'git' | 'clone' | 'own'>,
   signal: AbortSignal | undefined,
@@ -188,9 +191,8 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     remoteTip: async (branch, signal) => {
       const ref = `refs/heads/${foedrumBranch(branch)}`;
-      const listed = await remotely(options, signal, (dir) =>
-        dir.run(['ls-remote', '--refs', dir.url, ref]),
-      );
+      const args = ['ls-remote', '--refs', remote, ref];
+      const listed = await gitOutput(local, clone, args, aborts(signal));
       for (const line of listed.split(/\r?\n/)) {
         const [commit, name] = line.split('\t');
         if (name === ref && commit !== undefined && SHA.test(commit)) return commit;
@@ -201,10 +203,13 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       if (!SHA.test(commit)) throw new Error(`${commit} is no full commit sha`);
       const refspec = `${commit}:refs/heads/${foedrumBranch(branch)}`;
       // Never by force, and by the commit's sha: no ref of the clone names what is pushed. No hook
-      // runs: the git directory has none, and `--no-verify` alone would skip only pre-push.
-      await remotely(options, signal, (dir) =>
-        dir.run(['push', '--no-verify', dir.url, refspec], { timeoutMs: TRANSFER_TIMEOUT_MS }),
-      );
+      // of the clone's runs: `--no-verify` alone would skip only pre-push. Only this one ref goes,
+      // whatever push.followTags or push.recurseSubmodules say: nothing past the ledger.
+      const args = ['push', '--no-verify', '--no-follow-tags', '--no-recurse-submodules'];
+      await gitOutput(local, clone, [...args, remote, refspec], {
+        ...aborts(signal),
+        timeoutMs: TRANSFER_TIMEOUT_MS,
+      });
     },
     secretScan: async (base, commit, signal) => {
       for (const sha of [base, commit]) {

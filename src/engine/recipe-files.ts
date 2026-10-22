@@ -54,6 +54,14 @@ export interface StepBrewer {
   lenses?: ReadonlyMap<string, Lens>;
 }
 
+/** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
+export interface Catalog {
+  brewers: readonly (StepBrewer & { name: string; path: string })[];
+  lenses: readonly Lens[];
+  /** The brewers the recipes' steps name, and the lenses those brewers' inputs name. */
+  named: { brewers: ReadonlySet<string>; lenses: ReadonlySet<string> };
+}
+
 /** The brewers of the loaded recipes' steps. */
 export interface StepBrewers {
   /** The brewer of step `stepId` of recipe `recipe`, or `undefined` when there is no such step. */
@@ -86,6 +94,7 @@ export type LoadedRecipes =
       checks: StepChecks;
       /** The paths of the default files in use: those the Brewery has no file of its name for. */
       defaults: readonly string[];
+      catalog: Catalog;
     }
   /** One line per problem, each starting with the file it is about. */
   | { valid: false; problems: readonly string[] };
@@ -149,6 +158,28 @@ export function filesInUse(files: BreweryFiles): Required<FilesByKind> {
     brewers: [...files.brewers, ...kept.brewers],
     lenses: [...(files.lenses ?? []), ...kept.lenses],
   };
+}
+
+/**
+ * Each Brewery file that replaces a default of the same name, with that default, recipes, then
+ * brewers, then lenses (ADR 0098, ADR 0141).
+ */
+export function replacedDefaults(
+  files: BreweryFiles,
+): { own: BreweryFile; replaced: BreweryFile }[] {
+  const { defaults = {} } = files;
+  const pairs = (own: readonly BreweryFile[], replaceable: readonly BreweryFile[] = []) =>
+    own.flatMap((file) => {
+      const replaced = isFolder(file)
+        ? undefined
+        : replaceable.find((found) => !isFolder(found) && nameOf(found.path) === nameOf(file.path));
+      return replaced === undefined ? [] : [{ own: file, replaced }];
+    });
+  return [
+    ...pairs(files.recipes, defaults.recipes),
+    ...pairs(files.brewers, defaults.brewers),
+    ...pairs(files.lenses ?? [], defaults.lenses),
+  ];
 }
 
 /** The paths of the defaults the Brewery has no file of the same name for (ADR 0098). */
@@ -412,38 +443,41 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       lenses.set(name, { name, path: file.path, text: file.text });
     }
   }
-  const brewers = new Map(
-    readAll(
-      files.brewers,
-      'brewer',
-      (text) => {
-        const doc = readDoc(text, BrewerFrontmatter);
-        if (!doc.valid) return doc;
-        const { frontmatter: brewer, body: instructions } = doc;
-        const named = new Map<string, Lens>();
-        const unknown: string[] = [];
-        for (const input of brewer.inputs) {
-          const lens = lensOf(input.from);
-          if (lens === undefined || lensFolderUnread || brokenLenses.has(lens)) continue;
-          const found = lenses.get(lens);
-          if (found !== undefined) named.set(lens, found);
-          else {
-            unknown.push(
-              `the brewer "${brewer.name}" has the input "${input.name}" from the lens "${lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0098)`,
-            );
-          }
+  const brewerFiles = readAll(
+    files.brewers,
+    'brewer',
+    (text) => {
+      const doc = readDoc(text, BrewerFrontmatter);
+      if (!doc.valid) return doc;
+      const { frontmatter: brewer, body: instructions } = doc;
+      const named = new Map<string, Lens>();
+      const unknown: string[] = [];
+      for (const input of brewer.inputs) {
+        const lens = lensOf(input.from);
+        if (lens === undefined || lensFolderUnread || brokenLenses.has(lens)) continue;
+        const found = lenses.get(lens);
+        if (found !== undefined) named.set(lens, found);
+        else {
+          unknown.push(
+            `the brewer "${brewer.name}" has the input "${input.name}" from the lens "${lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0098)`,
+          );
         }
-        if (unknown.length > 0) return { valid: false, reason: unknown.join('; ') };
-        return {
-          valid: true,
-          value: { name: brewer.name, brewer, instructions, lenses: named },
-        };
-      },
-      problems,
-    ).map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
+      }
+      if (unknown.length > 0) return { valid: false, reason: unknown.join('; ') };
+      return {
+        valid: true,
+        value: { name: brewer.name, brewer, instructions, lenses: named },
+      };
+    },
+    problems,
+  );
+  const brewers = new Map(
+    brewerFiles.map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
   );
   // A brewer whose file is there but broken is reported once, as that file.
-  const brewerFiles = new Set(files.brewers.map(({ path }) => nameOf(path)));
+  const brewerNames = new Set(files.brewers.map(({ path }) => nameOf(path)));
+  // The brewers the recipes' steps name, for doctor (ADR 0141).
+  const namedBrewers = new Set<string>();
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
@@ -507,7 +541,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         }
         const found = brewers.get(runnable.brewer);
         if (found === undefined) {
-          if (!brewerFiles.has(runnable.brewer)) {
+          if (!brewerNames.has(runnable.brewer)) {
             problems.push(
               `${path}: it names no brewer "${runnable.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
             );
@@ -544,6 +578,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     // at once.
     const brewerOf = (name: string) => brewers.get(name)?.brewer;
     const named = [...walk(value.steps, ['steps'])].map(({ step }) => stepBrewerName(step));
+    for (const name of named) if (name !== undefined) namedBrewers.add(name);
     if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
     const { testFirst } = resolveRecipe(value, brewerOf);
     const commits = (step: Step): boolean => {
@@ -602,6 +637,18 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   return {
     valid: true,
     defaults: defaultsInUse(breweryFiles),
+    catalog: {
+      brewers: brewerFiles.map(({ path, value }) => ({ ...value, path })),
+      lenses: [...lenses.values()],
+      named: {
+        brewers: namedBrewers,
+        lenses: new Set(
+          [...brewers]
+            .filter(([name]) => namedBrewers.has(name))
+            .flatMap(([, { lenses: named }]) => [...(named?.keys() ?? [])]),
+        ),
+      },
+    },
     recipes: { find: (name) => recipes.get(name) },
     brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
     checks: {

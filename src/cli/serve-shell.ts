@@ -32,7 +32,10 @@ export interface ServeShellOptions {
   listen?: ListenForSignal;
   /** The command whose lines the state branch's own start with; default `serve`. */
   command?: string;
-  /** The sandbox check steps run in; default this machine's, through `execProcess` (ADR 0076). */
+  /**
+   * The sandbox check steps run in; default this machine's, through `execProcess` (ADR 0076). Its
+   * `exec` also runs a repository's setup, outside the sandbox (ADR 0140).
+   */
   checks?: Partial<SandboxedChecksOptions>;
 }
 
@@ -119,6 +122,8 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     // A check's command line runs in the OS sandbox (ADR 0076).
     exec: sandboxedChecks({ exec: execProcess, ...checks }),
+    // A repository's setup installs, so it has the network: no sandbox (ADR 0140).
+    setup: checks?.exec ?? execProcess,
     gh: execProcess,
     git,
   };

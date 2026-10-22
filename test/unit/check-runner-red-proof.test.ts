@@ -115,6 +115,10 @@ const setup = ({
   /** Why clearing the report fails, when it does. */
   clearFails = undefined as string | undefined,
   platform = 'linux' as NodeJS.Platform,
+  /** The repository's setup command, when it has one (ADR 0140). */
+  prepare = undefined as string | undefined,
+  /** The setup's exit code. */
+  prepareExit = 0,
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -150,6 +154,18 @@ const setup = ({
     repositoryChecks: () => repositoryChecks,
     testReport: () => report ?? undefined,
     exec,
+    setup: {
+      of: () => (prepare === undefined ? undefined : { command: prepare, timeout: '10m' }),
+      exec: (file, _args, options) => {
+        order.push(`setup ${file} in ${options.cwd}`);
+        return Promise.resolve({
+          exitCode: prepareExit,
+          stdout: '',
+          stderr: '',
+          output: 'added 1\n',
+        });
+      },
+    },
     git,
     clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
     reports,
@@ -179,6 +195,82 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${clone}`,
       `exec npm test in ${redTree}`,
     ]);
+  });
+
+  it("runs the repository's setup in the worktree before the red run (ADR 0140)", async () => {
+    const { order, run } = setup({ prepare: 'npm ci' });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [`setup npm ci in ${redTree}`, `exec npm test in ${redTree}`],
+    );
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.result, 'setup' in reading && reading.setup]),
+      [
+        ['exited', true],
+        ['exited', false],
+      ],
+    );
+  });
+
+  it('runs no setup for a red proof that is blocked before its run: no test report (ADR 0140)', async () => {
+    const { order, run } = setup({ prepare: 'npm ci', report: null });
+    const end = await run();
+    assert.equal(end.ending.kind, 'blocked');
+    assert.deepEqual(order, []);
+  });
+
+  it("runs no setup when the proven step's commits cannot be read (ADR 0140)", async () => {
+    const { order, run } = setup({
+      prepare: 'npm ci',
+      diff: { code: 128, stdout: '', stderr: 'bad' },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'blocked');
+    assert.ok(
+      order.every((line) => !line.startsWith('setup')),
+      order.join('\n'),
+    );
+  });
+
+  it("runs the setup after the proven step's commits are read and before the report is cleared (ADR 0140)", async () => {
+    const results = join(redTree, 'build', 'results.xml');
+    const xml =
+      '<testsuite><testcase name="adds two numbers"><failure message="not implemented"/></testcase></testsuite>';
+    const { order, run } = setup({
+      prepare: 'npm ci',
+      report: { format: 'junit', path: 'build/results.xml' },
+      files: { [results]: { kind: 'text', text: xml } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(order[0]?.startsWith('git '), order[0]);
+    assert.deepEqual(order.slice(1), [
+      `setup npm ci in ${redTree}`,
+      `clear ${results}`,
+      `exec npm test in ${redTree}`,
+      `read ${results} inside ${redTree}`,
+    ]);
+  });
+
+  it('ends a red proof on its environment, clearing and running nothing, when the setup fails (ADR 0140)', async () => {
+    const { order, run } = setup({
+      prepare: 'npm ci',
+      prepareExit: 1,
+      report: { format: 'junit', path: 'build/results.xml' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the setup "npm ci" failed with exit code 1',
+    });
+    assert.deepEqual(order.slice(1), [`setup npm ci in ${redTree}`]);
+    assert.deepEqual(
+      end.readings?.map((reading) => 'setup' in reading && reading.setup),
+      [true],
+    );
   });
 
   it('says on native Windows that the red run ran unsandboxed (ADR 0076)', async () => {

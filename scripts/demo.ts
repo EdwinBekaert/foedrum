@@ -1,7 +1,9 @@
-// npm run demo (ADR 0097): a scratch Brewery and target repository in .foedrum/tmp/demo, one order
-// on an in-process fake code host, brewed by a scripted brewer through `foedrum serve`'s own
-// Cellar (scripts/demo/cellar.ts), which is killed mid-attempt and started again, until the batch
-// is on tap with one pull request and one status comment. No gh, no GitHub, no claude, no network.
+// npm run demo (ADR 0097, ADR 0139): a scratch Brewery and target repository in .foedrum/tmp/demo,
+// an order on an in-process fake code host, brewed with Nip by the scripted Gauger and Cellarman of
+// the Nip fixture through `foedrum serve`'s own Cellar (scripts/demo/cellar.ts), which is killed
+// mid-attempt and started again, until the batch is on tap with one pull request and one status
+// comment; then a second order brewed by `foedrum brew` instead of the Cellar, and `foedrum
+// resume`'s line for the Cellarman's attempt. No gh, no GitHub, no claude, no network.
 // It walks through it in steps (scripts/demo/walkthrough.ts), each with what to look for, and
 // waits for Enter between them on a terminal; `--no-pause` goes straight through. `--in <folder>`
 // runs it in another folder inside .foedrum/tmp, as the integration test does.
@@ -14,9 +16,11 @@ import { cliFromCheckout } from '../src/cli/cli-main.ts';
 import { execProcess } from '../src/platform/processes.ts';
 import { removeTree } from '../src/platform/remove.ts';
 import { runGit } from '../src/workspace/git.ts';
+import { NIP_TARGET_FILES } from '../test/helpers/nip-fixture.ts';
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
 import { codeHost, fileJournal } from './demo/code-host.ts';
 import {
+  BREW_ORDER,
   BREWERY,
   breweryFiles,
   CRASH_LINE,
@@ -29,6 +33,7 @@ import {
   problemsOf,
   scratchFolder,
   TARGET,
+  USER,
 } from './demo/core.ts';
 import {
   BATCH,
@@ -37,12 +42,14 @@ import {
   LOST_LINE,
   PAUSE_PROMPT,
   pausesBetweenSteps,
+  RESUMED,
+  STATUS_LINE,
   splitOutput,
   stepLines,
 } from './demo/walkthrough.ts';
 
-/** How long one life of the Cellar may take; it needs a few seconds. */
-const LIFE_MS = 120_000;
+/** How long one life of the Cellar may take: Nip's seven attempts need well under a minute. */
+const LIFE_MS = 600_000;
 
 const root = resolve(import.meta.dirname, '..');
 const say = (line: string): void => {
@@ -132,7 +139,7 @@ say(`demo: a scratch Brewery ${BREWERY} and its target ${TARGET} in ${scratch}`)
 await removeTree(scratch);
 mkdirSync(scratch, { recursive: true });
 write(ownGit.GIT_CONFIG_GLOBAL, gitConfig(join(scratch, 'web.git')));
-const web = await repository('web', { 'README.md': '# web\n' });
+const web = await repository('web', NIP_TARGET_FILES);
 const brewery = await repository('brewery', breweryFiles());
 write(join(brewery, '.foedrum', 'local.jsonc'), localConfig(join(scratch, 'work'), web));
 
@@ -168,11 +175,17 @@ const [found, after] = splitOutput(restart.output, (line) => line.startsWith(LOS
 indented(found);
 
 await next();
-indented(after);
-const host = await codeHost(fileJournal(join(scratch, 'code-host.jsonl')));
-const pulls = host.pulls();
+// Up to the status that first shows the batch on tap, which goes with the pull request.
+const onTap = after.findIndex((line) => / on tap /.test(line));
+const cut = onTap < 0 ? after.length : Math.max(0, after.lastIndexOf(STATUS_LINE, onTap));
+indented(after.slice(0, cut));
+
+await next();
+indented(after.slice(cut));
+const journal = fileJournal(join(scratch, 'code-host.jsonl'));
+let host = await codeHost(journal);
 const comments = host.comments(BREWERY, ORDER.number);
-for (const pull of pulls) {
+for (const pull of host.pulls()) {
   say(
     `demo: pull request #${pull.number} on ${pull.repo}: "${pull.title}", ${pull.head} into ${pull.base}`,
   );
@@ -191,13 +204,51 @@ await next();
 await foedrum(brewery, ['status']);
 
 await next();
+// The label of the Cellar's order, so the second order is routed to the same recipe.
+const { labels } = ORDER;
+say(
+  `demo: ${USER} labels issue #${BREW_ORDER.number} ${labels.join(', ')}, now the Cellar has stopped`,
+);
+await host.fetch(`https://api.github.com/repos/${BREWERY}/issues/${BREW_ORDER.number}/labels`, {
+  method: 'POST',
+  body: JSON.stringify({ labels }),
+});
+say(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}`);
+const brew = await live('brew');
+indented(brew.output.trimEnd().split(/\r?\n/));
+
+await next();
+// As a Claude Code session runs it (ADR 0126): resume names the attempt and prints the line to
+// run in a terminal, instead of opening claude, which the demo never starts.
+const childSession = process.env.CLAUDE_CODE_CHILD_SESSION;
+process.env.CLAUDE_CODE_CHILD_SESSION = '1';
+try {
+  await foedrum(brewery, ['resume', BATCH, RESUMED]);
+} finally {
+  if (childSession === undefined) delete process.env.CLAUDE_CODE_CHILD_SESSION;
+  else process.env.CLAUDE_CODE_CHILD_SESSION = childSession;
+}
+
+await next();
 await foedrum(brewery, ['replay', BATCH]);
 
 say('');
-const problems = problemsOf({ crash, restart, pulls, comments, commands });
+host = await codeHost(journal);
+const problems = problemsOf({
+  crash,
+  restart,
+  brew,
+  pulls: host.pulls(),
+  comments: new Map(
+    [ORDER, BREW_ORDER].map(({ number }) => [number, host.comments(BREWERY, number)]),
+  ),
+  commands,
+});
 if (problems.length > 0) {
   for (const problem of problems) say(`demo: ${problem}`);
   process.exitCode = 1;
 } else {
-  say('demo: on tap after a crash and a restart, with one pull request and one status comment');
+  say(
+    'demo: both orders on tap, one through a crash and a restart, each with one pull request and one status comment',
+  );
 }

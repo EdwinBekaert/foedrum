@@ -191,6 +191,7 @@ describe('runBrew', () => {
       }),
       runner: () => runner,
       exec: () => Promise.reject(new Error('no check step runs here')),
+      setup: () => Promise.reject(new Error('no repository setup runs here')),
       gh: ghOver(api.fetch).exec,
       git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
       ...overrides,

@@ -106,10 +106,12 @@ export type Usage = z.infer<typeof Usage>;
 /** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
 export const MAX_TAIL_LENGTH = 4000;
 const Tail = z.string().max(MAX_TAIL_LENGTH);
-// A named check, or none for a Brewery's literal command; the command line as it ran; and on
-// native Windows, which has no sandbox for it, that it ran unsandboxed (ADR 0076).
+// A named check, or none for a Brewery's literal command or the repository's setup, which says so
+// (ADR 0140); the command line as it ran; and where no sandbox held it, that it ran unsandboxed:
+// a check on native Windows (ADR 0076), a setup everywhere.
 const ran = {
   check: CheckName.optional(),
+  setup: z.literal(true).optional(),
   command: NonEmpty,
   unsandboxed: z.literal(true).optional(),
 };

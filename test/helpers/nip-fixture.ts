@@ -4,8 +4,8 @@
 // Gauger commits a failing test, the Cellarman's first fix fails the check once, and its second
 // one passes. Each attempt commits in its own worktree and leaves its out doc there, as a brewer
 // would, so the red proof, the testsUnchanged guard, the checks and the route input (ADR 0128)
-// all read what a real run gives them. No model is asked. The E2E test uses it; `npm run demo` is
-// to take it over in #366.
+// all read what a real run gives them. No model is asked. The E2E test, foedrum brew's integration
+// test and `npm run demo` (ADR 0139) use it.
 
 import { join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -48,7 +48,8 @@ interface Scripted {
 }
 
 /**
- * What each attempt of a step commits, by step id and then attempt: the Gauger's failing test,
+ * What each attempt of a step commits, by step id and then in the order the runner starts that
+ * step's attempts in a batch (ADR 0139): the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
@@ -137,9 +138,22 @@ export interface ScriptedNip extends BrewerRunner {
 export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
   const { plan, git, config, write } = options;
   const prompts = new Map<string, string>();
-  const scriptOf = ({ stepId, attempt }: AttemptStart['ref']): Scripted => {
-    const scripted = NIP_SCRIPT[stepId]?.[attempt - 1];
-    if (scripted === undefined) throw new Error(`Nip's script has no ${stepId}#${attempt}`);
+  // Each step's attempts play its script in the order this runner starts them, so the retry of an
+  // attempt lost with an earlier process (npm run demo's kill) plays what that one would have.
+  const played = new Map<string, Scripted>();
+  const turns = new Map<string, number>();
+  const scriptOf = (ref: AttemptStart['ref']): Scripted => {
+    const key = attemptKey.encode(ref);
+    const known = played.get(key);
+    if (known !== undefined) return known;
+    const step = `${ref.batchId} ${ref.stepId}`;
+    const turn = turns.get(step) ?? 0;
+    const scripted = NIP_SCRIPT[ref.stepId]?.[turn];
+    if (scripted === undefined) {
+      throw new Error(`Nip's script has no turn ${turn + 1} of ${ref.stepId} for attempt ${key}`);
+    }
+    turns.set(step, turn + 1);
+    played.set(key, scripted);
     return scripted;
   };
   // The tests' runner settles each attempt with the out doc the brewer wrote.
