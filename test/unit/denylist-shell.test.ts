@@ -93,6 +93,18 @@ describe('pushRefusal', () => {
     assert.doesNotMatch(refusal ?? '', /example ?corp/i);
   });
 
+  // git's stderr arrives in chunks that need not end a line, so it can split an added line.
+  it('reads only what git prints on stdout', async () => {
+    const stdout = `\0${sha}\n\ndiff --git a/plan.md b/plan.md\n@@ -0,0 +1,2 @@\n+a plan\n+we ship to ExampleCorp\n`;
+    const git = fakeGit(cleanMessages, {
+      exitCode: 0,
+      stdout,
+      output: stdout.replace('Example', 'Example\nwarning: a note on stderr\n'),
+    });
+    const refusal = await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree');
+    assert.match(refusal ?? '', /commit aaaaaaa plan\.md:2/);
+  });
+
   const failures: [string, ProcessOutcome, RegExp][] = [
     ['exits non-zero', { exitCode: 128, output: 'fatal: bad revision' }, /exited 128/],
     ['cannot start', { exitCode: null, output: '' }, /could not start/],
