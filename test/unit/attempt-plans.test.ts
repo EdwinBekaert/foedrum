@@ -355,6 +355,36 @@ describe('createAttemptPlans: plan', () => {
       claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
     };
 
+    it('gives a resumed retry after an answered round no answers: its session holds them (ADR 0118)', async () => {
+      const third = { ...ref, attempt: 3 };
+      const events: Event[] = [
+        ...ordered,
+        started,
+        asked,
+        received('Which flag?', '--json'),
+        { type: 'step.scheduled', ...second, deadlineAt, answered: true },
+        resumed,
+        // brew#2 got claude's init, then crashed: its retry resumes the same session.
+        {
+          type: 'step.finished',
+          ...second,
+          outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+          claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+        },
+        { type: 'step.scheduled', ...third, deadlineAt, retry: true },
+        {
+          type: 'step.started',
+          ...third,
+          session: { id: sessionId, resumes: sessionId, worktree: recreated },
+        },
+      ];
+      const { plans } = setup(events);
+      const plan = await plans.plan({ ...start, ref: third });
+      assert.deepEqual(plan.call.session, { kind: 'resume', id: sessionId });
+      assert.match(plan.prompt, /^The run before this one ended before the step was done\./);
+      assert.doesNotMatch(plan.prompt, /untrusted-input|Which flag/);
+    });
+
     it("resumes the session of an answered attempt with this round's answers alone (#327, ADR 0118)", async () => {
       const events: Event[] = [
         ...ordered,
