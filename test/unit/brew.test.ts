@@ -113,6 +113,13 @@ describe('runBrew', () => {
             body: 'Add a --json flag.',
           },
           { number: 13, labels: [], author: 'ann', title: 'Unlabelled', body: 'No recipe.' },
+          {
+            number: 14,
+            labels: ['recipe:stout', 'recipe:porter'],
+            author: 'ann',
+            title: 'Two recipes',
+            body: 'Both.',
+          },
         ],
       },
     });
@@ -124,7 +131,7 @@ describe('runBrew', () => {
   const leaseOf = () => store.batchLeases(t0).find(({ batchId }) => batchId === '12-1');
 
   /** serve's shell with fakes, ticking until brew stops, or failing after 20 ticks. */
-  const shell = (brew: Behaviour): ServeShell => {
+  const shell = (brew: Behaviour, overrides: Partial<ServeShell> = {}): ServeShell => {
     let ticks = 0;
     const runner = fakeBrewerRunner((attempt) => {
       started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
@@ -161,6 +168,7 @@ describe('runBrew', () => {
       exec: () => Promise.reject(new Error('no check step runs here')),
       gh: ghOver(api.fetch).exec,
       git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
+      ...overrides,
     };
   };
 
@@ -255,5 +263,57 @@ describe('runBrew', () => {
       lines.at(-1),
       'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order #12 orders it again',
     );
+  });
+
+  it('stops with the reason and the options when the batch is Stuck on anything but questions: exit 3', async () => {
+    const blocked = behave.blocked('findings', 'The tests fail');
+    assert.equal(await runBrew(setup, shell(blocked), request), 3);
+    assert.match(
+      lines.at(-1) ?? '',
+      /^foedrum brew: batch 12-1 is stuck: blocked at brew \(findings\): The tests fail; reminder [^;]+; options: retry, /,
+    );
+  });
+
+  it("refuses when its owner's lock is held, opening nothing: exit 5", async () => {
+    const held = shell(behave.succeed(), {
+      lock: () => {
+        throw new Error('The driver ann already runs on this work root');
+      },
+      openStore: () => assert.fail('no store is opened'),
+    });
+    assert.equal(await runBrew(setup, held, request), 5);
+    assert.equal(lines.at(-1), 'foedrum brew: The driver ann already runs on this work root');
+  });
+
+  it('refuses an alias of no repository with an intake, before it takes the lock: exit 5', async () => {
+    const target = { alias: 'web', issue: 7 };
+    assert.equal(await runBrew(setup, shell(behave.succeed()), { ...request, target }), 5);
+    assert.deepStrictEqual(locked, []);
+    assert.equal(
+      lines.at(-1),
+      'foedrum brew: foedrum.jsonc names no repository with the alias web and an intake',
+    );
+  });
+
+  it('refuses an issue with two recipe labels, ordering nothing: exit 5', async () => {
+    const two = { ...request, target: { issue: 14 } };
+    assert.equal(await runBrew(setup, shell(behave.succeed()), two), 5);
+    assert.equal(log().state().batches.size, 0);
+    assert.equal(
+      lines.at(-1),
+      'foedrum brew: #14 carries recipe:stout and recipe:porter; give it one recipe label',
+    );
+  });
+
+  it('says where it left the batch when it is stopped, and stops its run: exit 1', async () => {
+    const controller = new AbortController();
+    const running = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+    const stopped = shell(running, {
+      signal: controller.signal,
+      wait: async () => controller.abort(),
+    });
+    assert.equal(await runBrew(setup, stopped, request), 1);
+    assert.equal(lines.at(-1), 'foedrum brew: stopped; batch 12-1 brewing: brew #1 started');
+    assert.equal(lock.held, false);
   });
 });
