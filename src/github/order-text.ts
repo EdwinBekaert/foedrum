@@ -1,5 +1,6 @@
 // The order's text (ADR 0063): the body of the batch's issue, untrusted, through the conditional
-// GitHub reads (ADR 0052); and its title, which the batch's pull request takes (ADR 0071).
+// GitHub reads (ADR 0052); its title, which the batch's pull request takes (ADR 0071); and its
+// labels, which `foedrum brew` routes by (ADR 0123).
 
 import { GitHubIssue } from '../schemas/github.ts';
 import type { z } from '../schemas/zod.ts';
@@ -38,3 +39,14 @@ export const githubOrderText =
   (reads: GitHubReads, brewery: string) =>
   async (order: OrderIssue, signal?: AbortSignal): Promise<string> =>
     (await readIssue(reads, brewery, order, signal)).body ?? '';
+
+/**
+ * Reads the label names of an order's issue in its repository, or in `brewery` for a Brewery
+ * issue: `foedrum brew` routes by them as the intake does (ADR 0123).
+ */
+export const githubOrderLabels =
+  (reads: GitHubReads, brewery: string) =>
+  async (order: OrderIssue, signal?: AbortSignal): Promise<string[]> =>
+    (await readIssue(reads, brewery, order, signal)).labels.map((label) =>
+      typeof label === 'string' ? label : label.name,
+    );

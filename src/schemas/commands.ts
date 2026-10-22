@@ -99,14 +99,30 @@ const splitIssue = (text: string): OrderTarget | undefined => {
 };
 
 /** `<alias>#<n>`: an issue of the repository with that alias; `#<n>` or `<n>`: a Brewery issue. */
-export const OrderCommand = z.strictObject({
-  command: z.literal('order'),
-  issue: z
-    .string()
-    .refine(
-      (text) => splitIssue(text) !== undefined,
-      'Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
-    )
-    .transform((text) => splitIssue(text) as OrderTarget),
-});
+const IssueTarget = z
+  .string()
+  .refine(
+    (text) => splitIssue(text) !== undefined,
+    'Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
+  )
+  .transform((text) => splitIssue(text) as OrderTarget);
+
+export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: IssueTarget });
 export type OrderCommand = z.infer<typeof OrderCommand>;
+
+/** The Cellar's driver owner (ADR 0037), which no other driver may take (ADR 0123). */
+export const CELLAR_OWNER = 'cellar';
+
+/**
+ * `foedrum brew <issue> [--as <name>]` (ADR 0123): the issue as `order` takes it, and the name of
+ * its driver, one path segment that is not the Cellar's.
+ */
+export const BrewCommand = z.strictObject({
+  command: z.literal('brew'),
+  issue: IssueTarget,
+  as: PathSafeId.refine(
+    (name) => name !== CELLAR_OWNER,
+    "Must not be cellar, the Cellar's own",
+  ).optional(),
+});
+export type BrewCommand = z.infer<typeof BrewCommand>;
