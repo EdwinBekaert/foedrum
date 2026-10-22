@@ -53,7 +53,7 @@ export function ranIn(
  * How attempt `ref` of `batch` starts when its brewer resumes; undefined when it has no session to
  * resume: it is no retry, or the attempt before it ran no session. A route comes after its step
  * succeeded, and that session's branch holds the task tree, which a failure resumed on it would
- * move: so only a retry resumes (ADR 0117).
+ * move: so only a retry resumes, and never one after a success (ADR 0117).
  */
 export function resumeOf(batch: Batch, ref: AttemptRef): Resumption | undefined {
   const step = batch.steps.get(ref.stepId);
@@ -69,6 +69,11 @@ export function resumeOf(batch: Batch, ref: AttemptRef): Resumption | undefined 
   // claude started the session. A lost or abandoned attempt has none (ADR 0117).
   if (previous.phase !== 'finished' || previous.claude === undefined) {
     return { kind: 'fresh', why: `${name} has no session claude started` };
+  }
+  // A retry after a success (Stuck on a divergence, then retried): its commits would move the
+  // task tree, which that session's branch holds (ADR 0066, ADR 0117).
+  if (previous.outcome.kind === 'succeeded') {
+    return { kind: 'fresh', why: `${name} succeeded, and its branch holds the task tree` };
   }
   const made = worktreeOf(step, session.id);
   if (made === undefined) {
