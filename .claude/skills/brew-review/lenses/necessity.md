@@ -2,7 +2,9 @@
 
 Review every safeguard the change adds for proof that it is needed and not already done elsewhere. You are one of several reviewers, each with one lens; stay inside this one. This lens is used by the review skill for Foedrum's own pull requests; Foedrum does not ship it as a default.
 
-A **safeguard** is anything whose job is to stop or catch something: a gate rule, a guard, a check step or CI step, a validation, a refusal, a fail-closed branch, a retry, a limit or deadline, a lock, a sandbox rule, a scan, a review stage, a test layer, or a test run in the workflow.
+A **safeguard** here is a new mechanism whose only job is to stop or catch something: a gate rule, a guard, a check step or CI step, a scan, a retry, a lock, a sandbox rule, a review stage, a test layer, a test run in the workflow, or a follow-up issue for one.
+
+**Not a safeguard: doing the code right.** Code that handles the inputs its own contract says it takes is correctness, not a guard, and needs no proof: validating input where it enters, handling the error paths, comparing a name the way its domain compares it (without case when case does not count), normalising a path, reading a command the way the shell reads it when the code's contract says it reads commands as the shells do (ADR 0045). The signs: it lives inside the code being written or fixed, costs next to nothing, and adds no file, step, job or issue. Never ask such code for proof.
 
 ## Look for
 
