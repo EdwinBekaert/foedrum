@@ -739,6 +739,20 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
     assert.deepEqual(claimedBy(state, 1), [1]);
   });
 
+  it('claims every attempt of a session that kept its id, later ones too: one session, one worktree', () => {
+    // A lease covers its attempt's session (ADR 0019); attempt 2, abandoned by Stuck, still holds
+    // one while attempt 3 waits to resume the same session in the same worktree (ADR 0055).
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's1', resumes: 's1', in: 1 }),
+      ...started(3, { id: 's1', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(claimedBy(state, 2), [1, 2, 3]);
+  });
+
   it('stops at a session the log does not hold, and at a loop', () => {
     const state = fold([
       ordered,
