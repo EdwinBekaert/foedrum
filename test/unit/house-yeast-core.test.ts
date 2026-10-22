@@ -41,6 +41,14 @@ describe('readRules', () => {
     assert.match(lease?.body ?? '', /has a deadline/);
   });
 
+  it('reports a rule whose language no file extension has, since it could never match', () => {
+    const [first] = ruleFiles;
+    const text = (first?.text ?? '').replace('"typescript"', '"python"');
+    const read = readRules([{ path: '.foedrum/house-yeast/lease-deadline.md', text }]);
+    assert.deepEqual(read.rules, []);
+    assert.match(read.invalid[0]?.reason ?? '', /language "python"/);
+  });
+
   it('reports a file it cannot read, and one whose id is not its file name', () => {
     const [first] = ruleFiles;
     const read = readRules([
@@ -184,6 +192,13 @@ describe('readCandidates', () => {
     const read = readCandidates(candidates);
     assert.deepEqual(read.invalid, []);
     assert.equal(read.candidates.length, 4);
+  });
+
+  it('tolerates a byte order mark at the start', () => {
+    const [line] = candidates.split('\n');
+    const read = readCandidates(String.fromCodePoint(0xfeff) + line);
+    assert.deepEqual(read.invalid, []);
+    assert.equal(read.candidates.length, 1);
   });
 
   it('reports an invalid line by its number', () => {

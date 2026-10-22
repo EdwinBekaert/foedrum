@@ -148,11 +148,28 @@ describe('node scripts/house-yeast.ts record', () => {
     assert.equal(kept.files[rulePath], 'mine');
   });
 
+  it('reads a candidate file that starts with a byte order mark', () => {
+    const pr1 = 'https://github.com/acme/foedrum/pull/1';
+    const result = runWith(record, { 'c.json': String.fromCodePoint(0xfeff) + candidate(pr1) });
+    assert.equal(result.out, 'recorded deadline-on-every-wait: seen in 1 review\n');
+  });
+
   it('refuses an invalid candidate with its reason, and records nothing', () => {
     const result = runWith(record, { 'c.json': candidate('pr', { lesson: '../x' }) });
     assert.equal(result.code, 1);
     assert.match(result.out, /^invalid candidate: /);
     assert.equal(store in result.files, false);
+  });
+});
+
+describe('node scripts/house-yeast.ts select, rules without a scope', () => {
+  it('flags a rule selected for every change as due for curation (ADR 0015)', () => {
+    const result = runWith(
+      ['select', 'base/.foedrum/house-yeast', 'review/files.txt', 'correctness', 'out.md'],
+      { ...fixtureRules, 'review/files.txt': 'M\tsrc/engine/lease.ts\n' },
+    );
+    assert.match(result.out, /^no scope lf-only: selected for every change, due for curation$/m);
+    assert.doesNotMatch(result.out, /^no scope lease-deadline/m);
   });
 });
 
