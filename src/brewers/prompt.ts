@@ -55,8 +55,10 @@ function describeSource(source: InputSource): string {
       return `lens ${source.lens}, file ${source.path}`;
     case 'answers':
       return `answers to the questions of step ${source.step}`;
-    case 'route':
-      throw new Error('not implemented');
+    case 'route': {
+      const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
+      return `why step ${source.step} runs again: ${what} of step ${source.from}`;
+    }
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);
