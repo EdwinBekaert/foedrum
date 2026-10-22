@@ -1302,6 +1302,41 @@ describe('precheck on words split by quotes and escapes', () => {
   }
 });
 
+// A line continuation inside a word, which each shell removes before it reads the word (#158).
+describe('precheck on words split by line continuations', () => {
+  const split: [tool: string, command: string][] = [];
+  for (const newline of ['\n', '\r\n']) {
+    split.push(
+      ['Bash', `g\\${newline}it pu\\${newline}sh`],
+      ['PowerShell', `g\`${newline}it pu\`${newline}sh`],
+      // Quoted, since bash ends an unquoted command at the newline.
+      ['Bash', `cmd /c "g^${newline}it pu^${newline}sh"`],
+    );
+  }
+  for (const [tool, command] of split) {
+    it(`runs the check like git push: ${tool} ${JSON.stringify(command)}`, async () => {
+      assert.doesNotMatch(command, /git|push/i);
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({ tool_name: tool, tool_input: { command }, cwd: '/work/tree' });
+      const result = await precheck(input, runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, ['/work/tree']);
+    });
+    it(`blocks a force push like git push -f: ${tool} ${JSON.stringify(command)}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        tool_name: tool,
+        tool_input: { command: `${command} -f` },
+        cwd: '/work/tree',
+      });
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2, result.stderr);
+      assert.match(result.stderr, /force push/i);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 describe('forbiddenReason on the bypasses found in the second review', () => {
   const forcePushes = [
     // PowerShell's typographic quotes.
