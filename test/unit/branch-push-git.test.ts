@@ -404,38 +404,58 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
   });
 
   it('fetches the base of a partial clone with its filter, from the URL Foedrum names as a promisor of its own git directory (review of #266)', async () => {
+    // As older gits make a blobless clone, and as git 2.56 does: a promisor remote only.
+    for (const said of ['extensions.partialclone origin\n', 'remote.origin.promisor true\n']) {
+      const { git, calls } = recordingGit((args) =>
+        args.includes('--get-regexp') ? ok(said) : answers(args),
+      );
+      root = nextFolder();
+      gitDir = join(root, 'f1.git');
+      assert.equal(
+        await openBranchPush({ git, clone, own: { url, root, id: ids() } }).baseTip('main'),
+        TIP,
+      );
+      const configs = calls.filter(
+        ({ args }) => args[0] === `--git-dir=${gitDir}` && args[1] === 'config',
+      );
+      assert.deepEqual(
+        configs.map(({ args }) => args.slice(1)),
+        [
+          ['config', 'core.repositoryformatversion', '1'],
+          ['config', 'extensions.partialClone', 'foedrum'],
+        ],
+        said,
+      );
+      const fetch = calls.find(({ args }) => args.includes('fetch'));
+      assert.deepEqual(fetch?.args.slice(-4), [
+        '--filter=blob:none',
+        '--end-of-options',
+        'foedrum',
+        '+refs/heads/main:refs/heads/main',
+      ]);
+      assert.deepEqual(fetch?.options?.config, {
+        'remote.foedrum.url': url,
+        'remote.foedrum.promisor': 'true',
+        'remote.foedrum.partialclonefilter': 'blob:none',
+        'core.hooksPath': devNull,
+        'gc.auto': '0',
+        'maintenance.auto': 'false',
+      });
+    }
+  });
+
+  it('fetches the base of a clone whose promisor setting is false as a full clone, by the URL, with no promisor (review of #266)', async () => {
     const { git, calls } = recordingGit((args) =>
-      args.includes('--get-regexp') ? ok('extensions.partialclone origin\n') : answers(args),
+      args.includes('--get-regexp') ? ok('remote.origin.promisor false\n') : answers(args),
     );
-    assert.equal(
-      await openBranchPush({ git, clone, own: { ...base, id: ids() } }).baseTip('main'),
-      TIP,
-    );
-    const configs = calls.filter(
-      ({ args }) => args[0] === `--git-dir=${gitDir}` && args[1] === 'config',
-    );
+    await openBranchPush({ git, clone, own: { ...base, id: ids() } }).baseTip('main');
     assert.deepEqual(
-      configs.map(({ args }) => args.slice(1)),
-      [
-        ['config', 'core.repositoryformatversion', '1'],
-        ['config', 'extensions.partialClone', 'foedrum'],
-      ],
+      calls.filter(({ args }) => args[0] === `--git-dir=${gitDir}` && args[1] === 'config'),
+      [],
     );
     const fetch = calls.find(({ args }) => args.includes('fetch'));
-    assert.deepEqual(fetch?.args.slice(-4), [
-      '--filter=blob:none',
-      '--end-of-options',
-      'foedrum',
-      '+refs/heads/main:refs/heads/main',
-    ]);
-    assert.deepEqual(fetch?.options?.config, {
-      'remote.foedrum.url': url,
-      'remote.foedrum.promisor': 'true',
-      'remote.foedrum.partialclonefilter': 'blob:none',
-      'core.hooksPath': devNull,
-      'gc.auto': '0',
-      'maintenance.auto': 'false',
-    });
+    assert.equal(fetch?.args.at(-2), url);
+    assert.ok(!fetch?.args.some((arg) => arg.startsWith('--filter')), fetch?.args.join(' '));
   });
 
   it('sets no ref when the clone has no origin/<base>, or git names none, and passes the signal to every call', async () => {
