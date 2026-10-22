@@ -154,6 +154,7 @@ describe('routeOf', () => {
     );
     assert.ok(route !== undefined);
     assert.equal(route.text.includes(token), false, route.text);
+    assert.match(route.text, /^Step green ended: \[left out: a reason that looks like a secret\]/);
     assert.match(route.text, /not ok 1/);
   });
 
@@ -182,6 +183,40 @@ describe('routeOf', () => {
       assert.ok(text.includes(line), `${line} is not in ${text}`);
     }
     assert.doesNotMatch(text, /lint/);
+  });
+
+  it('says only that the step sent it back when that step has no finished attempt', () => {
+    const route = planned(
+      [
+        ...attempt('implement', 1),
+        ...attempt('green', 1).slice(0, 2),
+        ...routed('implement', 2, 'green', 'failed'),
+      ],
+      'implement',
+      2,
+    );
+    assert.equal(route?.text, 'Step green sent this step back.');
+  });
+
+  it('points an onBlocked route at no out doc when the attempt that blocked had no worktree', () => {
+    const ref = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+    const route = planned(
+      [
+        ...attempt('gauge', 1),
+        { type: 'step.scheduled', ...ref, deadlineAt },
+        { type: 'step.started', ...ref },
+        {
+          type: 'step.finished',
+          ...ref,
+          outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): Wrong' },
+        },
+        ...routed('gauge', 2, 'implement', 'findings'),
+      ],
+      'gauge',
+      2,
+    );
+    assert.equal(route?.outDoc, undefined);
+    assert.match(route?.text ?? '', /Wrong/);
   });
 
   it('points an onBlocked route at no out doc when the step that blocked has none', () => {

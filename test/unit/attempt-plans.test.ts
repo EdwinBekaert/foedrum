@@ -238,9 +238,10 @@ describe('createAttemptPlans: plan', () => {
     ];
     const doc = '---\n{ "status": "blocked" }\n---\nHalve the hops.';
     const blocked = { [join(tasteTree, 'brew.md')]: { kind: 'text', text: doc } } as const;
-    const { plans, reads } = setup(events, blocked, undefined, routing.brewers);
+    const { plans, reads, sizes } = setup(events, blocked, undefined, routing.brewers);
     const { prompt } = await plans.plan({ ...start, ref: second });
     assert.deepEqual(reads.at(-1), { file: join(tasteTree, 'brew.md'), root: tasteTree });
+    assert.equal(sizes.at(-1), 1024 * 1024);
     assert.match(
       prompt,
       /name="order">[\s\S]*source="why step brew runs again: the findings of step taste" name="route">\n[^<]*Too bitter[\s\S]*Halve the hops\.\n<\/untrusted-input-[0-9a-f]+>$/,
