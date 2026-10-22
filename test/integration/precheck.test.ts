@@ -274,6 +274,47 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
+  // The remote the command names reaches the scan through the real wiring (ADR 0114): origin has
+  // the word's commit, public does not, and a URL or a computed remote has no tracking refs.
+  it('reads against the remote the push names, and blocks one it cannot name', async () => {
+    const project = makeTempDir('denied-remote');
+    const list = `${project.path}-list.txt`;
+    try {
+      const git = (args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+      git(['init', '-q', '-b', 'main']);
+      git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      git(['update-ref', 'refs/remotes/public/main', 'HEAD']);
+      writeFileSync(join(project.path, 'notes.md'), 'We ship to ExampleCorp\n');
+      git(['add', 'notes.md']);
+      git(['commit', '-q', '-m', 'Add notes']);
+      git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+      writeFileSync(list, 'examplecorp\n');
+      const gate = (command: string) =>
+        run(process.execPath, [script], hookInput(command, project.path), {
+          cwd: root,
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+        });
+      const toPublic = await gate('git push public HEAD');
+      assert.equal(toPublic.code, 2);
+      assert.match(toPublic.stderr, /^git push is blocked: it would send a word .* notes\.md:1\. /);
+      for (const command of ['git push https://example.invalid/x.git HEAD', 'git push "$r" HEAD']) {
+        const blocked = await gate(command);
+        assert.equal(blocked.code, 2);
+        assert.match(blocked.stderr, /^git push is blocked: its remote is .*name the remote/);
+      }
+      // origin has the commit: the push to it passes on to the rest of the gate.
+      assert.doesNotMatch((await gate('git push origin HEAD')).stderr, /denylist/);
+    } finally {
+      await removeTree(project.path);
+      rmSync(list, { force: true });
+    }
+  });
+
   // A push from another directory runs that tree's check only inside CLAUDE_PROJECT_DIR (#132).
   it('runs the check of a pushed tree inside the project, and nothing outside it', async () => {
     const folder = makeTempDir('pushed-tree');
