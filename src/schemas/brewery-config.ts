@@ -93,14 +93,17 @@ const PollEvery = Duration.refine((duration) => {
   return ms >= 30_000 && ms <= 3_600_000;
 }, 'Must be from "30s" to "1h"');
 
+/** What runs in a check step's worktree before its checks (ADR 0140). */
+const RepositorySetup = z.strictObject({ command: Command, timeout: Duration });
+export type RepositorySetup = z.infer<typeof RepositorySetup>;
+
 const RepositoryConfig = z
   .strictObject({
     checks: Checks,
     testReport: TestReport.optional(),
-    setup: z
-      .strictObject({ command: Command, timeout: Duration })
-      .optional()
-      .describe("Runs in a check step's worktree before its checks, with the network (ADR 0140)"),
+    setup: RepositorySetup.optional().describe(
+      "Runs in a check step's worktree before its checks, with the network (ADR 0140)",
+    ),
     tools: z
       .array(CeilingTool)
       .default([])

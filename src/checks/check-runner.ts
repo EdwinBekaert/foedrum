@@ -21,9 +21,9 @@ import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
-import type { TestReportConfig } from '../schemas/brewery-config.ts';
+import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
-import { type Command, durationMs } from '../schemas/primitives.ts';
+import { durationMs } from '../schemas/primitives.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   commandLine,
@@ -45,12 +45,7 @@ export interface ReportFiles {
   read: (file: string, root: string) => OutDocRead;
 }
 
-/** A repository's setup in `foedrum.jsonc`: its command and how long it may run (ADR 0140). */
-export interface RepositorySetup {
-  command: Command;
-  /** A `Duration`, such as "10m". */
-  timeout: string;
-}
+export type { RepositorySetup };
 
 export interface CheckRunnerOptions {
   /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
@@ -143,10 +138,17 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     ending: { kind: 'blocked', blockerKind, summary },
   });
 
-  /** What one run of `check` read; on native Windows, which has no sandbox, it says so (ADR 0076). */
-  const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => {
+  /**
+   * What one run of `check` read; when no sandbox held it, it says so: a check on native Windows
+   * (ADR 0076), a setup everywhere (ADR 0140).
+   */
+  const readingIn = (
+    check: Extract<PlannedCheck, { kind: 'run' }>,
+    result: ExecResult,
+    unsandboxed = checksRunUnsandboxed(platform),
+  ) => {
     const reading = readingOf(check, result);
-    return checksRunUnsandboxed(platform) && reading.result !== 'skipped'
+    return unsandboxed && reading.result !== 'skipped'
       ? { ...reading, unsandboxed: true as const }
       : reading;
   };
@@ -161,7 +163,10 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     worktree: WorktreeRef,
     deadlineAt: string,
     signal: AbortSignal,
-    { maxOutputBytes, timeoutMs = Infinity }: { maxOutputBytes?: number; timeoutMs?: number } = {},
+    {
+      maxOutputBytes,
+      timeoutMs = Infinity,
+    }: { maxOutputBytes?: number | undefined; timeoutMs?: number } = {},
   ): Promise<ExecResult> => {
     // The process runner kills the tree before the step's deadline, also when no tick comes:
     // early enough that the kill's grace ends and the reading is recorded before a tick expires
@@ -186,9 +191,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     signal: AbortSignal,
     maxOutputBytes?: number,
   ): Promise<ExecResult> =>
-    runLine(exec, check.command, worktree, deadlineAt, signal, {
-      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
-    });
+    runLine(exec, check.command, worktree, deadlineAt, signal, { maxOutputBytes });
 
   /**
    * The reading of the repository's setup, run in the worktree before the step's checks through
@@ -209,8 +212,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const result = await runLine(through, setup.command, worktree, deadlineAt, signal, {
       timeoutMs: durationMs(found.timeout),
     });
-    const reading = readingOf(setup, result);
-    return reading.result === 'skipped' ? reading : { ...reading, unsandboxed: true };
+    return readingIn(setup, result, true);
   };
 
   /**
