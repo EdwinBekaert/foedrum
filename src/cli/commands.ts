@@ -10,7 +10,7 @@ import { createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
-import { claimIssue } from '../engine/issue-claims.ts';
+import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -113,7 +113,7 @@ const readBrewery = async (
 };
 
 /** Who issues a human command about `batchId`, and from where (ADR 0019). */
-type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
+export type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
 
 // Issues the human command `build` makes from the folded state (or the reason it makes none)
 // through the command log, so it is decided against the latest events (ADR 0025), and says where
@@ -178,6 +178,39 @@ const questionsOf = (state: State, batchId: string): readonly string[] => {
   return lane?.kind === 'stuck' && lane.reason.kind === 'needs_input'
     ? lane.reason.questions.map(({ q }) => q)
     : [];
+};
+
+/** The target repository an order claims its issue in, and the Brewery the claim records. */
+export interface OrderClaim {
+  repo: string;
+  alias: string;
+  brewery: string;
+}
+
+/**
+ * The human command that orders `order` again (ADR 0105), or why it cannot: refused while
+ * `orderRefusal` says so, then a target issue is claimed first, and the batch takes the issue's
+ * next id. `foedrum order` and `foedrum brew` order through it.
+ */
+export const orderIssue = async (
+  state: () => State,
+  order: OrderRef,
+  claim: OrderClaim | undefined,
+  { claims, now, issued }: { claims: () => ClaimHost; now: Date; issued: Issued },
+): Promise<HumanCommand | { refused: string }> => {
+  const { issue } = order;
+  // Before the claim, so a refused order claims nothing; decide checks it again.
+  const refused = orderRefusal(state(), order);
+  if (refused !== undefined) return { refused };
+  if (claim === undefined)
+    return { kind: 'order_again', ...issued(nextBatchId(state(), issue)), order };
+  const { repo, brewery } = claim;
+  const outcome = await claimIssue(claims(), { repo, issue, brewery, now: now.toISOString() });
+  if (outcome.kind === 'taken') {
+    const by = outcome.by ?? 'a ref whose record cannot be read';
+    return { refused: `${repo}#${issue} is claimed by ${by}` };
+  }
+  return { kind: 'order_again', ...issued(targetBatchId(state(), claim.alias, issue)), order };
 };
 
 export const commands: readonly RegisteredCommand[] = [
@@ -326,22 +359,14 @@ export const commands: readonly RegisteredCommand[] = [
       const claim = alias === undefined ? undefined : claimOf(alias, context.config());
       if (claim !== undefined && 'refused' in claim) return failed('order', claim.refused);
       const order: OrderRef = claim === undefined ? { issue } : { issue, repo: claim.repo };
-      return changeBrewery('order', context, async (state, issued) => {
-        // Before the claim, so a refused order claims nothing; decide checks it again.
-        const refused = orderRefusal(state(), order);
-        if (refused !== undefined) return { refused };
-        if (claim === undefined)
-          return { kind: 'order_again', ...issued(nextBatchId(state(), issue)), order };
-        const { repo, brewery, config } = claim;
-        const now = context.now().toISOString();
-        const outcome = await claimIssue(context.claims(config), { repo, issue, brewery, now });
-        if (outcome.kind === 'taken') {
-          const by = outcome.by ?? 'a ref whose record cannot be read';
-          return { refused: `${repo}#${issue} is claimed by ${by}` };
-        }
-        const batchId = targetBatchId(state(), claim.alias, issue);
-        return { kind: 'order_again', ...issued(batchId), order };
-      });
+      return changeBrewery('order', context, (state, issued) =>
+        orderIssue(state, order, claim, {
+          // Called only for a claim, which carries its config.
+          claims: () => context.claims(claim?.config ?? context.config()),
+          now: context.now(),
+          issued,
+        }),
+      );
     },
   }),
 ];
