@@ -3,8 +3,9 @@
 // `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
 // summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
 // its relatives when they would run a package the lockfile did not install (#175), and a recursive
-// delete of a path built from a variable or a substitution (#281). The checks run in the tree the
-// command pushes: the directory it changes into with cd, git -C and the like (#132).
+// delete of a path built from a variable or a substitution (#281), and a push whose commits hold a
+// word on the user's personal denylist (#131). The checks run in the tree the command pushes: the
+// directory it changes into with cd, git -C and the like (#132).
 // Wired in .claude/settings.json as `node "${CLAUDE_PROJECT_DIR}/scripts/precheck.ts"`, without
 // npm, which cost about 0.4 s per call (#41); the check runs npm's CLI found next to this node,
 // without a shell.
