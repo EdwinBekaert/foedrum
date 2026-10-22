@@ -236,7 +236,7 @@ describe('a failing chaos run', () => {
       assert.match(
         error.message,
         new RegExp(
-          `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults to \\d+ moves? and 1 fault\\.`,
+          `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults? to \\d+ moves? and 1 fault\\.`,
         ),
       );
       assert.match(
