@@ -229,10 +229,10 @@ type Event =
   | { type: 'batch.ordered';       batchId: string; order: OrderRef; parentBatchId?: string; routeBy: string; by?: string; via?: Surface } // by and via together, when a person ordered it (ADR 0105)
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | { type: 'batch.recipe_chosen'; batchId: string; recipe: string; reason: string; source: 'human'; by: string; via: Surface }
-  | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string; route?: { from: string; why: 'failed' | 'findings' }; retry?: true }  // route: scheduled by an onFail or onBlocked route (ADR 0064); retry: because the attempt before it failed (ADR 0117)
+  | { type: 'step.scheduled';      batchId: string; stepId: string; attempt: number; deadlineAt: string; route?: { from: string; why: 'failed' | 'findings' }; retry?: true; answered?: true }  // route: scheduled by an onFail or onBlocked route (ADR 0064); retry: because the attempt before it failed (ADR 0117); answered: because a human answered the questions of the attempt before it (ADR 0118)
   | { type: 'step.skipped';        batchId: string; stepId: string; when: string }  // the step's when was false when the batch reached it (ADR 0064)
   | { type: 'step.started';        batchId: string; stepId: string; attempt: number; session?: SessionRef; worktree?: WorktreeRef }  // session: a brewer attempt's, chosen by the driver (ADR 0116)
-  // SessionRef = { id: string; resumes?: string; worktree: string; fallback?: string }  // resumes: the session a retry continues; fallback: why it started fresh instead (ADR 0117)
+  // SessionRef = { id: string; resumes?: string; worktree: string; fallback?: string }  // resumes: the session a retry or an answered attempt continues (ADR 0118); fallback: why it started fresh instead (ADR 0117)
   // WorktreeRef = { repo: string; path: string; branch: string; commit: string }  // the worktree the attempt was given; none for a resumed session's attempt (ADR 0037)
   | { type: 'step.finished';       batchId: string; stepId: string; attempt: number; outcome: StepOutcome; usage?: Usage; readings?: GravityReading[]; claude?: ClaudeReport }  // readings: a check step's (ADR 0069)
   // ClaudeReport = { version: string; model: string }  // what claude's init reported; none when the run ended before it (ADR 0116)
