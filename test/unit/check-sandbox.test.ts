@@ -249,6 +249,30 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
     assert.deepEqual(calls[0]?.args.slice(8), ['-p', seatbeltProfile(0), '/bin/sh', '-c', line]);
   });
 
+  it('names no folder above a worktree in a folder whose name only starts with the home folder', async () => {
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(
+      options(exec, { platform: 'darwin', gitDirOf: () => undefined, temp: folders().temp }),
+    );
+    await run(line, [], { ...call, cwd: '/home/adam/w/1' });
+    assert.deepEqual(calls[0]?.args.slice(8), ['-p', seatbeltProfile(0), '/bin/sh', '-c', line]);
+  });
+
+  it('names / and each folder down to the worktree when the home folder is /', async () => {
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(
+      options(exec, {
+        platform: 'darwin',
+        home: '/',
+        gitDirOf: () => undefined,
+        temp: folders().temp,
+      }),
+    );
+    await run(line, [], { ...call, cwd: '/w/1' });
+    assert.deepEqual(calls[0]?.args.slice(8, 12), ['-D', 'PARENT_0=/', '-D', 'PARENT_1=/w']);
+    assert.equal(calls[0]?.args[13], seatbeltProfile(2));
+  });
+
   it('lets a check stat the folders above its worktree in the home folder, and read nothing else there', () => {
     assert.equal(
       seatbeltProfile(2),
