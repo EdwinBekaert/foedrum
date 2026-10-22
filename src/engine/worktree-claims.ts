@@ -133,9 +133,10 @@ const unpushedOf = (state: State): Map<string, string> => {
   return unpushed;
 };
 
-// A leased attempt and every attempt whose session it continues, back through `session.resumes`:
+// A leased attempt and every attempt of the sessions it continues, back through `session.resumes`:
 // a resumed attempt runs in the worktree of the attempt that started its session, and has none of
-// its own (ADR 0029). A session that kept its id when resumed names each attempt it ran in.
+// its own (ADR 0029). A lease covers its attempt's session (ADR 0019), so a session that kept its
+// id when resumed claims every attempt it ran in, later ones too: they all run in one worktree.
 const continuedBy = (state: State, ref: AttemptRef): AttemptRef[] => {
   const batch = state.batches.get(ref.batchId);
   if (batch === undefined) return [ref];
