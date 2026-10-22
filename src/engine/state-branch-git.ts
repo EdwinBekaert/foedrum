@@ -140,25 +140,24 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     return takeFileLock(writerLock, 0);
   };
   const otherWriter = `another driver of this work root is writing the state worktree ${worktree}: its writer lock ${writerLock} is held`;
-  type GitLocks = { names: string[]; path: (name: string) => string; where: string };
-  const removeLocks = async ({ names, path, where }: GitLocks): Promise<void> => {
+  type GitLocks = { names: string[]; folder: string; where: string };
+  const removeLocks = async ({ names, folder, where }: GitLocks): Promise<void> => {
     for (const name of names) {
-      const lock = path(name);
+      const lock = join(folder, ...name.split('/'));
       if ((await removeStaleLock(lock, { maxAgeMs: Number.NEGATIVE_INFINITY })) === 'removed') {
         out(`removed a stale ${name} from ${where}: ${lock}`);
       }
     }
   };
-  const inFolder = (folder: string) => (name: string) => join(folder, ...name.split('/'));
   // The clone's are removed before the worktree is opened, whose add may need the branch's ref;
   // so their folder is asked of the clone, since the worktree may not exist yet (#320).
   let cloneLocks: GitLocks | undefined;
   const removeCloneLocks = async (): Promise<void> => {
     cloneLocks ??= {
       names: [`${ref}.lock`, `${PROBE_REF}.lock`],
-      path: inFolder(
-        (await must(clone, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim(),
-      ),
+      folder: (
+        await must(clone, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+      ).trim(),
       where: "the clone's common git folder",
     };
     await removeLocks(cloneLocks);
@@ -167,7 +166,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   const removeWorktreeLocks = async (): Promise<void> => {
     worktreeLocks ??= {
       names: ['index.lock', 'HEAD.lock'],
-      path: inFolder((await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim()),
+      folder: (await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim(),
       where: 'the state worktree',
     };
     await removeLocks(worktreeLocks);
