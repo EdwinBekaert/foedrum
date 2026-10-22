@@ -5,7 +5,7 @@
 
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, posix, resolve } from 'node:path';
 import { resolveExecutable } from './executables.ts';
 import { samePath } from './paths.ts';
 import type { ExecProcess, ExecResult } from './processes.ts';
@@ -22,33 +22,51 @@ export interface CheckSandboxPaths {
   gitDir: string | undefined;
 }
 
-/** The profile every check runs under on macOS; its paths come as parameters (`-D`). */
-export const SEATBELT_PROFILE = [
-  '(version 1)',
-  '(allow default)',
-  '(deny network*)',
-  // The Keychain's service, where gh keeps its login on macOS (ADR 0073).
-  '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
-  // launchd and LaunchServices start what they are asked to outside the sandbox (review of #357).
-  '(deny job-creation)',
-  '(deny lsopen)',
-  '(deny appleevent-send)',
-  '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd"))',
-  '(deny file-write*)',
-  // Its output and terminal too, as bwrap's own /dev allows.
-  '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))',
-  '(deny file-read* (subpath (param "HOME")))',
-  // A later rule wins: the worktree and its repository may sit in the home folder.
-  '(allow file-read* (subpath (param "WORKTREE")) (subpath (param "GIT_DIR")))',
-  '',
-].join('\n');
-
 /**
- * SEATBELT_PROFILE with `parents` folders above the worktree and its repository in the home
- * folder, given as `PARENT_<n>`, whose metadata a check may read (ADR 0142).
+ * The profile every check runs under on macOS, its paths given as parameters (`-D`): `parents`
+ * folders above the worktree and its repository in the home folder, as `PARENT_<n>`, whose
+ * metadata a check may read, since node stats each folder above a file it loads (ADR 0142).
  */
-export const seatbeltProfile = (_parents: number): string => {
-  throw new Error('not implemented');
+export const seatbeltProfile = (parents: number): string => {
+  const literals = Array.from({ length: parents }, (_, n) => `(literal (param "PARENT_${n}"))`);
+  return [
+    '(version 1)',
+    '(allow default)',
+    '(deny network*)',
+    // The Keychain's service, where gh keeps its login on macOS (ADR 0073).
+    '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
+    // launchd and LaunchServices start what they are asked to outside the sandbox (review of #357).
+    '(deny job-creation)',
+    '(deny lsopen)',
+    '(deny appleevent-send)',
+    '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd"))',
+    '(deny file-write*)',
+    // Its output and terminal too, as bwrap's own /dev allows.
+    '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))',
+    '(deny file-read* (subpath (param "HOME")))',
+    // A later rule wins: the worktree and its repository may sit in the home folder.
+    ...(parents === 0 ? [] : [`(allow file-read-metadata ${literals.join(' ')})`]),
+    '(allow file-read* (subpath (param "WORKTREE")) (subpath (param "GIT_DIR")))',
+    '',
+  ].join('\n');
+};
+
+/** The folders from `home` down to each of `paths`, each once; none for a path outside it. */
+const foldersAbove = (home: string, paths: readonly string[]): string[] => {
+  const inHome = (folder: string) => {
+    const path = posix.relative(home, folder);
+    return path !== '..' && !path.startsWith('../') && !posix.isAbsolute(path);
+  };
+  const folders = new Set<string>();
+  for (const path of paths) {
+    const above: string[] = [];
+    for (let folder = posix.dirname(path); inHome(folder); folder = posix.dirname(folder)) {
+      above.unshift(folder);
+      if (folder === posix.dirname(folder)) break;
+    }
+    for (const folder of above) folders.add(folder);
+  }
+  return [...folders];
 };
 
 /** Whether check steps run without an OS sandbox here: on native Windows only (ADR 0010). */
@@ -79,16 +97,18 @@ export function bwrapArgs({ home, worktree, gitDir }: CheckSandboxPaths, line: s
   ];
 }
 
-/** sandbox-exec's arguments that run `line` through `/bin/sh` under SEATBELT_PROFILE. */
+/** sandbox-exec's arguments that run `line` through `/bin/sh` under `seatbeltProfile`. */
 export function seatbeltArgs(
   { home, worktree, gitDir, temp }: CheckSandboxPaths & { temp: string },
   line: string,
 ): string[] {
   // Parameters, never written into the profile, so no character in a path can change it.
   const parameters = { HOME: home, WORKTREE: worktree, GIT_DIR: gitDir ?? worktree, TEMP: temp };
+  const parents = foldersAbove(home, gitDir === undefined ? [worktree] : [worktree, gitDir]);
   return [
     ...Object.entries(parameters).flatMap(([key, value]) => ['-D', `${key}=${value}`]),
-    ...['-p', SEATBELT_PROFILE],
+    ...parents.flatMap((folder, n) => ['-D', `PARENT_${n}=${folder}`]),
+    ...['-p', seatbeltProfile(parents.length)],
     ...throughSh(line),
   ];
 }
