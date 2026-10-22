@@ -689,6 +689,12 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
   return value;
 };
 
+// GitHub's GraphQL endpoint as gh api takes it: `graphql`; `/graphql`, which gh joins to the REST
+// prefix (api.github.com/graphql); or a full URL, which gh uses as it is, ending in /graphql
+// (api.github.com/graphql, <host>/api/graphql on GitHub Enterprise Server), before any query
+// string (#314).
+const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
+
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
 // (query=@…), its input (--input) or a value computed at run time, also with the field flag
 // joined to it (-Fquery=…, --field=query=…).
@@ -759,7 +765,7 @@ const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
       found.reasons.push(READY_API_BLOCKED);
     } else if (apiMerges(args)) found.reasons.push(PR_MERGE_BLOCKED);
     // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
-    else if (args.some((arg) => arg.text === 'graphql') && unreadableQuery(args)) {
+    else if (args.some((arg) => GRAPHQL_ENDPOINT.test(arg.text)) && unreadableQuery(args)) {
       found.reasons.push(UNREADABLE_QUERY_BLOCKED);
     }
   } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
