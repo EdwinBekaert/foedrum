@@ -58,6 +58,11 @@ import { type FakeMessagesApi, startFakeMessagesApi, type ToolCall } from './fak
 
 /** serve ticks every 100 ms instead of every 5 s. */
 const INTERVAL_MS = 100;
+/**
+ * Only a guard against a hang (ADR 0070): seven attempts, each with its worktree, its fetches and
+ * for a check its test run, took over two minutes on a loaded Windows laptop.
+ */
+const RUN_GUARD_MS = 5 * hangGuardMs;
 const BATCH = `${NIP_ORDER.number}-1`;
 
 /** The brewers of a run, in serve's runner seam; serve's own claude runner when not given. */
@@ -141,7 +146,7 @@ const brewNip = async (
   });
   const lines: string[] = [];
   const ended = new AbortController();
-  const guard = setTimeout(() => ended.abort(), hangGuardMs);
+  const guard = setTimeout(() => ended.abort(), RUN_GUARD_MS);
   let store: EventStore | undefined;
   const machine = serveShell(setup, { root: brewery, git, out: (line) => lines.push(line) });
   const shell: ServeShell = {
