@@ -16,11 +16,18 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 // A guard against a hang, not a measure.
 const NPM_TIMEOUT_MS = 120_000;
 
-// The environment without npm's own variables, so no outer npm run changes what npm reads.
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key)));
+// The environment without npm's own variables or a proxy, so no outer npm run and no proxy
+// changes what npm reads or where it sends the requests.
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !/^(npm_|(https?|no)_proxy$)/i.test(key)),
+);
 
 // A project whose lock file has one runtime dependency, zod 4.6.5, and no node_modules.
 const writeProject = (dir: string) => {
+  // The user's and the global npmrc are replaced by these empty ones (see `audit`); npm refuses
+  // one file for both.
+  writeFileSync(join(dir, 'user.npmrc'), '');
+  writeFileSync(join(dir, 'global.npmrc'), '');
   const dependencies = { zod: '4.6.5' };
   writeFileSync(
     join(dir, 'package.json'),
@@ -64,6 +71,9 @@ const audit = async (dir: string, listener: RequestListener): Promise<AuditResul
         '--fetch-retries=0',
         // npm caches what it computed per advisory id: a cache of the test's own.
         `--cache=${join(dir, 'npm-cache')}`,
+        // No config of the machine's (an audit-level, a proxy, offline) changes the answer.
+        `--userconfig=${join(dir, 'user.npmrc')}`,
+        `--globalconfig=${join(dir, 'global.npmrc')}`,
       ],
       { cwd: dir, env, timeoutMs: NPM_TIMEOUT_MS },
     );
