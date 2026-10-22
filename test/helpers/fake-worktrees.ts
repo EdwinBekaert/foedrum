@@ -24,6 +24,8 @@ export interface FakeWorktreesOptions {
   refuse?: (ref: AttemptRef) => string | undefined;
   /** Why `recreate` cannot give this attempt's worktree back, or undefined to give it back. */
   refuseRecreate?: (ref: AttemptRef) => string | undefined;
+  /** The root `recreate` gives a worktree back under; default the attempts root. */
+  recreateRoot?: string;
   /** Makes `clean` throw, as when git cannot list the worktrees. */
   cleanFails?: string;
 }
@@ -57,7 +59,7 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
       calls.push({ kind: 'recreate', ref, commit: at });
       const reason = options.refuseRecreate?.(ref);
       if (reason !== undefined) throw new Error(reason);
-      const path = join(root, ...attemptFolder(ref).split('/'));
+      const path = join(options.recreateRoot ?? root, ...attemptFolder(ref).split('/'));
       return { path, branch: attemptBranch(ref), commit: at };
     },
     async clean(claims, scope = {}): Promise<CleanReport> {

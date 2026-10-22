@@ -1074,6 +1074,23 @@ describe('openDriver', () => {
       assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
     });
 
+    it('recreates the worktree at the commit its maker recorded, and records the path it gave back', async () => {
+      const { runner, end } = handRunner();
+      const made = 'd'.repeat(40);
+      const elsewhere = join('work', 'moved');
+      const manager = fakeWorktrees({ commit: made, recreateRoot: elsewhere });
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.calls.filter((call) => call.kind === 'recreate'),
+        [{ kind: 'recreate', ref: plan('b1'), commit: made }],
+      );
+      assert.equal(started().at(-1)?.session?.worktree, join(elsewhere, 'b1', 'plan', '1'));
+    });
+
     it('resumes the same session again, in the worktree of the attempt that made it', async () => {
       const { runner, end } = handRunner();
       const manager = fakeWorktrees();
