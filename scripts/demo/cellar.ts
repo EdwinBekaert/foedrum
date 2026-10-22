@@ -7,12 +7,15 @@
 // demo's own, whose insteadOf sends the target's GitHub URL there. In the life that crashes, the
 // process is killed with SIGKILL once the brewer has committed: no finally block runs, and the
 // lock, the lease and the attempt's worktree are left as a crash leaves them. scripts/demo.ts
-// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish`. For the walkthrough (#268) it
-// shows `foedrum status` whenever the store has changed and once an attempt has started, and in the
-// restart the line that says which attempt was lost and which one brews it again.
+// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish|brew`. For the walkthrough (#268)
+// it shows `foedrum status` whenever the store has changed and once an attempt has started, in the
+// restart the line that says which attempt was lost and which one brews it again, and what an
+// attempt a failed check sent back was told (ADR 0128). With `brew` it runs `foedrum brew`'s own
+// runBrew on the second order instead of the Cellar, on the same machine and seams (ADR 0139).
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runBrew } from '../../src/cli/brew.ts';
 import { cliFromCheckout } from '../../src/cli/cli-main.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { runServe } from '../../src/cli/serve.ts';
@@ -21,17 +24,17 @@ import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { runGit } from '../../src/workspace/git.ts';
-import { scriptedBrewer } from './brewer.ts';
+import { demoBrewers } from './brewer.ts';
 import { codeHost, fileJournal } from './code-host.ts';
-import { CRASH_LINE, DIAGNOSIS, lifeEndOf, ON_TAP_LINE } from './core.ts';
-import { lostAttemptLine } from './walkthrough.ts';
+import { BREW_ORDER, CRASH_LINE, DIAGNOSIS, lifeEndOf, ON_TAP_LINE, USER } from './core.ts';
+import { lostAttemptLine, routeLines, STATUS_LINE } from './walkthrough.ts';
 
 /** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
 const INTERVAL_MS = 100;
 
 const [scratch, life] = process.argv.slice(2);
-if (scratch === undefined || (life !== 'crash' && life !== 'finish')) {
-  process.stderr.write('usage: node scripts/demo/cellar.ts <scratch> crash|finish\n');
+if (scratch === undefined || (life !== 'crash' && life !== 'finish' && life !== 'brew')) {
+  process.stderr.write('usage: node scripts/demo/cellar.ts <scratch> crash|finish|brew\n');
   process.exit(2);
 }
 const out = (line: string): void => {
@@ -76,15 +79,22 @@ const showStatus = async (): Promise<void> => {
   const text = `${stdout}${stderr}`.trimEnd();
   if (text === shown) return;
   shown = text;
-  out('$ foedrum status');
+  out(STATUS_LINE);
   for (const line of text.split('\n')) out(line === '' ? '' : `  ${line}`);
 };
 let seen = 0;
+let lostShown: string | undefined;
 
 const listening = listenWhileServing(process);
 const ended = new AbortController();
 let failed = false;
-const machine = serveShell(setup, { root, git: runGit, out, listen: listening.listen });
+const machine = serveShell(setup, {
+  root,
+  git: runGit,
+  out,
+  listen: listening.listen,
+  ...(life === 'brew' ? { command: 'brew' as const } : {}),
+});
 const shell: ServeShell = {
   ...machine,
   signal: AbortSignal.any([machine.signal, ended.signal]),
@@ -94,7 +104,9 @@ const shell: ServeShell = {
     return store;
   },
   // Between ticks: the life ends once the batch is on tap, or at once when it cannot get there.
+  // foedrum brew ends by itself.
   wait: async (ms, signal) => {
+    if (life === 'brew') return machine.wait(ms, signal);
     const events = store?.eventsAfter(0) ?? [];
     if (events.length !== seen) {
       seen = events.length;
@@ -120,27 +132,41 @@ const shell: ServeShell = {
     ended.abort();
   },
   runner: (_claude, plan) =>
-    scriptedBrewer({
+    demoBrewers({
       plan,
       git: runGit,
       write: (path, text) => writeFileSync(path, text),
       life,
       crash,
-      // The attempt as status shows it; in the restart, the one it lost before it.
+      // The attempt as status shows it; in the restart, once, the one it lost before it. foedrum
+      // brew says itself how its batch moves.
       started: async () => {
+        if (life === 'brew') return;
         try {
           await showStatus();
           const lost = lostAttemptLine(store?.eventsAfter(0) ?? []);
-          if (lost !== undefined) out(lost);
+          if (lost !== undefined && lost !== lostShown) out(lost);
+          lostShown = lost;
         } catch (error) {
           out(`demo: could not show the attempt: ${(error as Error).message}`);
         }
+      },
+      brewed: (ref, prompt) => {
+        if (life !== 'brew') for (const line of routeLines(ref, prompt)) out(line);
       },
     }),
   gh: host.exec,
 };
 try {
-  const code = await runServe(setup, shell);
+  const code =
+    life === 'brew'
+      ? await runBrew(setup, shell, {
+          target: { issue: BREW_ORDER.number },
+          owner: USER,
+          by: USER,
+          via: 'terminal',
+        })
+      : await runServe(setup, shell);
   process.exitCode = failed ? 1 : code;
 } finally {
   listening.stop();

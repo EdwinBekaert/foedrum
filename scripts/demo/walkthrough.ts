@@ -5,13 +5,26 @@
 import { columns } from '../../src/cli/columns.ts';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import { BREW_ORDER, USER } from './core.ts';
 
-/** The demo's one batch: its order is the Brewery's first issue, decomposed into one batch. */
+/** The Cellar's batch: its order is the Brewery's first issue, decomposed into one batch. */
 export const BATCH = '1-1';
+/** The attempt foedrum resume names: the Cellarman's second, the one the failed check sent back. */
+export const RESUMED = 'implement#2';
 
 /** One step of the walkthrough: its heading, and what to look for in it. */
 export interface Step {
-  id: 'diagnosis' | 'order' | 'brewing' | 'restart' | 'pull-request' | 'on-tap' | 'replay';
+  id:
+    | 'diagnosis'
+    | 'order'
+    | 'brewing'
+    | 'restart'
+    | 'checks'
+    | 'pull-request'
+    | 'on-tap'
+    | 'brew'
+    | 'resume'
+    | 'replay';
   title: string;
   lookFor: string;
 }
@@ -28,19 +41,25 @@ export const STEPS: readonly Step[] = [
     id: 'order',
     title: 'The order comes in',
     lookFor:
-      'an issue in the Brewery, labelled for its recipe by a user it lists, is all serve needs to take it as a batch.',
+      "an issue in the Brewery, labelled recipe:nip by a user it lists, is all serve needs to take it as a batch for Nip, the recipe in Foedrum's defaults.",
   },
   {
     id: 'brewing',
     title: 'foedrum status as the batch moves',
     lookFor:
-      'the batch goes from the order to brewing, and brew #1 is started when the Cellar is killed.',
+      "the batch goes from the order to brewing, and the Gauger's gauge #1 has committed a failing test when the Cellar is killed.",
   },
   {
     id: 'restart',
     title: 'The kill and the restart',
     lookFor:
-      'the restart finds brew #1 lost with the killed Cellar, and brews it again as brew #2.',
+      'the restart finds gauge #1 lost with the killed Cellar, and brews it again as gauge #2.',
+  },
+  {
+    id: 'checks',
+    title: 'The red proof and the failed check',
+    lookFor:
+      "red #1 must see the Gauger's test fail before implement #1 may start; green #1 fails the Cellarman's first fix, so implement #2 starts, told why, with the failed test's own line.",
   },
   {
     id: 'pull-request',
@@ -52,6 +71,17 @@ export const STEPS: readonly Step[] = [
     id: 'on-tap',
     title: 'On tap',
     lookFor: 'foedrum status shows the batch on tap, with its pull request.',
+  },
+  {
+    id: 'brew',
+    title: `foedrum brew ${BREW_ORDER.number} --as ${USER}`,
+    lookFor: `the same order again as issue #${BREW_ORDER.number}, brewed from a terminal instead of the Cellar: foedrum brew orders it, routes it by its label, and drives that one batch to its pull request.`,
+  },
+  {
+    id: 'resume',
+    title: `foedrum resume ${BATCH} ${RESUMED}`,
+    lookFor:
+      "resume finds the Cellarman's session of that attempt and prints the line that opens it in its worktree in a terminal; the demo opens it nowhere, since it starts no claude.",
   },
   {
     id: 'replay',
@@ -106,6 +136,9 @@ export const diagnosisLines = (diagnosis: ServeInputs['diagnosis']): string[] =>
 export const commentMarkdown = (body: string): string =>
   body.replace(/<!--[\s\S]*?-->/g, '').trimEnd();
 
+/** The line the Cellar prints before each `foedrum status` it shows. */
+export const STATUS_LINE = '$ foedrum status';
+
 /** The start of the line the Cellar prints when its restart finds the attempt it lost. */
 export const LOST_LINE = 'demo: the restart found';
 
@@ -132,6 +165,23 @@ export const lostAttemptLine = (events: readonly { event: Event }[]): string | u
     }
   }
   return undefined;
+};
+
+/** The prompt's route input begins with where it came from (ADR 0128). */
+const ROUTE_SOURCE = /why step \S+ runs again: [^"\n]*/;
+
+/**
+ * What an attempt sent back by a route was told, from its prompt: the route input's source and
+ * the failed test's own TAP line; nothing for an attempt no route scheduled.
+ */
+export const routeLines = (ref: { stepId: string; attempt: number }, prompt: string): string[] => {
+  const source = ROUTE_SOURCE.exec(prompt)?.[0];
+  if (source === undefined) return [];
+  const failed = prompt.split(/\r?\n/).filter((line) => /^\s*not ok \d+ - /.test(line));
+  return [
+    `demo: ${ref.stepId} #${ref.attempt} is told ${source}`,
+    ...failed.map((line) => `  ${line.trim()}`),
+  ];
 };
 
 /**
