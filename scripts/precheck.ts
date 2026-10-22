@@ -626,7 +626,6 @@ const isDeleteOrMirrorArg = (arg: string): boolean =>
 // What the gate found in a command and everything nested in it.
 interface Findings {
   reasons: string[];
-  gated: boolean;
   // Where each push runs, and the remote it names.
   places: { place: Place; remote: string | null | undefined }[];
   // The pull requests `gh pr ready` marks ready, each needing its review summary, and where gh
@@ -691,7 +690,6 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
   }
   const subcommand = args[i];
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
-    found.gated = true;
     found.places.push({ place: gitPlace, remote: pushRemote(args.slice(i + 1)) });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
@@ -1177,7 +1175,6 @@ const read = (
 const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Findings => {
   const found: Findings = {
     reasons: [],
-    gated: false,
     places: [],
     readies: [],
     ghEnv: false,
@@ -1242,7 +1239,7 @@ export const projectHolds = async (
   }
 };
 
-export const isGatedCommand = (command: string): boolean => findings(command).gated;
+export const isGatedCommand = (command: string): boolean => findings(command).places.length > 0;
 
 // Why a command may not run: what the gate blocks outright, else what its gh calls would send
 // against the personal denylist, read where the hook runs (`cwd`) by `deniedTexts` (ADR 0132).
@@ -1434,9 +1431,9 @@ export const precheck = async (
   }
   // Each reading of a command that runs another finds the same pull request again.
   const readies = new Map(found.readies.map((ready) => [JSON.stringify(ready), ready]));
-  if (!found.gated && readies.size === 0) return { exitCode: 0, stderr: '' };
-  if (readies.size > 0 && found.gated)
-    return { exitCode: 2, stderr: `${READY_COMBINED_BLOCKED}\n` };
+  const pushes = found.places.length > 0;
+  if (!pushes && readies.size === 0) return { exitCode: 0, stderr: '' };
+  if (readies.size > 0 && pushes) return { exitCode: 2, stderr: `${READY_COMBINED_BLOCKED}\n` };
   // gh reads the repository from them, and the gate's lookup would not.
   if (readies.size > 0 && found.ghEnv) {
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
@@ -1463,7 +1460,7 @@ export const precheck = async (
     const refusal = await readyRefusal(dir, target, lookupPullRequest);
     if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
   }
-  if (!found.gated) return { exitCode: 0, stderr: '' };
+  if (!pushes) return { exitCode: 0, stderr: '' };
   if (found.places.some(({ place }) => place === undefined)) {
     return { exitCode: 2, stderr: `${PUSH_PLACE_BLOCKED}\n` };
   }
