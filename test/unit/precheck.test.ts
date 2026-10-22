@@ -2107,6 +2107,96 @@ describe('forbiddenReason on a merge through gh api', () => {
   }
 });
 
+// gh posts to the GraphQL endpoint for `graphql`, for `/graphql` (the REST prefix plus the path,
+// which is api.github.com/graphql) and for a full URL, which it uses as it is (#314).
+describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh accepts', () => {
+  const endpoints = [
+    'graphql',
+    '/graphql',
+    'https://api.github.com/graphql',
+    'https://ghe.example.com/api/graphql',
+    'https://api.github.com/graphql?x=1',
+    'https://api.github.com/graphql/',
+    'HTTPS://API.GITHUB.COM/GRAPHQL',
+  ];
+  const unreadable = ['-F query=@merge.graphql', '--input body.json', '-f query="$q"'];
+  for (const endpoint of endpoints) {
+    for (const query of unreadable) {
+      const unquoted = query.replaceAll('"', '');
+      for (const command of [
+        `gh api ${endpoint} -X POST ${query}`,
+        `bash -c 'gh api ${endpoint} ${unquoted}'`,
+        `pwsh -Command "gh api ${endpoint} ${unquoted}"`,
+      ]) {
+        it(`forbids a query it cannot read: ${command}`, () => {
+          assert.match(
+            forbiddenReason(command) ?? '',
+            /^gh api graphql with a query the gate cannot read/,
+          );
+        });
+      }
+    }
+  }
+
+  for (const endpoint of endpoints.slice(1)) {
+    it(`forbids a merge mutation through ${endpoint}`, () => {
+      assert.match(
+        forbiddenReason(
+          `gh api ${endpoint} -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+        ) ?? '',
+        /^`gh pr merge` is blocked/,
+      );
+    });
+    it(`forbids a ready mutation through ${endpoint}`, () => {
+      assert.match(
+        forbiddenReason(
+          `gh api ${endpoint} -f query='mutation { markPullRequestReadyForReview(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
+        ) ?? '',
+        /^Marking a pull request ready through gh api is blocked/,
+      );
+    });
+    it(`allows a readable query that neither merges nor marks ready through ${endpoint}`, () => {
+      assert.equal(
+        forbiddenReason(`gh api ${endpoint} -f query='query { viewer { login } }'`),
+        undefined,
+      );
+    });
+  }
+
+  // An endpoint built at run time is taken at its worst when its literal text still ends in
+  // /graphql, as for the merge endpoint (ADR 0108).
+  for (const command of [
+    'gh api "$base/graphql" --input body.json',
+    'gh api "${host}/api/graphql" -F query=@merge.graphql',
+    'gh api "$base/graphql?x=1" -f query="$q"',
+    'gh api "$env:GH_API/graphql" --input body.json',
+  ]) {
+    it(`forbids a query it cannot read through an endpoint built at run time: ${command}`, () => {
+      assert.match(
+        forbiddenReason(command) ?? '',
+        /^gh api graphql with a query the gate cannot read/,
+      );
+    });
+  }
+
+  const allowed = [
+    'gh api "$base/repos/o/r/issues" --input body.json',
+    // A REST path that names graphql elsewhere is not the GraphQL endpoint.
+    'gh api repos/o/graphql/contents/a.json -F query=@a.txt',
+    'gh api /repos/o/graphql-tools/issues --input body.json',
+    'gh api https://api.github.com/repos/o/graphql/issues --input body.json',
+    'gh api search/code -f q=graphql --input body.json',
+    // A literal REST path that ends in graphql goes to the REST API, not the GraphQL endpoint.
+    'gh api repos/o/r/contents/graphql --input body.json',
+    'gh api /repos/o/graphql --input body.json',
+  ];
+  for (const command of allowed) {
+    it(`allows: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
 // An empty or wrong variable makes a recursive delete remove the wrong tree, so its path must be
 // written as it is (#281).
 describe('forbiddenReason on a recursive delete of a path built from a variable', () => {
