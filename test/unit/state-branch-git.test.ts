@@ -162,9 +162,12 @@ class FakeGit {
       case 'commit':
         this.head = sha(this.next++);
         return ok();
-      case 'push':
-        this.remote = this.head;
+      case 'push': {
+        // The refspec's source: the branch pushes what it points at now, a commit pushes itself.
+        const source = rest.at(-1)?.split(':')[0];
+        this.remote = source === 'refs/heads/foedrum/state' ? this.head : source;
         return ok('To origin\n \trefs/heads/foedrum/state:refs/heads/foedrum/state\tx..y\nDone\n');
+      }
       default:
         throw new Error(`unexpected git ${args.join(' ')}`);
     }
@@ -663,6 +666,25 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(await state.flush(), { kind: 'pushed', through: 2, commit: sha(101) });
     });
 
+    // A user's pack-refs can also set the branch back after that check: the push then sends the
+    // commit the flush checked, which is the one the marker names.
+    it('pushes the commit it checked, even when the branch moves back before the push', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      const before = fake.head;
+      append(scheduled('b1'));
+      fake.answer = (args) => {
+        if (args[0] === 'push') fake.head = before;
+        return undefined;
+      };
+
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 2, commit: sha(101) });
+
+      assert.equal(fake.remote, sha(101));
+      assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(101) });
+    });
+
     it('writes, commits and pushes the events after the marker, then moves the marker', async () => {
       const state = await started();
       append(ordered('b1'), released, scheduled('b1'));
@@ -685,7 +707,7 @@ describe('openStateBranch with a fake git', () => {
         '--porcelain',
         '--no-verify',
         'origin',
-        'refs/heads/foedrum/state:refs/heads/foedrum/state',
+        `${sha(100)}:refs/heads/foedrum/state`,
       ]);
       assert.ok((fake.find('push')?.timeoutMs ?? 0) > 0, 'the push has a timeout');
       for (const call of fake.calls) assert.equal(call.cwd, worktree);
