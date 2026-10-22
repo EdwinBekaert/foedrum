@@ -552,12 +552,9 @@ describe('runBrew', () => {
   describe('--take (ADR 0124)', () => {
     const takes: BrewRequest = { ...request, take: true };
     const cellarUntil = new Date(t0.getTime() + 60_000);
+    // Ordered, so brew reads its label before it takes the batch over.
     beforeEach(() => {
       log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-      log().issue(
-        { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label', source: 'label' },
-        t0,
-      );
       store.withTransaction((tx) =>
         tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt: cellarUntil }),
       );
@@ -604,6 +601,37 @@ describe('runBrew', () => {
         store.batchLeases(t0).find(({ batchId }) => batchId === '14-1')?.owner,
         'cellar',
       );
+    });
+
+    /** serve's shell whose gh read of issue 12, for its labels, does `meanwhile` first. */
+    const readingLabels = (meanwhile: () => void): Partial<ServeShell> => {
+      const gh = ghOver(api.fetch).exec;
+      return {
+        gh: (...args: Parameters<typeof gh>) => {
+          if (JSON.stringify(args).includes('issues/12')) meanwhile();
+          return gh(...args);
+        },
+      };
+    };
+
+    it("brews on, taking nothing over, when the holder's lease lapsed while it read the labels: exit 0", async () => {
+      const lapsed = readingLabels(() =>
+        store.withTransaction((tx) => tx.releaseBatchLease('12-1')),
+      );
+      assert.equal(await runBrew(setup, shell(behave.succeed(), lapsed), takes), 0);
+      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
+    });
+
+    it('refuses with the reason, leaving the lease, when the takeover is refused while the holder still holds it: exit 5', async () => {
+      const cancelled = readingLabels(() => {
+        log().issue({ kind: 'cancel', batchId: '12-1', by: 'bob', via: 'terminal' }, t0);
+      });
+      assert.equal(await runBrew(setup, shell(behave.succeed(), cancelled), takes), 5);
+      assert.equal(
+        lines.at(-1),
+        'foedrum brew: batch 12-1 is cancelled; take over needs it ordered, brewing, conditioning or stuck',
+      );
+      assert.equal(leaseOf()?.owner, 'cellar');
     });
 
     it('brews as before when no other driver holds the batch, recording no handover', async () => {

@@ -790,6 +790,29 @@ describe('openDriver', () => {
       armed = true;
       await driver.drive();
       assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(
+        manager.calls.filter((call) => call.kind === 'create'),
+        [],
+      );
+      assert.deepStrictEqual(store.currentLeases(now), [other]);
+    });
+
+    it("keeps another driver's lease of an attempt whose worktree it could not make (ADR 0124)", async () => {
+      const { runner } = handRunner();
+      const key = attemptKey.encode(plan('b1'));
+      const other = { attemptKey: key, owner: 'session-7', expiresAt: at(5) };
+      // While the first worktree is made, another driver leases the attempt; then the make fails.
+      let creates = 0;
+      const manager: FakeWorktrees = {
+        ...fakeWorktrees(),
+        create: async () => {
+          if (creates++ === 0) store.withTransaction((tx) => tx.putLease(other));
+          throw new Error('the folder is in the way');
+        },
+      };
+      order('b1');
+      const driver = await open({ runner, ...worktreesOf(manager) });
+      await driver.drive();
       assert.deepStrictEqual(store.currentLeases(now), [other]);
     });
 
