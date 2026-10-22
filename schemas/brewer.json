@@ -223,7 +223,6 @@
               "requiresCommits",
               "testsNotRemoved",
               "testsUnchanged",
-              "noPush",
               "scope",
               "diffLimits"
             ]
@@ -482,7 +481,6 @@
               "requiresCommits",
               "testsNotRemoved",
               "testsUnchanged",
-              "noPush",
               "scope",
               "diffLimits"
             ]

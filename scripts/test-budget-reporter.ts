@@ -1,6 +1,6 @@
 // A node:test reporter that npm test runs next to spec: it reads how much CPU time each test file
-// used, prints the files that used the most, and fails the run when one file goes over the
-// budget. A costly file is a sign that real file system trees or too much work slipped into a unit
+// used, prints the files that used the most, and, in CI, fails the run when one file goes over
+// the budget (ADR 0136). A costly file is a sign that real file system trees or too much work slipped into a unit
 // test (ADR 0021); the test-layer guard (scripts/check-test-layers.ts) and the preload's refusal
 // (scripts/refuse-process-starts.ts, ADR 0038) cover processes.
 //
@@ -18,6 +18,9 @@
 // times the CPU time while other processes keep the cores busy (#248). So a file over the budget
 // or the ceiling in the run is run again alone, one at a time, once the run has ended and its own
 // files no longer load the machine, up to three times, and the lowest reading counts (ADR 0089).
+// That fails only in CI, where the machine is not shared: outside it (CI unset or empty) other
+// sessions' load can outlast every run alone, so a file over the budget or the ceiling is listed
+// in the times, fails nothing and is not run alone (ADR 0136).
 //
 // The budget binds only files in test/unit/. Property and chaos files are costly by design:
 // their run count sets their time. They get a ceiling instead, so only a run count grown too
@@ -93,7 +96,13 @@ export interface BudgetOptions {
   remeasureForMs?: number;
   // The time in ms; performance.now by default.
   now?: () => number;
+  // Whether the run is in CI (runsInCi); outside it, a file over its limit is listed in the times
+  // and fails nothing, and is not run alone (ADR 0136). True by default.
+  ci?: boolean;
 }
+
+// Whether npm test runs in CI: CI set and not empty, as scripts/below-normal-priority.ts reads it.
+export const runsInCi = (env: NodeJS.ProcessEnv): boolean => env.CI !== undefined && env.CI !== '';
 
 // One file's run alone gets a minute: a unit file within the budget takes a few seconds.
 const REMEASURE_TIMEOUT_MS = 60_000;
@@ -163,6 +172,7 @@ export const budgetReporter = ({
   remeasure,
   remeasureForMs = REMEASURE_FOR_MS,
   now = () => performance.now(),
+  ci = true,
 }: BudgetOptions) =>
   async function* (source: AsyncIterable<TestEvent>): AsyncGenerator<string> {
     const walls = new Map<string, number>();
@@ -191,17 +201,9 @@ export const budgetReporter = ({
         };
       })
       .sort((a, b) => b.ms - a.ms);
-    yield `test file times (budget ${budgetMs / 1000} s of CPU time per file in ${budgetedDir}, ADR 0036)\n`;
-    for (const { file, wallMs, cpuMs } of files.slice(0, slowest)) {
-      const cpu = cpuMs === undefined ? 'no CPU time' : `${seconds(cpuMs)} CPU`;
-      yield `  ${cpu}  ${seconds(wallMs)} wall  ${file}\n`;
-    }
-    yield 'end of test file times\n';
-    let over = false;
-    // When the first run alone started.
-    let remeasuresFrom: number | undefined;
-    for (const { path, file, wallMs, cpuMs, ms } of files) {
-      const limit = file.startsWith(budgetedDir)
+    // The limit a file is held to, if any.
+    const limitOf = (file: string) =>
+      file.startsWith(budgetedDir)
         ? {
             ms: budgetMs,
             name: 'budget',
@@ -214,12 +216,31 @@ export const budgetReporter = ({
               advice: 'for a property or chaos file: lower its run count (#87)',
             }
           : undefined;
-      if (limit === undefined || ms <= limit.ms) continue;
+    const overLimit = files.flatMap((entry) => {
+      const limit = limitOf(entry.file);
+      return limit === undefined || entry.ms <= limit.ms ? [] : [{ ...entry, limit }];
+    });
+    const usedIn = (wallMs: number, cpuMs: number | undefined) =>
+      cpuMs === undefined
+        ? `took ${seconds(wallMs)} of wall time (no CPU time reported)`
+        : `used ${seconds(cpuMs)} of CPU time`;
+    yield `test file times (budget ${budgetMs / 1000} s of CPU time per file in ${budgetedDir}, ADR 0036)\n`;
+    for (const { file, wallMs, cpuMs } of files.slice(0, slowest)) {
+      const cpu = cpuMs === undefined ? 'no CPU time' : `${seconds(cpuMs)} CPU`;
+      yield `  ${cpu}  ${seconds(wallMs)} wall  ${file}\n`;
+    }
+    // Outside CI, other sessions' load can push a file over with nothing wrong in it (ADR 0136).
+    if (!ci)
+      for (const { file, wallMs, cpuMs, limit } of overLimit)
+        yield `  ⚠ ${file} ${usedIn(wallMs, cpuMs)}, over the ${limit.ms / 1000} s ${limit.name} ${limit.advice}; it fails only in CI (ADR 0136)\n`;
+    yield 'end of test file times\n';
+    if (!ci) return;
+    let over = false;
+    // When the first run alone started.
+    let remeasuresFrom: number | undefined;
+    for (const { path, file, wallMs, cpuMs, limit } of overLimit) {
       const overThe = `over the ${limit.ms / 1000} s ${limit.name}`;
-      let used =
-        cpuMs === undefined
-          ? `took ${seconds(wallMs)} of wall time (no CPU time reported)`
-          : `used ${seconds(cpuMs)} of CPU time`;
+      let used = usedIn(wallMs, cpuMs);
       // Load only adds CPU time, so the lowest reading is the closest one (ADR 0089). One file at
       // a time, once the run has ended, so they do not load each other; up to three runs, since
       // other sessions' load can outlast the run.
@@ -251,8 +272,12 @@ export const budgetReporter = ({
     if (over) fail();
   };
 
-// npm test's reporter, with the given options changed (the integration tests lower the budget).
-export const npmTestReporter = (overrides: Partial<BudgetOptions> = {}) =>
+// npm test's reporter, with the given options changed (the integration tests lower the budget),
+// in CI or not by the given environment.
+export const npmTestReporter = (
+  overrides: Partial<BudgetOptions> = {},
+  env: NodeJS.ProcessEnv = process.env,
+) =>
   budgetReporter({
     budgetMs: FILE_BUDGET_MS,
     cwd: process.cwd(),
@@ -261,6 +286,7 @@ export const npmTestReporter = (overrides: Partial<BudgetOptions> = {}) =>
       process.exitCode = 1;
     },
     remeasure: nodeRemeasure(),
+    ci: runsInCi(env),
     ...overrides,
   });
 

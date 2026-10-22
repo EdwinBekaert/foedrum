@@ -1,7 +1,7 @@
 // The engine's git in a clone that attempt worktrees share, with real git: a bare origin, the
 // user's clone and a managed repository's blobless one, and the worktree manager's fetch, the base
-// fetch and the noPush listing from a git directory of Foedrum's own (ADR 0090, ADR 0106) and the
-// push (ADR 0137). Every remote is a local bare repository: nothing reaches the network.
+// fetch from a git directory of Foedrum's own (ADR 0090) and the push (ADR 0137). Every remote is a
+// local bare repository: nothing reaches the network.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -11,7 +11,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { removeTree } from '../../src/platform/remove.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
-import { listRemoteRefs, openBranchPush } from '../../src/workspace/branch-push-git.ts';
+import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -61,24 +61,6 @@ describe("the engine's git in a clone", () => {
     git(path, ['commit', '-q', '-m', name]);
     return git(path, ['rev-parse', 'HEAD']).trim();
   };
-
-  it("lists the remote's refs for the noPush guard past an insteadOf planted in the clone, directly or through an include (ADR 0106)", async () => {
-    const tip = commit(other, 'pushed.txt');
-    git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/foedrum/x/y']);
-    const nowhere = join(run, 'nowhere.git');
-    const included = join(run, 'included.gitconfig');
-    writeFileSync(included, '');
-    git(run, ['config', '--file', included, `url.${nowhere}.insteadOf`, origin]);
-    git(user, ['config', 'include.path', included]);
-    // The plant works: git in the clone no longer reaches the origin.
-    assert.throws(() => git(user, ['ls-remote', 'origin']));
-    const listed = await listRemoteRefs({
-      git: runGit,
-      clone: user,
-      own: { url: origin, root: join(run, 'git') },
-    });
-    assert.ok(listed.split(/\r?\n/).includes(`${tip}\trefs/heads/foedrum/x/y`), listed);
-  });
 
   it("fetches, adds a worktree and pushes past hooks of the clone's that fail (ADR 0137)", async () => {
     const hooks = join(run, 'hooks');

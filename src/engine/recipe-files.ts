@@ -295,14 +295,12 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
 /**
  * The guards the engine follows: the out doc, which the runner requires of every attempt anyway; a
  * commit after the start for a `done` of a brewer that produces commits (ADR 0074); and
- * testsUnchanged, which the tests guard checks after the attempt (ADR 0078); and noPush, which the
- * push guard checks on the remote before and after the attempt (ADR 0106).
+ * testsUnchanged, which the tests guard checks after the attempt (ADR 0078).
  */
 const ENFORCED_GUARDS: ReadonlySet<string> = new Set([
   'requiresOutDoc',
   'requiresCommits',
   'testsUnchanged',
-  'noPush',
 ]);
 
 /** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */

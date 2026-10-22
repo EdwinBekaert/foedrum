@@ -7,7 +7,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
-import { listRemoteRefs, openBranchPush } from '../../src/workspace/branch-push-git.ts';
+import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
@@ -107,52 +107,6 @@ describe('openBranchPush: remoteTip', () => {
     await assert.rejects(down.remoteTip(branch), {
       message: 'git ls-remote failed: fatal: could not read from remote repository',
     });
-  });
-});
-
-describe('listRemoteRefs (ADR 0106)', () => {
-  it("lists every ref of the URL Foedrum names from a git directory of its own, under a deadline, never through the clone's configuration", async () => {
-    const listed = `${TIP}\trefs/heads/main\n`;
-    const root = nextFolder();
-    const gitDir = join(root, 'f1.git');
-    const { git, calls } = recordingGit((args) => named(args) ?? ok(listed));
-    const signal = new AbortController().signal;
-    assert.equal(
-      await listRemoteRefs({ git, clone, own: { url, root, id: () => 'f1' } }, signal),
-      listed,
-    );
-    const [list] = calls.slice(-1);
-    assert.deepEqual(
-      [list?.cwd, ...(list?.args ?? [])],
-      [root, `--git-dir=${gitDir}`, 'ls-remote', '--refs', url],
-    );
-    assert.deepEqual(list?.options?.config, OWN_CONFIG);
-    assert.equal(list?.options?.signal, signal);
-    assert.equal(list?.options?.timeoutMs, 60_000);
-    // A repository with many pull requests lists many refs: past the runner's default 4 MiB.
-    assert.equal(list?.options?.maxOutputBytes, 64 * 1024 * 1024);
-    assert.equal(existsSync(gitDir), false);
-  });
-
-  it("fails when git does, and with no URL of Foedrum's before git runs", async () => {
-    const down = recordingGit(
-      (args) =>
-        named(args) ??
-        (args.includes('ls-remote')
-          ? failed('fatal: could not read from remote repository\n')
-          : ok()),
-    );
-    await assert.rejects(
-      listRemoteRefs({ git: down.git, clone, own: { url, root: nextFolder() } }),
-      {
-        message: 'git ls-remote failed: fatal: could not read from remote repository',
-      },
-    );
-    const { git, calls } = recordingGit();
-    await assert.rejects(listRemoteRefs({ git, clone }), {
-      message: `The pushes from ${clone} name no URL to reach the remote by`,
-    });
-    assert.deepEqual(calls, []);
   });
 });
 

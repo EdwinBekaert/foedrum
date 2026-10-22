@@ -10,7 +10,7 @@ Say what you found, how to reproduce it, and what an attacker gains. A proof of 
 
 Foedrum runs model output and the commands its recipes name on your machine, so the boundaries it promises are what matter most:
 
-- a brewer that gets past its allowlist, its worktree, the noPush guard or the sandbox it was given;
+- a brewer that gets past its allowlist, its worktree, its git's missing push credential or the sandbox it was given;
 - text from an issue, an out doc or a target repository that Foedrum follows as an instruction, or that reaches a pull request, a comment or a log it should stay out of (a secret, for one);
 - a cleanup or a check that runs a command a brewer planted, or deletes outside Foedrum's own folders;
 - the local gate (`scripts/precheck.ts`) letting a merge, a force push or a push of unchecked code through;
