@@ -9,6 +9,7 @@ import { claudeBrewerRunner } from '../brewers/claude-runner.ts';
 import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
+import { sandboxedChecks } from '../platform/check-sandbox.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
 import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import {
@@ -117,7 +118,8 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         signal,
       ),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
-    exec: execProcess,
+    // A check's command line runs in the OS sandbox (ADR 0076).
+    exec: sandboxedChecks({ exec: execProcess }),
     gh: execProcess,
     git,
   };

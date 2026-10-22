@@ -95,7 +95,7 @@ export const fileReports: ReportFiles = {
 
 /**
  * claude's login and settings, which the brewers' base keeps for claude: a check, which has the
- * network outside the sandbox, gets none of them (ADR 0069).
+ * network on native Windows (ADR 0076), gets none of them (ADR 0069).
  */
 const forClaude = (key: string): boolean =>
   key.startsWith('ANTHROPIC_') ||
@@ -127,6 +127,14 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
   const blocked = (blockerKind: 'environment' | 'divergence', summary: string): AttemptEnd => ({
     ending: { kind: 'blocked', blockerKind, summary },
   });
+
+  /** What one run of `check` read; on native Windows, which has no sandbox, it says so (ADR 0076). */
+  const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => {
+    const reading = readingOf(check, result);
+    return platform === 'win32' && reading.result !== 'skipped'
+      ? { ...reading, unsandboxed: true as const }
+      : reading;
+  };
 
   /** Runs one check in the worktree, killed before the attempt's deadline or at the stop. */
   const runCheck = (
@@ -203,7 +211,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     // TAP on stdout may be as large as a report file.
     const limit = file === undefined ? MAX_REPORT_BYTES : undefined;
     const result = await runCheck(check, worktree, deadlineAt, signal, limit);
-    const reading = readingOf(check, result);
+    const reading = readingIn(check, result);
     const readings = [reading];
     // A check that did not exit read no report: it ends as any check does (ADR 0069).
     if (reading.result !== 'exited') return { ending: settleReadings(readings), readings };
@@ -278,7 +286,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
         readings.push({ result: 'skipped', check: check.check });
         continue;
       }
-      const reading = readingOf(check, await runCheck(check, worktree, current.deadlineAt, signal));
+      const reading = readingIn(check, await runCheck(check, worktree, current.deadlineAt, signal));
       readings.push(reading);
       if (!passed(reading)) break;
     }

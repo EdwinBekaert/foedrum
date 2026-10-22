@@ -261,6 +261,19 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   for (const { required, what, fix } of diagnosis.problems) {
     if (required) problems.push(`${what}: ${fix}`);
   }
+  // Elsewhere a check runs in bwrap or sandbox-exec, or not at all (ADR 0076).
+  const unsandboxedChecks = platform === 'win32';
+  if (
+    unsandboxedChecks &&
+    config?.isolation?.minimum === 'sandboxed' &&
+    loaded.valid &&
+    loaded.checks.any()
+  ) {
+    const { level, why } = diagnosis.isolation;
+    problems.push(
+      `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
+    );
+  }
   const claude = diagnosis.tools.find(({ name }) => name === 'claude')?.path;
 
   if (
@@ -295,7 +308,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
-      unsandboxedChecks: false,
+      unsandboxedChecks,
       brewerEnv: {
         base: brewerBaseEnv(env, platform),
         forced: brewerForcedEnv(),
