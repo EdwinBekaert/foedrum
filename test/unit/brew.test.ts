@@ -188,7 +188,6 @@ describe('runBrew', () => {
         push: async () => {},
         secretScan: async () => [],
       }),
-      refs: () => async () => '',
       runner: () => runner,
       exec: () => Promise.reject(new Error('no check step runs here')),
       gh: ghOver(api.fetch).exec,
