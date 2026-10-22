@@ -9,8 +9,9 @@ import type { Git } from '../workspace/git.ts';
 
 /**
  * The commits of step `stepId`: from where its first attempt started to the branch of its latest
- * attempt that succeeded (or of the worktree it resumed in), so a step a route sent back counts its earlier attempts' commits too;
- * undefined when none succeeded, as for a step the batch skipped.
+ * attempt that succeeded, or of the worktree that attempt resumed in, so a step a route sent back
+ * counts its earlier attempts' commits too; undefined when none succeeded, as for a step the batch
+ * skipped.
  */
 export function stepCommits(
   batch: Batch,
