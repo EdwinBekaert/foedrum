@@ -2,7 +2,15 @@
 // the tools Foedrum needs, the effective isolation level (ADR 0010, architecture §13) and what
 // is missing. doctor-facts.ts gathers the facts.
 
-import { type BreweryFiles, INVALID_RECIPES, loadRecipes } from '../engine/recipe-files.ts';
+import { assembleBrewerPrompt } from '../brewers/prompt.ts';
+import {
+  type BreweryFile,
+  type BreweryFiles,
+  type Catalog,
+  INVALID_RECIPES,
+  loadRecipes,
+  replacedDefaults,
+} from '../engine/recipe-files.ts';
 import { BreweryConfig, githubHostOf } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
@@ -386,15 +394,117 @@ const configProblems = ({ config, configUnreadable }: DoctorFacts): Problem[] =>
   return [{ required: true, what: 'foedrum.jsonc is not valid', fix }];
 };
 
+/** Above this many tokens (estimated), a brewer's prompt gets a notice (ADR 0141). */
+export const COSTLY_PROMPT_TOKENS = 8_000;
+/** The estimate's bytes per token: no tokenizer, only the order of magnitude (ADR 0141). */
+const BYTES_PER_TOKEN = 4;
+
+/** Each brewer's prompt from its instructions and lens inputs, in its inputs' order (ADR 0141). */
+const promptSizes = ({ brewers }: Catalog): PromptSize[] =>
+  brewers.map(({ name, path, brewer, instructions, lenses }) => {
+    const inputs = brewer.inputs.flatMap(({ name: input, from }) => {
+      const lens = from.startsWith('lens:') ? lenses?.get(from.slice('lens:'.length)) : undefined;
+      if (lens === undefined) return [];
+      const source = { kind: 'lens' as const, lens: lens.name, path: lens.path };
+      return [{ name: input, source, text: lens.text }];
+    });
+    // The nonce's length is fixed, so its value does not change the size.
+    const assembled = assembleBrewerPrompt(instructions, inputs);
+    // A lens holding this prompt's random nonce: about 2^-128 by chance (ADR 0041).
+    if (assembled.kind === 'refused') throw new Error(`a lens of ${path} holds the prompt's nonce`);
+    const bytes = Buffer.byteLength(assembled.prompt, 'utf8');
+    return { brewer: name, path, bytes, tokens: Math.ceil(bytes / BYTES_PER_TOKEN) };
+  });
+
+/** A text compared without its outer and repeated white space or its letter case. */
+const normal = (text: string): string => text.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * The headings and marked lines of a Markdown text, outside fenced code (ADR 0141): an ATX
+ * heading by its text, and a line or list item that starts with a bold phrase by that phrase.
+ */
+const marksOf = (text: string): { what: string; text: string }[] => {
+  const marks: { what: string; text: string }[] = [];
+  let fenced = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^ {0,3}(?:```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const heading = /^ {0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$/.exec(line)?.[1];
+    if (heading !== undefined && heading !== '') {
+      marks.push({ what: 'heading', text: heading });
+      continue;
+    }
+    const marked = /^ {0,3}(?:(?:[-*+]|\d+[.)])\s+)?\*\*(.+?)\*\*/.exec(line)?.[1];
+    if (marked !== undefined) marks.push({ what: 'marked line', text: marked });
+  }
+  return marks;
+};
+
+/** What a Brewery file that replaces a default drops from it (ADR 0141). */
+const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
+  const marks = 'text' in replaced ? marksOf(replaced.text) : [];
+  const kept = new Set(('text' in own ? marksOf(own.text) : []).map((mark) => normal(mark.text)));
+  const dropped = [
+    ...new Set(
+      marks
+        .filter((mark) => !kept.has(normal(mark.text)))
+        .map(({ what, text }) => `${what} "${text.trim()}"`),
+    ),
+  ];
+  const replaces = `${own.path} replaces ${replaced.path}`;
+  if (marks.length === 0) return `${replaces} (ADR 0141)`;
+  return dropped.length === 0
+    ? `${replaces} and keeps every heading and marked line of it (ADR 0141)`
+    : `${replaces} and drops: ${dropped.join(', ')} (ADR 0141)`;
+};
+
+/** Costly prompts, then the Brewery's brewers and lenses nothing names (ADR 0141). */
+const catalogNotices = (catalog: Catalog, prompts: readonly PromptSize[]): string[] => [
+  ...prompts
+    .filter(({ tokens }) => tokens > COSTLY_PROMPT_TOKENS)
+    .map(
+      ({ brewer, path, tokens }) =>
+        `${path}: the brewer "${brewer}" has a prompt of about ${tokens} tokens before its other inputs, above ${COSTLY_PROMPT_TOKENS} (ADR 0141)`,
+    ),
+  ...catalog.brewers
+    .filter(({ name, isDefault }) => !isDefault && !catalog.named.brewers.has(name))
+    .map(({ name, path }) => `${path}: no recipe names the brewer "${name}" (ADR 0141)`),
+  ...catalog.lenses
+    .filter(({ name, isDefault }) => !isDefault && !catalog.named.lenses.has(name))
+    .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}" (ADR 0141)`),
+];
+
 // The recipe and brewer files, when doctor read them: files that do not load stop every command
 // that needs recipes, with this same line (ADR 0053).
-// The defaults in use, when they load (ADR 0098).
-const recipesOf = ({ brewery }: DoctorFacts): { problems: Problem[]; defaults?: string[] } => {
+// The defaults in use, when they load (ADR 0098); prompt sizes and notices (ADR 0141).
+const recipesOf = ({
+  brewery,
+}: DoctorFacts): {
+  problems: Problem[];
+  defaults?: string[];
+  prompts?: PromptSize[];
+  notices?: string[];
+} => {
   if (brewery === undefined) return { problems: [] };
   const loaded = loadRecipes(brewery);
-  if (loaded.valid) return { problems: [], defaults: [...loaded.defaults] };
+  const replacements = replacedDefaults(brewery).map(({ own, replaced }) =>
+    replacementNotice(own, replaced),
+  );
+  if (loaded.valid) {
+    const prompts = promptSizes(loaded.catalog);
+    return {
+      problems: [],
+      defaults: [...loaded.defaults],
+      prompts,
+      notices: [...catalogNotices(loaded.catalog, prompts), ...replacements],
+    };
+  }
   return {
     problems: [{ required: true, what: INVALID_RECIPES, fix: loaded.problems.join('; ') }],
+    notices: replacements,
   };
 };
 
@@ -534,6 +644,8 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     advice,
     problems,
     ...(recipes.defaults === undefined ? {} : { defaults: recipes.defaults }),
+    ...(recipes.prompts === undefined ? {} : { prompts: recipes.prompts }),
+    ...(recipes.notices === undefined ? {} : { notices: recipes.notices }),
     ...(facts.denylist === undefined ? {} : { denylist: facts.denylist }),
     ok: problems.every((problem) => !problem.required),
   };
@@ -563,6 +675,8 @@ export const formatDiagnosis = ({
   advice,
   problems,
   defaults,
+  prompts,
+  notices = [],
   denylist,
   ok,
 }: Diagnosis): string => {
@@ -594,6 +708,20 @@ export const formatDiagnosis = ({
     ...(denylist === undefined ? [] : [denylistLine(denylist)]),
     '',
   ];
+  if (prompts !== undefined && prompts.length > 0) {
+    lines.push(
+      'Brewer prompts (instructions and lens inputs, ADR 0141):',
+      ...columns(
+        prompts.map(({ brewer, path, bytes, tokens }) => [
+          brewer,
+          path,
+          `${bytes} bytes`,
+          `~${tokens} tokens`,
+        ]),
+      ),
+      '',
+    );
+  }
   if (problems.length > 0) {
     lines.push(
       'Problems:',
@@ -603,6 +731,7 @@ export const formatDiagnosis = ({
       '',
     );
   }
+  if (notices.length > 0) lines.push('Notices:', ...notices.map((notice) => `  ${notice}`), '');
   lines.push(
     !ok
       ? 'Foedrum cannot run brewers until the required problems are fixed.'
