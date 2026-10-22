@@ -52,8 +52,22 @@ const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'"
 
 // The raw hook input, or its command, without the quotes and escape characters that bash,
 // PowerShell and cmd drop, so a name they split (gi''t, g\it, g`it, g^h) still matches the
-// pre-filter. A backslash before u stays, for a JSON escape.
-const normalised = (input: string): string => foldQuotes(input).replace(/["'`^]|\\(?!u)/g, '');
+// pre-filter. A backslash before u stays, for a JSON escape. A line continuation (\, ` or ^ before
+// a newline, also \r\n) goes first (#158).
+const normalised = (input: string): string =>
+  foldQuotes(input)
+    .replace(/[\\`^]\r?\n/g, '')
+    .replace(/["'`^]|\\(?!u)/g, '');
+
+// The raw hook input with JSON's \\, \n and \r escapes decoded, one escape at a time, so the
+// pre-filter sees the line breaks of the command and never takes the n of \\npx for one (#158).
+const JSON_ESCAPES = new Map([
+  ['\\\\', '\\'],
+  ['\\n', '\n'],
+  ['\\r', '\r'],
+]);
+const jsonLineBreaks = (input: string): string =>
+  input.replace(/\\[\\nr]/g, (pair) => JSON_ESCAPES.get(pair) ?? pair);
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 // gh flags that can appear before the `pr` action and take the next token as their value.
@@ -123,7 +137,13 @@ interface Word {
   text: string;
   dynamic: boolean;
   quoted: boolean;
+  // When PowerShell turns an escape in it (`n, `t, `u{…}, …) into another character, which the
+  // lexer keeps as the letter after the backtick.
+  escaped?: boolean;
 }
+
+// The letters PowerShell reads as an escape after a backtick, rather than as themselves.
+const POWERSHELL_ESCAPES = /^[0abefnrtuv]$/;
 
 interface Lexed {
   // The simple commands, split at ; & | ( ) { } and line breaks outside quotes.
@@ -166,6 +186,9 @@ const lex = (source: string, dialect: Dialect): Lexed => {
     word.text += text;
     word.dynamic ||= dynamic;
     return word;
+  };
+  const markEscape = (escaping: Word, next: string) => {
+    if (dialect === 'powershell' && POWERSHELL_ESCAPES.test(next)) escaping.escaped = true;
   };
   const endWord = () => {
     if (word !== undefined) segment.push(word);
@@ -248,7 +271,7 @@ const lex = (source: string, dialect: Dialect): Lexed => {
         lexed.strings.push(quoted.text.slice(start));
         return j + 1;
       } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\\n'.includes(next))) {
-        add(next);
+        markEscape(add(next), next);
         j += 2;
       } else if (char === '$' || (char === '`' && dialect === 'bash')) {
         j = expansion(j);
@@ -268,7 +291,7 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       // A line continuation, before LF or CRLF, joins the lines.
       const next = command[i + 1];
       const crlf = next === '\r' && command[i + 2] === '\n';
-      add(next === '\n' || crlf ? '' : (next ?? ''));
+      markEscape(add(next === '\n' || crlf ? '' : (next ?? '')), next ?? '');
       i += crlf ? 3 : 2;
     } else if (char === ' ' || char === '\t') {
       endWord();
@@ -287,6 +310,10 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       const end = command.indexOf('}', i) + 1;
       add(command.slice(i, end));
       i = end;
+    } else if (char === '&' && (word?.text.endsWith('>') || command[i + 1] === '>')) {
+      // Part of a redirection (2>&1, &>log), not a separator.
+      add(char);
+      i++;
     } else if (SEPARATORS.has(char)) {
       endSegment();
       i++;
@@ -621,6 +648,8 @@ interface Findings {
   packages: PackageRun[];
   // Whether any command read changes directory, so npx may run in another package.
   movesDir: boolean;
+  // The titles and bodies gh would post, for the personal denylist (ADR 0132).
+  texts: GhText[];
   reads: number;
 }
 
@@ -641,6 +670,10 @@ const gitAlias = (value: string): string =>
 // git push's options that take the next word as their value.
 const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack', '--exec']);
 
+// A redirection word, and one that is only the operator, whose target is the next word.
+const REDIRECTION = /^(?:\d+|&)?[<>]/;
+const REDIRECTION_ONLY = /^(?:\d+|&)?(?:>>?|<<?<?|>\||[<>]&)$/;
+
 // The remote a push names, as git reads it: its first operand, else --repo; undefined when it names
 // none, and null when it is computed at run time (ADR 0114).
 const pushRemote = (args: Word[]): string | null | undefined => {
@@ -648,7 +681,11 @@ const pushRemote = (args: Word[]): string | null | undefined => {
   let operand: Word | undefined;
   for (let i = 0; i < args.length && operand === undefined; i++) {
     const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
-    if (arg.text === '--') operand = args[i + 1];
+    // A redirection is the shell's (2>&1, >out.txt, &>log, 2> err.txt), with its target in the
+    // next word when the word is only the operator.
+    if (!arg.quoted && REDIRECTION.test(arg.text)) {
+      if (REDIRECTION_ONLY.test(arg.text)) i++;
+    } else if (arg.text === '--') operand = args[i + 1];
     else if (arg.text === '--repo') repo = args[++i];
     else if (arg.text.startsWith('--repo=')) repo = { ...arg, text: arg.text.slice(7) };
     else if (!arg.text.startsWith('-')) operand = arg;
@@ -799,9 +836,178 @@ const readReady = (args: Word[], pr: Word | undefined, { found, place }: Reading
   }
 };
 
+// A title or body gh would send, from the word that gives it: as it is, from a file where gh runs,
+// or, when the gate cannot read it, why (ADR 0132). A file's path is resolved from the hook's
+// working directory through the directories the command changes into.
+const ghText = (
+  command: string,
+  field: string,
+  value: Word,
+  file: boolean,
+  place: Place,
+): GhText => {
+  if (value.dynamic) return { kind: 'unreadable', command, field, why: 'computed at run time' };
+  if (value.escaped) {
+    return { kind: 'unreadable', command, field, why: 'a text with a PowerShell escape' };
+  }
+  if (!file) return { kind: 'text', command, field, text: value.text };
+  if (value.text === '-') {
+    return { kind: 'unreadable', command, field, why: 'read from standard input' };
+  }
+  if (place === undefined) {
+    return { kind: 'unreadable', command, field, why: 'in a directory computed at run time' };
+  }
+  return { kind: 'file', command, field, path: [...place, value.text] };
+};
+
+// The gh pr and gh issue actions that post a title or a body, and the options that give them
+// (cli.github.com/manual: gh pr create, edit and comment, gh issue create, edit and comment, and
+// the `new` alias of create): -t/--title, -b/--body, -F/--body-file. The other short options of
+// theirs that take a value (-a, -B, -H, -l, -m, -p, -r, -R, -T), so a group of short options
+// reads as gh reads it: -dt <title> is --draft, then --title.
+const POSTS = new Set(['create', 'new', 'edit', 'comment']);
+const SHORT_TEXTS = new Map([
+  ['t', '--title'],
+  ['b', '--body'],
+  ['F', '--body-file'],
+]);
+const SHORT_WITH_VALUE = 'aBbFHlmprRTt';
+const LONG_TEXTS = new Set(['--title', '--body', '--body-file']);
+const LONG_WITH_VALUE = new Set([
+  ...LONG_TEXTS,
+  '--assignee',
+  '--attach',
+  '--base',
+  '--head',
+  '--label',
+  '--milestone',
+  '--project',
+  '--recover',
+  '--reviewer',
+  '--template',
+  '--repo',
+  '--add-assignee',
+  '--add-label',
+  '--add-project',
+  '--add-reviewer',
+  '--remove-assignee',
+  '--remove-label',
+  '--remove-project',
+  '--remove-reviewer',
+  '--type',
+  '--parent',
+]);
+
+// The titles and bodies of a gh pr or gh issue command that posts them; each one given counts,
+// though gh keeps the last.
+const postedTexts = (command: string, args: Word[], place: Place): GhText[] => {
+  const texts: GhText[] = [];
+  const take = (field: string, value: Word | undefined) => {
+    if (value !== undefined) {
+      texts.push(ghText(command, field, value, field === '--body-file', place));
+    }
+  };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as Word;
+    if (arg.text === '--') break;
+    if (arg.text.startsWith('--')) {
+      const [name = '', value] = arg.text.split(/=(.*)/s);
+      if (value !== undefined) {
+        if (LONG_TEXTS.has(name)) take(name, { ...arg, text: value });
+      } else if (LONG_WITH_VALUE.has(name)) {
+        if (LONG_TEXTS.has(name)) take(name, args[i + 1]);
+        i++;
+      }
+      continue;
+    }
+    if (!arg.text.startsWith('-')) continue;
+    // In a group of short options, the first that takes a value takes the rest of the word (after
+    // an `=`, as gh's flag parser reads -t=…), or else the next word.
+    const at = [...arg.text.slice(1)].findIndex((char) => SHORT_WITH_VALUE.includes(char));
+    if (at < 0) continue;
+    const field = SHORT_TEXTS.get(arg.text[at + 1] ?? '');
+    const rest = arg.text.slice(at + 2).replace(/^=/, '');
+    if (rest !== '') {
+      if (field !== undefined) take(field, { ...arg, text: rest });
+    } else {
+      if (field !== undefined) take(field, args[i + 1]);
+      i++;
+    }
+  }
+  return texts;
+};
+
+// gh api's options that take a value besides its fields and --input, so a value is never read as
+// an option.
+const API_WITH_VALUE = new Set([
+  '-H',
+  '--header',
+  '-q',
+  '--jq',
+  '-X',
+  '--method',
+  '-p',
+  '--preview',
+  '-t',
+  '--template',
+  '--hostname',
+  '--cache',
+]);
+// The fields of a gh api call that carry a title or a body (ADR 0132).
+const API_TEXT_FIELDS = new Set(['title', 'body']);
+
+// The title and body fields of a gh api call and its --input, as gh reads them (cli.github.com/
+// manual/gh_api): -f/--raw-field key=value as it is, -F/--field key=value read from a file after
+// @ (@- for standard input), also joined to the option (-Fbody=…, --field=body=…) or after -i in
+// one group of short options (-iF body=…), and --input <file> (- for standard input) as the
+// request body. A field whose name is computed at run time may be either.
+const apiTexts = (args: Word[], place: Place): GhText[] => {
+  const command = 'gh api';
+  const texts: GhText[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as Word;
+    if (API_WITH_VALUE.has(arg.text)) {
+      i++;
+      continue;
+    }
+    const input = /^--input(?:=(.*))?$/s.exec(arg.text);
+    if (input !== null) {
+      const value = input[1] === undefined ? args[++i] : { ...arg, text: input[1] };
+      if (value === undefined) continue;
+      const text = ghText(command, '--input', value, true, place);
+      texts.push(text.kind === 'file' ? { ...text, json: true } : text);
+      continue;
+    }
+    const field = /^(?:(-i*f|--raw-field)|(-i*F|--field))(?:=?(.+))?$/s.exec(arg.text);
+    if (field === null) continue;
+    const value = field[3] === undefined ? args[++i] : { ...arg, text: field[3] };
+    if (value === undefined) continue;
+    const [, key, rest = ''] = /^([^=]*)=(.*)$/s.exec(value.text) ?? [];
+    if (key === undefined || /[$`(@]/.test(key)) {
+      if (value.dynamic) {
+        texts.push({ kind: 'unreadable', command, field: 'field', why: 'computed at run time' });
+      }
+      continue;
+    }
+    if (!API_TEXT_FIELDS.has(key)) continue;
+    const typedFile = field[2] !== undefined && rest.startsWith('@');
+    const text = { ...value, text: typedFile ? rest.slice(1) : rest };
+    texts.push(ghText(command, `field ${key}`, text, typedFile, place));
+  }
+  return texts;
+};
+
 const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
   const { found, aliases } = reading;
   const [group, action, name, expansion] = positionals(args, GH_OPTIONS_WITH_VALUE);
+  // What gh would post, against the personal denylist (ADR 0132).
+  if ((group?.text === 'pr' || group?.text === 'issue') && !group.dynamic && action) {
+    if (!action.dynamic && POSTS.has(action.text)) {
+      found.texts.push(...postedTexts(`gh ${group.text} ${action.text}`, args, reading.place));
+    }
+  } else if (group?.text === 'api' && !group.dynamic) {
+    found.texts.push(...apiTexts(args, reading.place));
+  }
   if (group?.text === 'pr' || (literal && group?.dynamic)) {
     if (action?.dynamic || (group?.dynamic && action?.text === 'merge')) {
       found.reasons.push(COMPUTED_PR_ACTION_BLOCKED);
@@ -903,10 +1109,10 @@ const powershellCommands = (args: Word[]): string[] => {
 };
 
 // The command cmd runs after /c or /k (//c in Git Bash, which would turn /c into a path), without
-// its ^ escapes.
+// its ^ escapes and the line breaks they continue (#158).
 const cmdCommands = (args: Word[]): string[] => {
   const run = args.findIndex((arg) => /^\/\/?[ck]$/i.test(arg.text));
-  return run < 0 ? [] : [text(args.slice(run + 1)).replaceAll('^', '')];
+  return run < 0 ? [] : [text(args.slice(run + 1)).replace(/\^(?:\r?\n)?/g, '')];
 };
 
 // Start-Process parameters that take a value, with their aliases; the first match of a prefix
@@ -1074,6 +1280,7 @@ const noFindings = (reads: number): Findings => ({
   ghEnv: false,
   packages: [],
   movesDir: false,
+  texts: [],
   reads,
 });
 
@@ -1137,8 +1344,19 @@ export const projectHolds = async (
 
 export const isGatedCommand = (command: string): boolean => findings(command).gated;
 
-export const forbiddenReason = (command: string): string | undefined =>
-  findings(command).reasons[0];
+// Why a command may not run: what the gate blocks outright, else what its gh calls would send
+// against the personal denylist, read where the hook runs (`cwd`) by `deniedTexts` (ADR 0132).
+export const forbiddenReason = (
+  command: string,
+  deniedTexts?: DeniedTexts,
+  cwd = '',
+): string | undefined => {
+  const found = findings(command);
+  if (found.reasons.length > 0 || deniedTexts === undefined || found.texts.length === 0) {
+    return found.reasons[0];
+  }
+  return deniedTexts(found.texts, cwd);
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -1162,6 +1380,10 @@ export type DeniedPush = (
   dir: string,
   ...remotes: (string | null | undefined)[]
 ) => Promise<string | undefined>;
+
+// Why the texts a command's gh calls would send hold a word on the personal denylist, or cannot be
+// read while it is set, or undefined (ADR 0132); files are read from `cwd`.
+export type DeniedTexts = (texts: readonly GhText[], cwd: string) => string | undefined;
 
 // Whether a directory a command changes into is inside the project the session works in
 // (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
@@ -1259,8 +1481,10 @@ export const precheck = async (
   binaryInstalled: BinaryInstalled = async () => false,
   inProject: InProject = async () => true,
   deniedPush: DeniedPush = async () => undefined,
+  // Loaded only for a command with gh texts to read, so other calls load nothing for it.
+  loadDeniedTexts: () => Promise<DeniedTexts> = async () => () => undefined,
 ): Promise<HookResult> => {
-  if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
+  if (!mayNeedTheGate(jsonLineBreaks(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
@@ -1280,6 +1504,17 @@ export const precheck = async (
   const [reason] = found.reasons;
   if (reason !== undefined) return { exitCode: 2, stderr: `${reason}\n` };
   const cwd = typeof parsed.cwd === 'string' ? parsed.cwd : process.cwd();
+  // What its gh calls would post, against the personal denylist (ADR 0132).
+  if (found.texts.length > 0) {
+    let denied: string | undefined;
+    try {
+      denied = (await loadDeniedTexts())(found.texts, cwd);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      denied = `gh is blocked: could not check what it sends against your denylist (${why}) (ADR 0132).`;
+    }
+    if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
+  }
   for (const { runner, name, lookup } of found.packages) {
     // Only a plain name is looked up: a version, a scope, a path, a computed name or one Windows
     // maps to a device is not what node_modules/.bin holds.
@@ -1393,6 +1628,7 @@ export const precheck = async (
 
 // Type-only, so erased: the module still has no static imports.
 import type { NpmCliLookup } from '../src/platform/executables.ts';
+import type { GhText } from './denylist/core.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export type { ProcessOutcome, RunProcess } from './process-runner.ts';
@@ -1625,7 +1861,7 @@ if (import.meta.main) {
       );
     },
     // The personal denylist, FOEDRUM_DENYLIST or ~/.config/foedrum/denylist.txt (ADR 0114).
-    async (dir, remote) => {
+    async (dir, ...remotes) => {
       const [{ pushRefusal }, { readDenylist }, { execProcess }, { homedir }, { readFileSync }] =
         await Promise.all([
           import('./denylist.ts'),
@@ -1636,7 +1872,27 @@ if (import.meta.main) {
         ]);
       const readList = () =>
         readDenylist(process.env, homedir(), (path) => readFileSync(path, 'utf8'));
-      return pushRefusal(readList, execProcess)(dir, remote);
+      return pushRefusal(readList, execProcess)(dir, ...remotes);
+    },
+    // The same list for what gh posts (ADR 0132), its files read where gh runs.
+    async () => {
+      const [{ ghFileReader, textRefusal }, { readDenylist }, path, { homedir }, fs] =
+        await Promise.all([
+          import('./denylist.ts'),
+          import('../src/platform/denylist.ts'),
+          import('node:path'),
+          import('node:os'),
+          import('node:fs'),
+        ]);
+      const read = (file: string) => fs.readFileSync(file, 'utf8');
+      const readList = () => readDenylist(process.env, homedir(), read);
+      const files = {
+        resolve: (cwd: string, parts: readonly string[]) =>
+          resolvePlace(cwd, parts, path, homedir()),
+        stat: (file: string) => fs.statSync(file),
+        read,
+      };
+      return textRefusal(readList, ghFileReader(files, process.platform));
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
