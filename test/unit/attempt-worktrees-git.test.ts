@@ -73,9 +73,18 @@ describe('openAttemptWorktrees with a fake git', () => {
 
       assert.deepEqual(worktree, { path, branch, commit: BASE });
       // The fetch runs in the clone, by its remote, and prunes: a branch the remote made again
-      // as a folder never stops it (ADR 0137).
+      // as a folder never stops it (ADR 0137). No maintenance outlives it and no submodule's
+      // remote is fetched (review of #370).
       assert.deepEqual(calls, [
-        [clone, 'fetch', '--quiet', '--prune', 'origin'],
+        [
+          clone,
+          'fetch',
+          '--quiet',
+          '--prune',
+          '--no-auto-maintenance',
+          '--no-recurse-submodules',
+          'origin',
+        ],
         [clone, 'rev-parse', '--verify', '--quiet', '--end-of-options', 'origin/main^{commit}'],
         [clone, 'worktree', 'list', '--porcelain', '-z'],
         [clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],

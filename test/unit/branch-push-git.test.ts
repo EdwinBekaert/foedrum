@@ -198,10 +198,25 @@ describe('openBranchPush: push', () => {
     await openBranchPush({ git, clone }).push(TIP, branch, signal);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
-      [[clone, 'push', '--no-verify', 'origin', `${TIP}:refs/heads/${branch}`]],
+      [
+        [
+          clone,
+          'push',
+          '--no-verify',
+          // Only the one ref the ledger records, whatever push.followTags or
+          // push.recurseSubmodules say (review of #370).
+          '--no-follow-tags',
+          '--no-recurse-submodules',
+          'origin',
+          `${TIP}:refs/heads/${branch}`,
+        ],
+      ],
     );
     assert.equal(calls[0]?.options?.signal, signal);
     assert.equal(calls[0]?.options?.timeoutMs, 300_000);
+    const other = recordingGit();
+    await openBranchPush({ git: other.git, clone, remote: 'upstream' }).push(TIP, branch);
+    assert.equal(other.calls[0]?.args.at(-2), 'upstream');
   });
 
   it("runs no hook of the clone's (review of #198) and no fsmonitor", async () => {
