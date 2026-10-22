@@ -1107,7 +1107,9 @@ describe('openStateBranch with a fake git', () => {
       leave(refLock());
       leave(probeLock());
       let other = takeFileLock(join(dir.path, 'state.lock'), 0);
+      let slept = 0;
       const sleep = async (): Promise<void> => {
+        slept += 1;
         assert.equal(existsSync(refLock()), true, 'untouched while the other writer holds it');
         assert.equal(existsSync(probeLock()), true, 'untouched while the other writer holds it');
         assert.deepEqual(fake.calls, [], 'no git while the other writer holds it');
@@ -1119,6 +1121,7 @@ describe('openStateBranch with a fake git', () => {
       } finally {
         other?.release();
       }
+      assert.equal(slept, 1, 'the start waited for the other writer');
       assert.equal(existsSync(refLock()), false);
       assert.equal(existsSync(probeLock()), false);
       assert.deepEqual(said, [refLine(), probeLine()]);
