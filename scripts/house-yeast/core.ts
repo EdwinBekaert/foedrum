@@ -42,7 +42,7 @@ export const defaultBudget = 2000;
 
 const oneLine = (text: string): string => text.replace(/\s*\r?\n\s*/g, '; ');
 
-/** Reads rule files given with `/` paths; a rule's id must be its file name without `.md`. */
+/** Reads rule files given with `/` paths, as the skill writes them; a rule's id is its file name without `.md`. */
 export const readRules = (files: readonly RuleFile[]): Rules => {
   const read: Rules = { rules: [], invalid: [] };
   for (const { path, text } of files) {

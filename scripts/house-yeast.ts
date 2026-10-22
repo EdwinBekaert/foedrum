@@ -9,7 +9,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, posix } from 'node:path';
 import {
   changedFiles,
   defaultBudget,
@@ -76,7 +76,7 @@ const select = (
     // No rules folder at the base: no rules yet.
   }
   const { rules, invalid } = readRules(
-    names.map((name) => ({ path: `${dir}/${name}`, text: deps.readFile(`${dir}/${name}`) })),
+    names.map((name) => posix.join(dir, name)).map((path) => ({ path, text: deps.readFile(path) })),
   );
   for (const { path, reason } of invalid) deps.out(`invalid ${path}: ${reason}\n`);
   const selection = selectRules(rules, { files: changedFiles(nameStatus), lens }, budget);
@@ -144,7 +144,7 @@ const record = ([store, file, dir]: string[], asked: boolean, deps: RunDeps): nu
     deps.out(`recorded ${candidate.lesson}: seen in 1 review\n`);
     return 0;
   }
-  const path = `${dir}/${candidate.lesson}.md`;
+  const path = posix.join(dir, `${candidate.lesson}.md`);
   if (deps.exists(path)) {
     deps.out(`exists ${path}: not overwritten\n`);
     return 0;
