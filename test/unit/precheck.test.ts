@@ -2311,6 +2311,13 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Get-ChildItem $d | Remove-Item -Recurse',
     '$d | Get-ChildItem | Remove-Item -Recurse -Force',
     '(Get-ChildItem $d) | ri -r',
+    // Review of #372: a pipeline goes on after a line that ends in a pipe or before one that starts
+    // with it, and through a script block or the call operator in a stage.
+    '$p |\nRemove-Item -Recurse',
+    '$p |\r\nRemove-Item -Recurse',
+    'Get-ChildItem $d\n| Remove-Item -Recurse',
+    'Get-ChildItem $d | Where-Object { $_.PSIsContainer } | Remove-Item -Recurse',
+    '$p | & Remove-Item -Recurse',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
@@ -2401,6 +2408,10 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     // #296's forms.
     ['rd/s/q %X%', 'PowerShell'],
     ['$p | Remove-Item -Recurse', 'PowerShell'],
+    // A splat holds no $, %, backtick or ( (review of #372).
+    ['Remove-Item @o', 'PowerShell'],
+    ['Remove-Item -Force @params', 'PowerShell'],
+    ['rm @o', 'Bash'],
   ];
   for (const [command, tool] of blocked) {
     it(`blocks without running the check (${tool}): ${command}`, async () => {
