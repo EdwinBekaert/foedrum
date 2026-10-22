@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import {
   credentialHelpersFor,
   type DoctorFacts,
@@ -10,7 +11,13 @@ import {
   formatDiagnosis,
   githubHostOfConfig,
 } from '../../src/cli/doctor.ts';
-import { INVALID_RECIPES, invalidRecipes } from '../../src/engine/recipe-files.ts';
+import {
+  type BreweryFile,
+  INVALID_RECIPES,
+  invalidRecipes,
+} from '../../src/engine/recipe-files.ts';
+import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
+import { readDoc } from '../../src/schemas/read.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { linux, loggedIn, macos, ran, windows } from '../helpers/doctor-facts.ts';
 
@@ -844,5 +851,388 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     });
     assert.ok(diagnosis.problems.some(({ what }) => what === INVALID_RECIPES));
     assert.doesNotMatch(formatDiagnosis(diagnosis), /Defaults in use/);
+  });
+});
+
+describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
+  // A brewer file whose body is `body`, and that body as the loader reads it.
+  const brewerWith = (name: string, body: string, fields: Record<string, unknown> = {}) =>
+    brewerText(name, fields).replace(`Do the work of the ${name}.\n`, body);
+  const bodyOf = (text: string): string => {
+    const doc = readDoc(text, BrewerFrontmatter);
+    assert.ok(doc.valid);
+    return doc.body;
+  };
+  const brewerStep = (brewer: string) => ({ brewer });
+  const style = { path: 'lenses/style.md', text: '# Style\n\nLook at the names.\n' };
+  const taster = {
+    path: 'brewers/taster.md',
+    text: brewerText('taster', {
+      inputs: [
+        { name: 'order', from: 'order' },
+        { name: 'styleLens', from: 'lens:style' },
+      ],
+    }),
+  };
+  const maltster = { path: 'brewers/maltster.md', text: brewerText('maltster') };
+  const pale = {
+    path: 'recipes/pale.jsonc',
+    text: recipeText('pale', [brewerStep('maltster'), brewerStep('taster')]),
+  };
+
+  it("measures each brewer's prompt, built from its instructions and lens inputs, in bytes and tokens", () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: { recipes: [pale], brewers: [maltster, taster], lenses: [style] },
+    });
+    const assembled = assembleBrewerPrompt(bodyOf(taster.text), [
+      {
+        name: 'styleLens',
+        source: { kind: 'lens', lens: 'style', path: 'lenses/style.md' },
+        text: style.text,
+      },
+    ]);
+    assert.equal(assembled.kind, 'assembled');
+    const tasterBytes = Buffer.byteLength(assembled.prompt, 'utf8');
+    const maltsterBytes = Buffer.byteLength(bodyOf(maltster.text), 'utf8');
+    assert.deepEqual(diagnosis.prompts, [
+      {
+        brewer: 'maltster',
+        path: 'brewers/maltster.md',
+        bytes: maltsterBytes,
+        tokens: Math.ceil(maltsterBytes / 4),
+      },
+      {
+        brewer: 'taster',
+        path: 'brewers/taster.md',
+        bytes: tasterBytes,
+        tokens: Math.ceil(tasterBytes / 4),
+      },
+    ]);
+    const report = formatDiagnosis(diagnosis);
+    assert.match(report, /\nBrewer prompts \(instructions and lens inputs, ADR 0141\):\n/);
+    assert.match(
+      report,
+      new RegExp(
+        `\n  taster +brewers/taster.md +${tasterBytes} bytes +~${Math.ceil(tasterBytes / 4)} tokens\n`,
+      ),
+    );
+    assert.deepEqual(diagnosis.notices, []);
+    assert.doesNotMatch(report, /Notices/);
+  });
+
+  it('gives a notice for a prompt above 8000 tokens, and none at 8000', () => {
+    const sized = (name: string, bytes: number) => {
+      const probe = bodyOf(brewerWith(name, 'x'));
+      return {
+        path: `brewers/${name}.md`,
+        text: brewerWith(name, 'x'.repeat(bytes - probe.length + 1)),
+      };
+    };
+    const at = sized('brewer-at', 32_000);
+    const above = sized('brewer-above', 32_001);
+    assert.equal(Buffer.byteLength(bodyOf(at.text)), 32_000);
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [
+          {
+            path: 'recipes/big.jsonc',
+            text: recipeText('big', [brewerStep('brewer-at'), brewerStep('brewer-above')]),
+          },
+        ],
+        brewers: [at, above],
+      },
+    });
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/brewer-above.md: the brewer "brewer-above" has a prompt of about 8001 tokens before its other inputs, above 8000 (ADR 0141)',
+    ]);
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, []);
+  });
+
+  it("names the Brewery's brewers no recipe names and lenses no brewer reads, never a default's", () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [pale],
+        brewers: [maltster, taster, { path: 'brewers/spare.md', text: brewerText('spare') }],
+        lenses: [style, { path: 'lenses/old.md', text: 'Old rules.' }],
+        defaults: {
+          brewers: [{ path: 'defaults/brewers/idle.md', text: brewerText('idle') }],
+          lenses: [{ path: 'defaults/lenses/security.md', text: 'Look for secrets.' }],
+        },
+      },
+    });
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
+      'lenses/old.md: no brewer\'s input names the lens "old" (ADR 0141)',
+    ]);
+    assert.equal(diagnosis.ok, true);
+    const report = formatDiagnosis(diagnosis);
+    assert.match(
+      report,
+      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/old\.md: no brewer's input names the lens "old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
+    );
+  });
+
+  const gauger = [
+    '---',
+    '{}',
+    '---',
+    '# Gauger',
+    '',
+    'Write the failing tests.',
+    '',
+    '- **Stubs throw `not implemented`.** Never a stub that returns a value.',
+    '',
+    '## How to work',
+    '',
+    '**Red for the right reason.** Every new test fails.',
+    '',
+    '```sh',
+    '# not a heading',
+    '**not marked**',
+    '```',
+    '',
+  ].join('\n');
+
+  it('names a Brewery file that replaces a default, with the headings and marked lines it drops', () => {
+    const copy = [
+      '# GAUGER',
+      '',
+      '1. **stubs   throw `not implemented`.** Reworded.',
+      '',
+      '```',
+      '## How to work',
+      '```',
+      '',
+    ].join('\n');
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [{ path: 'recipes/nip.jsonc', text: '{' }],
+        brewers: [{ path: 'brewers/gauger.md', text: copy }],
+        lenses: [{ path: 'lenses/style.md', text: gauger }],
+        defaults: {
+          recipes: [{ path: 'defaults/recipes/nip.jsonc', text: '{}' }],
+          brewers: [{ path: 'defaults/brewers/gauger.md', text: gauger }],
+          lenses: [
+            { path: 'defaults/lenses/style.md', text: gauger },
+            { path: 'defaults/lenses/security.md', text: '## Look for' },
+          ],
+        },
+      },
+    });
+    // The files do not load, and the replacements are still named.
+    assert.equal(diagnosis.ok, false);
+    assert.equal(diagnosis.prompts, undefined);
+    assert.deepEqual(diagnosis.notices, [
+      'recipes/nip.jsonc replaces defaults/recipes/nip.jsonc (ADR 0141)',
+      'brewers/gauger.md replaces defaults/brewers/gauger.md and drops: heading "How to work", marked line "Red for the right reason." (ADR 0141)',
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+  });
+
+  it('says nothing of notices when it read no Brewery', () => {
+    const diagnosis = diagnose(linux());
+    assert.equal(diagnosis.notices, undefined);
+    assert.equal(diagnosis.prompts, undefined);
+    assert.doesNotMatch(formatDiagnosis(diagnosis), /Notices|Brewer prompts/);
+  });
+});
+
+describe('diagnose: the headings and marked lines a Brewery file drops from its default (ADR 0141)', () => {
+  // The notice for a Brewery lens `copy` that replaces a default lens `original`.
+  const replacing = (original: string, copy: string | BreweryFile) => {
+    const own: BreweryFile =
+      typeof copy === 'string' ? { path: 'lenses/style.md', text: copy } : copy;
+    const { notices = [] } = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [],
+        lenses: [own],
+        defaults: { lenses: [{ path: 'defaults/lenses/style.md', text: original }] },
+      },
+    });
+    return notices.filter((notice) => notice.includes(' replaces '));
+  };
+  const drops = (what: string) =>
+    `lenses/style.md replaces defaults/lenses/style.md and drops: ${what} (ADR 0141)`;
+
+  it('closes a fence only with the same character, at least as long, and opens none on inline code', () => {
+    const original = [
+      '````md',
+      '```',
+      '# Inside the long fence',
+      '```',
+      '````',
+      '# After',
+      '~~~',
+      '# Inside the tilde fence',
+      '```',
+      '~~~',
+      '```npm test``` runs the tests',
+      '**Rule.** Keep it.',
+      '',
+    ].join('\n');
+    assert.deepEqual(replacing(original, 'Nothing.\n'), [
+      drops('heading "After", marked line "Rule."'),
+    ]);
+  });
+
+  it('names only the replacement when the Brewery file cannot be read', () => {
+    const unreadable = { path: 'lenses/style.md', unreadable: 'EACCES: permission denied' };
+    assert.deepEqual(replacing('# Style\n\n**Rule.** Keep it.\n', unreadable), [
+      'lenses/style.md replaces defaults/lenses/style.md (ADR 0141)',
+    ]);
+  });
+
+  it('reads a heading on the first line after a byte order mark', () => {
+    const bom = String.fromCodePoint(0xfeff);
+    assert.deepEqual(replacing('# Style\n', `${bom}# Style\n`), [
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+  });
+
+  it('reads a long heading line in time linear in its length', () => {
+    const line = `# a${' '.repeat(20_000)}x\n`;
+    const before = process.cpuUsage();
+    const notices = replacing(line, line);
+    const used = process.cpuUsage(before);
+    assert.deepEqual(notices, [
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+    // About 900 ms of CPU with a regular expression that backtracks over the spaces.
+    assert.ok((used.user + used.system) / 1000 < 100, `${used.user + used.system} µs`);
+  });
+
+  const plain = 'lenses/style.md replaces defaults/lenses/style.md (ADR 0141)';
+  const keeps =
+    'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)';
+  // Each rule of ADR 0141's marks, and its near miss: the default's text, the copy's, the notice.
+  const rows: [string, string, string, string][] = [
+    ['six #s are a heading', '###### Six', '', drops('heading "Six"')],
+    ['seven #s are no heading', '####### Seven', '', plain],
+    ['a heading needs white space after its #s', '#Tag', '', plain],
+    ['a heading may be three spaces in', '   # Three', '', drops('heading "Three"')],
+    ['four spaces in is code, not a heading', '    # Code', '', plain],
+    ['an empty heading is none', '# ###', '', plain],
+    ['closing #s are not part of the heading', '## Closed ##', '# closed', keeps],
+    ['a # inside the text stays', '# C#', '# C', drops('heading "C#"')],
+    ['a line that starts bold is marked', '**Bold.** Rest.', '', drops('marked line "Bold."')],
+    ['a - item is marked', '- **Dash.** Rest.', '', drops('marked line "Dash."')],
+    ['a * item is marked', '* **Star.** Rest.', '', drops('marked line "Star."')],
+    ['a + item is marked', '+ **Plus.** Rest.', '', drops('marked line "Plus."')],
+    ['a 1. item is marked', '1. **Dot.** Rest.', '', drops('marked line "Dot."')],
+    ['a 1) item is marked', '1) **Paren.** Rest.', '', drops('marked line "Paren."')],
+    ['bold later in the line is not marked', 'See **this**.', '', plain],
+    ['four spaces in is code, not marked', '    **Code.**', '', plain],
+    ['a ~~~ fence hides a heading', '~~~\n# In\n~~~\n# Out', '', drops('heading "Out"')],
+    [
+      "a dropped heading inside the copy's fence counts",
+      '# Kept',
+      '```\n# Kept\n```',
+      drops('heading "Kept"'),
+    ],
+    [
+      'a closing line with text after its run does not close a fence',
+      '```\n# In\n```js\n# Still in\n```\n# Out',
+      '',
+      drops('heading "Out"'),
+    ],
+    ['four spaces in opens no fence', '    ```\n# Seen', '', drops('heading "Seen"')],
+    ['a list item needs white space before its bold', '-**Dash.**', '', plain],
+    ['CRLF line endings close a fence', '```\r\n# In\r\n```\r\n# Out', '', drops('heading "Out"')],
+  ];
+  for (const [rule, original, copy, notice] of rows) {
+    it(`reads the marks so that ${rule}`, () => {
+      assert.deepEqual(replacing(`${original}\n`, `${copy}\n`), [notice]);
+    });
+  }
+
+  it('compares a copy with a default that cannot be read as with one that has no marks', () => {
+    const { notices = [] } = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [],
+        lenses: [{ path: 'lenses/style.md', text: '# Style\n' }],
+        defaults: { lenses: [{ path: 'defaults/lenses/style.md', unreadable: 'EACCES' }] },
+      },
+    });
+    assert.ok(notices.includes(plain));
+  });
+});
+
+describe('diagnose: notices when the files load (ADR 0141)', () => {
+  it('counts a Brewery lens a default brewer reads as used, and gives the unused files before the replacements', () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [{ path: 'recipes/read.jsonc', text: recipeText('read', [{ brewer: 'reader' }]) }],
+        brewers: [{ path: 'brewers/spare.md', text: brewerText('spare') }],
+        lenses: [{ path: 'lenses/style.md', text: '# Style\n' }],
+        defaults: {
+          brewers: [
+            {
+              path: 'defaults/brewers/reader.md',
+              text: brewerText('reader', { inputs: [{ name: 'style', from: 'lens:style' }] }),
+            },
+          ],
+          lenses: [{ path: 'defaults/lenses/style.md', text: '# Style\n' }],
+        },
+      },
+    });
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+  });
+});
+
+describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)', () => {
+  it('names a Brewery lens that only a brewer no recipe names reads', () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [
+          {
+            path: 'brewers/spare.md',
+            text: brewerText('spare', { inputs: [{ name: 'old', from: 'lens:old' }] }),
+          },
+        ],
+        lenses: [{ path: 'lenses/old.md', text: 'Old rules.' }],
+      },
+    });
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
+      'lenses/old.md: no brewer\'s input names the lens "old" (ADR 0141)',
+    ]);
+  });
+
+  it('keeps a heading only by a heading, and a marked line only by a marked line', () => {
+    const { notices = [] } = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [],
+        lenses: [{ path: 'lenses/style.md', text: '**Same words**\n\n## Other words\n' }],
+        defaults: {
+          lenses: [
+            { path: 'defaults/lenses/style.md', text: '## Same words\n\n**Other words**\n' },
+          ],
+        },
+      },
+    });
+    assert.deepEqual(
+      notices.filter((notice) => notice.includes(' replaces ')),
+      [
+        'lenses/style.md replaces defaults/lenses/style.md and drops: heading "Same words", marked line "Other words" (ADR 0141)',
+      ],
+    );
   });
 });
