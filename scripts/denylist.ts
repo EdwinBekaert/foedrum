@@ -4,6 +4,7 @@
 
 import type { DenylistState } from '../src/platform/denylist.ts';
 import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
+import { windowsPathProblem } from '../src/platform/real-path.ts';
 import {
   deniedRefusal,
   filePlaces,
@@ -145,8 +146,11 @@ export const textRefusal =
             text = readAt(cwd, each.path);
           } catch (error) {
             // The error names the path, which may hold the word.
+            // The error names the path as resolved (the hook's directory, the home folder), so
+            // it is quoted only when it holds no word either.
             const named = !holdsEntry(each.path.join('/'), list);
-            const why = error instanceof Error ? error.message : String(error);
+            const message = error instanceof Error ? error.message : String(error);
+            const why = holdsEntry(message, list) ? 'its error names a denied word' : message;
             return `${each.command} is blocked: could not read its ${each.field} ${named ? `${shown} (${why})` : 'from a file whose path holds a denied word'}, so the gate cannot check it against your denylist (ADR 0132).`;
           }
           const places = filePlaces(where, shown, text, each.json === true, list);
@@ -183,7 +187,25 @@ export interface GhFiles {
  * touches it, nor a POSIX path, which Git Bash maps elsewhere for gh.
  */
 export const ghFileReader =
-  (_files: GhFiles, _platform: NodeJS.Platform) =>
-  (_cwd: string, _path: readonly string[]): string => {
-    throw new Error('not implemented');
+  (files: GhFiles, platform: NodeJS.Platform) =>
+  (cwd: string, path: readonly string[]): string => {
+    const resolved = files.resolve(cwd, path);
+    if (platform === 'win32') {
+      const problem = windowsPathProblem(resolved);
+      if (problem !== undefined) {
+        throw new Error(
+          `a ${problem === 'network' ? 'network or device' : 'drive-less'} path, which the gate does not open`,
+        );
+      }
+      // Git Bash rewrites /tmp/… and the like for gh.exe; only /c/… is a drive the gate reads too.
+      if (path.some((part) => /^\/(?![A-Za-z](?:\/|$))/.test(part))) {
+        throw new Error(
+          'a POSIX path, which Git Bash maps elsewhere for gh: give a Windows or relative path',
+        );
+      }
+    }
+    const stat = files.stat(resolved);
+    if (!stat.isFile()) throw new Error('not a regular file');
+    if (stat.size > GH_FILE_MAX_BYTES) throw new Error(`over ${GH_FILE_MAX_BYTES} bytes`);
+    return files.read(resolved);
   };

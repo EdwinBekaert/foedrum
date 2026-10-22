@@ -920,9 +920,9 @@ const API_TEXT_FIELDS = new Set(['title', 'body']);
 
 // The title and body fields of a gh api call and its --input, as gh reads them (cli.github.com/
 // manual/gh_api): -f/--raw-field key=value as it is, -F/--field key=value read from a file after
-// @ (@- for standard input), also joined to the option (-Fbody=…, --field=body=…), and --input
-// <file> (- for standard input) as the request body. A field whose name is computed at run time
-// may be either.
+// @ (@- for standard input), also joined to the option (-Fbody=…, --field=body=…) or after -i in
+// one group of short options (-iF body=…), and --input <file> (- for standard input) as the
+// request body. A field whose name is computed at run time may be either.
 const apiTexts = (args: Word[], place: Place): GhText[] => {
   const command = 'gh api';
   const texts: GhText[] = [];
@@ -940,7 +940,7 @@ const apiTexts = (args: Word[], place: Place): GhText[] => {
       else if (text !== undefined) texts.push(text);
       continue;
     }
-    const field = /^(?:(-f|--raw-field)|(-F|--field))(?:=?(.+))?$/s.exec(arg.text);
+    const field = /^(?:(-i*f|--raw-field)|(-i*F|--field))(?:=?(.+))?$/s.exec(arg.text);
     if (field === null) continue;
     const value = field[3] === undefined ? args[++i] : { ...arg, text: field[3] };
     if (value === undefined) continue;
@@ -1838,7 +1838,7 @@ if (import.meta.main) {
     },
     // The same list for what gh posts (ADR 0132), its files read where gh runs.
     async () => {
-      const [{ textRefusal }, { readDenylist }, path, { homedir }, { readFileSync }] =
+      const [{ ghFileReader, textRefusal }, { readDenylist }, path, { homedir }, fs] =
         await Promise.all([
           import('./denylist.ts'),
           import('../src/platform/denylist.ts'),
@@ -1846,11 +1846,15 @@ if (import.meta.main) {
           import('node:os'),
           import('node:fs'),
         ]);
-      const readList = () =>
-        readDenylist(process.env, homedir(), (file) => readFileSync(file, 'utf8'));
-      return textRefusal(readList, (cwd, parts) =>
-        readFileSync(resolvePlace(cwd, parts, path, homedir()), 'utf8'),
-      );
+      const read = (file: string) => fs.readFileSync(file, 'utf8');
+      const readList = () => readDenylist(process.env, homedir(), read);
+      const files = {
+        resolve: (cwd: string, parts: readonly string[]) =>
+          resolvePlace(cwd, parts, path, homedir()),
+        stat: (file: string) => fs.statSync(file),
+        read,
+      };
+      return textRefusal(readList, ghFileReader(files, process.platform));
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
