@@ -403,6 +403,46 @@ describe('openAttemptWorktrees with a fake git', () => {
           `removed git directory ${young}.git: a stopped call left it`,
         ]);
       });
+
+      it('skips an entry gone before its lstat, as a running call removes its own', async () => {
+        const { gitDirs, report } = twoOld();
+        const gone = async (path: string) => {
+          if (path.endsWith(`${young}.git`)) {
+            await removeAll(path);
+            throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${path}'`), {
+              code: 'ENOENT',
+            });
+          }
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: gone, remove: removeAll });
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [],
+        });
+      });
+
+      it('reports an entry it cannot read, and removes the others', async () => {
+        const { gitDirs, report } = twoOld();
+        const denied = async (path: string) => {
+          if (path.endsWith(`${young}.git`)) {
+            throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+          }
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: denied, remove: removeAll });
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [`could not clean git directory ${young}.git: EACCES: permission denied`],
+        });
+        assert.ok(existsSync(join(gitDirs, `${young}.git`)));
+      });
     });
   });
 });
