@@ -2179,8 +2179,40 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     });
   }
 
+  // gh joins a literal path to the REST prefix without resolving its dot segments, so whether
+  // x/../graphql reaches the GraphQL endpoint is up to the server: the gate takes it at its worst
+  // (#329).
+  const dotted = ['x/../graphql', './graphql', '../graphql', '/api/v3/../graphql', 'a/./graphql/'];
+  for (const endpoint of dotted) {
+    for (const query of unreadable) {
+      const unquoted = query.replaceAll('"', '');
+      for (const command of [
+        `gh api ${endpoint} ${query}`,
+        `bash -c 'gh api ${endpoint} ${unquoted}'`,
+        `pwsh -Command "gh api ${endpoint} ${unquoted}"`,
+      ]) {
+        it(`forbids a query it cannot read through a path with dot segments: ${command}`, () => {
+          assert.match(
+            forbiddenReason(command) ?? '',
+            /^gh api graphql with a query the gate cannot read/,
+          );
+        });
+      }
+    }
+    it(`allows a readable query through a path with dot segments: ${endpoint}`, () => {
+      assert.equal(
+        forbiddenReason(`gh api ${endpoint} -f query='query { viewer { login } }'`),
+        undefined,
+      );
+    });
+  }
+
   const allowed = [
     'gh api "$base/repos/o/r/issues" --input body.json',
+    // A dot segment elsewhere, or a last segment that only starts with graphql, is no endpoint.
+    'gh api repos/o/r/../r/contents/a.json --input body.json',
+    'gh api ../graphql-tools --input body.json',
+    'gh api repos/o/r/contents/.graphql --input body.json',
     // A REST path that names graphql elsewhere is not the GraphQL endpoint.
     'gh api repos/o/graphql/contents/a.json -F query=@a.txt',
     'gh api /repos/o/graphql-tools/issues --input body.json',
