@@ -44,7 +44,6 @@ const matcher = (list: readonly string[]): ((line: string) => boolean) => {
 
 /** The 1-based numbers of the lines of `text` that hold an entry of `list`. */
 export const deniedLines = (text: string, list: readonly string[]): number[] => {
-  if (list.length === 0) return [];
   const holds = matcher(list);
   return text.split('\n').flatMap((line, i) => (holds(line) ? [i + 1] : []));
 };
@@ -67,7 +66,7 @@ export const scanMessages = (log: string, list: readonly string[]): string[] => 
       return [
         ...(holds(authorName) || holds(authorEmail) ? [`${where} author`] : []),
         ...(holds(name) || holds(email) ? [`${where} committer`] : []),
-        ...deniedLines(message.join('\n'), list).map((line) => `${where} message line ${line}`),
+        ...message.flatMap((line, i) => (holds(line) ? [`${where} message line ${i + 1}`] : [])),
       ];
     });
 };
