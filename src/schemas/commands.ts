@@ -102,3 +102,11 @@ export const OrderCommand = z.strictObject({
     .transform((text) => splitIssue(text) as OrderTarget),
 });
 export type OrderCommand = z.infer<typeof OrderCommand>;
+
+/** `foedrum brew <issue> [--as <name>]` (ADR 0123). */
+export const BrewCommand = z
+  .strictObject({ command: z.literal('brew') })
+  .transform((): { command: 'brew'; issue: OrderTarget; as?: string } => {
+    throw new Error('not implemented');
+  });
+export type BrewCommand = z.infer<typeof BrewCommand>;

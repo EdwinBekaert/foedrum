@@ -99,6 +99,7 @@ describe('foedrum: commands that change state', () => {
     config: () => assert.fail('no foedrum.jsonc to read'),
     claims: () => assert.fail('no claim host to reach'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    brew: async () => assert.fail('no brew here'),
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
@@ -440,6 +441,7 @@ describe('foedrum stuck', () => {
       config: () => assert.fail('no foedrum.jsonc to read'),
       claims: () => assert.fail('no claim host to reach'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      brew: async () => assert.fail('no brew here'),
     });
   const append = (...events: Event[]) =>
     store.withTransaction((tx) => {
@@ -563,6 +565,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       return github.host;
     },
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    brew: async () => assert.fail('no brew here'),
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>

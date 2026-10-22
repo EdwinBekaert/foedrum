@@ -8,6 +8,7 @@ import type { State } from '../engine/fold.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
+import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
@@ -57,6 +58,11 @@ export interface CliContext {
   claims: (config: BreweryConfig) => ClaimHost;
   /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
   serve: () => Promise<CliResult>;
+  /**
+   * Brews one issue's batch until it stops (ADR 0123), as `as` or the Claude Code session's
+   * owner; its lines go straight to the terminal.
+   */
+  brew: (input: { issue: OrderTarget; as?: string }) => Promise<CliResult>;
 }
 
 export interface CliResult {

@@ -62,6 +62,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   config: () => assert.fail('no foedrum.jsonc to read'),
   claims: () => assert.fail('no claim host to reach'),
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+  brew: async () => assert.fail('no brew here'),
   ...overrides,
 });
 
@@ -579,6 +580,56 @@ describe('foedrum status', () => {
     const watched = watchedStore(invalidLog);
     await run(['status'], { openStore: () => watched.store });
     assert.deepEqual(watched.afterRun(), { closed: 1, lastEventId: invalidLog.length });
+  });
+
+  it('shows a batch an interactive driver leases as such, but not the Cellar or a lease that ended (ADR 0123)', async () => {
+    const store = storeWith([ordered(11), ordered(12), ordered(13)]);
+    const expiresAt = new Date(new Date(D1).getTime() + 60_000);
+    store.withTransaction((tx) => {
+      tx.putBatchLease({ batchId: '11-1', owner: 'session-abc', expiresAt });
+      tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt });
+      tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt: new Date(D1) });
+    });
+    const result = await run(['status'], { openStore: () => store });
+    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+    assert.equal(result.stdout.match(/interactively/g)?.length, 1, result.stdout);
+  });
+});
+
+describe('foedrum brew (ADR 0123)', () => {
+  it("hands the issue and the --as name to the terminal's brew, and answers with what it did", async () => {
+    const asked: unknown[] = [];
+    const done = { exitCode: 4, stdout: '', stderr: '' };
+    const brew = async (input: unknown) => {
+      asked.push(input);
+      return done;
+    };
+    assert.deepEqual(await run(['brew', '12', '--as', 'ann'], { brew }), done);
+    assert.deepEqual(await run(['brew', '--as=ann', 'web#7'], { brew }), done);
+    assert.deepEqual(await run(['brew', '#3'], { brew }), done);
+    assert.deepEqual(asked, [
+      { command: 'brew', issue: { issue: 12 }, as: 'ann' },
+      { command: 'brew', issue: { alias: 'web', issue: 7 }, as: 'ann' },
+      { command: 'brew', issue: { issue: 3 } },
+    ]);
+  });
+
+  it('refuses a command line it cannot read, without brewing', async () => {
+    assertUsageError(await run(['brew']), 'foedrum brew: missing <issue>');
+    assertUsageError(await run(['brew', '12', '--as']), 'foedrum brew: --as needs a value');
+    assertUsageError(
+      await run(['brew', '12', '--as', 'cellar']),
+      'foedrum brew: invalid <as> "cellar": Must not be cellar, the Cellar\'s own',
+    );
+    assertUsageError(
+      await run(['brew', '12', '--recipe', 'x']),
+      'foedrum brew: unknown option "--recipe"',
+    );
+    // No other command takes --as.
+    assertUsageError(
+      await run(['retry', '12-1', '--as', 'ann']),
+      'foedrum retry: unknown option "--as"',
+    );
   });
 });
 
