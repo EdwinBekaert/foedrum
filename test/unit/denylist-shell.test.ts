@@ -118,6 +118,24 @@ describe('pushRefusal', () => {
     );
   });
 
+  // One command's scan reads one remote, so its git calls fit one deadline budget.
+  it('blocks a command that pushes to more than one remote while a list is set', async () => {
+    const git = fakeGit(cleanMessages, cleanPatches);
+    const refusal = await pushRefusal(() => set('examplecorp'), git.exec)(
+      '/work/tree',
+      'origin',
+      'work',
+    );
+    assert.match(refusal ?? '', /^git push is blocked: .*more than one remote/);
+    assert.deepEqual(git.calls, []);
+    const none = await pushRefusal(() => ({ kind: 'none', path: PATH }), git.exec)(
+      '/work/tree',
+      'origin',
+      'work',
+    );
+    assert.equal(none, undefined);
+  });
+
   for (const [name, pushRef] of [
     ['git fails', undefined],
     ['the branch has no push remote', ok('\n\n')],

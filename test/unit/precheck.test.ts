@@ -213,9 +213,9 @@ describe('precheck with a personal denylist', () => {
   const fakeScan = (answer: () => Promise<string | undefined>) => {
     const calls: string[] = [];
     const remotes: (string | null | undefined)[] = [];
-    const deniedPush = async (dir: string, remote?: string | null) => {
+    const deniedPush = async (dir: string, ...pushed: (string | null | undefined)[]) => {
       calls.push(dir);
-      remotes.push(remote);
+      remotes.push(...pushed);
       return answer();
     };
     return { calls, remotes, deniedPush };
@@ -223,7 +223,10 @@ describe('precheck with a personal denylist', () => {
   const gate = (
     command: string,
     runCheck: (cwd: string) => Promise<CheckResult>,
-    deniedPush: (dir: string, remote?: string | null) => Promise<string | undefined>,
+    deniedPush: (
+      dir: string,
+      ...remotes: (string | null | undefined)[]
+    ) => Promise<string | undefined>,
     detached = false,
   ) =>
     precheck(
@@ -289,6 +292,15 @@ describe('precheck with a personal denylist', () => {
       assert.deepEqual(scan.remotes, expected);
     });
   }
+
+  // One scan for the command, so its git calls stay within one deadline budget.
+  it('scans once for a command that pushes to two remotes, with both', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => undefined);
+    await gate('git push origin && git push work', runCheck, scan.deniedPush);
+    assert.deepEqual(scan.calls, ['/work/tree']);
+    assert.deepEqual(scan.remotes, ['origin', 'work']);
+  });
 
   it('does not scan a push from a detached HEAD, or what pushes nothing', async () => {
     const { runCheck } = fakeCheck({ ok: true, output: '' });
