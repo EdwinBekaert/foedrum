@@ -129,6 +129,28 @@ describe('nextStep', () => {
     );
   });
 
+  it('puts each package right above its own advisories', () => {
+    const step = nextStep(
+      {
+        kind: 'findings',
+        findings: [
+          { name: 'first', severity: 'high', advisories: ['A (https://a)', 'B (https://b)'] },
+          { name: 'second', severity: 'low', advisories: [] },
+          { name: 'third', severity: 'moderate', advisories: ['C'] },
+        ],
+      },
+      1,
+    );
+    assert.deepEqual(step.lines.slice(1), [
+      'first (high)',
+      '  A (https://a)',
+      '  B (https://b)',
+      'second (low)',
+      'third (moderate)',
+      '  C',
+    ]);
+  });
+
   it('retries a server error once, then fails', () => {
     const result = read('server-error');
     const first = nextStep(result, 1);
