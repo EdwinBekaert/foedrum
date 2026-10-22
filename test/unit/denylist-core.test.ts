@@ -78,6 +78,11 @@ describe('deniedLines', () => {
     assert.deepEqual(deniedLines('a\nb examplecorp\nc\r\nExampleCorp\r\n', list), [2, 4]);
   });
 
+  // The words split at a digit, so the last one may be a single character long.
+  it('finds an entry whose last word is one character, joined up to its full length', () => {
+    assert.deepEqual(deniedLines('the foo2 build\nthe Foo2Bar build', ['foo2']), [1, 2]);
+  });
+
   it('finds nothing with an empty list', () => {
     assert.deepEqual(deniedLines('examplecorp', []), []);
   });
