@@ -194,6 +194,10 @@
             "why"
           ],
           "additionalProperties": false
+        },
+        "retry": {
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [
@@ -265,6 +269,10 @@
               "pattern": "\\S"
             },
             "worktree": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "fallback": {
               "type": "string",
               "pattern": "\\S"
             }

@@ -113,6 +113,11 @@ export interface AttemptFacts {
    * init, a lasting error before the first model reply, or refused arguments (ADR 0046, ADR 0047).
    */
   environment?: string | undefined;
+  /**
+   * Why claude could not resume the session the runner asked it to: a result before init when it
+   * resumes one, as when the transcript is gone. The next attempt starts fresh (ADR 0117).
+   */
+  unresumed?: string | undefined;
   exit: ProcessExit;
   /** The out doc's text, or `undefined` when the brewer did not write it. */
   outDoc: string | undefined;
@@ -227,6 +232,11 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   if (facts.spendLimit !== undefined) {
     const summary = spendSummary(facts.spendLimit);
     return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
+  // The session it resumes is gone: the next attempt starts a fresh one. After the limits, which
+  // a fresh attempt would meet too (ADR 0117).
+  if (facts.unresumed !== undefined) {
+    return failed(true, `claude could not resume the session: ${facts.unresumed}`);
   }
   if (exit.kind === 'unstartable') {
     return failed(false, `the brewer could not start: ${exit.reason}`);

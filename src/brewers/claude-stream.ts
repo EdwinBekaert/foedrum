@@ -26,12 +26,15 @@ import { type AskedSession, checkInit, type SessionFacts } from './claude-init.t
 export interface StreamAsk extends AskedSession {
   /** Stops the attempt at the denial that reaches it. */
   maxDenials?: number | undefined;
+  /** Whether claude resumes the session rather than start it (ADR 0117). */
+  resumes?: boolean | undefined;
 }
 
 /** What the stream showed, for settleAttempt. */
 export type StreamFacts = Pick<
   AttemptFacts,
   | 'environment'
+  | 'unresumed'
   | 'streamError'
   | 'usageLimit'
   | 'spendLimit'
@@ -170,6 +173,7 @@ const textOf = (content: readonly { type: string; text?: unknown }[]): string =>
 export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReader {
   let session: SessionFacts | undefined;
   let environment: string | undefined;
+  let unresumed: string | undefined;
   let streamError: string | undefined;
   let usageLimit: UsageLimit | undefined;
   let spendLimit: SpendLimit | undefined;
@@ -219,7 +223,9 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     if (result.success) {
       readResult(result.data);
       const said = result.data.errors?.[0] ?? result.data.result ?? errorOf(result.data);
-      environment = `claude ended before the session started: ${cut(said)}`;
+      // A session it resumes may be gone, which a fresh attempt gets past (ADR 0117).
+      if (asked.resumes === true) unresumed = cut(said);
+      else environment = `claude ended before the session started: ${cut(said)}`;
       return 'go';
     }
     const check = checkInit(event, asked);
@@ -318,6 +324,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     facts: () => ({
       ...(session === undefined ? {} : { session }),
       ...(environment === undefined ? {} : { environment }),
+      ...(unresumed === undefined ? {} : { unresumed }),
       ...(streamError === undefined ? {} : { streamError }),
       ...(usageLimit === undefined ? {} : { usageLimit }),
       ...(spendLimit === undefined ? {} : { spendLimit }),

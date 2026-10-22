@@ -320,7 +320,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       /** One start of claude, read by a reader of its own. */
       const once = async (): Promise<{ stream: StreamReader; result: StreamResult }> => {
         const stream = readClaudeStream(
-          { sessionId: session.id, tools, maxDenials: limits.maxDenials },
+          {
+            sessionId: session.id,
+            tools,
+            maxDenials: limits.maxDenials,
+            resumes: session.kind === 'resume',
+          },
           startedAt,
         );
         reader = stream;
@@ -376,6 +381,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       if (!stopped && stopping.signal.aborted) return { ...cancelled(), ...reported };
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
+        unresumed: seen.unresumed,
         exit,
         outDoc: out.kind === 'text' ? out.text : undefined,
         outDocUnread: out.kind === 'unread' ? out.reason : undefined,

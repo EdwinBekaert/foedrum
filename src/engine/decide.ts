@@ -278,7 +278,7 @@ function run(draft: Draft, command: Command): Event[] {
         break;
       }
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
-      schedule(draft, batchId, reason.stepId);
+      schedule(draft, batchId, reason.stepId, { retry: true });
       break;
     }
     case 'skip': {
@@ -478,7 +478,7 @@ function retryOrStick(
   const recipe = recipeOf(draft, batch);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
   if (retryable && recipe.mayRetry(batch, stepId)) {
-    schedule(draft, batchId, stepId);
+    schedule(draft, batchId, stepId, { retry: true });
     return;
   }
   const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
@@ -505,7 +505,7 @@ function goBack(draft: Draft, batchId: string, back: string, route: ScheduleRout
     });
     return;
   }
-  schedule(draft, batchId, back, route);
+  schedule(draft, batchId, back, { route });
 }
 
 /** An Ordered batch past its routing deadline gets Stuck, so a human hears of it (ADR 0032). */
@@ -656,10 +656,16 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
 }
 
 /**
- * Schedules the next attempt of `stepId`, with the deadline its recipe gives it and the route
- * that sent the batch there, if one did.
+ * Schedules the next attempt of `stepId`, with the deadline its recipe gives it, the route that
+ * sent the batch there, if one did, and whether it runs because the attempt before it failed: a
+ * retry, whose brewer may resume that attempt's session (ADR 0117).
  */
-function schedule(draft: Draft, batchId: string, stepId: string, route?: ScheduleRoute): void {
+function schedule(
+  draft: Draft,
+  batchId: string,
+  stepId: string,
+  { route, retry }: { route?: ScheduleRoute; retry?: true } = {},
+): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
   const attempts = [...(batch.steps.get(stepId)?.attempts.keys() ?? [])];
@@ -670,6 +676,7 @@ function schedule(draft: Draft, batchId: string, stepId: string, route?: Schedul
     attempt: Math.max(0, ...attempts) + 1,
     deadlineAt: draft.after(recipeOf(draft, batch).deadlineMs(stepId)),
     ...(route === undefined ? {} : { route }),
+    ...(retry === undefined ? {} : { retry }),
   });
 }
 

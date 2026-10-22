@@ -9,7 +9,8 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
-import { MAX_INPUT_BYTES, type StepBrewers } from '../engine/recipe-files.ts';
+import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
+import { ranIn } from '../engine/session-resume.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
@@ -78,9 +79,23 @@ const startedOf = (batch: Batch | undefined, ref: AttemptRef) => {
   return started?.phase === 'started' ? started : undefined;
 };
 
-/** The worktree the driver recorded when it started the attempt; none before. */
-const worktreeOf = (batch: Batch | undefined, ref: AttemptRef): WorktreeRef | undefined =>
-  startedOf(batch, ref)?.worktree;
+/**
+ * The worktree the attempt runs in, and the attempt that made it: the one the driver recorded when
+ * it started the attempt, or for a resumed attempt with none of its own, the worktree of the
+ * session it continues (ADR 0117); none before it started.
+ */
+const worktreeOf = (
+  batch: Batch | undefined,
+  ref: AttemptRef,
+): { worktree: WorktreeRef; madeBy: AttemptRef } | undefined => {
+  const started = startedOf(batch, ref);
+  const step = batch?.steps.get(ref.stepId);
+  const ran = started === undefined || step === undefined ? undefined : ranIn(step, started);
+  if (started === undefined || ran === undefined) return undefined;
+  // A resumed attempt runs where the driver recreated that worktree (ADR 0117).
+  const path = started.session?.worktree ?? ran.worktree.path;
+  return { worktree: { ...ran.worktree, path }, madeBy: { ...ref, attempt: ran.attempt } };
+};
 
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
 const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontmatter } };
@@ -123,14 +138,44 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     }
   };
 
+  /**
+   * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then the answers to
+   * its step's questions, then what sent it back when a route scheduled it (ADR 0128).
+   */
+  const inputsFor = async (
+    batch: Batch,
+    ref: AttemptRef,
+    found: StepBrewer,
+    worktree: string,
+  ): Promise<PromptInput[]> => {
+    const recipe = batch.recipe?.name ?? '';
+    const stepBrewer = (id: string) => brewers.find(recipe, id);
+    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree, found.lenses);
+    const inputs: PromptInput[] = [];
+    for (const input of planned) {
+      inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
+    }
+    const answers = answersOf(batch, ref.stepId);
+    if (answers !== undefined) inputs.push(answers);
+    const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
+    if (route !== undefined) {
+      const { outDoc } = route;
+      const read =
+        outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
+      inputs.push(routeInput(route, read));
+    }
+    return inputs;
+  };
+
   return {
     plan: async ({ ref }) => {
       const { batchId, stepId, attempt } = ref;
       const batch = state().batches.get(batchId);
-      const worktree = worktreeOf(batch, ref);
-      if (batch === undefined || worktree === undefined) {
+      const ranIn = worktreeOf(batch, ref);
+      if (batch === undefined || ranIn === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
+      const { worktree, madeBy } = ranIn;
       const session = startedOf(batch, ref)?.session;
       if (session === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no session`);
@@ -138,27 +183,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const recipe = batch.recipe?.name ?? '';
       const found = brewers.find(recipe, stepId);
       if (found === undefined) throw new Error(`recipe ${recipe} has no step ${stepId}`);
-      const planned = inputsOf(
-        found.brewer.inputs,
-        batch,
-        (id) => brewers.find(recipe, id),
-        worktree.path,
-        found.lenses,
-      );
-      const inputs: PromptInput[] = [];
-      for (const input of planned) {
-        inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
-      }
-      const answers = answersOf(batch, stepId);
-      if (answers !== undefined) inputs.push(answers);
-      // What sent it back, when a route scheduled it (ADR 0128).
-      const route = routeOf(batch, ref, (id) => brewers.find(recipe, id)?.brewer.output.doc);
-      if (route !== undefined) {
-        const { outDoc } = route;
-        const read =
-          outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
-        inputs.push(routeInput(route, read));
-      }
+      // A resumed session holds the inputs its first attempt read, and only a retry resumes one,
+      // which no route scheduled (ADR 0117).
+      const resumes = session.resumes !== undefined;
+      const inputs = resumes ? [] : await inputsFor(batch, ref, found, worktree.path);
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
       const plan = planAttempt({
@@ -171,13 +199,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         sandbox: options.sandbox,
         settingsFile,
         sessionId: session.id,
+        resumes,
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
       if (found.brewer.produces !== 'commits') return plan;
-      // Its commits are counted on its branch in the clone, built from the attempt as the
-      // worktree's is, never from the recorded branch or the worktree's own git files (ADR 0037).
-      const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(ref) };
+      // Its commits are counted on its branch in the clone, built from the attempt that made the
+      // worktree as the worktree's is, never from the recorded branch or the worktree's own git
+      // files (ADR 0037, ADR 0117).
+      const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(madeBy) };
       return { ...plan, commits };
     },
     limits: (ref) => {
@@ -185,7 +215,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (found === undefined) return noBrewer;
       // The commit its worktree started at, which a done of a brewer that commits needs one after.
       const batch = state().batches.get(ref.batchId);
-      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.commit);
+      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.worktree.commit);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

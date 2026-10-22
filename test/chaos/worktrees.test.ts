@@ -108,8 +108,14 @@ const startsAtTheTaskTree = ({ engine }: ChaosRun): void => {
   for (const event of engine.events()) {
     switch (event.type) {
       case 'step.started': {
-        if (event.worktree === undefined) break;
         const { batchId, stepId, attempt } = event;
+        // A resumed attempt goes on in the worktree it continues, at its branch's tip (ADR 0117).
+        if (event.worktree === undefined) {
+          if (event.session?.resumes !== undefined) {
+            withWorktree.add(attemptKey.encode({ batchId, stepId, attempt }));
+          }
+          break;
+        }
         withWorktree.add(attemptKey.encode({ batchId, stepId, attempt }));
         const tip = tips.get(batchId);
         if (tip === null) break;
@@ -182,6 +188,18 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   // A kill between a batch's end and its cleanup, or part-way through one: the start repairs it.
   'what a kill left of an ended batch removed by the repair at the next start': (engine) =>
     cloneOf(engine).cleaned.some(({ batchId, done }) => batchId === undefined && done.length > 0),
+  // A retry goes on in the session and worktree of the attempt before it (ADR 0117).
+  'a retry resumed the session of the attempt before it, in the worktree that attempt made': (
+    engine,
+  ) =>
+    engine
+      .events()
+      .some((event) => event.type === 'step.started' && event.session?.resumes !== undefined),
+  // Lost or ended before claude's init: no session to resume, so it starts fresh and says why.
+  'a retry that had no session to resume started fresh, saying why': (engine) =>
+    engine
+      .events()
+      .some((event) => event.type === 'step.started' && event.session?.fallback !== undefined),
   // Its worktree stays under the attempt's lease at first, and goes once the lease does.
   'a batch that ended while an attempt ran kept its worktree, which went later': (engine) =>
     cloneOf(engine).cleaned.some(
