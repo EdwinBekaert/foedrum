@@ -57,7 +57,6 @@ const Guard = z.enum([
   'requiresCommits',
   'testsNotRemoved',
   'testsUnchanged',
-  'noPush',
   'scope',
   'diffLimits',
 ]);

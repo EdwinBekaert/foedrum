@@ -27,7 +27,7 @@
   "stall": { "turns": 60, "minutes": 20 },
   "maxAttempts": 2,
   "retryMode": "fresh",
-  "guards": ["requiresOutDoc", "requiresCommits", "testsNotRemoved", "testsUnchanged", "noPush", "scope"],
+  "guards": ["requiresOutDoc", "requiresCommits", "testsNotRemoved", "testsUnchanged", "scope"],
 }
 ---
 Implement the plan in {plan} for the order below. The Gauger's failing tests in {tests}

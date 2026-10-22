@@ -17,7 +17,7 @@ import {
   openAttemptWorktrees,
   worktreeClonePath,
 } from '../workspace/attempt-worktrees-git.ts';
-import { listRemoteRefs, openBranchPush } from '../workspace/branch-push-git.ts';
+import { openBranchPush } from '../workspace/branch-push-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { ServeShell } from './serve.ts';
@@ -116,11 +116,6 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: worktreeClonePath(workRoot, repository),
         own: ownRemote(repository.repo),
       }),
-    refs: (repository) => (signal) =>
-      listRemoteRefs(
-        { git, clone: worktreeClonePath(workRoot, repository), own: ownRemote(repository.repo) },
-        signal,
-      ),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     // A check's command line runs in the OS sandbox (ADR 0076).
     exec: sandboxedChecks({ exec: execProcess, ...checks }),

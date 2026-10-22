@@ -7,9 +7,7 @@
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { createCheckRunner } from '../checks/check-runner.ts';
-import { guardPushes } from '../checks/push-guard.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
-import { notedClaims, notedPush, remoteWrites } from '../checks/remote-writes.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
@@ -27,7 +25,6 @@ import type { EventStore } from '../engine/event-store.ts';
 import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
-import { STATE_BRANCH } from '../engine/state-branch-git.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -59,7 +56,7 @@ export interface Wired {
   driver: Driver;
   /** One cache of conditional reads for every GitHub read (ADR 0052). */
   reads: GitHubReads;
-  /** The claim refs, with the engine's own writes noted for the noPush guard (ADR 0106). */
+  /** The claim refs on GitHub (ADR 0043). */
   claims: ClaimHost;
   claimant: Claimant;
 }
@@ -94,14 +91,12 @@ export const wireDriver = async (
   await stateBranch.start();
   const worktrees: RepositoryWorktrees[] = [];
   const pushes: PullRequestRepository[] = [];
-  // The engine's own writes to the remotes, which the noPush guard leaves out (ADR 0106).
-  const writes = remoteWrites();
   for (const repository of setup.repositories) {
     const { repo, base } = repository;
     worktrees.push({ repo, base, manager: await shell.worktrees(repository) });
     // The pull request goes into the branch the attempts start from (ADR 0071).
     const into = base.slice(base.indexOf('/') + 1);
-    pushes.push({ repo, base: into, push: notedPush(shell.push(repository), writes, repo) });
+    pushes.push({ repo, base: into, push: shell.push(repository) });
   }
   const client = createGitHubClient({
     exec: shell.gh,
@@ -111,7 +106,7 @@ export const wireDriver = async (
   });
   // One cache of conditional reads for the intake, the marks and the orders' text (ADR 0052).
   const reads = createGitHubReads(client);
-  const claims = notedClaims(githubClaimHost(client), writes);
+  const claims = githubClaimHost(client);
   // gh's login: the status comments and the claim marks count only its own (ADR 0072, ADR 0073).
   const login = await githubLogin(client, signal);
   const claimant: Claimant = { brewery: setup.brewery, login };
@@ -183,28 +178,16 @@ export const wireDriver = async (
   const recipeOf = (batchId: string) => state().batches.get(batchId)?.recipe?.name;
   const guardsOf = (batchId: string, stepId: string) =>
     setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.guards ?? [];
-  // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078),
-  // and one with noPush leaves the remote as it found it (ADR 0106).
-  const brewer = guardPushes({
-    runner: guardTests({
-      runner: shell.runner(setup.claude, plans.plan),
-      state,
-      protects: ({ batchId, stepId }) =>
-        guardsOf(batchId, stepId).includes('testsUnchanged')
-          ? setup.checks.redProof(recipeOf(batchId) ?? '')?.of
-          : undefined,
-      git: shell.git,
-      clone,
-      clock,
-    }),
+  // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078).
+  const brewer = guardTests({
+    runner: shell.runner(setup.claude, plans.plan),
     state,
-    guarded: ({ batchId, stepId }) => guardsOf(batchId, stepId).includes('noPush'),
-    refs: async (repo, signal) => shell.refs(repositoryCalled(repo))(signal),
-    writes,
-    // Its own push refuses a move the engine did not make (ADR 0024).
-    exempt: (repo, ref) => sameRepo(repo, setup.brewery) && ref === `refs/heads/${STATE_BRANCH}`,
-    // A stop: no git of the guard outlives the driver.
-    signal,
+    protects: ({ batchId, stepId }) =>
+      guardsOf(batchId, stepId).includes('testsUnchanged')
+        ? setup.checks.redProof(recipeOf(batchId) ?? '')?.of
+        : undefined,
+    git: shell.git,
+    clone,
     clock,
   });
   const isCheck = ({ batchId, stepId }: AttemptRef) => {
