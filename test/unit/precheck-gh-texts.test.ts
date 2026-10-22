@@ -244,16 +244,32 @@ describe('ghFileReader', () => {
     }
   });
 
-  // Git Bash maps /tmp/… for gh to another folder than the gate would resolve.
-  it('refuses a POSIX path on Windows, but not a Git Bash drive path', () => {
-    const { files, calls } = fakeFileSystem({ 'C:\\work//c/notes/body.md': { text: 'plain' } });
-    const reader = ghFileReader(files, 'win32');
-    assert.match(
-      failure(() => reader('C:\\work', ['/tmp/body.md'])),
-      /Windows or relative path/,
-    );
-    assert.equal(reader('C:\\work', ['/c/notes/body.md']), 'plain');
-    assert.deepEqual(calls, ['stat C:\\work//c/notes/body.md', 'read C:\\work//c/notes/body.md']);
+  // Git Bash maps /tmp/… for gh to another folder than the gate would resolve, PowerShell passes
+  // /c/… to gh as a folder of the current drive, and a drive's own current folder (D:notes.md)
+  // is gh's to know: the gate refuses each part as written, before it resolves it.
+  it('refuses a rooted or drive-relative path on Windows, as written, touching nothing', () => {
+    for (const part of ['/tmp/body.md', '/c/notes/body.md', '\\notes\\body.md', 'D:notes.md']) {
+      const { files, calls } = fakeFileSystem({ [`C:\\work/${part}`]: { text: 'plain' } });
+      const reader = ghFileReader(files, 'win32');
+      assert.match(
+        failure(() => reader('C:\\work', [part])),
+        /Windows or relative path/,
+        part,
+      );
+      assert.deepEqual(calls, [], part);
+    }
+  });
+
+  // bash leaves ~ after @ and in quotes as it is, and PowerShell never expands it for gh.
+  it('refuses a ~ path on every platform, which gh may read as a folder named ~', () => {
+    for (const platform of ['linux', 'win32'] as const) {
+      const { files, calls } = fakeFileSystem({});
+      assert.match(
+        failure(() => ghFileReader(files, platform)('/work/tree', ['~/draft.md'])),
+        /without ~/,
+      );
+      assert.deepEqual(calls, []);
+    }
   });
 
   it('blocks gh pr comment -F /dev/stdin, which reads standard input', () => {
@@ -460,13 +476,13 @@ describe('precheck reads gh texts against the denylist', () => {
     };
     return { calls, runCheck };
   };
-  const hookInput = (command: string): string =>
-    JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd: CWD });
-  const gate = (command: string, deniedTexts: DeniedTexts) => {
+  const hookInput = (command: string, tool: string): string =>
+    JSON.stringify({ tool_name: tool, tool_input: { command }, cwd: CWD });
+  const gate = (command: string, deniedTexts: DeniedTexts, tool = 'Bash') => {
     const loads: number[] = [];
     const check = fakeCheck();
     const result = precheck(
-      hookInput(command),
+      hookInput(command, tool),
       check.runCheck,
       async () => undefined,
       async () => false,
@@ -500,6 +516,33 @@ describe('precheck reads gh texts against the denylist', () => {
     const status = gate('git status && gh pr view 5', deniedTexts);
     assert.deepEqual(await status.result, { exitCode: 0, stderr: '' });
     assert.deepEqual(status.loads, []);
+  });
+
+  // PowerShell turns `n, `t, `u{…} and the like into other characters, which the gate does not
+  // decode, so a word after one would read as part of another.
+  for (const command of [
+    'gh pr comment 5 -b "Done.`nexamplecorp asked"',
+    'gh pr comment 5 -b "`u{45}xampleCorp"',
+    'gh issue create -t plain -b Done.`texamplecorp',
+  ]) {
+    it(`blocks a PowerShell escape in a gh text it cannot decode: ${command}`, async () => {
+      const { exitCode, stderr } = await gate(command, scan().deniedTexts, 'PowerShell').result;
+      assert.equal(exitCode, 2);
+      assert.match(
+        stderr,
+        /--body is a text with a PowerShell escape, so the gate cannot check it/,
+      );
+    });
+  }
+
+  // GitHub shows a literal \n, so a word after it is posted as it is.
+  it('reads a literal backslash escape as a break between words', async () => {
+    const { exitCode, stderr } = await gate(
+      "gh pr comment 5 -b 'Summary\\nexamplecorp'",
+      scan().deniedTexts,
+    ).result;
+    assert.equal(exitCode, 2);
+    assert.match(stderr, hit('gh pr comment', 'gh pr comment --body line 1'));
   });
 
   it('blocks when the scan throws, saying so', async () => {
