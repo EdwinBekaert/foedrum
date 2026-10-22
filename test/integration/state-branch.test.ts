@@ -341,6 +341,61 @@ describe('the state branch with real git', () => {
     );
   });
 
+  // #306, ADR 0111 and ADR 0115: the lock files a git commit killed while it moved the branch leaves are where
+  // real git looks for them, and the next flush removes them and pushes.
+  it('removes a stale ref lock and HEAD.lock that block a real commit, and pushes', async () => {
+    const a = machine('a');
+    await a.state.start();
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
+    const refLock = join(a.clone, '.git', 'refs', 'heads', 'foedrum', 'state.lock');
+    const headLock = join(git(a.worktree, ['rev-parse', '--absolute-git-dir']).trim(), 'HEAD.lock');
+    writeFileSync(refLock, '');
+    writeFileSync(headLock, '');
+    writeFileSync(join(a.worktree, 'probe.txt'), 'x\n');
+    assert.throws(
+      () => git(a.worktree, ['commit', '-q', '-a', '--allow-empty', '-m', 'probe']),
+      /cannot lock ref|Unable to create/,
+    );
+
+    const said: string[] = [];
+    const restarted = openStateBranch({
+      store: a.store,
+      git: runGit,
+      clone: a.clone,
+      worktree: a.worktree,
+      out: (line) => said.push(line),
+    });
+    rmSync(join(a.worktree, 'probe.txt'));
+    a.store.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 7 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
+    );
+    const result = await restarted.flush();
+
+    assert.equal(result.kind, 'pushed', JSON.stringify(result));
+    assert.equal(existsSync(refLock), false);
+    assert.equal(existsSync(headLock), false);
+    assert.equal(said.length, 2, said.join('\n'));
+    assert.match(
+      said[0] ?? '',
+      /^removed a stale refs\/heads\/foedrum\/state\.lock from the clone's common git folder: /,
+    );
+    assert.match(said[1] ?? '', /^removed a stale HEAD\.lock from the state worktree: /);
+    assert.equal(
+      git(a.worktree, ['rev-parse', 'HEAD']).trim(),
+      git(origin, ['rev-parse', 'foedrum/state']).trim(),
+    );
+  });
+
   it('reports a push that a remote hook refuses, keeps the marker, and does not stop', async () => {
     const a = machine('a');
     await a.state.start();

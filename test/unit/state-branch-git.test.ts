@@ -945,6 +945,37 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(said, removedLines());
     });
 
+    it('asks git for the two folders once, at the start', async () => {
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      leaveLocks();
+      fake.calls.length = 0;
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      const lookups = fake.calls.filter(
+        (call) =>
+          call.args.includes('--absolute-git-dir') || call.args.includes('--git-common-dir'),
+      );
+      assert.deepEqual(lookups, []);
+      assert.deepEqual(said, removedLines());
+    });
+
+    it('stops the start when git cannot name the common folder, leaving the locks', async () => {
+      leaveLocks();
+      fake.answer = (args) =>
+        args.includes('--git-common-dir')
+          ? exit(129, "error: unknown option `path-format=absolute'\n")
+          : undefined;
+
+      await assert.rejects(branch().start(), /git rev-parse failed: error: unknown option/);
+
+      assert.equal(existsSync(refLock()), true);
+      assert.equal(existsSync(headLock()), true);
+      assert.deepEqual(said, []);
+    });
+
     it('leaves the files beside them alone', async () => {
       const state = branch();
       await state.start();
