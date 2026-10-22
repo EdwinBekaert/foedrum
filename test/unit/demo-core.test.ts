@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import {
@@ -50,6 +50,15 @@ describe('scratchFolder', () => {
     ]) {
       assert.throws(() => scratchFolder(root, asked, root), /\.foedrum[\\/]tmp/, asked);
     }
+  });
+
+  it('refuses a folder on another drive, whose path relative to .foedrum/tmp is absolute', () => {
+    const root = 'D:\\repo';
+    assert.equal(win32.relative(win32.join(root, '.foedrum', 'tmp'), 'E:\\demo'), 'E:\\demo');
+    assert.throws(
+      () => scratchFolder(root, 'E:\\demo', root, win32),
+      /works only in a folder inside D:\\repo\\\.foedrum\\tmp, not in E:\\demo/,
+    );
   });
 });
 
