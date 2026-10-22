@@ -1,6 +1,6 @@
 # 0135. The gate drops the check on gh pr create, the GraphQL readers and the alias rule
 
-Date: 2026-10-22 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (no alias rule, no check on `gh pr create`), [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) (the `gh api` forms of marking ready are no longer read) and [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (only a push has a tree to check) · Supersedes the GraphQL parts of [0108](0108-the-gate-blocks-merges-through-gh-api.md)
+Date: 2026-10-22 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (no alias rule, no check on `gh pr create`), [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) (the `gh api` forms of marking ready and `gh alias set` are no longer read, and `gh pr ready` is blocked only beside `git push`, no longer beside `gh pr create`) and [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (only a push has a tree to check) · Supersedes [0108](0108-the-gate-blocks-merges-through-gh-api.md)'s GraphQL parts
 
 ## Context
 The local gate (`scripts/precheck.ts`) owns one row of [docs/trust-boundaries.md](../trust-boundaries.md): a session skipping the procedure by accident. ADR 0045 says it guards against mistakes, not a determined adversary, and that the ruleset on `main` is the line that holds. Since then three of its rules grew past that row (#360, decided in the safeguard audit of 2026-10-22):
@@ -30,6 +30,7 @@ What stays:
 - `scripts/precheck.ts` and its tests lose the GraphQL endpoint parser, the query reader, the alias reader and `gh pr create`'s places, about 150 lines of code and 250 tests.
 - A session can merge, enable auto-merge or mark a pull request ready through `gh api graphql`, or hide a push behind an alias. Neither is a mistake a session makes by accident. A merge into `main` still needs `ci-ok` under the ruleset, and the maintainer reviews what lands; a pull request marked ready without a review is visible on the pull request, which has no summary comment.
 - `gh pr create` from another directory or a computed one now passes: it runs nothing of that tree's code.
+- `gh pr create` without a pushed branch does not push it from a session: the Bash and PowerShell tools give gh no terminal to ask in, and gh then stops with "you must first push the current branch to a remote, or use the --head flag". Were it to push, the commits would miss the push's checks (they always did, since `gh pr create` was never read as a push), but not CI, which runs the check on the pull request.
 
 ## Alternatives considered
 - **Keep the GraphQL readers and fix each form as it is found:** the list of forms has no end (#314, #329), and every fix guards a path no session has taken.
