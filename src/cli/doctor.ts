@@ -41,6 +41,8 @@ export interface DoctorFacts {
   github?: GitHubFacts | undefined;
   /** Whether the local gate's personal denylist is set, and where (ADR 0114); never its words. */
   denylist?: DenylistFact | undefined;
+  /** On Linux, whether AppArmor restricts unprivileged user namespaces, which bwrap needs (ADR 0076). */
+  restrictsUserns?: boolean | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */

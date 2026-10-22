@@ -57,6 +57,8 @@ export interface DoctorShell {
   env?: NodeJS.ProcessEnv;
   /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
   githubHost?: string;
+  /** On Linux, whether AppArmor restricts unprivileged user namespaces; undefined when unknown. */
+  restrictsUserns?: () => boolean | undefined;
 }
 
 // The list's state without its text: doctor never prints a word of it (ADR 0114).

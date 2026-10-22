@@ -671,6 +671,29 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   });
 });
 
+// Ubuntu 24.04 and later: AppArmor keeps bwrap from making the user namespaces the sandbox needs
+// (Claude Code's sandbox docs, "Ubuntu 24.04 and later: allow bubblewrap to create user
+// namespaces"); seen on CI's ubuntu leg (#357).
+describe("diagnose: AppArmor's limit on user namespaces (ADR 0076)", () => {
+  const userns = (facts: DoctorFacts) =>
+    diagnose(facts).advice.filter((line) => /apparmor_restrict_unprivileged_userns/.test(line));
+
+  it('says on Linux what to do when AppArmor restricts user namespaces', () => {
+    const [line = '', ...more] = userns({ ...linux(), restrictsUserns: true });
+    assert.deepEqual(more, []);
+    assert.match(line, /kernel\.apparmor_restrict_unprivileged_userns is 1/);
+    assert.match(line, /bwrap/);
+    assert.match(line, /https:\/\/code\.claude\.com\/docs\/en\/sandboxing/);
+    assert.match(line, /sudo systemctl reload apparmor/);
+  });
+
+  it('says nothing of it where AppArmor does not, or off Linux', () => {
+    assert.deepEqual(userns({ ...linux(), restrictsUserns: false }), []);
+    assert.deepEqual(userns(linux()), []);
+    assert.deepEqual(userns({ ...macos, restrictsUserns: true }), []);
+  });
+});
+
 describe('diagnose: the Brewery config (ADR 0043)', () => {
   const checks = '{ "build": null, "typecheck": null, "lint": null, "format": null, "test": null }';
   const config = (web: string, api: string): string =>
