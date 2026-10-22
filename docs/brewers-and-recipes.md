@@ -352,7 +352,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
         "test": "dotnet test --logger junit"
       },
       "testReport": { "format": "junit", "path": "tests/TestResults/results.xml" },
-      "setup": { "command": "dotnet restore", "timeout": "15m" },  // once per worktree
+      "setup": { "command": "dotnet restore", "timeout": "15m" },  // before a check step's checks (ADR 0140)
       "tools": ["Bash(dotnet test*)", "Bash(dotnet build*)"],    // added to every brewer's allowlist
       "houseYeast": "repo",                                      // or "brewery" (ADR 0018)
       "alias": "billing",                                        // batches billing-<issue>

@@ -1,6 +1,6 @@
 # 0140. A repository's setup runs before a check step's checks, with the network
 
-Date: 2026-10-22 · Status: Accepted · Amends [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's repositories carry their setup, and its shell a second process runner) and [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (a check step's first reading may be its setup's)
+Date: 2026-10-22 · Status: Accepted · Amends [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (serve's repositories carry their setup, and its shell a second process runner), [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (a check step's first reading may be its setup's), [0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md) (part of a check step's attempt, its setup, runs outside the sandbox on every platform and level) and [0023](0023-language-independent-recipes.md) (setup runs before a check step's checks, not once per worktree)
 
 ## Context
 A target repository's entry in `foedrum.jsonc` can name a `setup` command with a `timeout` (`src/schemas/brewery-config.ts`, [ADR 0023](0023-language-independent-recipes.md): "run once per worktree"), for example `npm ci` or `dotnet restore`. Nothing ran it. Every attempt has a worktree of its own at the task tree ([ADR 0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md)), so a check step's worktree is fresh and holds no installed dependencies. Since [ADR 0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md) a check runs with no network, so its own command cannot install them either: `npm test` without `node_modules` fails in every fresh worktree (#349).
@@ -13,6 +13,7 @@ A target repository's entry in `foedrum.jsonc` can name a `setup` command with a
   - Setup runs code outside every sandbox (below): package managers run scripts, and a later step's worktree holds a manifest a brewer may have changed. Running it before every brewer attempt as well would run that code more often for no step that needs it.
   - Every attempt is a fresh worktree, so "once per worktree" before brewer steps would be once per brewer attempt: a full install before each, retries and `onFail` rounds included, whether the brewer runs the tests or not.
   - The driver does not change: setup is part of what a check step's attempt does, within its lease, deadline and stop (ADR 0069).
+- **Once nothing else blocks the step.** The setup runs after the step's own preconditions, so a step that would be blocked anyway installs nothing: for checks, after the repository's checks are found (`foedrum.jsonc lists no checks …`); for a red proof, after its test report, the proven step's commits and its test check are found, and before the old report is cleared.
 - The schema's description of `setup` changes to say so: `Runs in a check step's worktree before its checks, with the network (ADR 0140)`.
 
 ### How it runs
@@ -39,6 +40,9 @@ A target repository's entry in `foedrum.jsonc` can name a `setup` command with a
 
 ### No sandbox for setup, in this decision
 Setup runs as the Cellar's user, with the network and the home folder, on every platform. What it runs can be code a brewer influenced (a changed manifest, a package's script when ignore-scripts is off by a repository's own setup line). Whether that needs a registry-only sandbox waits for proof under CLAUDE.md's safeguard rule: an observed case, or a path the brewers' sandbox and the checks' no-network sandbox (#190) do not already cover. No row of `docs/trust-boundaries.md` changes.
+
+- **Also under a sandboxed minimum.** `"isolation": { "minimum": "sandboxed" }` (ADR 0076) holds back check steps whose checks would run below the level; it does not hold back setup, which runs outside the sandbox by this decision on every level. `foedrum serve` prints no line about it: each setup reading says `"unsandboxed": true` in the event log and the state branch.
+- **The path the review of #378 named.** A brewer steered by an injected issue can commit a file that an install runs (an MSBuild `Directory.Build.targets` before `dotnet restore`, a `Gemfile`, a `setup.py`, a worktree `.npmrc`); the next check step's setup then runs it with the network and the Cellar user's home folder, where gh's login is reachable (ADR 0073). `npm_config_ignore_scripts` covers npm's scripts only. That is the proof the issue asks for, recorded here; the registry-only sandbox that closes it is left to its own issue, as #349 scoped it.
 
 ## Consequences
 - A recipe whose check step runs `npm test` brews in a fresh worktree when its repository's setup is `npm ci`; ADR 0076's "a check that needs installed dependencies fails until #349" no longer holds.
