@@ -221,10 +221,6 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
     const summary = `claude did not set up the session the runner asked for: ${facts.environment}`;
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
-  // The session it resumes is gone: the next attempt starts a fresh one (ADR 0117).
-  if (facts.unresumed !== undefined) {
-    return failed(true, `claude could not resume the session: ${facts.unresumed}`);
-  }
   // claude refuses every request until the window resets: another attempt now would be refused
   // too, so a human retries after the reset claude named (ADR 0091).
   if (facts.usageLimit !== undefined) {
@@ -236,6 +232,11 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   if (facts.spendLimit !== undefined) {
     const summary = spendSummary(facts.spendLimit);
     return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
+  // The session it resumes is gone: the next attempt starts a fresh one. After the limits, which
+  // a fresh attempt would meet too (ADR 0117).
+  if (facts.unresumed !== undefined) {
+    return failed(true, `claude could not resume the session: ${facts.unresumed}`);
   }
   if (exit.kind === 'unstartable') {
     return failed(false, `the brewer could not start: ${exit.reason}`);
