@@ -48,13 +48,24 @@ describe('the plugin and the terminal (ADR 0125)', () => {
   it("runs each skill's own command with --via plugin, only when the engineer types it", () => {
     const names = skillNames();
     assert.notDeepEqual(names, []);
+    const registry = new Set(commands.map(({ name }) => name));
     for (const name of names) {
       const text = readFileSync(skillFile(name), 'utf8');
-      assert.match(text, /^disable-model-invocation: true$/m, name);
-      assert.ok(text.includes(`foedrum ${name} `), `${name} does not run foedrum ${name}`);
-      for (const line of text.split('\n').filter((line) => /`foedrum \w+ /.test(line))) {
-        assert.ok(line.includes('--via plugin'), `${name}: ${line}`);
-      }
+      // The frontmatter alone: the lines between the first two `---` lines.
+      const [, frontmatter = ''] = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text) ?? [];
+      assert.ok(
+        frontmatter.split(/\r?\n/).includes('disable-model-invocation: true'),
+        `${name} may be invoked by the model`,
+      );
+      // Every inline code span that names a command of the registry is a command line to run.
+      const runs = [...text.matchAll(/`foedrum ([a-z]+)\b[^`]*`/g)].filter(([, command]) =>
+        registry.has(command ?? ''),
+      );
+      assert.ok(
+        runs.some(([, command]) => command === name),
+        `${name} does not run foedrum ${name}`,
+      );
+      for (const [span] of runs) assert.ok(span.includes(' --via plugin'), `${name}: ${span}`);
     }
   });
 
