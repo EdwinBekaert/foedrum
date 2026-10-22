@@ -130,7 +130,7 @@ const record = ([store, file, dir]: string[], asked: boolean, deps: RunDeps): nu
   const separator = before === '' || before.endsWith('\n') ? '' : '\n';
   deps.appendFile(store, `${separator}${JSON.stringify(candidate)}\n`);
   const proposal = proposeRule(
-    readCandidates(`${before}${separator}${JSON.stringify(candidate)}\n`).candidates,
+    [...readCandidates(before).candidates, candidate],
     candidate.lesson,
     asked,
   );
