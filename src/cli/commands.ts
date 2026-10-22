@@ -29,6 +29,7 @@ import {
   SkipCommand,
   StatusCommand,
   StuckCommand,
+  TakeoverCommand,
 } from '../schemas/commands.ts';
 import type { OrderRef, Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
@@ -408,5 +409,16 @@ export const commands: readonly RegisteredCommand[] = [
     // A driver of its own on the machine, run by the terminal (ADR 0123).
     handler: async (input, context) =>
       context.brew(input, { by: context.user(), via: context.surface }),
+  }),
+  define({
+    name: 'takeover',
+    summary: 'Hand a batch from the driver that holds it to another: --as, else this session',
+    changesState: true,
+    positionals: ['batch'],
+    options: { as: 'name' },
+    schema: TakeoverCommand,
+    handler: async () => {
+      throw new Error('not implemented');
+    },
   }),
 ];

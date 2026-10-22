@@ -548,4 +548,54 @@ describe('runBrew', () => {
       `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
     );
   });
+
+  describe('--take (ADR 0124)', () => {
+    const takes: BrewRequest = { ...request, take: true };
+    const cellarUntil = new Date(t0.getTime() + 60_000);
+    beforeEach(() => {
+      log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+      log().issue(
+        { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label', source: 'label' },
+        t0,
+      );
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt: cellarUntil }),
+      );
+    });
+
+    it('takes the batch over from the driver that holds it, records who did, and brews it', async () => {
+      // The clock moves on a minute per wait, so the effects' wait for the Cellar's lease ends.
+      let now = t0;
+      const moving = shell(behave.succeed(), {
+        clock: () => now,
+        wait: async () => {
+          now = new Date(now.getTime() + 60_000);
+        },
+      });
+      assert.equal(await runBrew(setup, moving, takes), 0);
+      const handovers = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .filter((event) => event.type === 'batch.taken_over');
+      assert.deepStrictEqual(handovers, [
+        {
+          type: 'batch.taken_over',
+          batchId: '12-1',
+          by: 'ann',
+          via: 'terminal',
+          from: 'cellar',
+          to: 'ann',
+          until: cellarUntil.toISOString(),
+        },
+      ]);
+      assert.ok(lines.includes('foedrum brew: took batch 12-1 over from cellar'), lines.join('\n'));
+      assert.equal(started.length > 0, true);
+    });
+
+    it('brews as before when no other driver holds the batch, recording no handover', async () => {
+      store.withTransaction((tx) => tx.releaseBatchLease('12-1'));
+      assert.equal(await runBrew(setup, shell(behave.succeed()), takes), 0);
+      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
+    });
+  });
 });

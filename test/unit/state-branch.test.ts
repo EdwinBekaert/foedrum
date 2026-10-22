@@ -170,6 +170,18 @@ describe('logPathOf', () => {
       { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
       'batches/b1/events.jsonl',
     ],
+    'batch.taken_over': [
+      {
+        type: 'batch.taken_over',
+        batchId: 'b1',
+        by: 'octocat',
+        via: 'terminal',
+        from: 'cellar',
+        to: 'session-7',
+        until: '2026-10-15T12:05:00.000Z',
+      },
+      'batches/b1/events.jsonl',
+    ],
     'effect.applied': [applied('b4'), 'batches/b4/events.jsonl'],
   };
   for (const [type, [event, path]] of Object.entries(placed)) {

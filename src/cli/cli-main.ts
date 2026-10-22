@@ -72,6 +72,7 @@ export const cliFromCheckout = async (
       // Loaded only for resume: it brings serve's setup and the worktrees.
       resume: async (input) =>
         (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, options),
+      env: process.env,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

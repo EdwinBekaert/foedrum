@@ -1,6 +1,7 @@
 // Two drivers on one store, each told to take every batch, killed at random points and restarted
-// (#107, ADR 0044): each attempt is started by one of them at most once, only under its batch's
-// lease, and no effect is applied twice. The run count is FOEDRUM_RUNS, as for restarts.test.ts.
+// (#107, ADR 0044), with batches handed from one to the other mid-transaction (ADR 0124): each
+// attempt is started by one of them at most once, only under its batch's lease, and no effect is
+// applied twice. The run count is FOEDRUM_RUNS, as for restarts.test.ts.
 
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -89,6 +90,10 @@ const lostAndRetried = (engine: ChaosEngine): { lost: string; retry: string | un
   });
 };
 
+/** The takeovers the terminal made as a driver began a transaction (ADR 0124). */
+const takenOver = (engine: ChaosEngine) =>
+  engine.interjections.filter(({ accepted, command }) => accepted && command.kind === 'take_over');
+
 /** What the runs with two drivers must reach between them, each asked of one finished run. */
 const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   // Two drivers competing for one batch.
@@ -129,9 +134,19 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
   // latest events, so the driver's command is refused or decided on them, and the log never
   // breaks (every read folds it).
   "a terminal command accepted between a driver's read and its append": (engine) =>
-    engine.interjections.some(({ accepted }) => accepted),
+    engine.interjections.some(({ accepted, command }) => accepted && command.kind !== 'take_over'),
   "a driver's command refused after a terminal command came before it": (engine) =>
     engine.moot.length > 0,
+  // A takeover between a driver's read and its append (ADR 0124): the driver it took the batch
+  // from starts nothing more there (underItsLease), and no effect is applied twice (noOverlap).
+  "a batch taken over between a driver's read and its append": (engine) =>
+    takenOver(engine).length > 0,
+  'a driver lost a batch to a takeover while an attempt of it ran': (engine) =>
+    engine.losses.some(
+      ({ driver, batchId, running }) =>
+        running.length > 0 &&
+        takenOver(engine).some((i) => i.driver === driver && i.batchId === batchId),
+    ),
   // A driver restarted under its owner: it drives on the batches it held, and its earlier
   // attempts are lost and retried (ADR 0033).
   'a driver started again drove on a batch it held': (engine) =>

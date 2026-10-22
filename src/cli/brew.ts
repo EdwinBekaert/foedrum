@@ -25,9 +25,11 @@ export interface BrewRequest {
   target: OrderTarget;
   /** The driver's owner: its lock's and its leases' (ADR 0037). */
   owner: string;
-  /** Who runs it, recorded on an order it makes (ADR 0105). */
+  /** Who runs it, recorded on an order it makes (ADR 0105) and on a takeover (ADR 0124). */
   by: string;
   via: Surface;
+  /** `--take`: take the batch over from the driver that holds it, instead of refusing it. */
+  take?: true;
 }
 
 /** How `foedrum brew` ends (ADR 0123); 2, a wrong command line, is the terminal's. */

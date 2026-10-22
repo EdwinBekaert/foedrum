@@ -115,6 +115,8 @@ function rule(state: State, event: Event): string | undefined {
       return bottleable(state, event);
     case 'batch.on_tap':
       return lanes(state, event, ['brewing']);
+    case 'batch.taken_over':
+      throw new Error('not implemented');
     case 'batch.cancelled':
       return lanes(state, event, nonTerminal);
     case 'pull_request.ended':

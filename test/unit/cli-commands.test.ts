@@ -55,6 +55,10 @@ describe('foedrum: commands that change state', () => {
       assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
     // 21-1 asks two questions at plan; 22-1, 24-1, 25-1 and 26-1 used up their attempts at plan;
     // 23-1 brews.
+    // The Cellar drives 22-1 (ADR 0124).
+    store.withTransaction((tx) =>
+      tx.putBatchLease({ batchId: '22-1', owner: 'cellar', expiresAt: new Date(iso(3)) }),
+    );
     for (const issueNumber of [21, 22, 23, 24, 25, 26]) {
       const batchId = `${issueNumber}-1`;
       issue({ kind: 'order', batchId, order: { issue: issueNumber } });
@@ -101,6 +105,7 @@ describe('foedrum: commands that change state', () => {
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     brew: async () => assert.fail('no brew here'),
     resume: async () => assert.fail('no session to resume'),
+    env: {},
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
@@ -156,6 +161,7 @@ describe('foedrum: commands that change state', () => {
       rewind: ['rewind', '26-1', 'plan', `acme/app=${SHA}`],
       cancel: ['cancel', '23-1'],
       order: ['order', '#99'],
+      takeover: ['takeover', '22-1', '--as', 'ann'],
     };
     // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123).
     const names = commands
@@ -423,6 +429,55 @@ describe('foedrum: commands that change state', () => {
       );
     });
   });
+
+  describe('takeover (ADR 0124)', () => {
+    const leases = () => store.batchLeases(t0).map(({ batchId, owner }) => [batchId, owner]);
+
+    it("hands a batch from the driver that holds it to --as's, recording who and from where", async () => {
+      assert.deepStrictEqual(
+        await run(['takeover', '22-1', '--as', 'ann']),
+        ok(`22-1 handed from cellar to ann; its effects wait until ${iso(3)}\n`),
+      );
+      assert.deepStrictEqual(appended(1), [
+        {
+          type: 'batch.taken_over',
+          batchId: '22-1',
+          by: 'ada',
+          via: 'terminal',
+          from: 'cellar',
+          to: 'ann',
+          until: iso(3),
+        },
+      ]);
+      assert.deepStrictEqual(leases(), [['22-1', 'ann']]);
+    });
+
+    it("hands it to the Claude Code session's driver without --as, and to the Cellar with --as cellar", async () => {
+      const env = { CLAUDE_CODE_SESSION_ID: 'ABC-1' };
+      assert.equal((await run(['takeover', '22-1'], { env })).exitCode, 0);
+      assert.deepStrictEqual(leases(), [['22-1', 'session-abc-1']]);
+      assert.equal((await run(['takeover', '22-1', '--as', 'cellar'])).exitCode, 0);
+      assert.deepStrictEqual(leases(), [['22-1', 'cellar']]);
+    });
+
+    it('is a mistake of the command line without --as outside a session: exit 2, nothing recorded', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(await run(['takeover', '22-1']), {
+        exitCode: 2,
+        stdout: '',
+        stderr:
+          'foedrum takeover: no Claude Code session names the driver (CLAUDE_CODE_SESSION_ID); give --as <name>\n',
+      });
+      assert.equal(lastId(), before);
+    });
+
+    it('refuses a batch no other driver holds', async () => {
+      assert.deepStrictEqual(
+        await run(['takeover', '23-1', '--as', 'ann']),
+        refused('takeover', 'no driver holds batch 23-1; foedrum brew drives it'),
+      );
+    });
+  });
 });
 
 describe('foedrum stuck', () => {
@@ -448,6 +503,7 @@ describe('foedrum stuck', () => {
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
       brew: async () => assert.fail('no brew here'),
       resume: async () => assert.fail('no session to resume'),
+      env: {},
     });
   const append = (...events: Event[]) =>
     store.withTransaction((tx) => {
@@ -573,6 +629,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     brew: async () => assert.fail('no brew here'),
     resume: async () => assert.fail('no session to resume'),
+    env: {},
     ...overrides,
   });
   const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>

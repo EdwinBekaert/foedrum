@@ -1416,6 +1416,55 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "batch.taken_over"
+        },
+        "batchId": {
+          "type": "string",
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "by": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "via": {
+          "type": "string",
+          "enum": [
+            "plugin",
+            "terminal",
+            "comment",
+            "dashboard"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "type",
+        "batchId",
+        "by",
+        "via",
+        "from",
+        "to",
+        "until"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "pull_request.ended"
         },
         "batchId": {

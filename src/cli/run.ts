@@ -64,6 +64,8 @@ export interface CliContext {
    * the terminal.
    */
   brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  /** The environment, for the Claude Code session that names a driver (ADR 0123, ADR 0124). */
+  env: Readonly<Record<string, string | undefined>>;
   /** Opens a finished attempt's session in its worktree (ADR 0126); claude has the terminal. */
   resume: (input: ResumeCommand) => Promise<CliResult>;
 }

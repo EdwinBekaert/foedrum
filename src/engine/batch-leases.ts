@@ -3,6 +3,9 @@
 // frees it. The driver renews it, never the brewer runner, so a lease stops when its driver does,
 // even while an orphaned brewer process runs on.
 
+import type { Surface } from '../schemas/events.ts';
+import type { Decision } from './admit.ts';
+import type { CommandLog } from './command-log.ts';
 import type { BatchLease, EventStoreTransaction } from './event-store.ts';
 
 /** Whether the driver holds the batch now, or which other driver does. */
@@ -39,3 +42,23 @@ export const releaseBatch = (tx: EventStoreTransaction, batchId: string, owner: 
 
 /** How long a batch's or an attempt's lease lasts between renewals by default: 5 minutes. */
 export const defaultLeaseMs = 5 * 60_000;
+
+/** A person's handover of a batch to the driver `owner` (ADR 0124). */
+export interface TakeoverRequest {
+  batchId: string;
+  /** The driver it hands the batch to. */
+  owner: string;
+  by: string;
+  via: Surface;
+  now: Date;
+  /** How long the new owner's lease lasts from `now`. */
+  leaseMs: number;
+}
+
+/**
+ * Hands `batchId` from the driver whose live lease holds it to `owner`, and records the handover
+ * (ADR 0124): the lease is read, and given, in the transaction that appends.
+ */
+export const takeOver = (_log: CommandLog, _request: TakeoverRequest): Decision => {
+  throw new Error('not implemented');
+};

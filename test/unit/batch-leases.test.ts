@@ -3,9 +3,11 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { holdBatch, releaseBatch } from '../../src/engine/batch-leases.ts';
+import { holdBatch, releaseBatch, takeOver } from '../../src/engine/batch-leases.ts';
+import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const t0 = new Date('2026-10-15T12:00:00.000Z');
 const at = (minutes: number): Date => new Date(t0.getTime() + minutes * 60_000);
@@ -79,5 +81,96 @@ describe('batch leases', () => {
   it('releases nothing when the batch has no lease', () => {
     release('cellar', 'b9');
     assert.deepStrictEqual(store.batchLeases(t0), []);
+  });
+});
+
+describe('takeOver (ADR 0124)', () => {
+  let store: EventStore;
+  let log: CommandLog;
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+    log = createCommandLog({ store, recipes: fakeRecipes({}) });
+    log.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, t0);
+  });
+  afterEach(() => store.close());
+
+  const lease = (owner: string, expiresAt: Date) =>
+    store.withTransaction((tx) => tx.putBatchLease({ batchId: 'b1', owner, expiresAt }));
+  const takeOverAt = (now: Date, owner = 'session-7', batchId = 'b1') =>
+    takeOver(log, { batchId, owner, by: 'ada', via: 'terminal', now, leaseMs });
+  const takeovers = () =>
+    store
+      .eventsAfter(0)
+      .map(({ event }) => event)
+      .filter((event) => event.type === 'batch.taken_over');
+
+  it("puts another driver's live lease to the new owner and records whose it was until when", () => {
+    lease('cellar', at(3));
+    const handover = {
+      type: 'batch.taken_over',
+      batchId: 'b1',
+      by: 'ada',
+      via: 'terminal',
+      from: 'cellar',
+      to: 'session-7',
+      until: at(3).toISOString(),
+    } as const;
+    assert.deepStrictEqual(takeOverAt(at(1)), { kind: 'accepted', events: [handover] });
+    assert.deepStrictEqual(takeovers(), [handover]);
+    assert.deepStrictEqual(store.batchLeases(at(1)), [
+      { batchId: 'b1', owner: 'session-7', expiresAt: at(6) },
+    ]);
+  });
+
+  it('reads the lease in the transaction that appends: a renewal before it counts', () => {
+    lease('cellar', at(3));
+    // The old driver renews as the takeover begins.
+    const inner = store;
+    store = {
+      ...inner,
+      withTransaction: (fn) => {
+        lease('cellar', at(8));
+        store = inner;
+        return inner.withTransaction(fn);
+      },
+    };
+    log = createCommandLog({ store, recipes: fakeRecipes({}) });
+    takeOverAt(at(1));
+    assert.equal(takeovers()[0]?.until, at(8).toISOString());
+  });
+
+  const refusals: [string, () => void, RegExp][] = [
+    ['a batch no driver holds', () => {}, /no driver holds batch b1; foedrum brew drives it/],
+    [
+      'a batch whose lease expired',
+      () => lease('cellar', at(1)),
+      /no driver holds batch b1; foedrum brew drives it/,
+    ],
+    [
+      'a batch its new owner holds already',
+      () => lease('session-7', at(3)),
+      /session-7 holds batch b1 already/,
+    ],
+  ];
+  for (const [what, given, reason] of refusals) {
+    it(`refuses ${what}, recording and moving nothing`, () => {
+      given();
+      const before = store.batchLeases(at(1));
+      const decision = takeOverAt(at(1));
+      assert.equal(decision.kind, 'refused');
+      assert.match(decision.kind === 'refused' ? decision.reason : '', reason);
+      assert.deepStrictEqual(takeovers(), []);
+      assert.deepStrictEqual(store.batchLeases(at(1)), before);
+    });
+  }
+
+  it('refuses a batch that has ended, moving no lease', () => {
+    log.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, t0);
+    lease('cellar', at(3));
+    const decision = takeOverAt(at(1));
+    assert.equal(decision.kind, 'refused');
+    assert.deepStrictEqual(store.batchLeases(at(1)), [
+      { batchId: 'b1', owner: 'cellar', expiresAt: at(3) },
+    ]);
   });
 });

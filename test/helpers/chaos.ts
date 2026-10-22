@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
+import { defaultLeaseMs, takeOver } from '../../src/engine/batch-leases.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Command, EngineCommand } from '../../src/engine/decide.ts';
@@ -85,8 +86,22 @@ export interface Interjected {
   batchId: string;
 }
 
+/** A takeover the terminal issues as a driver begins a transaction (ADR 0124). */
+export interface Handover {
+  batchId: string;
+  /** The driver it hands the batch to. */
+  to: string;
+}
+
 /** A kind of decision the faults of a run make. */
-export type FaultKind = `kill ${KillPoint}` | 'pause' | 'first' | 'down' | 'stall' | 'interject';
+export type FaultKind =
+  | `kill ${KillPoint}`
+  | 'pause'
+  | 'first'
+  | 'down'
+  | 'stall'
+  | 'interject'
+  | 'take over';
 
 /**
  * A fault a run had: a decision other than the quiet one (no kill, no pause, no stall, …), at a
@@ -103,7 +118,7 @@ export interface Fault {
   kind: FaultKind;
   n: number;
   /** 1 for a kill; turns of the event loop, the first driver, or moves; or the command. */
-  value: number | Interjected;
+  value: number | Interjected | Handover;
 }
 
 /** The decisions of a run's faults, each at its site (`Fault`). */
@@ -122,6 +137,11 @@ export interface Faults {
   stall(driver: string, busy: boolean): number;
   /** The command the terminal issues as `driver` begins a transaction, on one of `live`. */
   interject(driver: string, live: () => string[]): Interjected | undefined;
+  /**
+   * The batch, of `held` (the ones `driver` holds), that the terminal hands to one of `others` as
+   * `driver` begins a transaction: between its read and its append (ADR 0124).
+   */
+  takeOver(driver: string, held: () => string[], others: readonly string[]): Handover | undefined;
   /** The faults decided so far, in order. */
   readonly made: readonly Fault[];
 }
@@ -166,9 +186,12 @@ export const drawnFaults = (plan: KillPlan, several: boolean): Faults => {
   // The terminal now and then issues a human command on a live batch as a driver begins a
   // transaction: after it read the events and before it appends (ADR 0044).
   const interjecting = several ? seededRandom(plan.seed ^ 0x7e_a1) : undefined;
+  // Now and then the terminal hands a batch from the driver that begins a transaction to another
+  // (ADR 0124). A stream of its own, so the other faults of a seed stay where they were.
+  const handing = several ? seededRandom(plan.seed ^ 0x7a_c3) : undefined;
   const site = sites();
   const made: Fault[] = [];
-  const note = <T extends number | Interjected | undefined>(
+  const note = <T extends number | Interjected | Handover | undefined>(
     driver: string,
     kind: FaultKind,
     value: T,
@@ -204,6 +227,16 @@ export const drawnFaults = (plan: KillPlan, several: boolean): Faults => {
       }
       return note(driver, 'interject', command);
     },
+    takeOver: (driver, held, others) => {
+      let handover: Handover | undefined;
+      if (handing?.chance(0.03)) {
+        const ids = held();
+        if (ids.length > 0 && others.length > 0) {
+          handover = { batchId: handing.pick(ids), to: handing.pick([...others]) };
+        }
+      }
+      return note(driver, 'take over', handover);
+    },
     made,
   };
 };
@@ -232,7 +265,11 @@ export const replayedFaults = (faults: readonly Fault[]): Faults => {
     stall: (driver) => count(get(driver, 'stall')),
     interject: (driver) => {
       const value = get(driver, 'interject');
-      return typeof value === 'object' ? value : undefined;
+      return typeof value === 'object' && 'kind' in value ? value : undefined;
+    },
+    takeOver: (driver) => {
+      const value = get(driver, 'take over');
+      return typeof value === 'object' && 'to' in value ? value : undefined;
     },
     made,
   };
@@ -797,6 +834,26 @@ export const openChaosEngine = async (
     const accepted = terminal.issue(command, now).kind === 'accepted';
     interjections.push({ move, driver, batchId, command, accepted });
   };
+  // A takeover from the driver that begins a transaction, recorded as an interjection of the
+  // command the terminal issued (ADR 0124).
+  const handOver = (driver: string): void => {
+    const held = () =>
+      outside
+        .batchLeases(now)
+        .filter((lease) => lease.owner === driver)
+        .map((lease) => lease.batchId);
+    const others = drivers.filter((owner) => owner !== driver);
+    const handover = faults.takeOver(driver, held, others);
+    if (handover === undefined) return;
+    const { batchId, to } = handover;
+    const request = { batchId, owner: to, ...human, now, leaseMs: defaultLeaseMs };
+    const decision = takeOver(terminal, request);
+    const accepted = decision.kind === 'accepted';
+    const handed = decision.kind === 'accepted' ? decision.events[0] : undefined;
+    const until = handed?.type === 'batch.taken_over' ? handed.until : now.toISOString();
+    const command: Command = { kind: 'take_over', batchId, ...human, from: driver, to, until };
+    interjections.push({ move, driver, batchId, command, accepted });
+  };
   const pause = async (driver: string): Promise<void> => {
     for (let turns = faults.pause(driver); turns > 0; turns--) {
       await new Promise((resolve) => setImmediate(resolve));
@@ -894,7 +951,13 @@ export const openChaosEngine = async (
         .batchLeases(now)
         .filter((lease) => lease.owner === owner)
         .map((lease) => lease.batchId);
-      const store = killableStore(outside, life, { read, beginning: () => interject(owner) });
+      const store = killableStore(outside, life, {
+        read,
+        beginning: () => {
+          interject(owner);
+          handOver(owner);
+        },
+      });
       try {
         const stateBranch = branch?.handle(life, store);
         await stateBranch?.start();
@@ -1112,6 +1175,12 @@ const maxSettleTicks = 100;
 const brewing = (state: State): string[] =>
   [...state.batches.values()].filter((b) => b.lane.kind === 'brewing').map((b) => b.id);
 
+/** The batches whose effects wait for the lease a takeover took (ADR 0124). */
+const handingOver = (state: State, now: Date): string[] =>
+  [...state.batches.values()]
+    .filter((b) => b.takeover !== undefined && Date.parse(b.takeover.until) > now.getTime())
+    .map((b) => b.id);
+
 /**
  * Plays `source` with `plan`'s kills, then ticks until no batch is brewing and the last tick was
  * one the driver lived through, then applies the effects that are due, checking `checks` along
@@ -1140,11 +1209,16 @@ export const runChaos = async (
   // Until no batch is brewing, and at least once: the last tick must be one every driver ran in
   // and lived through, or a deadline that came due before a kill would never be seen.
   let ticked = false;
-  for (let ticks = 0; !ticked || brewing(engine.state()).length > 0; ticks++) {
+  // And until no batch's effects wait for the lease a takeover took.
+  const busy = (): string[] => [
+    ...brewing(engine.state()),
+    ...handingOver(engine.state(), engine.now()),
+  ];
+  for (let ticks = 0; !ticked || busy().length > 0; ticks++) {
     if (ticks === maxSettleTicks) {
       throw new Error(
         `Batches still brewing after ${maxSettleTicks} ticks of ${settleMs / 60_000} min: ` +
-          brewing(engine.state()).join(', '),
+          busy().join(', '),
       );
     }
     const survived = await step({ kind: 'tick', advanceMs: settleMs }, ++site);

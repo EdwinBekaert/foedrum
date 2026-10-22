@@ -80,7 +80,8 @@ export const nothingOverdue = (run: ChaosRun): void => {
  * is in the ledger, except in a batch a driver that is down holds. Once that lease expired, the
  * other driver takes the batch over (ADR 0044). And except in a batch a terminal command changed
  * in this move: one that came after the drivers' last drive waits for their next (ADR 0044). And
- * except an attempt whose step still has a live lease of an attempt the log shows over.
+ * except an attempt whose step still has a live lease of an attempt the log shows over. And except
+ * the effects of a batch taken over, until the lease the takeover took has run out (ADR 0124).
  */
 export const nothingLeftWaiting = (run: ChaosRun): void => {
   const { engine } = run;
@@ -118,8 +119,14 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
       );
     }
   }
+  // Effects of a batch taken over wait for the lease the takeover took (ADR 0124).
+  const now = engine.now().getTime();
+  const handedOver = (batchId: string): boolean => {
+    const until = state.batches.get(batchId)?.takeover?.until;
+    return until !== undefined && Date.parse(until) > now;
+  };
   for (const key of effectsDue(state)) {
-    if (waiting.has(key.batchId)) continue;
+    if (waiting.has(key.batchId) || handedOver(key.batchId)) continue;
     const text = effectKey.encode(key);
     assert.ok(state.effects.has(text), `effect ${text} is due and not in the ledger`);
   }

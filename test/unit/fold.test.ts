@@ -974,6 +974,43 @@ describe('fold: skipped steps (ADR 0064)', () => {
   });
 });
 
+describe('fold: a batch taken over (ADR 0124)', () => {
+  const takenOver = (from: string, to: string, until: string): Event => ({
+    type: 'batch.taken_over',
+    batchId: 'b1',
+    by: 'ada',
+    via: 'terminal',
+    from,
+    to,
+    until,
+  });
+
+  it('keeps its latest handover and leaves its lane as it was', () => {
+    const state = fold([
+      ordered,
+      scheduled,
+      takenOver('cellar', 'session-7', '2026-10-15T12:05:00.000Z'),
+      takenOver('session-7', 'cellar', '2026-10-15T12:09:00.000Z'),
+    ]);
+    const { lane, takeover } = batch(state);
+    assert.deepStrictEqual(lane, batch(fold([ordered, scheduled])).lane);
+    assert.deepStrictEqual(takeover, {
+      by: 'ada',
+      via: 'terminal',
+      from: 'session-7',
+      to: 'cellar',
+      until: '2026-10-15T12:09:00.000Z',
+    });
+  });
+
+  it('refuses a handover of a batch that was never ordered', () => {
+    assert.throws(
+      () => fold([takenOver('cellar', 'session-7', '2026-10-15T12:05:00.000Z')]),
+      /batch b1 was never ordered/,
+    );
+  });
+});
+
 describe('fold of an inconsistent log', () => {
   const started: Event = { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1 };
   const finished: Event = {

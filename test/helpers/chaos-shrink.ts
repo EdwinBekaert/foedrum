@@ -246,6 +246,9 @@ export const describeFault = ({ move, driver, kind, n, value }: Fault): string =
   const where = `move ${move}${driver === '' ? '' : `, ${driver}`}`;
   const what = (): string => {
     if (kind.startsWith('kill ')) return `killed ${kind.slice('kill '.length)}`;
+    if (typeof value === 'object' && 'to' in value) {
+      return `the terminal: take over ${value.batchId} for ${value.to}`;
+    }
     if (typeof value === 'object') return `the terminal: ${value.kind} ${value.batchId}`;
     switch (kind) {
       case 'pause':

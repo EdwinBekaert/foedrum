@@ -110,6 +110,17 @@ const IssueTarget = z
 export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: IssueTarget });
 export type OrderCommand = z.infer<typeof OrderCommand>;
 
+/**
+ * `foedrum takeover <batch> [--as <name>]` (ADR 0124): the batch, and the driver it hands it to,
+ * the Cellar's included.
+ */
+export const TakeoverCommand = z.strictObject({
+  command: z.literal('takeover'),
+  batch: PathSafeId,
+  as: PathSafeId.optional(),
+});
+export type TakeoverCommand = z.infer<typeof TakeoverCommand>;
+
 /** The Cellar's driver owner (ADR 0037), which no other driver may take (ADR 0123). */
 export const CELLAR_OWNER = 'cellar';
 
@@ -124,5 +135,7 @@ export const BrewCommand = z.strictObject({
     (name) => name !== CELLAR_OWNER,
     "Must not be cellar, the Cellar's own",
   ).optional(),
+  /** `--take`: take the batch over from the driver that holds it (ADR 0124). */
+  take: z.literal(true).optional(),
 });
 export type BrewCommand = z.infer<typeof BrewCommand>;

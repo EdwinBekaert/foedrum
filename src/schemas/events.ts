@@ -365,6 +365,17 @@ export const Event = z.discriminatedUnion('type', [
     by: NonEmpty,
     via: Surface,
   }),
+  // A person handed the batch from the driver `from` to the driver `to` (ADR 0124). `until`: when
+  // `from`'s lease would have expired, before which no driver applies an effect of the batch.
+  z.strictObject({
+    type: z.literal('batch.taken_over'),
+    batchId: BatchId,
+    by: NonEmpty,
+    via: Surface,
+    from: NonEmpty,
+    to: NonEmpty,
+    until: Timestamp,
+  }),
   // A pull request of the batch was merged or closed, as the intake saw it; recorded once (#103).
   z.strictObject({
     type: z.literal('pull_request.ended'),
