@@ -146,4 +146,6 @@ Commands:
   brew <issue> [--as <name>] [--take]  Brew an issue's batch here until it is on tap, Stuck or needs input
   takeover <batch> [--as <name>]       Hand a batch from the driver that holds it to another: --as, else this session
 
+Every command takes --via <plugin|terminal> but serve: the surface its events record.
+
 `;

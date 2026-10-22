@@ -62,6 +62,8 @@ export interface RegisteredCommand {
   options?: Readonly<Record<string, string>>;
   /** The options it takes without a value, each a field of its own that is true when given. */
   flags?: readonly string[];
+  /** Why the plugin does not carry it, when it does not (ADR 0125); the parity test reads it. */
+  terminalOnly?: string;
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -75,6 +77,7 @@ interface CommandDefinition<S extends z.ZodType> {
   rest?: string;
   options?: Readonly<Record<string, string>>;
   flags?: readonly string[];
+  terminalOnly?: string;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }
@@ -243,12 +246,17 @@ export const orderIssue = async (
   return { kind: 'order_again', ...issued(targetBatchId(state(), claim.alias, issue)), order };
 };
 
+/** Why a decision on a Stuck batch is the terminal's (ADR 0125). */
+const STUCK_DECISION =
+  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <batch>";
+
 export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'doctor',
     summary: 'Check the tools Foedrum needs and the isolation level',
     changesState: false,
     positionals: [],
+    terminalOnly: "Checks the machine's tools before Foedrum runs on it, outside any session",
     schema: DoctorCommand,
     handler: async (_input, { gatherDoctorFacts }) => {
       const diagnosis = diagnose(await gatherDoctorFacts());
@@ -291,6 +299,7 @@ export const commands: readonly RegisteredCommand[] = [
     summary: "Show a batch's events and its folded state",
     changesState: false,
     positionals: ['batch'],
+    terminalOnly: "A batch's whole log, for debugging; /foedrum:status shows where each batch is",
     schema: ReplayCommand,
     handler: async ({ batch: id }, context) =>
       readBrewery('replay', context, (events, state) => {
@@ -318,6 +327,7 @@ export const commands: readonly RegisteredCommand[] = [
     summary: 'Give the step a Stuck batch stopped at another attempt',
     changesState: true,
     positionals: ['batch'],
+    terminalOnly: STUCK_DECISION,
     schema: RetryCommand,
     handler: async ({ batch }, context) =>
       changeBrewery('retry', context, (_state, issued) => ({ kind: 'retry', ...issued(batch) })),
@@ -327,6 +337,7 @@ export const commands: readonly RegisteredCommand[] = [
     summary: 'Go on after the step a Stuck batch stopped at',
     changesState: true,
     positionals: ['batch'],
+    terminalOnly: STUCK_DECISION,
     schema: SkipCommand,
     handler: async ({ batch }, context) =>
       changeBrewery('skip', context, (_state, issued) => ({ kind: 'skip', ...issued(batch) })),
@@ -360,6 +371,7 @@ export const commands: readonly RegisteredCommand[] = [
     summary: 'Brew a batch with another recipe, from its first step',
     changesState: true,
     positionals: ['batch', 'recipe', 'reason'],
+    terminalOnly: STUCK_DECISION,
     schema: RecipeCommand,
     handler: async ({ batch, recipe, reason }, context) =>
       changeBrewery('recipe', context, (_state, issued) => ({
@@ -375,6 +387,7 @@ export const commands: readonly RegisteredCommand[] = [
     changesState: true,
     positionals: ['batch', 'step'],
     rest: 'commits',
+    terminalOnly: STUCK_DECISION,
     schema: RewindCommand,
     handler: async ({ batch, step, commits }, context) =>
       changeBrewery('rewind', context, (_state, issued) => ({
@@ -389,6 +402,7 @@ export const commands: readonly RegisteredCommand[] = [
     summary: 'Cancel a batch',
     changesState: true,
     positionals: ['batch'],
+    terminalOnly: STUCK_DECISION,
     schema: CancelCommand,
     handler: async ({ batch }, context) =>
       changeBrewery('cancel', context, (_state, issued) => ({ kind: 'cancel', ...issued(batch) })),
@@ -398,6 +412,8 @@ export const commands: readonly RegisteredCommand[] = [
     summary: 'Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery',
     changesState: true,
     positionals: ['issue'],
+    terminalOnly:
+      "Orders an ended issue again, a person's decision (ADR 0105); /foedrum:brew orders a new one",
     schema: OrderCommand,
     handler: async ({ issue: target }, context) => {
       const { alias, issue } = target;
@@ -433,6 +449,8 @@ export const commands: readonly RegisteredCommand[] = [
     changesState: true,
     positionals: ['batch'],
     options: { as: 'name' },
+    terminalOnly:
+      "/foedrum:brew --take takes a batch for the session; handing one to another is the terminal's",
     schema: TakeoverCommand,
     // The lease goes to the new owner at once; its driver renews it from its next tick (ADR 0124).
     handler: async ({ batch, as }, context) => {

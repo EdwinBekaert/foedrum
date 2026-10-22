@@ -1,0 +1,8 @@
+{
+  "name": "foedrum",
+  "version": "0.0.0",
+  "description": "Brew a Foedrum order from a Claude Code session: brew, status, stuck, answer and resume, through the foedrum program",
+  "author": { "name": "Edwin Bekaert" },
+  "repository": "https://github.com/EdwinBekaert/foedrum",
+  "license": "AGPL-3.0-only"
+}
