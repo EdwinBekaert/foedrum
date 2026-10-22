@@ -694,15 +694,34 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
 // prefix (api.github.com/graphql); or a full URL, which gh uses as it is, ending in /graphql
 // (api.github.com/graphql, <host>/api/graphql on GitHub Enterprise Server), before any query
 // string (#314). An endpoint built at run time is taken at its worst when its literal text still
-// ends in /graphql ("$base/graphql"), as for the merge endpoint. So is a literal path whose last
-// segment is graphql and which has a . or .. segment (x/../graphql): gh joins it to the REST
-// prefix without resolving them, and the server may (#329).
+// ends in /graphql ("$base/graphql"), as for the merge endpoint. So is a literal path with a . or ..
+// segment, also percent-encoded, whose last segment is graphql once they are resolved
+// (x/../graphql, graphql/x/.., x/%2e%2e/graphql): gh sends the path as it is, and the server may
+// decode and resolve it (#329).
 const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
 const GRAPHQL_PATH = /\/graphql\/?(?:[?#].*)?$/is;
-const DOTTED_GRAPHQL_PATH = /^(?:[^?#]*\/)?\.\.?\/(?:[^?#]*\/)?graphql\/?(?:[?#].*)?$/is;
+// The segments of a literal endpoint's path, percent-escapes decoded and . and .. resolved, or
+// undefined when it has no dot segment.
+const resolvedSegments = (text: string): string[] | undefined => {
+  const path = text.replace(/^[a-z][\w+.-]*:\/\/[^/?#]*/is, '').replace(/[?#].*$/s, '');
+  let decoded = path;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    // A % that starts no escape stays as it is.
+  }
+  const segments = decoded.split('/');
+  if (!segments.some((segment) => segment === '.' || segment === '..')) return undefined;
+  const kept: string[] = [];
+  for (const segment of segments) {
+    if (segment === '..') kept.pop();
+    else if (segment !== '.' && segment !== '') kept.push(segment);
+  }
+  return kept;
+};
 const isGraphqlEndpoint = (arg: Word): boolean =>
   GRAPHQL_ENDPOINT.test(arg.text) ||
-  DOTTED_GRAPHQL_PATH.test(arg.text) ||
+  /^graphql$/i.test(resolvedSegments(arg.text)?.at(-1) ?? '') ||
   (arg.dynamic && GRAPHQL_PATH.test(arg.text));
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
