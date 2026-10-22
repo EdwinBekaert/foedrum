@@ -1061,7 +1061,9 @@ const deletesComputedPath = (program: string, args: Word[], input: Word[]): bool
   if (recurses === undefined) return false;
   if (args.some(isSplat)) return true;
   if (!args.some(recurses)) return false;
-  return [...input, ...args].some((word) => {
+  // $_ and $PSItem in an earlier stage are the pipeline's own object, not another source.
+  const sources = input.filter((word) => !/^\$(?:_|psitem)(?:\.\w+)*$/i.test(word.text));
+  return [...sources, ...args].some((word) => {
     const switchValue = /^\$(?:true|false)$/i.test(PARAMETER.exec(word.text)?.[2] ?? '');
     const redirection = /^\d?>/.test(word.text);
     if (switchValue || redirection) return false;
