@@ -35,7 +35,7 @@ it('I2: at most one live lease per attempt and per worktree', () =>
 // attempt that started it, so its lease claims that worktree. Logs of attempts that resume earlier
 // sessions of their step, in chains, keeping the session's id or taking a new one; the latest
 // attempt of a step, when it runs, holds the step's one live lease.
-it('I2 with resumed attempts: each live lease claims the worktree it runs in, and no other lease does', () =>
+it('I2 with resumed attempts: each live lease claims the worktree it runs in and no other, and no other lease claims it', () =>
   forEachSeed(200, (seed) => {
     const random = seededRandom(seed);
     const at = '2026-10-15T13:00:00.000Z';
@@ -115,9 +115,11 @@ it('I2 with resumed attempts: each live lease claims the worktree it runs in, an
         return path === undefined ? [] : [path];
       });
       const worktree = runsIn.get(lease.attemptKey);
-      assert.ok(
-        worktree !== undefined && claimed.includes(worktree),
-        `lease ${lease.attemptKey} claims ${claimed.join(', ')}, not ${worktree}`,
+      // Every attempt a lease claims ran in its worktree: its session's chain never leaves it.
+      assert.deepEqual(
+        claimed,
+        [worktree],
+        `lease ${lease.attemptKey} claims ${claimed.join(', ')}, not ${worktree} alone`,
       );
       for (const path of claimed) {
         const other = claimedBy.get(path);
