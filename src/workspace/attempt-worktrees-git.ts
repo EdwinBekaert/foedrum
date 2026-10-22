@@ -2,7 +2,7 @@
 // attempts root, and carries out what attempt-worktrees.ts decides. Git runs only through the
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
-import { existsSync } from 'node:fs';
+import { type Dirent, existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -179,20 +179,30 @@ export const cleanOwnGitDirs = async (
   report: CleanReport,
   io: OwnGitDirsIo = OWN_GIT_DIRS_IO,
 ): Promise<void> => {
-  let names: string[];
+  let listed: Dirent[];
   try {
-    const entries = [];
-    for (const entry of await entriesOf(root)) {
-      const { mtimeMs } = await io.lstat(join(root, entry.name));
-      entries.push({ name: entry.name, directory: entry.isDirectory(), modifiedMs: mtimeMs });
-    }
-    names = planOwnGitDirs(entries, now);
+    listed = await entriesOf(root);
   } catch (error) {
     report.failed.push(
       `could not clean the git directories in ${root}: ${(error as Error).message}`,
     );
     return;
   }
+  const entries = [];
+  for (const entry of listed) {
+    try {
+      const { mtimeMs } = await io.lstat(join(root, entry.name));
+      entries.push({ name: entry.name, directory: entry.isDirectory(), modifiedMs: mtimeMs });
+    } catch (error) {
+      // Gone since the listing, as a running call removes its own: nothing left to judge.
+      if (errorCode(error) !== 'ENOENT') {
+        report.failed.push(
+          `could not clean git directory ${entry.name}: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
+  const names = planOwnGitDirs(entries, now);
   for (const name of names) {
     try {
       await io.remove(join(root, name));
