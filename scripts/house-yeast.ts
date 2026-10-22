@@ -42,11 +42,17 @@ const firstLine = (error: unknown): string => (error as Error).message.split('\n
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-const readOr = (deps: RunDeps, path: string, fallback: string): string => {
+const missing = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === 'ENOENT';
+
+// The candidates, empty when the store does not exist yet; undefined, with the reason printed, when
+// it exists but cannot be read, so a store that is there is never taken for an empty one.
+const readStore = (deps: RunDeps, store: string): string | undefined => {
   try {
-    return deps.readFile(path);
-  } catch {
-    return fallback;
+    return deps.readFile(store);
+  } catch (error) {
+    if (missing(error)) return '';
+    deps.out(`cannot read the candidates: ${firstLine(error)}\n`);
+    return undefined;
   }
 };
 
@@ -72,8 +78,12 @@ const select = (
       .readDir(dir)
       .filter((name) => name.endsWith('.md'))
       .sort();
-  } catch {
-    // No rules folder at the base: no rules yet.
+  } catch (error) {
+    // No rules folder at the base: no rules yet. Any other error is not "no rules".
+    if (!missing(error)) {
+      deps.out(`cannot read the rules: ${firstLine(error)}\n`);
+      return 1;
+    }
   }
   const { rules, invalid } = readRules(
     names.map((name) => posix.join(dir, name)).map((path) => ({ path, text: deps.readFile(path) })),
@@ -101,7 +111,9 @@ const list = ([store]: string[], deps: RunDeps): number => {
     deps.err(usage);
     return 2;
   }
-  const { candidates, invalid } = readCandidates(readOr(deps, store, ''));
+  const text = readStore(deps, store);
+  if (text === undefined) return 1;
+  const { candidates, invalid } = readCandidates(text);
   for (const line of invalid) deps.out(`invalid ${line}\n`);
   if (candidates.length === 0) deps.out('no candidates\n');
   for (const lesson of new Set(candidates.map((candidate) => candidate.lesson))) {
@@ -132,7 +144,8 @@ const record = ([store, file, dir]: string[], asked: boolean, deps: RunDeps): nu
     deps.out(`invalid candidate: ${invalid[0]?.replace(/^line 1: /, '') ?? 'empty'}\n`);
     return 1;
   }
-  const before = readOr(deps, store, '');
+  const before = readStore(deps, store);
+  if (before === undefined) return 1;
   const separator = before === '' || before.endsWith('\n') ? '' : '\n';
   deps.appendFile(store, `${separator}${JSON.stringify(candidate)}\n`);
   const proposal = proposeRule(
@@ -150,10 +163,7 @@ const record = ([store, file, dir]: string[], asked: boolean, deps: RunDeps): nu
     return 0;
   }
   deps.writeFile(path, formatRule(proposal.rule, proposal.body));
-  const why =
-    proposal.reviews >= 2
-      ? `seen in ${plural(proposal.reviews, 'review')}`
-      : 'asked for by the author';
+  const why = proposal.reviews >= 2 ? `seen in ${plural(proposal.reviews, 'review')}` : 'asked for';
   deps.out(`proposed ${path}: ${why}\n`);
   return 0;
 };

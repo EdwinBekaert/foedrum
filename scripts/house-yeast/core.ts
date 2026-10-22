@@ -121,14 +121,17 @@ const rank = ({ scope }: HouseYeastRule): [number, number] => [
   scope.globs !== undefined ? 0 : scope.language !== undefined ? 1 : 2,
 ];
 
+// Not localeCompare: a locale's collation would make the order, and so the cut, differ by machine.
+const byCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 const byPriority = (a: Rule, b: Rule): number => {
   const [lensA, scopeA] = rank(a.rule);
   const [lensB, scopeB] = rank(b.rule);
   return (
     lensA - lensB ||
     scopeA - scopeB ||
-    b.rule.created.localeCompare(a.rule.created) ||
-    a.rule.id.localeCompare(b.rule.id)
+    byCodeUnits(b.rule.created, a.rule.created) ||
+    byCodeUnits(a.rule.id, b.rule.id)
   );
 };
 
@@ -197,7 +200,7 @@ export const readCandidates = (
 };
 
 /**
- * The rule a lesson becomes once it was recorded from two reviews, or when the author asks: the
+ * The rule a lesson becomes once it was recorded from two reviews, or when it is asked for: the
  * newest occurrence's scope, kind and text, every occurrence's source.
  */
 export const proposeRule = (
