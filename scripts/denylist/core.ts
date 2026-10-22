@@ -120,7 +120,8 @@ export const scanPatches = (log: string, list: readonly string[]): string[] => {
       if (removed) continue;
       resultLeft -= 1;
       line += 1;
-      if (columns.includes('+') && holds(text.slice(parentsLeft.length))) {
+      // Added against every parent: a line in one parent came with that parent's commits.
+      if (/^\++$/.test(columns) && holds(text.slice(parentsLeft.length))) {
         const at = file === DENIED_PATH ? `${DENIED_PATH}, line ` : `${file}:`;
         places.add(`${short(commit)} ${at}${line}`);
       }
