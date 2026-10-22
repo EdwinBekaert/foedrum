@@ -2252,7 +2252,19 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
   // gh joins a literal path to the REST prefix without resolving its dot segments, so whether
   // x/../graphql reaches the GraphQL endpoint is up to the server: the gate takes it at its worst
   // (#329).
-  const dotted = ['x/../graphql', './graphql', '../graphql', '/api/v3/../graphql', 'a/./graphql/'];
+  const dotted = [
+    'x/../graphql',
+    './graphql',
+    '../graphql',
+    '/api/v3/../graphql',
+    'a/./graphql/',
+    // Dot segments after it, and the same segments percent-encoded, which a server may decode.
+    'graphql/x/..',
+    'graphql/.',
+    'x/%2e%2e/graphql',
+    'x/%2E%2E/graphql',
+    'x/../%67raphql',
+  ];
   for (const endpoint of dotted) {
     for (const query of unreadable) {
       const unquoted = query.replaceAll('"', '');
@@ -2283,6 +2295,8 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     'gh api repos/o/r/../r/contents/a.json --input body.json',
     'gh api ../graphql-tools --input body.json',
     'gh api repos/o/r/contents/.graphql --input body.json',
+    'gh api repos/o/graphql/.. --input body.json',
+    'gh api repos/o/r/contents/%67raphql --input body.json',
     // A REST path that names graphql elsewhere is not the GraphQL endpoint.
     'gh api repos/o/graphql/contents/a.json -F query=@a.txt',
     'gh api /repos/o/graphql-tools/issues --input body.json',
