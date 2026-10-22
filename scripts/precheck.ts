@@ -1600,15 +1600,17 @@ if (import.meta.main) {
     },
     // The personal denylist, FOEDRUM_DENYLIST or ~/.config/foedrum/denylist.txt (ADR 0114).
     async (dir) => {
-      const [{ pushRefusal }, { readDenylist }, { homedir }, { readFileSync }] = await Promise.all([
-        import('./denylist.ts'),
-        import('../src/platform/denylist.ts'),
-        import('node:os'),
-        import('node:fs'),
-      ]);
+      const [{ pushRefusal }, { readDenylist }, { execProcess }, { homedir }, { readFileSync }] =
+        await Promise.all([
+          import('./denylist.ts'),
+          import('../src/platform/denylist.ts'),
+          import('../src/platform/processes.ts'),
+          import('node:os'),
+          import('node:fs'),
+        ]);
       const readList = () =>
         readDenylist(process.env, homedir(), (path) => readFileSync(path, 'utf8'));
-      return pushRefusal(readList, spawnProcess)(dir);
+      return pushRefusal(readList, execProcess)(dir);
     },
   );
   if (stderr !== '') process.stderr.write(stderr);

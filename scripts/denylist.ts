@@ -3,7 +3,7 @@
 // decides.
 
 import type { DenylistState } from '../src/platform/denylist.ts';
-import { whyKilled } from '../src/platform/processes.ts';
+import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
 import {
   deniedRefusal,
   MESSAGE_FORMAT,
@@ -11,7 +11,6 @@ import {
   scanMessages,
   scanPatches,
 } from './denylist/core.ts';
-import type { RunProcess } from './process-runner.ts';
 
 /** Each git call's deadline: a local, read-only log answers within seconds, and the two calls fit
  * between the HEAD check (10 s) and npm run check (540 s) under the hook's 600 s. */
@@ -50,7 +49,7 @@ const PATCHES = [
  * list cannot be read, or git cannot show the commits. Undefined without a list.
  */
 export const pushRefusal =
-  (readList: () => DenylistState, runProcess: RunProcess) =>
+  (readList: () => DenylistState, exec: ExecProcess) =>
   async (dir: string): Promise<string | undefined> => {
     const state = readList();
     if (state.kind === 'none') return undefined;
@@ -61,7 +60,8 @@ export const pushRefusal =
     if (list.length === 0) return undefined;
     const outputs: string[] = [];
     for (const args of [MESSAGES, PATCHES]) {
-      const { exitCode, output, killed } = await runProcess('git', [...args, ...COMMITS], dir, {
+      const { exitCode, output, killed } = await exec('git', [...args, ...COMMITS], {
+        cwd: dir,
         timeoutMs: DENYLIST_GIT_TIMEOUT_MS,
       });
       const why =

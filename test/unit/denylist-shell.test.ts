@@ -4,21 +4,26 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DENYLIST_GIT_TIMEOUT_MS, pushRefusal } from '../../scripts/denylist.ts';
-import type { ProcessOutcome, RunOptions } from '../../scripts/process-runner.ts';
+import type { ProcessOutcome } from '../../scripts/process-runner.ts';
 import type { DenylistState } from '../../src/platform/denylist.ts';
+import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 
 const PATH = '/lists/denylist.txt';
 const set = (text: string): DenylistState => ({ kind: 'set', path: PATH, text });
 const sha = 'a'.repeat(40);
 
+// What git answers: its exit code, stdout and stderr together, and stdout alone when it differs.
+type Answer = ProcessOutcome & { stdout?: string };
+
 // A git that answers the messages log and the patches log, and records each call.
-const fakeGit = (messages: ProcessOutcome, patches: ProcessOutcome) => {
-  const calls: { file: string; args: string[]; cwd: string; options?: RunOptions }[] = [];
-  const runProcess = async (file: string, args: string[], cwd: string, options?: RunOptions) => {
-    calls.push({ file, args, cwd, ...(options === undefined ? {} : { options }) });
-    return args.includes('--patch') ? patches : messages;
+const fakeGit = (messages: Answer, patches: Answer) => {
+  const calls: { file: string; args: readonly string[]; cwd: string; options: ExecOptions }[] = [];
+  const exec: ExecProcess = async (file, args, options) => {
+    calls.push({ file, args, cwd: options.cwd, options });
+    const answer = args.includes('--patch') ? patches : messages;
+    return { stdout: answer.output, stderr: '', ...answer };
   };
-  return { calls, runProcess };
+  return { calls, exec };
 };
 const ok = (output: string): ProcessOutcome => ({ exitCode: 0, output });
 const cleanMessages = ok(`\0${sha}\nAda\nada@example.com\nAda\nada@example.com\nAdd a plan\n`);
@@ -34,7 +39,7 @@ describe('pushRefusal', () => {
   it('runs no git without a list, or with a list of only comments', async () => {
     for (const state of [{ kind: 'none', path: PATH } as const, set('# none yet\n\n')]) {
       const git = fakeGit(cleanMessages, cleanPatches);
-      assert.equal(await pushRefusal(() => state, git.runProcess)('/work/tree'), undefined);
+      assert.equal(await pushRefusal(() => state, git.exec)('/work/tree'), undefined);
       assert.deepEqual(git.calls, []);
     }
   });
@@ -43,7 +48,7 @@ describe('pushRefusal', () => {
     const git = fakeGit(cleanMessages, cleanPatches);
     const refusal = await pushRefusal(
       () => ({ kind: 'unreadable', path: PATH, why: 'ENOENT: no such file' }),
-      git.runProcess,
+      git.exec,
     )('/work/tree');
     assert.match(refusal ?? '', /^git push is blocked: the denylist at \/lists\/denylist\.txt/);
     assert.match(refusal ?? '', /ENOENT: no such file/);
@@ -52,10 +57,7 @@ describe('pushRefusal', () => {
 
   it('reads the commits no remote has, in the tree, as stored and plainly', async () => {
     const git = fakeGit(cleanMessages, cleanPatches);
-    assert.equal(
-      await pushRefusal(() => set('examplecorp'), git.runProcess)('/work/tree'),
-      undefined,
-    );
+    assert.equal(await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree'), undefined);
     assert.equal(git.calls.length, 2);
     for (const { file, args, cwd, options } of git.calls) {
       assert.equal(file, 'git');
@@ -85,7 +87,7 @@ describe('pushRefusal', () => {
       ok(`\0${sha}\nAda\nada@example.com\nAda\nada@example.com\nFor ExampleCorp\n`),
       ok(`\0${sha}\n\ndiff --git a/plan.md b/plan.md\n@@ -0,0 +1,2 @@\n+a plan\n+exampleCorp\n`),
     );
-    const refusal = await pushRefusal(() => set('examplecorp'), git.runProcess)('/work/tree');
+    const refusal = await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree');
     assert.match(refusal ?? '', /^git push is blocked: it would send a word on your denylist/);
     assert.match(refusal ?? '', /commit aaaaaaa message line 1; commit aaaaaaa plan\.md:2/);
     assert.doesNotMatch(refusal ?? '', /example ?corp/i);
@@ -108,7 +110,7 @@ describe('pushRefusal', () => {
   for (const [name, outcome, why] of failures) {
     it(`blocks the push when git ${name}`, async () => {
       const git = fakeGit(outcome, cleanPatches);
-      const refusal = await pushRefusal(() => set('examplecorp'), git.runProcess)('/work/tree');
+      const refusal = await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree');
       assert.match(refusal ?? '', /^git push is blocked: could not read the commits it would send/);
       assert.match(refusal ?? '', why);
     });
