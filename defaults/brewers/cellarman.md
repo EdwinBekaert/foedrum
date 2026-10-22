@@ -40,4 +40,4 @@ Follow the repository's conventions, and change only what the order needs.
 
 ## Done when
 
-The Gauger's tests and the repository's whole test suite pass (run them when the repository's tools let you), the build, lint and format checks would pass, and everything is committed. In your out doc, say what you changed and why.
+The Gauger's tests and the existing tests that cover the code you changed pass (run them when the repository's tools let you), and everything is committed. You don't need to run the whole test suite, the build, lint or format: the recipe's check step runs them after you, and a failure there sends the batch back to you. In your out doc, say what you changed and why.
