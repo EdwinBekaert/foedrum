@@ -1,0 +1,25 @@
+# 0133. The noPush guard goes: a brewer's git holds no push credential
+
+Date: 2026-10-22 · Status: Accepted · Supersedes [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) (the `noPush` guard and the journal of the engine's writes go) · Amends [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) (`noPush` no longer loads) and [0109](0109-a-brewer-s-git-holds-no-push-credential.md) (a process that gets the credentials back is the sandbox's alone)
+
+## Context
+"A brewer pushes" had three layers. [ADR 0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) keeps every allow rule from reaching git without a fixed subcommand, so git's own spellings of a push are denied. [ADR 0109](0109-a-brewer-s-git-holds-no-push-credential.md) leaves a brewer's git, and a check step's, no credential helper, askpass program, terminal, cookie or ssh, through variables the runner forces last, so a push that gets past the allow rules has no login to push with. Claude Code's sandbox limits what a brewer's commands reach. On top of those, [ADR 0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md)'s `noPush` guard listed the remote's refs before and after each attempt of a brewer that names it and made the batch Stuck when a ref the engine did not write changed.
+
+The guard was added from a review finding (#165, #173), when a pushing brewer still carried the maintainer's login; ADR 0109 took that login away a day later. No push by a brewer has been seen. The guard costs about 300 lines of code and 950 of tests, a journal of the engine's own writes threaded through the push and the claims, and an `ls-remote` before every guarded attempt, and it has false alarms of its own: any push by a person, a bot or another Brewery during the attempt makes the batch Stuck (#310). No default brewer names it.
+
+The safeguard audit of 2026-10-22 (`docs/trust-boundaries.md`, CLAUDE.md's Security rule) gives "a brewer reaching outside its worktree" one owner, the sandbox with the attempt settings Foedrum writes. A second layer stays only with a decision that says what it catches that the owner misses.
+
+## Decision
+- **The guard goes.** `guardPushes` (`src/checks/push-guard.ts`), its pure core (`src/checks/no-push.ts`), the journal of the engine's writes (`remoteWrites`, `notedPush`, `notedClaims`, `src/checks/remote-writes.ts`), `listRemoteRefs` (`src/workspace/branch-push-git.ts`) and `ServeShell.refs` are removed with their tests. The driver runs the brewer inside `guardTests` alone.
+- **Who owns the risk.** The sandbox and the attempt settings, as `docs/trust-boundaries.md` says; ADR 0062 (no git without a fixed subcommand) and ADR 0109 (no push credential) are the recorded second layers. What the guard caught that they miss is a process that works to get the credentials back (ADR 0109's own limit: a script that clears the forced variables, or a netrc login in the user's home, #135) and then pushes without hiding the push; that is the sandbox's to stop, and the guard never saw the same push when it also hid itself (ADR 0106, What it does not see).
+- **A brewer that still names `noPush` is refused at load**, with the one line the schema gives any guard it does not know: `brewers/<name>.md: ✖ Invalid option: expected one of "requiresOutDoc"|… → at guards[<i>]`. `noPush` leaves the guard enum (`src/schemas/brewer.ts`, `schemas/brewer.json`) and `ENFORCED_GUARDS` (`src/engine/recipe-files.ts`).
+
+## Consequences
+- An attempt no longer waits for an `ls-remote` before it starts, and a push by someone else during an attempt no longer makes its batch Stuck.
+- A Brewery with a brewer that lists `noPush` fails to load until the guard is taken out of its `guards`; `foedrum doctor` shows the line. Nothing else changes for it: the allow rules, the forced variables and the sandbox it already ran under are the same.
+- A push by a brewer that gets a login back is no longer found after the attempt. The engine's own push of the bottle branch is never by force, so a bottle branch the brewer moved first still refuses it and the push effect fails.
+
+## Alternatives considered
+- **Accept `noPush` and ignore it.** A brewer would keep loading, but its file would claim a check the engine no longer makes, which is the false assurance ADR 0062 refused to load the guard over. No default names it, so the cost of the refusal falls on a Brewery's own brewer, once.
+- **Refuse it with a line of its own** that names this ADR. Clearer than the schema's line, but it keeps code for a guard name no default uses; the schema's line already names the field and what it takes.
+- **Keep the guard as a recorded second layer.** It catches only a push that both gets a login back and does not undo or hide itself, at the cost above and with false alarms on every busy repository; the sandbox is where a process reaching outside its worktree is stopped.
