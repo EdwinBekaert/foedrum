@@ -15,8 +15,8 @@ const sha = 'a'.repeat(40);
 // What git answers: its exit code, stdout and stderr together, and stdout alone when it differs.
 type Answer = ProcessOutcome & { stdout?: string };
 
-// A git that answers the messages log, the patches log and where a push goes (`@{push}`, which
-// fails by default, as before a branch's first push), and records each call.
+// A git that answers the messages log, the patches log and the current branch's push remote
+// (which fails by default), and records each call.
 const fakeGit = (
   messages: Answer,
   patches: Answer,
@@ -25,11 +25,8 @@ const fakeGit = (
   const calls: { file: string; args: readonly string[]; cwd: string; options: ExecOptions }[] = [];
   const exec: ExecProcess = async (file, args, options) => {
     calls.push({ file, args, cwd: options.cwd, options });
-    const answer = args.includes('rev-parse')
-      ? pushRef
-      : args.includes('--patch')
-        ? patches
-        : messages;
+    const answer =
+      args[0] === 'for-each-ref' ? pushRef : args.includes('--patch') ? patches : messages;
     return { stdout: answer.output, stderr: '', ...answer };
   };
   return { calls, exec };
@@ -96,24 +93,44 @@ describe('pushRefusal', () => {
 
   // Another remote's refs (a private mirror) may hold what the push sends to this one.
   it('asks git where a push that names no remote goes, and reads against that remote', async () => {
-    const git = fakeGit(cleanMessages, cleanPatches, ok('work/131-denylist\n'));
+    // Every local branch prints a line; only the current one (%(HEAD)) prints its push remote.
+    const git = fakeGit(cleanMessages, cleanPatches, ok('\n\nwork\n\n'));
     assert.equal(await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree'), undefined);
     const [where, ...logs] = git.calls;
-    assert.deepEqual(where?.args, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}']);
+    assert.deepEqual(where?.args, [
+      'for-each-ref',
+      '--format=%(if)%(HEAD)%(then)%(push:remotename)%(end)',
+      'refs/heads/',
+    ]);
     assert.equal(where?.cwd, '/work/tree');
     assert.equal(where?.options.timeoutMs, DENYLIST_GIT_TIMEOUT_MS);
     for (const { args } of logs)
       assert.deepEqual(args.slice(-3), ['HEAD', '--not', '--remotes=work']);
   });
 
-  it('reads against origin when git cannot tell where the push goes', async () => {
-    const git = fakeGit(cleanMessages, cleanPatches);
+  // git allows a slash in a remote's name: team/public's refs are not team/private's.
+  it('keeps a push remote whose name holds a slash whole', async () => {
+    const git = fakeGit(cleanMessages, cleanPatches, ok('team/public\n'));
     await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree');
     assert.deepEqual(
       git.calls.slice(1).map(({ args }) => args.at(-1)),
-      ['--remotes=origin', '--remotes=origin'],
+      ['--remotes=team/public', '--remotes=team/public'],
     );
   });
+
+  for (const [name, pushRef] of [
+    ['git fails', undefined],
+    ['the branch has no push remote', ok('\n\n')],
+  ] as const) {
+    it(`reads against origin when ${name}`, async () => {
+      const git = fakeGit(cleanMessages, cleanPatches, pushRef);
+      await pushRefusal(() => set('examplecorp'), git.exec)('/work/tree');
+      assert.deepEqual(
+        git.calls.slice(1).map(({ args }) => args.at(-1)),
+        ['--remotes=origin', '--remotes=origin'],
+      );
+    });
+  }
 
   for (const [remote, what] of [
     [null, 'computed at run time'],
