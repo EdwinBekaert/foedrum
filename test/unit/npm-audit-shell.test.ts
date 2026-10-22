@@ -21,6 +21,15 @@ const answer = (name: string): ExecResult => {
   return { exitCode, stdout, stderr, output: stderr + stdout };
 };
 
+// What the runner returns for an npm it killed, with what npm wrote to stderr before that.
+const killedNpm = (killed: NonNullable<ExecResult['killed']>, stderr = ''): ExecResult => ({
+  exitCode: null,
+  stdout: '',
+  stderr,
+  output: '',
+  killed,
+});
+
 // A fake runner that answers each call with the next result, and a wait that records its delays.
 const fake = (...results: ExecResult[]) => {
   const calls: { file: string; args: readonly string[]; cwd: string }[] = [];
@@ -101,13 +110,7 @@ describe('auditAdvisories', () => {
   });
 
   it('fails without a retry when npm is killed', async () => {
-    const { calls, exec, wait } = fake({
-      exitCode: null,
-      stdout: '',
-      stderr: '',
-      output: '',
-      killed: 'timed-out',
-    });
+    const { calls, exec, wait } = fake(killedNpm('timed-out'));
     const run = await auditAdvisories(cwd, env, execPath, exec, wait);
     assert.equal(run.ok, false);
     assert.equal(calls.length, 1);
@@ -115,13 +118,7 @@ describe('auditAdvisories', () => {
   });
 
   it('adds no empty line when npm is killed before writing to stderr', async () => {
-    const { exec, wait } = fake({
-      exitCode: null,
-      stdout: '',
-      stderr: '',
-      output: '',
-      killed: 'stopped',
-    });
+    const { exec, wait } = fake(killedNpm('stopped'));
     const run = await auditAdvisories(cwd, env, execPath, exec, wait);
     assert.deepEqual(run.lines, ['npm audit did not finish (stopped)']);
   });
@@ -142,26 +139,13 @@ describe('auditAdvisories', () => {
   });
 
   it('keeps what a killed npm wrote to stderr', async () => {
-    const { exec, wait } = fake({
-      exitCode: null,
-      stdout: '',
-      stderr: 'npm http fetch POST 127.0.0.1\n',
-      output: '',
-      killed: 'timed-out',
-    });
+    const { exec, wait } = fake(killedNpm('timed-out', 'npm http fetch POST 127.0.0.1\n'));
     const run = await auditAdvisories(cwd, env, execPath, exec, wait);
     assert.ok(run.lines.includes('npm http fetch POST 127.0.0.1'));
   });
 
   it("keeps the first try's lines when npm is killed on the second", async () => {
-    const killed: ExecResult = {
-      exitCode: null,
-      stdout: '',
-      stderr: '',
-      output: '',
-      killed: 'stopped',
-    };
-    const { exec, wait } = fake(answer('server-error'), killed);
+    const { exec, wait } = fake(answer('server-error'), killedNpm('stopped'));
     const run = await auditAdvisories(cwd, env, execPath, exec, wait);
     assert.equal(run.ok, false);
     assert.ok(run.lines.some((line) => line.startsWith('try 1 of 2: ') && line.includes('503')));
