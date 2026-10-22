@@ -1,7 +1,7 @@
-// Git in a clone that attempt worktrees share (ADR 0096). Every worktree shares the clone's
-// configuration, which a brewer can write, so the engine's git either runs elsewhere or turns off
-// what a planted key could start: a network call runs in a git directory of Foedrum's own, with the
-// clone's objects and the URL Foedrum names; a local one runs with no transport, hook or fsmonitor.
+// Git in a clone that attempt worktrees share: the engine's calls there run with no hook or
+// fsmonitor (ADR 0137), and the push's base fetch and the noPush guard's listing run in a git
+// directory of Foedrum's own, with the clone's objects and the URL Foedrum names (ADR 0090,
+// ADR 0106).
 
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
@@ -11,8 +11,9 @@ import { removeTree } from '../platform/remove.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 /**
- * The repository's remote as Foedrum names it, reached from git directories of Foedrum's own,
- * never through the clone's configuration (ADR 0090, ADR 0096).
+ * The repository's remote as Foedrum names it, which the base fetch and the noPush guard's listing
+ * reach from git directories of Foedrum's own, never through the clone's configuration (ADR 0090,
+ * ADR 0106, ADR 0137).
  */
 export interface OwnRemote {
   /** `https://github.com/<owner>/<name>.git`: the repository the pull request goes into. */
@@ -24,30 +25,17 @@ export interface OwnRemote {
 }
 
 /**
- * What every local git call in the clone runs with: no transport, so a partial clone's lazy fetch
- * fails instead of reaching the clone's remote through its credential helper or ssh command; no
- * hook, such as reference-transaction on a ref update; no fsmonitor. An empty
- * `GIT_ALLOW_PROTOCOL` allows no protocol and no remote helper, whatever name it has, and
- * overrides every `protocol.<name>.allow` of the clone, which `protocol.allow` does not;
- * `GIT_NO_LAZY_FETCH` (git 2.44) makes the failure clear.
+ * What every engine call in the clone runs with (ADR 0137): no hook of the clone's, such as
+ * reference-transaction on a ref update, which could fail the engine's own call; no fsmonitor,
+ * whose daemon would outlive it.
  */
-const IN_CLONE = {
-  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' },
-  config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
-} as const satisfies GitOptions;
+const IN_CLONE = { 'core.hooksPath': devNull, 'core.fsmonitor': 'false' };
 
-/** `git` whose calls run with `extra`'s environment and configuration over their own. */
-export const gitWith =
-  (git: Git, extra: GitOptions): Git =>
+/** git in the clone (ADR 0137). */
+export const inClone =
+  (git: Git): Git =>
   (cwd, args, options = {}) =>
-    git(cwd, args, {
-      ...options,
-      env: { ...options.env, ...extra.env },
-      config: { ...options.config, ...extra.config },
-    });
-
-/** Local git in the clone (ADR 0096). */
-export const inClone = (git: Git): Git => gitWith(git, IN_CLONE);
+    git(cwd, args, { ...options, config: { ...options.config, ...IN_CLONE } });
 
 /** No hook, gc or maintenance in Foedrum's own git directory: a gc would prune the clone's objects. */
 const OWN_CONFIG = { 'core.hooksPath': devNull, 'gc.auto': '0', 'maintenance.auto': 'false' };
@@ -191,56 +179,4 @@ export const withOwnGitDir = async <T>(
   } finally {
     await removeTree(gitDir);
   }
-};
-
-/** One `<sha> <ref>` line per ref, as `for-each-ref --format=%(objectname) %(refname)` prints. */
-const refsOf = (listed: string): Map<string, string> => {
-  const refs = new Map<string, string>();
-  for (const line of listed.split(/\r?\n/)) {
-    const space = line.indexOf(' ');
-    if (space > 0) refs.set(line.slice(space + 1), line.slice(0, space));
-  }
-  return refs;
-};
-
-const updates = (refs: Iterable<[string, string]>): string =>
-  [...refs].map(([ref, sha]) => `update ${ref} ${sha}\n`).join('');
-
-/**
- * The worktree manager's fetch (ADR 0096): every branch of the remote Foedrum names into the
- * clone's `refs/remotes/<remote>/`, as `git fetch --prune <remote>` would, but from a git directory
- * of its own. Its refs start as the clone's, so the server sends only what the clone lacks and
- * git's check of what came stops there. The refs the remote no longer has are deleted from the
- * clone first, then the refs that moved are written back, so a branch made again as a folder (`x`
- * gone, `x/y` new) never stops the fetch (review of #266). `<remote>/HEAD`, which no branch of the
- * remote writes, stays.
- */
-export const fetchIntoClone = async (
-  git: Git,
-  clone: string,
-  own: OwnRemote,
-  options: { remote: string; timeoutMs: number },
-): Promise<void> => {
-  const { remote, timeoutMs } = options;
-  const local = inClone(git);
-  const tracking = `refs/remotes/${remote}/`;
-  const listing = ['for-each-ref', '--format=%(objectname) %(refname)', tracking];
-  await withOwnGitDir(git, clone, own, undefined, async (dir) => {
-    const known = refsOf(await gitOutput(local, clone, listing));
-    if (known.size > 0) await dir.run(['update-ref', '--stdin'], { stdin: updates(known) });
-    await dir.fetch(`+refs/heads/*:${tracking}*`, timeoutMs, true);
-    const fetched = refsOf(await dir.run(listing));
-    // Each deleted only while it is where the clone had it, and before the updates: git refuses to
-    // delete `x` and make `x/y` in one transaction.
-    const gone = [...known]
-      .filter(([ref]) => !fetched.has(ref) && ref !== `${tracking}HEAD`)
-      .map(([ref, sha]) => `delete ${ref} ${sha}\n`);
-    if (gone.length > 0) {
-      await gitOutput(local, clone, ['update-ref', '--stdin'], { stdin: gone.join('') });
-    }
-    const moved = [...fetched].filter(([ref, sha]) => known.get(ref) !== sha);
-    if (moved.length > 0) {
-      await gitOutput(local, clone, ['update-ref', '--stdin'], { stdin: updates(moved) });
-    }
-  });
 };
