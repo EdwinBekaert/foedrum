@@ -142,7 +142,7 @@ export const formatNotice = (notice: DriverNotice): string => {
     }
     case 'waiting_for_lease': {
       const { batchId, stepId, attempt } = notice.ref;
-      return `step ${stepId}#${attempt} of batch ${batchId} waits until the lease of ${stepId}#${notice.waitsFor.attempt} is released; it expires at ${notice.expiresAt.toISOString()}`;
+      return `step ${stepId}#${attempt} of batch ${batchId} waits until the lease of ${stepId}#${notice.waitsFor.attempt} is released; it expires at ${notice.expiresAt.toISOString()} unless it is renewed`;
     }
     case 'cleaned': {
       const { done, kept, failed } = notice.report;
