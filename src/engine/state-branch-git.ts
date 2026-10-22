@@ -343,6 +343,7 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     await must(worktree, ['add', '-A', '--', '.', `:(exclude,glob)**/*${TMP_SUFFIX}`]);
     const staged = await git(worktree, ['diff', '--cached', '--quiet']);
     if (staged.code === 1) {
+      const before = await head();
       const committed = await git(worktree, [
         'commit',
         '--no-verify',
@@ -351,6 +352,11 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         commitMessage(pending),
       ]);
       if (committed.code !== 0) return { kind: 'failed', reason: why(committed) };
+      // A user's pack-refs whose ref lock was removed as stale can set the branch back to its
+      // packed value after the commit (ADR 0115): then the events are not on it.
+      if ((await head()) === before) {
+        return { kind: 'failed', reason: `git commit left ${ref} at ${before ?? 'no commit'}` };
+      }
     } else if (staged.code !== 0) {
       throw new Error(`git diff failed: ${why(staged)}`);
     }

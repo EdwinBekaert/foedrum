@@ -642,7 +642,7 @@ describe('openStateBranch with a fake git', () => {
       return state;
     };
 
-    // ADR 0111: a user's pack-refs whose ref lock a flush removed can set the branch back to its
+    // ADR 0115: a user's pack-refs whose ref lock a flush removed can set the branch back to its
     // packed value after the commit; the events are then not on the branch.
     it('fails without pushing or moving the marker when a commit leaves the branch where it was', async () => {
       const state = await started();
