@@ -25,7 +25,7 @@ import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { local, serveInputs } from '../helpers/serve-brewery.ts';
+import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-22T12:00:00.000Z');
@@ -350,6 +350,122 @@ describe('runBrew', () => {
     assert.equal(await runBrew(setup, shell(behave.succeed()), request), 0);
     const other = store.batchLeases(t0).find(({ batchId }) => batchId === '13-1');
     assert.deepStrictEqual(other, { batchId: '13-1', owner: 'ann', expiresAt });
+  });
+
+  it('drives on when another writer routed the Ordered batch while brew read its label: exit 0', async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    const route = {
+      kind: 'route',
+      batchId: '12-1',
+      recipe: 'stout',
+      reason: 'label',
+      source: 'label',
+    } as const;
+    // The Cellar's intake routes the batch while brew reads the issue's label.
+    const racing: typeof globalThis.fetch = async (input, init) => {
+      const read = /\/repos\/acme\/brewery\/issues\/12(?:\?|$)/i.test(String(input));
+      if (read && log().state().batches.get('12-1')?.lane.kind === 'ordered') {
+        log().issue(route, t0);
+      }
+      return api.fetch(input, init);
+    };
+    const raced = shell(behave.succeed(), { gh: ghOver(racing).exec });
+    assert.equal(await runBrew(setup, raced, request), 0, lines.join('\n'));
+    assert.ok(!lines.some((line) => line.includes('routed batch')), lines.join('\n'));
+  });
+
+  it('routes an Ordered batch it finds by its label, without ordering it again: exit 0', async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 0);
+    assert.ok(
+      lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
+      lines.join('\n'),
+    );
+    assert.ok(!lines.some((line) => line.includes('ordered #12')), lines.join('\n'));
+    assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
+  });
+
+  describe('a target issue (ADR 0105)', () => {
+    const web = { alias: 'web', intake: { labels: ['foedrum'] } };
+    const targetSetup = (): ServeSetup => {
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...serveInputs().files,
+            config: config({}, web),
+            local: local({ workRoot: dir.path }),
+          },
+        }),
+      );
+      return result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    };
+    const github = () =>
+      fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/web': [
+            {
+              number: 7,
+              labels: ['foedrum', 'recipe:stout'],
+              author: 'ann',
+              title: 'Add a dark theme',
+              body: 'Add a dark theme.',
+            },
+          ],
+        },
+      });
+    const target = { ...request, target: { alias: 'web', issue: 7 } };
+
+    it('claims it before it orders it, as foedrum order does, and brews it on tap: exit 0', async () => {
+      const host = github();
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 0, lines.join('\n'));
+      assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
+      const batches = [...log().state().batches.values()];
+      assert.deepStrictEqual(
+        batches.map(({ id, repo, issue, lane }) => ({ id, repo, issue, lane: lane.kind })),
+        [{ id: 'web-7', repo: 'acme/web', issue: 7, lane: 'on_tap' }],
+      );
+      assert.ok(
+        lines.includes('foedrum brew: ordered acme/web#7 as batch web-7'),
+        lines.join('\n'),
+      );
+    });
+
+    it('refuses it, ordering nothing, when another holds its claim: exit 5', async () => {
+      const host = github();
+      // Another Brewery's claim: its record as a commit, and the ref at it (ADR 0043).
+      const api = 'https://api.github.com/repos/acme/web/git';
+      const claimedAt = t0.toISOString();
+      const record = JSON.stringify({ brewery: 'other/brewery', issue: 7, claimedAt });
+      const commit = await host.fetch(`${api}/commits`, {
+        method: 'POST',
+        body: JSON.stringify({ message: record, tree: 'x', parents: [] }),
+      });
+      const { sha } = (await commit.json()) as { sha: string };
+      await host.fetch(`${api}/refs`, {
+        method: 'POST',
+        body: JSON.stringify({ ref: 'refs/foedrum/claims/issues/7', sha }),
+      });
+      const taken = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), taken, target), 5, lines.join('\n'));
+      assert.equal(log().state().batches.size, 0);
+      assert.equal(lines.at(-1), 'foedrum brew: acme/web#7 is claimed by other/brewery');
+    });
+  });
+
+  it('fails with the reason, and lets the lock go, when its wiring cannot start: exit 1', async () => {
+    const broken = shell(behave.succeed(), {
+      stateBranch: () => ({
+        start: async () => {
+          throw new Error('the state branch is gone');
+        },
+        flush: async () => ({ kind: 'unchanged' }),
+      }),
+    });
+    assert.equal(await runBrew(setup, broken, request), 1);
+    assert.equal(lines.at(-1), 'foedrum brew: the state branch is gone');
+    assert.equal(lock.held, false);
   });
 
   it('refuses a recipe label that names no recipe of the Brewery, ordering nothing: exit 5', async () => {
