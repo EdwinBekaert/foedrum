@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it, type TestContext } from 'node:test';
+import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { jobObjectCommand } from '../../src/platform/job-object.ts';
 import {
@@ -618,6 +619,20 @@ describe('foregroundProcess with a real process (ADR 0126)', () => {
     const code = await foregroundProcess(process.execPath, ['-e', script, 'one', ''], dir.path);
     assert.equal(code, 7);
     assert.deepEqual(JSON.parse(readFileSync(join(dir.path, 'ran.json'), 'utf8')), ['one', '']);
+  });
+
+  it("starts the program with the environment given, and none of this process's", async () => {
+    const script =
+      "require('node:fs').writeFileSync('env.json', JSON.stringify([process.env.FOEDRUM_GIVEN, process.env.FOEDRUM_OURS ?? null]))";
+    process.env.FOEDRUM_OURS = 'ours';
+    try {
+      // What node needs to start on every platform, and the variable given.
+      const env = { ...brewerBaseEnv(process.env, process.platform), FOEDRUM_GIVEN: 'given' };
+      assert.equal(await foregroundProcess(process.execPath, ['-e', script], dir.path, env), 0);
+    } finally {
+      delete process.env.FOEDRUM_OURS;
+    }
+    assert.deepEqual(JSON.parse(readFileSync(join(dir.path, 'env.json'), 'utf8')), ['given', null]);
   });
 
   it('rejects when the program cannot start', async () => {

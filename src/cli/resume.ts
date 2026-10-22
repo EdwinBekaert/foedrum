@@ -21,7 +21,7 @@ import type { ServeRepository, ServeSetup } from './serve-config.ts';
 /** What resume needs of serve's setup: where the attempts ran and how their brewers are set up. */
 export type ResumeSetup = Pick<
   ServeSetup,
-  'workRoot' | 'repositories' | 'models' | 'brewers' | 'claude' | 'sandbox'
+  'workRoot' | 'repositories' | 'models' | 'brewers' | 'claude' | 'sandbox' | 'brewerEnv'
 >;
 
 /** What resume needs from the machine. */
@@ -43,16 +43,53 @@ export interface ResumeShell {
   sessionFound: (id: string) => boolean;
   /** Writes an attempt's settings file, making its folder. */
   writeSettings: (file: string, settings: AttemptSettings) => void;
-  /** Whether this runs inside a Claude Code session, which cannot hand its terminal over. */
-  nested: boolean;
-  /** Runs `program` in the foreground in `cwd` with the terminal's stdio; its exit code. */
-  claude: (program: string, args: readonly string[], cwd: string) => Promise<number>;
+  /**
+   * Whether this runs inside a Claude Code session (`CLAUDE_CODE_CHILD_SESSION=1`), which cannot
+   * hand its terminal over, and whether stdin is a terminal.
+   */
+  terminal: { claudeCode: boolean; tty: boolean };
+  /** This process's environment: only the terminal's own variables reach claude from it. */
+  env: Readonly<Record<string, string | undefined>>;
+  platform: NodeJS.Platform;
+  /**
+   * Runs `program` in the foreground in `cwd` with the terminal's stdio and the environment `env`;
+   * its exit code.
+   */
+  claude: (
+    program: string,
+    args: readonly string[],
+    cwd: string,
+    env: Readonly<Record<string, string>>,
+  ) => Promise<number>;
   now: () => Date;
   /** Calls `beat` every `everyMs` until the returned function is called. */
   heartbeat: (everyMs: number, beat: () => void) => () => void;
-  /** This process's id, which names the leases' owner. */
+  /** Writes a line to the terminal while claude runs (stderr). */
+  say: (line: string) => void;
+  /** This process's id, which names the lease's owner. */
   pid: number;
 }
+
+/**
+ * Claude Code's config directory (ADR 0116): `CLAUDE_CONFIG_DIR` when set, by any case on Windows,
+ * else `.claude` in the home folder.
+ */
+export const claudeConfigDir = (
+  _env: Readonly<Record<string, string | undefined>>,
+  _platform: NodeJS.Platform,
+  _home: string,
+): string => {
+  throw new Error('not implemented');
+};
+
+/** Whether a transcript `<id>.jsonl` is in any project folder of `projects/` under `config`. */
+export const sessionFoundIn = (
+  _config: string,
+  _id: string,
+  _fs: { folders: (path: string) => readonly string[]; exists: (path: string) => boolean },
+): boolean => {
+  throw new Error('not implemented');
+};
 
 /** The attempt resume opens: its session and the worktree it ran in. */
 interface Target {
