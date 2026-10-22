@@ -10,6 +10,7 @@ import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { CheckRef } from '../../src/schemas/recipe.ts';
 
 const worktree = join('/work', 'acme.api', 'attempts', '12-1', 'green', '1');
 const ref = { batchId: '12-1', stepId: 'green', attempt: 1 };
@@ -64,6 +65,8 @@ const run = ({
   check = { output: 'ok 1\n' } as Script,
   /** `false`: foedrum.jsonc lists no checks of the repository. */
   listed = true,
+  /** The step's checks. */
+  checks: refs = ['test'] as CheckRef[],
   platform = 'linux' as NodeJS.Platform,
   clock = () => now,
 } = {}) => {
@@ -71,7 +74,7 @@ const run = ({
   const checks = fakeExec('check', calls, check);
   const setup = fakeExec('setup', calls, script);
   const stepChecks: StepChecks = {
-    find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? ['test'] : undefined),
+    find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? refs : undefined),
     any: () => true,
     proves: () => undefined,
     redProof: () => undefined,
@@ -232,6 +235,16 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
     assert.deepEqual(calls, []);
     assert.deepEqual(end, {
       ending: environment('foedrum.jsonc lists no checks of acme/api for the check "test"'),
+    });
+  });
+
+  it('runs no setup for a step whose every check is skipped', async () => {
+    const { calls, started } = run({ checks: ['lint'] });
+    const end = await started.ended;
+    assert.deepEqual(calls, []);
+    assert.deepEqual(end, {
+      ending: { kind: 'succeeded', output: null },
+      readings: [{ result: 'skipped', check: 'lint' }],
     });
   });
 
