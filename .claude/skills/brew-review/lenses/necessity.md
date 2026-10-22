@@ -12,7 +12,7 @@ A **safeguard** here is a new mechanism whose only job is to stop or catch somet
 - an observed failure: an issue, a CI run, a session report, a kill in the chaos tests;
 - or a concrete path reachable today: who or what controls which input, what they do, and what goes wrong without the safeguard.
 
-"Could in theory", "to be safe", "defence in depth" and "for completeness" are not proof. A safeguard against an actor or input outside the security model (`docs/architecture.md` §10, and the security lens's "Treat as untrusted") is not needed.
+"Could in theory", "to be safe", "defence in depth" and "for completeness" are not proof. A safeguard against an actor or input outside the security model (`docs/design/security.md`, and the security lens's "Treat as untrusted") is not needed.
 
 **Done elsewhere.** Find the risk's row in `docs/trust-boundaries.md`, the one owner of each risk. A safeguard outside its row's owner, with no recorded second layer for it there, is a duplicate unless the change records why. Also name every existing layer that already covers the same risk: the local gate, CI, the ruleset on `main`, Claude Code's sandbox or permissions, another check or guard, a schema, the review itself, an earlier step of the same workflow. When one does, the new safeguard is a duplicate. That is a finding unless the change records a decision (an ADR, or the issue it closes) that says why both are kept and what the second one catches that the first misses.
 

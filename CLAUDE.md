@@ -4,7 +4,7 @@ Foedrum is a GitHub-native orchestrator that runs Claude agents (brewers) throug
 
 ## Where things are
 
-- Design: `docs/architecture.md`, `docs/brewers-and-recipes.md`, `docs/glossary.md`
+- Design: `docs/architecture.md` (the map), the pages under `docs/design/` (one concept per page), `docs/glossary.md` ([ADR 0149](docs/adr/0149-docs-layout-a-map-and-one-page-per-concept.md))
 - Decisions: `docs/adr/` — read the relevant ADR before changing a design decision; a change of mind is a new ADR
 - Plan: `ROADMAP.md` and the GitHub milestones/issues
 - Dependencies: `DEPENDENCIES.md`, `.npmrc`
@@ -182,7 +182,7 @@ Foedrum runs on Windows, macOS and Linux; CI tests all three.
 - Pass multi-line text to git and gh through a file written with the file tool (`-F`, `--body-file`), never through a shell heredoc: text containing the delimiter ends the heredoc early and the rest runs as commands.
 - To update a summary or reply, post a new comment with `gh pr comment <n> --body-file` (or `gh issue comment`) that says what it replaces. Never edit or delete a comment: `gh api` writes ask for approval by design (#48), and `--edit-last` edits the account's last comment, which may be someone else's review posted from the same account.
 - Update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed.
-- Decisions that change the design get an ADR in the same pull request; keep `docs/architecture.md` in sync. A new ADR is a new file only: its status line says what it amends or supersedes (`Amends [0024](…)`), and nothing else in `docs/adr/` changes, neither `docs/adr/README.md`'s table nor the older record's status line. The table and the older records' "Amended by" and "Superseded by" parts are rebuilt when a milestone closes (`/brew-last-call`), so parallel pull requests never edit the same lines there (#312).
+- Decisions that change the design get an ADR in the same pull request; keep the design page it changes in sync, in `docs/design/`: one sentence per line, one owner per fact, and a new concept is a new page with a link line in `docs/architecture.md` ([ADR 0149](docs/adr/0149-docs-layout-a-map-and-one-page-per-concept.md)). A new ADR is a new file only: its status line says what it amends or supersedes (`Amends [0024](…)`), and nothing else in `docs/adr/` changes, neither `docs/adr/README.md`'s table nor the older record's status line. The table and the older records' "Amended by" and "Superseded by" parts are rebuilt when a milestone closes (`/brew-last-call`), so parallel pull requests never edit the same lines there (#312).
 - Merge origin/main right before choosing a new ADR's number, and again before the push. Sessions work in parallel and number ADRs too: #78 and #82 both took 0026.
 
 ## Restarting a session

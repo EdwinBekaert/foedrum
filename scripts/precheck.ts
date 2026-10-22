@@ -1416,12 +1416,13 @@ const covers = ({ head, commits }: PullRequestFacts, reviewed: string): boolean 
 };
 
 // Plain documentation, which needs no review summary (#183): Markdown in a subfolder of docs/,
-// except the ADRs, which record decisions. The top-level docs are the design and the review's
-// criteria, so they are reviewed. Only a full file list counts.
+// except the ADRs, which record decisions, and docs/design/. The top-level docs and the design
+// pages are the design and the review's criteria, so they are reviewed (ADR 0149). Only a full
+// file list counts.
 const onlyPlainDocs = (files: string[] | undefined): boolean =>
   files !== undefined &&
   files.length > 0 &&
-  files.every((path) => /^docs\/(?!adr\/)[^/]+\/.*\.md$/i.test(path));
+  files.every((path) => /^docs\/(?!adr\/|design\/)[^/]+\/.*\.md$/i.test(path));
 
 // Why `gh pr ready` may not mark the pull request ready, or undefined when its review summary
 // covers the head or it changes only plain documentation.

@@ -1,0 +1,140 @@
+# Brewers
+
+A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter.
+The body is the prompt.
+The frontmatter is read as JSONC (comments and trailing commas allowed); strictness comes from schema validation ([ADR 0020](../../adr/0020-jsonc-frontmatter.md)).
+Schema: `src/schemas/brewer.ts` (`schemas/brewer.json`); unknown fields are rejected.
+The setup command is not a brewer field: it depends on the repository, so it is in `foedrum.jsonc` ([configuration files](../recipes/configuration.md)).
+
+## Fields
+
+**Identity**
+
+| Field | Purpose |
+|---|---|
+| `name` | Unique id, referenced by recipes |
+| `description` | When to use this brewer; read by the router and shown in docs |
+| `version` | Bumped on change; changes are evaluated before adoption |
+
+**Prompt**
+
+| Field | Purpose |
+|---|---|
+| body | Instructions with `{variables}` |
+| `doneWhen` | Explicit definition of done |
+
+**Inputs (in-docs)**
+
+| Field | Purpose |
+|---|---|
+| `inputs[]` | Named documents (`name` is the `{variable}` in the body): `"from": "order"`, an earlier step's out doc (`"step:<id>"`), a repository file (`"file:<relative path>"`) or a lens (`"lens:<name>"`: the Brewery's `lenses/<name>.md`, else Foedrum's default; a lens neither has is refused when the brewer is loaded, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)) |
+| `inputs[].trusted` | Untrusted input goes between `untrusted-input-<nonce>` tags with a new random nonce per prompt and its source, below the rule that it is data, never instructions; input containing the nonce is refused as a likely injection ([ADR 0041](../../adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)). The tags are a mitigation, not the security boundary. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
+| `houseYeast` | Receive learned rules from all three layers (defaults, Brewery, repository), selected by scope within a token budget ([house yeast](../house-yeast.md)) |
+| `toolbox` | A short brief of extra command-line tools this brewer may use |
+
+**Output (out doc)**
+
+| Field | Purpose |
+|---|---|
+| `output.doc` | File the brewer must write |
+| `output.schema` | Named schema for the frontmatter (validated) |
+| `produces` | Expected side effects: `commits`, `report`, `comment`, `none` |
+
+**Model**
+
+| Field | Purpose |
+|---|---|
+| `model` | Alias resolved through `models.jsonc`, so evaluations can swap it |
+| `effort` | Reasoning effort; constant across retries to keep the prompt cache valid |
+
+**Tools and context**
+
+| Field | Purpose |
+|---|---|
+| `tools.allow` | Allowlist, including scoped shell commands (`Bash(git diff*)`). Role-level only: the repository adds its toolchain commands ([ADR 0023](../../adr/0023-language-independent-recipes.md)). Never a shell rule that reaches git with no fixed subcommand (`Bash`, `Bash(git *)`, `Bash(git -C *)`, `Bash(/usr/bin/git *)`, `Bash(env git *)`) or with one that pushes (`push`, `send-pack`, `http-push`, `subtree`, `submodule`): a push with options before it gets past every deny rule, so a push is denied only when no allow rule matches it ([ADR 0062](../../adr/0062-brewers-never-allow-git-with-no-fixed-subcommand.md)). Never a rule that may start `gh` (`Bash(gh *)`, `Bash(/usr/bin/gh *)`, `Bash(env gh *)`, `Bash(env g""h *)`) or ask git's credential helper, which is `gh`, for the login (`Bash(git credential *)`), with any arguments: `gh` answers from the maintainer's login, and only the engine talks to GitHub ([ADR 0082](../../adr/0082-brewers-never-allow-gh.md)). A bare `Read`, `Edit` or `Write` reaches only the worktree in the attempt; never a `Write`, `MultiEdit`, `NotebookEdit` or `Glob` path rule, here or in `tools.deny`, which Claude Code never consults: write `Edit(…)` or `Read(…)` ([ADR 0093](../../adr/0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md)) |
+| `tools.deny` | Denylist; `AskUserQuestion` and `git push` are always denied |
+| `skills`, `mcp` | Claude Code skills, plugins or MCP servers this brewer may use (default: none) |
+| `context` | `lean` (default: no project instructions, hooks, plugins or MCP) or `repo` (load the target repository's instructions) |
+
+**Permissions and workspace**
+
+| Field | Purpose |
+|---|---|
+| `access` | `read` or `write` |
+| `tree` | `task` worktree, `integration` tree, a fresh read-only checkout, or a disposable `scratch` tree that is discarded after the attempt. With `task`, each attempt gets a worktree of its own at the batch's task tree: the commits of the latest attempt that succeeded (uncommitted files do not carry over), or of the latest rewind, else the base; an attempt that resumes a session (`retryMode: resume`) runs in the worktree that session ran in instead ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md), [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)). Only `task` loads for now ([ADR 0066](../../adr/0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md)) |
+| `git` | `commit: true/false`. With `true` the attempt allows `Bash(git status *)`, `Bash(git add *)` and `Bash(git commit *)`, and the out doc contract tells the brewer to commit; a brewer that needs another git subcommand names it in `tools.allow` ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)). Pushing is always the engine's job |
+| `env` | Extra environment variables on top of a minimal base. The runner builds the environment from a minimal base, then this `env`, then its own variables last, comparing names without case on Windows (`buildBrewerEnv`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); names it owns are rejected when the brewer is loaded, in any case: `NODE_*`, `npm_config_*`, `PATH`, `PATHEXT`, `COMSPEC`, `SYSTEMROOT`, `HOME`, `USERPROFILE`, `APPDATA`, `ANTHROPIC_*`, `CLAUDE_*`, `GIT_*`, `SSH_*`, `LD_*`, `DYLD_*`, `BASH_ENV`, `ENV` and `*_PROXY`, as are two names that differ only in case. The GitHub tokens (`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`) are refused too, in any case: the runner never sets them, but a push could carry one. The runner's own variables keep npm's lifecycle scripts off and leave git no push credential: `GIT_TERMINAL_PROMPT=0` and, through `GIT_CONFIG_COUNT` (git 2.31 or later, which doctor requires), an empty `credential.helper`, `core.askPass` and `http.cookieFile`, `http.emptyAuth=false` and no transport but local paths, git, http and https (`brewerForcedEnv`, [ADR 0109](../../adr/0109-a-brewer-s-git-holds-no-push-credential.md); a netrc file in the user's home and the user's `http.<url>.*` keys are not covered); a brewer, or a check step, cannot fetch a private repository or anything over ssh |
+
+Headless brewers always run in a permission mode where the allowlist decides and nothing waits for an approver.
+
+**Budget, watchdog and retries**
+
+| Field | Purpose |
+|---|---|
+| `deadline` | Wall-clock limit per attempt |
+| `maxTurns` | Turn limit |
+| `stall` | No file write or commit for N turns or M minutes → abort; the batch becomes Stuck (`stalled`, [ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)). The runner sees a `Write`, `Edit`, `MultiEdit` or `NotebookEdit` call, or a shell command whose subcommand of `git` is `commit` (ADR 0048), that succeeded; files changed by other shell commands count only once committed ([ADR 0047](../../adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)) |
+| `maxAttempts` | Attempts before the batch becomes Stuck |
+| `retryMode` | `resume` (same session) or `fresh` (new session with the same in-docs) |
+| `maxDenials` | Permission denials per attempt before aborting with `blocker_kind: environment` |
+
+**Guards** — deterministic post-conditions checked by the engine
+
+| Guard | Fails when |
+|---|---|
+| `requiresOutDoc` | the out doc is missing or invalid |
+| `requiresCommits` | the out doc says `done`, but the brewer made no commit after its worktree's start: the batch goes Stuck on a `divergence`. Every brewer that produces commits has it, listed or not ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)) |
+| `testsNotRemoved` | test declarations disappeared compared with the attempt's start commit |
+| `testsUnchanged` | test declarations or assertions committed by the step named in the red proof's `of` were changed or removed (helpers, fixtures, imports and new tests may change) |
+| `scope` | files outside the worktree were touched |
+| `diffLimits` | more files or lines changed than allowed |
+
+There is no `noPush` guard: a brewer that names it fails the load, and a brewer's git holds no push credential instead ([ADR 0133](../../adr/0133-the-nopush-guard-goes-a-brewer-s-git-holds-no-push-credential.md)).
+
+## Prompt assembly
+
+Every brewer prompt is built by one function, `assembleBrewerPrompt` (`src/brewers/prompt.ts`): the instructions, then the rule, then each input between `untrusted-input-<nonce>` tags with its source ([ADR 0041](../../adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)).
+An input comes from the order, an earlier step's out doc, a file of the repository, or a lens (`"lens:<name>"`, the Brewery's lens of that name, else Foedrum's default, read when the brewer is loaded, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)).
+After them come the answers to the step's questions ([ADR 0059](../../adr/0059-attempt-plans-from-the-brewer-of-the-step.md); a brewer that resumes gets this round's answers in its own session instead, [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) and, for an attempt an `onFail` or `onBlocked` route scheduled, the `route` input: the failed checks or the out doc that sent it back ([ADR 0128](../../adr/0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)).
+
+## Example
+
+```markdown
+---
+{
+  "name": "cellarman",
+  "description": "Makes the Gauger's failing tests pass in one repository.",
+  "version": 1,
+  "model": "builder",
+  "effort": "high",
+  "inputs": [
+    { "name": "order", "from": "order", "trusted": false },
+    { "name": "plan", "from": "step:plan" },
+    { "name": "tests", "from": "step:gauge" }
+  ],
+  "houseYeast": true,
+  "output": { "doc": "brew-report.md", "schema": "brewReport" },
+  "produces": "commits",
+  "context": "repo",
+  "tools": {
+    "allow": ["Read", "Edit", "Write", "Grep", "Glob", "Bash(git diff*)"],
+    "deny": ["AskUserQuestion", "Bash(git push*)", "WebFetch"]
+  },
+  "access": "write",
+  "tree": "task",
+  "git": { "commit": true },
+  "deadline": "30m",
+  "maxTurns": 120,
+  "stall": { "turns": 60, "minutes": 20 },
+  "maxAttempts": 2,
+  "retryMode": "fresh",
+  "guards": ["requiresOutDoc", "requiresCommits", "testsNotRemoved", "testsUnchanged", "scope"]
+}
+---
+Implement the plan in {plan} for the order below. The Gauger's failing tests in {tests}
+are the specification: make them pass without changing them. If a test is wrong,
+report it as a finding instead of editing it.
+
+Done when: every plan step is done, the Gauger's tests and the full test suite pass,
+and everything is committed.
+```

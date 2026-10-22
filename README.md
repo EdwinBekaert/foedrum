@@ -33,8 +33,8 @@ flowchart LR
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Brewers and recipes](docs/brewers-and-recipes.md)
+- [Architecture](docs/architecture.md), the map of the [design pages](docs/design/)
+- [Brewers and recipes](docs/design/recipes/README.md)
 - [Glossary](docs/glossary.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Dependencies](DEPENDENCIES.md)
