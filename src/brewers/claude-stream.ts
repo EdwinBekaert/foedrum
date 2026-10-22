@@ -130,9 +130,9 @@ const usageLimitIn = (text: string): UsageLimit | undefined => {
   return { limit: limit as UsageLimit['limit'], resets: cut(resets) };
 };
 
-/** The usage limit an error result names, in its `result` or one of its `errors`. */
-const usageLimitOf = (result: ClaudeResult): UsageLimit | undefined =>
-  [result.result ?? '', ...(result.errors ?? [])].map(usageLimitIn).find((it) => it !== undefined);
+/** What `read` finds first in an error result's `result` or one of its `errors`. */
+const foundIn = <T>(result: ClaudeResult, read: (text: string) => T | undefined): T | undefined =>
+  [result.result ?? '', ...(result.errors ?? [])].map(read).find((it) => it !== undefined);
 
 /**
  * A spend limit, only in the forms the error reference gives (ADR 0129): the whole text, one line,
@@ -151,10 +151,6 @@ const spendLimitIn = (text: string): SpendLimit | undefined => {
   // The pattern only matches one of the documented limits.
   return { kind: 'spend', limit: found[1] as Extract<SpendLimit, { kind: 'spend' }>['limit'] };
 };
-
-/** The spend limit an error result names, in its `result` or one of its `errors`. */
-const spendLimitOf = (result: ClaudeResult): SpendLimit | undefined =>
-  [result.result ?? '', ...(result.errors ?? [])].map(spendLimitIn).find((it) => it !== undefined);
 
 /** Why a result reported an error: its terminal reason, then what it said. */
 const errorOf = (result: ClaudeResult): string => {
@@ -211,8 +207,8 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     }
     if (!result.is_error) return;
     streamError = errorOf(result);
-    usageLimit = usageLimitOf(result);
-    spendLimit = spendLimitOf(result);
+    usageLimit = foundIn(result, usageLimitIn);
+    spendLimit = foundIn(result, spendLimitIn);
   };
 
   const beforeInit = (event: unknown, type: string, subtype: unknown): 'go' | 'stop' => {
