@@ -75,9 +75,7 @@ const guards = (call: Omit<ResumeCall, 'sessionId'>): string[] => [
 /** The arguments of `claude` for one attempt. */
 export function claudeArgs(call: ClaudeCall): string[] {
   const { model, effort, maxTurns, settingsFile, tools, session } = call;
-  if (!ModelId.safeParse(model).success) refuse('model', model);
-  if (tools.length === 0 || !tools.every((tool) => toolName.test(tool))) refuse('tools', tools);
-  if (!uuid.test(session.id)) refuse('session id', session.id);
+  checkCall(model, tools, session.id);
   if (maxTurns !== undefined && !(Number.isInteger(maxTurns) && maxTurns > 0)) {
     refuse('maxTurns', maxTurns);
   }
