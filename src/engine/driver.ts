@@ -494,12 +494,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
           const key = attemptKey.encode(ref);
           if (refused.has(key)) continue;
-          const waitsFor = stepLease(leases, ref);
-          if (waitsFor !== undefined) {
+          const lease = stepLease(leases, ref);
+          if (lease !== undefined) {
             if (!saidWaiting.has(key)) {
               saidWaiting.add(key);
-              const { expiresAt } = waitsFor;
-              report({ kind: 'waiting_for_lease', ref, waitsFor: waitsFor.ref, expiresAt });
+              const { expiresAt } = lease;
+              report({ kind: 'waiting_for_lease', ref, waitsFor: lease.ref, expiresAt });
             }
             continue;
           }
