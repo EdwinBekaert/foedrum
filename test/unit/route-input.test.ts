@@ -220,12 +220,16 @@ describe('routeInput', () => {
   });
 
   it(`holds the text to ${MAX_ROUTE_INPUT_BYTES} bytes, keeping its start and naming the limit`, () => {
-    const doc = `---\n{}\n---\n${'é'.repeat(MAX_ROUTE_INPUT_BYTES)}`;
-    const { text } = routeInput(findings, { kind: 'text', text: doc });
-    assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_ROUTE_INPUT_BYTES, `${text.length}`);
-    assert.ok(text.startsWith(findings.text));
-    assert.match(text, new RegExp(`${MAX_ROUTE_INPUT_BYTES} bytes`));
-    assert.equal(text.includes('�'), false);
+    const replacement = String.fromCodePoint(0xfffd);
+    // A 4-byte character after 0 to 3 more bytes puts the cut at every offset inside one.
+    for (const shift of ['', 'x', 'xx', 'xxx']) {
+      const doc = `---\n{}\n---\n${shift}${'🍺'.repeat(MAX_ROUTE_INPUT_BYTES / 4)}`;
+      const { text } = routeInput(findings, { kind: 'text', text: doc });
+      assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_ROUTE_INPUT_BYTES, `${text.length}`);
+      assert.ok(text.startsWith(findings.text));
+      assert.match(text, new RegExp(`\\n\\[cut: [^\\n]*${MAX_ROUTE_INPUT_BYTES} bytes\\]$`));
+      assert.equal(text.includes(replacement), false, `a character was cut after "${shift}"`);
+    }
   });
 
   it('is the text of a failed check as it is', () => {
