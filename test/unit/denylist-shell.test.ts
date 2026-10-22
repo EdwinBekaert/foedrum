@@ -94,7 +94,11 @@ describe('pushRefusal', () => {
   const failures: [string, ProcessOutcome, RegExp][] = [
     ['exits non-zero', { exitCode: 128, output: 'fatal: bad revision' }, /exited 128/],
     ['cannot start', { exitCode: null, output: '' }, /could not start/],
-    ['times out', { exitCode: null, output: '', killed: 'timed-out' }, /timed out after 30 s/],
+    [
+      'times out',
+      { exitCode: null, output: '', killed: 'timed-out' },
+      new RegExp(`timed out after ${DENYLIST_GIT_TIMEOUT_MS / 1000} s`),
+    ],
     [
       'passes the output limit',
       { exitCode: null, output: '', killed: 'too-much-output' },
