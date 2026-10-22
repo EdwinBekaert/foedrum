@@ -52,8 +52,12 @@ const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'"
 
 // The raw hook input, or its command, without the quotes and escape characters that bash,
 // PowerShell and cmd drop, so a name they split (gi''t, g\it, g`it, g^h) still matches the
-// pre-filter. A backslash before u stays, for a JSON escape.
-const normalised = (input: string): string => foldQuotes(input).replace(/["'`^]|\\(?!u)/g, '');
+// pre-filter. A backslash before u stays, for a JSON escape. A line continuation (\, ` or ^ before
+// a newline, also \r\n) goes first, as it is or as JSON escapes it (#158).
+const normalised = (input: string): string =>
+  foldQuotes(input)
+    .replace(/(?:\\\\|[`^])(?:\\r)?\\n|[\\`^]\r?\n/g, '')
+    .replace(/["'`^]|\\(?!u)/g, '');
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 // gh flags that can appear before the `pr` action and take the next token as their value.
@@ -903,10 +907,10 @@ const powershellCommands = (args: Word[]): string[] => {
 };
 
 // The command cmd runs after /c or /k (//c in Git Bash, which would turn /c into a path), without
-// its ^ escapes.
+// its ^ escapes and the line breaks they continue (#158).
 const cmdCommands = (args: Word[]): string[] => {
   const run = args.findIndex((arg) => /^\/\/?[ck]$/i.test(arg.text));
-  return run < 0 ? [] : [text(args.slice(run + 1)).replaceAll('^', '')];
+  return run < 0 ? [] : [text(args.slice(run + 1)).replace(/\^(?:\r?\n)?/g, '')];
 };
 
 // Start-Process parameters that take a value, with their aliases; the first match of a prefix
