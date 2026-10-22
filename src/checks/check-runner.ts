@@ -194,8 +194,8 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     runLine(exec, check.command, worktree, deadlineAt, signal, { maxOutputBytes });
 
   /**
-   * The reading of the repository's setup, run in the worktree before the step's checks through
-   * `through`, with the network, outside every sandbox (ADR 0140).
+   * The reading of the repository's setup, run in the worktree once the step needs nothing else
+   * before its checks, with the network, outside every sandbox (ADR 0140).
    */
   const runSetup = async (
     found: RepositorySetup,
@@ -203,7 +203,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     worktree: WorktreeRef,
     deadlineAt: string,
     signal: AbortSignal,
-  ): Promise<GravityReading> => {
+  ): Promise<GravityReading[]> => {
     const setup = {
       kind: 'run',
       setup: true,
@@ -212,7 +212,21 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const result = await runLine(through, setup.command, worktree, deadlineAt, signal, {
       timeoutMs: durationMs(found.timeout),
     });
-    return readingIn(setup, result, true);
+    return [readingIn(setup, result, true)];
+  };
+
+  /**
+   * The repository's setup running, or undefined when it has none: then nothing is awaited, so
+   * the first check starts at once, before the engine could stop the attempt.
+   */
+  const prepare = (
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    signal: AbortSignal,
+  ): Promise<GravityReading[]> | undefined => {
+    const found = options.setup?.of(worktree.repo);
+    if (options.setup === undefined || found === undefined) return undefined;
+    return runSetup(found, options.setup.exec, worktree, deadlineAt, signal);
   };
 
   /**
@@ -226,7 +240,6 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     deadlineAt: string,
     of: string,
     signal: AbortSignal,
-    before: readonly GravityReading[],
   ): Promise<AttemptEnd> => {
     const recipe = batch.recipe?.name ?? '';
     const report = options.testReport(worktree.repo);
@@ -252,6 +265,11 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     if (check?.kind !== 'run') {
       return blocked('environment', `foedrum.jsonc gives ${worktree.repo} no test check`);
     }
+    // The repository's setup once nothing else blocks the run, so the run finds what it
+    // installed (ADR 0140).
+    const preparing = prepare(worktree, deadlineAt, signal);
+    const before = preparing === undefined ? [] : await preparing;
+    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
     // A report the tree holds, committed or left over, must not stand for this run's.
     const file =
       report.path === undefined ? undefined : join(worktree.path, ...report.path.split('/'));
@@ -322,18 +340,8 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const refs = checks.find(recipe, stepId);
     if (refs === undefined)
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
-    // The repository's setup first, once, so the checks find what it installed (ADR 0140).
-    // Without one, the first check starts at once, before the engine could stop the attempt.
-    const found = options.setup?.of(worktree.repo);
-    const before =
-      options.setup === undefined || found === undefined
-        ? []
-        : [await runSetup(found, options.setup.exec, worktree, current.deadlineAt, signal)];
-    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
     const of = checks.proves(recipe, stepId);
-    if (of !== undefined) {
-      return proveRed(batch, ref, worktree, current.deadlineAt, of, signal, before);
-    }
+    if (of !== undefined) return proveRed(batch, ref, worktree, current.deadlineAt, of, signal);
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
     if (named !== undefined) {
@@ -346,6 +354,11 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       }
       repository = found;
     }
+    // The repository's setup once nothing else blocks the step, so the checks find what it
+    // installed (ADR 0140).
+    const preparing = prepare(worktree, current.deadlineAt, signal);
+    const before = preparing === undefined ? [] : await preparing;
+    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
     const readings: GravityReading[] = [...before];
     for (const check of planChecks(refs, repository, platform)) {
       if (check.kind === 'skip') {
