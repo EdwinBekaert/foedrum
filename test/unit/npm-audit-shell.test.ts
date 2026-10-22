@@ -134,6 +134,60 @@ describe('auditAdvisories', () => {
     assert.ok(run.lines.every((line) => !line.includes('attempt')));
   });
 
+  it("leaves npm's stderr out of a clean report", async () => {
+    const { exec, wait } = fake({ ...answer('clean'), stderr: 'npm warn config something\n' });
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, true);
+    assert.deepEqual(run.lines, ['try 1 of 2: no advisories for the runtime dependencies']);
+  });
+
+  it('keeps what a killed npm wrote to stderr', async () => {
+    const { exec, wait } = fake({
+      exitCode: null,
+      stdout: '',
+      stderr: 'npm http fetch POST 127.0.0.1\n',
+      output: '',
+      killed: 'timed-out',
+    });
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.ok(run.lines.includes('npm http fetch POST 127.0.0.1'));
+  });
+
+  it("keeps the first try's lines when npm is killed on the second", async () => {
+    const killed: ExecResult = {
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      output: '',
+      killed: 'stopped',
+    };
+    const { exec, wait } = fake(answer('server-error'), killed);
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.equal(run.ok, false);
+    assert.ok(run.lines.some((line) => line.startsWith('try 1 of 2: ') && line.includes('503')));
+    assert.equal(run.lines.at(-1), 'npm audit did not finish (stopped)');
+  });
+
+  it('runs npm again only after the wait has ended', async () => {
+    const { calls, exec } = fake(answer('server-error'), answer('clean'));
+    let waitStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      waitStarted = resolve;
+    });
+    let endWait: () => void = () => {};
+    const wait = (_ms: number) =>
+      new Promise<void>((resolve) => {
+        endWait = resolve;
+        waitStarted();
+      });
+    const running = auditAdvisories(cwd, env, execPath, exec, wait);
+    await started;
+    assert.equal(calls.length, 1);
+    endWait();
+    assert.equal((await running).ok, true);
+    assert.equal(calls.length, 2);
+  });
+
   it('fails without running anything when npm_execpath is not set', async () => {
     const { calls, exec, wait } = fake();
     const run = await auditAdvisories(cwd, {}, execPath, exec, wait);

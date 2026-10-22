@@ -43,6 +43,23 @@ describe('readAudit', () => {
     );
   });
 
+  it('reads a package reached through another, an advisory without a link and no severity', () => {
+    const report = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        parent: { name: 'parent', severity: 'high', via: ['child'] },
+        child: { name: 'child', via: [{ title: 'An advisory without a link' }] },
+      },
+    };
+    assert.deepEqual(readAudit(1, JSON.stringify(report)), {
+      kind: 'findings',
+      findings: [
+        { name: 'parent', severity: 'high', advisories: [] },
+        { name: 'child', severity: 'unknown severity', advisories: ['An advisory without a link'] },
+      ],
+    });
+  });
+
   it('reads a server error with its status', () => {
     const result = read('server-error');
     assert.equal(result.kind, 'endpoint-error');
@@ -97,6 +114,19 @@ describe('nextStep', () => {
     const step = nextStep(read('findings'), 1);
     assert.equal(step.kind, 'fail');
     assert.ok(step.lines.some((line) => line.includes('minimist (critical)')));
+  });
+
+  it('lists each advisory under its package', () => {
+    const { lines } = nextStep(read('findings'), 1);
+    const minimist = lines.indexOf('minimist (critical)');
+    assert.ok(minimist >= 0);
+    assert.ok(
+      lines
+        .slice(minimist + 1)
+        .includes(
+          '  Prototype Pollution in minimist (https://github.com/advisories/GHSA-vh95-rmgr-6w4m)',
+        ),
+    );
   });
 
   it('retries a server error once, then fails', () => {
