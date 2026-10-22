@@ -5,6 +5,7 @@
 // ones, and applies a batch's effects only while it holds the batch's lease (ADR 0033).
 
 import { randomUUID } from 'node:crypto';
+import { ClaudeReport } from '../schemas/events.ts';
 import type {
   AttemptWorktree,
   AttemptWorktrees,
@@ -191,15 +192,13 @@ const rejectionSummary = (error: unknown): string => {
 
 /**
  * The command that records how `ref` ended. The session id stays on its step.started; what claude
- * reported in its init goes on its step.finished (ADR 0116).
+ * reported in its init goes on its step.finished, when the event can hold it: a blank version or
+ * model is left out rather than refusing the ending with it (ADR 0116).
  */
 const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
   const { session, ...rest } = end;
-  const claude =
-    session === undefined
-      ? {}
-      : { claude: { version: session.claudeVersion, model: session.model } };
-  return { kind: 'finish', ...ref, ...rest, ...claude };
+  const report = ClaudeReport.safeParse({ version: session?.claudeVersion, model: session?.model });
+  return { kind: 'finish', ...ref, ...rest, ...(report.success ? { claude: report.data } : {}) };
 };
 
 /** The attempt `ref` in `state`, if it was scheduled. */
