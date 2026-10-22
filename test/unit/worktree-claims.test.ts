@@ -670,6 +670,41 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
     routeBy: at,
   };
 
+  it('claims the attempt whose session a live lease continues, with its own', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, [leaseOf(2)]).leased, [ref(2), ref(1)]);
+  });
+
+  it('follows session.resumes back through a chain of resumed attempts', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      finished(2),
+      ...started(3, { id: 's3', resumes: 's2', in: 1 }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, [leaseOf(3)]).leased, [ref(3), ref(2), ref(1)]);
+  });
+
+  it('claims every attempt of a session that kept its id when it was resumed', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's1', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, [leaseOf(2)]).leased, [ref(2), ref(1)]);
+  });
+
   it('claims nothing for a resumed attempt that ended, and nothing back from a fresh one', () => {
     const state = fold([
       ordered,
@@ -693,5 +728,41 @@ describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
     ]);
 
     assert.deepEqual(worktreeClaims(state, [leaseOf(1)]).leased, [ref(1)]);
+  });
+
+  it('stops at a session the log does not hold, and at a loop', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1', resumes: 's2', in: 2 }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      finished(2),
+      ...started(3, { id: 's3', resumes: 'gone' }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, [leaseOf(2)]).leased, [ref(2), ref(1)]);
+    assert.deepEqual(worktreeClaims(state, [leaseOf(3)]).leased, [ref(3)]);
+  });
+
+  it('keeps the worktree a resumed attempt runs in when its batch ends under it', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      { type: 'batch.cancelled', batchId: '3-1', by: 'octocat', via: 'terminal' },
+    ]);
+    const folders = [{ batchId: '3-1', attempts: ['implement/1'] }];
+
+    const plan = planClean(
+      { worktrees: [], branches: [], folders },
+      worktreeClaims(state, [leaseOf(2)]),
+      '/work',
+    );
+
+    assert.deepEqual(plan, {
+      actions: [],
+      kept: ['kept folder 3-1/implement/1: its attempt holds a live lease'],
+    });
   });
 });
