@@ -23,7 +23,14 @@ const GIT = ['--no-replace-objects', '-c', 'core.quotePath=false', '-c', 'log.sh
 const commits = (remote: string): string[] => ['HEAD', '--not', `--remotes=${remote}`];
 // A remote's name, which git reads as a pattern of its tracking refs: no glob, URL or path.
 const REMOTE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
-const PUSH_REF = ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'];
+// The current branch's push remote by name, as git works it out (branch.<name>.pushRemote,
+// remote.pushDefault, branch.<name>.remote); a configured name may hold a slash.
+const PUSH_REMOTE = [
+  'for-each-ref',
+  '--format=%(if)%(HEAD)%(then)%(push:remotename)%(end)',
+  'refs/heads/',
+];
+const CONFIGURED_REMOTE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
 const PLAIN = ['--no-color', '--no-notes', '--no-show-signature', '--no-mailmap'];
 const MESSAGES = [...GIT, 'log', `--format=${MESSAGE_FORMAT}`, '--encoding=UTF-8', ...PLAIN];
 // Added lines only, merges as combined diffs (what the merge adds of its own), binary files as
@@ -51,8 +58,8 @@ const PATCHES = [
 /**
  * Why `git push` in `dir` to `remote` may not run: the commits it would send hold a word on the
  * list, the list cannot be read, the remote is computed at run time or no name, or git cannot show
- * the commits. Undefined without a list. A push that names no remote goes where git's `@{push}`
- * says, or else to origin.
+ * the commits. Undefined without a list. A push that names no remote goes to the current branch's
+ * push remote, or else to origin.
  */
 export const pushRefusal =
   (readList: () => DenylistState, exec: ExecProcess) =>
@@ -70,9 +77,9 @@ export const pushRefusal =
     const options = { cwd: dir, timeoutMs: DENYLIST_GIT_TIMEOUT_MS };
     let target = remote;
     if (target === undefined) {
-      const pushRef = await exec('git', PUSH_REF, options);
-      const named = pushRef.exitCode === 0 ? pushRef.stdout.trim().split('/')[0] : undefined;
-      target = named !== undefined && REMOTE_NAME.test(named) ? named : 'origin';
+      const pushRemote = await exec('git', PUSH_REMOTE, options);
+      const named = pushRemote.exitCode === 0 ? pushRemote.stdout.trim() : '';
+      target = CONFIGURED_REMOTE.test(named) ? named : 'origin';
     }
     const outputs: string[] = [];
     for (const args of [MESSAGES, PATCHES]) {
