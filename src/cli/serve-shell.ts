@@ -9,7 +9,7 @@ import { claudeBrewerRunner } from '../brewers/claude-runner.ts';
 import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
-import { sandboxedChecks } from '../platform/check-sandbox.ts';
+import { type SandboxedChecksOptions, sandboxedChecks } from '../platform/check-sandbox.ts';
 import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
 import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import {
@@ -30,6 +30,8 @@ export interface ServeShellOptions {
   out: (line: string) => void;
   /** Listens for a signal that stops serve; default `process.once`. */
   listen?: ListenForSignal;
+  /** The sandbox check steps run in; default this machine's, through `execProcess` (ADR 0076). */
+  checks?: Partial<SandboxedChecksOptions>;
 }
 
 /** Where a process listens for signals: `process` itself. */
@@ -57,7 +59,7 @@ export const listenWhileServing = (
 };
 
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
-  const { root, git, out, listen } = options;
+  const { root, git, out, listen, checks } = options;
   const { workRoot } = setup;
   // The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
   // it by this URL, never through the clone's configuration (ADR 0090, ADR 0096).
@@ -119,7 +121,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       ),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     // A check's command line runs in the OS sandbox (ADR 0076).
-    exec: sandboxedChecks({ exec: execProcess }),
+    exec: sandboxedChecks({ exec: execProcess, ...checks }),
     gh: execProcess,
     git,
   };
