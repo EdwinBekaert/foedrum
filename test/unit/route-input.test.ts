@@ -157,6 +157,49 @@ describe('routeOf', () => {
     assert.match(route.text, /not ok 1/);
   });
 
+  it('says how each check that did not pass ended, with its tail, and leaves out a skipped one', () => {
+    const readings: GravityReading[] = [
+      { result: 'skipped', check: 'lint' },
+      { result: 'signaled', check: 'build', command: 'make', signal: 'SIGSEGV', tail: 'core' },
+      { result: 'killed', check: 'test', command: 'npm test', killed: 'timed-out', tail: 'slow' },
+      { result: 'unstarted', command: 'gradle check', tail: 'gradle: not found' },
+    ];
+    const route = planned(
+      [
+        ...attempt('implement', 1),
+        ...attempt('green', 1, { ...greenFailed('unused'), readings }),
+        ...routed('implement', 2, 'green', 'failed'),
+      ],
+      'implement',
+      2,
+    );
+    const text = route?.text ?? '';
+    for (const line of [
+      'the check "build" (make) was ended by SIGSEGV. The end of its output:\ncore',
+      'the check "test" (npm test) was killed by the process runner (timed-out). The end of its output:\nslow',
+      'the check "gradle check" could not start. The end of its output:\ngradle: not found',
+    ]) {
+      assert.ok(text.includes(line), `${line} is not in ${text}`);
+    }
+    assert.doesNotMatch(text, /lint/);
+  });
+
+  it('points an onBlocked route at no out doc when the step that blocked has none', () => {
+    const route = routeOf(
+      batchOf([
+        ...attempt('gauge', 1),
+        ...attempt('implement', 1, {
+          outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): Wrong' },
+        }),
+        ...routed('gauge', 2, 'implement', 'findings'),
+      ]),
+      { batchId: '12-1', stepId: 'gauge', attempt: 2 },
+      () => undefined,
+    );
+    assert.equal(route?.outDoc, undefined);
+    assert.match(route?.text ?? '', /Wrong/);
+  });
+
   it('points an onBlocked route at the out doc of the attempt that blocked, with its reason', () => {
     const route = planned(
       [

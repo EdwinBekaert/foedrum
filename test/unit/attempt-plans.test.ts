@@ -247,6 +247,56 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it('gives an attempt an onFail route scheduled the failed reading, last, reading no file for it (#341, ADR 0128)', async () => {
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const green = { batchId: '12-1', stepId: 'green', attempt: 1 };
+    const second = { ...ref, attempt: 2 };
+    const events: Event[] = [
+      ...ordered,
+      started,
+      { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...green, deadlineAt },
+      {
+        type: 'step.started',
+        ...green,
+        worktree: {
+          repo: 'acme/api',
+          path: join('/work', 'green-1'),
+          branch: 'foedrum/12-1/green/1',
+          commit: 'c'.repeat(40),
+        },
+      },
+      {
+        type: 'step.finished',
+        ...green,
+        outcome: {
+          kind: 'failed',
+          retryable: false,
+          reason: 'the check "test" (npm test) failed with exit code 1',
+        },
+        readings: [
+          {
+            result: 'exited',
+            check: 'test',
+            command: 'npm test',
+            exitCode: 1,
+            tail: 'not ok 2 - prints --json',
+          },
+        ],
+      },
+      { type: 'step.scheduled', ...second, deadlineAt, route: { from: 'green', why: 'failed' } },
+      { ...started, attempt: 2 },
+    ];
+    const { plans, reads } = setup(events);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    // The guide input only: the reading is in the event log.
+    assert.deepEqual(reads, [{ file: join(worktree, 'docs', 'guide.md'), root: worktree }]);
+    assert.match(
+      prompt,
+      /name="guide">[\s\S]*source="why step brew runs again: the failed checks of step green" name="route">\nStep green ended: the check "test" \(npm test\) failed with exit code 1[\s\S]*not ok 2 - prints --json\n<\/untrusted-input-[0-9a-f]+>$/,
+    );
+  });
+
   it("throws, naming the input, when the order's text is larger than 1 MiB (review of #165)", async () => {
     const { plans } = setup(undefined, {}, 'x'.repeat(1024 * 1024 + 1));
     await assert.rejects(
