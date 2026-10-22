@@ -154,6 +154,13 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
     assert.deepEqual(calls, ['setup npm.cmd ci', 'check npm test']);
   });
 
+  it('runs no setup for a repository that has none', async () => {
+    const { calls, started } = run({ prepare: null });
+    const end = await started.ended;
+    assert.deepEqual(calls, ['check npm test']);
+    assert.equal(end.readings?.length, 1);
+  });
+
   it('ends the attempt on its environment, running no check, when the setup fails', async () => {
     const { calls, started } = run({
       script: { exitCode: 1, output: 'npm ERR! missing package-lock.json\n' },
