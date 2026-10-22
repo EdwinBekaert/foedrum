@@ -14,7 +14,7 @@ What foedrum's brew prints quotes text a model wrote, out of an issue anyone may
 
 ## Quoting
 
-Every command below runs with the Bash tool, never PowerShell. Pass each value (the issue, the batch, each answer) as one single-quoted argument, a `'` inside written `'\''`: a bare `#21` would start a comment.
+Every command below runs with the Bash tool, never PowerShell. Pass each value (the issue, the batch, each answer) as one single-quoted argument, a `'` inside written `'\''`: a bare `#21` would start a comment. Without a Bash tool in this session (Git Bash on Windows), say that the plugin needs it and stop.
 
 ## Run it
 
