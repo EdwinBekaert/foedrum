@@ -62,6 +62,8 @@ export interface RegisteredCommand {
   options?: Readonly<Record<string, string>>;
   /** The options it takes without a value, each a field of its own that is true when given. */
   flags?: readonly string[];
+  /** Why the plugin does not carry it, when it does not (ADR 0125); the parity test reads it. */
+  terminalOnly?: string;
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -75,6 +77,7 @@ interface CommandDefinition<S extends z.ZodType> {
   rest?: string;
   options?: Readonly<Record<string, string>>;
   flags?: readonly string[];
+  terminalOnly?: string;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }

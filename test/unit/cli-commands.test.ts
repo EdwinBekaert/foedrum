@@ -296,6 +296,59 @@ describe('foedrum: commands that change state', () => {
     });
   });
 
+  describe('--via (ADR 0125)', () => {
+    it('records the plugin as the surface of a command the plugin runs', async () => {
+      assert.deepStrictEqual(
+        await run(['cancel', '23-1', '--via', 'plugin']),
+        ok('23-1 cancelled: by ada via plugin\n'),
+      );
+      assert.deepStrictEqual(appended(1), [
+        { type: 'batch.cancelled', batchId: '23-1', by: 'ada', via: 'plugin' },
+      ]);
+    });
+
+    it('takes --via=terminal, and the answers before or after it', async () => {
+      assert.equal((await run(['answer', '21-1', '--via=terminal', 'sqlite', 'yes'])).exitCode, 0);
+      const [answered] = appended(2);
+      assert.equal(answered?.type === 'input.received' && answered.via, 'terminal');
+      assert.deepStrictEqual(
+        answered?.type === 'input.received' && answered.answers.map(({ answer }) => answer),
+        ['sqlite', 'yes'],
+      );
+    });
+
+    it('passes the surface to brew, which records it on what it makes', async () => {
+      const issued: unknown[] = [];
+      const brew: CliContext['brew'] = async (_input, by) => {
+        issued.push(by);
+        return ok('');
+      };
+      assert.equal((await run(['brew', '21', '--via', 'plugin'], { brew })).exitCode, 0);
+      assert.deepStrictEqual(issued, [{ by: 'ada', via: 'plugin' }]);
+    });
+
+    it('is taken by a read-only command too', async () => {
+      assert.equal((await run(['stuck', '--via', 'plugin'])).exitCode, 0);
+    });
+
+    it('names no surface the terminal cannot speak for, and appends nothing', async () => {
+      const before = lastId();
+      for (const via of ['comment', 'dashboard', 'Plugin', '']) {
+        assert.deepStrictEqual(await run(['cancel', '23-1', `--via=${via}`]), {
+          exitCode: 2,
+          stdout: '',
+          stderr: `foedrum cancel: --via takes plugin or terminal, not ${JSON.stringify(via)}\n`,
+        });
+      }
+      assert.deepStrictEqual(await run(['cancel', '23-1', '--via']), {
+        exitCode: 2,
+        stdout: '',
+        stderr: 'foedrum cancel: --via needs a value\n',
+      });
+      assert.equal(lastId(), before);
+    });
+  });
+
   describe('answer', () => {
     it('answers the questions in the order they were asked, and resumes the step', async () => {
       assert.deepStrictEqual(
