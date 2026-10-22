@@ -1,6 +1,6 @@
 // A node:test reporter that npm test runs next to spec: it reads how much CPU time each test file
-// used, prints the files that used the most, and fails the run when one file goes over the
-// budget. A costly file is a sign that real file system trees or too much work slipped into a unit
+// used, prints the files that used the most, and, in CI, fails the run when one file goes over
+// the budget (ADR 0136). A costly file is a sign that real file system trees or too much work slipped into a unit
 // test (ADR 0021); the test-layer guard (scripts/check-test-layers.ts) and the preload's refusal
 // (scripts/refuse-process-starts.ts, ADR 0038) cover processes.
 //
@@ -272,8 +272,12 @@ export const budgetReporter = ({
     if (over) fail();
   };
 
-// npm test's reporter, with the given options changed (the integration tests lower the budget).
-export const npmTestReporter = (overrides: Partial<BudgetOptions> = {}) =>
+// npm test's reporter, with the given options changed (the integration tests lower the budget),
+// in CI or not by the given environment.
+export const npmTestReporter = (
+  overrides: Partial<BudgetOptions> = {},
+  env: NodeJS.ProcessEnv = process.env,
+) =>
   budgetReporter({
     budgetMs: FILE_BUDGET_MS,
     cwd: process.cwd(),
@@ -282,7 +286,7 @@ export const npmTestReporter = (overrides: Partial<BudgetOptions> = {}) =>
       process.exitCode = 1;
     },
     remeasure: nodeRemeasure(),
-    ci: runsInCi(process.env),
+    ci: runsInCi(env),
     ...overrides,
   });
 
