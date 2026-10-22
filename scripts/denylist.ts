@@ -13,8 +13,9 @@ import {
 } from './denylist/core.ts';
 import type { RunProcess } from './process-runner.ts';
 
-/** Each git call's deadline: a local, read-only log should answer within seconds. */
-export const DENYLIST_GIT_TIMEOUT_MS = 30_000;
+/** Each git call's deadline: a local, read-only log answers within seconds, and the two calls fit
+ * between the HEAD check (10 s) and npm run check (540 s) under the hook's 600 s. */
+export const DENYLIST_GIT_TIMEOUT_MS = 20_000;
 
 // The commits no remote-tracking ref has: what a push of the branch can send. git reads them as
 // stored (no replace refs) and prints paths as they are.
