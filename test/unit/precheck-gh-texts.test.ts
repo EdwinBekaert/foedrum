@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { textRefusal } from '../../scripts/denylist.ts';
+import { GH_FILE_MAX_BYTES, ghFileReader, textRefusal } from '../../scripts/denylist.ts';
 import {
   type CheckResult,
   type DeniedTexts,
@@ -134,6 +134,115 @@ describe('forbiddenReason on what gh pr and gh issue would post', () => {
     assert.match(reason, /ENOENT/);
     assert.match(reason, /\(ADR 0132\)/);
   });
+
+  // The error names the path as resolved, from the hook's working directory or the home folder.
+  it('never quotes a read error that holds the word', () => {
+    const readAt = () => {
+      throw new Error(`ENOENT: no such file, open '/home/examplecorp/site/missing.md'`);
+    };
+    const deniedTexts = textRefusal(() => set('ExampleCorp\n'), readAt);
+    const reason = forbiddenReason('gh pr comment 5 -F missing.md', deniedTexts, CWD) ?? '';
+    assert.match(reason, /^gh pr comment is blocked: could not read its --body-file missing\.md /);
+    assert.doesNotMatch(reason, WORD);
+  });
+});
+
+describe('ghFileReader', () => {
+  // A file system of regular files and others, by resolved path, and every call made.
+  const fakeFileSystem = (entries: Record<string, { text?: string; size?: number }>) => {
+    const calls: string[] = [];
+    const entry = (path: string) => {
+      const found = entries[path];
+      if (found === undefined) throw new Error(`ENOENT: no such file, stat '${path}'`);
+      return found;
+    };
+    return {
+      calls,
+      files: {
+        resolve: (cwd: string, path: readonly string[]) => [cwd, ...path].join('/'),
+        stat: (path: string) => {
+          calls.push(`stat ${path}`);
+          const { text, size } = entry(path);
+          return { isFile: () => text !== undefined, size: size ?? text?.length ?? 0 };
+        },
+        read: (path: string) => {
+          calls.push(`read ${path}`);
+          return entry(path).text ?? '';
+        },
+      },
+    };
+  };
+  const failure = (read: () => string): string => {
+    try {
+      read();
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    return 'read';
+  };
+
+  it('reads a regular file at the path resolved from where the hook runs', () => {
+    const { files, calls } = fakeFileSystem({ '/work/tree/body.md': { text: 'plain' } });
+    assert.equal(ghFileReader(files, 'linux')('/work/tree', ['body.md']), 'plain');
+    assert.deepEqual(calls, ['stat /work/tree/body.md', 'read /work/tree/body.md']);
+  });
+
+  it('never reads what is not a regular file, such as /dev/stdin or a FIFO', () => {
+    const { files, calls } = fakeFileSystem({ '/work/tree//dev/stdin': {} });
+    assert.match(
+      failure(() => ghFileReader(files, 'linux')('/work/tree', ['/dev/stdin'])),
+      /not a regular file/,
+    );
+    assert.deepEqual(calls, ['stat /work/tree//dev/stdin']);
+  });
+
+  it(`never reads a file over ${GH_FILE_MAX_BYTES} bytes`, () => {
+    const { files, calls } = fakeFileSystem({
+      '/work/tree/big.json': { text: '{}', size: GH_FILE_MAX_BYTES + 1 },
+    });
+    assert.match(
+      failure(() => ghFileReader(files, 'linux')('/work/tree', ['big.json'])),
+      /over/,
+    );
+    assert.deepEqual(calls, ['stat /work/tree/big.json']);
+  });
+
+  it('never touches a network or drive-less path on Windows', () => {
+    for (const path of ['\\\\attacker.example\\s\\x.md', '//attacker.example/s/x.md']) {
+      const { files, calls } = fakeFileSystem({});
+      const windows = {
+        ...files,
+        resolve: (_cwd: string, parts: readonly string[]) => parts.join(''),
+      };
+      assert.match(
+        failure(() => ghFileReader(windows, 'win32')('C:\\work', [path])),
+        /network/,
+      );
+      assert.deepEqual(calls, []);
+    }
+  });
+
+  // Git Bash maps /tmp/… for gh to another folder than the gate would resolve.
+  it('refuses a POSIX path on Windows, but not a Git Bash drive path', () => {
+    const { files, calls } = fakeFileSystem({ 'C:\\work//c/notes/body.md': { text: 'plain' } });
+    const reader = ghFileReader(files, 'win32');
+    assert.match(
+      failure(() => reader('C:\\work', ['/tmp/body.md'])),
+      /Windows or relative path/,
+    );
+    assert.equal(reader('C:\\work', ['/c/notes/body.md']), 'plain');
+    assert.deepEqual(calls, ['stat C:\\work//c/notes/body.md', 'read C:\\work//c/notes/body.md']);
+  });
+
+  it('blocks gh pr comment -F /dev/stdin, which reads standard input', () => {
+    const { files } = fakeFileSystem({ '/work/tree//dev/stdin': {} });
+    const deniedTexts = textRefusal(() => set('ExampleCorp\n'), ghFileReader(files, 'linux'));
+    const reason = forbiddenReason('gh pr comment 5 -F /dev/stdin', deniedTexts, CWD) ?? '';
+    assert.match(
+      reason,
+      /^gh pr comment is blocked: could not read its --body-file \/dev\/stdin \(not a regular file/,
+    );
+  });
 });
 
 describe('forbiddenReason on what gh api would post', () => {
@@ -149,6 +258,9 @@ describe('forbiddenReason on what gh api would post', () => {
     [`${ISSUES} -ftitle=ExampleCorp`, 'field title line 1'],
     [`${ISSUES} -X POST -f body=@ExampleCorp`, 'field body line 1'],
     ['gh api -X PATCH repos/o/r/issues/3 -f title=ExampleCorp', 'field title line 1'],
+    [`${ISSUES} -if title=ExampleCorp`, 'field title line 1'],
+    [`${ISSUES} -iF body=ExampleCorp`, 'field body line 1'],
+    [`${ISSUES} -iFbody=ExampleCorp`, 'field body line 1'],
   ];
   for (const [command, place] of inline) {
     it(`blocks a word in a title or body field: ${command}`, () => {

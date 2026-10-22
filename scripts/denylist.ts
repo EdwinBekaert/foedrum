@@ -163,3 +163,27 @@ export const textRefusal =
     if (hit === undefined) return undefined;
     return deniedRefusal(hit.command, [...new Set(hits.map(({ place }) => place))]);
   };
+
+/** The most a file gh would send may hold for the gate to read it: four times the 65,536
+ * characters GitHub takes in a body, so a request body of JSON fits too. */
+export const GH_FILE_MAX_BYTES = 262_144;
+
+/** The file system a gh text's file is read through: its path resolved from where the hook
+ * runs, what kind of file it is and how large, and its text. */
+export interface GhFiles {
+  resolve: (cwd: string, path: readonly string[]) => string;
+  stat: (path: string) => { isFile: () => boolean; size: number };
+  read: (path: string) => string;
+}
+
+/**
+ * Reads the file a gh text names (ADR 0132), or throws why it will not: only a regular file of at
+ * most GH_FILE_MAX_BYTES, so standard input as a path (/dev/stdin), a FIFO or a device never
+ * blocks or empties the gate; on Windows never a network or drive-less path, before anything
+ * touches it, nor a POSIX path, which Git Bash maps elsewhere for gh.
+ */
+export const ghFileReader =
+  (_files: GhFiles, _platform: NodeJS.Platform) =>
+  (_cwd: string, _path: readonly string[]): string => {
+    throw new Error('not implemented');
+  };
