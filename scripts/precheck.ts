@@ -52,8 +52,22 @@ const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'"
 
 // The raw hook input, or its command, without the quotes and escape characters that bash,
 // PowerShell and cmd drop, so a name they split (gi''t, g\it, g`it, g^h) still matches the
-// pre-filter. A backslash before u stays, for a JSON escape.
-const normalised = (input: string): string => foldQuotes(input).replace(/["'`^]|\\(?!u)/g, '');
+// pre-filter. A backslash before u stays, for a JSON escape. A line continuation (\, ` or ^ before
+// a newline, also \r\n) goes first (#158).
+const normalised = (input: string): string =>
+  foldQuotes(input)
+    .replace(/[\\`^]\r?\n/g, '')
+    .replace(/["'`^]|\\(?!u)/g, '');
+
+// The raw hook input with JSON's \\, \n and \r escapes decoded, one escape at a time, so the
+// pre-filter sees the line breaks of the command and never takes the n of \\npx for one (#158).
+const JSON_ESCAPES = new Map([
+  ['\\\\', '\\'],
+  ['\\n', '\n'],
+  ['\\r', '\r'],
+]);
+const jsonLineBreaks = (input: string): string =>
+  input.replace(/\\[\\nr]/g, (pair) => JSON_ESCAPES.get(pair) ?? pair);
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 // gh flags that can appear before the `pr` action and take the next token as their value.
@@ -1095,10 +1109,10 @@ const powershellCommands = (args: Word[]): string[] => {
 };
 
 // The command cmd runs after /c or /k (//c in Git Bash, which would turn /c into a path), without
-// its ^ escapes.
+// its ^ escapes and the line breaks they continue (#158).
 const cmdCommands = (args: Word[]): string[] => {
   const run = args.findIndex((arg) => /^\/\/?[ck]$/i.test(arg.text));
-  return run < 0 ? [] : [text(args.slice(run + 1)).replaceAll('^', '')];
+  return run < 0 ? [] : [text(args.slice(run + 1)).replace(/\^(?:\r?\n)?/g, '')];
 };
 
 // Start-Process parameters that take a value, with their aliases; the first match of a prefix
@@ -1470,7 +1484,7 @@ export const precheck = async (
   // Loaded only for a command with gh texts to read, so other calls load nothing for it.
   loadDeniedTexts: () => Promise<DeniedTexts> = async () => () => undefined,
 ): Promise<HookResult> => {
-  if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
+  if (!mayNeedTheGate(jsonLineBreaks(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);

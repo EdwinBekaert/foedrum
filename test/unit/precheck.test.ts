@@ -1314,6 +1314,63 @@ describe('precheck on words split by quotes and escapes', () => {
   }
 });
 
+// A line continuation inside a word, which each shell removes before it reads the word (#158).
+describe('precheck on words split by line continuations', () => {
+  const split: [tool: string, command: string][] = [];
+  for (const newline of ['\n', '\r\n']) {
+    split.push(
+      ['Bash', `g\\${newline}it pu\\${newline}sh`],
+      ['PowerShell', `g\`${newline}it pu\`${newline}sh`],
+      // Quoted, since bash ends an unquoted command at the newline.
+      ['Bash', `cmd /c "g^${newline}it pu^${newline}sh"`],
+    );
+  }
+  for (const [tool, command] of split) {
+    it(`runs the check like git push: ${tool} ${JSON.stringify(command)}`, async () => {
+      assert.doesNotMatch(command, /git|push/i);
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({ tool_name: tool, tool_input: { command }, cwd: '/work/tree' });
+      const result = await precheck(input, runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, ['/work/tree']);
+    });
+    it(`blocks a force push like git push -f: ${tool} ${JSON.stringify(command)}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        tool_name: tool,
+        tool_input: { command: `${command} -f` },
+        cwd: '/work/tree',
+      });
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2, result.stderr);
+      assert.match(result.stderr, /force push/i);
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  // A backslash before n that is no line continuation keeps its n, in the raw input as in the
+  // command (#158, review of #355).
+  const backslashN: string[] = [
+    'bash -c "\\\\npx some-pkg"',
+    '"C:\\\\tools\\\\npx.cmd" cowsay',
+    'x=`\\npx cowsay`',
+  ];
+  for (const command of backslashN) {
+    it(`still reads npx after a backslash: ${JSON.stringify(command)}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const input = JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      const result = await precheck(input, runCheck);
+      assert.equal(result.exitCode, 2, result.stderr);
+      assert.match(result.stderr, /would download a package/);
+      assert.deepEqual(calls, []);
+    });
+  }
+});
+
 describe('forbiddenReason on the bypasses found in the second review', () => {
   const forcePushes = [
     // PowerShell's typographic quotes.
@@ -1762,6 +1819,9 @@ describe('precheck on gh pr ready', () => {
     ['Bash', 'GH_REPO=owner/other gh pr ready 160'],
     ['Bash', 'export GH_REPO=owner/other; gh pr ready 160'],
     ['Bash', 'env GH_HOST=example.com gh pr ready 160'],
+    // A line continuation inside the name (#158).
+    ['Bash', 'GH_RE\\\nPO=owner/other gh pr ready 160'],
+    ['Bash', 'GH_RE\\\r\nPO=owner/other gh pr ready 160'],
     ['PowerShell', "$env:GH_REPO = 'owner/other'; gh pr ready 160"],
   ];
   for (const [tool, command] of ghRepo) {

@@ -6,6 +6,7 @@ import {
   type AttemptFacts,
   type Denials,
   noteDenial,
+  type SpendLimit,
   type UsageLimit,
 } from '../engine/brewer-runner.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
@@ -30,7 +31,14 @@ export interface StreamAsk extends AskedSession {
 /** What the stream showed, for settleAttempt. */
 export type StreamFacts = Pick<
   AttemptFacts,
-  'environment' | 'streamError' | 'usageLimit' | 'garbage' | 'denials' | 'deniedTools' | 'turns'
+  | 'environment'
+  | 'streamError'
+  | 'usageLimit'
+  | 'spendLimit'
+  | 'garbage'
+  | 'denials'
+  | 'deniedTools'
+  | 'turns'
 > & {
   /** The session claude set up, once its init matched what was asked. */
   session?: SessionFacts;
@@ -122,9 +130,27 @@ const usageLimitIn = (text: string): UsageLimit | undefined => {
   return { limit: limit as UsageLimit['limit'], resets: cut(resets) };
 };
 
-/** The usage limit an error result names, in its `result` or one of its `errors`. */
-const usageLimitOf = (result: ClaudeResult): UsageLimit | undefined =>
-  [result.result ?? '', ...(result.errors ?? [])].map(usageLimitIn).find((it) => it !== undefined);
+/** What `read` finds first in an error result's `result` or one of its `errors`. */
+const foundIn = <T>(result: ClaudeResult, read: (text: string) => T | undefined): T | undefined =>
+  [result.result ?? '', ...(result.errors ?? [])].map(read).find((it) => it !== undefined);
+
+/**
+ * A spend limit, only in the forms the error reference gives (ADR 0129): the whole text, one line,
+ * one of the documented limits, then nothing or ` · ` and how to raise it, which varies with the
+ * plan. A rest that names a reset is a plan window, which comes back by itself: not this.
+ */
+const SPEND_LIMIT =
+  /^You've hit your (monthly spend limit|individual spend limit|org's monthly spend limit|channel's monthly spend limit|team's shared budget|individual usage limit)(?: · (\S.*))?$/;
+const CREDIT = 'Credit balance is too low';
+
+const spendLimitIn = (text: string): SpendLimit | undefined => {
+  const trimmed = text.trim();
+  if (trimmed === CREDIT) return { kind: 'credit' };
+  const found = SPEND_LIMIT.exec(trimmed);
+  if (found === null || found[2]?.includes('resets')) return undefined;
+  // The pattern only matches one of the documented limits.
+  return { kind: 'spend', limit: found[1] as Extract<SpendLimit, { kind: 'spend' }>['limit'] };
+};
 
 /** Why a result reported an error: its terminal reason, then what it said. */
 const errorOf = (result: ClaudeResult): string => {
@@ -146,6 +172,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   let environment: string | undefined;
   let streamError: string | undefined;
   let usageLimit: UsageLimit | undefined;
+  let spendLimit: SpendLimit | undefined;
   let garbage: string | undefined;
   let usage: Usage | undefined;
   let denials: Denials = { denials: 0, deniedTools: [] };
@@ -180,7 +207,8 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     }
     if (!result.is_error) return;
     streamError = errorOf(result);
-    usageLimit = usageLimitOf(result);
+    usageLimit = foundIn(result, usageLimitIn);
+    spendLimit = foundIn(result, spendLimitIn);
   };
 
   const beforeInit = (event: unknown, type: string, subtype: unknown): 'go' | 'stop' => {
@@ -292,6 +320,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       ...(environment === undefined ? {} : { environment }),
       ...(streamError === undefined ? {} : { streamError }),
       ...(usageLimit === undefined ? {} : { usageLimit }),
+      ...(spendLimit === undefined ? {} : { spendLimit }),
       ...(garbage === undefined ? {} : { garbage }),
       ...denials,
       turns: turns(),

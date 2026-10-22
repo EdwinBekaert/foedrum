@@ -9,7 +9,7 @@ import {
 } from '../../src/engine/brewer-runner.ts';
 import { OutDocFrontmatter, outDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
-import { documentedUsageLimits } from '../fixtures/claude-usage-limits.ts';
+import { documentedSpendLimits, documentedUsageLimits } from '../fixtures/claude-usage-limits.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 
 const limits: AttemptLimits = {
@@ -118,8 +118,9 @@ describe('settleAttempt', () => {
   });
 
   // Review of #252: however the process ended after the refusal, the window is what to wait for.
-  it('puts a usage limit before a killed, overflowed or stopped process', () => {
+  it('puts a usage limit before a process that could not start, was killed, overflowed or stopped', () => {
     const exits = [
+      { kind: 'unstartable', reason: 'claude was not found' },
       { kind: 'killed', signal: 'SIGTERM' },
       { kind: 'overflowed', what: 'a stream line passed 8388608 bytes' },
       { kind: 'stopped' },
@@ -135,6 +136,54 @@ describe('settleAttempt', () => {
         summary: 'claude hit its Opus limit, which resets 3:45pm: retry the step after that',
       });
     }
+  });
+
+  // #257, ADR 0129: no request goes through until a human raises the limit or adds credits, and
+  // no reset comes by itself, so another attempt now would be refused too.
+  it('blocks on the environment when a spend limit or the credit balance refused it', () => {
+    const summaryOf = (spendLimit: (typeof documentedSpendLimits)[number]['spendLimit']) =>
+      spendLimit.kind === 'credit'
+        ? "claude's credit balance is too low: no request goes through until credits are added, then retry the step"
+        : `claude hit its ${spendLimit.limit}: no request goes through until the limit is raised, then retry the step`;
+    const exits = [
+      { kind: 'exited', code: 1 },
+      { kind: 'unstartable', reason: 'claude was not found' },
+      { kind: 'killed', signal: 'SIGTERM' },
+      { kind: 'overflowed', what: 'a stream line passed 8388608 bytes' },
+      { kind: 'stopped' },
+    ] as const;
+    for (const { spendLimit } of documentedSpendLimits) {
+      const summary = summaryOf(spendLimit);
+      for (const exit of exits) {
+        const ending = settleAttempt(
+          facts({
+            spendLimit,
+            exit,
+            streamError: 'api_error: rejected',
+            outDoc: undefined,
+            denials: 9,
+            turns: 101,
+          }),
+          limits,
+        );
+        assert.deepStrictEqual(ending, { kind: 'blocked', blockerKind: 'environment', summary });
+      }
+    }
+  });
+
+  it('puts a session that is not what was asked, and a usage limit, before a spend limit', () => {
+    const spendLimit = { kind: 'credit' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ environment: 'no init', spendLimit }), limits), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude did not set up the session the runner asked for: no init',
+    });
+    const usageLimit = { limit: 'session', resets: '3:45pm' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ usageLimit, spendLimit }), limits), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude hit its session limit, which resets 3:45pm: retry the step after that',
+    });
   });
 
   it('puts a session that is not what was asked before a usage limit', () => {
