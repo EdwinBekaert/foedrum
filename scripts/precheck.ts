@@ -276,7 +276,14 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       } else if (char === '"') {
         lexed.strings.push(quoted.text.slice(start));
         return j + 1;
-      } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\\n'.includes(next))) {
+      } else if (
+        char === '\\' &&
+        dialect === 'bash' &&
+        (next === '\n' || (next === '\r' && command[j + 2] === '\n'))
+      ) {
+        // Bash removes a line continuation inside double quotes too, CRLF as outside them (#359).
+        j += next === '\n' ? 2 : 3;
+      } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\'.includes(next))) {
         markEscape(add(next), next);
         j += 2;
       } else if (char === '$' || (char === '`' && dialect === 'bash')) {
