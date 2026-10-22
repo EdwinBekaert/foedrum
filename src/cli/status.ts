@@ -81,15 +81,27 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
 /**
- * What `foedrum status` prints: one line per batch, in the order they were ordered, then the
- * `kept` lines of the task-tree branches the cleanup keeps (ADR 0092).
+ * What `foedrum status` prints: one line per batch, in the order they were ordered, with the
+ * owner of an `interactive` driver that holds it (ADR 0123), then the `kept` lines of the
+ * task-tree branches the cleanup keeps (ADR 0092).
  */
-export const formatStatus = (state: State, kept: readonly string[] = []): string => {
+export const formatStatus = (
+  state: State,
+  kept: readonly string[] = [],
+  interactive: ReadonlyMap<string, string> = new Map(),
+): string => {
   const batches = [...state.batches.values()];
   if (batches.length === 0) return 'No batches.\n';
   const rows = batches.map((batch) => {
     const { lane, detail } = describeLane(batch);
-    return [batch.id, issueOf(batch), lane, detail];
+    const owner = interactive.get(batch.id);
+    const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
+    return [
+      batch.id,
+      issueOf(batch),
+      lane,
+      [detail, ...by].filter((part) => part !== '').join('; '),
+    ];
   });
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
   const after = kept.length === 0 ? [] : ['', ...kept];

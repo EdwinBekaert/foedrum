@@ -8,15 +8,17 @@ import { join } from 'node:path';
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
-import type { StoredEvent } from '../engine/event-store.ts';
+import type { EventStore, StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
-import { claimIssue } from '../engine/issue-claims.ts';
+import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
+  BrewCommand,
   CancelCommand,
+  CELLAR_OWNER,
   DoctorCommand,
   OrderCommand,
   RecipeCommand,
@@ -53,6 +55,8 @@ export interface RegisteredCommand {
   optional?: readonly string[];
   /** The field that takes the positional arguments after those, one or more, as a list. */
   rest?: string;
+  /** The options it takes, each with a value and a field of its own: the value's name, by option. */
+  options?: Readonly<Record<string, string>>;
   /** Validates the input against the command's schema, then runs its handler. */
   run: (input: unknown, context: CliContext) => Promise<CliResult | { invalid: z.ZodError }>;
 }
@@ -64,6 +68,7 @@ interface CommandDefinition<S extends z.ZodType> {
   positionals: readonly string[];
   optional?: readonly string[];
   rest?: string;
+  options?: Readonly<Record<string, string>>;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
 }
@@ -96,7 +101,11 @@ const failed = (command: string, message: string): CliResult => ({
 const readBrewery = async (
   command: string,
   { cwd, openStore }: CliContext,
-  show: (events: readonly StoredEvent[], state: State) => CliResult | Promise<CliResult>,
+  show: (
+    events: readonly StoredEvent[],
+    state: State,
+    store: EventStore,
+  ) => CliResult | Promise<CliResult>,
 ): Promise<CliResult> => {
   const path = storePath(cwd);
   const store = openStore(path);
@@ -110,7 +119,7 @@ const readBrewery = async (
       if (error instanceof InvalidLogError) return failed(command, error.message);
       throw error;
     }
-    return await show(events, state);
+    return await show(events, state, store);
   } finally {
     store.close();
   }
@@ -184,6 +193,39 @@ const questionsOf = (state: State, batchId: string): readonly string[] => {
     : [];
 };
 
+/** The target repository an order claims its issue in, and the Brewery the claim records. */
+export interface OrderClaim {
+  repo: string;
+  alias: string;
+  brewery: string;
+}
+
+/**
+ * The human command that orders `order` again (ADR 0105), or why it cannot: refused while
+ * `orderRefusal` says so, then a target issue is claimed first, and the batch takes the issue's
+ * next id. `foedrum order` and `foedrum brew` order through it.
+ */
+export const orderIssue = async (
+  state: () => State,
+  order: OrderRef,
+  claim: OrderClaim | undefined,
+  { claims, now, issued }: { claims: () => ClaimHost; now: Date; issued: Issued },
+): Promise<HumanCommand | { refused: string }> => {
+  const { issue } = order;
+  // Before the claim, so a refused order claims nothing; decide checks it again.
+  const refused = orderRefusal(state(), order);
+  if (refused !== undefined) return { refused };
+  if (claim === undefined)
+    return { kind: 'order_again', ...issued(nextBatchId(state(), issue)), order };
+  const { repo, brewery } = claim;
+  const outcome = await claimIssue(claims(), { repo, issue, brewery, now: now.toISOString() });
+  if (outcome.kind === 'taken') {
+    const by = outcome.by ?? 'a ref whose record cannot be read';
+    return { refused: `${repo}#${issue} is claimed by ${by}` };
+  }
+  return { kind: 'order_again', ...issued(targetBatchId(state(), claim.alias, issue)), order };
+};
+
 export const commands: readonly RegisteredCommand[] = [
   define({
     name: 'doctor',
@@ -203,12 +245,19 @@ export const commands: readonly RegisteredCommand[] = [
     positionals: [],
     schema: StatusCommand,
     handler: async (_input, context) =>
-      readBrewery('status', context, async (_events, state) => {
+      readBrewery('status', context, async (_events, state, store) => {
         // The task-tree branches the cleanup keeps (ADR 0084), read only when there are any.
         const unpushed = worktreeClaims(state, []).unpushed ?? new Map<string, string>();
         const readings =
           unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
-        return done(formatStatus(state, keptBranchLines(unpushed, readings)));
+        // The batches an interactive driver holds now, by its owner (ADR 0123).
+        const interactive = new Map(
+          store
+            .batchLeases(context.now())
+            .filter(({ owner }) => owner !== CELLAR_OWNER)
+            .map(({ batchId, owner }) => [batchId, owner]),
+        );
+        return done(formatStatus(state, keptBranchLines(unpushed, readings), interactive));
       }),
   }),
   define({
@@ -339,22 +388,25 @@ export const commands: readonly RegisteredCommand[] = [
       const claim = alias === undefined ? undefined : claimOf(alias, context.config());
       if (claim !== undefined && 'refused' in claim) return failed('order', claim.refused);
       const order: OrderRef = claim === undefined ? { issue } : { issue, repo: claim.repo };
-      return changeBrewery('order', context, async (state, issued) => {
-        // Before the claim, so a refused order claims nothing; decide checks it again.
-        const refused = orderRefusal(state(), order);
-        if (refused !== undefined) return { refused };
-        if (claim === undefined)
-          return { kind: 'order_again', ...issued(nextBatchId(state(), issue)), order };
-        const { repo, brewery, config } = claim;
-        const now = context.now().toISOString();
-        const outcome = await claimIssue(context.claims(config), { repo, issue, brewery, now });
-        if (outcome.kind === 'taken') {
-          const by = outcome.by ?? 'a ref whose record cannot be read';
-          return { refused: `${repo}#${issue} is claimed by ${by}` };
-        }
-        const batchId = targetBatchId(state(), claim.alias, issue);
-        return { kind: 'order_again', ...issued(batchId), order };
-      });
+      return changeBrewery('order', context, (state, issued) =>
+        orderIssue(state, order, claim, {
+          // Called only for a claim, which carries its config.
+          claims: () => context.claims(claim?.config ?? context.config()),
+          now: context.now(),
+          issued,
+        }),
+      );
     },
+  }),
+  define({
+    name: 'brew',
+    summary: "Brew an issue's batch here until it is on tap, Stuck or needs input",
+    changesState: true,
+    positionals: ['issue'],
+    options: { as: 'name' },
+    schema: BrewCommand,
+    // A driver of its own on the machine, run by the terminal (ADR 0123).
+    handler: async (input, context) =>
+      context.brew(input, { by: context.user(), via: context.surface }),
   }),
 ];
