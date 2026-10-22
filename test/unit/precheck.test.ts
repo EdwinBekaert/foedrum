@@ -2331,6 +2331,14 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     '$_d | Remove-Item -Recurse',
     'Get-ChildItem $PSItems | Remove-Item -Recurse',
     '$d | ForEach-Object { Remove-Item -Recurse .foedrum/tmp/x }',
+    // A script block in the first stage, and $_ at the head of a pipeline, where it is a source
+    // like any variable.
+    'Invoke-Command { Get-ChildItem $d } | Remove-Item -Recurse',
+    '& { Get-ChildItem $d } | Remove-Item -Recurse',
+    '[pscustomobject]@{Path=$d} | Remove-Item -Recurse',
+    '$dirs | ForEach-Object {\n  $_ | Remove-Item -Recurse\n}',
+    '$dirs | % { Write-Host $_; $_ | Remove-Item -Recurse }',
+    '$_ = $root; $_ | Remove-Item -Recurse',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
