@@ -93,6 +93,16 @@ describe('resumeOf', () => {
     });
   });
 
+  // A batch Stuck on a divergence after its step succeeded (the recipe file changed), then
+  // retried: that session's branch holds the task tree (review of #371).
+  it('starts fresh after an attempt that succeeded: its branch holds the task tree', () => {
+    const done: StepOutcome = { kind: 'succeeded', output: null };
+    assert.deepStrictEqual(resumeOf(batchOf([...fresh(1, done), scheduled(2)]), plan(2)), {
+      kind: 'fresh',
+      why: 'plan#1 succeeded, and its branch holds the task tree',
+    });
+  });
+
   it('starts fresh when no attempt of the session it would resume has a worktree', () => {
     const resumedOnly: Event[] = [
       { type: 'step.scheduled', ...plan(1), deadlineAt },
