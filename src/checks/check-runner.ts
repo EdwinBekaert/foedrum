@@ -15,6 +15,7 @@ import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
+import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { envNameKey } from '../platform/env.ts';
 import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
@@ -131,7 +132,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
   /** What one run of `check` read; on native Windows, which has no sandbox, it says so (ADR 0076). */
   const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => {
     const reading = readingOf(check, result);
-    return platform === 'win32' && reading.result !== 'skipped'
+    return checksRunUnsandboxed(platform) && reading.result !== 'skipped'
       ? { ...reading, unsandboxed: true as const }
       : reading;
   };

@@ -37,6 +37,9 @@ export const SEATBELT_PROFILE = [
   '',
 ].join('\n');
 
+/** Whether check steps run without an OS sandbox here: on native Windows only (ADR 0010). */
+export const checksRunUnsandboxed = (platform: NodeJS.Platform): boolean => platform === 'win32';
+
 /** Where sandbox-exec is on macOS: by its full path, never looked up. */
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
@@ -158,7 +161,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
   return async (file, args, call) => {
-    if (call.shell !== true || platform === 'win32') return exec(file, args, call);
+    if (call.shell !== true || checksRunUnsandboxed(platform)) return exec(file, args, call);
     // Never unsandboxed outside Windows: a check that cannot have its sandbox does not run.
     let paths: CheckSandboxPaths;
     try {

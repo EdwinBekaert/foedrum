@@ -16,6 +16,7 @@ import {
   type StepChecks,
 } from '../engine/recipe-files.ts';
 import type { Recipes } from '../engine/recipes.ts';
+import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import {
   BreweryConfig,
@@ -262,7 +263,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     if (required) problems.push(`${what}: ${fix}`);
   }
   // Elsewhere a check runs in bwrap or sandbox-exec, or not at all (ADR 0076).
-  const unsandboxedChecks = platform === 'win32';
+  const unsandboxedChecks = checksRunUnsandboxed(platform);
   if (
     unsandboxedChecks &&
     config?.isolation?.minimum === 'sandboxed' &&
