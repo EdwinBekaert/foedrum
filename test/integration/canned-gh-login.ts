@@ -81,7 +81,14 @@ export const doctorHere = async (
 ) =>
   runCli(['doctor'], {
     cwd,
-    gatherDoctorFacts: () => doctorFromCheckout(cwd, { exec, resolve, denylist: noDenylist }),
+    gatherDoctorFacts: () =>
+      doctorFromCheckout(cwd, {
+        exec,
+        resolve,
+        denylist: noDenylist,
+        // The machine's AppArmor is not the test's.
+        restrictsUserns: () => undefined,
+      }),
     openStore: notForDoctor('store'),
     openWritableStore: notForDoctor('store'),
     recipes: notForDoctor('recipes'),

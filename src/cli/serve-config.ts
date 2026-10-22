@@ -16,6 +16,7 @@ import {
   type StepChecks,
 } from '../engine/recipe-files.ts';
 import type { Recipes } from '../engine/recipes.ts';
+import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import {
   BreweryConfig,
@@ -99,6 +100,8 @@ export interface ServeSetup {
   claude: string;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Whether check steps run without an OS sandbox: on native Windows only (ADR 0076). */
+  unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */
   brewerEnv: { base: Env; forced: Env };
 }
@@ -259,6 +262,19 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   for (const { required, what, fix } of diagnosis.problems) {
     if (required) problems.push(`${what}: ${fix}`);
   }
+  // Elsewhere a check runs in bwrap or sandbox-exec, or not at all (ADR 0076).
+  const unsandboxedChecks = checksRunUnsandboxed(platform);
+  if (
+    unsandboxedChecks &&
+    config?.isolation?.minimum === 'sandboxed' &&
+    loaded.valid &&
+    loaded.checks.any()
+  ) {
+    const { level, why } = diagnosis.isolation;
+    problems.push(
+      `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
+    );
+  }
   const claude = diagnosis.tools.find(({ name }) => name === 'claude')?.path;
 
   if (
@@ -293,6 +309,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
+      unsandboxedChecks,
       brewerEnv: {
         base: brewerBaseEnv(env, platform),
         forced: brewerForcedEnv(),

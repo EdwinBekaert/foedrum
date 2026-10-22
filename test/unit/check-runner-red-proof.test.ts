@@ -114,6 +114,7 @@ const setup = ({
   checks: repositoryChecks = repository,
   /** Why clearing the report fails, when it does. */
   clearFails = undefined as string | undefined,
+  platform = 'linux' as NodeJS.Platform,
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -154,7 +155,7 @@ const setup = ({
     reports,
     env: { base: {}, forced: {} },
     clock: () => now,
-    platform: 'linux',
+    platform,
   });
   const run = () =>
     runner.start({ ref, limits: { outDoc: { file: 'out.md', schema: undefined as never } } }).ended;
@@ -178,6 +179,20 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${clone}`,
       `exec npm test in ${redTree}`,
     ]);
+  });
+
+  it('says on native Windows that the red run ran unsandboxed (ADR 0076)', async () => {
+    const end = await setup({ platform: 'win32' }).run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      end.readings?.map((reading) => 'unsandboxed' in reading && reading.unsandboxed),
+      [true],
+    );
+    const elsewhere = await setup().run();
+    assert.deepEqual(
+      elsewhere.readings?.map((reading) => 'unsandboxed' in reading),
+      [false],
+    );
   });
 
   it("reads the proven step's commits from its first attempt's start, after a route sent it back", async () => {

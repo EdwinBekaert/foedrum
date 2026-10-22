@@ -57,6 +57,8 @@ export interface DoctorShell {
   env?: NodeJS.ProcessEnv;
   /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
   githubHost?: string;
+  /** On Linux, whether AppArmor restricts unprivileged user namespaces; undefined when unknown. */
+  restrictsUserns?: () => boolean | undefined;
 }
 
 // The list's state without its text: doctor never prints a word of it (ADR 0114).
@@ -125,6 +127,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(['npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
   ]);
   const [login, credentials] = await asking;
+  const restrictsUserns = shell.restrictsUserns?.();
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
@@ -132,6 +135,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
     github: { host, login, credentials },
     ...(jobObject === undefined ? {} : { jobObject }),
+    ...(restrictsUserns === undefined ? {} : { restrictsUserns }),
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
     ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),

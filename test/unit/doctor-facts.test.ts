@@ -306,6 +306,19 @@ describe("gatherDoctorFacts: gh's login and git's credential helpers", () => {
   });
 });
 
+describe("gatherDoctorFacts: AppArmor's limit on user namespaces (ADR 0076)", () => {
+  it('records whether AppArmor restricts unprivileged user namespaces, when the shell can tell', async () => {
+    const { shell } = fakeShell();
+    for (const restricted of [true, false]) {
+      const facts = await gatherDoctorFacts({ ...shell, restrictsUserns: () => restricted });
+      assert.equal(facts.restrictsUserns, restricted);
+    }
+    const unknown = await gatherDoctorFacts({ ...shell, restrictsUserns: () => undefined });
+    assert.equal('restrictsUserns' in unknown, false);
+    assert.equal('restrictsUserns' in (await gatherDoctorFacts(shell)), false);
+  });
+});
+
 describe('gatherDoctorFacts: the Brewery config', () => {
   it('reads foedrum.jsonc in the working directory', async () => {
     const { shell } = fakeShell();
