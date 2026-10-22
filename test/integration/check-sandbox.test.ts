@@ -65,9 +65,29 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
   });
 
   it('cannot read a file in the home folder', async () => {
-    const result = await check(`cat "${home}/secret.txt"`);
+    writeFileSync(join(worktree, 'own.txt'), 'own-text\n');
+    const result = await check(`cat own.txt && cat "${home}/secret.txt"`);
+    // It ran, read its worktree, and was refused the home folder.
+    assert.match(result.output, /own-text/);
     assert.notEqual(result.exitCode, 0, result.output);
     assert.doesNotMatch(result.output, /planted-login/);
+  });
+
+  // gh's login in the OS keyring (ADR 0073): the user's D-Bus socket under /run on Linux, the
+  // Keychain's service on macOS.
+  it('reaches no keyring', async () => {
+    if (process.platform === 'linux') {
+      const result = await check('ls -A /run');
+      assert.equal(result.exitCode, 0, result.output);
+      assert.equal(result.output.trim(), '');
+      return;
+    }
+    const line = 'security find-generic-password -s foedrum-check-sandbox-none';
+    const outside = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
+    const inside = await check(line);
+    assert.notEqual(inside.exitCode, 0, inside.output);
+    // Not found outside, refused inside.
+    assert.notDeepEqual([inside.exitCode, inside.output], [outside.exitCode, outside.output]);
   });
 
   it('cannot open a connection to a server on 127.0.0.1', async () => {
@@ -89,7 +109,8 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
       await reached;
       const before = connections;
       const result = await check(line);
-      assert.notEqual(result.exitCode, 0, result.output);
+      // node ran, and its connection was refused.
+      assert.equal(result.exitCode, 3, result.output);
       assert.equal(connections, before);
     } finally {
       await new Promise((done) => server.close(done));
