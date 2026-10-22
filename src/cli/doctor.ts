@@ -504,11 +504,11 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
 const denylistLine = (denylist: DenylistFact): string => {
   switch (denylist.kind) {
     case 'set':
-      return `Denylist: ${denylist.path} (the local gate blocks its words in what git push sends, ADR 0114)`;
+      return `Denylist: ${denylist.path} (the local gate blocks its words in what git push and gh send, ADR 0114, ADR 0132)`;
     case 'none':
       return `Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or ${denylist.path}, ADR 0114)`;
     case 'unreadable':
-      return `Denylist: ${denylist.path} cannot be read (${denylist.why}); the local gate blocks every push until it can (ADR 0114)`;
+      return `Denylist: ${denylist.path} cannot be read (${denylist.why}); the local gate blocks every push and every gh text until it can (ADR 0114, ADR 0132)`;
     default: {
       const unknown: never = denylist;
       throw new Error(`unknown denylist state ${JSON.stringify(unknown)}`);

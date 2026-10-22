@@ -6,11 +6,14 @@ import type { DenylistState } from '../src/platform/denylist.ts';
 import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
 import {
   deniedRefusal,
+  filePlaces,
   type GhText,
+  holdsEntry,
   MESSAGE_FORMAT,
   parseDenylist,
   scanMessages,
   scanPatches,
+  textPlaces,
 } from './denylist/core.ts';
 
 /** Each git call's deadline: a local, read-only call answers within seconds, and the three calls
@@ -113,7 +116,50 @@ export const pushRefusal =
  * cannot.
  */
 export const textRefusal =
-  (_readList: () => DenylistState, _readAt: (cwd: string, path: readonly string[]) => string) =>
-  (_texts: readonly GhText[], _cwd: string): string | undefined => {
-    throw new Error('not implemented');
+  (readList: () => DenylistState, readAt: (cwd: string, path: readonly string[]) => string) =>
+  (texts: readonly GhText[], cwd: string): string | undefined => {
+    const [first] = texts;
+    if (first === undefined) return undefined;
+    const state = readList();
+    if (state.kind === 'none') return undefined;
+    if (state.kind === 'unreadable') {
+      return `${first.command} is blocked: the denylist at ${state.path} cannot be read (${state.why}), so the gate cannot check what gh sends (ADR 0114, ADR 0132). Fix the file, or unset FOEDRUM_DENYLIST.`;
+    }
+    const list = parseDenylist(state.text);
+    if (list.length === 0) return undefined;
+    // Each reading of a command that runs another finds the same text again.
+    const unique = [...new Map(texts.map((each) => [JSON.stringify(each), each])).values()];
+    const hits: { command: string; place: string }[] = [];
+    for (const each of unique) {
+      const where = `${each.command} ${each.field}`;
+      switch (each.kind) {
+        case 'unreadable':
+          return `${each.command} is blocked: its ${each.field} is ${each.why}, so the gate cannot check it against your denylist (ADR 0132); give the text inline, or in a file the gate can read.`;
+        case 'text':
+          hits.push(...textPlaces(where, each.text, list).map((place) => ({ ...each, place })));
+          break;
+        case 'file': {
+          const shown = each.path.at(-1) ?? '';
+          let text: string;
+          try {
+            text = readAt(cwd, each.path);
+          } catch (error) {
+            // The error names the path, which may hold the word.
+            const named = !holdsEntry(each.path.join('/'), list);
+            const why = error instanceof Error ? error.message : String(error);
+            return `${each.command} is blocked: could not read its ${each.field} ${named ? `${shown} (${why})` : 'from a file whose path holds a denied word'}, so the gate cannot check it against your denylist (ADR 0132).`;
+          }
+          const places = filePlaces(where, shown, text, each.json === true, list);
+          hits.push(...places.map((place) => ({ ...each, place })));
+          break;
+        }
+        default: {
+          const unknown: never = each;
+          throw new Error(`unknown gh text ${JSON.stringify(unknown)}`);
+        }
+      }
+    }
+    const [hit] = hits;
+    if (hit === undefined) return undefined;
+    return deniedRefusal(hit.command, [...new Set(hits.map(({ place }) => place))]);
   };
