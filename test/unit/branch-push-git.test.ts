@@ -34,11 +34,8 @@ const recordingGit = (answer: (args: readonly string[]) => GitResult = () => ok(
   return { git, calls };
 };
 
-/** What every local git call in the clone runs with: no transport, hook or fsmonitor (ADR 0096). */
-const IN_CLONE = {
-  env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' },
-  config: { 'protocol.allow': 'never', 'core.hooksPath': devNull, 'core.fsmonitor': 'false' },
-};
+/** What every git call in the clone runs with: no hook or fsmonitor (ADR 0137). */
+const IN_CLONE = { 'core.hooksPath': devNull, 'core.fsmonitor': 'false' };
 /** What every call in Foedrum's own git directory runs with: no hook, gc or maintenance. */
 const OWN_CONFIG = {
   'core.hooksPath': devNull,
@@ -286,8 +283,8 @@ describe('openBranchPush: push', () => {
   });
 });
 
-describe('openBranchPush: git in the clone (ADR 0096)', () => {
-  it('runs every call in the clone with no transport, hook or fsmonitor, and every other in its own git directory', async () => {
+describe('openBranchPush: git in the clone (ADR 0137)', () => {
+  it('runs every call in the clone with no hook or fsmonitor, and every other in its own git directory', async () => {
     const root = nextFolder();
     const { git, calls } = recordingGit((args) => {
       const answer = named(args);
@@ -307,10 +304,7 @@ describe('openBranchPush: git in the clone (ADR 0096)', () => {
     const inClone = calls.filter(({ cwd }) => cwd === clone);
     assert.ok(inClone.length >= 9, String(inClone.length));
     for (const { args, options } of inClone) {
-      for (const [key, value] of Object.entries(IN_CLONE.env)) {
-        assert.equal(options?.env?.[key], value, `${key} of ${args.join(' ')}`);
-      }
-      for (const [key, value] of Object.entries(IN_CLONE.config)) {
+      for (const [key, value] of Object.entries(IN_CLONE)) {
         assert.equal(options?.config?.[key], value, `${key} of ${args.join(' ')}`);
       }
     }
