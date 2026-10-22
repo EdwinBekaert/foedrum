@@ -159,3 +159,70 @@ export const deniedRefusal = (what: string, places: readonly string[]): string =
   const more = places.length > SHOWN ? `; and ${places.length - SHOWN} more` : '';
   return `${what} is blocked: it would send a word on your denylist (ADR 0114), at ${places.slice(0, SHOWN).join('; ')}${more}. Take the word out and try again; the gate never says which word it found.`;
 };
+
+/**
+ * A text a gh command would send, as the gate read it from the command line (ADR 0132): given as
+ * it is, in a file at `path` (its parts, resolved from where the hook runs), or one the gate cannot
+ * read and says why. `command` is the gh command (`gh pr create`), `field` the option or field
+ * that carries it (`--body`, `--body-file`, `field body`, `--input`).
+ */
+export type GhText =
+  | { kind: 'text'; command: string; field: string; text: string }
+  | { kind: 'file'; command: string; field: string; path: readonly string[]; json?: boolean }
+  | { kind: 'unreadable'; command: string; field: string; why: string };
+
+/** Whether a line of text holds an entry of `list`. */
+export const holdsEntry = (text: string, list: readonly string[]): boolean => matcher(list)(text);
+
+/**
+ * The places of a text gh would send, `<where> line <n>`, for each line that holds an entry. A
+ * literal \n, \r or \t (GitHub shows it as it is) parts the words on either side of it.
+ */
+export const textPlaces = (where: string, text: string, list: readonly string[]): string[] =>
+  deniedLines(text.replace(/\\[nrt]/g, ' '), list).map((line) => `${where} line ${line}`);
+
+// The strings of a JSON value, keys too, by the top-level field they are in.
+const fieldStrings = (value: unknown, field: string): [string, string][] => {
+  if (typeof value === 'string') return [[field, value]];
+  if (typeof value !== 'object' || value === null) return [];
+  return Object.entries(value).flatMap(([key, inner]) => [
+    [field, key] as [string, string],
+    ...fieldStrings(inner, field),
+  ]);
+};
+
+/**
+ * The places of a file gh would send, `shown` being its path as written: `<where> <path>:<n>`, and
+ * for a JSON request body (`json`, gh api --input) `<where> <path>, <field> line <n>`, its strings
+ * read decoded, as GitHub reads them. A path or field name that holds an entry is not named.
+ */
+export const filePlaces = (
+  where: string,
+  shown: string,
+  text: string,
+  json: boolean,
+  list: readonly string[],
+): string[] => {
+  const path = holdsEntry(shown, list) ? DENIED_PATH : shown;
+  const body = text.replace(/^﻿/, '');
+  let parsed: unknown;
+  try {
+    parsed = json ? JSON.parse(body) : undefined;
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    const at = path === DENIED_PATH ? `${DENIED_PATH}, line ` : `${path}:`;
+    return deniedLines(body, list).map((line) => `${where} ${at}${line}`);
+  }
+  const places = Object.entries(parsed).flatMap(([key, value]) => {
+    const field = holdsEntry(key, list) ? 'a field whose name holds a denied word' : key;
+    return [
+      ...(field === key ? [] : [`${where} ${path}, ${field}`]),
+      ...fieldStrings(value, field).flatMap(([name, string]) =>
+        textPlaces(`${where} ${path}, ${name}`, string, list),
+      ),
+    ];
+  });
+  return [...new Set(places)];
+};
