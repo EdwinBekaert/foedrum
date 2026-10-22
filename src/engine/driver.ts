@@ -96,6 +96,14 @@ export interface DriverOptions {
   outDoc?: OutDocOf;
   /** The attempt worktrees of each repository the attempts write in, and their base. */
   worktrees?: readonly RepositoryWorktrees[];
+  /**
+   * Whether an attempt runs a brewer, in a Claude Code session the driver chooses and records with
+   * its worktree (ADR 0116): every attempt with a worktree by default; `serve` leaves out its
+   * check steps.
+   */
+  brews?: (attempt: AttemptRef) => boolean;
+  /** The id of a new session; default `randomUUID`. */
+  sessionId?: () => string;
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
   alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;

@@ -5,6 +5,7 @@
 // the other writers.
 
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type {
@@ -81,12 +82,16 @@ const handRunner = () => {
         : undefined,
   };
   /** Ends the running attempt `ref` with `ending`. */
-  const end = (ref: AttemptRef, ending: Ending = succeeded): void => {
+  const end = (
+    ref: AttemptRef,
+    ending: Ending = succeeded,
+    more: Partial<AttemptEnd> = {},
+  ): void => {
     const key = attemptKey.encode(ref);
     const resolve = running.get(key);
     assert.ok(resolve, `${key} runs`);
     running.delete(key);
-    resolve({ ending });
+    resolve({ ...more, ending });
   };
   /**
    * Rejects the end of the running attempt `ref` with `error`: the runner itself broke. It still
@@ -848,6 +853,92 @@ describe('openDriver', () => {
         [[], [plan('b1')], []],
         'the second cleanup claims the worktree no more',
       );
+    });
+  });
+
+  describe('sessions (ADR 0116)', () => {
+    const manager = () => ({
+      worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: fakeWorktrees() }],
+    });
+    const ids = () => {
+      let next = 0;
+      return () => `0f8fad5b-d9cb-469f-a165-70867728950${next++}`;
+    };
+    const recorded = <T extends 'step.started' | 'step.finished'>(type: T) =>
+      store
+        .eventsAfter(0)
+        .flatMap(({ event }) =>
+          event.type === type ? [event as Extract<Event, { type: T }>] : [],
+        );
+    const implement = { batchId: 'b1', stepId: 'implement', attempt: 1 };
+    const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
+
+    it("records each brewer attempt's session in its step.started: a new id, in its worktree", async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      end(plan('b1'), { kind: 'failed', retryable: true, reason: 'flaky' });
+      await driver.drive();
+      end(plan('b1', 2));
+      await driver.drive();
+      assert.deepStrictEqual(
+        recorded('step.started').map(({ stepId, attempt, session, worktree }) => ({
+          step: `${stepId}#${attempt}`,
+          session,
+          path: worktree?.path,
+        })),
+        [
+          ['plan#1', '0', join('b1', 'plan', '1')],
+          ['plan#2', '1', join('b1', 'plan', '2')],
+          ['implement#1', '2', join('b1', 'implement', '1')],
+        ].map(([step, id, folder]) => {
+          const path = join('work', 'acme.app', 'attempts', folder ?? '');
+          return {
+            step,
+            session: { id: `0f8fad5b-d9cb-469f-a165-70867728950${id}`, worktree: path },
+            path,
+          };
+        }),
+      );
+    });
+
+    it('records no session for an attempt that runs no brewer, as a check step', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({
+        runner,
+        ...manager(),
+        sessionId: ids(),
+        brews: ({ stepId }) => stepId !== 'implement',
+      });
+      await driver.drive();
+      end(plan('b1'));
+      await driver.drive();
+      const [first, second] = recorded('step.started');
+      assert.equal(first?.session?.id, '0f8fad5b-d9cb-469f-a165-708677289500');
+      assert.equal(second?.stepId, 'implement');
+      assert.equal(second?.session, undefined);
+      assert.ok(second?.worktree, 'the check step still gets its worktree');
+    });
+
+    it("records the version and model claude reported on step.finished, and none when claude's init never came", async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const sessionId = '0f8fad5b-d9cb-469f-a165-708677289500';
+      end(plan('b1'), succeeded, {
+        session: { sessionId, model: claude.model, claudeVersion: claude.version },
+      });
+      await driver.drive();
+      end(implement, { kind: 'failed', retryable: false, reason: 'claude was not found on PATH' });
+      await driver.drive();
+      const [planned, implemented] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.claude, claude);
+      assert.ok(!('session' in (planned ?? {})), 'the session id stays on step.started');
+      assert.equal(implemented?.stepId, 'implement');
+      assert.equal(implemented?.claude, undefined);
     });
   });
 
