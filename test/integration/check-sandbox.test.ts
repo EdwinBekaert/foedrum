@@ -53,7 +53,9 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
   let outside: string;
   let run: ReturnType<typeof sandboxedChecks>;
   const check = (line: string, cwd = worktree) => {
-    const call: ExecOptions = { cwd, shell: true, timeoutMs: 60_000 };
+    // Without the test runner's own variable, so a node --test inside runs its files.
+    const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+    const call: ExecOptions = { cwd, env, shell: true, timeoutMs: 60_000 };
     return run(line, [], call);
   };
 
@@ -93,7 +95,7 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
       join(inside, 'ok.test.mjs'),
       "import test from 'node:test';\ntest('runs', () => {});\n",
     );
-    const result = await check(`"${process.execPath}" --test`, inside);
+    const result = await check(`"${process.execPath}" --test --test-reporter=tap`, inside);
     assert.equal(result.exitCode, 0, result.output);
     assert.match(result.output, /# pass 1/);
     const read = await check(`cat "${home}/secret.txt"`, inside);
