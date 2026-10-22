@@ -132,31 +132,45 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
   };
   // Every git that writes the worktree runs under the writer lock (ADR 0107), so a lock file
   // of git's found while it is held was left by a git that no longer runs: the index's and
-  // HEAD's in the worktree's git folder, and the branch's ref in the clone's common one (#306).
+  // HEAD's in the worktree's git folder, and the branch's and the signing check's refs in the
+  // clone's common one (#306, ADR 0115).
   const writerLock = join(dirname(worktree), 'state.lock');
   const takeWriter = async (): Promise<FileLock | undefined> => {
     await mkdir(dirname(worktree), { recursive: true });
     return takeFileLock(writerLock, 0);
   };
   const otherWriter = `another driver of this work root is writing the state worktree ${worktree}: its writer lock ${writerLock} is held`;
-  let gitLocks: { name: string; path: string }[] | undefined;
-  const removeLeftLocks = async (): Promise<void> => {
-    if (gitLocks === undefined) {
-      const gitDir = (await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim();
-      const commonDir = (
-        await must(worktree, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
-      ).trim();
-      gitLocks = [
-        { name: 'index.lock', path: join(gitDir, 'index.lock') },
-        { name: 'HEAD.lock', path: join(gitDir, 'HEAD.lock') },
-        { name: `${ref}.lock`, path: `${join(commonDir, ...ref.split('/'))}.lock` },
-      ];
-    }
-    for (const { name, path } of gitLocks) {
-      if ((await removeStaleLock(path, { maxAgeMs: Number.NEGATIVE_INFINITY })) === 'removed') {
-        out(`removed a stale ${name} from the state worktree: ${path}`);
+  type GitLocks = { names: string[]; path: (name: string) => string; where: string };
+  const removeLocks = async ({ names, path, where }: GitLocks): Promise<void> => {
+    for (const name of names) {
+      const lock = path(name);
+      if ((await removeStaleLock(lock, { maxAgeMs: Number.NEGATIVE_INFINITY })) === 'removed') {
+        out(`removed a stale ${name} from ${where}: ${lock}`);
       }
     }
+  };
+  const inFolder = (folder: string) => (name: string) => join(folder, ...name.split('/'));
+  // The clone's are removed before the worktree is opened, whose add may need the branch's ref;
+  // so their folder is asked of the clone, since the worktree may not exist yet (#320).
+  let cloneLocks: GitLocks | undefined;
+  const removeCloneLocks = async (): Promise<void> => {
+    cloneLocks ??= {
+      names: [`${ref}.lock`, `${PROBE_REF}.lock`],
+      path: inFolder(
+        (await must(clone, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim(),
+      ),
+      where: "the clone's common git folder",
+    };
+    await removeLocks(cloneLocks);
+  };
+  let worktreeLocks: GitLocks | undefined;
+  const removeWorktreeLocks = async (): Promise<void> => {
+    worktreeLocks ??= {
+      names: ['index.lock', 'HEAD.lock'],
+      path: inFolder((await must(worktree, ['rev-parse', '--absolute-git-dir'])).trim()),
+      where: 'the state worktree',
+    };
+    await removeLocks(worktreeLocks);
   };
 
   const onDisk = (path: string): string => join(worktree, ...path.split('/'));
@@ -376,8 +390,9 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       await must(clone, ['fetch', '--no-tags', remote, `+${ref}:refs/remotes/${remoteBranch}`]);
     }
     if (remoteSha !== undefined) await refuseLinks(remoteSha);
+    await removeCloneLocks();
     await openWorktree(remoteSha);
-    await removeLeftLocks();
+    await removeWorktreeLocks();
     await checkSigning();
     const pushed = store.pushedThrough();
     const localHead = await head();
@@ -448,7 +463,8 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
         const lock = await takeWriter();
         if (lock === undefined) return { kind: 'failed', reason: otherWriter };
         return asWriter(lock, async () => {
-          await removeLeftLocks();
+          await removeCloneLocks();
+          await removeWorktreeLocks();
           return flushNow(false);
         });
       }),
