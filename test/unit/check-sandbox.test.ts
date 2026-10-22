@@ -3,7 +3,7 @@
 // process runner records what would start (ADR 0021); whether the tools work is theirs.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
@@ -145,6 +145,15 @@ describe('sandboxedChecks on Linux and WSL2: bwrap', () => {
     assert.match(result.output, /bwrap: setting up uid map: Permission denied/);
   });
 
+  it('keeps a run the process runner killed as killed, whatever it printed', async () => {
+    const stderr = 'bwrap: something\n';
+    const { exec } = fake({ exitCode: 1, stderr, output: stderr, killed: 'timed-out' });
+    const run = sandboxedChecks(options(exec, { platform: 'linux' }));
+    const result = await run(line, [], call);
+    assert.equal(result.killed, 'timed-out');
+    assert.equal(result.exitCode, 1);
+  });
+
   it("keeps a check's own failure, whatever it prints", async () => {
     const output = 'not ok 1 - bwrap: not mentioned first\n';
     const { exec } = fake({ exitCode: 1, stdout: output, output });
@@ -227,6 +236,11 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
         '(allow default)',
         '(deny network*)',
         '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
+        // launchd and LaunchServices start what they are asked to outside the sandbox.
+        '(deny job-creation)',
+        '(deny lsopen)',
+        '(deny appleevent-send)',
+        '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd"))',
         '(deny file-write*)',
         '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))',
         '(deny file-read* (subpath (param "HOME")))',
@@ -261,6 +275,19 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
     const result = await run(line, [], call);
     assert.equal(result.exitCode, null);
     assert.match(result.output, /sandbox-exec: sandbox_apply: Operation not permitted/);
+  });
+
+  it("keeps the check's result when its temporary folder cannot be removed, and says so", async () => {
+    const { exec } = fake({ exitCode: 1, output: 'not ok 1\n' });
+    const temp = {
+      make: () => '/private/var/folders/x/T/foedrum-check-2',
+      remove: (): Promise<void> => Promise.reject(new Error('EPERM: operation not permitted')),
+    };
+    const run = sandboxedChecks(options(exec, { platform: 'darwin', temp }));
+    const result = await run(line, [], call);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /^not ok 1\n/);
+    assert.match(result.output, /foedrum-check-2.*EPERM/);
   });
 
   it('does not run the line when its temporary folder cannot be made: it could not start, and says why', async () => {
@@ -359,6 +386,24 @@ describe('worktreeGitDir', () => {
       writeFileSync(join(forged, '.git'), `gitdir: ${join(dir.path, 'home')}\n`);
       assert.equal(worktreeGitDir(forged), undefined);
       assert.equal(worktreeGitDir(path), undefined);
+    } finally {
+      dir.remove();
+    }
+  });
+
+  // git writes the record with the real path; serve may name the worktree through a link, as
+  // where /home links to /var/home (review of #357).
+  it('names the repository when the worktree is reached through a link to where git recorded it', () => {
+    const { dir } = worktreeWith(undefined);
+    try {
+      const real = join(dir.path, 'real');
+      const linked = join(real, 'linked');
+      mkdirSync(linked, { recursive: true });
+      const { repository, record } = recordIn(dir.path, join(linked, '.git'));
+      writeFileSync(join(linked, '.git'), `gitdir: ${record}\n`);
+      const link = join(dir.path, 'link');
+      symlinkSync(real, link, 'junction');
+      assert.equal(worktreeGitDir(join(link, 'linked')), repository);
     } finally {
       dir.remove();
     }
