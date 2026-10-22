@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import {
   credentialHelpersFor,
   type DoctorFacts,
@@ -11,6 +12,8 @@ import {
   githubHostOfConfig,
 } from '../../src/cli/doctor.ts';
 import { INVALID_RECIPES, invalidRecipes } from '../../src/engine/recipe-files.ts';
+import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
+import { readDoc } from '../../src/schemas/read.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { linux, loggedIn, macos, ran, windows } from '../helpers/doctor-facts.ts';
 
@@ -844,5 +847,193 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     });
     assert.ok(diagnosis.problems.some(({ what }) => what === INVALID_RECIPES));
     assert.doesNotMatch(formatDiagnosis(diagnosis), /Defaults in use/);
+  });
+});
+
+describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
+  // A brewer file whose body is `body`, and that body as the loader reads it.
+  const brewerWith = (name: string, body: string, fields: Record<string, unknown> = {}) =>
+    brewerText(name, fields).replace(`Do the work of the ${name}.\n`, body);
+  const bodyOf = (text: string): string => {
+    const doc = readDoc(text, BrewerFrontmatter);
+    assert.ok(doc.valid);
+    return doc.body;
+  };
+  const brewerStep = (brewer: string) => ({ brewer });
+  const style = { path: 'lenses/style.md', text: '# Style\n\nLook at the names.\n' };
+  const taster = {
+    path: 'brewers/taster.md',
+    text: brewerText('taster', {
+      inputs: [
+        { name: 'order', from: 'order' },
+        { name: 'styleLens', from: 'lens:style' },
+      ],
+    }),
+  };
+  const maltster = { path: 'brewers/maltster.md', text: brewerText('maltster') };
+  const pale = {
+    path: 'recipes/pale.jsonc',
+    text: recipeText('pale', [brewerStep('maltster'), brewerStep('taster')]),
+  };
+
+  it("measures each brewer's prompt, built from its instructions and lens inputs, in bytes and tokens", () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: { recipes: [pale], brewers: [maltster, taster], lenses: [style] },
+    });
+    const assembled = assembleBrewerPrompt(bodyOf(taster.text), [
+      {
+        name: 'styleLens',
+        source: { kind: 'lens', lens: 'style', path: 'lenses/style.md' },
+        text: style.text,
+      },
+    ]);
+    assert.equal(assembled.kind, 'assembled');
+    const tasterBytes = Buffer.byteLength(assembled.prompt, 'utf8');
+    const maltsterBytes = Buffer.byteLength(bodyOf(maltster.text), 'utf8');
+    assert.deepEqual(diagnosis.prompts, [
+      {
+        brewer: 'maltster',
+        path: 'brewers/maltster.md',
+        bytes: maltsterBytes,
+        tokens: Math.ceil(maltsterBytes / 4),
+      },
+      {
+        brewer: 'taster',
+        path: 'brewers/taster.md',
+        bytes: tasterBytes,
+        tokens: Math.ceil(tasterBytes / 4),
+      },
+    ]);
+    const report = formatDiagnosis(diagnosis);
+    assert.match(report, /\nBrewer prompts \(instructions and lens inputs, ADR 0141\):\n/);
+    assert.match(
+      report,
+      new RegExp(
+        `\n  taster +brewers/taster.md +${tasterBytes} bytes +~${Math.ceil(tasterBytes / 4)} tokens\n`,
+      ),
+    );
+    assert.deepEqual(diagnosis.notices, []);
+    assert.doesNotMatch(report, /Notices/);
+  });
+
+  it('gives a notice for a prompt above 8000 tokens, and none at 8000', () => {
+    const sized = (name: string, bytes: number) => {
+      const probe = bodyOf(brewerWith(name, 'x'));
+      return {
+        path: `brewers/${name}.md`,
+        text: brewerWith(name, 'x'.repeat(bytes - probe.length + 1)),
+      };
+    };
+    const at = sized('brewer-at', 32_000);
+    const above = sized('brewer-above', 32_001);
+    assert.equal(Buffer.byteLength(bodyOf(at.text)), 32_000);
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [
+          {
+            path: 'recipes/big.jsonc',
+            text: recipeText('big', [brewerStep('brewer-at'), brewerStep('brewer-above')]),
+          },
+        ],
+        brewers: [at, above],
+      },
+    });
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/brewer-above.md: the brewer "brewer-above" has a prompt of about 8001 tokens before its other inputs, above 8000 (ADR 0141)',
+    ]);
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, []);
+  });
+
+  it("names the Brewery's brewers no recipe names and lenses no brewer reads, never a default's", () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [pale],
+        brewers: [maltster, taster, { path: 'brewers/spare.md', text: brewerText('spare') }],
+        lenses: [style, { path: 'lenses/old.md', text: 'Old rules.' }],
+        defaults: {
+          brewers: [{ path: 'defaults/brewers/idle.md', text: brewerText('idle') }],
+          lenses: [{ path: 'defaults/lenses/security.md', text: 'Look for secrets.' }],
+        },
+      },
+    });
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
+      'lenses/old.md: no brewer\'s input names the lens "old" (ADR 0141)',
+    ]);
+    assert.equal(diagnosis.ok, true);
+    const report = formatDiagnosis(diagnosis);
+    assert.match(
+      report,
+      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/old\.md: no brewer's input names the lens "old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
+    );
+  });
+
+  const gauger = [
+    '---',
+    '{}',
+    '---',
+    '# Gauger',
+    '',
+    'Write the failing tests.',
+    '',
+    '- **Stubs throw `not implemented`.** Never a stub that returns a value.',
+    '',
+    '## How to work',
+    '',
+    '**Red for the right reason.** Every new test fails.',
+    '',
+    '```sh',
+    '# not a heading',
+    '**not marked**',
+    '```',
+    '',
+  ].join('\n');
+
+  it('names a Brewery file that replaces a default, with the headings and marked lines it drops', () => {
+    const copy = [
+      '# GAUGER',
+      '',
+      '1. **stubs   throw `not implemented`.** Reworded.',
+      '',
+      '```',
+      '## How to work',
+      '```',
+      '',
+    ].join('\n');
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [{ path: 'recipes/nip.jsonc', text: '{' }],
+        brewers: [{ path: 'brewers/gauger.md', text: copy }],
+        lenses: [{ path: 'lenses/style.md', text: gauger }],
+        defaults: {
+          recipes: [{ path: 'defaults/recipes/nip.jsonc', text: '{}' }],
+          brewers: [{ path: 'defaults/brewers/gauger.md', text: gauger }],
+          lenses: [
+            { path: 'defaults/lenses/style.md', text: gauger },
+            { path: 'defaults/lenses/security.md', text: '## Look for' },
+          ],
+        },
+      },
+    });
+    // The files do not load, and the replacements are still named.
+    assert.equal(diagnosis.ok, false);
+    assert.equal(diagnosis.prompts, undefined);
+    assert.deepEqual(diagnosis.notices, [
+      'recipes/nip.jsonc replaces defaults/recipes/nip.jsonc (ADR 0141)',
+      'brewers/gauger.md replaces defaults/brewers/gauger.md and drops: heading "How to work", marked line "Red for the right reason." (ADR 0141)',
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+  });
+
+  it('says nothing of notices when it read no Brewery', () => {
+    const diagnosis = diagnose(linux());
+    assert.equal(diagnosis.notices, undefined);
+    assert.equal(diagnosis.prompts, undefined);
+    assert.doesNotMatch(formatDiagnosis(diagnosis), /Notices|Brewer prompts/);
   });
 });

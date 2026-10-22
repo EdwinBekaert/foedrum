@@ -84,6 +84,17 @@ export interface Problem {
   fix: string;
 }
 
+/** The prompt a brewer's own files build: its instructions and its lens inputs (ADR 0141). */
+export interface PromptSize {
+  brewer: string;
+  /** Its file: `brewers/<name>.md` or `defaults/brewers/<name>.md`. */
+  path: string;
+  /** In UTF-8. */
+  bytes: number;
+  /** An estimate: the bytes divided by 4, rounded up. */
+  tokens: number;
+}
+
 type ContainerName = 'podman' | 'docker';
 
 export interface Diagnosis {
@@ -110,6 +121,10 @@ export interface Diagnosis {
    * and they load: those it has no file of the same name for (ADR 0098).
    */
   defaults?: readonly string[];
+  /** Each brewer in use's prompt from its own files, when doctor read them and they load (ADR 0141). */
+  prompts?: readonly PromptSize[];
+  /** What doctor noticed about the Brewery's files, when it read them; never a problem (ADR 0141). */
+  notices?: readonly string[];
   /** The local gate's denylist, when doctor looked for it (ADR 0114). */
   denylist?: DenylistFact;
   /** No required problem. */
