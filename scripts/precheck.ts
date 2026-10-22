@@ -37,9 +37,9 @@ const MAX_OUTPUT_CHARS = 4000;
 const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
 // A delete (rm, rd, ri, del, erase, Remove-Item) of a path that may hold a variable or a
 // substitution ($, %, a backtick or PowerShell's ( ), read before the shells' characters are
-// dropped) (#281).
+// dropped) (#281), or a splat (@, #296).
 const MAY_DELETE = /rm|rd|ri|del|erase|remove/i;
-const MAY_COMPUTE = /[$%`(]/;
+const MAY_COMPUTE = /[$%`(@]/;
 const mayNeedTheGate = (text: string): boolean => {
   const plain = normalised(text);
   return MAY_NEED_THE_GATE.test(plain) || (MAY_DELETE.test(plain) && MAY_COMPUTE.test(text));
@@ -180,9 +180,13 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   };
   let segment: Word[] = [];
   let word: Word | undefined;
-  // The words of the statement so far, and whether a pipe came in it.
+  // The words of the PowerShell statement so far, whether a pipe came in it, whether that pipe has
+  // no stage after it yet, and whether a line break ended the statement, unless the next line
+  // starts with a pipe.
   let statement: Word[] = [];
   let piped = false;
+  let pipeOpen = false;
+  let lineEnded = false;
   const add = (text: string, dynamic = false, quoted = false): Word => {
     word ??= { text: '', dynamic: false, quoted };
     word.text += text;
@@ -199,11 +203,32 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   const endSegment = () => {
     endWord();
     if (segment.length > 0) {
+      if (lineEnded) {
+        statement = [];
+        piped = false;
+        lineEnded = false;
+      }
       lexed.segments.push(segment);
-      lexed.inputs.push(piped ? statement : []);
-      statement = [...statement, ...segment];
+      lexed.inputs.push(piped ? [...statement] : []);
+      statement.push(...segment);
+      pipeOpen = false;
     }
     segment = [];
+  };
+  const pipelineAt = (char: string, i: number) => {
+    const doubled = '&|'.includes(char) && (command[i + 1] === char || command[i - 1] === char);
+    if (char === '|' && !doubled) {
+      piped = true;
+      pipeOpen = true;
+      lineEnded = false;
+    } else if (char === '\n' || char === '\r') {
+      lineEnded ||= !pipeOpen;
+    } else if (char === ';' || doubled || ((char === '{' || char === '}') && !piped)) {
+      statement = [];
+      piped = false;
+      pipeOpen = false;
+      lineEnded = false;
+    }
   };
 
   // An expansion at i ($name, ${…}, $(…), @(…), bash's `…` and $'…'): adds it to the word and
@@ -333,13 +358,10 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       i++;
     } else if (SEPARATORS.has(char)) {
       endSegment();
-      // A PowerShell pipe feeds the next stage; a group's brackets stay in the statement (#296).
-      const pipe = char === '|' && command[i + 1] !== '|' && command[i - 1] !== '|';
-      if (pipe && dialect === 'powershell') piped = true;
-      else if (char !== '(' && char !== ')') {
-        statement = [];
-        piped = false;
-      }
+      // A PowerShell pipe feeds the next stage, also over a line break after it or before it, and
+      // through a group's brackets, the call operator and a stage's script block; ;, && and || end
+      // the statement, and so do an if's braces (#296).
+      if (dialect === 'powershell') pipelineAt(char, i);
       i++;
     } else if (char === "'") {
       i = singleQuoted(i);
