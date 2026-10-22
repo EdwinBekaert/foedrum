@@ -1,8 +1,8 @@
 // The attempt plans' shell (#148, ADR 0059): for an attempt the driver started, it finds the brewer
 // of its step in the batch's recipe, reads the brewer's inputs and makes the settings file's
-// folder, then plans the attempt through attempt-plan.ts, which decides.
+// folder, then plans the attempt through attempt-plan.ts, which decides, in the session the driver
+// recorded (ADR 0116).
 
-import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AttemptRef } from '../engine/attempt-key.ts';
@@ -10,7 +10,7 @@ import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { MAX_INPUT_BYTES, type StepBrewers } from '../engine/recipe-files.ts';
-import type { WorktreeRef } from '../schemas/events.ts';
+import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
@@ -51,8 +51,6 @@ export interface AttemptPlansOptions {
     read: (file: string, maxBytes: number, root: string) => OutDocRead;
     makeFolder: (path: string) => void;
   };
-  /** Default `randomUUID`. */
-  sessionId?: () => string;
   random?: RandomBytes;
 }
 
@@ -72,24 +70,25 @@ const realFiles = {
   },
 };
 
-/** The worktree the driver recorded when it started the attempt; none before. */
-const worktreeOf = (batch: Batch | undefined, ref: AttemptRef): WorktreeRef | undefined => {
+/** The attempt `ref` as the driver recorded its start; undefined before. */
+const startedOf = (batch: Batch | undefined, ref: AttemptRef) => {
   const started = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
-  return started?.phase === 'started' ? started.worktree : undefined;
+  return started?.phase === 'started' ? started : undefined;
 };
+
+/** The worktree the driver recorded when it started the attempt; none before. */
+const worktreeOf = (batch: Batch | undefined, ref: AttemptRef): WorktreeRef | undefined =>
+  startedOf(batch, ref)?.worktree;
+
+/** The session the driver chose and recorded when it started the attempt (ADR 0116). */
+const sessionOf = (batch: Batch | undefined, ref: AttemptRef): SessionRef | undefined =>
+  startedOf(batch, ref)?.session;
 
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
 const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontmatter } };
 
 export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
-  const {
-    state,
-    brewers,
-    workRoot,
-    platform = process.platform,
-    files = realFiles,
-    sessionId = randomUUID,
-  } = options;
+  const { state, brewers, workRoot, platform = process.platform, files = realFiles } = options;
 
   // The brewer of a step in the recipe its batch brews; undefined without one.
   const brewerOf = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
@@ -134,6 +133,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (batch === undefined || worktree === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
+      const session = sessionOf(batch, ref);
+      if (session === undefined) {
+        throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no session`);
+      }
       const recipe = batch.recipe?.name ?? '';
       const found = brewers.find(recipe, stepId);
       if (found === undefined) throw new Error(`recipe ${recipe} has no step ${stepId}`);
@@ -161,7 +164,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         repoTools: options.repoTools(worktree.repo),
         sandbox: options.sandbox,
         settingsFile,
-        sessionId: sessionId(),
+        sessionId: session.id,
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });

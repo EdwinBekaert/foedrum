@@ -4,6 +4,7 @@
 // brewer runner, finishes them as they end, runs the supervisor over its own batches and the free
 // ones, and applies a batch's effects only while it holds the batch's lease (ADR 0033).
 
+import { randomUUID } from 'node:crypto';
 import type {
   AttemptWorktree,
   AttemptWorktrees,
@@ -188,6 +189,19 @@ const rejectionSummary = (error: unknown): string => {
   return line === '' ? 'the brewer runner failed without a message' : line;
 };
 
+/**
+ * The command that records how `ref` ended. The session id stays on its step.started; what claude
+ * reported in its init goes on its step.finished (ADR 0116).
+ */
+const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
+  const { session, ...rest } = end;
+  const claude =
+    session === undefined
+      ? {}
+      : { claude: { version: session.claudeVersion, model: session.model } };
+  return { kind: 'finish', ...ref, ...rest, ...claude };
+};
+
 /** The attempt `ref` in `state`, if it was scheduled. */
 const attemptOf = (state: State, ref: AttemptRef) =>
   state.batches.get(ref.batchId)?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
@@ -233,6 +247,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     limits,
     outDoc,
     worktrees = [],
+    brews = () => true,
+    sessionId = randomUUID,
     alsoCleans = [],
     effects,
     actions,
@@ -376,9 +392,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const releaseAttempt = (key: string): void => store.withTransaction((tx) => tx.releaseLease(key));
 
   /**
-   * Records the start of an attempt under its lease, with the worktree it was given; false when it
-   * cannot start. An attempt whose worktree cannot be made fails retryably: whatever is in the way
-   * stays, and the next attempt has names of its own (ADR 0029).
+   * Records the start of an attempt under its lease, with the worktree it was given and, for a
+   * brewer's, the session it runs in, before claude can write anything under it (ADR 0116); false
+   * when it cannot start. An attempt whose worktree cannot be made fails retryably: whatever is in
+   * the way stays, and the next attempt has names of its own (ADR 0029).
    */
   const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
     const started = { type: 'step.started', ...ref } as const;
@@ -404,7 +421,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       return false;
     }
     const worktree = { repo: repository.repo, ...made };
-    if (issue({ kind: 'record', event: { ...started, worktree } })) return true;
+    const session = brews(ref) ? { session: { id: sessionId(), worktree: made.path } } : {};
+    if (issue({ kind: 'record', event: { ...started, ...session, worktree } })) return true;
     releaseAttempt(key);
     return false;
   };
@@ -503,7 +521,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         // refused (I2). An end whose record throws keeps its lease until it expires, and the
         // supervisor loses the attempt; a throw from the read after it is reported the same way.
         // Either way the other ends of the pass go on (#278, #289).
-        const command = { kind: 'finish', ...ref, ...end } as const;
+        const command = finishOf(ref, end);
         try {
           if (!issue(command, (tx) => tx.releaseLease(key))) releaseAttempt(key);
           // An attempt of an ended batch held its worktree until now.

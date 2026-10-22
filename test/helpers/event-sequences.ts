@@ -204,7 +204,6 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         id: `s${nextId++}`,
         ...(random.chance(0.3) ? { resumes: 's0' } : {}),
         worktree: `work/${batch.id}/${stepId}`,
-        claudeVersion: '2.1.300',
       };
       return {
         type: 'step.started',
@@ -227,6 +226,9 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
         attempt: step.attempt,
         outcome: outcome(),
         ...(random.chance(0.5) ? { usage } : {}),
+        ...(random.chance(0.5)
+          ? { claude: { version: '2.1.301', model: 'claude-sonnet-5-5' } }
+          : {}),
       };
     },
     () => {

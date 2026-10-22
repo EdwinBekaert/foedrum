@@ -3,6 +3,7 @@
 
 import type {
   Answer,
+  ClaudeReport,
   Dependency,
   Event,
   GravityReading,
@@ -60,6 +61,8 @@ export type Attempt =
       usage?: Usage;
       /** A check step's gravity readings (ADR 0069). */
       readings?: readonly GravityReading[];
+      /** What claude reported in its init event, when it came (ADR 0116). */
+      claude?: ClaudeReport;
     };
 
 export interface Input {
@@ -333,6 +336,7 @@ function apply(state: State, event: Event): State {
           outcome: event.outcome,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
           ...(event.readings === undefined ? {} : { readings: event.readings }),
+          ...(event.claude === undefined ? {} : { claude: event.claude }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || worktree === undefined) return next;
