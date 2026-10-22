@@ -354,13 +354,16 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       }
       repository = found;
     }
-    // The repository's setup once nothing else blocks the step, so the checks find what it
-    // installed (ADR 0140).
-    const preparing = prepare(worktree, current.deadlineAt, signal);
+    const planned = planChecks(refs, repository, platform);
+    // The repository's setup once nothing else blocks the step and a check will run, so the
+    // checks find what it installed (ADR 0140).
+    const preparing = planned.some((check) => check.kind === 'run')
+      ? prepare(worktree, current.deadlineAt, signal)
+      : undefined;
     const before = preparing === undefined ? [] : await preparing;
     if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
     const readings: GravityReading[] = [...before];
-    for (const check of planChecks(refs, repository, platform)) {
+    for (const check of planned) {
       if (check.kind === 'skip') {
         readings.push({ result: 'skipped', check: check.check });
         continue;

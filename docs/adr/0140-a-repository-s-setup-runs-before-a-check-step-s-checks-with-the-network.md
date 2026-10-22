@@ -13,7 +13,7 @@ A target repository's entry in `foedrum.jsonc` can name a `setup` command with a
   - Setup runs code outside every sandbox (below): package managers run scripts, and a later step's worktree holds a manifest a brewer may have changed. Running it before every brewer attempt as well would run that code more often for no step that needs it.
   - Every attempt is a fresh worktree, so "once per worktree" before brewer steps would be once per brewer attempt: a full install before each, retries and `onFail` rounds included, whether the brewer runs the tests or not.
   - The driver does not change: setup is part of what a check step's attempt does, within its lease, deadline and stop (ADR 0069).
-- **Once nothing else blocks the step.** The setup runs after the step's own preconditions, so a step that would be blocked anyway installs nothing: for checks, after the repository's checks are found (`foedrum.jsonc lists no checks …`); for a red proof, after its test report, the proven step's commits and its test check are found, and before the old report is cleared.
+- **Once nothing else blocks the step.** The setup runs after the step's own preconditions, so a step that would be blocked anyway installs nothing: for checks, after the repository's checks are found (`foedrum.jsonc lists no checks …`), and only when one of them will run, not for a step whose every check is skipped; for a red proof, after its test report, the proven step's commits and its test check are found, and before the old report is cleared.
 - The schema's description of `setup` changes to say so: `Runs in a check step's worktree before its checks, with the network (ADR 0140)`.
 
 ### How it runs
