@@ -1107,4 +1107,66 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
     // About 900 ms of CPU with a regular expression that backtracks over the spaces.
     assert.ok((used.user + used.system) / 1000 < 100, `${used.user + used.system} µs`);
   });
+
+  const plain = 'lenses/style.md replaces defaults/lenses/style.md (ADR 0141)';
+  const keeps =
+    'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)';
+  // Each rule of ADR 0141's marks, and its near miss: the default's text, the copy's, the notice.
+  const rows: [string, string, string, string][] = [
+    ['six #s are a heading', '###### Six', '', drops('heading "Six"')],
+    ['seven #s are no heading', '####### Seven', '', plain],
+    ['a heading needs white space after its #s', '#Tag', '', plain],
+    ['a heading may be three spaces in', '   # Three', '', drops('heading "Three"')],
+    ['four spaces in is code, not a heading', '    # Code', '', plain],
+    ['an empty heading is none', '# ###', '', plain],
+    ['closing #s are not part of the heading', '## Closed ##', '# closed', keeps],
+    ['a # inside the text stays', '# C#', '# C', drops('heading "C#"')],
+    ['a line that starts bold is marked', '**Bold.** Rest.', '', drops('marked line "Bold."')],
+    ['a - item is marked', '- **Dash.** Rest.', '', drops('marked line "Dash."')],
+    ['a * item is marked', '* **Star.** Rest.', '', drops('marked line "Star."')],
+    ['a + item is marked', '+ **Plus.** Rest.', '', drops('marked line "Plus."')],
+    ['a 1. item is marked', '1. **Dot.** Rest.', '', drops('marked line "Dot."')],
+    ['a 1) item is marked', '1) **Paren.** Rest.', '', drops('marked line "Paren."')],
+    ['bold later in the line is not marked', 'See **this**.', '', plain],
+    ['four spaces in is code, not marked', '    **Code.**', '', plain],
+    ['a ~~~ fence hides a heading', '~~~\n# In\n~~~\n# Out', '', drops('heading "Out"')],
+    [
+      "a dropped heading inside the copy's fence counts",
+      '# Kept',
+      '```\n# Kept\n```',
+      drops('heading "Kept"'),
+    ],
+  ];
+  for (const [rule, original, copy, notice] of rows) {
+    it(`reads the marks so that ${rule}`, () => {
+      assert.deepEqual(replacing(`${original}\n`, `${copy}\n`), [notice]);
+    });
+  }
+});
+
+describe('diagnose: notices when the files load (ADR 0141)', () => {
+  it('counts a Brewery lens a default brewer reads as used, and gives the unused files before the replacements', () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [{ path: 'recipes/read.jsonc', text: recipeText('read', [{ brewer: 'reader' }]) }],
+        brewers: [{ path: 'brewers/spare.md', text: brewerText('spare') }],
+        lenses: [{ path: 'lenses/style.md', text: '# Style\n' }],
+        defaults: {
+          brewers: [
+            {
+              path: 'defaults/brewers/reader.md',
+              text: brewerText('reader', { inputs: [{ name: 'style', from: 'lens:style' }] }),
+            },
+          ],
+          lenses: [{ path: 'defaults/lenses/style.md', text: '# Style\n' }],
+        },
+      },
+    });
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
+      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+    ]);
+  });
 });
