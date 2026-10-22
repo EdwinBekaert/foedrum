@@ -93,7 +93,8 @@ jobs:
 
       # The engine killed at random points and restarted (#15, ADR 0033): 1,000 runs on every leg
       # in the nightly run, the M0 exit criterion, and 200 on the Linux leg of every other run
-      # (ADR 0134). A failure names its seed; FOEDRUM_SEED replays it.
+      # (ADR 0134). Their platform edge, the SQLite file and the driver lock, gets npm run check's
+      # 5 runs on every leg per pull request. A failure names its seed; FOEDRUM_SEED replays it.
       - name: Chaos tests, more runs
         if: ${{ github.event_name == 'schedule' || matrix.os == 'ubuntu-latest' }}
         env:
