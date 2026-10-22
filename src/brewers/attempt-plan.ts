@@ -16,6 +16,7 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
+import type { AttemptPermissions } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
@@ -358,11 +359,22 @@ export function settingsFileOf(workRoot: string, ref: AttemptRef): string {
   return join(workRoot, 'attempt-settings', batchId, stepId, `${attempt}.json`);
 }
 
+/** What an attempt of `brewer` may do: the permissions its settings file is written from. */
+export function attemptPermissions(
+  brewer: BrewerFrontmatter,
+  repoTools: readonly string[],
+  sandbox: boolean,
+): AttemptPermissions {
+  // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
+  const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...repoTools])];
+  return { allow, deny: brewer.tools.deny, sandbox };
+}
+
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId } = facts;
-  // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
-  const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...facts.repoTools])];
+  const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox);
+  const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
   const instructions = `${facts.instructions.trimEnd()}\n\n${contract}`;
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
@@ -384,7 +396,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
       tools: toolsOf(allow),
       session: { kind: 'new', id: sessionId },
     },
-    permissions: { allow, deny: brewer.tools.deny, sandbox: facts.sandbox },
+    permissions,
     settingsFile: facts.settingsFile,
   };
 }

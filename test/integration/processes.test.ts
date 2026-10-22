@@ -7,11 +7,13 @@ import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it, type TestContext } from 'node:test';
+import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { jobObjectCommand } from '../../src/platform/job-object.ts';
 import {
   execProcess,
   execProcessWith,
+  foregroundProcess,
   isPidAlive,
   processSpawner,
   runProcessThrough,
@@ -601,5 +603,49 @@ describe('execProcess and a .cmd file', { skip: process.platform !== 'win32' }, 
     } finally {
       planted.remove();
     }
+  });
+});
+
+describe('foregroundProcess with a real process (ADR 0126)', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('foreground');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  it('runs the program in the folder given, with its arguments, and answers its exit code', async () => {
+    const script =
+      "require('node:fs').writeFileSync('ran.json', JSON.stringify(process.argv.slice(1))); process.exit(7)";
+    const code = await foregroundProcess(
+      process.execPath,
+      ['-e', script, 'one', ''],
+      dir.path,
+      process.env,
+    );
+    assert.equal(code, 7);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir.path, 'ran.json'), 'utf8')), ['one', '']);
+  });
+
+  it("starts the program with the environment given, and none of this process's", async () => {
+    const script =
+      "require('node:fs').writeFileSync('env.json', JSON.stringify([process.env.FOEDRUM_GIVEN, process.env.FOEDRUM_OURS ?? null]))";
+    process.env.FOEDRUM_OURS = 'ours';
+    try {
+      // What node needs to start on every platform, and the variable given.
+      const env = { ...brewerBaseEnv(process.env, process.platform), FOEDRUM_GIVEN: 'given' };
+      assert.equal(await foregroundProcess(process.execPath, ['-e', script], dir.path, env), 0);
+    } finally {
+      delete process.env.FOEDRUM_OURS;
+    }
+    assert.deepEqual(JSON.parse(readFileSync(join(dir.path, 'env.json'), 'utf8')), ['given', null]);
+  });
+
+  it('rejects when the program cannot start', async () => {
+    await assert.rejects(
+      foregroundProcess(join(dir.path, 'no-such-program'), [], dir.path, process.env),
+      {
+        code: 'ENOENT',
+      },
+    );
   });
 });
