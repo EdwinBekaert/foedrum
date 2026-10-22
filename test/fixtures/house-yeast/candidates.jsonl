@@ -1,0 +1,5 @@
+{"lesson":"deadline-on-every-wait","review":"101-engine-waits","source":"https://github.com/acme/foedrum/pull/101#issuecomment-1","seen":"2026-10-20","kind":"semantic","scope":{"globs":["src/engine/**"]},"rule":"Every wait in the engine has a deadline."}
+{"lesson":"deadline-on-every-wait","review":"101-engine-waits","source":"https://github.com/acme/foedrum/pull/101#issuecomment-2","seen":"2026-10-20","kind":"semantic","scope":{"globs":["src/engine/**"]},"rule":"Every wait in the engine has a deadline."}
+{"lesson":"no-shell-spawns","review":"101-engine-waits","source":"https://github.com/acme/foedrum/pull/101#issuecomment-3","seen":"2026-10-20","kind":"structural","scope":{"globs":["src/**"]},"rule":"Spawn tools with an argument array and no shell."}
+
+{"lesson":"deadline-on-every-wait","review":"102-cellar-waits","source":"https://github.com/acme/foedrum/pull/102#discussion_r9","seen":"2026-10-21","kind":"semantic","scope":{"globs":["src/engine/**", "src/cli/**"]},"rule":"Every wait in the engine or the Cellar has a deadline, so a batch never sits silently."}

@@ -537,6 +537,8 @@ Selection draws from all layers within one budget; the more specific layer wins.
 
 **From lesson to rule:** a review finding that needed a fix, or a human review comment on a bottle, is recorded as a **candidate** on the state branch. When the lesson recurs, or a human asks with `/foedrum remember`, it is proposed as a rule: one Markdown file with JSON frontmatter. A repository-layer rule ships in the same bottle as the fix that taught it. A human always approves a rule.
 
+**Foedrum's own reviews** ([ADR 0122](adr/0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)): until the state branch carries them, `/brew-review` records candidates in `.foedrum/house-yeast-candidates.jsonl` of the main checkout, which every worktree shares. Each lens reads the rules at the base whose scope matches the change, within the budget, and the summary names the rules the budget cut and flags structural rules as promotion candidates.
+
 ## 13. Platform support and isolation
 
 Foedrum runs on **Windows, macOS and Linux** ([ADR 0010](adr/0010-cross-platform-and-isolation-levels.md)).
