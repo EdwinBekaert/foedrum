@@ -134,6 +134,8 @@ interface Word {
 
 // The letters PowerShell reads as an escape after a backtick, rather than as themselves.
 const POWERSHELL_ESCAPES = /^[0abefnrtuv]$/;
+// PowerShell's pipeline object, with any properties read from it.
+const PIPELINE_OBJECT = /^\$(?:_|psitem)(?:\.\w+)*$/i;
 
 interface Lexed {
   // The simple commands, split at ; & | ( ) { } and line breaks outside quotes.
@@ -180,11 +182,12 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   };
   let segment: Word[] = [];
   let word: Word | undefined;
-  // The words of the PowerShell statement so far, whether a pipe came in it, whether that pipe has
-  // no stage after it yet, and whether a line break ended the statement, unless the next line
-  // starts with a pipe.
+  // The words of the PowerShell statement so far, whether a pipe came in it and how many words
+  // came before the first, whether that pipe has no stage after it yet, and whether a line break
+  // ended the statement, unless the next line starts with a pipe.
   let statement: Word[] = [];
   let piped = false;
+  let firstStage = 0;
   let pipeOpen = false;
   let lineEnded = false;
   const add = (text: string, dynamic = false, quoted = false): Word => {
@@ -209,7 +212,9 @@ const lex = (source: string, dialect: Dialect): Lexed => {
         lineEnded = false;
       }
       lexed.segments.push(segment);
-      lexed.inputs.push(piped ? [...statement] : []);
+      // $_ and $PSItem after the first stage are the pipeline's own object, not another source.
+      const sources = statement.filter((w, k) => k < firstStage || !PIPELINE_OBJECT.test(w.text));
+      lexed.inputs.push(piped ? sources : []);
       statement.push(...segment);
       pipeOpen = false;
     }
@@ -218,12 +223,13 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   const pipelineAt = (char: string, i: number) => {
     const doubled = '&|'.includes(char) && (command[i + 1] === char || command[i - 1] === char);
     if (char === '|' && !doubled) {
+      if (!piped) firstStage = statement.length;
       piped = true;
       pipeOpen = true;
       lineEnded = false;
     } else if (char === '\n' || char === '\r') {
       lineEnded ||= !pipeOpen;
-    } else if (char === ';' || doubled || ((char === '{' || char === '}') && !piped)) {
+    } else if (char === ';' || doubled || (char === '{' && !piped)) {
       statement = [];
       piped = false;
       pipeOpen = false;
@@ -1061,9 +1067,7 @@ const deletesComputedPath = (program: string, args: Word[], input: Word[]): bool
   if (recurses === undefined) return false;
   if (args.some(isSplat)) return true;
   if (!args.some(recurses)) return false;
-  // $_ and $PSItem in an earlier stage are the pipeline's own object, not another source.
-  const sources = input.filter((word) => !/^\$(?:_|psitem)(?:\.\w+)*$/i.test(word.text));
-  return [...sources, ...args].some((word) => {
+  return [...input, ...args].some((word) => {
     const switchValue = /^\$(?:true|false)$/i.test(PARAMETER.exec(word.text)?.[2] ?? '');
     const redirection = /^\d?>/.test(word.text);
     if (switchValue || redirection) return false;
