@@ -55,6 +55,15 @@ export const readRules = (files: readonly RuleFile[]): Rules => {
         path,
         reason: `id "${doc.frontmatter.id}" is not the file name "${name}"`,
       });
+    } else if (
+      doc.frontmatter.scope.language !== undefined &&
+      !Object.values(languages).includes(doc.frontmatter.scope.language)
+    ) {
+      // A language no extension has would never match, and the rule would drop out silently.
+      read.invalid.push({
+        path,
+        reason: `language "${doc.frontmatter.scope.language}" is none of ${[...new Set(Object.values(languages))].join(', ')}`,
+      });
     } else {
       read.rules.push({ path, rule: doc.frontmatter, body: doc.body.trim() });
     }
@@ -97,11 +106,14 @@ const fileMatches = (scope: Scope, file: string): boolean =>
   (scope.globs === undefined || scope.globs.some((glob) => posix.matchesGlob(file, glob))) &&
   (scope.language === undefined || languageOf(file) === scope.language);
 
+/** A rule with neither globs nor a language: it matches every change, so curation is due (ADR 0015). */
+export const unscoped = ({ scope }: HouseYeastRule): boolean =>
+  scope.globs === undefined && scope.language === undefined;
+
 const matches = ({ rule }: Rule, files: readonly string[], lens: string): boolean =>
   rule.status === 'active' &&
   (rule.scope.lens === undefined || rule.scope.lens === lens) &&
-  ((rule.scope.globs === undefined && rule.scope.language === undefined) ||
-    files.some((file) => fileMatches(rule.scope, file)));
+  (unscoped(rule) || files.some((file) => fileMatches(rule.scope, file)));
 
 // Lower comes first: a rule for this lens, then globs, a language alone, the whole repository.
 const rank = ({ scope }: HouseYeastRule): [number, number] => [
@@ -165,19 +177,22 @@ export const readCandidates = (
   jsonl: string,
 ): { candidates: HouseYeastCandidate[]; invalid: string[] } => {
   const read = { candidates: [] as HouseYeastCandidate[], invalid: [] as string[] };
-  jsonl.split(/\r?\n/).forEach((line, i) => {
-    if (line.trim() === '') return;
-    let value: unknown;
-    try {
-      value = JSON.parse(line);
-    } catch (error) {
-      read.invalid.push(`line ${i + 1}: ${(error as Error).message}`);
-      return;
-    }
-    const result = HouseYeastCandidate.safeParse(value);
-    if (result.success) read.candidates.push(result.data);
-    else read.invalid.push(`line ${i + 1}: ${oneLine(z.prettifyError(result.error))}`);
-  });
+  jsonl
+    .replace(/^﻿/, '')
+    .split(/\r?\n/)
+    .forEach((line, i) => {
+      if (line.trim() === '') return;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch (error) {
+        read.invalid.push(`line ${i + 1}: ${(error as Error).message}`);
+        return;
+      }
+      const result = HouseYeastCandidate.safeParse(value);
+      if (result.success) read.candidates.push(result.data);
+      else read.invalid.push(`line ${i + 1}: ${oneLine(z.prettifyError(result.error))}`);
+    });
   return read;
 };
 

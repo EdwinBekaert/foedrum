@@ -19,6 +19,7 @@ import {
   readRules,
   renderRules,
   selectRules,
+  unscoped,
 } from './house-yeast/core.ts';
 
 export interface RunDeps {
@@ -85,6 +86,11 @@ const select = (
   }
   for (const { rule, tokens } of selection.cut) {
     deps.out(`cut ${rule.rule.id} (${tokens} tokens): over the budget of ${budget}\n`);
+  }
+  for (const { rule } of [...selection.selected, ...selection.cut]) {
+    if (unscoped(rule.rule)) {
+      deps.out(`no scope ${rule.rule.id}: selected for every change, due for curation\n`);
+    }
   }
   deps.writeFile(outFile, renderRules(lens, selection));
   return 0;
