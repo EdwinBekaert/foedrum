@@ -283,6 +283,14 @@ describe('precheck with a personal denylist', () => {
     ['git push https://example.com/o/r.git HEAD', ['https://example.com/o/r.git']],
     ['git push "$remote" HEAD', [null]],
     ['git push origin && git push work', ['origin', 'work']],
+    // A redirection is the shell's, never the push's remote.
+    ['git push 2>&1', [undefined]],
+    ['git push >out.txt', [undefined]],
+    ['git push > out.txt', [undefined]],
+    ['git push 2>/dev/null', [undefined]],
+    ['git push 2> /dev/null origin', ['origin']],
+    ['git push >>push.log origin', ['origin']],
+    ['git push 1>out.txt 2>&1 work', ['work']],
   ];
   for (const [command, expected] of remotes) {
     it(`scans against the remote the push names: ${command}`, async () => {
