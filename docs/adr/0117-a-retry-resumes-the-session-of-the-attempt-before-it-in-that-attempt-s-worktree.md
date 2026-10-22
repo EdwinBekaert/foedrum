@@ -36,7 +36,7 @@ Four things were open: which attempts resume, when the previous attempt's proces
 - A missing session costs one attempt of the step's `maxAttempts` before the fresh one; a step with none left is Stuck as `attempts_exhausted`, and a human's `retry` starts fresh. Checking for the transcript before the start would save it, but how Claude Code stores transcripts is not Foedrum's (ADR 0116).
 - An attempt lost with its driver, or abandoned by Stuck, starts fresh after a retry, though its worktree may hold its work. Telling that a lost process is gone needs the runner to record it (ADR 0029's follow-up with #37).
 - `step.scheduled` and `SessionRef` gain an optional field each; earlier events stay valid.
-- The guards in `src/checks/` (`testsUnchanged`, `noPush`, the red proof's commits) read an attempt's own `worktree` and branch; a resumed attempt has neither, so #327 must point them at the worktree it ran in before the loader lets a resuming brewer through.
+- The guards in `src/checks/` (`testsUnchanged` and the red proof's commits) read an attempt's own `worktree` and branch; a resumed attempt has neither, so #327 must point them at the worktree it ran in before the loader lets a resuming brewer through.
 
 - Any other result before init on a resumed run (no sandbox) is read as a session claude could not resume too: the stream names no cause to tell them apart. It costs one attempt, and the fresh retry then blocks on the environment; with no attempt left the batch is Stuck as `attempts_exhausted`, whose last reason quotes claude.
 
