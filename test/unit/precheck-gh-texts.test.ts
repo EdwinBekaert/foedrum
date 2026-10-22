@@ -150,8 +150,8 @@ describe('forbiddenReason on what gh pr and gh issue would post', () => {
       'gh issue edit 3 --add-label -tExampleCorp',
       'gh pr create -B -bExampleCorp -t plain',
       'gh pr comment 5 -- -b ExampleCorp',
-      'gh api repos/o/r/issues -H title=ExampleCorp',
-      'gh api repos/o/r/issues --jq body=ExampleCorp',
+      'gh api repos/o/r/issues -H -ftitle=ExampleCorp',
+      'gh api repos/o/r/issues --jq -Fbody=ExampleCorp',
     ]) {
       assert.equal(forbiddenReason(command, scan().deniedTexts, CWD), undefined, command);
     }
@@ -227,6 +227,23 @@ describe('ghFileReader', () => {
       /over/,
     );
     assert.deepEqual(calls, ['stat /work/tree/big.json']);
+  });
+
+  it(`reads a file of exactly ${GH_FILE_MAX_BYTES} bytes`, () => {
+    const { files } = fakeFileSystem({
+      '/work/tree/full.json': { text: '{}', size: GH_FILE_MAX_BYTES },
+    });
+    assert.equal(ghFileReader(files, 'linux')('/work/tree', ['full.json']), '{}');
+  });
+
+  it('reads a relative path inside a folder on Windows, and a full drive path', () => {
+    const { files } = fakeFileSystem({
+      'C:\\work/sub/body.md': { text: 'plain' },
+      'C:\\work/C:\\notes\\body.md': { text: 'full' },
+    });
+    const reader = ghFileReader(files, 'win32');
+    assert.equal(reader('C:\\work', ['sub', 'body.md']), 'plain');
+    assert.equal(reader('C:\\work', ['C:\\notes\\body.md']), 'full');
   });
 
   it('never touches a network or drive-less path on Windows', () => {
@@ -418,6 +435,13 @@ describe('forbiddenReason on gh texts inside other shells', () => {
     });
   }
 
+  // A nested command is read in both shells' ways, and finds the same file each time.
+  it('reads a body file of a nested command once', () => {
+    const { deniedTexts, reads } = scan({ 'body.md': 'ExampleCorp' });
+    forbiddenReason("bash -c 'gh issue comment 3 -F body.md'", deniedTexts, CWD);
+    assert.deepEqual(reads, [['body.md']]);
+  });
+
   for (const command of [
     "bash -c 'gh api repos/o/r/issues --input -'",
     'pwsh -Command "gh pr comment 5 -b $body"',
@@ -534,6 +558,37 @@ describe('precheck reads gh texts against the denylist', () => {
       );
     });
   }
+
+  it('reads an escaped character with no special meaning in PowerShell as it is', async () => {
+    const { exitCode } = await gate(
+      'gh pr comment 5 -b "It`s done"',
+      scan().deniedTexts,
+      'PowerShell',
+    ).result;
+    assert.equal(exitCode, 0);
+  });
+
+  // Before anything else the gate runs (ADR 0132): the push scan, here.
+  it('blocks a gh text with a word before the push scan of the same command', async () => {
+    const pushes: string[] = [];
+    const result = await precheck(
+      hookInput('git push && gh pr comment 5 -b ExampleCorp', 'Bash'),
+      fakeCheck().runCheck,
+      async () => undefined,
+      async () => false,
+      undefined,
+      undefined,
+      undefined,
+      async (dir) => {
+        pushes.push(dir);
+        return undefined;
+      },
+      async () => scan().deniedTexts,
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, hit('gh pr comment', 'gh pr comment --body line 1'));
+    assert.deepEqual(pushes, []);
+  });
 
   // GitHub shows a literal \n, so a word after it is posted as it is.
   it('reads a literal backslash escape as a break between words', async () => {
