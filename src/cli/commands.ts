@@ -21,6 +21,7 @@ import {
   OrderCommand,
   RecipeCommand,
   ReplayCommand,
+  ResumeCommand,
   RetryCommand,
   RewindCommand,
   SkipCommand,
@@ -236,6 +237,15 @@ export const commands: readonly RegisteredCommand[] = [
           ),
         );
       }),
+  }),
+  define({
+    name: 'resume',
+    summary: "Open a finished brewer attempt's Claude Code session in its worktree",
+    changesState: false,
+    positionals: ['batch'],
+    optional: ['step'],
+    schema: ResumeCommand,
+    handler: async (input, context) => context.resume(input),
   }),
   define({
     name: 'retry',

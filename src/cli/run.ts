@@ -92,10 +92,11 @@ const SERVE = { name: 'serve', summary: "Run the Cellar: brew the Brewery's batc
 
 const usage = (): CliResult => {
   const serve = [SERVE.name, SERVE.summary];
-  const rows = commands.map(({ name, summary, positionals, rest }) => [
+  const rows = commands.map(({ name, summary, positionals, optional = [], rest }) => [
     [
       name,
       ...positionals.map((positional) => `<${positional}>`),
+      ...optional.map((positional) => `[<${positional}>]`),
       ...(rest === undefined ? [] : [`<${rest}>...`]),
     ].join(' '),
     summary,
@@ -161,12 +162,15 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     if (extra !== undefined) return usageError(`${prefix}: unexpected argument "${extra}"`);
     return context.serve();
   }
-  const { positionals, rest: restField } = command;
-  const extra = values[positionals.length];
+  const { positionals: required, optional = [], rest: restField } = command;
+  // The optional ones that were given, in order.
+  const given = optional.slice(0, Math.max(0, values.length - required.length));
+  const positionals = [...required, ...given];
+  const extra = values[required.length + optional.length];
   if (extra !== undefined && restField === undefined) {
     return usageError(`${prefix}: unexpected argument "${extra}"`);
   }
-  const missing = [...positionals, ...(restField === undefined ? [] : [restField])][values.length];
+  const missing = [...required, ...(restField === undefined ? [] : [restField])][values.length];
   if (missing !== undefined) return usageError(`${prefix}: missing <${missing}>`);
   const input: Record<string, string | string[]> = Object.fromEntries(
     positionals.map((field, i) => [field, values[i] ?? '']),

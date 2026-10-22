@@ -40,9 +40,37 @@ export interface ResumeCall {
 }
 
 /** The arguments of an interactive `claude` that resumes an attempt's session. */
-export function resumeArgs(_call: ResumeCall): string[] {
-  throw new Error('not implemented');
+export function resumeArgs(call: ResumeCall): string[] {
+  const { model, effort, settingsFile, tools, sessionId } = call;
+  checkCall(model, tools, sessionId);
+  // No print-mode flag and no permission mode: the engineer answers what the settings do not allow.
+  return ['--resume', sessionId, ...guards({ model, effort, settingsFile, tools })];
 }
+
+// The checks every command line's values pass.
+const checkCall = (model: string, tools: readonly string[], sessionId: string): void => {
+  if (!ModelId.safeParse(model).success) refuse('model', model);
+  if (tools.length === 0 || !tools.every((tool) => toolName.test(tool))) refuse('tools', tools);
+  if (!uuid.test(sessionId)) refuse('session id', sessionId);
+};
+
+// The model and the guards of an attempt's session, however it runs.
+const guards = (call: Omit<ResumeCall, 'sessionId'>): string[] => [
+  '--model',
+  call.model,
+  '--effort',
+  call.effort,
+  '--settings',
+  call.settingsFile,
+  // No user, project or local settings file: only --settings, which is the runner's (ADR 0046).
+  '--setting-sources',
+  '',
+  '--tools',
+  call.tools.join(','),
+  '--disable-slash-commands',
+  '--strict-mcp-config',
+  '--safe-mode',
+];
 
 /** The arguments of `claude` for one attempt. */
 export function claudeArgs(call: ClaudeCall): string[] {

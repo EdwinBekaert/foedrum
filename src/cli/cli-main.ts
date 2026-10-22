@@ -66,7 +66,9 @@ export const cliFromCheckout = async (
         ),
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
-      resume: () => Promise.reject(new Error('not implemented')),
+      // Loaded only for resume: it brings serve's setup and the worktrees.
+      resume: async (input) =>
+        (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, options),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

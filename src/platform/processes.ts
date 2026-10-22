@@ -660,6 +660,29 @@ export const runProcessThrough =
 /** The real runner, with the output together. */
 export const spawnProcess: RunProcess = runProcessThrough(execProcess);
 
+/**
+ * Runs `file` in the foreground in `cwd` with this process's stdin, stdout and stderr, for a
+ * program a person drives, such as a resumed claude session (ADR 0126). In this process's group,
+ * so the terminal's Ctrl+C reaches it; no deadline, since the person ends it. Its exit code, 1 when
+ * a signal ended it; rejects when it cannot start.
+ */
+export const foregroundProcess = (
+  file: string,
+  args: readonly string[],
+  cwd: string,
+): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const command = spawnCommand(file, args);
+    const child = spawn(command.file, command.args, {
+      cwd,
+      env: command.env,
+      shell: command.shell,
+      stdio: 'inherit',
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => resolve(code ?? 1));
+  });
+
 // A byte count as a person would write it: 4 MiB, 64 KiB, 1500 bytes.
 const inUnits = (bytes: number): string => {
   if (bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)} MiB`;
