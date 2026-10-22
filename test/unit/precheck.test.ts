@@ -2186,6 +2186,9 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     'gh api /repos/o/graphql-tools/issues --input body.json',
     'gh api https://api.github.com/repos/o/graphql/issues --input body.json',
     'gh api search/code -f q=graphql --input body.json',
+    // A literal REST path that ends in graphql goes to the REST API, not the GraphQL endpoint.
+    'gh api repos/o/r/contents/graphql --input body.json',
+    'gh api /repos/o/graphql --input body.json',
   ];
   for (const command of allowed) {
     it(`allows: ${command}`, () => {
