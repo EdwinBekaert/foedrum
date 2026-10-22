@@ -692,8 +692,12 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
 // GitHub's GraphQL endpoint as gh api takes it: `graphql`; `/graphql`, which gh joins to the REST
 // prefix (api.github.com/graphql); or a full URL, which gh uses as it is, ending in /graphql
 // (api.github.com/graphql, <host>/api/graphql on GitHub Enterprise Server), before any query
-// string (#314).
+// string (#314). An endpoint built at run time is taken at its worst when its literal text still
+// ends in /graphql ("$base/graphql"), as for the merge endpoint.
 const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
+const GRAPHQL_PATH = /\/graphql\/?(?:[?#].*)?$/is;
+const isGraphqlEndpoint = (arg: Word): boolean =>
+  GRAPHQL_ENDPOINT.test(arg.text) || (arg.dynamic && GRAPHQL_PATH.test(arg.text));
 
 // Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
 // (query=@…), its input (--input) or a value computed at run time, also with the field flag
@@ -765,7 +769,7 @@ const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
       found.reasons.push(READY_API_BLOCKED);
     } else if (apiMerges(args)) found.reasons.push(PR_MERGE_BLOCKED);
     // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
-    else if (args.some((arg) => GRAPHQL_ENDPOINT.test(arg.text)) && unreadableQuery(args)) {
+    else if (args.some(isGraphqlEndpoint) && unreadableQuery(args)) {
       found.reasons.push(UNREADABLE_QUERY_BLOCKED);
     }
   } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
