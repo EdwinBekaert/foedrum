@@ -2145,10 +2145,11 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
       );
     });
     it(`forbids a ready mutation through ${endpoint}`, () => {
-      assert.ok(
+      assert.match(
         forbiddenReason(
           `gh api ${endpoint} -f query='mutation { markPullRequestReadyForReview(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-        ),
+        ) ?? '',
+        /^Marking a pull request ready through gh api is blocked/,
       );
     });
     it(`allows a readable query that neither merges nor marks ready through ${endpoint}`, () => {
