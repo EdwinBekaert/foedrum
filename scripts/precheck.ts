@@ -935,9 +935,9 @@ const apiTexts = (args: Word[], place: Place): GhText[] => {
     const input = /^--input(?:=(.*))?$/s.exec(arg.text);
     if (input !== null) {
       const value = input[1] === undefined ? args[++i] : { ...arg, text: input[1] };
-      const text = value && ghText(command, '--input', value, true, place);
-      if (text?.kind === 'file') texts.push({ ...text, json: true });
-      else if (text !== undefined) texts.push(text);
+      if (value === undefined) continue;
+      const text = ghText(command, '--input', value, true, place);
+      texts.push(text.kind === 'file' ? { ...text, json: true } : text);
       continue;
     }
     const field = /^(?:(-i*f|--raw-field)|(-i*F|--field))(?:=?(.+))?$/s.exec(arg.text);
