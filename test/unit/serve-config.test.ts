@@ -354,6 +354,32 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
     );
   });
 
+  it("refuses a Brewery that requires the sandboxed level when a repository's setup would run before its check steps (ADR 0140)", () => {
+    const files = inputs().files;
+    const setup = { setup: { command: 'npm ci', timeout: '10m' } };
+    const problems = refused(
+      inputs({
+        files: { ...files, config: config({ isolation: { minimum: 'sandboxed' } }, setup) },
+      }),
+    );
+    assert.deepStrictEqual(problems, [
+      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup runs outside the sandbox before its check steps (ADR 0140)",
+    ]);
+    // Where the Brewery requires no more, where no recipe has a check step, or without a setup.
+    ready(inputs({ files: { ...files, config: config({}, setup) } }));
+    const stoutOnly = { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) };
+    ready(
+      inputs({
+        files: {
+          ...files,
+          config: config({ isolation: { minimum: 'sandboxed' } }, setup),
+          brewery: stoutOnly,
+        },
+      }),
+    );
+    ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
+  });
+
   it('says that check steps run unsandboxed on native Windows only', () => {
     assert.equal(ready(inputs()).unsandboxedChecks, false);
     const windowsSetup = ready(inputs({ platform: 'win32', diagnosis: diagnose(windows) }));
