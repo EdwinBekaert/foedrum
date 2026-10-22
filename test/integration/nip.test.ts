@@ -60,7 +60,7 @@ import { type FakeMessagesApi, startFakeMessagesApi, type ToolCall } from './fak
 const INTERVAL_MS = 100;
 /**
  * Only a guard against a hang (ADR 0070): seven attempts, each with its worktree, its fetches and
- * for a check its test run, took over two minutes on a loaded Windows laptop.
+ * for a check its test run, took 40 to 130 s on a Windows laptop, depending on other sessions' load.
  */
 const RUN_GUARD_MS = 5 * hangGuardMs;
 const BATCH = `${NIP_ORDER.number}-1`;

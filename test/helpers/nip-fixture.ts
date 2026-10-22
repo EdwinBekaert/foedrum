@@ -4,8 +4,8 @@
 // Gauger commits a failing test, the Cellarman's first fix fails the check once, and its second
 // one passes. Each attempt commits in its own worktree and leaves its out doc there, as a brewer
 // would, so the red proof, the testsUnchanged guard, the checks and the route input (ADR 0128)
-// all read what a real run gives them. No model is asked. The E2E test and `npm run demo` (#366)
-// share it.
+// all read what a real run gives them. No model is asked. The E2E test uses it; `npm run demo` is
+// to take it over in #366.
 
 import { join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
