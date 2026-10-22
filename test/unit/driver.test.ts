@@ -1217,6 +1217,29 @@ describe('openDriver', () => {
       assert.ok(!manager.calls.some((call) => call.kind === 'recreate'));
     });
 
+    it('starts fresh, saying why, when its worktree manager cannot recreate worktrees', async () => {
+      const { runner, end } = handRunner();
+      const { recreate: _, ...manager } = fakeWorktrees();
+      order('b1');
+      const driver = await open({
+        runner,
+        recipes: thrice,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+        sessionId: ids(),
+        resumes: () => true,
+      });
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      const fresh = started().at(-1);
+      assert.deepStrictEqual(fresh?.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289501',
+        worktree: folder('plan', 2),
+        fallback: 'the worktree of plan#1 cannot be recreated here',
+      });
+      assert.equal(fresh.worktree?.path, folder('plan', 2));
+    });
+
     it('starts fresh, saying why, when the worktree of the session cannot be recreated', async () => {
       const { runner, end, started: ran } = handRunner();
       const manager = fakeWorktrees({ refuseRecreate: () => 'The commit is no commit in clone' });
