@@ -1,7 +1,7 @@
 // `node scripts/mutant-tests.ts <tree> <file>...`: prints, one per line, the test files of the
 // tree that the mutation check of /brew-review runs for mutants of the given files (#140):
 // those in test/unit/, test/property/ and test/chaos/ that import one of them directly or
-// through one module. With --coverage, the test files stage 5 runs for its coverage delta: those
+// through one module. With --coverage, the test files a coverage run by hand needs: those
 // of every layer that reach one of them at any depth or name it in a string.
 // mutant-tests/core.ts decides. Prints nothing when no test file does.
 
@@ -55,7 +55,7 @@ const select =
 // The tests the mutation check runs for mutants of `files`.
 export const mutantTests = select(testsFor);
 
-// The tests the coverage delta runs for `files` (`--coverage`): every layer, any depth.
+// The tests a coverage run by hand needs for `files` (`--coverage`): every layer, any depth.
 export const coveringTests = select(coveringTestsFor);
 
 export interface MainResult {

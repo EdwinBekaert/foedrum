@@ -37,12 +37,6 @@ Verdicts: correctness approve · security approve · …
 |---|---|---|---|
 | 1 | `src/…:42` removed timeout | survived / killed by `<first test>` / killed (timed out) / invalid: <reason> | … |
 
-### Coverage delta
-
-| File | Base | Head | Uncovered added lines |
-|---|---|---|---|
-| `src/…` | new | 94% | 51–53 |
-
 ### House yeast
 
 - Selected: <lens>: <rule ids> · … (or "no rules match")
