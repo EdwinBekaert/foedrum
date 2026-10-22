@@ -20,13 +20,19 @@ export type Resumption =
 
 /**
  * The attempt of `step` that made the worktree session `id` runs in, and that worktree: the one
- * of the attempts with that session id that recorded a worktree.
+ * of the attempts with that session id that recorded a worktree. A resumed session keeps its id,
+ * and only the attempt that started it had a worktree of its own (ADR 0029).
  */
 export function worktreeOf(
-  _step: Step,
-  _id: string,
+  step: Step,
+  id: string,
 ): { attempt: number; worktree: WorktreeRef } | undefined {
-  throw new Error('not implemented');
+  for (const attempt of step.attempts.values()) {
+    if (attempt.phase === 'scheduled' || attempt.session?.id !== id) continue;
+    const { worktree } = attempt;
+    if (worktree !== undefined) return { attempt: attempt.attempt, worktree };
+  }
+  return undefined;
 }
 
 /**
@@ -35,6 +41,25 @@ export function worktreeOf(
  * succeeded, and that session's branch holds the task tree, which a failure resumed on it would
  * move: so only a retry resumes (ADR 0117).
  */
-export function resumeOf(_batch: Batch, _ref: AttemptRef): Resumption | undefined {
-  throw new Error('not implemented');
+export function resumeOf(batch: Batch, ref: AttemptRef): Resumption | undefined {
+  const step = batch.steps.get(ref.stepId);
+  const current = step?.attempts.get(ref.attempt);
+  if (step === undefined || current?.retry !== true) return undefined;
+  const before = Math.max(...[...step.attempts.keys()].filter((n) => n < ref.attempt));
+  const previous = step.attempts.get(before);
+  if (previous === undefined || previous.phase === 'scheduled') return undefined;
+  const { session } = previous;
+  if (session === undefined) return undefined;
+  const name = `${ref.stepId}#${previous.attempt}`;
+  // Only a finish through its runner's end carries claude's report: its process is gone, and
+  // claude started the session. A lost or abandoned attempt has none (ADR 0117).
+  if (previous.phase !== 'finished' || previous.claude === undefined) {
+    return { kind: 'fresh', why: `${name} has no session claude started` };
+  }
+  const made = worktreeOf(step, session.id);
+  if (made === undefined) {
+    return { kind: 'fresh', why: `no attempt of session ${session.id} has a worktree` };
+  }
+  const from = { batchId: ref.batchId, stepId: ref.stepId, attempt: made.attempt };
+  return { kind: 'resume', session: session.id, from, worktree: made.worktree };
 }

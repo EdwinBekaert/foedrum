@@ -18,6 +18,7 @@ import type {
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { effectKey } from './effect-key.ts';
+import { worktreeOf } from './session-resume.ts';
 
 /** Where a batch is: the board lanes (architecture §4.3), plus cancelled. */
 export type Lane =
@@ -292,7 +293,7 @@ function apply(state: State, event: Event): State {
       }));
     }
     case 'step.scheduled': {
-      const { batchId, stepId, attempt, deadlineAt, route } = event;
+      const { batchId, stepId, attempt, deadlineAt, route, retry } = event;
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
@@ -306,6 +307,7 @@ function apply(state: State, event: Event): State {
               attempt,
               deadlineAt,
               ...(route === undefined ? {} : { route }),
+              ...(retry === undefined ? {} : { retry }),
             }),
           }),
         };
@@ -331,11 +333,19 @@ function apply(state: State, event: Event): State {
       return updateBatch(next, event.batchId, (batch) => startAt(batch, worktree, false));
     }
     case 'step.finished': {
-      let worktree: WorktreeRef | undefined;
-      const next = updateAttempt(state, event, (current) => {
+      // The worktree it ran in, and the attempt that made it: its own, or for a resumed attempt
+      // the one whose session it continues (ADR 0117).
+      let ran: { attempt: number; worktree: WorktreeRef } | undefined;
+      const next = updateAttempt(state, event, (current, step) => {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
         if (current.phase === 'finished') throw attemptError(event, 'was already finished');
-        worktree = current.worktree;
+        const { worktree, session } = current;
+        ran =
+          worktree !== undefined
+            ? { attempt: current.attempt, worktree }
+            : session?.resumes === undefined
+              ? undefined
+              : worktreeOf(step, session.id);
         return {
           ...current,
           phase: 'finished',
@@ -345,9 +355,10 @@ function apply(state: State, event: Event): State {
           ...(event.claude === undefined ? {} : { claude: event.claude }),
         };
       });
-      if (event.outcome.kind !== 'succeeded' || worktree === undefined) return next;
-      // The next attempt continues from this one's branch (ADR 0066).
-      const { stepId, attempt } = event;
+      if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;
+      // The next attempt continues from the branch this one committed on (ADR 0066).
+      const { stepId } = event;
+      const { attempt, worktree } = ran;
       const taskTree = { kind: 'attempt', stepId, attempt, repo: worktree.repo } as const;
       const { repo, commit } = worktree;
       return updateBatch(next, event.batchId, (batch) => ({
@@ -553,7 +564,7 @@ const startAt = (
 function updateAttempt(
   state: State,
   event: AttemptEvent,
-  update: (attempt: Attempt) => Attempt,
+  update: (attempt: Attempt, step: Step) => Attempt,
 ): State {
   return updateBatch(state, event.batchId, (batch) => {
     const step = batch.steps.get(event.stepId);
@@ -565,7 +576,7 @@ function updateAttempt(
       ...batch,
       steps: put(batch.steps, step.id, {
         ...step,
-        attempts: put(step.attempts, event.attempt, update(attempt)),
+        attempts: put(step.attempts, event.attempt, update(attempt, step)),
       }),
     };
   });
