@@ -1155,9 +1155,9 @@ export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 // Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
 export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
 
-// Why a push from `dir` to `remote` would send a word on the personal denylist, or undefined
-// (ADR 0114); rejects when it cannot tell. `remote` is the one the command names, undefined when it
-// names none, and null when it is computed at run time.
+// Why a command's pushes from `dir` to `remotes` would send a word on the personal denylist, or
+// undefined (ADR 0114); rejects when it cannot tell. Each remote is the one a push names, undefined
+// when it names none, and null when it is computed at run time.
 export type DeniedPush = (
   dir: string,
   ...remotes: (string | null | undefined)[]
@@ -1364,18 +1364,16 @@ export const precheck = async (
       };
     }
     // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
-    // nothing runs.
+    // nothing runs. One scan for the command, with every remote it pushes to.
     const remotes = new Set(found.places.flatMap(({ push, remote }) => (push ? [remote] : [])));
-    for (const remote of remotes) {
-      let denied: string | undefined;
-      try {
-        denied = await deniedPush(dir, remote);
-      } catch (error) {
-        const why = error instanceof Error ? error.message : String(error);
-        denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
-      }
-      if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
+    let denied: string | undefined;
+    try {
+      denied = await deniedPush(dir, ...remotes);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
     }
+    if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
   }
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(dir);

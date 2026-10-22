@@ -56,18 +56,14 @@ const PATCHES = [
 ];
 
 /**
- * Why `git push` in `dir` to `remote` may not run: the commits it would send hold a word on the
- * list, the list cannot be read, the remote is computed at run time or no name, or git cannot show
- * the commits. Undefined without a list. A push that names no remote goes to the current branch's
+ * Why a command's `git push` in `dir` to `remotes` may not run: the commits it would send hold a
+ * word on the list, the list cannot be read, it pushes to more than one remote, the remote is
+ * computed at run time or no name, or git cannot show the commits. Undefined without a list. A push that names no remote goes to the current branch's
  * push remote, or else to origin.
  */
 export const pushRefusal =
   (readList: () => DenylistState, exec: ExecProcess) =>
-  async (
-    dir: string,
-    remote?: string | null,
-    ..._more: (string | null | undefined)[]
-  ): Promise<string | undefined> => {
+  async (dir: string, ...remotes: (string | null | undefined)[]): Promise<string | undefined> => {
     const state = readList();
     if (state.kind === 'none') return undefined;
     if (state.kind === 'unreadable') {
@@ -75,6 +71,11 @@ export const pushRefusal =
     }
     const list = parseDenylist(state.text);
     if (list.length === 0) return undefined;
+    // One remote per command keeps the scan's git calls within one deadline budget.
+    if (remotes.length > 1) {
+      return 'git push is blocked: the command pushes to more than one remote, so the gate would scan what each one is sent against your denylist past its deadline (ADR 0114); push to each remote in a command of its own.';
+    }
+    const [remote] = remotes;
     if (remote === null || (remote !== undefined && !REMOTE_NAME.test(remote))) {
       return `git push is blocked: its remote is ${remote === null ? 'computed at run time' : 'a URL or a path'}, so the gate cannot tell which commits it sends to check them against your denylist (ADR 0114); name the remote, such as origin.`;
     }
