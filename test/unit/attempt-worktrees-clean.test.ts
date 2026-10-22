@@ -1,8 +1,21 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lutimesSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
-import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
+import {
+  type CleanReport,
+  cleanOwnGitDirs,
+  openAttemptWorktrees,
+} from '../../src/workspace/attempt-worktrees-git.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import {
   BASE,
@@ -284,6 +297,203 @@ describe('openAttemptWorktrees with a fake git', () => {
         'removed batch folder 12-1',
       ]);
       assert.equal(existsSync(join(root, '12-1')), false);
+    });
+
+    describe('the git directories of its own a stopped call left (ADR 0130)', () => {
+      const uuid = '0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d';
+      const young = 'f1e2d3c4-b5a6-4978-8a6b-5c4d3e2f1a0b';
+      // In seconds, as utimesSync takes them.
+      const at = 1_800_000_000;
+      const now = () => (at + 2 * 3600) * 1000;
+      const noWorktrees = () =>
+        fakeGit((_cwd, args) => {
+          if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+          if (args[0] === 'worktree' && args[1] === 'list') {
+            return ok(porcelain([{ path: clone, branch: 'main' }]));
+          }
+          return undefined;
+        });
+      const aged = (path: string, seconds: number) => utimesSync(path, seconds, seconds);
+
+      it('removes the old ones, keeps the young, and leaves everything else alone', async () => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        mkdirSync(join(gitDirs, `${uuid}.git`, 'refs', 'heads'), { recursive: true });
+        writeFileSync(join(gitDirs, `${uuid}.git`, 'HEAD'), 'ref: refs/heads/main\n');
+        mkdirSync(join(gitDirs, `${young}.git`));
+        mkdirSync(join(gitDirs, 'notes'));
+        writeFileSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`), 'a file\n');
+        aged(join(gitDirs, `${uuid}.git`), at);
+        aged(join(gitDirs, `${young}.git`), at + 2 * 3600 - 60);
+        aged(join(gitDirs, 'notes'), at);
+        aged(join(gitDirs, `${young.replace('f1', 'a1')}.git`), at);
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended);
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [],
+        });
+        assert.equal(existsSync(join(gitDirs, `${uuid}.git`)), false);
+        assert.ok(existsSync(join(gitDirs, `${young}.git`)));
+        assert.ok(existsSync(join(gitDirs, 'notes')));
+        assert.ok(existsSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`)));
+      });
+
+      it('removes them too when one batch has ended', async () => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        mkdirSync(join(gitDirs, `${uuid}.git`), { recursive: true });
+        aged(join(gitDirs, `${uuid}.git`), at);
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended, { batchId: '12-1' });
+
+        assert.deepEqual(report.done, [
+          `removed git directory ${uuid}.git: a stopped call left it`,
+        ]);
+        assert.equal(existsSync(join(gitDirs, `${uuid}.git`)), false);
+      });
+
+      it('reports a root it cannot read, and cleans the worktrees still', async () => {
+        mkdirSync(join(path, 'leftover'), { recursive: true });
+        mkdirSync(workRoot, { recursive: true });
+        writeFileSync(join(workRoot, 'git-dirs'), 'not a folder\n');
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended);
+
+        assert.equal(report.failed.length, 1);
+        assert.match(
+          report.failed[0] ?? '',
+          /^could not clean the git directories in .*git-dirs: /,
+        );
+        assert.ok(report.done.includes('removed batch folder 12-1'));
+      });
+
+      it('leaves a link named <uuid>.git alone, and what it points at', async () => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        const target = join(dir.path, 'elsewhere');
+        mkdirSync(target, { recursive: true });
+        mkdirSync(gitDirs, { recursive: true });
+        symlinkSync(target, join(gitDirs, `${uuid}.git`), 'junction');
+        // The link and what it points at both older than the floor.
+        lutimesSync(join(gitDirs, `${uuid}.git`), at, at);
+        aged(target, at);
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended);
+
+        assert.deepEqual(report.done, []);
+        assert.deepEqual(report.failed, []);
+        assert.ok(existsSync(join(gitDirs, `${uuid}.git`)));
+        assert.ok(existsSync(target));
+      });
+
+      // Two old git directories in the root, and the report a cleanup of it fills.
+      const twoOld = (): { gitDirs: string; report: CleanReport } => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        for (const name of [uuid, young]) {
+          mkdirSync(join(gitDirs, `${name}.git`), { recursive: true });
+          aged(join(gitDirs, `${name}.git`), at);
+        }
+        return { gitDirs, report: { done: [], kept: [], failed: [] } };
+      };
+      const removeAll = async (path: string) => rmSync(path, { recursive: true });
+
+      it('reports a git directory it cannot remove, and removes the others', async () => {
+        const { gitDirs, report } = twoOld();
+        const remove = async (path: string) => {
+          if (path.endsWith(`${uuid}.git`)) throw new Error('EBUSY: resource busy or locked');
+          await removeAll(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat, remove });
+
+        assert.deepEqual(report.failed, [
+          `could not clean git directory ${uuid}.git: EBUSY: resource busy or locked`,
+        ]);
+        assert.deepEqual(report.done, [
+          `removed git directory ${young}.git: a stopped call left it`,
+        ]);
+      });
+
+      it('skips an entry gone before its lstat, as a running call removes its own', async () => {
+        const { gitDirs, report } = twoOld();
+        const gone = async (path: string) => {
+          if (path.endsWith(`${young}.git`)) {
+            await removeAll(path);
+            throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${path}'`), {
+              code: 'ENOENT',
+            });
+          }
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: gone, remove: removeAll });
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [],
+        });
+      });
+
+      it('never reads an entry it would leave alone', async () => {
+        const { gitDirs, report } = twoOld();
+        mkdirSync(join(gitDirs, 'notes'));
+        writeFileSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`), 'a file\n');
+        const read: string[] = [];
+        const reading = async (path: string) => {
+          read.push(path);
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: reading, remove: removeAll });
+
+        assert.deepEqual(
+          read.sort(),
+          [join(gitDirs, `${uuid}.git`), join(gitDirs, `${young}.git`)].sort(),
+        );
+        assert.deepEqual(report.failed, []);
+      });
+
+      it('skips one Windows still deletes, which fails its lstat with EPERM', async () => {
+        const { gitDirs, report } = twoOld();
+        const pending = async (path: string) => {
+          if (path.endsWith(`${young}.git`)) {
+            throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+          }
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: pending, remove: removeAll });
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [],
+        });
+      });
+
+      it('reports an entry it cannot read, and removes the others', async () => {
+        const { gitDirs, report } = twoOld();
+        const denied = async (path: string) => {
+          if (path.endsWith(`${young}.git`)) {
+            throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+          }
+          return lstat(path);
+        };
+
+        await cleanOwnGitDirs(gitDirs, now(), report, { lstat: denied, remove: removeAll });
+
+        assert.deepEqual(report, {
+          done: [`removed git directory ${uuid}.git: a stopped call left it`],
+          kept: [],
+          failed: [`could not clean git directory ${young}.git: EACCES: permission denied`],
+        });
+        assert.ok(existsSync(join(gitDirs, `${young}.git`)));
+      });
     });
   });
 });
