@@ -72,29 +72,10 @@ describe('openAttemptWorktrees with a fake git', () => {
       const worktree = await open(git).create(attempt, 'origin/main');
 
       assert.deepEqual(worktree, { path, branch, commit: BASE });
-      const own = join(workRoot, 'git');
-      const gitDir = `--git-dir=${join(own, 'f1.git')}`;
-      const refs = ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/'];
+      // The fetch runs in the clone, by its remote, and prunes: a branch the remote made again
+      // as a folder never stops it (ADR 0137).
       assert.deepEqual(calls, [
-        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
-        [own, gitDir, 'init', '--bare', '--quiet', '--template=', '--object-format=sha1'],
-        [clone, ...refs],
-        [clone, 'config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'],
-        [
-          own,
-          gitDir,
-          'fetch',
-          '--quiet',
-          '--no-tags',
-          '--no-write-fetch-head',
-          '--no-recurse-submodules',
-          '--no-auto-maintenance',
-          '--prune',
-          '--end-of-options',
-          url,
-          '+refs/heads/*:refs/remotes/origin/*',
-        ],
-        [own, gitDir, ...refs],
+        [clone, 'fetch', '--quiet', '--prune', 'origin'],
         [clone, 'rev-parse', '--verify', '--quiet', '--end-of-options', 'origin/main^{commit}'],
         [clone, 'worktree', 'list', '--porcelain', '-z'],
         [clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],

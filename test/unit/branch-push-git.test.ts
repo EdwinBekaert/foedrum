@@ -1,6 +1,6 @@
 // The pushes of the openPullRequest action (ADR 0071), the shell, with a fake git that records
-// every call (ADR 0021): git reads in the clone and reaches the remote from a git directory of its
-// own (ADR 0096), never by force, and nothing from outside reaches it as an option.
+// every call (ADR 0021): git reads and pushes in the clone (ADR 0137), fetches the base from a git
+// directory of its own (ADR 0090), never by force, and nothing from outside reaches it as an option.
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -79,55 +79,30 @@ describe('openBranchPush: commit', () => {
 });
 
 describe('openBranchPush: remoteTip', () => {
-  it("reads the remote branch's commit with ls-remote of the URL Foedrum names, in a git directory of its own, matching the ref exactly", async () => {
+  it("reads the remote branch's commit with ls-remote of the clone's remote, in the clone, matching the ref exactly (ADR 0137)", async () => {
     const listed = [
       `${'e'.repeat(40)}\trefs/heads/${branch}-old`,
       `${TIP}\trefs/heads/${branch}`,
       '',
     ].join('\n');
-    const root = nextFolder();
-    const gitDir = join(root, 'f1.git');
-    const { git, calls } = recordingGit((args) => named(args) ?? ok(listed));
-    const push = openBranchPush({ git, clone, own: { url, root, id: () => 'f1' } });
-    assert.equal(await push.remoteTip(branch), TIP);
+    const { git, calls } = recordingGit(() => ok(listed));
+    assert.equal(await openBranchPush({ git, clone }).remoteTip(branch), TIP);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
-      [
-        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
-        [
-          root,
-          `--git-dir=${gitDir}`,
-          'init',
-          '--bare',
-          '--quiet',
-          '--template=',
-          '--object-format=sha1',
-        ],
-        [root, `--git-dir=${gitDir}`, 'ls-remote', '--refs', url, `refs/heads/${branch}`],
-      ],
+      [[clone, 'ls-remote', '--refs', 'origin', `refs/heads/${branch}`]],
     );
-    assert.deepEqual(calls[2]?.options?.config, OWN_CONFIG);
-    assert.equal(existsSync(gitDir), false);
+    assert.deepEqual(calls[0]?.options?.config, IN_CLONE);
+    const other = recordingGit(() => ok(listed));
+    await openBranchPush({ git: other.git, clone, remote: 'upstream' }).remoteTip(branch);
+    assert.equal(other.calls[0]?.args[2], 'upstream');
   });
 
   it('is undefined when the remote has no such branch, and fails when git does', async () => {
-    const own = { url, root: nextFolder() };
-    const none = openBranchPush({
-      git: recordingGit((args) => named(args) ?? ok('')).git,
-      clone,
-      own,
-    });
+    const none = openBranchPush({ git: recordingGit(() => ok('')).git, clone });
     assert.equal(await none.remoteTip(branch), undefined);
     const down = openBranchPush({
-      git: recordingGit(
-        (args) =>
-          named(args) ??
-          (args.includes('ls-remote')
-            ? failed('fatal: could not read from remote repository\n')
-            : ok()),
-      ).git,
+      git: recordingGit(() => failed('fatal: could not read from remote repository\n')).git,
       clone,
-      own,
     });
     await assert.rejects(down.remoteTip(branch), {
       message: 'git ls-remote failed: fatal: could not read from remote repository',
@@ -217,47 +192,29 @@ describe('openBranchPush: isAncestor (review of #198)', () => {
 });
 
 describe('openBranchPush: push', () => {
-  it("pushes the commit by its sha to the URL Foedrum names, without force, from a git directory of its own with the clone's objects", async () => {
-    const root = nextFolder();
-    const gitDir = join(root, 'f1.git');
-    const { git, calls } = recordingGit((args) => named(args) ?? ok());
-    const push = openBranchPush({ git, clone, own: { url, root, id: () => 'f1' } });
-    await push.push(TIP, branch);
+  it("pushes the commit by its sha to the clone's remote, without force, in the clone (ADR 0137)", async () => {
+    const { git, calls } = recordingGit();
+    const signal = new AbortController().signal;
+    await openBranchPush({ git, clone }).push(TIP, branch, signal);
     assert.deepEqual(
       calls.map(({ cwd, args }) => [cwd, ...args]),
-      [
-        [clone, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
-        [
-          root,
-          `--git-dir=${gitDir}`,
-          'init',
-          '--bare',
-          '--quiet',
-          '--template=',
-          '--object-format=sha1',
-        ],
-        [root, `--git-dir=${gitDir}`, 'push', '--no-verify', url, `${TIP}:refs/heads/${branch}`],
-      ],
+      [[clone, 'push', '--no-verify', 'origin', `${TIP}:refs/heads/${branch}`]],
     );
-    assert.equal(calls[2]?.options?.env?.GIT_OBJECT_DIRECTORY, join(clone, 'objects'));
-    assert.equal(existsSync(gitDir), false);
+    assert.equal(calls[0]?.options?.signal, signal);
+    assert.equal(calls[0]?.options?.timeoutMs, 300_000);
   });
 
-  it("runs no hook, gc or maintenance, none of the clone's (review of #198) and none of its own", async () => {
-    const { git, calls } = recordingGit((args) => named(args) ?? ok());
-    await openBranchPush({ git, clone, own: { url, root: nextFolder() } }).push(TIP, branch);
-    assert.deepEqual(calls[2]?.options?.config, OWN_CONFIG);
+  it("runs no hook of the clone's (review of #198) and no fsmonitor", async () => {
+    const { git, calls } = recordingGit();
+    await openBranchPush({ git, clone }).push(TIP, branch);
+    assert.deepEqual(calls[0]?.options?.config, IN_CLONE);
   });
 
   it("fails with git's reason, as a push the remote rejected", async () => {
     const rejected = failed(
       ' ! [rejected]        cccc -> foedrum/x (non-fast-forward)\nerror: failed\n',
     );
-    const push = openBranchPush({
-      git: recordingGit((args) => named(args) ?? (args.includes('push') ? rejected : ok())).git,
-      clone,
-      own: { url, root: nextFolder() },
-    });
+    const push = openBranchPush({ git: recordingGit(() => rejected).git, clone });
     await assert.rejects(push.push(TIP, branch), {
       message: 'git push failed: ! [rejected]        cccc -> foedrum/x (non-fast-forward)',
     });
@@ -265,19 +222,17 @@ describe('openBranchPush: push', () => {
 
   it('refuses a commit that is no full sha, and a branch outside foedrum/, before git runs', async () => {
     const { git, calls } = recordingGit();
-    const push = openBranchPush({ git, clone, own: { url, root: nextFolder() } });
+    const push = openBranchPush({ git, clone });
     await assert.rejects(push.push('HEAD', branch), /HEAD is no full commit sha/);
     await assert.rejects(push.push(TIP, '--force'), /"--force" is no branch in foedrum\//);
     await assert.rejects(push.remoteTip('main'), /"main" is no branch in foedrum\//);
     assert.deepEqual(calls, []);
   });
 
-  it("refuses to push, list or fetch with no URL of Foedrum's, before git runs: never by the clone's remote", async () => {
+  it("refuses to fetch the base with no URL of Foedrum's, before git runs: never by the clone's remote", async () => {
     const { git, calls } = recordingGit();
     const push = openBranchPush({ git, clone });
     const message = `The pushes from ${clone} name no URL to reach the remote by`;
-    await assert.rejects(push.push(TIP, branch), { message });
-    await assert.rejects(push.remoteTip(branch), { message });
     await assert.rejects(push.baseTip('main'), { message });
     assert.deepEqual(calls, []);
   });
