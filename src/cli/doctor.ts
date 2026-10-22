@@ -495,8 +495,25 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     advice,
     problems,
     ...(recipes.defaults === undefined ? {} : { defaults: recipes.defaults }),
+    ...(facts.denylist === undefined ? {} : { denylist: facts.denylist }),
     ok: problems.every((problem) => !problem.required),
   };
+};
+
+// Whether the local gate's denylist is set, and where: never its words or how many (ADR 0114).
+const denylistLine = (denylist: DenylistFact): string => {
+  switch (denylist.kind) {
+    case 'set':
+      return `Denylist: ${denylist.path} (the local gate blocks its words in what leaves the machine, ADR 0114)`;
+    case 'none':
+      return `Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or ${denylist.path}, ADR 0114)`;
+    case 'unreadable':
+      return `Denylist: ${denylist.path} cannot be read (${denylist.why}); the local gate blocks every push until it can (ADR 0114)`;
+    default: {
+      const unknown: never = denylist;
+      throw new Error(`unknown denylist state ${JSON.stringify(unknown)}`);
+    }
+  }
 };
 
 /** The report `foedrum doctor` prints. */
@@ -507,6 +524,7 @@ export const formatDiagnosis = ({
   advice,
   problems,
   defaults,
+  denylist,
   ok,
 }: Diagnosis): string => {
   const lines = [
@@ -534,6 +552,7 @@ export const formatDiagnosis = ({
             ? 'Defaults in use: none'
             : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one)`,
         ]),
+    ...(denylist === undefined ? [] : [denylistLine(denylist)]),
     '',
   ];
   if (problems.length > 0) {

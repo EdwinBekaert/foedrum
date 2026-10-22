@@ -210,7 +210,6 @@ describe('precheck on a stale node_modules', () => {
 // denylist-shell.test.ts.
 describe('precheck with a personal denylist', () => {
   const upToDate = async (): Promise<string | undefined> => undefined;
-  const onBranch = async (): Promise<boolean> => false;
   const fakeScan = (answer: () => Promise<string | undefined>) => {
     const calls: string[] = [];
     const deniedPush = async (dir: string) => {

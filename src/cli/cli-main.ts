@@ -24,7 +24,7 @@ import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.
 export const cliFromCheckout = async (
   argv: string[],
   cwd: string,
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve'>>,
+  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>>,
 ): Promise<CliResult> => {
   const readText = (...path: string[]): string | undefined => {
     const file = join(cwd, ...path);

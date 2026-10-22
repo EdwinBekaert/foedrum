@@ -9,6 +9,7 @@ import { withoutGitHubTokens } from '../platform/env.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import {
   type CommandRun,
+  type DenylistFact,
   type DoctorFacts,
   githubHostOfConfig,
   type ToolName,
@@ -57,6 +58,10 @@ export interface DoctorShell {
   /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
   githubHost?: string;
 }
+
+// The list's state without its text: doctor never prints a word of it (ADR 0114).
+const denylistFact = (state: DenylistState): DenylistFact =>
+  state.kind === 'set' ? { kind: 'set', path: state.path } : state;
 
 /** Every tool's path and version answer, asked all at once. */
 export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts> => {
@@ -130,5 +135,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(config === undefined ? {} : { config }),
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
     ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),
+    ...(shell.denylist === undefined ? {} : { denylist: denylistFact(shell.denylist()) }),
   };
 };

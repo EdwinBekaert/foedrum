@@ -1211,7 +1211,7 @@ export const precheck = async (
   },
   binaryInstalled: BinaryInstalled = async () => false,
   inProject: InProject = async () => true,
-  _deniedPush: DeniedPush = async () => undefined,
+  deniedPush: DeniedPush = async () => undefined,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1316,6 +1316,15 @@ export const precheck = async (
         stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
       };
     }
+    // What the push sends, against the personal denylist (ADR 0114); without one, nothing runs.
+    let denied: string | undefined;
+    try {
+      denied = await deniedPush(dir);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
+    }
+    if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
   }
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(dir);
@@ -1565,6 +1574,18 @@ if (import.meta.main) {
       return projectHolds(process.env.CLAUDE_PROJECT_DIR, dir, process.platform, (path) =>
         realPath(path),
       );
+    },
+    // The personal denylist, FOEDRUM_DENYLIST or ~/.config/foedrum/denylist.txt (ADR 0114).
+    async (dir) => {
+      const [{ pushRefusal }, { readDenylist }, { homedir }, { readFileSync }] = await Promise.all([
+        import('./denylist.ts'),
+        import('../src/platform/denylist.ts'),
+        import('node:os'),
+        import('node:fs'),
+      ]);
+      const readList = () =>
+        readDenylist(process.env, homedir(), (path) => readFileSync(path, 'utf8'));
+      return pushRefusal(readList, spawnProcess)(dir);
     },
   );
   if (stderr !== '') process.stderr.write(stderr);
