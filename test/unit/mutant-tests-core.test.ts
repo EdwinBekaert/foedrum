@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { coveringTestsFor, importsOf, testsFor } from '../../scripts/mutant-tests/core.ts';
+import { importsOf, testsFor } from '../../scripts/mutant-tests/core.ts';
 
 describe('importsOf', () => {
   it('finds static, type, side-effect and dynamic imports and re-exports', () => {
@@ -94,83 +94,5 @@ describe('testsFor', () => {
       'test/unit/ab.test.ts',
       'test/unit/b.test.ts',
     ]);
-  });
-});
-
-describe('coveringTestsFor', () => {
-  it('picks test files in every layer, integration included, that reach the target at any depth', () => {
-    const tree = sources({
-      'src/engine/fold.ts': '',
-      'src/engine/decide.ts': imports('./fold.ts'),
-      'src/engine/driver.ts': imports('./decide.ts'),
-      'test/unit/driver.test.ts': imports('../../src/engine/driver.ts'),
-      'test/integration/state.test.ts': imports('../helpers/store.ts'),
-      'test/helpers/store.ts': imports('../../src/engine/decide.ts'),
-      'test/unit/other.test.ts': imports('../../src/engine/other.ts'),
-      'test/fixtures/fold.test.ts': imports('../../src/engine/fold.ts'),
-    });
-    assert.deepEqual(coveringTestsFor(tree, ['src/engine/fold.ts']), [
-      'test/integration/state.test.ts',
-      'test/unit/driver.test.ts',
-    ]);
-  });
-
-  it('picks a test file that names the target in a string, as one that starts it as a process does', () => {
-    const tree = sources({
-      'scripts/precheck.ts': '',
-      'test/integration/precheck.test.ts': "const script = join(root, 'scripts', 'precheck.ts');\n",
-      'test/integration/gate.test.ts': 'spawnSync(node, ["scripts/precheck.ts"]);\n',
-      'test/integration/other.test.ts': "const script = join(root, 'scripts', 'precheck.tsx');\n",
-    });
-    assert.deepEqual(coveringTestsFor(tree, ['scripts/precheck.ts']), [
-      'test/integration/gate.test.ts',
-      'test/integration/precheck.test.ts',
-    ]);
-  });
-
-  it('finds the name after a string that holds the other kind of quote', () => {
-    const tree = sources({
-      'scripts/precheck.ts': '',
-      'test/integration/gate.test.ts':
-        "it('prints \"ok\" here', () => run(join(root, 'scripts', 'precheck.ts')));\n",
-    });
-    assert.deepEqual(coveringTestsFor(tree, ['scripts/precheck.ts']), [
-      'test/integration/gate.test.ts',
-    ]);
-  });
-
-  it('takes a longer path ending in the target as naming it, but not a relative import of it', () => {
-    const tree = sources({
-      'scripts/precheck.ts': '',
-      'test/integration/absolute.test.ts': "const script = 'D:/repo/scripts/precheck.ts';\n",
-      'test/integration/relative.test.ts': "const script = '../other/scripts/precheck.ts';\n",
-    });
-    assert.deepEqual(coveringTestsFor(tree, ['scripts/precheck.ts']), [
-      'test/integration/absolute.test.ts',
-    ]);
-  });
-
-  it('does not take a path to another file with the same name as naming the target', () => {
-    const tree = sources({
-      'scripts/mutants/core.ts': '',
-      'scripts/deps-sync/core.ts': '',
-      'test/unit/deps-sync-core.test.ts': imports('../../scripts/deps-sync/core.ts'),
-      'test/integration/deps-sync.test.ts': "const core = 'scripts/deps-sync/core.ts';\n",
-      'test/integration/mutants.test.ts': "const core = 'scripts/mutants/core.ts';\n",
-    });
-    assert.deepEqual(coveringTestsFor(tree, ['scripts/mutants/core.ts']), [
-      'test/integration/mutants.test.ts',
-    ]);
-  });
-
-  it('ends on a cycle of imports', () => {
-    const tree = sources({
-      'src/a.ts': imports('./b.ts'),
-      'src/b.ts': imports('./a.ts'),
-      'src/c.ts': '',
-      'test/unit/a.test.ts': imports('../../src/a.ts'),
-    });
-    assert.deepEqual(coveringTestsFor(tree, ['src/c.ts']), []);
-    assert.deepEqual(coveringTestsFor(tree, ['src/b.ts']), ['test/unit/a.test.ts']);
   });
 });
