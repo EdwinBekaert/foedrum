@@ -3,8 +3,16 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -398,6 +406,91 @@ describe('the state branch with real git', () => {
     assert.match(said[1] ?? '', /^removed a stale HEAD\.lock from the state worktree: /);
     assert.equal(
       git(a.worktree, ['rev-parse', 'HEAD']).trim(),
+      git(origin, ['rev-parse', 'foedrum/state']).trim(),
+    );
+  });
+
+  // #320, ADR 0115: the signing check's ref lock is in the clone's common git folder, where real
+  // git looks for it, and the next start removes it and passes the check.
+  it('removes a stale signing check ref lock that blocks a real update-ref, and starts', async () => {
+    const a = machine('a');
+    await a.state.start();
+    const probeLock = join(a.clone, '.git', 'refs', 'foedrum', 'signing-check.lock');
+    mkdirSync(dirname(probeLock), { recursive: true });
+    writeFileSync(probeLock, '');
+    const commit = git(a.clone, ['rev-parse', 'HEAD']).trim();
+    assert.throws(
+      () => git(a.worktree, ['update-ref', 'refs/foedrum/signing-check', commit]),
+      (error: Error & { stderr?: string }) => (error.stderr ?? '').includes('signing-check.lock'),
+    );
+
+    const said: string[] = [];
+    const restarted = openStateBranch({
+      store: a.store,
+      git: runGit,
+      clone: a.clone,
+      worktree: a.worktree,
+      out: (line) => said.push(line),
+    });
+
+    assert.deepEqual(await restarted.start(), { decision: 'ready' });
+    assert.equal(existsSync(probeLock), false);
+    assert.equal(said.length, 1, said.join('\n'));
+    assert.match(
+      said[0] ?? '',
+      /^removed a stale refs\/foedrum\/signing-check\.lock from the clone's common git folder: /,
+    );
+  });
+
+  // #320, ADR 0115: a stale branch ref lock blocks the real worktree add that creates the state
+  // worktree, and a start with no worktree removes it first and restores from the remote.
+  it('removes a stale branch ref lock that blocks a real worktree add, and restores', async () => {
+    const a = machine('a');
+    await a.state.start();
+    await record(a, {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 6 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    });
+    const b = machine('b');
+    const refLock = join(b.clone, '.git', 'refs', 'heads', 'foedrum', 'state.lock');
+    mkdirSync(dirname(refLock), { recursive: true });
+    writeFileSync(refLock, '');
+    git(b.clone, ['fetch', '-q', 'origin', 'foedrum/state']);
+    assert.throws(
+      () =>
+        git(b.clone, [
+          'worktree',
+          'add',
+          '--no-track',
+          '-b',
+          'foedrum/state',
+          join(dir.path, 'b', 'probe'),
+          'FETCH_HEAD',
+        ]),
+      (error: Error & { stderr?: string }) => (error.stderr ?? '').includes('state.lock'),
+    );
+
+    const said: string[] = [];
+    const started = openStateBranch({
+      store: b.store,
+      git: runGit,
+      clone: b.clone,
+      worktree: b.worktree,
+      out: (line) => said.push(line),
+    });
+
+    assert.deepEqual(await started.start(), { decision: 'restore' });
+    assert.equal(existsSync(refLock), false);
+    assert.equal(said.length, 1, said.join('\n'));
+    assert.match(
+      said[0] ?? '',
+      /^removed a stale refs\/heads\/foedrum\/state\.lock from the clone's common git folder: /,
+    );
+    assert.equal(b.store.lastEventId(), 1);
+    assert.equal(
+      git(b.worktree, ['rev-parse', 'HEAD']).trim(),
       git(origin, ['rev-parse', 'foedrum/state']).trim(),
     );
   });
