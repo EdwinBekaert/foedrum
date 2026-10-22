@@ -5,7 +5,7 @@
 // ones, and applies a batch's effects only while it holds the batch's lease (ADR 0033).
 
 import { randomUUID } from 'node:crypto';
-import { ClaudeReport } from '../schemas/events.ts';
+import { ClaudeReport, type SessionRef } from '../schemas/events.ts';
 import type {
   AttemptWorktree,
   AttemptWorktrees,
@@ -21,8 +21,9 @@ import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
 import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
-import type { State } from './fold.ts';
+import type { Batch, State } from './fold.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
+import { resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
@@ -56,12 +57,14 @@ export interface DriverActions {
 
 /**
  * The attempt worktrees of a repository the attempts write in, and the base a batch starts at
- * until its task tree moves (ADR 0066).
+ * until its task tree moves (ADR 0066). A manager without `recreate` resumes no session: its
+ * retries start fresh (ADR 0117).
  */
 export interface RepositoryWorktrees {
   repo: string;
   base: string;
-  manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
+  manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'> &
+    Partial<Pick<AttemptWorktrees, 'recreate'>>;
 }
 
 /** What the driver reports instead of failing: it keeps driving. */
@@ -109,6 +112,11 @@ export interface DriverOptions {
    * check steps.
    */
   brews?: (attempt: AttemptRef) => boolean;
+  /**
+   * Whether the brewer of an attempt resumes the session of the attempt before it on a retry
+   * (`retryMode: resume`, ADR 0117); never by default, until the loader lets it through (#327).
+   */
+  resumes?: (attempt: AttemptRef) => boolean;
   /** The id of a new session; default `randomUUID`. */
   sessionId?: () => string;
   /**
@@ -264,6 +272,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     outDoc,
     worktrees = [],
     brews = () => true,
+    resumes = () => false,
     sessionId = randomUUID,
     drivesOn = () => true,
     alsoCleans = [],
@@ -423,11 +432,21 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     store.withTransaction((tx) => leaseAttempt(tx, key));
     let repository: RepositoryWorktrees;
     let made: AttemptWorktree;
+    let fallback: string | undefined;
     try {
       const state = log.state();
       repository = repositoryOf(state, ref.batchId, worktrees);
       const batch = state.batches.get(ref.batchId);
       if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
+      const resumed = await resumption(repository, batch, ref);
+      if (resumed.kind === 'resumed') {
+        // In the worktree of the session it continues, with none of its own (ADR 0029).
+        const event = { ...started, session: resumed.session };
+        if (issue({ kind: 'record', event })) return true;
+        releaseAttempt(key);
+        return false;
+      }
+      fallback = resumed.fallback;
       // At the commits of the steps before it (ADR 0066).
       made = await repository.manager.create(ref, taskTreeStart(batch, repository));
     } catch (error) {
@@ -438,10 +457,46 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       return false;
     }
     const worktree = { repo: repository.repo, ...made };
-    const session = brews(ref) ? { session: { id: sessionId(), worktree: made.path } } : {};
+    const session = brews(ref)
+      ? {
+          session: {
+            id: sessionId(),
+            worktree: made.path,
+            ...(fallback === undefined ? {} : { fallback }),
+          },
+        }
+      : {};
     if (issue({ kind: 'record', event: { ...started, ...session, worktree } })) return true;
     releaseAttempt(key);
     return false;
+  };
+
+  /**
+   * The session a retry of `ref` continues, in the worktree of the attempt that started it, given
+   * back (ADR 0117); else a fresh start, with why when its brewer would have resumed one. A start
+   * waits for the lease of the attempt before it anyway (ADR 0055).
+   */
+  const resumption = async (
+    repository: RepositoryWorktrees,
+    batch: Batch,
+    ref: AttemptRef,
+  ): Promise<{ kind: 'resumed'; session: SessionRef } | { kind: 'fresh'; fallback?: string }> => {
+    const found = brews(ref) && resumes(ref) ? resumeOf(batch, ref) : undefined;
+    if (found === undefined) return { kind: 'fresh' };
+    if (found.kind === 'fresh') return { kind: 'fresh', fallback: found.why };
+    const { from, session } = found;
+    const name = `${from.stepId}#${from.attempt}`;
+    const { manager } = repository;
+    if (manager.recreate === undefined) {
+      return { kind: 'fresh', fallback: `the worktree of ${name} cannot be recreated here` };
+    }
+    try {
+      const back = await manager.recreate(from, found.worktree.commit);
+      return { kind: 'resumed', session: { id: session, resumes: session, worktree: back.path } };
+    } catch (error) {
+      const why = `the worktree of ${name} could not be recreated: ${(error as Error).message}`;
+      return { kind: 'fresh', fallback: why };
+    }
   };
 
   /**

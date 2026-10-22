@@ -264,6 +264,41 @@ describe('routeOf', () => {
     });
     assert.match(route.text, /The test expects the wrong slug/);
   });
+
+  it('reads the out doc of a resumed attempt that blocked where it ran: its session worktree (ADR 0117)', () => {
+    const id = '0f8fad5b-d9cb-469f-a165-708677289500';
+    const first = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+    const second = { ...first, attempt: 2 };
+    const ran = join('/work', 'implement-1');
+    const route = planned(
+      [
+        ...attempt('gauge', 1),
+        { type: 'step.scheduled', ...first, deadlineAt },
+        {
+          type: 'step.started',
+          ...first,
+          session: { id, worktree: ran },
+          worktree: worktreeOf('implement-1'),
+        },
+        {
+          type: 'step.finished',
+          ...first,
+          outcome: { kind: 'failed', retryable: true, reason: 'crashed' },
+        },
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+        { type: 'step.started', ...second, session: { id, resumes: id, worktree: ran } },
+        {
+          type: 'step.finished',
+          ...second,
+          outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): Wrong slug' },
+        },
+        ...routed('gauge', 2, 'implement', 'findings'),
+      ],
+      'gauge',
+      2,
+    );
+    assert.deepEqual(route?.outDoc, { path: join(ran, 'implement.md'), root: ran });
+  });
 });
 
 describe('routeInput', () => {

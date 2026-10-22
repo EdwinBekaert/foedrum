@@ -336,6 +336,45 @@ describe('inputsOf: the out doc of an earlier step (review of #165)', () => {
       root: join('/work', 'malt-3'),
     });
   });
+
+  it('reads it where a resumed attempt that succeeded ran: the worktree of its session (ADR 0117)', () => {
+    const id = '0f8fad5b-d9cb-469f-a165-708677289500';
+    const resumed: Event[] = [
+      ...events,
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 3,
+        deadlineAt: '2026-10-17T13:00:00.000Z',
+        retry: true,
+      },
+      // No worktree of its own: it ran in malt#2's.
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 3,
+        session: { id, resumes: id, worktree: join('/work', 'malt-2') },
+      },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 3,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'Malted on', assumptions: [] },
+        },
+      },
+    ];
+    const [input] = inputsOf(malt, batchOf(resumed), stepBrewer, join('/work', 'brew-1'));
+    assert.deepEqual(input?.read, {
+      kind: 'file',
+      path: join('/work', 'malt-2', 'malt.md'),
+      root: join('/work', 'malt-2'),
+    });
+  });
 });
 
 describe('outDocContract (brewers-and-recipes §2)', () => {

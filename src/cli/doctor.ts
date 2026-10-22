@@ -41,6 +41,8 @@ export interface DoctorFacts {
   github?: GitHubFacts | undefined;
   /** Whether the local gate's personal denylist is set, and where (ADR 0114); never its words. */
   denylist?: DenylistFact | undefined;
+  /** On Linux, whether AppArmor restricts unprivileged user namespaces, which bwrap needs (ADR 0076). */
+  restrictsUserns?: boolean | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */
@@ -135,7 +137,8 @@ const WSL2_ADVICE =
  * What each level keeps from gh's login (ADR 0082, #229). Claude Code's sandbox docs settle the
  * hosts file and the token variables (ADR 0087), not the OS keyring, so the sandbox never "closes"
  * it, and on WSL2 its `~/` entries leave the Windows user's logins under /mnt readable; the
- * container mounts only the worktree (ADR 0010). Check steps run outside both until #190 (ADR 0069).
+ * container mounts only the worktree (ADR 0010). Check steps run in an OS sandbox of Foedrum's own
+ * with no network, outside one only on native Windows (ADR 0076).
  */
 const SANDBOX_HIDES =
   "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
@@ -146,20 +149,37 @@ const sandboxHides = (wsl: boolean) =>
 const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
 const WRITTEN_DOWN =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
-const checkSteps = (outside: string) =>
-  `Until #190, check steps run outside ${outside}, so they can still read gh's login.`;
-const permissionsOnlyAdvice = (sandbox: string | undefined, wsl = false) =>
+/** Where check steps run (ADR 0076): bwrap or sandbox-exec, and outside one on native Windows. */
+const CHECKS_SANDBOXED =
+  "Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).";
+const CHECKS_IN_BUBBLEWRAP =
+  "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).";
+const CHECKS_ON_WINDOWS =
+  "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076).";
+const permissionsOnlyAdvice = (
+  sandbox: string | undefined,
+  { wsl = false, windows = false }: { wsl?: boolean; windows?: boolean } = {},
+) =>
   [
-    "A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file.",
+    `${windows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file.`,
     sandbox === undefined
       ? `The ${CONTAINER_CLOSES}`
       : `${sandbox} ${sandboxHides(wsl)} For brewers, the ${CONTAINER_CLOSES}`,
     WRITTEN_DOWN,
-    checkSteps(sandbox === undefined ? 'the container' : 'the sandbox and the container'),
+    windows ? CHECKS_ON_WINDOWS : CHECKS_IN_BUBBLEWRAP,
   ].join(' ');
 const sandboxedAdvice = (wsl: boolean) =>
-  `The sandbox ${sandboxHides(wsl)} ${WRITTEN_DOWN} ${checkSteps('the sandbox')}`;
-const WSL2_OR_CONTAINER = permissionsOnlyAdvice('In WSL2, the sandboxed level', true);
+  `The sandbox ${sandboxHides(wsl)} ${WRITTEN_DOWN} ${CHECKS_SANDBOXED}`;
+const wsl2OrContainer = (windows: boolean) =>
+  permissionsOnlyAdvice('In WSL2, the sandboxed level', { wsl: true, windows });
+
+/**
+ * Ubuntu 24.04 and later keep bwrap from making the user namespaces its sandbox needs, unless an
+ * AppArmor profile lets it: Claude Code's sandbox docs, "Ubuntu 24.04 and later: allow bubblewrap to
+ * create user namespaces" (ADR 0076). Seen on CI's ubuntu leg (#357).
+ */
+const USERNS_ADVICE =
+  'AppArmor restricts unprivileged user namespaces here (kernel.apparmor_restrict_unprivileged_userns is 1), so bwrap cannot make its sandbox unless a profile lets it: brewers\' sandboxed commands and check steps then do not start. Add the AppArmor profile for /usr/bin/bwrap that Claude Code\'s sandbox docs give (https://code.claude.com/docs/en/sandboxing, "Ubuntu 24.04 and later: allow bubblewrap to create user namespaces"), then run sudo systemctl reload apparmor.';
 
 /** The first dotted number a version command printed; `undefined` when it failed. */
 const versionOf = (run: ToolRun | undefined): string | undefined =>
@@ -380,7 +400,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
     case 'win32':
       return level(
         { level: 'permissions only', why: 'native Windows has no sandbox for shell commands' },
-        [WSL2_ADVICE, WSL2_OR_CONTAINER],
+        [WSL2_ADVICE, wsl2OrContainer(true)],
       );
     case 'linux': {
       // WSL 1 runs Linux programs on the Windows kernel, which has no bubblewrap; WSL 2 has. WSL 1
@@ -390,7 +410,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (wsl && !/microsoft-standard|wsl2/i.test(kernelRelease)) {
         return level({ level: 'permissions only', why: 'WSL 1 has no sandbox' }, [
           WSL2_ADVICE,
-          WSL2_OR_CONTAINER,
+          wsl2OrContainer(false),
         ]);
       }
       const missing: Problem[] = [];
@@ -411,7 +431,7 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
       if (missing.length > 0) {
         return level(
           { level: 'permissions only', why: `the sandbox needs ${SANDBOX_TOOLS}` },
-          [permissionsOnlyAdvice(`The sandboxed level (${SANDBOX_TOOLS})`, wsl)],
+          [permissionsOnlyAdvice(`The sandboxed level (${SANDBOX_TOOLS})`, { wsl })],
           missing,
         );
       }
@@ -429,7 +449,11 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
 /** What doctor reports for the facts; `ok` when nothing required is missing. */
 export const diagnose = (facts: DoctorFacts): Diagnosis => {
   const { tools } = facts;
-  const { isolation, advice, problems: sandboxProblems } = isolationOf(facts);
+  const { isolation, advice: levelAdvice, problems: sandboxProblems } = isolationOf(facts);
+  const advice =
+    facts.platform === 'linux' && facts.restrictsUserns === true
+      ? [...levelAdvice, USERNS_ADVICE]
+      : levelAdvice;
   const recipes = recipesOf(facts);
   const problems: Problem[] = [
     ...(isTooOld(facts.node)

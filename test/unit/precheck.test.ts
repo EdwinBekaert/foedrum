@@ -1320,6 +1320,42 @@ describe('precheck on words split by line continuations', () => {
     });
   }
 
+  // Bash removes a backslash-newline inside double quotes too (#359).
+  const FORCE =
+    'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
+  // Bash may keep the CR of a backslash-CRLF: the PowerShell reading of the nested string still
+  // reads its next line as a command. An escaped backslash keeps its newline (review of #372).
+  it('still reads the line after a backslash-CRLF in double quotes as a command', () => {
+    assert.equal(forbiddenReason('bash -c "echo \\\r\ngit push -f"'), FORCE);
+  });
+  it('reads no push after an escaped backslash and a newline', () => {
+    assert.equal(forbiddenReason('git "pu\\\\\nsh" -f'), undefined);
+  });
+  for (const newline of ['\n', '\r\n']) {
+    const command = `bash -c "g\\${newline}it push -f"`;
+    it(`blocks a force push split inside a nested shell's string: ${JSON.stringify(command)}`, () => {
+      assert.equal(forbiddenReason(command), FORCE);
+    });
+  }
+  for (const newline of ['\n', '\r\n']) {
+    const command = `git "pu\\${newline}sh" -f`;
+    it(`blocks a force push split inside double quotes: ${JSON.stringify(command)}`, () => {
+      assert.equal(forbiddenReason(command), FORCE);
+    });
+    it(`runs the check like git push: ${JSON.stringify(`git "pu\\${newline}sh"`)}`, async () => {
+      const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+      const command = `git "pu\\${newline}sh"`;
+      const input = JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command },
+        cwd: '/work/tree',
+      });
+      const result = await precheck(input, runCheck);
+      assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      assert.deepEqual(calls, ['/work/tree']);
+    });
+  }
+
   // A backslash before n that is no line continuation keeps its n, in the raw input as in the
   // command (#158, review of #355).
   const backslashN: string[] = [
@@ -2261,6 +2297,48 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Remove-Item -Recurse -Force (Get-Location)',
     'Remove-Item -Recurse @($p)',
     'rm -Recurse (Resolve-Path ..)',
+    // #296: cmd's switches written onto the program's name, which cmd reads as rd /s/q.
+    'rd/s/q %X%',
+    'del/s %X%',
+    'RD/S/Q %X%',
+    'rmdir/s %X%',
+    'erase/f/s %X%',
+    'cmd /c "rd/s/q %X%"',
+    // #296: a PowerShell splat, whose table the gate cannot read, may carry Recurse and the path;
+    // bash's rm reads @o as a path, so `rm @o` fails closed.
+    'Remove-Item @o',
+    'Remove-Item -Force @params',
+    'ri @o',
+    'rm @o',
+    // #296: a ( ) argument after an assignment.
+    '$null = Remove-Item -Recurse (Join-Path $root run)',
+    '$r = rm -Recurse -Force (Get-Location)',
+    '. Remove-Item -Recurse (Get-Location)',
+    // #296: a pipeline whose earlier stage is computed, into a recursive delete.
+    '$p | Remove-Item -Recurse',
+    'Get-ChildItem $d | Remove-Item -Recurse',
+    '$d | Get-ChildItem | Remove-Item -Recurse -Force',
+    '(Get-ChildItem $d) | ri -r',
+    // Review of #372: a pipeline goes on after a line that ends in a pipe or before one that starts
+    // with it, and through a script block or the call operator in a stage.
+    '$p |\nRemove-Item -Recurse',
+    '$p |\r\nRemove-Item -Recurse',
+    'Get-ChildItem $d\n| Remove-Item -Recurse',
+    'Get-ChildItem $d | Where-Object { $_.PSIsContainer } | Remove-Item -Recurse',
+    '$p | & Remove-Item -Recurse',
+    // Round 2 of that review: a variable that only starts like $_, and a literal delete inside a
+    // stage of a pipeline from a computed source, which fails closed.
+    '$_d | Remove-Item -Recurse',
+    'Get-ChildItem $PSItems | Remove-Item -Recurse',
+    '$d | ForEach-Object { Remove-Item -Recurse .foedrum/tmp/x }',
+    // A script block in the first stage, and $_ at the head of a pipeline, where it is a source
+    // like any variable.
+    'Invoke-Command { Get-ChildItem $d } | Remove-Item -Recurse',
+    '& { Get-ChildItem $d } | Remove-Item -Recurse',
+    '[pscustomobject]@{Path=$d} | Remove-Item -Recurse',
+    '$dirs | ForEach-Object {\n  $_ | Remove-Item -Recurse\n}',
+    '$dirs | % { Write-Host $_; $_ | Remove-Item -Recurse }',
+    '$_ = $root; $_ | Remove-Item -Recurse',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
@@ -2302,6 +2380,25 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     // A ( ) that starts a command is a group, not an argument.
     'if (Test-Path .foedrum/tmp/281) { Remove-Item -Recurse .foedrum/tmp/281 }',
     'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
+    // #296: the same forms with a literal path, without recursion, or after the pipeline ended.
+    'rd/s/q .foedrum\\tmp\\218',
+    'del/q %X%',
+    'Copy-Item @o',
+    '$null = Remove-Item -Recurse .foedrum/tmp/218',
+    '$null = Remove-Item (Get-Location)',
+    '$p | Remove-Item',
+    '$p | Write-Output; Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
+    'Test-Path $d || Remove-Item -Recurse .foedrum/tmp/218',
+    'Get-ChildItem $d | Write-Output && Remove-Item -Recurse .foedrum/tmp/218',
+    'Get-ChildItem $d | Write-Output\nRemove-Item -Recurse .foedrum/tmp/218',
+    'if (Test-Path $d) { Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse }',
+    "Remove-Item -Force '@o'",
+    // $_ and $PSItem are the pipeline's own object, which came from a literal path here.
+    'Get-ChildItem .foedrum/tmp/218 | Where-Object { $_.PSIsContainer } | Remove-Item -Recurse',
+    'Get-ChildItem .foedrum/tmp/218 | Where-Object { $PSItem.Name -ne "keep" } | ri -r',
+    // An @ inside a path is no splat.
+    'rm -rf .foedrum/tmp/a@b',
+    'Remove-Item -Recurse .foedrum/tmp/a@b',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
     // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
@@ -2335,6 +2432,13 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     [`r''m -rf "$d"`, 'Bash'],
     // Computed without a $, % or backtick.
     ['Remove-Item -Recurse -Force (Get-Location)', 'PowerShell'],
+    // #296's forms.
+    ['rd/s/q %X%', 'PowerShell'],
+    ['$p | Remove-Item -Recurse', 'PowerShell'],
+    // A splat holds no $, %, backtick or ( (review of #372).
+    ['Remove-Item @o', 'PowerShell'],
+    ['Remove-Item -Force @params', 'PowerShell'],
+    ['rm @o', 'Bash'],
   ];
   for (const [command, tool] of blocked) {
     it(`blocks without running the check (${tool}): ${command}`, async () => {
@@ -2346,7 +2450,14 @@ describe('precheck on a recursive delete of a path built from a variable', () =>
     });
   }
 
-  for (const command of ['rm -rf .foedrum/tmp/218/run', 'rm -f "$file"']) {
+  // Bash reads no pipeline into a delete: rm reads no paths from its input (ADR 0138).
+  for (const command of [
+    'rm -rf .foedrum/tmp/218/run',
+    'rm -f "$file"',
+    'ls "$d" | xargs rm -rf .foedrum/tmp/218',
+    // The pre-filter passes a delete word with an @ to the reader, which lets a path through.
+    'rm -rf .foedrum/tmp/a@b',
+  ]) {
     it(`lets through: ${command}`, async () => {
       const { calls, runCheck } = fakeCheck({ ok: false, output: '' });
       const result = await precheck(hookInput(command, '/work/tree'), runCheck);

@@ -1020,6 +1020,262 @@ describe('openDriver', () => {
     });
   });
 
+  describe('resumed attempts (ADR 0117)', () => {
+    const ids = () => {
+      let next = 0;
+      return () => `0f8fad5b-d9cb-469f-a165-70867728950${next++}`;
+    };
+    const first = '0f8fad5b-d9cb-469f-a165-708677289500';
+    const started = () =>
+      store.eventsAfter(0).flatMap(({ event }) => (event.type === 'step.started' ? [event] : []));
+    const folder = (step: string, attempt: number) =>
+      join('work', 'acme.app', 'attempts', 'b1', step, String(attempt));
+    /** What claude reported in its init: the session it set up. */
+    const inSession = (sessionId: string) => ({
+      session: { sessionId, model: 'claude-sonnet-5-5', claudeVersion: '2.1.301' },
+    });
+    const flaky: Ending = { kind: 'failed', retryable: true, reason: 'claude crashed' };
+    // The pint recipe with a third attempt of each step, so a resumed attempt can fail too.
+    const thrice = fakeRecipes({
+      pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 3 }),
+    });
+    const openResuming = async (manager: FakeWorktrees, runner: BrewerRunner) =>
+      open({
+        runner,
+        recipes: thrice,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+        sessionId: ids(),
+        resumes: () => true,
+      });
+
+    it('resumes the session of a retried attempt in the worktree it made, with no worktree of its own', async () => {
+      const { runner, end, started: ran } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      const resumed = started().at(-1);
+      assert.equal(resumed?.attempt, 2);
+      assert.deepStrictEqual(resumed.session, {
+        id: first,
+        resumes: first,
+        worktree: folder('plan', 1),
+      });
+      assert.equal(resumed.worktree, undefined);
+      assert.deepStrictEqual(
+        manager.calls.flatMap((call) => (call.kind === 'clean' ? [] : [[call.kind, call.ref]])),
+        [
+          ['create', plan('b1')],
+          ['recreate', plan('b1')],
+        ],
+      );
+      assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
+    });
+
+    it('recreates the worktree at the commit its maker recorded, and records the path it gave back', async () => {
+      const { runner, end } = handRunner();
+      const made = 'd'.repeat(40);
+      const elsewhere = join('work', 'moved');
+      const manager = fakeWorktrees({ commit: made, recreateRoot: elsewhere });
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.calls.filter((call) => call.kind === 'recreate'),
+        [{ kind: 'recreate', ref: plan('b1'), commit: made }],
+      );
+      assert.equal(started().at(-1)?.session?.worktree, join(elsewhere, 'b1', 'plan', '1'));
+    });
+
+    it('resumes the same session again, in the worktree of the attempt that made it', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      end(plan('b1', 2), flaky, inSession(first));
+      await driver.drive();
+      const third = started().at(-1);
+      assert.equal(third?.attempt, 3);
+      assert.deepStrictEqual(third.session, {
+        id: first,
+        resumes: first,
+        worktree: folder('plan', 1),
+      });
+      assert.deepStrictEqual(
+        manager.calls.flatMap((call) => (call.kind === 'recreate' ? [call.ref] : [])),
+        [plan('b1'), plan('b1')],
+      );
+    });
+
+    it('starts the next step at the branch of the worktree a resumed attempt that succeeded ran in', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      end(plan('b1', 2), succeeded, inSession(first));
+      await driver.drive();
+      assert.deepStrictEqual(
+        manager.calls.flatMap((call) =>
+          call.kind === 'create' ? [[call.ref.stepId, call.base]] : [],
+        ),
+        [
+          ['plan', 'origin/main'],
+          ['implement', 'refs/heads/foedrum/b1/plan/1'],
+        ],
+      );
+    });
+
+    it('starts a resumed attempt only once the lease of the attempt before it is gone (ADR 0055)', async () => {
+      const { runner, end, started: ran } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), { kind: 'failed', retryable: false, reason: 'no' }, inSession(first));
+      await driver.drive();
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      // An engineer's `foedrum resume` holds plan#1's lease while its session runs (ADR 0126).
+      const key = attemptKey.encode(plan('b1'));
+      store.withTransaction((tx) =>
+        tx.putLease({ attemptKey: key, owner: 'resume-4242', expiresAt: at(30) }),
+      );
+      const retry = { kind: 'retry', batchId: 'b1', by: 'octocat', via: 'terminal' } as const;
+      assert.equal(intake.issue(retry, now).kind, 'accepted');
+      await driver.drive();
+      assert.deepStrictEqual(ran, [plan('b1')], 'plan#2 waits for the lease');
+      assert.ok(!manager.calls.some((call) => call.kind === 'recreate'));
+      store.withTransaction((tx) => tx.releaseLease(key));
+      await driver.drive();
+      assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
+      assert.equal(started().at(-1)?.session?.resumes, first);
+    });
+
+    it('starts fresh, saying why, when the attempt before it has no session claude started', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      // claude's init never came: lost, or ended before it.
+      end(plan('b1'), flaky);
+      await driver.drive();
+      const fresh = started().at(-1);
+      assert.deepStrictEqual(fresh?.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289501',
+        worktree: folder('plan', 2),
+        fallback: 'plan#1 has no session claude started',
+      });
+      assert.equal(fresh.worktree?.path, folder('plan', 2));
+      assert.ok(!manager.calls.some((call) => call.kind === 'recreate'));
+    });
+
+    it('starts fresh after a resumed attempt that found no session to resume', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      // The runner's ending when claude ends before its init while it resumes.
+      const reason = 'claude could not resume the session: No conversation found';
+      end(plan('b1', 2), { kind: 'failed', retryable: true, reason });
+      await driver.drive();
+      const fresh = started().at(-1);
+      assert.equal(fresh?.attempt, 3);
+      assert.deepStrictEqual(fresh.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289501',
+        worktree: folder('plan', 3),
+        fallback: 'plan#2 has no session claude started',
+      });
+    });
+
+    it('starts the attempt a route schedules fresh: its step succeeded, and that branch holds the task tree', async () => {
+      const { runner, end } = handRunner();
+      const manager = fakeWorktrees();
+      const routing = fakeRecipes({
+        pint: fakeRecipe({
+          steps: ['plan', 'implement'],
+          routes: { implement: { failed: 'plan' } },
+        }),
+      });
+      order('b1');
+      const driver = await open({
+        runner,
+        recipes: routing,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+        sessionId: ids(),
+        resumes: () => true,
+      });
+      await driver.drive();
+      end(plan('b1'), succeeded, inSession(first));
+      await driver.drive();
+      const implement = { batchId: 'b1', stepId: 'implement', attempt: 1 };
+      const final: Ending = { kind: 'failed', retryable: false, reason: 'tests fail' };
+      end(implement, final, inSession('0f8fad5b-d9cb-469f-a165-708677289501'));
+      await driver.drive();
+      const routed = started().at(-1);
+      assert.equal(routed?.stepId, 'plan');
+      assert.equal(routed.attempt, 2);
+      assert.deepStrictEqual(routed.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289502',
+        worktree: folder('plan', 2),
+      });
+      assert.ok(!manager.calls.some((call) => call.kind === 'recreate'));
+    });
+
+    it('starts fresh, saying why, when its worktree manager cannot recreate worktrees', async () => {
+      const { runner, end } = handRunner();
+      const { recreate: _, ...manager } = fakeWorktrees();
+      order('b1');
+      const driver = await open({
+        runner,
+        recipes: thrice,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+        sessionId: ids(),
+        resumes: () => true,
+      });
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      const fresh = started().at(-1);
+      assert.deepStrictEqual(fresh?.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289501',
+        worktree: folder('plan', 2),
+        fallback: 'the worktree of plan#1 cannot be recreated here',
+      });
+      assert.equal(fresh.worktree?.path, folder('plan', 2));
+    });
+
+    it('starts fresh, saying why, when the worktree of the session cannot be recreated', async () => {
+      const { runner, end, started: ran } = handRunner();
+      const manager = fakeWorktrees({ refuseRecreate: () => 'The commit is no commit in clone' });
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      end(plan('b1'), flaky, inSession(first));
+      await driver.drive();
+      const fresh = started().at(-1);
+      assert.deepStrictEqual(fresh?.session, {
+        id: '0f8fad5b-d9cb-469f-a165-708677289501',
+        worktree: folder('plan', 2),
+        fallback: 'the worktree of plan#1 could not be recreated: The commit is no commit in clone',
+      });
+      assert.equal(fresh.worktree?.path, folder('plan', 2));
+      assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
+    });
+  });
+
   describe('the repository a batch writes in (ADR 0063)', () => {
     const app = fakeWorktrees({ root: 'app-attempts' });
     const web = fakeWorktrees({ root: 'web-attempts' });

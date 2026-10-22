@@ -69,6 +69,31 @@ describe('serveShell', () => {
     assert.deepStrictEqual(calls, []);
   });
 
+  it("starts a check step's command line in the OS sandbox, never as it is (ADR 0076)", async () => {
+    const { git } = fakeGit();
+    const started: string[] = [];
+    const checks = {
+      exec: async (file: string) => {
+        started.push(file);
+        return { exitCode: 0, stdout: '', stderr: '', output: '' };
+      },
+      platform: 'linux' as const,
+      findBwrap: () => '/usr/bin/bwrap',
+      realPath: (path: string) => path,
+      gitDirOf: () => undefined,
+      home: '/home/brewer',
+    };
+    const shell = serveShell(setup, {
+      root: 'brewery',
+      git,
+      out: () => {},
+      listen: () => {},
+      checks,
+    });
+    await shell.exec('npm test', [], { cwd: '/work/wt', shell: true });
+    assert.deepStrictEqual(started, ['/usr/bin/bwrap']);
+  });
+
   const managed = () => join(workRoot, 'acme.web', 'clone.git');
   const gitDirs = () => join(workRoot, 'acme.web', 'git-dirs');
   const github = 'https://github.com/acme/web.git';

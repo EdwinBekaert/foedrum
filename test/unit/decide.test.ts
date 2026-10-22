@@ -167,6 +167,11 @@ const stuckOn = (
   remindAt: inTwoDays,
 });
 const next = (stepId: string, attempt = 1) => scheduled(stepId, attempt, inAnHour);
+/** An attempt scheduled because the one before it failed: a retry (ADR 0117). */
+const retried = (stepId: string, attempt: number) => ({
+  ...next(stepId, attempt),
+  retry: true as const,
+});
 
 describe('stuckOptions', () => {
   it('offers answer only when the batch waits for answers', () => {
@@ -410,7 +415,7 @@ describe('decide finish', () => {
   });
 
   it('retries a retryable failure while the step has attempts left', () => {
-    accepts(brewing(), finish(retryable), [finished(retryable), next('plan', 2)]);
+    accepts(brewing(), finish(retryable), [finished(retryable), retried('plan', 2)]);
   });
 
   it('makes the batch Stuck when a retryable failure has no attempts left', () => {
@@ -435,7 +440,7 @@ describe('decide finish', () => {
   it('retries a retryable failure of a step with a route while it has attempts left', () => {
     accepts(brewing('green'), finish(retryable, 'green'), [
       finished(retryable, 'green'),
-      next('green', 2),
+      retried('green', 2),
     ]);
   });
 
@@ -478,7 +483,7 @@ describe('decide finish', () => {
 
   it('retries a cancelled attempt while the step has attempts left', () => {
     const cancel = { kind: 'cancelled' } as const;
-    accepts(brewing(), finish(cancel), [finished(cancel), next('plan', 2)]);
+    accepts(brewing(), finish(cancel), [finished(cancel), retried('plan', 2)]);
   });
 
   it('makes the batch Stuck when a cancelled attempt has no attempts left', () => {
@@ -670,7 +675,7 @@ describe('decide lose: a lost attempt is retried (ADR 0027)', () => {
   });
 
   it('records the attempt as a retryable failure and schedules the next attempt', () => {
-    accepts(brewing(), lose(), [lost(), next('plan', 2)]);
+    accepts(brewing(), lose(), [lost(), retried('plan', 2)]);
   });
 
   it('makes the batch Stuck when the step has no attempts left', () => {
@@ -883,10 +888,10 @@ describe('decide remind (ADR 0025)', () => {
 describe('decide retry: Stuck → brewing', () => {
   const retry: Command = { kind: 'retry', batchId: 'b1', ...by };
 
-  it('schedules the next attempt of the step that made the batch Stuck', () => {
+  it('schedules the next attempt of the step that made the batch Stuck, as a retry (ADR 0117)', () => {
     accepts(lanes.stuck, retry, [
       { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
-      next('plan', 2),
+      retried('plan', 2),
     ]);
   });
 
@@ -948,7 +953,9 @@ describe('decide retry and answer: the step a human names, never skipped (ADR 00
       const decision = decide(fold(stuck()), command, skipping);
       assert.deepStrictEqual(decision, decide(fold(stuck()), command, context));
       assert.ok(decision.kind === 'accepted');
-      assert.deepStrictEqual(decision.events.at(-1), next('plan', 2));
+      // An answer is no retry: its attempt gets the answers (ADR 0117).
+      const expected = command.kind === 'retry' ? retried('plan', 2) : next('plan', 2);
+      assert.deepStrictEqual(decision.events.at(-1), expected);
     });
   }
 

@@ -171,6 +171,40 @@ describe('settleAttempt', () => {
     }
   });
 
+  // ADR 0117: the next attempt starts fresh, which a block on the environment would not let it.
+  it('fails retryably when claude could not resume the session, before the error its result reported', () => {
+    const said = 'No conversation found with session ID: 0f8fad5b-d9cb-469f-a165-708677289500';
+    const ending = settleAttempt(
+      facts({
+        unresumed: said,
+        exit: { kind: 'exited', code: 1 },
+        outDoc: undefined,
+        streamError: 'error_during_execution: No conversation found',
+        turns: 0,
+      }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: `claude could not resume the session: ${said}`,
+    });
+  });
+
+  // A limit the result names lasts whatever session ran: a fresh attempt would meet it too.
+  it('puts a usage or spend limit before a session claude could not resume (review of #371)', () => {
+    const unresumed = 'You have hit your limit';
+    const usageLimit = { limit: 'session', resets: '3:45pm' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ unresumed, usageLimit }), limits), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude hit its session limit, which resets 3:45pm: retry the step after that',
+    });
+    const spendLimit = { kind: 'credit' } as const;
+    const ending = settleAttempt(facts({ unresumed, spendLimit }), limits);
+    assert.equal(ending.kind === 'blocked' && ending.blockerKind, 'environment');
+  });
+
   it('puts a session that is not what was asked, and a usage limit, before a spend limit', () => {
     const spendLimit = { kind: 'credit' } as const;
     assert.deepStrictEqual(settleAttempt(facts({ environment: 'no init', spendLimit }), limits), {

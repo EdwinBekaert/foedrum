@@ -196,10 +196,10 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         });
     };
     say(`brewing for ${setup.brewery} in ${setup.workRoot}; Ctrl+C stops it`);
-    // The brewers run in the OS sandbox; a check runs what they may have written outside it.
-    if (setup.sandbox && setup.checks.any()) {
+    // Elsewhere a check runs in an OS sandbox of its own (ADR 0076).
+    if (setup.unsandboxedChecks && setup.checks.any()) {
       say(
-        'check steps run outside the OS sandbox: their commands can run code a brewer wrote, with network and home-folder access (ADR 0069)',
+        'check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)',
       );
     }
     while (!signal.aborted) {

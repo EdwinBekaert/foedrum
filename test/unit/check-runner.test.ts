@@ -214,6 +214,34 @@ describe('createCheckRunner', () => {
     });
   });
 
+  it('says in each reading of a command that ran on native Windows that it ran unsandboxed (ADR 0076)', async () => {
+    const { runner } = setup({
+      platform: 'win32',
+      checks: ['build', 'lint', 'test'],
+      scripts: { 'npm test': { exitCode: 1, output: 'not ok 1\n' } },
+    });
+    const end = await runner.start({ ref, limits }).ended;
+    assert.deepEqual(end.readings, [
+      { result: 'skipped', check: 'build' },
+      {
+        result: 'exited',
+        check: 'lint',
+        command: 'npm run lint',
+        unsandboxed: true,
+        exitCode: 0,
+        tail: '',
+      },
+      {
+        result: 'exited',
+        check: 'test',
+        command: 'npm test',
+        unsandboxed: true,
+        exitCode: 1,
+        tail: 'not ok 1\n',
+      },
+    ]);
+  });
+
   // A check has the network, outside the sandbox (ADR 0069): claude's login must not reach it.
   it("leaves claude's credentials and settings out of a check's environment", async () => {
     const { calls, runner } = setup({

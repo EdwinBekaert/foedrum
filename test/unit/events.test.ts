@@ -249,6 +249,11 @@ describe('Event', () => {
     }
   });
 
+  it('accepts an attempt scheduled as a retry, and refuses one marked false (ADR 0117)', () => {
+    accepts(Event, { ...valid['step.scheduled'], retry: true });
+    rejects(Event, { ...valid['step.scheduled'], retry: false });
+  });
+
   it('accepts a pull request that was closed without a merge', () => {
     accepts(Event, { ...valid['pull_request.ended'], state: 'closed' });
   });
@@ -577,6 +582,11 @@ describe('SessionRef', () => {
   // What claude reported goes on step.finished, once its init came (ADR 0116).
   it("rejects claude's version", () =>
     rejects(SessionRef, { ...session, claudeVersion: '2.1.300' }));
+  // Why it started fresh where its brewer would have resumed (ADR 0117).
+  it('accepts a fallback, and rejects an empty one', () => {
+    accepts(SessionRef, { ...session, fallback: 'plan#1 has no session claude started' });
+    rejects(SessionRef, { ...session, fallback: '' });
+  });
 });
 
 describe("step.finished's claude (ADR 0116)", () => {

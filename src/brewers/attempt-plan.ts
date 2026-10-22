@@ -58,6 +58,11 @@ export interface PlanFacts {
   settingsFile: string;
   /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;
+  /**
+   * Whether it resumes that session after a failure; its prompt is then a short one, since the
+   * session holds the instructions and the inputs (ADR 0117).
+   */
+  resumes?: boolean;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
 }
@@ -130,7 +135,8 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   const done = attempts.find(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
-  return done?.phase === 'finished' ? done.worktree?.path : undefined;
+  // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
+  return done?.phase === 'finished' ? (done.worktree?.path ?? done.session?.worktree) : undefined;
 };
 
 /**
@@ -232,14 +238,16 @@ export function routeOf(
     .filter((attempt) => attempt.phase === 'finished')
     .at(-1);
   if (routing?.phase !== 'finished') return { source, text: `Step ${from} sent this step back.` };
-  const { outcome, readings = [], worktree } = routing;
+  const { outcome, readings = [] } = routing;
   const reason = outcome.kind === 'failed' ? outcome.reason : outcome.kind;
   // A red proof's reason quotes its test run, whose tail alone was filtered (#188).
   const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
   const text = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading)].join('\n\n');
   const doc = outDocOf(from);
-  if (why === 'failed' || worktree === undefined || doc === undefined) return { source, text };
-  return { source, text, outDoc: { path: join(worktree.path, doc), root: worktree.path } };
+  // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
+  const root = routing.worktree?.path ?? routing.session?.worktree;
+  if (why === 'failed' || root === undefined || doc === undefined) return { source, text };
+  return { source, text, outDoc: { path: join(root, doc), root } };
 }
 
 const leftOutReason = '[left out: a reason that looks like a secret]';
@@ -370,13 +378,19 @@ export function attemptPermissions(
   return { allow, deny: brewer.tools.deny, sandbox };
 }
 
+/** What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117). */
+export const goOn = (doc: string): string =>
+  `The run before this one ended before the step was done. Go on with the step where it stopped, then write ${doc} as your instructions say.`;
+
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
-  const { brewer, worktree, models, env, sessionId } = facts;
+  const { brewer, worktree, models, env, sessionId, resumes = false } = facts;
   const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox);
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
-  const instructions = `${facts.instructions.trimEnd()}\n\n${contract}`;
+  const instructions = resumes
+    ? goOn(brewer.output.doc)
+    : `${facts.instructions.trimEnd()}\n\n${contract}`;
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
     const { name, source } = assembled.input;
@@ -394,7 +408,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
       effort: brewer.effort,
       ...(maxTurns === undefined ? {} : { maxTurns }),
       tools: toolsOf(allow),
-      session: { kind: 'new', id: sessionId },
+      session: { kind: resumes ? 'resume' : 'new', id: sessionId },
     },
     permissions,
     settingsFile: facts.settingsFile,

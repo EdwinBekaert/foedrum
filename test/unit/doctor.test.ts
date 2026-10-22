@@ -569,13 +569,16 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     assert.doesNotMatch(line, /sandbox(?:ed level)?[^;.]* closes/);
   };
 
-  it('says on every permissions-only level that a brewer or a check step can read the keyring or the hosts file', () => {
+  it('says on every permissions-only level that a brewer, and on native Windows a check step, can read the keyring or the hosts file', () => {
     for (const facts of permissionsOnly) {
       const [line, ...more] = keyring(facts);
       assert.deepEqual(more, []);
-      assert.match(
-        line ?? '',
-        /^A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file\./,
+      const who = facts === windows ? 'A brewer or a check step runs' : 'A brewer runs';
+      assert.ok(
+        (line ?? '').startsWith(
+          `${who} as you here, so it can still read gh's login from the OS keyring or its hosts file.`,
+        ),
+        line,
       );
     }
   });
@@ -642,22 +645,52 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     }
   });
 
-  // Check steps run outside the OS sandbox at every level until #190 (ADR 0069, review of #225).
-  // Each level names only what it has (review of #250).
-  it('says on every level that check steps keep the login until #190, outside what that level has', () => {
-    const outside = (where: string) =>
-      new RegExp(
-        `Until #190, check steps run outside ${where}, so they can still read gh's login\\.$`,
-      );
+  // Check steps run in an OS sandbox of Foedrum's own outside native Windows (ADR 0076, #190);
+  // each level names only what it has (review of #250).
+  it('says where check steps run on every level, and nothing of #190', () => {
+    const last = (facts: DoctorFacts) => keyring(facts)[0] ?? '';
     for (const facts of sandboxed) {
-      assert.match(keyring(facts)[0] ?? '', outside('the sandbox'));
+      assert.match(
+        last(facts),
+        /Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login \(ADR 0076\)\.$/,
+      );
     }
-    for (const facts of [windows, wsl1, linux({ bwrap: undefined })]) {
-      assert.match(keyring(facts)[0] ?? '', outside('the sandbox and the container'));
+    assert.match(
+      last(windows),
+      /On native Windows, check steps run outside any sandbox, so they can still read gh's login \(ADR 0076\)\.$/,
+    );
+    for (const facts of [wsl1, linux({ bwrap: undefined }), freebsd]) {
+      assert.match(
+        last(facts),
+        /Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run \(ADR 0076\)\.$/,
+      );
     }
-    const [line = ''] = keyring(freebsd);
-    assert.match(line, outside('the container'));
-    assert.doesNotMatch(line, /sandbox/);
+    for (const facts of [...sandboxed, ...permissionsOnly]) {
+      assert.doesNotMatch(last(facts), /#190/);
+    }
+  });
+});
+
+// Ubuntu 24.04 and later: AppArmor keeps bwrap from making the user namespaces the sandbox needs
+// (Claude Code's sandbox docs, "Ubuntu 24.04 and later: allow bubblewrap to create user
+// namespaces"); seen on CI's ubuntu leg (#357).
+describe("diagnose: AppArmor's limit on user namespaces (ADR 0076)", () => {
+  const userns = (facts: DoctorFacts) =>
+    diagnose(facts).advice.filter((line) => /apparmor_restrict_unprivileged_userns/.test(line));
+
+  it('says on Linux what to do when AppArmor restricts user namespaces', () => {
+    const [line = '', ...more] = userns({ ...linux(), restrictsUserns: true });
+    assert.deepEqual(more, []);
+    assert.match(line, /kernel\.apparmor_restrict_unprivileged_userns is 1/);
+    assert.match(line, /bwrap/);
+    assert.match(line, /https:\/\/code\.claude\.com\/docs\/en\/sandboxing/);
+    assert.match(line, /sudo systemctl reload apparmor/);
+  });
+
+  it('says nothing of it where AppArmor does not, or off Linux', () => {
+    assert.deepEqual(userns({ ...linux(), restrictsUserns: false }), []);
+    assert.deepEqual(userns(linux()), []);
+    assert.deepEqual(userns({ ...macos, restrictsUserns: true }), []);
   });
 });
 

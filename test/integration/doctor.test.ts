@@ -127,9 +127,11 @@ const sandboxHides =
   "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const writtenDown =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
+// Where check steps run (ADR 0076): outside any sandbox only on native Windows.
+const onWindows = process.platform === 'win32';
 const keyring = (sandboxedLevel: string) =>
-  `  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} Until #190, check steps run outside the sandbox and the container, so they can still read gh's login.`;
-const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Until #190, check steps run outside the sandbox, so they can still read gh's login.`;
+  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
+const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
 // problem.

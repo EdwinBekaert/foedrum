@@ -78,6 +78,18 @@ describe('forbiddenReason on what gh pr and gh issue would post', () => {
     });
   }
 
+  // Bash removes a backslash-newline inside double quotes, so the title is one line (#359);
+  // PowerShell keeps both, so its reading still finds the word on line 2.
+  for (const newline of ['\n', '\r\n']) {
+    const command = `gh pr create -t "plain \\${newline}ExampleCorp" -b plain`;
+    it(`reads a backslash-newline in double quotes as bash does: ${JSON.stringify(command)}`, () => {
+      assert.match(
+        refusal(command),
+        hit('gh pr create', 'gh pr create --title line 1; gh pr create --title line 2'),
+      );
+    });
+  }
+
   it('lets a clean title and body through, reading a body file', () => {
     for (const command of [
       'gh pr create --draft -t "Add a plan" -b "plain text"',

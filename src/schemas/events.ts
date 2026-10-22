@@ -34,12 +34,14 @@ export type Surface = z.infer<typeof Surface>;
 /**
  * The Claude Code session of a brewer's attempt, so any action can resume the right session
  * (ADR 0019): the id the driver chose before claude started, and the worktree it runs in
- * (ADR 0116).
+ * (ADR 0116). `resumes`: the session it continues; `fallback`: why it started a new session where
+ * its brewer would have resumed one (ADR 0117).
  */
 export const SessionRef = z.strictObject({
   id: Id,
   resumes: Id.optional(),
   worktree: NonEmpty,
+  fallback: NonEmpty.optional(),
 });
 export type SessionRef = z.infer<typeof SessionRef>;
 
@@ -104,8 +106,13 @@ export type Usage = z.infer<typeof Usage>;
 /** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
 export const MAX_TAIL_LENGTH = 4000;
 const Tail = z.string().max(MAX_TAIL_LENGTH);
-// A named check, or none for a Brewery's literal command; the command line as it ran.
-const ran = { check: CheckName.optional(), command: NonEmpty };
+// A named check, or none for a Brewery's literal command; the command line as it ran; and on
+// native Windows, which has no sandbox for it, that it ran unsandboxed (ADR 0076).
+const ran = {
+  check: CheckName.optional(),
+  command: NonEmpty,
+  unsandboxed: z.literal(true).optional(),
+};
 
 /** What one check of a check step did (ADR 0069). */
 export const GravityReading = z.discriminatedUnion('result', [
@@ -255,11 +262,14 @@ export const Event = z.discriminatedUnion('type', [
     ),
   recipeChosen,
   // `route`: the onFail or onBlocked route that scheduled the attempt, which counts its rounds.
+  // `retry`: it runs because the attempt before it failed, so a brewer that resumes continues
+  // that attempt's session (ADR 0117).
   z.strictObject({
     type: z.literal('step.scheduled'),
     ...step,
     deadlineAt: Timestamp,
     route: ScheduleRoute.optional(),
+    retry: z.literal(true).optional(),
   }),
   // The step's `when` was false when the batch reached it, so it did not run (ADR 0064).
   z.strictObject({
