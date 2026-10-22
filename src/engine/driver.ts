@@ -76,6 +76,11 @@ export type DriverNotice =
    * other runs go on (ADR 0099).
    */
   | { kind: 'run_failed'; ref: AttemptRef; error: unknown }
+  /**
+   * `ref` is scheduled but waits for the live lease of `waitsFor`, an attempt of its step that
+   * Stuck abandoned, until `expiresAt` at most (ADR 0055); said once per attempt (#155).
+   */
+  | { kind: 'waiting_for_lease'; ref: AttemptRef; waitsFor: AttemptRef; expiresAt: Date }
   /** What a cleanup of an ended batch's worktrees did. */
   | { kind: 'cleaned'; batchId: string; report: CleanReport };
 

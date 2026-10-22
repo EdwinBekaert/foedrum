@@ -557,6 +557,29 @@ describe('openDriver', () => {
         assert.deepStrictEqual(leased(now), [attemptKey.encode(plan('b1', 2))]);
       });
 
+      it('says once that the new attempt waits for the lease, and not after it started (#155)', async () => {
+        const notices: DriverNotice[] = [];
+        const { driver } = await abandonAndRetry({ report: (notice) => notices.push(notice) });
+        const waits = () => notices.filter((notice) => notice.kind === 'waiting_for_lease');
+        await driver.drive();
+        await driver.drive();
+        now = at(13);
+        await driver.tick();
+        assert.deepStrictEqual(waits(), [
+          {
+            kind: 'waiting_for_lease',
+            ref: plan('b1', 2),
+            waitsFor: plan('b1'),
+            expiresAt: at(16),
+          },
+        ]);
+        now = at(16);
+        await driver.tick();
+        now = at(17);
+        await driver.tick();
+        assert.equal(waits().length, 1, 'nothing more once plan#2 started');
+      });
+
       it('starts the new attempt as soon as the abandoned run ended', async () => {
         const { driver, started, ends } = await abandonAndRetry();
         await driver.drive();
