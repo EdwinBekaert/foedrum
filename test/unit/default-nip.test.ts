@@ -6,12 +6,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
+import type { PromptInput } from '../../src/brewers/prompt.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { createBrewing } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
@@ -94,6 +96,69 @@ describe('the default Nip', () => {
       'green',
       'open-pull-request',
     ]);
+  });
+
+  it("records a failed green check's route so the Cellarman's second attempt reads the failing test (#341, ADR 0128)", async () => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const done = behave.succeed();
+      const failing: GravityReading = {
+        result: 'exited',
+        check: 'test',
+        command: 'npm test',
+        exitCode: 1,
+        tail: 'not ok 3 - status --json prints the batches',
+      };
+      const scripts: Record<string, Behaviour[]> = {
+        gauge: [done],
+        red: [done],
+        implement: [done, done],
+        green: [behave.read([failing]), done],
+        'open-pull-request': [done],
+      };
+      const { brewers, recipes } = valid(loadRecipes(noFiles));
+      // What each attempt of implement would be told about why it runs, when it starts.
+      const told: (PromptInput | undefined)[] = [];
+      const brewing = createBrewing({
+        store,
+        runner: fakeBrewerRunner((attempt) => {
+          const { stepId } = attempt.ref;
+          if (stepId === 'implement') {
+            const batch = fold(brewing.events()).batches.get('b1');
+            assert.ok(batch !== undefined);
+            const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
+            const route = routeOf(batch, attempt.ref, outDocOf);
+            told.push(route === undefined ? undefined : routeInput(route));
+          }
+          return scripts[stepId]?.shift();
+        }),
+        recipes,
+        clock: () => new Date('2026-10-21T12:00:00.000Z'),
+      });
+      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      assert.ok(
+        brewing.command({
+          kind: 'route',
+          batchId: 'b1',
+          recipe: 'nip',
+          reason: 'label',
+          source: 'label',
+        }),
+      );
+      await brewing.drive();
+      assert.equal(told.length, 2);
+      assert.equal(told[0], undefined, 'the first attempt was told why it runs again');
+      assert.deepEqual(told[1]?.source, {
+        kind: 'route',
+        step: 'implement',
+        from: 'green',
+        why: 'failed',
+      });
+      assert.match(told[1]?.text ?? '', /the check "test" \(npm test\) failed with exit code 1/);
+      assert.match(told[1]?.text ?? '', /not ok 3 - status --json prints the batches/);
+    } finally {
+      store.close();
+    }
   });
 
   it('goes no further when the red proof refuses the tests a second time', async () => {

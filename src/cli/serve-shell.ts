@@ -30,6 +30,8 @@ export interface ServeShellOptions {
   out: (line: string) => void;
   /** Listens for a signal that stops serve; default `process.once`. */
   listen?: ListenForSignal;
+  /** The command whose lines the state branch's own start with; default `serve`. */
+  command?: string;
   /** The sandbox check steps run in; default this machine's, through `execProcess` (ADR 0076). */
   checks?: Partial<SandboxedChecksOptions>;
 }
@@ -59,7 +61,7 @@ export const listenWhileServing = (
 };
 
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
-  const { root, git, out, listen, checks } = options;
+  const { root, git, out, listen, checks, command = 'serve' } = options;
   const { workRoot } = setup;
   // The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
   // it by this URL, never through the clone's configuration (ADR 0090, ADR 0096).
@@ -85,7 +87,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         git,
         clone: root,
         worktree: setup.stateWorktree,
-        out: (line) => out(`foedrum serve: ${line}`),
+        out: (line) => out(`foedrum ${command}: ${line}`),
       }),
     worktrees: async (repository) => {
       const { repo, source, clone } = repository;

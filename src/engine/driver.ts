@@ -76,6 +76,11 @@ export type DriverNotice =
    * other runs go on (ADR 0099).
    */
   | { kind: 'run_failed'; ref: AttemptRef; error: unknown }
+  /**
+   * `ref` is scheduled but waits until `waitsFor`, another attempt of its step, lets go of its live
+   * lease, which expires at `expiresAt` unless renewed (ADR 0055); said once per attempt (#155).
+   */
+  | { kind: 'waiting_for_lease'; ref: AttemptRef; waitsFor: AttemptRef; expiresAt: Date }
   /** What a cleanup of an ended batch's worktrees did. */
   | { kind: 'cleaned'; batchId: string; report: CleanReport };
 
@@ -106,6 +111,12 @@ export interface DriverOptions {
   brews?: (attempt: AttemptRef) => boolean;
   /** The id of a new session; default `randomUUID`. */
   sessionId?: () => string;
+  /**
+   * Which of the batches its owner held at its start it drives on (ADR 0044): every one by
+   * default. An interactive driver keeps none, so a batch it left earlier lapses within a lease
+   * instead of being driven beside the one it brews (ADR 0123); it holds that one through `takes`.
+   */
+  drivesOn?: (batchId: string) => boolean;
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
   alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;
@@ -201,6 +212,12 @@ const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
   return { kind: 'finish', ...ref, ...rest, ...(report.success ? { claude: report.data } : {}) };
 };
 
+/** A live lease of an attempt, and when it expires unless it is renewed. */
+interface AttemptLease {
+  ref: AttemptRef;
+  expiresAt: Date;
+}
+
 /** The attempt `ref` in `state`, if it was scheduled. */
 const attemptOf = (state: State, ref: AttemptRef) =>
   state.batches.get(ref.batchId)?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
@@ -248,6 +265,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     worktrees = [],
     brews = () => true,
     sessionId = randomUUID,
+    drivesOn = () => true,
     alsoCleans = [],
     effects,
     actions,
@@ -287,7 +305,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     held = new Set(
       store
         .batchLeases(clock())
-        .filter((lease) => lease.owner === owner)
+        .filter((lease) => lease.owner === owner && drivesOn(lease.batchId))
         .map((lease) => lease.batchId),
     );
   } catch (error) {
@@ -446,20 +464,24 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /**
-   * Whether another attempt of `ref`'s step holds one of the live `leases`: one Stuck abandoned,
+   * The live one of `leases` that another attempt of `ref`'s step holds, if any: one Stuck abandoned,
    * whose stopped run has not ended. `ref` starts once that lease is released or expired, which
    * the heartbeat no longer renews, and never beside it (I2, #150). The wait lasts one lease at
    * most, and `ref`'s deadline runs through it: a step whose deadline is shorter than what is left
    * of that lease goes Stuck with its deadline passed before `ref` started, as a step does whose
    * deadline passes while no driver runs. That is intended: the step could not start in time.
    */
-  const stepLeased = (leases: readonly AttemptRef[], ref: AttemptRef): boolean =>
-    leases.some(
-      (other) =>
+  const stepLease = (leases: readonly AttemptLease[], ref: AttemptRef): AttemptLease | undefined =>
+    leases.find(
+      ({ ref: other }) =>
         other.batchId === ref.batchId &&
         other.stepId === ref.stepId &&
         other.attempt !== ref.attempt,
     );
+  // The attempts it said wait for a lease, by key: each is said once, not on every pass (#155).
+  // A key goes when its attempt starts; one whose batch went Stuck or ended first stays, one key
+  // per retried attempt that never started, for the driver's life.
+  const saidWaiting = new Set<string>();
 
   const driveNow = async (): Promise<void> => {
     // A start the guard refuses is tried once per drive: the attempt's deadline covers it.
@@ -467,9 +489,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     for (;;) {
       let moved = false;
       // Once per pass: a run that ended in the pass before let its lease go.
-      const leases = store
-        .currentLeases(clock())
-        .flatMap((lease) => attemptKey.decode(lease.attemptKey) ?? []);
+      const leases = store.currentLeases(clock()).flatMap(({ attemptKey: key, expiresAt }) => {
+        const ref = attemptKey.decode(key);
+        return ref === undefined ? [] : [{ ref, expiresAt }];
+      });
       for (const batch of log.state().batches.values()) {
         if (batch.lane.kind !== 'brewing') continue;
         for (const [stepId, step] of batch.steps) {
@@ -479,7 +502,17 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           if (!claim(batch.id)) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
           const key = attemptKey.encode(ref);
-          if (refused.has(key) || stepLeased(leases, ref)) continue;
+          if (refused.has(key)) continue;
+          const lease = stepLease(leases, ref);
+          if (lease !== undefined) {
+            if (!saidWaiting.has(key)) {
+              saidWaiting.add(key);
+              const { expiresAt } = lease;
+              report({ kind: 'waiting_for_lease', ref, waitsFor: lease.ref, expiresAt });
+            }
+            continue;
+          }
+          saidWaiting.delete(key);
           moved = true;
           const action = actionOf(log.state(), recipes, ref);
           if (action !== undefined) {

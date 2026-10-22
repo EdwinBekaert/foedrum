@@ -8,7 +8,7 @@ import type { State } from '../engine/fold.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { ResumeCommand } from '../schemas/commands.ts';
+import type { BrewCommand, ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { columns } from './columns.ts';
@@ -58,6 +58,12 @@ export interface CliContext {
   claims: (config: BreweryConfig) => ClaimHost;
   /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
   serve: () => Promise<CliResult>;
+  /**
+   * Brews one issue's batch until it stops (ADR 0123), as `as` or the Claude Code session's
+   * owner, recording who issued it and from where on an order it makes; its lines go straight to
+   * the terminal.
+   */
+  brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
   /** Opens a finished attempt's session in its worktree (ADR 0126); claude has the terminal. */
   resume: (input: ResumeCommand) => Promise<CliResult>;
 }
@@ -92,12 +98,13 @@ const SERVE = { name: 'serve', summary: "Run the Cellar: brew the Brewery's batc
 
 const usage = (): CliResult => {
   const serve = [SERVE.name, SERVE.summary];
-  const rows = commands.map(({ name, summary, positionals, optional = [], rest }) => [
+  const rows = commands.map(({ name, summary, positionals, optional = [], rest, options = {} }) => [
     [
       name,
       ...positionals.map((positional) => `<${positional}>`),
       ...optional.map((positional) => `[<${positional}>]`),
       ...(rest === undefined ? [] : [`<${rest}>...`]),
+      ...Object.entries(options).map(([option, value]) => `[--${option} <${value}>]`),
     ].join(' '),
     summary,
   ]);
@@ -143,19 +150,29 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     return usageError(`foedrum: unknown command ${JSON.stringify(name)}; ${SEE_HELP}`);
   }
   const prefix = `foedrum ${name}`;
+  // The options the command takes, each with a value: a field of its input.
+  const known = Object.keys(command?.options ?? {});
   // Not strict, so an unknown option is a token this can name instead of parseArgs' message.
   const { tokens } = parseArgs({
     args: rest,
-    options: { help: { type: 'boolean', short: 'h' } },
+    options: {
+      help: { type: 'boolean', short: 'h' },
+      ...Object.fromEntries(known.map((option) => [option, { type: 'string' } as const])),
+    },
     allowPositionals: true,
     strict: false,
     tokens: true,
   });
   const options = tokens.filter((token) => token.kind === 'option');
   if (options.some((option) => option.name === 'help')) return usage();
-  // No command takes an option yet.
-  const [unknown] = options;
-  if (unknown !== undefined) return usageError(`${prefix}: unknown option "${unknown.rawName}"`);
+  const optionValues: Record<string, string> = {};
+  for (const option of options) {
+    if (!known.includes(option.name)) {
+      return usageError(`${prefix}: unknown option "${option.rawName}"`);
+    }
+    if (option.value === undefined) return usageError(`${prefix}: ${option.rawName} needs a value`);
+    optionValues[option.name] = option.value;
+  }
   const values = tokens.flatMap((token) => (token.kind === 'positional' ? [token.value] : []));
   if (command === undefined) {
     const [extra] = values;
@@ -176,6 +193,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     positionals.map((field, i) => [field, values[i] ?? '']),
   );
   if (restField !== undefined) input[restField] = values.slice(positionals.length);
+  Object.assign(input, optionValues);
   try {
     const result = await command.run({ command: name, ...input }, context);
     return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;

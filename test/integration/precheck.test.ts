@@ -204,6 +204,36 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
+  // What gh would post, its body file read from the hook's working directory by the real reader
+  // (ADR 0132); gh pr comment runs no check, so the hook starts nothing.
+  it('blocks a body file that holds a word on the denylist, naming the file and line', async () => {
+    const project = makeTempDir('denied-body');
+    const list = `${project.path}-list.txt`;
+    try {
+      writeFileSync(list, '# clients\nexamplecorp\n');
+      const gate = async (body: string) => {
+        writeFileSync(join(project.path, 'body.md'), body);
+        return run(
+          process.execPath,
+          [script],
+          hookInput('gh pr comment 5 --body-file body.md', project.path),
+          { cwd: root, env: envWithoutNpm({ FOEDRUM_DENYLIST: list }) },
+        );
+      };
+      const denied = await gate('Thanks\nfor ExampleCorp\n');
+      assert.equal(denied.code, 2);
+      assert.match(
+        denied.stderr,
+        /^gh pr comment is blocked: it would send a word on your denylist \(ADR 0114\), at gh pr comment --body-file body\.md:2\. /,
+      );
+      assert.doesNotMatch(denied.stderr, /example ?corp/i);
+      assert.deepEqual(await gate('Thanks\n'), { code: 0, stdout: '', stderr: '' });
+    } finally {
+      await removeTree(project.path);
+      rmSync(list, { force: true });
+    }
+  });
+
   // What real git prints for messages, authors and a merge's conflict resolution, and a commit
   // another remote has, read against the remote the push goes to (ADR 0114).
   it('finds a word in a message, an author, a merge and a commit another remote has', async () => {

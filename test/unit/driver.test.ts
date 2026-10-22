@@ -557,6 +557,32 @@ describe('openDriver', () => {
         assert.deepStrictEqual(leased(now), [attemptKey.encode(plan('b1', 2))]);
       });
 
+      it('says once that the new attempt waits for the lease, and not after it started (#155)', async () => {
+        const notices: DriverNotice[] = [];
+        const { driver, started } = await abandonAndRetry({
+          report: (notice) => notices.push(notice),
+        });
+        const waits = () => notices.filter((notice) => notice.kind === 'waiting_for_lease');
+        await driver.drive();
+        await driver.drive();
+        now = at(13);
+        await driver.tick();
+        assert.deepStrictEqual(waits(), [
+          {
+            kind: 'waiting_for_lease',
+            ref: plan('b1', 2),
+            waitsFor: plan('b1'),
+            expiresAt: at(16),
+          },
+        ]);
+        now = at(16);
+        await driver.tick();
+        assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)].map(attemptKey.encode));
+        now = at(17);
+        await driver.tick();
+        assert.equal(waits().length, 1, 'nothing more once plan#2 started');
+      });
+
       it('starts the new attempt as soon as the abandoned run ended', async () => {
         const { driver, started, ends } = await abandonAndRetry();
         await driver.drive();
@@ -628,6 +654,30 @@ describe('openDriver', () => {
       assert.deepStrictEqual(after.held(), ['b1']);
       await after.tick();
       assert.deepStrictEqual(second.started, [plan('b1', 2)]);
+    });
+
+    it('drives on only the batches drivesOn keeps of those its owner held, and lets the others lapse (ADR 0123)', async () => {
+      order('b1');
+      order('b2');
+      const before = await open({ owner: 'session-7' });
+      await before.drive();
+      before.close();
+      drivers.splice(0);
+      const left = batchLease('b1')?.expiresAt;
+      // An interactive driver for b2 alone: b1, which its owner left, is not driven or renewed.
+      const second = handRunner();
+      const after = await open({
+        owner: 'session-7',
+        runner: second.runner,
+        takes: (id) => id === 'b2',
+        drivesOn: () => false,
+      });
+      assert.deepStrictEqual(after.held(), []);
+      now = at(1);
+      await after.tick();
+      assert.deepStrictEqual(after.held(), ['b2']);
+      assert.deepStrictEqual(batchLease('b1')?.expiresAt, left);
+      assert.ok(second.started.every(({ batchId }) => batchId === 'b2'));
     });
   });
 

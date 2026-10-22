@@ -4,12 +4,17 @@
 
 import type { DenylistState } from '../src/platform/denylist.ts';
 import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
+import { windowsPathProblem } from '../src/platform/real-path.ts';
 import {
   deniedRefusal,
+  filePlaces,
+  type GhText,
+  holdsEntry,
   MESSAGE_FORMAT,
   parseDenylist,
   scanMessages,
   scanPatches,
+  textPlaces,
 } from './denylist/core.ts';
 
 /** Each git call's deadline: a local, read-only call answers within seconds, and the three calls
@@ -103,4 +108,105 @@ export const pushRefusal =
     const [messages = '', patches = ''] = outputs;
     const places = [...scanMessages(messages, list), ...scanPatches(patches, list)];
     return places.length === 0 ? undefined : deniedRefusal('git push', places);
+  };
+
+/**
+ * Why the texts a command's gh calls would send may not go (ADR 0132): one holds a word on the
+ * list, the list cannot be read, or the gate cannot read a text. Undefined without a list, before
+ * anything is read. `readAt` reads a file at path parts resolved from `cwd`, and throws when it
+ * cannot.
+ */
+export const textRefusal =
+  (readList: () => DenylistState, readAt: (cwd: string, path: readonly string[]) => string) =>
+  (texts: readonly GhText[], cwd: string): string | undefined => {
+    const [first] = texts;
+    if (first === undefined) return undefined;
+    const state = readList();
+    if (state.kind === 'none') return undefined;
+    if (state.kind === 'unreadable') {
+      return `${first.command} is blocked: the denylist at ${state.path} cannot be read (${state.why}), so the gate cannot check what gh sends (ADR 0114, ADR 0132). Fix the file, or unset FOEDRUM_DENYLIST.`;
+    }
+    const list = parseDenylist(state.text);
+    if (list.length === 0) return undefined;
+    // Each reading of a command that runs another finds the same text again.
+    const unique = [...new Map(texts.map((each) => [JSON.stringify(each), each])).values()];
+    const hits: { command: string; place: string }[] = [];
+    for (const each of unique) {
+      const where = `${each.command} ${each.field}`;
+      switch (each.kind) {
+        case 'unreadable':
+          return `${each.command} is blocked: its ${each.field} is ${each.why}, so the gate cannot check it against your denylist (ADR 0132); give the text inline, or in a file the gate can read.`;
+        case 'text':
+          hits.push(...textPlaces(where, each.text, list).map((place) => ({ ...each, place })));
+          break;
+        case 'file': {
+          const shown = each.path.at(-1) ?? '';
+          let text: string;
+          try {
+            text = readAt(cwd, each.path);
+          } catch (error) {
+            // The error names the path, which may hold the word.
+            // The error names the path as resolved (the hook's directory, the home folder), so
+            // it is quoted only when it holds no word either.
+            const named = !holdsEntry(each.path.join('/'), list);
+            const message = error instanceof Error ? error.message : String(error);
+            const why = holdsEntry(message, list) ? 'its error names a denied word' : message;
+            return `${each.command} is blocked: could not read its ${each.field} ${named ? `${shown} (${why})` : 'from a file whose path holds a denied word'}, so the gate cannot check it against your denylist (ADR 0132).`;
+          }
+          const places = filePlaces(where, shown, text, each.json === true, list);
+          hits.push(...places.map((place) => ({ ...each, place })));
+          break;
+        }
+        default: {
+          const unknown: never = each;
+          throw new Error(`unknown gh text ${JSON.stringify(unknown)}`);
+        }
+      }
+    }
+    const [hit] = hits;
+    if (hit === undefined) return undefined;
+    return deniedRefusal(hit.command, [...new Set(hits.map(({ place }) => place))]);
+  };
+
+/** The most a file gh would send may hold for the gate to read it: four times the 65,536
+ * characters GitHub takes in a body, so a request body of JSON fits too. */
+export const GH_FILE_MAX_BYTES = 262_144;
+
+/** The file system a gh text's file is read through: its path resolved from where the hook
+ * runs, what kind of file it is and how large, and its text. */
+export interface GhFiles {
+  resolve: (cwd: string, path: readonly string[]) => string;
+  stat: (path: string) => { isFile: () => boolean; size: number };
+  read: (path: string) => string;
+}
+
+/**
+ * Reads the file a gh text names (ADR 0132), or throws why it will not: only a regular file of at
+ * most GH_FILE_MAX_BYTES, so standard input as a path (/dev/stdin), a FIFO or a device never
+ * blocks or empties the gate. The file as written is never a ~ path, which bash leaves as it is
+ * after @ or in quotes and PowerShell always does, so gh may read a folder named ~; on Windows
+ * never a network or device path, before anything touches it, nor a rooted or drive-relative one
+ * (/tmp/…, /c/…, \…, D:…), which Git Bash, PowerShell or the drive's own folder send elsewhere.
+ */
+export const ghFileReader =
+  (files: GhFiles, platform: NodeJS.Platform) =>
+  (cwd: string, path: readonly string[]): string => {
+    const file = path.at(-1) ?? '';
+    if (file.startsWith('~')) throw new Error('a ~ path: give the path without ~');
+    const resolved = files.resolve(cwd, path);
+    if (platform === 'win32') {
+      const problem = windowsPathProblem(file) ?? windowsPathProblem(resolved);
+      if (problem === 'network') {
+        throw new Error('a network or device path, which the gate does not open');
+      }
+      if (problem === 'no-drive') {
+        throw new Error(
+          'a rooted or drive-relative path, which gh may read from another folder: give a Windows or relative path',
+        );
+      }
+    }
+    const stat = files.stat(resolved);
+    if (!stat.isFile()) throw new Error('not a regular file');
+    if (stat.size > GH_FILE_MAX_BYTES) throw new Error(`over ${GH_FILE_MAX_BYTES} bytes`);
+    return files.read(resolved);
   };

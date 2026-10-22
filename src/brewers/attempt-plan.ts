@@ -3,18 +3,21 @@
 // attempt-plans.ts reads the state, the inputs and the files.
 
 import { join } from 'node:path';
+import { checkName, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
+import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
+import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import type { AttemptPermissions } from './attempt-settings.ts';
-import type { ClaudeAttemptPlan } from './claude-runner.ts';
+import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
   type InputSource,
@@ -197,6 +200,102 @@ export function answersOf(batch: Batch, stepId: string): PromptInput | undefined
   if (answers.length === 0) return undefined;
   const text = answers.map(({ q, answer }) => `Q: ${q}\nA: ${answer}`).join('\n\n');
   return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
+}
+
+/** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
+export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
+
+/** What sent an attempt back along the route that scheduled it, and where to read the rest. */
+export interface PlannedRoute {
+  source: Extract<InputSource, { kind: 'route' }>;
+  /** What the event log says: the routing attempt's reason and its readings that did not pass. */
+  text: string;
+  /** The out doc of the attempt that blocked with findings, in its worktree. */
+  outDoc?: { path: string; root: string };
+}
+
+/**
+ * What sent attempt `ref` back, from the latest finished attempt of the step its route came from;
+ * none when no route scheduled it (ADR 0128). `outDocOf` names a step's out doc file.
+ */
+export function routeOf(
+  batch: Batch,
+  ref: AttemptRef,
+  outDocOf: (stepId: string) => string | undefined,
+): PlannedRoute | undefined {
+  const route = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
+  if (route === undefined) return undefined;
+  const { from, why } = route;
+  const source = { kind: 'route', step: ref.stepId, from, why } as const;
+  // The attempt that routed: the latest of its step that finished, never an earlier round's.
+  const routing = [...(batch.steps.get(from)?.attempts.values() ?? [])]
+    .filter((attempt) => attempt.phase === 'finished')
+    .at(-1);
+  if (routing?.phase !== 'finished') return { source, text: `Step ${from} sent this step back.` };
+  const { outcome, readings = [], worktree } = routing;
+  const reason = outcome.kind === 'failed' ? outcome.reason : outcome.kind;
+  // A red proof's reason quotes its test run, whose tail alone was filtered (#188).
+  const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
+  const text = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading)].join('\n\n');
+  const doc = outDocOf(from);
+  if (why === 'failed' || worktree === undefined || doc === undefined) return { source, text };
+  return { source, text, outDoc: { path: join(worktree.path, doc), root: worktree.path } };
+}
+
+const leftOutReason = '[left out: a reason that looks like a secret]';
+
+/** A reading that did not pass, as the route input shows it: the check, how it ended, its tail. */
+function failedReading(reading: GravityReading): string[] {
+  if (reading.result === 'skipped' || passed(reading)) return [];
+  const ended = (() => {
+    switch (reading.result) {
+      case 'exited':
+        return `exited with code ${reading.exitCode}`;
+      case 'signaled':
+        return `was ended by ${reading.signal}`;
+      case 'killed':
+        return `was killed by the process runner (${reading.killed})`;
+      case 'unstarted':
+        return 'could not start';
+      default: {
+        const unhandled: never = reading;
+        throw new Error(`Unhandled reading ${JSON.stringify(unhandled)}`);
+      }
+    }
+  })();
+  return [`${checkName(reading)} ${ended}. The end of its output:\n${reading.tail}`];
+}
+
+/** `text` held to the route input's limit: its start, never half a character, then a note. */
+function bounded(text: string): string {
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= MAX_ROUTE_INPUT_BYTES) return text;
+  const note = `\n[cut: the rest is past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes]`;
+  let end = MAX_ROUTE_INPUT_BYTES - Buffer.byteLength(note, 'utf8');
+  // Back to the first byte of a character.
+  while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
+  return `${bytes.subarray(0, end).toString('utf8')}${note}`;
+}
+
+/** The route input of `planned`, with the out doc as it was read, held to its limit (ADR 0128). */
+export function routeInput(planned: PlannedRoute, outDoc?: OutDocRead): PromptInput {
+  const doc = (() => {
+    switch (outDoc?.kind) {
+      case undefined:
+        return '';
+      case 'text':
+        return `\n\nIts out doc:\n${outDoc.text}`;
+      case 'missing':
+        return '\n\nIts out doc could not be read: it is missing.';
+      case 'unread':
+        return `\n\nIts out doc could not be read: ${outDoc.reason}.`;
+      default: {
+        const unhandled: never = outDoc;
+        throw new Error(`Unhandled read ${JSON.stringify(unhandled)}`);
+      }
+    }
+  })();
+  return { name: 'route', source: planned.source, text: bounded(`${planned.text}${doc}`) };
 }
 
 /** One example out doc of the contract: the keys every status shares, then the status's own key. */
