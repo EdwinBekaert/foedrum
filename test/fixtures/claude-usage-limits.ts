@@ -34,6 +34,62 @@ export const otherLimitTexts = [
   "You've hit your session limit · resets 3:45pm\nSee https://status.claude.com",
 ] as const;
 
+/**
+ * The spend-limit and credit messages of the same reference (#257, ADR 0129; "You've hit your
+ * monthly spend limit" and "Credit balance is too low", read 2026-10-22): each refuses every
+ * request until a human raises the limit or adds credits. The text after the `·` varies with the
+ * plan; the individual usage limit is documented without one.
+ */
+export const documentedSpendLimits = [
+  {
+    text: "You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage?from=cc_cli_limit_message",
+    spendLimit: { kind: 'spend', limit: 'monthly spend limit' },
+  },
+  {
+    text: "You've hit your individual spend limit · ask your admin for a higher limit",
+    spendLimit: { kind: 'spend', limit: 'individual spend limit' },
+  },
+  {
+    text: "You've hit your org's monthly spend limit · visit https://claude.ai/admin-settings/usage to raise it",
+    spendLimit: { kind: 'spend', limit: "org's monthly spend limit" },
+  },
+  {
+    text: "You've hit your team's shared budget · ask your admin to raise it at https://claude.ai/admin-settings/usage",
+    spendLimit: { kind: 'spend', limit: "team's shared budget" },
+  },
+  {
+    text: "You've hit your channel's monthly spend limit · an org owner or channel manager can raise it in the channel's Claude settings",
+    spendLimit: { kind: 'spend', limit: "channel's monthly spend limit" },
+  },
+  {
+    text: "You've hit your individual usage limit",
+    spendLimit: { kind: 'spend', limit: 'individual usage limit' },
+  },
+  { text: 'Credit balance is too low', spendLimit: { kind: 'credit' } },
+] as const;
+
+/**
+ * Texts near a spend limit that are none of the documented ones: a spend limit whose plan window
+ * resets by itself, a gateway's cap, a failed change of the limit, the API's own credit message,
+ * a limit the docs do not name, and the message with a curly apostrophe, inside other text, with
+ * another separator, with nothing after the separator, or followed by more lines.
+ */
+export const otherSpendTexts = [
+  "You've hit your monthly spend limit · your session limit resets 3:45pm",
+  'spend limit reached (daily; resets 2026-08-09 00:00 UTC)',
+  'spend limit reached',
+  'spend limit unavailable',
+  'Could not update your spend limit: below current usage',
+  'Your credit balance is too low to access the Anthropic API.',
+  "You've hit your weekly spend limit · raise it at https://claude.ai/settings/usage",
+  'You’ve hit your monthly spend limit · raise it at https://claude.ai/settings/usage',
+  "API Error: You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage",
+  "You've hit your monthly spend limit - raise it at https://claude.ai/settings/usage",
+  "You've hit your monthly spend limit · ",
+  'Credit balance is too low.',
+  'Credit balance is too low\nSee https://platform.claude.com/settings/billing',
+] as const;
+
 const SESSION = '00000000-0000-4000-8000-000000000001';
 
 /** The rejection `SDKRateLimitEvent` documents; the reader ignores it. */

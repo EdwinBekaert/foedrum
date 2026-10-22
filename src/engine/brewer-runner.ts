@@ -88,6 +88,23 @@ export interface UsageLimit {
   resets: string;
 }
 
+/**
+ * A spend limit or a credit balance that refuses every request until a human acts (ADR 0129):
+ * which spend limit claude named, or a credit balance that is too low.
+ */
+export type SpendLimit =
+  | {
+      kind: 'spend';
+      limit:
+        | 'monthly spend limit'
+        | 'individual spend limit'
+        | "org's monthly spend limit"
+        | "channel's monthly spend limit"
+        | "team's shared budget"
+        | 'individual usage limit';
+    }
+  | { kind: 'credit' };
+
 /** What the runner saw of one attempt. */
 export interface AttemptFacts {
   /**
@@ -103,6 +120,8 @@ export interface AttemptFacts {
   streamError?: string | undefined;
   /** The usage window the error result said ran out, in one of the documented messages. */
   usageLimit?: UsageLimit | undefined;
+  /** The spend limit or credit balance the error result said refused it, as documented. */
+  spendLimit?: SpendLimit | undefined;
   /** Why the runner did not read the out doc it found (larger than its limit, not a file). */
   outDocUnread?: string | undefined;
   /** The first line of the event stream that was not a stream-json event. */
