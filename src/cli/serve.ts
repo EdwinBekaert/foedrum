@@ -54,6 +54,8 @@ export interface ServeShell {
   ) => BrewerRunner;
   /** The process runner the check steps' commands run through (ADR 0069). */
   exec: ExecProcess;
+  /** The process runner a repository's setup runs through, with the network (ADR 0140). */
+  setup: ExecProcess;
   /** The process runner gh runs through, for GitHub (ADR 0073). */
   gh: ExecProcess;
   /** git, for the commits red proofs and the testsUnchanged guard read (ADR 0078). */

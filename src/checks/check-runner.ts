@@ -21,10 +21,12 @@ import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
-import type { TestReportConfig } from '../schemas/brewery-config.ts';
+import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
+import { durationMs } from '../schemas/primitives.ts';
 import type { Git } from '../workspace/git.ts';
 import {
+  commandLine,
   type PlannedCheck,
   passed,
   planChecks,
@@ -43,6 +45,8 @@ export interface ReportFiles {
   read: (file: string, root: string) => OutDocRead;
 }
 
+export type { RepositorySetup };
+
 export interface CheckRunnerOptions {
   /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
   state: () => State;
@@ -53,6 +57,11 @@ export interface CheckRunnerOptions {
   /** The test report a repository's test check writes (`foedrum.jsonc`), for red proofs. */
   testReport: (repo: string) => TestReportConfig | undefined;
   exec: ExecProcess;
+  /**
+   * A repository's setup, run before a check step's checks, and the process runner it runs
+   * through: with the network, never the checks' sandbox (ADR 0140).
+   */
+  setup?: { of: (repo: string) => RepositorySetup | undefined; exec: ExecProcess };
   /** git, for the commits of the step a red proof proves (ADR 0078). */
   git: Git;
   /**
@@ -129,36 +138,95 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     ending: { kind: 'blocked', blockerKind, summary },
   });
 
-  /** What one run of `check` read; on native Windows, which has no sandbox, it says so (ADR 0076). */
-  const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => {
+  /**
+   * What one run of `check` read; when no sandbox held it, it says so: a check on native Windows
+   * (ADR 0076), a setup everywhere (ADR 0140).
+   */
+  const readingIn = (
+    check: Extract<PlannedCheck, { kind: 'run' }>,
+    result: ExecResult,
+    unsandboxed = checksRunUnsandboxed(platform),
+  ) => {
     const reading = readingOf(check, result);
-    return checksRunUnsandboxed(platform) && reading.result !== 'skipped'
+    return unsandboxed && reading.result !== 'skipped'
       ? { ...reading, unsandboxed: true as const }
       : reading;
   };
 
-  /** Runs one check in the worktree, killed before the attempt's deadline or at the stop. */
+  /**
+   * Runs one command line in the worktree, killed before the attempt's deadline, at `timeoutMs`
+   * when that is sooner, or at the stop.
+   */
+  const runLine = (
+    through: ExecProcess,
+    command: string,
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    signal: AbortSignal,
+    {
+      maxOutputBytes,
+      timeoutMs = Infinity,
+    }: { maxOutputBytes?: number | undefined; timeoutMs?: number } = {},
+  ): Promise<ExecResult> => {
+    // The process runner kills the tree before the step's deadline, also when no tick comes:
+    // early enough that the kill's grace ends and the reading is recorded before a tick expires
+    // the attempt and loses it.
+    const left = Date.parse(deadlineAt) - clock().getTime();
+    return through(command, [], {
+      cwd: worktree.path,
+      env,
+      timeoutMs: Math.max(1, Math.min(timeoutMs, left - KILL_MARGIN_MS)),
+      signal,
+      shell: true,
+      jobObject: true,
+      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+    });
+  };
+
+  /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
   const runCheck = (
     check: Extract<PlannedCheck, { kind: 'run' }>,
     worktree: WorktreeRef,
     deadlineAt: string,
     signal: AbortSignal,
     maxOutputBytes?: number,
-  ): Promise<ExecResult> => {
-    // The process runner kills the tree before the step's deadline, also when no tick comes:
-    // early enough that the kill's grace ends and the reading is recorded before a tick expires
-    // the attempt and loses it.
-    const left = Date.parse(deadlineAt) - clock().getTime();
-    const timeoutMs = Math.max(1, left - KILL_MARGIN_MS);
-    return exec(check.command, [], {
-      cwd: worktree.path,
-      env,
-      timeoutMs,
-      signal,
-      shell: true,
-      jobObject: true,
-      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+  ): Promise<ExecResult> =>
+    runLine(exec, check.command, worktree, deadlineAt, signal, { maxOutputBytes });
+
+  /**
+   * The reading of the repository's setup, run in the worktree once the step needs nothing else
+   * before its checks, with the network, outside every sandbox (ADR 0140).
+   */
+  const runSetup = async (
+    found: RepositorySetup,
+    through: ExecProcess,
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    signal: AbortSignal,
+  ): Promise<GravityReading[]> => {
+    const setup = {
+      kind: 'run',
+      setup: true,
+      command: commandLine(found.command, platform),
+    } as const;
+    const result = await runLine(through, setup.command, worktree, deadlineAt, signal, {
+      timeoutMs: durationMs(found.timeout),
     });
+    return [readingIn(setup, result, true)];
+  };
+
+  /**
+   * The repository's setup running, or undefined when it has none: then nothing is awaited, so
+   * the first check starts at once, before the engine could stop the attempt.
+   */
+  const prepare = (
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    signal: AbortSignal,
+  ): Promise<GravityReading[]> | undefined => {
+    const found = options.setup?.of(worktree.repo);
+    if (options.setup === undefined || found === undefined) return undefined;
+    return runSetup(found, options.setup.exec, worktree, deadlineAt, signal);
   };
 
   /**
@@ -197,6 +265,11 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     if (check?.kind !== 'run') {
       return blocked('environment', `foedrum.jsonc gives ${worktree.repo} no test check`);
     }
+    // The repository's setup once nothing else blocks the run, so the run finds what it
+    // installed (ADR 0140).
+    const preparing = prepare(worktree, deadlineAt, signal);
+    const before = preparing === undefined ? [] : await preparing;
+    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
     // A report the tree holds, committed or left over, must not stand for this run's.
     const file =
       report.path === undefined ? undefined : join(worktree.path, ...report.path.split('/'));
@@ -213,7 +286,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const limit = file === undefined ? MAX_REPORT_BYTES : undefined;
     const result = await runCheck(check, worktree, deadlineAt, signal, limit);
     const reading = readingIn(check, result);
-    const readings = [reading];
+    const readings = [...before, reading];
     // A check that did not exit read no report: it ends as any check does (ADR 0069).
     if (reading.result !== 'exited') return { ending: settleReadings(readings), readings };
     const failed = (why: string): AttemptEnd => ({
@@ -281,8 +354,16 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       }
       repository = found;
     }
-    const readings: GravityReading[] = [];
-    for (const check of planChecks(refs, repository, platform)) {
+    const planned = planChecks(refs, repository, platform);
+    // The repository's setup once nothing else blocks the step and a check will run, so the
+    // checks find what it installed (ADR 0140).
+    const preparing = planned.some((check) => check.kind === 'run')
+      ? prepare(worktree, current.deadlineAt, signal)
+      : undefined;
+    const before = preparing === undefined ? [] : await preparing;
+    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+    const readings: GravityReading[] = [...before];
+    for (const check of planned) {
       if (check.kind === 'skip') {
         readings.push({ result: 'skipped', check: check.check });
         continue;

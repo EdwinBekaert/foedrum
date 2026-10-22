@@ -170,6 +170,8 @@ export const wireDriver = async (
     repositoryChecks: (repo) => repositoryNamed(repo)?.checks,
     testReport: (repo) => repositoryNamed(repo)?.testReport,
     exec: shell.exec,
+    // A repository's setup installs before the checks, with the network (ADR 0140).
+    setup: { of: (repo) => repositoryNamed(repo)?.setup, exec: shell.setup },
     git: shell.git,
     clone,
     env: setup.brewerEnv,
