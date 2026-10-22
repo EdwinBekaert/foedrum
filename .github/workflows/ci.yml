@@ -87,17 +87,22 @@ jobs:
         run: npm run test:integration
 
       # The properties of invariants I1–I6 with many more seeds than npm run check runs within its
-      # per-file budget (architecture §9): 500 scenarios per invariant on every leg. A failure
-      # names its seed; FOEDRUM_SEED replays it.
+      # per-file budget (architecture §9): 500 scenarios per invariant on the Linux leg, and 1,000
+      # on every leg in the nightly run. The scenarios are a pure function of the seed and the code
+      # has no platform edge, so one leg per pull request is enough (ADR 0134). A failure names its
+      # seed; FOEDRUM_SEED replays it on any platform.
       - name: Property tests, more seeds
+        if: ${{ github.event_name == 'schedule' || matrix.os == 'ubuntu-latest' }}
         env:
-          FOEDRUM_RUNS: "500"
+          FOEDRUM_RUNS: ${{ github.event_name == 'schedule' && '1000' || '500' }}
         run: node scripts/with-checkout-tmp.ts --test "test/property/**/*.test.ts"
 
-      # The engine killed at random points and restarted (#15, ADR 0033): 1,000 runs in the
-      # nightly run, the M0 exit criterion, and 200 on every other run, on every leg. A failure
-      # names its seed; FOEDRUM_SEED replays it.
+      # The engine killed at random points and restarted (#15, ADR 0033): 1,000 runs on every leg
+      # in the nightly run, the M0 exit criterion, and 200 on the Linux leg of every other run
+      # (ADR 0134). Their platform edge, the SQLite file and the driver lock, gets npm run check's
+      # 5 runs on every leg per pull request. A failure names its seed; FOEDRUM_SEED replays it.
       - name: Chaos tests, more runs
+        if: ${{ github.event_name == 'schedule' || matrix.os == 'ubuntu-latest' }}
         env:
           FOEDRUM_RUNS: ${{ github.event_name == 'schedule' && '1000' || '200' }}
         run: node scripts/with-checkout-tmp.ts --test "test/chaos/**/*.test.ts"
