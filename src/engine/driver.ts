@@ -472,6 +472,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         other.attempt !== ref.attempt,
     );
   // The attempts it said wait for a lease, by key: each is said once, not on every pass (#155).
+  // A key goes when its attempt starts; one whose batch went Stuck or ended first stays, one key
+  // per retried attempt that never started, for the driver's life.
   const saidWaiting = new Set<string>();
 
   const driveNow = async (): Promise<void> => {
