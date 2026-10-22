@@ -18,7 +18,7 @@ import type {
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { effectKey } from './effect-key.ts';
-import { worktreeOf } from './session-resume.ts';
+import { ranIn } from './session-resume.ts';
 
 /** Where a batch is: the board lanes (architecture §4.3), plus cancelled. */
 export type Lane =
@@ -339,13 +339,7 @@ function apply(state: State, event: Event): State {
       const next = updateAttempt(state, event, (current, step) => {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
         if (current.phase === 'finished') throw attemptError(event, 'was already finished');
-        const { worktree, session } = current;
-        ran =
-          worktree !== undefined
-            ? { attempt: current.attempt, worktree }
-            : session?.resumes === undefined
-              ? undefined
-              : worktreeOf(step, session.id);
+        ran = ranIn(step, current);
         return {
           ...current,
           phase: 'finished',

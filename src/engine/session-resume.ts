@@ -4,7 +4,7 @@
 
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { AttemptRef } from './attempt-key.ts';
-import type { Batch, Step } from './fold.ts';
+import type { Attempt, Batch, Step } from './fold.ts';
 
 /** How attempt `ref` starts when its brewer resumes: in a session it continues, or fresh, and why. */
 export type Resumption =
@@ -33,6 +33,20 @@ export function worktreeOf(
     if (worktree !== undefined) return { attempt: attempt.attempt, worktree };
   }
   return undefined;
+}
+
+/**
+ * The worktree `attempt` of `step` runs or ran in, and the attempt that made it: its own, or for a
+ * resumed attempt the one whose session it continues (ADR 0117); none before it started.
+ */
+export function ranIn(
+  step: Step,
+  attempt: Attempt,
+): { attempt: number; worktree: WorktreeRef } | undefined {
+  if (attempt.phase === 'scheduled') return undefined;
+  const { worktree, session } = attempt;
+  if (worktree !== undefined) return { attempt: attempt.attempt, worktree };
+  return session?.resumes === undefined ? undefined : worktreeOf(step, session.id);
 }
 
 /**

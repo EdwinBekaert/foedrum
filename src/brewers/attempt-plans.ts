@@ -10,7 +10,7 @@ import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
-import { worktreeOf as sessionWorktree } from '../engine/session-resume.ts';
+import { ranIn } from '../engine/session-resume.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
@@ -89,14 +89,12 @@ const worktreeOf = (
   ref: AttemptRef,
 ): { worktree: WorktreeRef; madeBy: AttemptRef } | undefined => {
   const started = startedOf(batch, ref);
-  if (started?.worktree !== undefined) return { worktree: started.worktree, madeBy: ref };
-  const session = started?.session;
   const step = batch?.steps.get(ref.stepId);
-  if (session?.resumes === undefined || step === undefined) return undefined;
-  const made = sessionWorktree(step, session.id);
-  if (made === undefined) return undefined;
-  const worktree = { ...made.worktree, path: session.worktree };
-  return { worktree, madeBy: { ...ref, attempt: made.attempt } };
+  const ran = started === undefined || step === undefined ? undefined : ranIn(step, started);
+  if (started === undefined || ran === undefined) return undefined;
+  // A resumed attempt runs where the driver recreated that worktree (ADR 0117).
+  const path = started.session?.worktree ?? ran.worktree.path;
+  return { worktree: { ...ran.worktree, path }, madeBy: { ...ref, attempt: ran.attempt } };
 };
 
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
