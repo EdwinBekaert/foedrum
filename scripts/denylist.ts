@@ -60,7 +60,7 @@ export const pushRefusal =
     if (list.length === 0) return undefined;
     const outputs: string[] = [];
     for (const args of [MESSAGES, PATCHES]) {
-      const { exitCode, output, killed } = await exec('git', [...args, ...COMMITS], {
+      const { exitCode, stdout, killed } = await exec('git', [...args, ...COMMITS], {
         cwd: dir,
         timeoutMs: DENYLIST_GIT_TIMEOUT_MS,
       });
@@ -70,7 +70,7 @@ export const pushRefusal =
       if (why !== undefined) {
         return `git push is blocked: could not read the commits it would send to check them against your denylist (git log ${why}) (ADR 0114).`;
       }
-      outputs.push(output);
+      outputs.push(stdout);
     }
     const [messages = '', patches = ''] = outputs;
     const places = [...scanMessages(messages, list), ...scanPatches(patches, list)];
