@@ -314,6 +314,17 @@ describe('readClaudeStream', () => {
     }
   });
 
+  it('reads no spend limit from a result that reported no error, nor from the model', () => {
+    for (const { text } of documentedSpendLimits) {
+      for (const end of limitResults(text, false)) {
+        const said = assistant('msg_1', [{ type: 'text', text }]);
+        const { facts } = readAll([init(), said, end], asked);
+        assert.equal(facts.spendLimit, undefined);
+        assert.equal(facts.streamError, undefined);
+      }
+    }
+  });
+
   // Review of #133: only a cause the next attempt meets again is the environment.
   it('makes an assistant error before the first reply the environment only for a lasting cause', () => {
     for (const [error, lasting] of [

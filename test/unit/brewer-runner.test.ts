@@ -169,6 +169,21 @@ describe('settleAttempt', () => {
     }
   });
 
+  it('puts a session that is not what was asked, and a usage limit, before a spend limit', () => {
+    const spendLimit = { kind: 'credit' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ environment: 'no init', spendLimit }), limits), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude did not set up the session the runner asked for: no init',
+    });
+    const usageLimit = { limit: 'session', resets: '3:45pm' } as const;
+    assert.deepStrictEqual(settleAttempt(facts({ usageLimit, spendLimit }), limits), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude hit its session limit, which resets 3:45pm: retry the step after that',
+    });
+  });
+
   it('puts a session that is not what was asked before a usage limit', () => {
     const ending = settleAttempt(
       facts({ environment: 'no init', usageLimit: { limit: 'weekly', resets: 'Mon 12:00am' } }),
