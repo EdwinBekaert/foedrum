@@ -44,7 +44,15 @@ export function resumeArgs(call: ResumeCall): string[] {
   const { model, effort, settingsFile, tools, sessionId } = call;
   checkCall(model, tools, sessionId);
   // No print-mode flag and no permission mode: the engineer answers what the settings do not allow.
-  return ['--resume', sessionId, ...guards({ model, effort, settingsFile, tools })];
+  return [
+    '--resume',
+    sessionId,
+    '--model',
+    model,
+    '--effort',
+    effort,
+    ...guards(settingsFile, tools),
+  ];
 }
 
 // The checks every command line's values pass.
@@ -54,19 +62,15 @@ const checkCall = (model: string, tools: readonly string[], sessionId: string): 
   if (!uuid.test(sessionId)) refuse('session id', sessionId);
 };
 
-// The model and the guards of an attempt's session, however it runs.
-const guards = (call: Omit<ResumeCall, 'sessionId'>): string[] => [
-  '--model',
-  call.model,
-  '--effort',
-  call.effort,
+// The guards of an attempt's session, however it runs.
+const guards = (settingsFile: string, tools: readonly string[]): string[] => [
   '--settings',
-  call.settingsFile,
+  settingsFile,
   // No user, project or local settings file: only --settings, which is the runner's (ADR 0046).
   '--setting-sources',
   '',
   '--tools',
-  call.tools.join(','),
+  tools.join(','),
   '--disable-slash-commands',
   '--strict-mcp-config',
   '--safe-mode',
@@ -93,16 +97,7 @@ export function claudeArgs(call: ClaudeCall): string[] {
     '--effort',
     effort,
     ...(maxTurns === undefined ? [] : ['--max-turns', String(maxTurns)]),
-    '--settings',
-    settingsFile,
-    // No user, project or local settings file: only --settings, which is the runner's (ADR 0046).
-    '--setting-sources',
-    '',
-    '--tools',
-    tools.join(','),
-    '--disable-slash-commands',
-    '--strict-mcp-config',
-    '--safe-mode',
+    ...guards(settingsFile, tools),
     ...(session.kind === 'new' ? ['--session-id', session.id] : ['--resume', session.id]),
     ...(call.appendSystemPromptFile === undefined
       ? []

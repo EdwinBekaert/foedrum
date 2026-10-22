@@ -34,8 +34,11 @@ export interface ResumeShell {
   setup: () => Promise<
     { kind: 'ready'; setup: ResumeSetup } | { kind: 'refused'; problems: string[] }
   >;
-  /** The attempt worktrees of a repository. */
-  worktrees: (repository: ServeRepository) => Promise<Pick<AttemptWorktrees, 'recreate'>>;
+  /** The attempt worktrees of a repository under the work root. */
+  worktrees: (
+    repository: ServeRepository,
+    workRoot: string,
+  ) => Promise<Pick<AttemptWorktrees, 'recreate'>>;
   /** Whether Claude Code keeps the session `id` on this machine. */
   sessionFound: (id: string) => boolean;
   /** Writes an attempt's settings file, making its folder. */
@@ -180,7 +183,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     }
     const stop = shell.heartbeat(defaultLeaseMs / 3, hold);
     try {
-      const { recreate } = await shell.worktrees(repository);
+      const { recreate } = await shell.worktrees(repository, setup.workRoot);
       const { path: folder } = await recreate(ref, worktree.commit);
       const permissions = attemptPermissions(found.brewer, repository.tools, setup.sandbox);
       const settingsFile = settingsFileOf(setup.workRoot, ref);

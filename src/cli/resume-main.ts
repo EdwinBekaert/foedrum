@@ -47,7 +47,7 @@ export const resumeFromCheckout = async (
 ): Promise<CliResult> => {
   const { exec = execProcess, resolve = resolveExecutable } = options ?? {};
   const config = readIfThere(join(cwd, 'foedrum.jsonc'));
-  const gather = async () => {
+  const setup = async () => {
     const facts = await gatherDoctorFacts({
       exec,
       resolve,
@@ -72,22 +72,13 @@ export const resumeFromCheckout = async (
       diagnosis: diagnose(facts),
     });
   };
-  // Serve's setup, gathered once: doctor's facts start processes.
-  let ready: ReturnType<typeof gather> | undefined;
-  const setup = () => {
-    ready ??= gather();
-    return ready;
-  };
   // Ctrl+C is claude's while it runs; foedrum waits to let the leases go.
   const ignore = () => {};
   return runResume(input, {
     cwd,
     openStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
     setup,
-    worktrees: async (repository) => {
-      const found = await setup();
-      if (found.kind === 'refused') throw new Error(found.problems.join('; '));
-      const { workRoot } = found.setup;
+    worktrees: async (repository, workRoot) => {
       const { repo } = repository;
       // The clone the attempt's worktree was added to, a managed one included: it ran there.
       // recreate fetches nothing, so the remote is named only as serve's shell names it.
