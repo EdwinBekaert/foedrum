@@ -118,8 +118,9 @@ describe('settleAttempt', () => {
   });
 
   // Review of #252: however the process ended after the refusal, the window is what to wait for.
-  it('puts a usage limit before a killed, overflowed or stopped process', () => {
+  it('puts a usage limit before a process that could not start, was killed, overflowed or stopped', () => {
     const exits = [
+      { kind: 'unstartable', reason: 'claude was not found' },
       { kind: 'killed', signal: 'SIGTERM' },
       { kind: 'overflowed', what: 'a stream line passed 8388608 bytes' },
       { kind: 'stopped' },
@@ -146,6 +147,7 @@ describe('settleAttempt', () => {
         : `claude hit its ${spendLimit.limit}: no request goes through until the limit is raised, then retry the step`;
     const exits = [
       { kind: 'exited', code: 1 },
+      { kind: 'unstartable', reason: 'claude was not found' },
       { kind: 'killed', signal: 'SIGTERM' },
       { kind: 'overflowed', what: 'a stream line passed 8388608 bytes' },
       { kind: 'stopped' },
