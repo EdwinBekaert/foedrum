@@ -91,7 +91,7 @@ describe('auditAdvisories', () => {
     assert.deepEqual(waits, [RETRY_WAIT_MS]);
   });
 
-  it("shows npm's stderr when an attempt is not clean", async () => {
+  it("shows npm's stderr when a try is not clean", async () => {
     const { exec, wait } = fake(answer('client-error'));
     const run = await auditAdvisories(cwd, env, execPath, exec, wait);
     assert.equal(run.ok, false);
