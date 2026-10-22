@@ -60,6 +60,18 @@ describe('scratchFolder', () => {
       /works only in a folder inside D:\\repo\\\.foedrum\\tmp, not in E:\\demo/,
     );
   });
+
+  it('keeps a Windows folder inside .foedrum/tmp, asked from another drive or with a lower-case drive letter', () => {
+    const root = 'D:\\repo';
+    assert.equal(
+      scratchFolder(root, 'D:\\repo\\.foedrum\\tmp\\x', 'E:\\', win32),
+      'D:\\repo\\.foedrum\\tmp\\x',
+    );
+    assert.equal(
+      scratchFolder(root, 'd:\\repo\\.foedrum\\tmp\\x', 'E:\\', win32),
+      'd:\\repo\\.foedrum\\tmp\\x',
+    );
+  });
 });
 
 describe('the demo Brewery', () => {
