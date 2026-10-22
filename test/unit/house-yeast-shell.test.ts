@@ -13,18 +13,30 @@ const fixtureRules = Object.fromEntries(
 );
 
 // An in-memory file system: paths with `/`, folders implied by the files in them.
-const runWith = (args: string[], start: Record<string, string>) => {
+const runWith = (args: string[], start: Record<string, string>, denied: string[] = []) => {
   const files = { ...start };
   const out: string[] = [];
   const err: string[] = [];
-  const missing = (path: string) => new Error(`ENOENT: no such file or directory, open '${path}'`);
+  const missing = (path: string) =>
+    Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), {
+      code: 'ENOENT',
+    });
+  const deny = (path: string) => {
+    if (denied.includes(path)) {
+      throw Object.assign(new Error(`EACCES: permission denied, open '${path}'`), {
+        code: 'EACCES',
+      });
+    }
+  };
   const code = run(args, {
     readFile: (path) => {
+      deny(path);
       const text = files[path];
       if (text === undefined) throw missing(path);
       return text;
     },
     readDir: (dir) => {
+      deny(dir);
       const names = Object.keys(files)
         .filter((path) => path.startsWith(`${dir}/`))
         .map((path) => path.slice(dir.length + 1));
@@ -113,6 +125,17 @@ describe('node scripts/house-yeast.ts select', () => {
     assert.match(result.files['out.md'] ?? '', /No house-yeast rule matches/);
   });
 
+  it('exits 1 when the rules folder exists but cannot be read, instead of finding no rules', () => {
+    const result = runWith(
+      [...select, 'security', 'out.md'],
+      { ...fixtureRules, 'review/files.txt': 'M\ta.ts\n' },
+      ['base/.foedrum/house-yeast'],
+    );
+    assert.equal(result.code, 1);
+    assert.match(result.out, /^cannot read the rules: EACCES/);
+    assert.equal('out.md' in result.files, false);
+  });
+
   it('exits 1 when the changed files cannot be read, and 2 on a bad budget', () => {
     assert.equal(runWith([...select, 'security', 'out.md'], fixtureRules).code, 1);
     const files = { 'review/files.txt': 'M\ta.ts\n' };
@@ -126,7 +149,7 @@ describe('node scripts/house-yeast.ts record', () => {
   const rulePath = 'head/.foedrum/house-yeast/deadline-on-every-wait.md';
 
   it('records a lesson seen once, and proposes nothing', () => {
-    const pr1 = 'https://github.com/acme/foedrum/pull/1';
+    const pr1 = '1-engine-waits';
     const result = runWith(record, { 'c.json': candidate(pr1) });
     assert.equal(result.code, 0, result.err);
     assert.equal(result.out, 'recorded deadline-on-every-wait: seen in 1 review\n');
@@ -135,8 +158,8 @@ describe('node scripts/house-yeast.ts record', () => {
   });
 
   it('proposes a rule file when the lesson recurs in a second review', () => {
-    const pr1 = 'https://github.com/acme/foedrum/pull/1';
-    const pr2 = 'https://github.com/acme/foedrum/pull/2';
+    const pr1 = '1-engine-waits';
+    const pr2 = '2-cellar-waits';
     const result = runWith(record, {
       [store]: candidate(pr1), // a store without a final line break
       'c.json': JSON.stringify(JSON.parse(candidate(pr2)), null, 2),
@@ -148,19 +171,27 @@ describe('node scripts/house-yeast.ts record', () => {
     assert.match(result.files[rulePath] ?? '', /Every wait in the engine has a deadline\.\n$/);
   });
 
-  it('proposes a rule the author asked for, and never overwrites an existing rule file', () => {
-    const pr1 = 'https://github.com/acme/foedrum/pull/1';
+  it('proposes a rule asked for, and never overwrites an existing rule file', () => {
+    const pr1 = '1-engine-waits';
     const asked = runWith([...record, '--asked'], { 'c.json': candidate(pr1) });
-    assert.equal(asked.out, `proposed ${rulePath}: asked for by the author\n`);
+    assert.equal(asked.out, `proposed ${rulePath}: asked for\n`);
     const kept = runWith([...record, '--asked'], { 'c.json': candidate(pr1), [rulePath]: 'mine' });
     assert.equal(kept.out, `exists ${rulePath}: not overwritten\n`);
     assert.equal(kept.files[rulePath], 'mine');
   });
 
   it('reads a candidate file that starts with a byte order mark', () => {
-    const pr1 = 'https://github.com/acme/foedrum/pull/1';
+    const pr1 = '1-engine-waits';
     const result = runWith(record, { 'c.json': String.fromCodePoint(0xfeff) + candidate(pr1) });
     assert.equal(result.out, 'recorded deadline-on-every-wait: seen in 1 review\n');
+  });
+
+  it('exits 1 when the store exists but cannot be read, and records nothing', () => {
+    const files = { 'c.json': candidate('1-engine-waits'), [store]: '' };
+    const result = runWith(record, files, [store]);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /^cannot read the candidates: EACCES/);
+    assert.equal(result.files[store], '');
   });
 
   it('refuses an invalid candidate with its reason, and records nothing', () => {
@@ -184,7 +215,7 @@ describe('node scripts/house-yeast.ts select, rules without a scope', () => {
 
 describe('node scripts/house-yeast.ts list', () => {
   it('lists each lesson once with its reviews and newest rule', () => {
-    const pr1 = 'https://github.com/acme/foedrum/pull/1';
+    const pr1 = '1-engine-waits';
     const result = runWith(['list', 'store.jsonl'], {
       'store.jsonl': `${candidate(pr1)}\n${candidate(pr1, { rule: 'Newer text.' })}\nbad\n`,
     });

@@ -42,7 +42,7 @@ describe('readRules', () => {
   });
 
   it('reports a rule whose language no file extension has, since it could never match', () => {
-    const [first] = ruleFiles;
+    const first = ruleFiles.find(({ path }) => path.endsWith('/lease-deadline.md'));
     const text = (first?.text ?? '').replace('"typescript"', '"python"');
     const read = readRules([{ path: '.foedrum/house-yeast/lease-deadline.md', text }]);
     assert.deepEqual(read.rules, []);
@@ -169,6 +169,13 @@ describe('selectRules', () => {
     assert.deepEqual(ids(all.selected), ['globs-a', 'globs-b', 'language', 'whole']);
   });
 
+  it('breaks a tie by the code units of the ids, whatever the locale', () => {
+    // A locale's collation puts "_" before "-"; code units put "-" (45) before "_" (95).
+    const own = [rule('x_a', {}, 'A.'), rule('x-a', {}, 'B.')];
+    const selected = selectRules(own, { files: ['a.ts'], lens: 'correctness' }).selected;
+    assert.deepEqual(ids(selected), ['x-a', 'x_a']);
+  });
+
   it('matches a folder that starts with a dot only by a glob that names it', () => {
     const own = [
       rule('any', { globs: ['**'] }, 'A.'),
@@ -241,11 +248,11 @@ describe('proposeRule', () => {
 
   it('does not propose a lesson seen in one review only, however often', () => {
     assert.equal(proposeRule(fixtureSeen(), 'no-shell-spawns', false), undefined);
-    const once = fixtureSeen().filter((c) => c.review.endsWith('/101'));
+    const once = fixtureSeen().filter((c) => c.review === '101-engine-waits');
     assert.equal(proposeRule(once, 'deadline-on-every-wait', false), undefined);
   });
 
-  it('proposes a lesson seen once when the author asks for it, and none for an unknown lesson', () => {
+  it('proposes a lesson seen once when it is asked for, and none for an unknown lesson', () => {
     assert.equal(proposeRule(fixtureSeen(), 'no-shell-spawns', true)?.reviews, 1);
     assert.equal(proposeRule(fixtureSeen(), 'never-seen', true), undefined);
   });
@@ -253,7 +260,7 @@ describe('proposeRule', () => {
   it('lists a source once when one finding was recorded twice', () => {
     const [first] = fixtureSeen();
     assert.ok(first !== undefined);
-    const again = { ...first, review: 'https://github.com/acme/foedrum/pull/103' };
+    const again = { ...first, review: '103-other-waits' };
     assert.equal(proposeRule([first, again], first.lesson, false)?.rule.source, first.source);
   });
 
