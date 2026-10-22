@@ -162,6 +162,24 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
     assert.equal(end.readings?.length, 1);
   });
 
+  it('fails the step as a check failure, not on its environment, when the check after a setup fails', async () => {
+    const { calls, started } = run({ check: { exitCode: 1, output: 'not ok 1\n' } });
+    const end = await started.ended;
+    assert.deepEqual(calls, ['setup npm ci', 'check npm test']);
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the check "test" (npm test) failed with exit code 1',
+    });
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.result, 'setup' in reading && reading.setup]),
+      [
+        ['exited', true],
+        ['exited', false],
+      ],
+    );
+  });
+
   it('ends the attempt on its environment, running no check, when the setup fails', async () => {
     const { calls, started } = run({
       script: { exitCode: 1, output: 'npm ERR! missing package-lock.json\n' },
