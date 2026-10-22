@@ -449,7 +449,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   const leaseAttempt = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({ attemptKey: key, owner, expiresAt: new Date(clock().getTime() + leaseMs) });
-  const releaseAttempt = (key: string): void => store.withTransaction((tx) => tx.releaseLease(key));
+  /** The owner of the live lease of attempt `key`, if any. */
+  const leaseOwner = (key: string): string | undefined =>
+    store.currentLeases(clock()).find((lease) => lease.attemptKey === key)?.owner;
+  /** Lets the lease of attempt `key` go unless another driver's live lease holds it (ADR 0124). */
+  const releaseAttempt = (key: string): void =>
+    store.withTransaction((tx) => {
+      const holder = leaseOwner(key);
+      if (holder === undefined || holder === owner) tx.releaseLease(key);
+    });
 
   /**
    * Records the start of an attempt under its lease, with the worktree it was given and, for a
@@ -462,8 +470,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     if (worktrees.length === 0) {
       return recordStart(started, (tx) => leaseAttempt(tx, key));
     }
-    // The lease first: only the holder of an attempt's lease may make its worktree.
-    store.withTransaction((tx) => leaseAttempt(tx, key));
+    // The lease first: only the holder of an attempt's lease may make its worktree. Read in the
+    // transaction that writes it: another driver that lost the batch to a takeover may have
+    // leased the attempt since the pass read its leases, and the start waits for it (ADR 0124).
+    const leased = store.withTransaction((tx) => {
+      const holder = leaseOwner(key);
+      if (holder !== undefined && holder !== owner) return false;
+      leaseAttempt(tx, key);
+      return true;
+    });
+    if (!leased) return false;
     let repository: RepositoryWorktrees;
     let made: AttemptWorktree;
     let fallback: string | undefined;

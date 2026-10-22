@@ -154,16 +154,7 @@ export const runBrew = async (
       );
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined) {
-      if (request.take !== true) return refuse(drivenBy(leased));
-      // --take: the batch is this driver's at once; the one that held it stops (ADR 0124).
-      const handover = { batchId: leased.batchId, owner, by, via, now: clock(), leaseMs };
-      const decision = takeOver(log, handover);
-      if (decision.kind === 'refused') return refuse(decision.reason);
-      const [handed] = decision.events;
-      const from = handed?.type === 'batch.taken_over' ? handed.from : leased.owner;
-      say(`took batch ${leased.batchId} over from ${from}`);
-    }
+    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068).
     let recipe: string | undefined;
     if (latest === undefined || latest.lane.kind === 'ordered') {
@@ -181,6 +172,18 @@ export const runBrew = async (
       // Checked before anything is ordered or claimed, as the intake leaves it unrouted.
       if (recipe !== undefined && setup.recipes.find(recipe) === undefined) {
         return refuse(`${named} carries recipe:${recipe}, which names no recipe of this Brewery`);
+      }
+    }
+    // --take, once nothing else refuses the brew: the batch is this driver's at once, and the one
+    // that held it stops (ADR 0124). A lease that lapsed meanwhile leaves nothing to take over.
+    if (leased !== undefined) {
+      const handover = { batchId: leased.batchId, owner, by, via, now: clock(), leaseMs };
+      const decision = takeOver(log, handover);
+      const [handed] = decision.kind === 'accepted' ? decision.events : [];
+      if (handed?.type === 'batch.taken_over') {
+        say(`took batch ${leased.batchId} over from ${handed.from}`);
+      } else if (heldElsewhere(leased.batchId) !== undefined && decision.kind === 'refused') {
+        return refuse(decision.reason);
       }
     }
     if (latest === undefined) {
