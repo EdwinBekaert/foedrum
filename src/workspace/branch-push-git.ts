@@ -102,10 +102,6 @@ const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan re
 /** A push or fetch of a large repository takes a while; the effect's deadline aborts it sooner. */
 const TRANSFER_TIMEOUT_MS = 300_000;
 
-/** The listing of every ref of a remote: a round trip, and all its pull requests' refs on GitHub. */
-const LIST_TIMEOUT_MS = 60_000;
-const LIST_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
-
 const SHA = /^[0-9a-f]{40}$/;
 // A base branch as git reads it in a refspec: never an option, a second refspec or a range.
 const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
@@ -261,20 +257,4 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       ];
     },
   };
-};
-
-/**
- * Every ref of the remote Foedrum names, as `ls-remote --refs` lists them, from a git directory of
- * its own (ADR 0096): what the noPush guard compares before and after an attempt (ADR 0106).
- */
-export const listRemoteRefs = (
-  options: Pick<BranchPushOptions, 'git' | 'clone' | 'own'>,
-  signal?: AbortSignal,
-): Promise<string> => {
-  return remotely(options, signal, (dir) =>
-    dir.run(['ls-remote', '--refs', dir.url], {
-      timeoutMs: LIST_TIMEOUT_MS,
-      maxOutputBytes: LIST_MAX_OUTPUT_BYTES,
-    }),
-  );
 };

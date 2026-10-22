@@ -817,7 +817,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
     assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
   });
 
-  it('loads a brewer with the noPush guard, which the engine follows (ADR 0106)', () => {
+  it('refuses a brewer that still names noPush, a guard that is gone (ADR 0133)', () => {
     const cellarman = brewer('cellarman', {
       access: 'write',
       tree: 'task',
@@ -829,7 +829,9 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       recipes: [opened('stout', [{ id: 'brew', brewer: 'cellarman' }], { testFirst: false })],
       brewers: [maltster, brewmaster, cellarman],
     });
-    assert.equal(loaded(loadRecipes(files)).find('stout')?.firstStep, 'brew');
+    assert.deepEqual(problemsOf(files), [
+      'brewers/cellarman.md: ✖ Invalid option: expected one of "requiresOutDoc"|"requiresCommits"|"testsNotRemoved"|"testsUnchanged"|"scope"|"diffLimits" → at guards[1]',
+    ]);
   });
 
   it('loads a brewer that asks only for what the plan follows, the out doc among its guards', () => {
