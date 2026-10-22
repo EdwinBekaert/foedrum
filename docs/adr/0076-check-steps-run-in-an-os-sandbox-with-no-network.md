@@ -40,7 +40,7 @@ In this order, since bwrap applies them in order:
 | `--dev /dev --proc /proc` | A device and process tree of the sandbox's own |
 | `--tmpfs /tmp --tmpfs /run` | A writable temporary folder that goes with the sandbox, and `/run` hidden: it holds the user's D-Bus socket (`/run/user/<uid>/bus`), through which the Secret Service hands out gh's login, and on WSL2 the interop socket that starts Windows programs outside the sandbox. A socket on a read-only bind can still be connected to, so hiding is what closes it. A system that keeps its programs under `/run` (NixOS's `/run/current-system`) does not suit check steps |
 | `--tmpfs <home>` | The home folder hidden, replaced by an empty writable one that goes with the sandbox: tools that write a cache under `~` still run |
-| `--ro-bind <git dir> <git dir>` | The worktree's repository, read-only, when the worktree's `.git` file names a record `<repository>/worktrees/<name>` whose `gitdir` file names that `.git` back: git commands in a check read the history (the clone sits under the work root, often in the home folder). A check writes its worktree, `.git` included, so without the record's answer a check could name the home folder or `/run` for a later check of the step to have bound in (review of #357); git writes the record, outside every check's reach |
+| `--ro-bind <git dir> <git dir>` | The worktree's repository, read-only, when the worktree's `.git` file names a record `<repository>/worktrees/<name>` whose `gitdir` file names that `.git` back, compared as real paths (git records the real one; serve may name the worktree through a link, as where `/home` links to `/var/home`): git commands in a check read the history (the clone sits under the work root, often in the home folder). A check writes its worktree, `.git` included, so without the record's answer a check could name the home folder or `/run` for a later check of the step to have bound in (review of #357); git writes the record, outside every check's reach |
 | `--bind <worktree> <worktree>` | The worktree writable, last, so it is mounted over the hidden home it may sit in |
 | `--chdir <worktree> --setenv TMPDIR /tmp` | Start in the worktree; temp files in the sandbox's `/tmp` |
 
@@ -54,6 +54,10 @@ One profile for every check, with the paths as parameters (`-D`), never written 
 (allow default)
 (deny network*)
 (deny mach-lookup (global-name "com.apple.SecurityServer"))
+(deny job-creation)
+(deny lsopen)
+(deny appleevent-send)
+(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd"))
 (deny file-write*)
 (allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))
 (deny file-read* (subpath (param "HOME")))
@@ -63,6 +67,7 @@ One profile for every check, with the paths as parameters (`-D`), never written 
 - Writes are allowed only in the worktree, `TEMP`, and the check's own output and terminal (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, `/dev/fd/*`). Unlike Linux, where `/tmp` is the sandbox's own, `/tmp` itself is not writable: a check that writes a fixed `/tmp` path fails on macOS; use `TMPDIR`.
 - `TEMP` is a folder Foedrum makes for the check under the system temp folder (`os.tmpdir()`) and removes after it; the check gets it as `TMPDIR` and as `HOME`, so tools that write under `~` find an empty home they may write. `GIT_DIR` is the worktree's repository, as on Linux, or the worktree again when it has none. All are real paths: Seatbelt matches real paths, and macOS's temp folder is under the link `/var`.
 - `com.apple.SecurityServer` is the Keychain's service, where gh keeps its login on macOS (ADR 0073): denied, so `security find-generic-password` gets nothing.
+- The profile allows by default, so the brokers that start a process for the caller are denied by name: launchd's job creation (`launchctl submit`), LaunchServices (`open`, `lsopen`, `launchservicesd`) and Apple Events. A process one of them started would run outside the sandbox, with the network and the Keychain (review of #357). These operation names come from Apple's profile language as `sandbox-runtime` and Apple's own profiles use it; no test runs them against macOS, and a broker they miss stays open. A profile that denies by default would close the class, at the cost of listing every read a toolchain needs; left for when a check needs it.
 
 ### Why no network
 A check reads a tree; it fetches nothing. Dependencies are installed before it by the repository's `setup` command (ADR 0023), which nothing runs yet (#349), not by the check itself. ADR 0069's advice to write `npm ci && npm test` meanwhile no longer works: a check that needs installed dependencies fails until #349. With no network, a login a check reads cannot leave the machine through it; and an allowlist (what Claude Code's sandbox has for brewers) would need a proxy that a check, needing no host, has no use for.
