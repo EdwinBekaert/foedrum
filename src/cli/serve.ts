@@ -140,6 +140,10 @@ export const formatNotice = (notice: DriverNotice): string => {
       const { batchId, stepId, attempt } = notice.ref;
       return `the run of step ${stepId}#${attempt} of batch ${batchId} failed, so it is blocked on its environment: ${messageOf(notice.error)}`;
     }
+    case 'waiting_for_lease': {
+      const { batchId, stepId, attempt } = notice.ref;
+      return `step ${stepId}#${attempt} of batch ${batchId} waits until the lease of ${stepId}#${notice.waitsFor.attempt} is released; it expires at ${notice.expiresAt.toISOString()}`;
+    }
     case 'cleaned': {
       const { done, kept, failed } = notice.report;
       const lines = [...done, ...kept, ...failed];
