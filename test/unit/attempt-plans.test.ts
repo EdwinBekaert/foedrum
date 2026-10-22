@@ -301,6 +301,7 @@ describe('createAttemptPlans: plan', () => {
   describe('a resumed attempt (ADR 0117)', () => {
     const deadlineAt = '2026-10-17T13:00:00.000Z';
     const second = { ...ref, attempt: 2 };
+    const recreated = join('/work', 'brew-1-again');
     const failed: Event = {
       type: 'step.finished',
       ...ref,
@@ -310,7 +311,8 @@ describe('createAttemptPlans: plan', () => {
     const resumed: Event = {
       type: 'step.started',
       ...second,
-      session: { id: sessionId, resumes: sessionId, worktree },
+      // Where the driver recreated the worktree, which need not be where it was made.
+      session: { id: sessionId, resumes: sessionId, worktree: recreated },
     };
 
     it('resumes its session with --resume in the worktree it continues, told to go on, reading no input', async () => {
@@ -323,7 +325,7 @@ describe('createAttemptPlans: plan', () => {
       ];
       const { plans, reads, orders } = setup(events);
       const plan = await plans.plan({ ...start, ref: second });
-      assert.equal(plan.cwd, worktree);
+      assert.equal(plan.cwd, recreated);
       assert.deepEqual(plan.call.session, { kind: 'resume', id: sessionId });
       assert.equal(plan.call.model, 'claude-sonnet-5-5');
       assert.deepEqual(plan.permissions.allow, ['Read', 'Write', 'Bash(npm test)']);
