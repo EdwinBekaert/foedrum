@@ -4,6 +4,7 @@
 
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
+import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
 import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
@@ -66,6 +67,8 @@ export interface ServeRepository {
   checks: RepositoryChecks;
   /** Where its test check writes the structured report red proofs read (ADR 0078). */
   testReport?: TestReportConfig;
+  /** What runs before a check step's checks, with the network (ADR 0140). */
+  setup?: RepositorySetup;
 }
 
 /** What the intake in serve's loop orders, and how often it polls (ADR 0068). */

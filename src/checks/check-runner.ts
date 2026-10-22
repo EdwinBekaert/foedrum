@@ -23,6 +23,7 @@ import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import type { TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
+import type { Command } from '../schemas/primitives.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   type PlannedCheck,
@@ -43,6 +44,13 @@ export interface ReportFiles {
   read: (file: string, root: string) => OutDocRead;
 }
 
+/** A repository's setup in `foedrum.jsonc`: its command and how long it may run (ADR 0140). */
+export interface RepositorySetup {
+  command: Command;
+  /** A `Duration`, such as "10m". */
+  timeout: string;
+}
+
 export interface CheckRunnerOptions {
   /** The folded state: the driver's, which has recorded the attempt's start and worktree. */
   state: () => State;
@@ -53,6 +61,11 @@ export interface CheckRunnerOptions {
   /** The test report a repository's test check writes (`foedrum.jsonc`), for red proofs. */
   testReport: (repo: string) => TestReportConfig | undefined;
   exec: ExecProcess;
+  /**
+   * A repository's setup, run before a check step's checks, and the process runner it runs
+   * through: with the network, never the checks' sandbox (ADR 0140).
+   */
+  setup?: { of: (repo: string) => RepositorySetup | undefined; exec: ExecProcess };
   /** git, for the commits of the step a red proof proves (ADR 0078). */
   git: Git;
   /**

@@ -179,6 +179,7 @@ describe('runServe', () => {
     },
     // The stout recipe has no check step.
     exec: () => Promise.reject(new Error('no check step runs here')),
+    setup: () => Promise.reject(new Error('no repository setup runs here')),
     gh: ghOver(fetch).exec,
     git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
     ...overrides,
@@ -559,7 +560,10 @@ describe('runServe', () => {
 
     type Call = { file: string; args: readonly string[]; options: ExecOptions };
     /** Serve with a brewer that succeeds and a process runner that answers each check with `code`. */
-    const brewWithChecks = async (code: number) => {
+    const brewWithChecks = async (
+      code: number,
+      { serving = setup, prepare }: { serving?: ServeSetup; prepare?: ExecProcess } = {},
+    ) => {
       const log = createCommandLog({ store, recipes: setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
       const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
@@ -580,10 +584,11 @@ describe('runServe', () => {
         progress: () => undefined,
       };
       const code_ = await runServe(
-        setup,
+        serving,
         shell({
           runner: () => succeeding,
           exec,
+          ...(prepare === undefined ? {} : { setup: prepare }),
           wait: async () => {
             calls.push('wait');
             const lane = log.state().batches.get('13-1')?.lane.kind;
@@ -635,6 +640,35 @@ describe('runServe', () => {
           ],
         },
       ]);
+    });
+
+    it("runs the repository's setup with serve's own process runner before the check (ADR 0140)", async () => {
+      const ready = serveSetup(
+        serveInputs({
+          files: {
+            ...serveInputs().files,
+            config: config({}, { setup: { command: 'npm ci', timeout: '10m' } }),
+            local: local({ workRoot: dir.path }),
+          },
+        }),
+      );
+      assert.ok(ready.kind === 'ready');
+      const installs: Call[] = [];
+      const prepare: ExecProcess = async (file, args, options) => {
+        installs.push({ file, args, options });
+        return { exitCode: 0, stdout: '', stderr: '', output: '' };
+      };
+      const { checks, batch } = await brewWithChecks(0, { serving: ready.setup, prepare });
+      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.deepStrictEqual(
+        installs.map(({ file, options }) => [file, options.cwd, options.shell]),
+        [['npm ci', worktreeOf(1), true]],
+      );
+      assert.deepStrictEqual(installs[0]?.options.env, checks[0]?.options.env);
+      assert.deepStrictEqual(
+        checks.map(({ file }) => file),
+        ['npm test'],
+      );
     });
 
     it("records a session for the brewer's attempt and none for the check's (ADR 0116)", async () => {

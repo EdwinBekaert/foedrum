@@ -119,6 +119,8 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     // A check's command line runs in the OS sandbox (ADR 0076).
     exec: sandboxedChecks({ exec: execProcess, ...checks }),
+    // A repository's setup installs, so it has the network: no sandbox (ADR 0140).
+    setup: execProcess,
     gh: execProcess,
     git,
   };

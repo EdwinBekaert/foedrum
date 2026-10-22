@@ -115,6 +115,8 @@ const setup = ({
   /** Why clearing the report fails, when it does. */
   clearFails = undefined as string | undefined,
   platform = 'linux' as NodeJS.Platform,
+  /** The repository's setup command, when it has one (ADR 0140). */
+  prepare = undefined as string | undefined,
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -150,6 +152,13 @@ const setup = ({
     repositoryChecks: () => repositoryChecks,
     testReport: () => report ?? undefined,
     exec,
+    setup: {
+      of: () => (prepare === undefined ? undefined : { command: prepare, timeout: '10m' }),
+      exec: (file, _args, options) => {
+        order.push(`setup ${file} in ${options.cwd}`);
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', output: 'added 1\n' });
+      },
+    },
     git,
     clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
     reports,
@@ -179,6 +188,23 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${clone}`,
       `exec npm test in ${redTree}`,
     ]);
+  });
+
+  it("runs the repository's setup in the worktree before the red run (ADR 0140)", async () => {
+    const { order, run } = setup({ prepare: 'npm ci' });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [`setup npm ci in ${redTree}`, `exec npm test in ${redTree}`],
+    );
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.result, 'setup' in reading && reading.setup]),
+      [
+        ['exited', true],
+        ['exited', false],
+      ],
+    );
   });
 
   it('says on native Windows that the red run ran unsandboxed (ADR 0076)', async () => {
