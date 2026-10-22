@@ -2270,6 +2270,27 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     'Remove-Item -Recurse -Force (Get-Location)',
     'Remove-Item -Recurse @($p)',
     'rm -Recurse (Resolve-Path ..)',
+    // #296: cmd's switches written onto the program's name, which cmd reads as rd /s/q.
+    'rd/s/q %X%',
+    'del/s %X%',
+    'RD/S/Q %X%',
+    'rmdir/s %X%',
+    'erase/f/s %X%',
+    'cmd /c "rd/s/q %X%"',
+    // #296: a PowerShell splat, whose table the gate cannot read, may carry Recurse and the path;
+    // bash's rm reads @o as a path, so `rm @o` fails closed.
+    'Remove-Item @o',
+    'Remove-Item -Force @params',
+    'ri @o',
+    'rm @o',
+    // #296: a ( ) argument after an assignment.
+    '$null = Remove-Item -Recurse (Join-Path $root run)',
+    '$r = rm -Recurse -Force (Get-Location)',
+    // #296: a pipeline whose earlier stage is computed, into a recursive delete.
+    '$p | Remove-Item -Recurse',
+    'Get-ChildItem $d | Remove-Item -Recurse',
+    '$d | Get-ChildItem | Remove-Item -Recurse -Force',
+    '(Get-ChildItem $d) | ri -r',
     // Through wrappers, compound commands and other shells.
     'sudo rm -rf "$dir"',
     'cd x && rm -rf "$dir"',
@@ -2311,6 +2332,15 @@ describe('forbiddenReason on a recursive delete of a path built from a variable'
     // A ( ) that starts a command is a group, not an argument.
     'if (Test-Path .foedrum/tmp/281) { Remove-Item -Recurse .foedrum/tmp/281 }',
     'Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
+    // #296: the same forms with a literal path, without recursion, or after the pipeline ended.
+    'rd/s/q .foedrum\\tmp\\218',
+    'del/q %X%',
+    'Copy-Item @o',
+    '$null = Remove-Item -Recurse .foedrum/tmp/218',
+    '$null = Remove-Item (Get-Location)',
+    '$p | Remove-Item',
+    '$p | Write-Output; Get-ChildItem .foedrum/tmp/218 | Remove-Item -Recurse',
+    'Test-Path $d || Remove-Item -Recurse .foedrum/tmp/218',
     'rd /s /q .foedrum\\tmp\\218',
     'del %X%',
     // A switch that is not the recursive one, and a quoted word, which PowerShell reads as a value.
