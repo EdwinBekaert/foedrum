@@ -95,6 +95,18 @@ const questionLines = (batchId: string, stepId: string, batch: Batch): string[] 
   ];
 };
 
+/** The line feed and the Unicode line and paragraph separators, which end a line. */
+const BREAKS = new Set([0x0a, 0x2028, 0x2029]);
+
+/** `text` with each line break shown as a `\uXXXX` escape, as `printable` shows the rest. */
+const oneLine = (text: string): string =>
+  [...text]
+    .map((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return BREAKS.has(code) ? `\\u${code.toString(16).padStart(4, '0')}` : char;
+    })
+    .join('');
+
 /** Brews the batch of `request.target` until it stops; the exit code of ADR 0123. */
 export const runBrew = async (
   setup: ServeSetup,
@@ -103,8 +115,9 @@ export const runBrew = async (
 ): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
   const { target, owner, by, via } = request;
-  // Notices may carry text a model wrote: never a control character on the terminal.
-  const say = (line: string): void => out(printable(`foedrum brew: ${line}`));
+  // Notices and questions may carry text a model wrote: never a control character on the
+  // terminal, and never a line break, which would forge a line the session acts on (ADR 0123).
+  const say = (line: string): void => out(oneLine(printable(`foedrum brew: ${line}`)));
   const refuse = (reason: string): number => {
     say(reason);
     return BREW_EXIT.refused;
@@ -175,6 +188,10 @@ export const runBrew = async (
         return refuse(`${named} carries ${all}; give it one recipe label`);
       }
       recipe = names[0];
+      // Checked before anything is ordered or claimed, as the intake leaves it unrouted.
+      if (recipe !== undefined && setup.recipes.find(recipe) === undefined) {
+        return refuse(`${named} carries recipe:${recipe}, which names no recipe of this Brewery`);
+      }
     }
     if (latest === undefined) {
       const claim: OrderClaim | undefined =
