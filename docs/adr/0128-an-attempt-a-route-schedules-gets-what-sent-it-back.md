@@ -1,0 +1,27 @@
+# 0128. An attempt a route schedules gets what sent it back
+
+Date: 2026-10-22 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (one more input after the answers), [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (what an `onBlocked` round hands its `goto` step) and [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (what an `onFail` round hands its `goto` step)
+
+## Context
+A recipe sends a batch back to an earlier step in two ways: a check step's `onFail: { goto, maxRounds }` ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)) and a brewer step's `onBlocked: { findings: { goto, maxRounds } }` ([ADR 0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md)). In Nip, a failed `green` reading sends the batch back to `implement`, and a Cellarman who finds one of the Gauger's tests wrong sends it back to `gauge`. The attempt the route schedules records why (`step.scheduled` with `route: { from, why }`), but its brewer's inputs are only the ones its file declares (`order`, `step:<id>`, `file:`, `lens:`) and the answers after `needs_input` ([ADR 0006](0006-no-mid-run-questions.md)). A check step has no out doc, and the `goto` step's brewer does not declare an input from the step that blocked. So the second attempt starts with the first one's inputs, without the failing checks or the findings, and may make the same mistake again; with `maxRounds: 1` the batch is then Stuck. ADR 0069 named this as a follow-up (#341).
+
+## Decision
+- **One more input, as the answers are.** An attempt whose `step.scheduled` has a `route` gets one more tagged input after the answers, named `route`, whose source is `why step <goto> runs again: the failed checks of step <from>` for an `onFail` route, or `why step <goto> runs again: the findings of step <from>` for an `onBlocked` one. The brewer's file declares nothing for it; the attempt plan adds it (`routeOf` and `routeInput`, `src/brewers/attempt-plan.ts`).
+- **Only the route that scheduled this attempt.** It is read from the latest finished attempt of `<from>`, the one that routed: an earlier round's reading or findings are not carried, and an attempt that no route scheduled (the first, a retry, a human's `retry` or `answer`) gets nothing new.
+- **For a failed check**, from the event log: the routing attempt's reason (`Step green ended: the check "test" (npm test) failed with exit code 1`), then each reading that did not pass, with the check's name and command, its exit code, the signal that ended it, why the process runner killed it, or that it could not start, and the tail the reading keeps. The tail had its secret-looking lines left out when it was read (#188, ADR 0069); the reason line is read with the same patterns and replaced by a fixed line when one matches, since a red proof's reason quotes the test run.
+- **For findings**, the routing attempt's reason (`Step implement ended: blocked (findings): <summary>`), then its out doc as the brewer wrote it, read from that attempt's worktree, which a brewing batch still has (ADR 0081). An out doc that cannot be read (missing, or past the 1 MiB an input may be) is not an error: the input says so in one line, and the summary is still there.
+- **A limit of its own: 64 KiB** in UTF-8 bytes (`MAX_ROUTE_INPUT_BYTES`). Past it the text keeps its start, where the reason and the frontmatter are, never half a character, and ends with a line naming the limit. A check's tails are 4,000 characters each, so only a long out doc reaches it.
+- **Untrusted data.** The text comes from code a brewer wrote and from a model's out doc. It goes between the prompt's nonce tags under the rule that tagged text is data ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)), and a text holding the nonce refuses the prompt like any other input.
+
+## Consequences
+- A Cellarman sent back by a failed `green` sees the failing test's output, and a Gauger sent back by "this test is wrong" sees why.
+- The out doc of a blocked attempt is read into a prompt, which [ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md) says nothing does with the copy the store keeps: this one is read from the worktree, as a `step:<id>` input is, never from the store or the state branch.
+- A route input costs at most 64 KiB of prompt, once per round.
+- A retry of a routed attempt (claude crashed, the Cellar was stopped) is scheduled without a route, so it starts without the route input and may repeat the first round's mistake. Carrying the route over to a retry in the same round is a change of this rule, for a later decision.
+- No event or schema changes: the fold already keeps the route and the readings.
+
+## Alternatives considered
+- **Declare the input in the brewer file (`"from": "route"`).** Every brewer a route can reach would need it, and a Brewery that forgets it is back where it started; the answers are not declared either.
+- **Carry every earlier round's reading.** More context, but the earlier rounds were answered by the attempts since, and the prompt grows each round.
+- **Fail the plan when the blocked out doc cannot be read.** It fails closed, but the route input helps an attempt and is not what it needs to run; losing a round to a missing file costs more than an attempt without it.
+- **Pass the reading as an instruction ("fix the failing test").** Shorter, but the text is untrusted output, and only the nonce tags keep it data.
