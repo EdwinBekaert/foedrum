@@ -37,9 +37,9 @@ const MAX_OUTPUT_CHARS = 4000;
 const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
 // A delete (rm, rd, ri, del, erase, Remove-Item) of a path that may hold a variable or a
 // substitution ($, %, a backtick or PowerShell's ( ), read before the shells' characters are
-// dropped) (#281).
+// dropped) (#281), or a splat (@, #296).
 const MAY_DELETE = /rm|rd|ri|del|erase|remove/i;
-const MAY_COMPUTE = /[$%`(]/;
+const MAY_COMPUTE = /[$%`(@]/;
 const mayNeedTheGate = (text: string): boolean => {
   const plain = normalised(text);
   return MAY_NEED_THE_GATE.test(plain) || (MAY_DELETE.test(plain) && MAY_COMPUTE.test(text));
@@ -134,10 +134,15 @@ interface Word {
 
 // The letters PowerShell reads as an escape after a backtick, rather than as themselves.
 const POWERSHELL_ESCAPES = /^[0abefnrtuv]$/;
+// PowerShell's pipeline object, with any properties read from it.
+const PIPELINE_OBJECT = /^\$(?:_|psitem)(?:\.\w+)*$/i;
 
 interface Lexed {
   // The simple commands, split at ; & | ( ) { } and line breaks outside quotes.
   segments: Word[][];
+  // For each segment, the words of the earlier stages of the PowerShell pipeline it is a stage
+  // of, which it reads as input; none outside a pipeline.
+  inputs: Word[][];
   // The content of every quoted string.
   strings: string[];
   // The commands inside $( … ), PowerShell's @( … ) and bash's ` … `.
@@ -168,9 +173,23 @@ const placeholderAt = (command: string, i: number): boolean => {
 const lex = (source: string, dialect: Dialect): Lexed => {
   const command = dialect === 'powershell' ? foldQuotes(source) : source;
   const escapeChar = dialect === 'bash' ? '\\' : '`';
-  const lexed: Lexed = { segments: [], strings: [], substitutions: [], unclosed: false };
+  const lexed: Lexed = {
+    segments: [],
+    inputs: [],
+    strings: [],
+    substitutions: [],
+    unclosed: false,
+  };
   let segment: Word[] = [];
   let word: Word | undefined;
+  // The words of the PowerShell statement so far, whether a pipe came in it and how many words
+  // came before the first, whether that pipe has no stage after it yet, and whether a line break
+  // ended the statement, unless the next line starts with a pipe.
+  let statement: Word[] = [];
+  let piped = false;
+  let firstStage = 0;
+  let pipeOpen = false;
+  let lineEnded = false;
   const add = (text: string, dynamic = false, quoted = false): Word => {
     word ??= { text: '', dynamic: false, quoted };
     word.text += text;
@@ -186,8 +205,36 @@ const lex = (source: string, dialect: Dialect): Lexed => {
   };
   const endSegment = () => {
     endWord();
-    if (segment.length > 0) lexed.segments.push(segment);
+    if (segment.length > 0) {
+      if (lineEnded) {
+        statement = [];
+        piped = false;
+        lineEnded = false;
+      }
+      lexed.segments.push(segment);
+      // $_ and $PSItem after the first stage are the pipeline's own object, not another source.
+      const sources = statement.filter((w, k) => k < firstStage || !PIPELINE_OBJECT.test(w.text));
+      lexed.inputs.push(piped ? sources : []);
+      statement.push(...segment);
+      pipeOpen = false;
+    }
     segment = [];
+  };
+  const pipelineAt = (char: string, i: number) => {
+    const doubled = '&|'.includes(char) && (command[i + 1] === char || command[i - 1] === char);
+    if (char === '|' && !doubled) {
+      if (!piped) firstStage = statement.length;
+      piped = true;
+      pipeOpen = true;
+      lineEnded = false;
+    } else if (char === '\n' || char === '\r') {
+      lineEnded ||= !pipeOpen;
+    } else if (char === ';' || doubled || (char === '{' && !piped)) {
+      statement = [];
+      piped = false;
+      pipeOpen = false;
+      lineEnded = false;
+    }
   };
 
   // An expansion at i ($name, ${…}, $(…), @(…), bash's `…` and $'…'): adds it to the word and
@@ -260,7 +307,14 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       } else if (char === '"') {
         lexed.strings.push(quoted.text.slice(start));
         return j + 1;
-      } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\\n'.includes(next))) {
+      } else if (
+        char === '\\' &&
+        dialect === 'bash' &&
+        (next === '\n' || (next === '\r' && command[j + 2] === '\n'))
+      ) {
+        // Bash removes a line continuation inside double quotes too, CRLF as outside them (#359).
+        j += next === '\n' ? 2 : 3;
+      } else if (char === escapeChar && (dialect === 'powershell' || '$`"\\'.includes(next))) {
         markEscape(add(next), next);
         j += 2;
       } else if (char === '$' || (char === '`' && dialect === 'bash')) {
@@ -286,7 +340,11 @@ const lex = (source: string, dialect: Dialect): Lexed => {
     } else if (char === ' ' || char === '\t') {
       endWord();
       i++;
-    } else if (char === '(' && dialect === 'powershell' && isDelete(segment[0] ?? word)) {
+    } else if (
+      char === '(' &&
+      dialect === 'powershell' &&
+      isDelete(afterLeadingWords(segment)[0] ?? word)
+    ) {
       // An argument of a delete: PowerShell computes it, as in (Join-Path $root run) (#281).
       const end = closingParen(command, i);
       if (end >= 0) {
@@ -306,6 +364,10 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       i++;
     } else if (SEPARATORS.has(char)) {
       endSegment();
+      // A PowerShell pipe feeds the next stage, also over a line break after it or before it, and
+      // through a group's brackets, the call operator and a stage's script block; ;, && and || end
+      // the statement, and so do an if's braces (#296).
+      if (dialect === 'powershell') pipelineAt(char, i);
       i++;
     } else if (char === "'") {
       i = singleQuoted(i);
@@ -522,6 +584,11 @@ const leadingWords = ([first, second]: Word[]): number => {
   if (ENV_ASSIGNMENT.test(first.text) || RESERVED_WORDS.has(first.text)) return 1;
   return first.dynamic && ASSIGNMENT.test(second?.text ?? '') ? 2 : 0;
 };
+const afterLeadingWords = (words: Word[]): Word[] => {
+  let rest = words;
+  for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest)) rest = rest.slice(skip);
+  return rest;
+};
 
 // The option a wrapper's word names, and the value the word holds, as getopt reads it: after `=`;
 // a long option or the one long option it is a prefix of (--chd for --chdir); or in a group of
@@ -553,10 +620,15 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
   let rest = words;
   const chdirs: Chdir[] = [];
   for (;;) {
-    for (let skip = leadingWords(rest); skip > 0; skip = leadingWords(rest))
-      rest = rest.slice(skip);
+    rest = afterLeadingWords(rest);
     const [first, ...operands] = rest;
     if (first === undefined) return undefined;
+    // cmd reads switches written onto rd's or del's name as its first argument (rd/s/q, #296).
+    const glued = first.dynamic ? null : CMD_GLUED_SWITCHES.exec(first.text);
+    if (glued !== null) {
+      const switches = { ...first, text: glued[2] ?? '' };
+      return { program: (glued[1] ?? '').toLowerCase(), args: [switches, ...operands], chdirs };
+    }
     // `cd\` has no last path part, so it is tested before programName drops it.
     const program = first.dynamic ? COMPUTED : programName(first.text);
     const moves = !first.dynamic && CHANGE_DIRECTORY.test(first.text);
@@ -971,6 +1043,9 @@ const recursesCmd = (word: Word): boolean =>
   /^(?:\/[a-z]+)+$/i.test(word.text) && word.text.toLowerCase().split('/').includes('s');
 const REMOVE_ITEM = new Set(['remove-item', 'ri', 'del', 'erase', 'rd', 'rmdir']);
 const CMD_DELETES = new Set(['rd', 'rmdir', 'del', 'erase']);
+const CMD_GLUED_SWITCHES = /^(rd|rmdir|del|erase)((?:\/[a-z]+)+)$/i;
+// A PowerShell splat, whose table may carry Recurse and the path (#296).
+const isSplat = (word: Word): boolean => !word.quoted && /^@\w+$/.test(word.text);
 const isDelete = (word: Word | undefined): boolean =>
   word !== undefined &&
   !word.dynamic &&
@@ -978,9 +1053,10 @@ const isDelete = (word: Word | undefined): boolean =>
 
 // A recursive delete whose path holds a variable or a substitution: bash's and PowerShell's $…,
 // $( ) and bash's backticks, which the lexer marks as computed, PowerShell's @( ), and cmd's %…%
-// (#281). A PowerShell switch given a value (-Recurse:$true) and a redirection (2>$null) are no
-// path.
-const deletesComputedPath = (program: string, args: Word[]): boolean => {
+// (#281), in its arguments or in the earlier stages of a PowerShell pipeline into it (`input`),
+// or any splat (#296). A PowerShell switch given a value (-Recurse:$true) and a redirection
+// (2>$null) are no path.
+const deletesComputedPath = (program: string, args: Word[], input: Word[]): boolean => {
   const recurses =
     program === 'rm'
       ? recursesRm
@@ -988,8 +1064,10 @@ const deletesComputedPath = (program: string, args: Word[]): boolean => {
         ? (word: Word) =>
             recursesPowershell(word) || (CMD_DELETES.has(program) && recursesCmd(word))
         : undefined;
-  if (recurses === undefined || !args.some(recurses)) return false;
-  return args.some((word) => {
+  if (recurses === undefined) return false;
+  if (args.some(isSplat)) return true;
+  if (!args.some(recurses)) return false;
+  return [...input, ...args].some((word) => {
     const switchValue = /^\$(?:true|false)$/i.test(PARAMETER.exec(word.text)?.[2] ?? '');
     const redirection = /^\d?>/.test(word.text);
     if (switchValue || redirection) return false;
@@ -1095,10 +1173,16 @@ const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', '[scriptblock]::
 const START_PROCESS = new Set(['start-process', 'start', 'saps']);
 // Reads one simple command; returns whether it runs code given as text, so that every string
 // and every argument list of the command line may be code.
-const readInvocation = ({ program, args }: Invocation, reading: Reading): boolean => {
+const readInvocation = (
+  { program, args }: Invocation,
+  reading: Reading,
+  input: Word[],
+): boolean => {
   if (program === 'git' || program === COMPUTED) readGit(args, program === 'git', reading);
   if (program === 'gh' || program === COMPUTED) readGh(args, program === 'gh', reading);
-  if (deletesComputedPath(program, args)) reading.found.reasons.push(VARIABLE_DELETE_BLOCKED);
+  if (deletesComputedPath(program, args, input)) {
+    reading.found.reasons.push(VARIABLE_DELETE_BLOCKED);
+  }
   const { nested } = reading;
   const codeOptions = INTERPRETERS.get(program);
   if (codeOptions !== undefined) {
@@ -1140,13 +1224,13 @@ const read = (
     // A change of directory lasts for the rest of the command.
     let place = base;
     let runsText = false;
-    for (const words of lexed.segments) {
+    for (const [k, words] of lexed.segments.entries()) {
       const called = invocation(words, reading.nested, found);
       if (called === undefined) continue;
       if (called.moves !== undefined) place = moveTo(place, destination(called.moves, called.args));
       moved ||= called.moves !== undefined || called.chdirs.length > 0;
       reading.place = called.chdirs.reduce(moveTo, place);
-      if (readInvocation(called, reading)) runsText = true;
+      if (readInvocation(called, reading, lexed.inputs[k] ?? [])) runsText = true;
     }
     if (runsText) {
       // Without the options before them (-c, and cmd's /c), so that the cd of bash -c or cmd /c
