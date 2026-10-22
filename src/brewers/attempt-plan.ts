@@ -52,7 +52,7 @@ export interface PlanFacts {
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
   settingsFile: string;
-  /** The id of the new session (ADR 0047). */
+  /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;

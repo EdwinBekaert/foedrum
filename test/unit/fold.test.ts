@@ -7,7 +7,8 @@ import type { Event, StuckReason } from '../../src/schemas/events.ts';
 const deadlineAt = '2026-10-15T10:00:00.000Z';
 const pullRequest = 'https://github.com/acme/api/pull/7';
 const prKey = effectKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1, effect: 'pr' });
-const session = { id: 's1', worktree: 'work/b1/plan', claudeVersion: '2.1.300' };
+const session = { id: 's1', worktree: 'work/b1/plan' };
+const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
 const question = {
   q: 'Keep the v1 endpoint?',
   options: ['keep', 'remove'],
@@ -174,7 +175,7 @@ describe('fold', () => {
         ordered,
         scheduled,
         { type: 'step.started', ...base, session },
-        { type: 'step.finished', ...base, outcome, usage },
+        { type: 'step.finished', ...base, outcome, usage, claude },
       ]),
     ];
     assert.deepStrictEqual(
@@ -182,7 +183,7 @@ describe('fold', () => {
       [
         { phase: 'scheduled', attempt: 1, deadlineAt },
         { phase: 'started', attempt: 1, deadlineAt, session },
-        { phase: 'finished', attempt: 1, deadlineAt, session, outcome, usage },
+        { phase: 'finished', attempt: 1, deadlineAt, session, outcome, usage, claude },
       ],
     );
     for (const state of states) assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });

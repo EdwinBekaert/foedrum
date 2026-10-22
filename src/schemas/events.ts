@@ -31,14 +31,27 @@ export const PullRequestUrl = z
 export const Surface = z.enum(['plugin', 'terminal', 'comment', 'dashboard']);
 export type Surface = z.infer<typeof Surface>;
 
-/** The Claude Code session of an attempt, so any action can resume the right session (ADR 0019). */
+/**
+ * The Claude Code session of a brewer's attempt, so any action can resume the right session
+ * (ADR 0019): the id the driver chose before claude started, and the worktree it runs in
+ * (ADR 0116).
+ */
 export const SessionRef = z.strictObject({
   id: Id,
   resumes: Id.optional(),
   worktree: NonEmpty,
-  claudeVersion: NonEmpty,
 });
 export type SessionRef = z.infer<typeof SessionRef>;
+
+/**
+ * What claude reported in its init event: its version and the model it ran, for diagnosis
+ * (ADR 0116). A run that ended before the init has none.
+ */
+export const ClaudeReport = z.strictObject({
+  version: NonEmpty,
+  model: NonEmpty,
+});
+export type ClaudeReport = z.infer<typeof ClaudeReport>;
 
 /**
  * The worktree an attempt was given (ADR 0029): in which repository, where, on which branch and at
@@ -264,13 +277,15 @@ export const Event = z.discriminatedUnion('type', [
     session: SessionRef.optional(),
     worktree: WorktreeRef.optional(),
   }),
-  // `readings`: a check step's, one per check it read, in order (ADR 0069).
+  // `readings`: a check step's, one per check it read, in order (ADR 0069). `claude`: a brewer's,
+  // once claude's init came (ADR 0116).
   z.strictObject({
     type: z.literal('step.finished'),
     ...step,
     outcome: StepOutcome,
     usage: Usage.optional(),
     readings: z.array(GravityReading).min(1).optional(),
+    claude: ClaudeReport.optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

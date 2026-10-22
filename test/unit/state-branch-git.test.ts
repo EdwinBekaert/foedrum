@@ -98,6 +98,19 @@ class FakeGit {
       const held = existsSync(refLock) ? refLock : headLock;
       return exit(128, `fatal: cannot lock ref 'HEAD': Unable to create '${held}': File exists.\n`);
     }
+    // A worktree add that creates the branch, and the signing check's update-ref, lock their ref.
+    const probeLock = join(this.commonDir, 'refs', 'foedrum', 'signing-check.lock');
+    const locked =
+      command === 'worktree' && rest.includes('-b') && existsSync(refLock)
+        ? refLock
+        : command === 'update-ref' &&
+            rest.includes('refs/foedrum/signing-check') &&
+            existsSync(probeLock)
+          ? probeLock
+          : undefined;
+    if (locked !== undefined) {
+      return exit(128, `fatal: cannot lock ref: Unable to create '${locked}': File exists.\n`);
+    }
     switch (command) {
       case 'ls-remote':
         return this.remote === undefined
@@ -149,9 +162,12 @@ class FakeGit {
       case 'commit':
         this.head = sha(this.next++);
         return ok();
-      case 'push':
-        this.remote = this.head;
+      case 'push': {
+        // The refspec's source: the branch pushes what it points at now, a commit pushes itself.
+        const source = rest.at(-1)?.split(':')[0];
+        this.remote = source === 'refs/heads/foedrum/state' ? this.head : source;
         return ok('To origin\n \trefs/heads/foedrum/state:refs/heads/foedrum/state\tx..y\nDone\n');
+      }
       default:
         throw new Error(`unexpected git ${args.join(' ')}`);
     }
@@ -527,6 +543,21 @@ describe('openStateBranch with a fake git', () => {
       assert.deepEqual(readdirSync(hooks()), []);
     });
 
+    // ADR 0115: no auto gc or maintenance outlives the writer lock and takes the branch's ref lock.
+    it('runs every git call with auto gc and maintenance off', async () => {
+      fake.remote = sha(5);
+      const state = branch();
+      await state.start();
+      append(ordered('b1'));
+      await state.flush();
+
+      assert.ok(fake.find('commit'));
+      for (const call of fake.calls) {
+        assert.equal(call.config?.['gc.auto'], '0', call.args.join(' '));
+        assert.equal(call.config?.['maintenance.auto'], 'false', call.args.join(' '));
+      }
+    });
+
     it('refuses a hooks folder that is not empty', async () => {
       mkdirSync(hooks(), { recursive: true });
       writeFileSync(join(hooks(), 'post-commit'), '#!/bin/sh\n');
@@ -614,6 +645,46 @@ describe('openStateBranch with a fake git', () => {
       return state;
     };
 
+    // ADR 0115: a user's pack-refs whose ref lock a flush removed can set the branch back to its
+    // packed value after the commit; the events are then not on the branch.
+    it('fails without pushing or moving the marker when a commit leaves the branch where it was', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      append(scheduled('b1'));
+      fake.answer = (args) => (args[0] === 'commit' ? ok() : undefined);
+      fake.calls.length = 0;
+
+      const result = await state.flush();
+
+      assert.equal(result.kind, 'failed');
+      assert.match(result.kind === 'failed' ? result.reason : '', /refs\/heads\/foedrum\/state/);
+      assert.equal(fake.find('push'), undefined);
+      assert.equal(store.pushedThrough()?.eventId, 1);
+      // The next tick commits again and pushes.
+      fake.answer = () => undefined;
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 2, commit: sha(101) });
+    });
+
+    // A user's pack-refs can also set the branch back after that check: the push then sends the
+    // commit the flush checked, which is the one the marker names.
+    it('pushes the commit it checked, even when the branch moves back before the push', async () => {
+      const state = await started();
+      append(ordered('b1'));
+      assert.equal((await state.flush()).kind, 'pushed');
+      const before = fake.head;
+      append(scheduled('b1'));
+      fake.answer = (args) => {
+        if (args[0] === 'push') fake.head = before;
+        return undefined;
+      };
+
+      assert.deepEqual(await state.flush(), { kind: 'pushed', through: 2, commit: sha(101) });
+
+      assert.equal(fake.remote, sha(101));
+      assert.deepEqual(store.pushedThrough(), { eventId: 2, commit: sha(101) });
+    });
+
     it('writes, commits and pushes the events after the marker, then moves the marker', async () => {
       const state = await started();
       append(ordered('b1'), released, scheduled('b1'));
@@ -636,7 +707,7 @@ describe('openStateBranch with a fake git', () => {
         '--porcelain',
         '--no-verify',
         'origin',
-        'refs/heads/foedrum/state:refs/heads/foedrum/state',
+        `${sha(100)}:refs/heads/foedrum/state`,
       ]);
       assert.ok((fake.find('push')?.timeoutMs ?? 0) > 0, 'the push has a timeout');
       for (const call of fake.calls) assert.equal(call.cwd, worktree);
@@ -882,9 +953,11 @@ describe('openStateBranch with a fake git', () => {
       mkdirSync(fake.gitDir, { recursive: true });
       writeFileSync(headLock(), '');
     };
+    const refLine = () =>
+      `removed a stale refs/heads/foedrum/state.lock from the clone's common git folder: ${refLock()}`;
     const removedLines = () => [
+      refLine(),
       `removed a stale HEAD.lock from the state worktree: ${headLock()}`,
-      `removed a stale refs/heads/foedrum/state.lock from the state worktree: ${refLock()}`,
     ];
 
     it('are removed at the start, whose flush then commits and pushes, saying so', async () => {
@@ -913,6 +986,44 @@ describe('openStateBranch with a fake git', () => {
       assert.equal(existsSync(refLock()), false);
       assert.equal(existsSync(headLock()), false);
       assert.deepEqual(said, removedLines());
+    });
+
+    it('asks git for the two folders once, at the start', async () => {
+      const lookups = () =>
+        fake.calls
+          .filter(
+            (call) =>
+              call.args.includes('--absolute-git-dir') || call.args.includes('--git-common-dir'),
+          )
+          .map((call) => ({ cwd: call.cwd, asked: call.args.at(-1) }));
+      const state = branch();
+      await state.start();
+      assert.deepEqual(lookups(), [
+        { cwd: clone, asked: '--git-common-dir' },
+        { cwd: worktree, asked: '--absolute-git-dir' },
+      ]);
+      append(ordered('b1'));
+      leaveLocks();
+      fake.calls.length = 0;
+
+      assert.equal((await state.flush()).kind, 'pushed');
+
+      assert.deepEqual(lookups(), []);
+      assert.deepEqual(said, removedLines());
+    });
+
+    it('stops the start when git cannot name the common folder, leaving the locks', async () => {
+      leaveLocks();
+      fake.answer = (args) =>
+        args.includes('--git-common-dir')
+          ? exit(129, "error: unknown option `path-format=absolute'\n")
+          : undefined;
+
+      await assert.rejects(branch().start(), /git rev-parse failed: error: unknown option/);
+
+      assert.equal(existsSync(refLock()), true);
+      assert.equal(existsSync(headLock()), true);
+      assert.deepEqual(said, []);
     });
 
     it('leaves the files beside them alone', async () => {
@@ -950,6 +1061,93 @@ describe('openStateBranch with a fake git', () => {
       } finally {
         other.release();
       }
+    });
+  });
+
+  // #320: a worktree add that creates the branch locks its ref too, and the signing check locks
+  // its own ref in the clone's common git folder; both are removed before the worktree is opened,
+  // with the common folder asked of the clone, since the worktree may not exist yet.
+  describe('a stale ref lock before the worktree, and the signing check ref lock', () => {
+    const refLock = () => join(fake.commonDir, 'refs', 'heads', 'foedrum', 'state.lock');
+    const probeLock = () => join(fake.commonDir, 'refs', 'foedrum', 'signing-check.lock');
+    const leave = (path: string): void => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, '');
+    };
+    const refLine = () =>
+      `removed a stale refs/heads/foedrum/state.lock from the clone's common git folder: ${refLock()}`;
+    const probeLine = () =>
+      `removed a stale refs/foedrum/signing-check.lock from the clone's common git folder: ${probeLock()}`;
+    const existing = (): void => {
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, '.git'), 'gitdir: elsewhere\n');
+    };
+
+    it('removes the branch ref lock before the worktree add, which then creates it, saying so', async () => {
+      fake.remote = sha(5);
+      leave(refLock());
+
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+
+      assert.equal(existsSync(join(worktree, '.git')), true);
+      assert.equal(existsSync(refLock()), false);
+      assert.deepEqual(said, [refLine()]);
+      const asked = fake.calls.findIndex(
+        (call) => call.args.join(' ') === 'rev-parse --path-format=absolute --git-common-dir',
+      );
+      assert.equal(fake.calls[asked]?.cwd, clone, 'the common folder is asked of the clone');
+      assert.ok(asked < fake.calls.findIndex((call) => call.args[0] === 'worktree'));
+    });
+
+    it('removes the signing check ref lock, and the check passes, saying so', async () => {
+      existing();
+      leave(probeLock());
+
+      assert.deepEqual(await branch().start(), { decision: 'ready' });
+
+      assert.equal(existsSync(probeLock()), false);
+      assert.deepEqual(said, [probeLine()]);
+    });
+
+    it('leaves both alone while another writer holds the writer lock, then removes them', async () => {
+      fake.remote = sha(5);
+      leave(refLock());
+      leave(probeLock());
+      let other = takeFileLock(join(dir.path, 'state.lock'), 0);
+      let slept = 0;
+      const sleep = async (): Promise<void> => {
+        slept += 1;
+        assert.equal(existsSync(refLock()), true, 'untouched while the other writer holds it');
+        assert.equal(existsSync(probeLock()), true, 'untouched while the other writer holds it');
+        assert.deepEqual(fake.calls, [], 'no git while the other writer holds it');
+        other?.release();
+        other = undefined;
+      };
+      try {
+        assert.deepEqual(await branch(sleep).start(), { decision: 'restore' });
+      } finally {
+        other?.release();
+      }
+      assert.equal(slept, 1, 'the start waited for the other writer');
+      assert.equal(existsSync(refLock()), false);
+      assert.equal(existsSync(probeLock()), false);
+      assert.deepEqual(said, [refLine(), probeLine()]);
+    });
+
+    it('leaves the files beside them alone', async () => {
+      fake.remote = sha(5);
+      leave(refLock());
+      leave(probeLock());
+      const beside = [
+        join(fake.commonDir, 'refs', 'heads', 'foedrum', 'other.lock'),
+        join(fake.commonDir, 'refs', 'foedrum', 'other.lock'),
+        join(fake.commonDir, 'packed-refs.lock'),
+      ];
+      for (const path of beside) writeFileSync(path, '');
+
+      assert.deepEqual(await branch().start(), { decision: 'restore' });
+
+      for (const path of beside) assert.equal(existsSync(path), true, path);
     });
   });
 
