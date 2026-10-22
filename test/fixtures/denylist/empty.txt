@@ -1,0 +1,1 @@
+# No entries: the gate's integration tests read this list, never the user's (ADR 0114).
