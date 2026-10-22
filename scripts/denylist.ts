@@ -50,7 +50,7 @@ const PATCHES = [
  */
 export const pushRefusal =
   (readList: () => DenylistState, exec: ExecProcess) =>
-  async (dir: string): Promise<string | undefined> => {
+  async (dir: string, _remote?: string | null): Promise<string | undefined> => {
     const state = readList();
     if (state.kind === 'none') return undefined;
     if (state.kind === 'unreadable') {

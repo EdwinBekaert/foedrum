@@ -212,16 +212,18 @@ describe('precheck with a personal denylist', () => {
   const upToDate = async (): Promise<string | undefined> => undefined;
   const fakeScan = (answer: () => Promise<string | undefined>) => {
     const calls: string[] = [];
-    const deniedPush = async (dir: string) => {
+    const remotes: (string | null | undefined)[] = [];
+    const deniedPush = async (dir: string, remote?: string | null) => {
       calls.push(dir);
+      remotes.push(remote);
       return answer();
     };
-    return { calls, deniedPush };
+    return { calls, remotes, deniedPush };
   };
   const gate = (
     command: string,
     runCheck: (cwd: string) => Promise<CheckResult>,
-    deniedPush: (dir: string) => Promise<string | undefined>,
+    deniedPush: (dir: string, remote?: string | null) => Promise<string | undefined>,
     detached = false,
   ) =>
     precheck(
@@ -265,6 +267,28 @@ describe('precheck with a personal denylist', () => {
     assert.match(result.stderr, /no git/);
     assert.deepEqual(calls, []);
   });
+
+  // The scan reads against the remote the push goes to (ADR 0114): the one the command names, none
+  // when it names none (the scan asks git), and null when it is computed at run time.
+  const remotes: [string, (string | null | undefined)[]][] = [
+    ['git push', [undefined]],
+    ['git push -u origin 131-denylist', ['origin']],
+    ['git push --set-upstream work HEAD', ['work']],
+    ['git push -o ci.skip --repo=mirror', ['mirror']],
+    ['git push --repo mirror', ['mirror']],
+    ['git push --push-option ci.skip origin', ['origin']],
+    ['git push https://example.com/o/r.git HEAD', ['https://example.com/o/r.git']],
+    ['git push "$remote" HEAD', [null]],
+    ['git push origin && git push work', ['origin', 'work']],
+  ];
+  for (const [command, expected] of remotes) {
+    it(`scans against the remote the push names: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const scan = fakeScan(async () => undefined);
+      await gate(command, runCheck, scan.deniedPush);
+      assert.deepEqual(scan.remotes, expected);
+    });
+  }
 
   it('does not scan a push from a detached HEAD, or what pushes nothing', async () => {
     const { runCheck } = fakeCheck({ ok: true, output: '' });
