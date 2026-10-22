@@ -266,6 +266,11 @@ describe('foedrum: the command line', () => {
   it('refuses an argument to foedrum serve, which takes none', async () => {
     assertUsageError(await run(['serve', 'now']), 'foedrum serve: unexpected argument "now"');
     assertUsageError(await run(['serve', '--now']), 'foedrum serve: unknown option "--now"');
+    // --via is the registry's commands' (ADR 0125).
+    assertUsageError(
+      await run(['serve', '--via', 'plugin']),
+      'foedrum serve: unknown option "--via"',
+    );
   });
 
   it('lists the commands for --help after a command', async () => {

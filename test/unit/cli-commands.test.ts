@@ -307,13 +307,27 @@ describe('foedrum: commands that change state', () => {
       ]);
     });
 
-    it('takes --via=terminal, and the answers before or after it', async () => {
-      assert.equal((await run(['answer', '21-1', '--via=terminal', 'sqlite', 'yes'])).exitCode, 0);
+    it('takes --via=terminal over the surface it is given, and the answers around it', async () => {
+      const argv = ['answer', '21-1', '--via=terminal', 'sqlite', 'yes'];
+      assert.equal((await run(argv, { surface: 'plugin' })).exitCode, 0);
       const [answered] = appended(3);
       assert.equal(answered?.type === 'input.received' && answered.via, 'terminal');
       assert.deepStrictEqual(
         answered?.type === 'input.received' && answered.answers.map(({ answer }) => answer),
         ['sqlite', 'yes'],
+      );
+    });
+
+    it('reads every argument after -- as an answer, as the plugin passes them', async () => {
+      const argv = ['answer', '21-1', '--via', 'plugin', '--', '-h', '--via=terminal'];
+      assert.equal((await run(argv)).exitCode, 0);
+      const [answered] = appended(3);
+      assert.deepStrictEqual(
+        answered?.type === 'input.received' && [
+          answered.via,
+          answered.answers.map(({ answer }) => answer),
+        ],
+        ['plugin', ['-h', '--via=terminal']],
       );
     });
 
