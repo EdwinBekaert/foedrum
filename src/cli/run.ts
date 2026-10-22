@@ -93,6 +93,12 @@ export const printable = (text: string): string =>
 const usageError = (line: string): CliResult => ({ exitCode: 2, stdout: '', stderr: `${line}\n` });
 
 /**
+ * The surfaces `--via` may name (ADR 0125): the terminal's own and the plugin's, which runs the
+ * terminal. It changes only what the events record, never what a command may do (ADR 0019).
+ */
+const VIA: readonly Surface[] = ['plugin', 'terminal'];
+
+/**
  * `foedrum serve`, the Cellar (ADR 0063): a program that runs until Ctrl+C, not a command of the
  * command layer that a comment or the plugin could issue, so it is not in the registry.
  */
@@ -161,6 +167,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     args: rest,
     options: {
       help: { type: 'boolean', short: 'h' },
+      ...(command === undefined ? {} : { via: { type: 'string' } as const }),
       ...Object.fromEntries(known.map((option) => [option, { type: 'string' } as const])),
       ...Object.fromEntries(flags.map((flag) => [flag, { type: 'boolean' } as const])),
     },
@@ -171,7 +178,19 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const options = tokens.filter((token) => token.kind === 'option');
   if (options.some((option) => option.name === 'help')) return usage();
   const optionValues: Record<string, string | true> = {};
+  let surface = context.surface;
   for (const option of options) {
+    if (command !== undefined && option.name === 'via') {
+      if (option.value === undefined) return usageError(`${prefix}: --via needs a value`);
+      const via = VIA.find((candidate) => candidate === option.value);
+      if (via === undefined) {
+        return usageError(
+          `${prefix}: --via takes ${VIA.join(' or ')}, not ${JSON.stringify(option.value)}`,
+        );
+      }
+      surface = via;
+      continue;
+    }
     if (flags.includes(option.name)) {
       if (option.value !== undefined) {
         return usageError(`${prefix}: ${option.rawName} takes no value`);
@@ -207,7 +226,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   if (restField !== undefined) input[restField] = values.slice(positionals.length);
   Object.assign(input, optionValues);
   try {
-    const result = await command.run({ command: name, ...input }, context);
+    const result = await command.run({ command: name, ...input }, { ...context, surface });
     return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;
   } catch (error) {
     // A store that cannot be read, for example: one line, escaped like every other output.

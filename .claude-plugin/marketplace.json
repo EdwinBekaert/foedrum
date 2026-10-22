@@ -1,0 +1,12 @@
+{
+  "name": "foedrum",
+  "description": "The Foedrum plugin, from Foedrum's own repository (ADR 0125)",
+  "owner": { "name": "Edwin Bekaert" },
+  "plugins": [
+    {
+      "name": "foedrum",
+      "source": "./plugin",
+      "description": "Brew a Foedrum order from a Claude Code session"
+    }
+  ]
+}
