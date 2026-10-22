@@ -1136,12 +1136,34 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
       '```\n# Kept\n```',
       drops('heading "Kept"'),
     ],
+    [
+      'a closing line with text after its run does not close a fence',
+      '```\n# In\n```js\n# Still in\n```\n# Out',
+      '',
+      drops('heading "Out"'),
+    ],
+    ['four spaces in opens no fence', '    ```\n# Seen', '', drops('heading "Seen"')],
+    ['a list item needs white space before its bold', '-**Dash.**', '', plain],
+    ['CRLF line endings close a fence', '```\r\n# In\r\n```\r\n# Out', '', drops('heading "Out"')],
   ];
   for (const [rule, original, copy, notice] of rows) {
     it(`reads the marks so that ${rule}`, () => {
       assert.deepEqual(replacing(`${original}\n`, `${copy}\n`), [notice]);
     });
   }
+
+  it('compares a copy with a default that cannot be read as with one that has no marks', () => {
+    const { notices = [] } = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [],
+        lenses: [{ path: 'lenses/style.md', text: '# Style\n' }],
+        defaults: { lenses: [{ path: 'defaults/lenses/style.md', unreadable: 'EACCES' }] },
+      },
+    });
+    assert.ok(notices.includes(plain));
+  });
 });
 
 describe('diagnose: notices when the files load (ADR 0141)', () => {
