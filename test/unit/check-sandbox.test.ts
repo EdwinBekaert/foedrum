@@ -9,8 +9,8 @@ import { describe, it } from 'node:test';
 import {
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
-  SEATBELT_PROFILE,
   sandboxedChecks,
+  seatbeltProfile,
   worktreeGitDir,
 } from '../../src/platform/check-sandbox.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
@@ -186,6 +186,17 @@ describe('sandboxedChecks on Linux and WSL2: bwrap', () => {
 
 describe('sandboxedChecks on macOS: sandbox-exec', () => {
   const temp = '/private/var/folders/x/T/foedrum-check-1';
+  // node stats each folder above a file it loads, in the home folder too (#376).
+  const parents = [
+    home,
+    '/home/ada/.foedrum',
+    '/home/ada/.foedrum/acme',
+    '/home/ada/.foedrum/acme/attempts',
+    '/home/ada/.foedrum/acme/attempts/12-1',
+    '/home/ada/.foedrum/acme/attempts/12-1/green',
+    '/home/ada/.foedrum/acme/clones',
+    '/home/ada/.foedrum/acme/clones/acme.api',
+  ];
   const folders = () => {
     const removed: string[] = [];
     return {
@@ -216,8 +227,9 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
           `GIT_DIR=${gitDir}`,
           '-D',
           `TEMP=${temp}`,
+          ...parents.flatMap((folder, n) => ['-D', `PARENT_${n}=${folder}`]),
           '-p',
-          SEATBELT_PROFILE,
+          seatbeltProfile(parents.length),
           '/bin/sh',
           '-c',
           line,
@@ -228,9 +240,28 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
     assert.deepEqual(removed, [temp]);
   });
 
+  it('names no folder above a worktree outside the home folder', async () => {
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(
+      options(exec, { platform: 'darwin', gitDirOf: () => undefined, temp: folders().temp }),
+    );
+    await run(line, [], { ...call, cwd: '/srv/work/1' });
+    assert.deepEqual(calls[0]?.args.slice(8), ['-p', seatbeltProfile(0), '/bin/sh', '-c', line]);
+  });
+
+  it('lets a check stat the folders above its worktree in the home folder, and read nothing else there', () => {
+    assert.equal(
+      seatbeltProfile(2),
+      seatbeltProfile(0).replace(
+        '(allow file-read* (subpath',
+        '(allow file-read-metadata (literal (param "PARENT_0")) (literal (param "PARENT_1")))\n(allow file-read* (subpath',
+      ),
+    );
+  });
+
   it('denies the network, the Keychain, writes outside the worktree and the temp folder, and reads of the home', () => {
     assert.equal(
-      SEATBELT_PROFILE,
+      seatbeltProfile(0),
       [
         '(version 1)',
         '(allow default)',

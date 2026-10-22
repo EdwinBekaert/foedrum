@@ -43,6 +43,14 @@ export const SEATBELT_PROFILE = [
   '',
 ].join('\n');
 
+/**
+ * SEATBELT_PROFILE with `parents` folders above the worktree and its repository in the home
+ * folder, given as `PARENT_<n>`, whose metadata a check may read (ADR 0142).
+ */
+export const seatbeltProfile = (_parents: number): string => {
+  throw new Error('not implemented');
+};
+
 /** Whether check steps run without an OS sandbox here: on native Windows only (ADR 0010). */
 export const checksRunUnsandboxed = (platform: NodeJS.Platform): boolean => platform === 'win32';
 
