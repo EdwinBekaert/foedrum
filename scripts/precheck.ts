@@ -1137,8 +1137,13 @@ export const projectHolds = async (
 
 export const isGatedCommand = (command: string): boolean => findings(command).gated;
 
-export const forbiddenReason = (command: string): string | undefined =>
-  findings(command).reasons[0];
+// Why a command may not run: what the gate blocks outright, else what its gh calls would send
+// against the personal denylist, read where the hook runs (`cwd`) by `deniedTexts` (ADR 0132).
+export const forbiddenReason = (
+  command: string,
+  _deniedTexts?: DeniedTexts,
+  _cwd = '',
+): string | undefined => findings(command).reasons[0];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -1162,6 +1167,10 @@ export type DeniedPush = (
   dir: string,
   ...remotes: (string | null | undefined)[]
 ) => Promise<string | undefined>;
+
+// Why the texts a command's gh calls would send hold a word on the personal denylist, or cannot be
+// read while it is set, or undefined (ADR 0132); files are read from `cwd`.
+export type DeniedTexts = (texts: readonly GhText[], cwd: string) => string | undefined;
 
 // Whether a directory a command changes into is inside the project the session works in
 // (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
@@ -1259,6 +1268,8 @@ export const precheck = async (
   binaryInstalled: BinaryInstalled = async () => false,
   inProject: InProject = async () => true,
   deniedPush: DeniedPush = async () => undefined,
+  // Loaded only for a command with gh texts to read, so other calls load nothing for it.
+  _loadDeniedTexts: () => Promise<DeniedTexts> = async () => () => undefined,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1393,6 +1404,7 @@ export const precheck = async (
 
 // Type-only, so erased: the module still has no static imports.
 import type { NpmCliLookup } from '../src/platform/executables.ts';
+import type { GhText } from './denylist/core.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
 export type { ProcessOutcome, RunProcess } from './process-runner.ts';

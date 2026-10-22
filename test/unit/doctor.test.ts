@@ -738,7 +738,7 @@ describe("formatDiagnosis: the local gate's denylist (ADR 0114)", () => {
   const lines: [DoctorFacts['denylist'], RegExp][] = [
     [
       { kind: 'set', path },
-      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt \(the local gate blocks its words in what git push sends, ADR 0114\)\n/,
+      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt \(the local gate blocks its words in what git push and gh send, ADR 0114, ADR 0132\)\n/,
     ],
     [
       { kind: 'none', path },
@@ -746,7 +746,7 @@ describe("formatDiagnosis: the local gate's denylist (ADR 0114)", () => {
     ],
     [
       { kind: 'unreadable', path, why: 'EACCES' },
-      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt cannot be read \(EACCES\); the local gate blocks every push until it can \(ADR 0114\)\n/,
+      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt cannot be read \(EACCES\); the local gate blocks every push and every gh text until it can \(ADR 0114, ADR 0132\)\n/,
     ],
   ];
   for (const [denylist, line] of lines) {

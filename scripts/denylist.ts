@@ -6,6 +6,7 @@ import type { DenylistState } from '../src/platform/denylist.ts';
 import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
 import {
   deniedRefusal,
+  type GhText,
   MESSAGE_FORMAT,
   parseDenylist,
   scanMessages,
@@ -103,4 +104,16 @@ export const pushRefusal =
     const [messages = '', patches = ''] = outputs;
     const places = [...scanMessages(messages, list), ...scanPatches(patches, list)];
     return places.length === 0 ? undefined : deniedRefusal('git push', places);
+  };
+
+/**
+ * Why the texts a command's gh calls would send may not go (ADR 0132): one holds a word on the
+ * list, the list cannot be read, or the gate cannot read a text. Undefined without a list, before
+ * anything is read. `readAt` reads a file at path parts resolved from `cwd`, and throws when it
+ * cannot.
+ */
+export const textRefusal =
+  (_readList: () => DenylistState, _readAt: (cwd: string, path: readonly string[]) => string) =>
+  (_texts: readonly GhText[], _cwd: string): string | undefined => {
+    throw new Error('not implemented');
   };

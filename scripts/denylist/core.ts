@@ -159,3 +159,14 @@ export const deniedRefusal = (what: string, places: readonly string[]): string =
   const more = places.length > SHOWN ? `; and ${places.length - SHOWN} more` : '';
   return `${what} is blocked: it would send a word on your denylist (ADR 0114), at ${places.slice(0, SHOWN).join('; ')}${more}. Take the word out and try again; the gate never says which word it found.`;
 };
+
+/**
+ * A text a gh command would send, as the gate read it from the command line (ADR 0132): given as
+ * it is, in a file at `path` (its parts, resolved from where the hook runs), or one the gate cannot
+ * read and says why. `command` is the gh command (`gh pr create`), `field` the option or field
+ * that carries it (`--body`, `--body-file`, `field body`, `--input`).
+ */
+export type GhText =
+  | { kind: 'text'; command: string; field: string; text: string }
+  | { kind: 'file'; command: string; field: string; path: readonly string[]; json?: boolean }
+  | { kind: 'unreadable'; command: string; field: string; why: string };
