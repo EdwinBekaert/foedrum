@@ -52,8 +52,10 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
   let worktree: string;
   let outside: string;
   let run: ReturnType<typeof sandboxedChecks>;
-  const check = (line: string) => {
-    const call: ExecOptions = { cwd: worktree, shell: true, timeoutMs: 60_000 };
+  const check = (line: string, cwd = worktree) => {
+    // Without the test runner's own variable, so a node --test inside runs its files.
+    const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+    const call: ExecOptions = { cwd, env, shell: true, timeoutMs: 60_000 };
     return run(line, [], call);
   };
 
@@ -82,6 +84,25 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
     assert.match(result.output, /own-text/);
     assert.notEqual(result.exitCode, 0, result.output);
     assert.doesNotMatch(result.output, /planted-login/);
+  });
+
+  // Foedrum's default work root is in the home folder, and node resolves a module's path by an
+  // lstat of every folder above it, the home folder among them (#376).
+  it('runs node --test in a worktree inside the home folder, which it still cannot read or list', async () => {
+    const inside = join(home, 'work', 'attempt');
+    mkdirSync(inside, { recursive: true });
+    writeFileSync(
+      join(inside, 'ok.test.mjs'),
+      "import test from 'node:test';\ntest('runs', () => {});\n",
+    );
+    const result = await check(`"${process.execPath}" --test --test-reporter=tap`, inside);
+    assert.equal(result.exitCode, 0, result.output);
+    assert.match(result.output, /# pass 1/);
+    const read = await check(`cat "${home}/secret.txt"`, inside);
+    assert.notEqual(read.exitCode, 0, read.output);
+    assert.doesNotMatch(read.output, /planted-login/);
+    const list = await check(`ls -A "${home}"`, inside);
+    assert.doesNotMatch(list.output, /secret\.txt/);
   });
 
   // gh's login in the OS keyring (ADR 0073): the user's D-Bus socket under /run on Linux. The
