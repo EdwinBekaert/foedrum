@@ -102,6 +102,27 @@ describe('openAttemptWorktrees with a fake git', () => {
       }
     });
 
+    it('fetches by the remote it is given', async () => {
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args.includes('upstream/main^{commit}')) return ok(`${BASE}\n`);
+        if (args[0] === 'rev-parse') return failed('');
+        if (args[0] === 'worktree' && args[1] === 'list') return ok('');
+        return undefined;
+      });
+      const worktrees = openAttemptWorktrees({
+        git,
+        workRoot,
+        repo: 'acme/app',
+        clone,
+        remote: 'upstream',
+        own: { url, root: join(workRoot, 'git') },
+      });
+
+      await worktrees.create(attempt, 'upstream/main');
+
+      assert.equal(calls.find((call) => call.includes('fetch'))?.at(-1), 'upstream');
+    });
+
     it('throws, without adding anything, when the fetch or the base fails', async () => {
       const fetchFails = fakeGit((_cwd, args) => (args.includes('fetch') ? failed() : undefined));
       await assert.rejects(open(fetchFails.git).create(attempt, 'origin/main'), /fetch/);
