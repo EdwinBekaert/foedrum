@@ -56,12 +56,14 @@ export interface DriverActions {
 
 /**
  * The attempt worktrees of a repository the attempts write in, and the base a batch starts at
- * until its task tree moves (ADR 0066).
+ * until its task tree moves (ADR 0066). A manager without `recreate` resumes no session: its
+ * retries start fresh (ADR 0117).
  */
 export interface RepositoryWorktrees {
   repo: string;
   base: string;
-  manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
+  manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'> &
+    Partial<Pick<AttemptWorktrees, 'recreate'>>;
 }
 
 /** What the driver reports instead of failing: it keeps driving. */
@@ -109,6 +111,11 @@ export interface DriverOptions {
    * check steps.
    */
   brews?: (attempt: AttemptRef) => boolean;
+  /**
+   * Whether the brewer of an attempt resumes the session of the attempt before it on a retry
+   * (`retryMode: resume`, ADR 0117); never by default, until the loader lets it through (#327).
+   */
+  resumes?: (attempt: AttemptRef) => boolean;
   /** The id of a new session; default `randomUUID`. */
   sessionId?: () => string;
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */

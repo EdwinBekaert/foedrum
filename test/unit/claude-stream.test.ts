@@ -185,6 +185,18 @@ describe('readClaudeStream over the captured streams', () => {
       assert.equal(facts.session, undefined, file);
     }
   });
+
+  it('makes a result before the session started a session it could not resume, when it resumes one (ADR 0117)', () => {
+    const { facts } = readAll(lines('resume-not-found.jsonl'), {
+      sessionId: session(1),
+      tools: ['Read'],
+      resumes: true,
+    });
+    // What claude said, which settleAttempt quotes.
+    assert.match(facts.unresumed ?? '', /^No conversation found with session ID/);
+    assert.equal(facts.environment, undefined);
+    assert.equal(facts.session, undefined);
+  });
 });
 
 describe('readClaudeStream', () => {

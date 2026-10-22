@@ -110,6 +110,13 @@ export const fakeBrewerRunner = (
   scripts:
     | Readonly<Record<string, readonly Behaviour[]>>
     | ((attempt: AttemptStart) => Behaviour | undefined),
+  options: {
+    /**
+     * The session claude's init reported for the attempt, on every end of a process that
+     * started; none by default (ADR 0116).
+     */
+    session?: (attempt: AttemptStart) => AttemptEnd['session'];
+  } = {},
 ): FakeBrewerRunner => {
   const queues = new Map(
     typeof scripts === 'function'
@@ -127,10 +134,14 @@ export const fakeBrewerRunner = (
       typeof scripts === 'function' ? scripts(attempt) : queues.get(attempt.ref.stepId)?.shift();
     if (behaviour === undefined) throw new Error(`No behaviour scripted for ${key}`);
     // The out doc's text as read, as the real runner ends with it (ADR 0103).
-    const end = (facts: AttemptFacts): AttemptEnd => ({
-      ending: settleAttempt(facts, attempt.limits),
-      ...(facts.outDoc === undefined ? {} : { outDoc: facts.outDoc }),
-    });
+    const end = (facts: AttemptFacts): AttemptEnd => {
+      const session = facts.exit.kind === 'unstartable' ? undefined : options.session?.(attempt);
+      return {
+        ending: settleAttempt(facts, attempt.limits),
+        ...(facts.outDoc === undefined ? {} : { outDoc: facts.outDoc }),
+        ...(session === undefined ? {} : { session }),
+      };
+    };
     switch (behaviour.kind) {
       case 'settle':
         return { ended: Promise.resolve().then(() => end(behaviour.facts)), stop: () => {} };

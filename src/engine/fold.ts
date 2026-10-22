@@ -39,6 +39,8 @@ export type Attempt =
       attempt: number;
       deadlineAt: string;
       route?: ScheduleRoute;
+      /** Scheduled because the attempt before it failed (ADR 0117). */
+      retry?: true;
       abandoned?: true;
     }
   | {
@@ -46,6 +48,8 @@ export type Attempt =
       attempt: number;
       deadlineAt: string;
       route?: ScheduleRoute;
+      /** Scheduled because the attempt before it failed (ADR 0117). */
+      retry?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
       abandoned?: true;
@@ -55,6 +59,8 @@ export type Attempt =
       attempt: number;
       deadlineAt: string;
       route?: ScheduleRoute;
+      /** Scheduled because the attempt before it failed (ADR 0117). */
+      retry?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;

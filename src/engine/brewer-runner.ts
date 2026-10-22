@@ -113,6 +113,11 @@ export interface AttemptFacts {
    * init, a lasting error before the first model reply, or refused arguments (ADR 0046, ADR 0047).
    */
   environment?: string | undefined;
+  /**
+   * Why claude could not resume the session the runner asked it to: a result before init when it
+   * resumes one, as when the transcript is gone. The next attempt starts fresh (ADR 0117).
+   */
+  unresumed?: string | undefined;
   exit: ProcessExit;
   /** The out doc's text, or `undefined` when the brewer did not write it. */
   outDoc: string | undefined;

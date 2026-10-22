@@ -26,12 +26,15 @@ import { type AskedSession, checkInit, type SessionFacts } from './claude-init.t
 export interface StreamAsk extends AskedSession {
   /** Stops the attempt at the denial that reaches it. */
   maxDenials?: number | undefined;
+  /** Whether claude resumes the session rather than start it (ADR 0117). */
+  resumes?: boolean | undefined;
 }
 
 /** What the stream showed, for settleAttempt. */
 export type StreamFacts = Pick<
   AttemptFacts,
   | 'environment'
+  | 'unresumed'
   | 'streamError'
   | 'usageLimit'
   | 'spendLimit'

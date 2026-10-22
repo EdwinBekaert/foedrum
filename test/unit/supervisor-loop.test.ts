@@ -255,6 +255,7 @@ describe('createSupervisor', () => {
         phase: 'scheduled',
         attempt: 2,
         deadlineAt: iso(65),
+        retry: true,
       });
       assert.deepStrictEqual(store.expiredLeases(at(600)), []);
     });

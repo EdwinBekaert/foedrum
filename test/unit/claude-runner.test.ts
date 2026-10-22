@@ -191,6 +191,25 @@ describe('claudeBrewerRunner', () => {
     assert.ok((call?.options.maxLineBytes ?? 0) >= 1024 * 1024);
   });
 
+  it('fails retryably when claude finds no session to resume, so the next attempt starts fresh (ADR 0117)', async () => {
+    const resuming = plan();
+    const resume: ClaudeAttemptPlan = {
+      ...resuming,
+      call: { ...resuming.call, session: { kind: 'resume', id: session(1) } },
+    };
+    const { runner } = setup(
+      { lines: fixture('resume-not-found.jsonl'), result: exited(1) },
+      { plan: async () => resume, outDoc: undefined },
+    );
+    const { ending } = await runner.start(attempt).ended;
+    assert.equal(ending.kind, 'failed');
+    assert.ok(ending.kind === 'failed' && ending.retryable);
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /^claude could not resume the session: No conversation found with session ID/,
+    );
+  });
+
   it('succeeds with the out doc, the usage and the session of a clean run', async () => {
     const { read, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
     const end = await runner.start(attempt).ended;

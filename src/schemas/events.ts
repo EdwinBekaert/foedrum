@@ -34,12 +34,14 @@ export type Surface = z.infer<typeof Surface>;
 /**
  * The Claude Code session of a brewer's attempt, so any action can resume the right session
  * (ADR 0019): the id the driver chose before claude started, and the worktree it runs in
- * (ADR 0116).
+ * (ADR 0116). `resumes`: the session it continues; `fallback`: why it started a new session where
+ * its brewer would have resumed one (ADR 0117).
  */
 export const SessionRef = z.strictObject({
   id: Id,
   resumes: Id.optional(),
   worktree: NonEmpty,
+  fallback: NonEmpty.optional(),
 });
 export type SessionRef = z.infer<typeof SessionRef>;
 
@@ -255,11 +257,14 @@ export const Event = z.discriminatedUnion('type', [
     ),
   recipeChosen,
   // `route`: the onFail or onBlocked route that scheduled the attempt, which counts its rounds.
+  // `retry`: it runs because the attempt before it failed, so a brewer that resumes continues
+  // that attempt's session (ADR 0117).
   z.strictObject({
     type: z.literal('step.scheduled'),
     ...step,
     deadlineAt: Timestamp,
     route: ScheduleRoute.optional(),
+    retry: z.literal(true).optional(),
   }),
   // The step's `when` was false when the batch reached it, so it did not run (ADR 0064).
   z.strictObject({

@@ -298,6 +298,45 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  describe('a resumed attempt (ADR 0117)', () => {
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const second = { ...ref, attempt: 2 };
+    const failed: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+      claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+    };
+    const resumed: Event = {
+      type: 'step.started',
+      ...second,
+      session: { id: sessionId, resumes: sessionId, worktree },
+    };
+
+    it('resumes its session with --resume in the worktree it continues, told to go on, reading no input', async () => {
+      const events: Event[] = [
+        ...ordered,
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+        resumed,
+      ];
+      const { plans, reads, orders } = setup(events);
+      const plan = await plans.plan({ ...start, ref: second });
+      assert.equal(plan.cwd, worktree);
+      assert.deepEqual(plan.call.session, { kind: 'resume', id: sessionId });
+      assert.equal(plan.call.model, 'claude-sonnet-5-5');
+      assert.deepEqual(plan.permissions.allow, ['Read', 'Write', 'Bash(npm test)']);
+      assert.deepEqual(reads, [], 'the session holds its inputs');
+      assert.deepEqual(orders, []);
+      assert.match(
+        plan.prompt,
+        /^The run before this one ended before the step was done\. Go on with the step where it stopped, then write brew\.md as your instructions say\./,
+      );
+      assert.doesNotMatch(plan.prompt, /untrusted-input/);
+    });
+  });
+
   it("throws, naming the input, when the order's text is larger than 1 MiB (review of #165)", async () => {
     const { plans } = setup(undefined, {}, 'x'.repeat(1024 * 1024 + 1));
     await assert.rejects(
@@ -464,6 +503,33 @@ describe('createAttemptPlans: limits', () => {
     // Not started yet: no worktree, so nothing to count from; its plan fails before it runs.
     assert.deepEqual(plans(ordered).limits(ref), {
       outDoc: { file: 'out.md', schema: OutDocFrontmatter },
+    });
+    // A resumed attempt commits on the branch of the worktree it continues, counted from where
+    // that worktree started (ADR 0117).
+    const second = { ...ref, attempt: 2 };
+    const resumed: Event[] = [
+      ...ordered,
+      started,
+      {
+        type: 'step.finished',
+        ...ref,
+        outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+        claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+      },
+      { type: 'step.scheduled', ...second, deadlineAt: '2026-10-17T13:00:00.000Z', retry: true },
+      {
+        type: 'step.started',
+        ...second,
+        session: { id: sessionId, resumes: sessionId, worktree },
+      },
+    ];
+    assert.deepEqual((await plans(resumed).plan({ ...start, ref: second })).commits, {
+      clone: join('/clones', 'acme/api'),
+      branch: 'foedrum/12-1/brew/1',
+    });
+    assert.deepEqual(plans(resumed).limits(second), {
+      outDoc: { file: 'out.md', schema: OutDocFrontmatter },
+      commitsSince: 'c'.repeat(40),
     });
   });
 

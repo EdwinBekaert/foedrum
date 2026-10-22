@@ -813,6 +813,50 @@ describe('fold', () => {
         repo: 'acme/app',
       });
     });
+
+    it('is the attempt that made the worktree a resumed attempt that succeeded ran in (ADR 0117)', () => {
+      const id = '0f8fad5b-d9cb-469f-a165-708677289500';
+      const own = worktree('plan', 1);
+      const resumed: Event[] = [
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt,
+          retry: true,
+        },
+        {
+          type: 'step.started',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 2,
+          session: { id, resumes: id, worktree: own.path },
+        },
+        { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 2, outcome: succeeded },
+      ];
+      const state = fold([
+        ordered,
+        { type: 'step.scheduled', batchId: 'b1', stepId: 'plan', attempt: 1, deadlineAt },
+        {
+          type: 'step.started',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 1,
+          session: { id, worktree: own.path },
+          worktree: own,
+        },
+        { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 1, outcome: failed },
+        ...resumed,
+      ]);
+      assert.deepStrictEqual(batch(state).taskTree, {
+        kind: 'attempt',
+        stepId: 'plan',
+        attempt: 1,
+        repo: 'acme/app',
+      });
+      assert.equal(batch(state).steps.get('plan')?.attempts.get(2)?.retry, true);
+    });
   });
 
   describe("the batch's start (ADR 0084)", () => {

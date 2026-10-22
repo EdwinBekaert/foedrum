@@ -171,6 +171,26 @@ describe('settleAttempt', () => {
     }
   });
 
+  // ADR 0117: the next attempt starts fresh, which a block on the environment would not let it.
+  it('fails retryably when claude could not resume the session, before the error its result reported', () => {
+    const said = 'No conversation found with session ID: 0f8fad5b-d9cb-469f-a165-708677289500';
+    const ending = settleAttempt(
+      facts({
+        unresumed: said,
+        exit: { kind: 'exited', code: 1 },
+        outDoc: undefined,
+        streamError: 'error_during_execution: No conversation found',
+        turns: 0,
+      }),
+      limits,
+    );
+    assert.deepStrictEqual(ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: `claude could not resume the session: ${said}`,
+    });
+  });
+
   it('puts a session that is not what was asked, and a usage limit, before a spend limit', () => {
     const spendLimit = { kind: 'credit' } as const;
     assert.deepStrictEqual(settleAttempt(facts({ environment: 'no init', spendLimit }), limits), {

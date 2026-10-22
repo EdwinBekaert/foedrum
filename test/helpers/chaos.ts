@@ -48,6 +48,9 @@ import {
 import { fakeBrewerRunner } from './fake-brewer-runner.ts';
 import { behaviourOf, isLive, recipes, reminderMs, routingMs, t0 } from './simulation.ts';
 
+/** What claude's init reports in a run with worktrees: a session a retry may resume (ADR 0117). */
+const chaosSession = { sessionId: 'chaos', model: 'claude-chaos', claudeVersion: '2.1.301' };
+
 export const killPoints = [
   'in a transaction',
   'after a commit',
@@ -805,7 +808,10 @@ export const openChaosEngine = async (
    * the attempts that run, by key.
    */
   const runnerOf = (life: Life): BrewerRunner & { running: Map<string, AttemptRef> } => {
-    const runner = fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now));
+    // With worktrees, claude's init reports a session, which a retry resumes (ADR 0117).
+    const runner = fakeBrewerRunner(({ ref }) => behaviourOf(plays(ref), now), {
+      ...(clone === undefined ? {} : { session: () => chaosSession }),
+    });
     const running = new Map<string, AttemptRef>();
     runners.push({
       life,
@@ -908,6 +914,7 @@ export const openChaosEngine = async (
             ? {}
             : {
                 worktrees: [{ repo: chaosRepo, base: 'origin/main', manager: clone.manager(life) }],
+                resumes: () => true,
               }),
           limits: () => ({ ...defaultLimits, ...scenarioLimits }),
           effects: {

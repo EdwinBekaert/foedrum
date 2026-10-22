@@ -227,6 +227,7 @@ describe('foedrum: commands that change state', () => {
           stepId: 'plan',
           attempt: 2,
           deadlineAt: iso(60),
+          retry: true,
         },
       ]);
     });

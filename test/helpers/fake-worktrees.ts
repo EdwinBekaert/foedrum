@@ -12,6 +12,7 @@ import type {
 
 export type WorktreeCall =
   | { kind: 'create'; ref: AttemptRef; base: string }
+  | { kind: 'recreate'; ref: AttemptRef; commit: string }
   | { kind: 'clean'; claims: Claims; scope: { batchId?: string } };
 
 export interface FakeWorktreesOptions {
@@ -21,6 +22,8 @@ export interface FakeWorktreesOptions {
   commit?: string;
   /** Why `create` refuses this attempt, or undefined to make its worktree. */
   refuse?: (ref: AttemptRef) => string | undefined;
+  /** Why `recreate` cannot give this attempt's worktree back, or undefined to give it back. */
+  refuseRecreate?: (ref: AttemptRef) => string | undefined;
   /** Makes `clean` throw, as when git cannot list the worktrees. */
   cleanFails?: string;
 }
@@ -50,7 +53,13 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
       const path = join(root, ...attemptFolder(ref).split('/'));
       return { path, branch: attemptBranch(ref), commit };
     },
-    recreate: () => Promise.reject(new Error('the fake worktrees recreate nothing')),
+    async recreate(ref, at): Promise<AttemptWorktree> {
+      calls.push({ kind: 'recreate', ref, commit: at });
+      const reason = options.refuseRecreate?.(ref);
+      if (reason !== undefined) throw new Error(reason);
+      const path = join(root, ...attemptFolder(ref).split('/'));
+      return { path, branch: attemptBranch(ref), commit: at };
+    },
     async clean(claims, scope = {}): Promise<CleanReport> {
       calls.push({ kind: 'clean', claims, scope });
       if (options.cleanFails !== undefined) throw new Error(options.cleanFails);
