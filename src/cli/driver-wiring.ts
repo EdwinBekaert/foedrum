@@ -27,7 +27,7 @@ import type { EventStore } from '../engine/event-store.ts';
 import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
-import { STATE_BRANCH, type StateBranch } from '../engine/state-branch-git.ts';
+import { STATE_BRANCH } from '../engine/state-branch-git.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -56,7 +56,6 @@ export interface Opened {
 /** What a driver runs on once it is open. */
 export interface Wired {
   store: EventStore;
-  stateBranch: Pick<StateBranch, 'start' | 'flush'>;
   driver: Driver;
   /** One cache of conditional reads for every GitHub read (ADR 0052). */
   reads: GitHubReads;
@@ -262,7 +261,7 @@ export const wireDriver = async (
     report,
   });
   opened.driver = driver;
-  return { store, stateBranch, driver, reads, claims, claimant };
+  return { store, driver, reads, claims, claimant };
 };
 
 /** Closes what `opened` holds: the driver, which stops its runs and lets the lock go, or the lock. */

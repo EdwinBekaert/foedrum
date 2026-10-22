@@ -17,7 +17,7 @@ import { PathSafeId } from '../schemas/ids.ts';
 import { type OrderClaim, orderIssue } from './commands.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
-import { formatNotice, type ServeShell } from './serve.ts';
+import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
 import { describeLane } from './status.ts';
 
@@ -43,8 +43,6 @@ export const BREW_EXIT = {
 
 /** The variable Claude Code sets to its session's id in its tools' processes. */
 const SESSION = 'CLAUDE_CODE_SESSION_ID';
-/** The supervisor's interval (ADR 0027), as serve's. */
-const INTERVAL_MS = 5000;
 
 /**
  * The driver's owner (ADR 0123): `--as`, else `session-<id>` of the Claude Code session the command

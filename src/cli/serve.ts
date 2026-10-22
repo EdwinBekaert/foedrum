@@ -70,7 +70,7 @@ export interface ServeShell {
 }
 
 /** The supervisor's interval (ADR 0027). */
-const INTERVAL_MS = 5000;
+export const INTERVAL_MS = 5000;
 
 /** A command as a notice names it: its kind, and its batch when it has one. */
 const commandName = (command: EngineCommand): string => {

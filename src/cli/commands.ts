@@ -122,7 +122,7 @@ const readBrewery = async (
 };
 
 /** Who issues a human command about `batchId`, and from where (ADR 0019). */
-export type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
+type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
 
 // Issues the human command `build` makes from the folded state (or the reason it makes none)
 // through the command log, so it is decided against the latest events (ADR 0025), and says where
