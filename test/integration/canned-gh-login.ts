@@ -92,5 +92,6 @@ export const doctorHere = async (
     config: notForDoctor('foedrum.jsonc'),
     claims: notForDoctor('claims'),
     serve: notForDoctor('serve'),
+    brew: notForDoctor('brew'),
     resume: notForDoctor('resume'),
   });

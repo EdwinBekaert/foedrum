@@ -15,20 +15,25 @@ import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
 import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
-import { serveSetup } from './serve-config.ts';
+import { type ServeSetup, serveSetup } from './serve-config.ts';
 import { listenWhileServing, serveShell } from './serve-shell.ts';
 
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
 
+/** How serve and brew find their starting facts: default the real runner and PATH. */
+export type StartOptions = Partial<Pick<DoctorShell, 'exec' | 'resolve'>>;
+
 /**
- * Runs the Cellar in the Brewery checkout `cwd` until Ctrl+C. Its starting facts, gh's login among
- * them, come through `exec` and `resolve`, default the real runner and PATH; a test gives fakes.
+ * What `foedrum <command>` sets up from the Brewery checkout `cwd`, as serve does (ADR 0063,
+ * ADR 0123), or its refusal with one line per problem. Its starting facts, gh's login among them,
+ * come through `exec` and `resolve`, default the real runner and PATH; a test gives fakes.
  */
-export const serveFromCheckout = async (
+export const readServeSetup = async (
   cwd: string,
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve'>>,
-): Promise<CliResult> => {
+  command: string,
+  options?: StartOptions,
+): Promise<{ kind: 'ready'; setup: ServeSetup } | { kind: 'refused'; result: CliResult }> => {
   const { exec = execProcess, resolve = resolveExecutable } = options ?? {};
   const config = readIfThere(join(cwd, 'foedrum.jsonc'));
   // Doctor's tools, isolation and gh's login only: serve reads and checks the Brewery's files
@@ -56,10 +61,21 @@ export const serveFromCheckout = async (
     },
     diagnosis: diagnose(facts),
   });
-  if (ready.kind === 'refused') {
-    const stderr = ready.problems.map((problem) => `foedrum serve: ${problem}\n`).join('');
-    return { exitCode: 1, stdout: '', stderr };
-  }
+  if (ready.kind === 'ready') return ready;
+  const stderr = ready.problems.map((problem) => `foedrum ${command}: ${problem}\n`).join('');
+  return { kind: 'refused', result: { exitCode: 1, stdout: '', stderr } };
+};
+
+/**
+ * Runs the Cellar in the Brewery checkout `cwd` until Ctrl+C. Its starting facts, gh's login among
+ * them, come through `exec` and `resolve`, default the real runner and PATH; a test gives fakes.
+ */
+export const serveFromCheckout = async (
+  cwd: string,
+  options?: StartOptions,
+): Promise<CliResult> => {
+  const ready = await readServeSetup(cwd, 'serve', options);
+  if (ready.kind === 'refused') return ready.result;
   const { setup } = ready;
 
   // The stop signals are listened for while serve runs, and no longer once it returns.

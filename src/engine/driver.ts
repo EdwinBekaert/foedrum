@@ -119,6 +119,12 @@ export interface DriverOptions {
   resumes?: (attempt: AttemptRef) => boolean;
   /** The id of a new session; default `randomUUID`. */
   sessionId?: () => string;
+  /**
+   * Which of the batches its owner held at its start it drives on (ADR 0044): every one by
+   * default. An interactive driver keeps none, so a batch it left earlier lapses within a lease
+   * instead of being driven beside the one it brews (ADR 0123); it holds that one through `takes`.
+   */
+  drivesOn?: (batchId: string) => boolean;
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
   alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;
@@ -268,6 +274,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     brews = () => true,
     resumes = () => false,
     sessionId = randomUUID,
+    drivesOn = () => true,
     alsoCleans = [],
     effects,
     actions,
@@ -307,7 +314,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     held = new Set(
       store
         .batchLeases(clock())
-        .filter((lease) => lease.owner === owner)
+        .filter((lease) => lease.owner === owner && drivesOn(lease.batchId))
         .map((lease) => lease.batchId),
     );
   } catch (error) {

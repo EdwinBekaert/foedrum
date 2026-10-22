@@ -66,6 +66,9 @@ export const cliFromCheckout = async (
         ),
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
+      // Loaded only for brew, as for serve.
+      brew: async (input, issued) =>
+        (await import('./brew-main.ts')).brewFromCheckout(cwd, input, issued, options),
       // Loaded only for resume: it brings serve's setup and the worktrees.
       resume: async (input) =>
         (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, options),

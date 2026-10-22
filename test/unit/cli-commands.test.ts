@@ -99,6 +99,7 @@ describe('foedrum: commands that change state', () => {
     config: () => assert.fail('no foedrum.jsonc to read'),
     claims: () => assert.fail('no claim host to reach'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    brew: async () => assert.fail('no brew here'),
     resume: async () => assert.fail('no session to resume'),
     ...overrides,
   });
@@ -156,7 +157,10 @@ describe('foedrum: commands that change state', () => {
       cancel: ['cancel', '23-1'],
       order: ['order', '#99'],
     };
-    const names = commands.filter((command) => command.changesState).map(({ name }) => name);
+    // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123).
+    const names = commands
+      .filter((command) => command.changesState && command.name !== 'brew')
+      .map(({ name }) => name);
     assert.deepStrictEqual(names, Object.keys(lines));
     for (const name of names) {
       opened = { readOnly: [], writable: [] };
@@ -442,6 +446,7 @@ describe('foedrum stuck', () => {
       config: () => assert.fail('no foedrum.jsonc to read'),
       claims: () => assert.fail('no claim host to reach'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      brew: async () => assert.fail('no brew here'),
       resume: async () => assert.fail('no session to resume'),
     });
   const append = (...events: Event[]) =>
@@ -566,6 +571,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       return github.host;
     },
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    brew: async () => assert.fail('no brew here'),
     resume: async () => assert.fail('no session to resume'),
     ...overrides,
   });
