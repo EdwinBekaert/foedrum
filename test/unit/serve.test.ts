@@ -1256,7 +1256,7 @@ describe('formatNotice', () => {
         waitsFor: { batchId: '12-1', stepId: 'brew', attempt: 1 },
         expiresAt: t0,
       }),
-      'step brew#2 of batch 12-1 waits until the lease of brew#1 is released; it expires at 2026-10-17T12:00:00.000Z',
+      'step brew#2 of batch 12-1 waits until the lease of brew#1 is released; it expires at 2026-10-17T12:00:00.000Z unless it is renewed',
     );
   });
 });
