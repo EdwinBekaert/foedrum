@@ -342,8 +342,12 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
 
     await must(worktree, ['add', '-A', '--', '.', `:(exclude,glob)**/*${TMP_SUFFIX}`]);
     const staged = await git(worktree, ['diff', '--cached', '--quiet']);
+    if (staged.code !== 0 && staged.code !== 1) {
+      throw new Error(`git diff failed: ${why(staged)}`);
+    }
+    let commit = await head();
     if (staged.code === 1) {
-      const before = await head();
+      const before = commit;
       const committed = await git(worktree, [
         'commit',
         '--no-verify',
@@ -354,18 +358,17 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
       if (committed.code !== 0) return { kind: 'failed', reason: why(committed) };
       // A user's pack-refs whose ref lock was removed as stale can set the branch back to its
       // packed value after the commit (ADR 0115): then the events are not on it.
-      if ((await head()) === before) {
+      commit = await head();
+      if (commit === before) {
         return { kind: 'failed', reason: `git commit left ${ref} at ${before ?? 'no commit'}` };
       }
-    } else if (staged.code !== 0) {
-      throw new Error(`git diff failed: ${why(staged)}`);
     }
-    const commit = await head();
     if (commit === undefined) throw new Error(`The state worktree ${worktree} has no commit`);
 
+    // The commit itself, not the branch, which that pack-refs can still set back before the push.
     const pushed = await git(
       worktree,
-      ['push', '--porcelain', '--no-verify', remote, `${ref}:${ref}`],
+      ['push', '--porcelain', '--no-verify', remote, `${commit}:${ref}`],
       { timeoutMs: PUSH_TIMEOUT_MS },
     );
     const outcome = classifyPush(pushed);
