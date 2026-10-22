@@ -621,6 +621,8 @@ describe('foregroundProcess with a real process (ADR 0126)', () => {
   });
 
   it('rejects when the program cannot start', async () => {
-    await assert.rejects(foregroundProcess(join(dir.path, 'no-such-program'), [], dir.path));
+    await assert.rejects(foregroundProcess(join(dir.path, 'no-such-program'), [], dir.path), {
+      code: 'ENOENT',
+    });
   });
 });
