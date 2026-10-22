@@ -10,7 +10,7 @@ import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { MAX_INPUT_BYTES, type StepBrewers } from '../engine/recipe-files.ts';
-import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
+import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
@@ -80,10 +80,6 @@ const startedOf = (batch: Batch | undefined, ref: AttemptRef) => {
 const worktreeOf = (batch: Batch | undefined, ref: AttemptRef): WorktreeRef | undefined =>
   startedOf(batch, ref)?.worktree;
 
-/** The session the driver chose and recorded when it started the attempt (ADR 0116). */
-const sessionOf = (batch: Batch | undefined, ref: AttemptRef): SessionRef | undefined =>
-  startedOf(batch, ref)?.session;
-
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
 const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontmatter } };
 
@@ -133,7 +129,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (batch === undefined || worktree === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
-      const session = sessionOf(batch, ref);
+      const session = startedOf(batch, ref)?.session;
       if (session === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no session`);
       }
