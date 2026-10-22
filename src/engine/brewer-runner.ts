@@ -189,6 +189,20 @@ function doneWithCommits(
   }
 }
 
+/** Why no request goes through, and what a human does before a retry. */
+function spendSummary(spendLimit: SpendLimit): string {
+  switch (spendLimit.kind) {
+    case 'spend':
+      return `claude hit its ${spendLimit.limit}: no request goes through until the limit is raised, then retry the step`;
+    case 'credit':
+      return "claude's credit balance is too low: no request goes through until credits are added, then retry the step";
+    default: {
+      const unhandled: never = spendLimit;
+      throw new Error(`Unhandled spend limit ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
 /**
  * The outcome of an attempt from what the runner saw, the first rule that applies winning: a
  * limit the runner enforced, then how the process ended, then the stream, then the out doc
@@ -207,6 +221,11 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   if (facts.usageLimit !== undefined) {
     const { limit, resets } = facts.usageLimit;
     const summary = `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`;
+    return { kind: 'blocked', blockerKind: 'environment', summary };
+  }
+  // Nothing resets by itself: no request goes through until a human acts (ADR 0129).
+  if (facts.spendLimit !== undefined) {
+    const summary = spendSummary(facts.spendLimit);
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
   if (exit.kind === 'unstartable') {
