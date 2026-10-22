@@ -477,11 +477,13 @@ const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
   // A copy doctor could not read is compared with nothing: its problem line says why.
   if (!('text' in own)) return `${replaces} (ADR 0141)`;
   const marks = 'text' in replaced ? marksOf(replaced.text) : [];
-  const kept = new Set(marksOf(own.text).map((mark) => normal(mark.text)));
+  // A heading is kept only by a heading, and a marked line only by a marked line.
+  const key = (mark: { what: string; text: string }) => `${mark.what}: ${normal(mark.text)}`;
+  const kept = new Set(marksOf(own.text).map(key));
   const dropped = [
     ...new Set(
       marks
-        .filter((mark) => !kept.has(normal(mark.text)))
+        .filter((mark) => !kept.has(key(mark)))
         .map(({ what, text }) => `${what} "${text.trim()}"`),
     ),
   ];

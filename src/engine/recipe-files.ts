@@ -58,7 +58,7 @@ export interface StepBrewer {
 export interface Catalog {
   brewers: readonly (StepBrewer & { name: string; path: string })[];
   lenses: readonly Lens[];
-  /** The brewers the recipes' steps name, and the lenses the brewers' inputs name. */
+  /** The brewers the recipes' steps name, and the lenses those brewers' inputs name. */
   named: { brewers: ReadonlySet<string>; lenses: ReadonlySet<string> };
 }
 
@@ -643,7 +643,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       named: {
         brewers: namedBrewers,
         lenses: new Set(
-          [...brewers.values()].flatMap(({ lenses: named }) => [...(named?.keys() ?? [])]),
+          [...brewers]
+            .filter(([name]) => namedBrewers.has(name))
+            .flatMap(([, { lenses: named }]) => [...(named?.keys() ?? [])]),
         ),
       },
     },
