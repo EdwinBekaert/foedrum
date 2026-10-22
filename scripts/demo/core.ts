@@ -2,7 +2,7 @@
 // there, the order on the fake code host, and whether a run ended as it should. The shell is
 // scripts/demo.ts; one life of the Cellar is scripts/demo/cellar.ts.
 
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import nodePath, { dirname, join, type PlatformPath } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
@@ -81,19 +81,29 @@ export const CRASH_LINE = 'demo: the brewer committed; the Cellar is killed mid-
 /** The start of the line the Cellar prints once the batch is on tap. */
 export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
 
-const tmpOf = (root: string): string => join(root, '.foedrum', 'tmp');
-
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against
  * `cwd`, which must be inside the checkout's `.foedrum/tmp` (and not that folder itself): the
- * folder is removed at the start of every run.
+ * folder is removed at the start of every run. `paths` is the platform's path module, given so
+ * a test can read Windows paths on every platform.
  */
-export const scratchFolder = (root: string, asked: string | undefined, cwd: string): string => {
-  const tmp = tmpOf(root);
-  if (asked === undefined) return join(tmp, 'demo');
-  const path = resolve(cwd, asked);
-  const inside = relative(tmp, path);
-  if (inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+export const scratchFolder = (
+  root: string,
+  asked: string | undefined,
+  cwd: string,
+  paths: PlatformPath = nodePath,
+): string => {
+  const tmp = paths.join(root, '.foedrum', 'tmp');
+  if (asked === undefined) return paths.join(tmp, 'demo');
+  const path = paths.resolve(cwd, asked);
+  // On another drive, relative() gives the absolute path itself, with no `..` in front.
+  const inside = paths.relative(tmp, path);
+  if (
+    inside === '' ||
+    inside === '..' ||
+    inside.startsWith(`..${paths.sep}`) ||
+    paths.isAbsolute(inside)
+  ) {
     throw new Error(`npm run demo works only in a folder inside ${tmp}, not in ${path}`);
   }
   return path;
