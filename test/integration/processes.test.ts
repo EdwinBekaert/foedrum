@@ -616,7 +616,12 @@ describe('foregroundProcess with a real process (ADR 0126)', () => {
   it('runs the program in the folder given, with its arguments, and answers its exit code', async () => {
     const script =
       "require('node:fs').writeFileSync('ran.json', JSON.stringify(process.argv.slice(1))); process.exit(7)";
-    const code = await foregroundProcess(process.execPath, ['-e', script, 'one', ''], dir.path);
+    const code = await foregroundProcess(
+      process.execPath,
+      ['-e', script, 'one', ''],
+      dir.path,
+      process.env,
+    );
     assert.equal(code, 7);
     assert.deepEqual(JSON.parse(readFileSync(join(dir.path, 'ran.json'), 'utf8')), ['one', '']);
   });
@@ -636,8 +641,11 @@ describe('foregroundProcess with a real process (ADR 0126)', () => {
   });
 
   it('rejects when the program cannot start', async () => {
-    await assert.rejects(foregroundProcess(join(dir.path, 'no-such-program'), [], dir.path), {
-      code: 'ENOENT',
-    });
+    await assert.rejects(
+      foregroundProcess(join(dir.path, 'no-such-program'), [], dir.path, process.env),
+      {
+        code: 'ENOENT',
+      },
+    );
   });
 });

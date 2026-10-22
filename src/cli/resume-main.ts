@@ -17,27 +17,20 @@ import { openAttemptWorktrees, worktreeClonePath } from '../workspace/attempt-wo
 import { runGit } from '../workspace/git.ts';
 import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
-import { runResume } from './resume.ts';
+import { claudeConfigDir, runResume, sessionFoundIn } from './resume.ts';
 import type { CliResult } from './run.ts';
 import { serveSetup } from './serve-config.ts';
 
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
 
-/**
- * Whether a transcript `<id>.jsonl` is in any project folder of Claude Code's config directory:
- * `CLAUDE_CONFIG_DIR`, else `.claude` in the home folder (ADR 0116).
- */
-const sessionFound = (id: string): boolean => {
-  const config =
-    environmentVariable(process.env, 'CLAUDE_CONFIG_DIR', process.platform) ??
-    join(homedir(), '.claude');
-  const projects = join(config, 'projects');
-  if (!existsSync(projects)) return false;
-  return readdirSync(projects, { withFileTypes: true }).some(
-    (folder) => folder.isDirectory() && existsSync(join(projects, folder.name, `${id}.jsonl`)),
-  );
-};
+// A folder's subfolders, none when it is missing.
+const folders = (path: string): string[] =>
+  existsSync(path)
+    ? readdirSync(path, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? [entry.name] : [],
+      )
+    : [];
 
 /** Runs `foedrum resume` in the Brewery checkout `cwd`; doctor's facts come through `options`. */
 export const resumeFromCheckout = async (
@@ -72,7 +65,7 @@ export const resumeFromCheckout = async (
       diagnosis: diagnose(facts),
     });
   };
-  // Ctrl+C is claude's while it runs; foedrum waits to let the leases go.
+  // Ctrl+C is claude's while it runs; foedrum waits to let the lease go.
   const ignore = () => {};
   return runResume(input, {
     cwd,
@@ -90,18 +83,26 @@ export const resumeFromCheckout = async (
         own: { url: `https://github.com/${repo}.git`, root: ownGitDirsRoot(workRoot, repo) },
       });
     },
-    sessionFound,
+    sessionFound: (id) =>
+      sessionFoundIn(claudeConfigDir(process.env, process.platform, homedir()), id, {
+        folders,
+        exists: existsSync,
+      }),
     writeSettings: (file, settings) => {
       mkdirSync(dirname(file), { recursive: true });
       writeAttemptSettings(file, settings);
     },
-    nested:
-      environmentVariable(process.env, 'CLAUDE_CODE_CHILD_SESSION', process.platform) === '1' ||
-      !process.stdin.isTTY,
-    claude: async (program, args, folder) => {
+    terminal: {
+      claudeCode:
+        environmentVariable(process.env, 'CLAUDE_CODE_CHILD_SESSION', process.platform) === '1',
+      tty: process.stdin.isTTY === true,
+    },
+    env: process.env,
+    platform: process.platform,
+    claude: async (program, args, folder, env) => {
       process.on('SIGINT', ignore);
       try {
-        return await foregroundProcess(program, args, folder);
+        return await foregroundProcess(program, args, folder, env);
       } finally {
         process.off('SIGINT', ignore);
       }
@@ -111,6 +112,9 @@ export const resumeFromCheckout = async (
       const timer = setInterval(beat, everyMs);
       return () => clearInterval(timer);
     },
+    say: (line) =>
+      process.stderr.write(`${line}
+`),
     pid: process.pid,
   });
 };

@@ -663,16 +663,17 @@ export const spawnProcess: RunProcess = runProcessThrough(execProcess);
 /**
  * Runs `file` in the foreground in `cwd` with this process's stdin, stdout and stderr, for a
  * program a person drives, such as a resumed claude session (ADR 0126). In this process's group,
- * so the terminal's Ctrl+C reaches it; no deadline, since the person ends it. Its exit code, 1 when
- * a signal ended it; rejects when it cannot start.
+ * so the terminal's Ctrl+C reaches it; no deadline, since the person ends it. It gets `env`, not
+ * this process's environment. Its exit code, 1 when a signal ended it; rejects when it cannot start.
  */
 export const foregroundProcess = (
   file: string,
   args: readonly string[],
   cwd: string,
+  env: NodeJS.ProcessEnv,
 ): Promise<number> =>
   new Promise((resolve, reject) => {
-    const command = spawnCommand(file, args);
+    const command = spawnCommand(file, args, process.platform, env);
     const child = spawn(command.file, command.args, {
       cwd,
       env: command.env,

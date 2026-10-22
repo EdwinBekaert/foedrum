@@ -1,16 +1,19 @@
 // `foedrum resume <batch> [<step>[#<n>]]` (ADR 0126): opens a finished brewer attempt's own Claude
-// Code session in its worktree, with its settings file written again, while the batch's and the
-// attempt's leases claim it. resume-main.ts gives it the real machine; unit tests give fakes.
+// Code session in its worktree, with its settings file written again and the brewer's
+// environment, while the attempt's lease claims it. resume-main.ts gives it the real machine; unit
+// tests give fakes.
 
 import { join } from 'node:path';
 import { attemptPermissions, modelOf, settingsFileOf, toolsOf } from '../brewers/attempt-plan.ts';
 import { attemptSettings } from '../brewers/attempt-settings.ts';
 import { resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { defaultLeaseMs, holdBatch, releaseBatch } from '../engine/batch-leases.ts';
-import type { EventStore, StoredEvent } from '../engine/event-store.ts';
+import { defaultLeaseMs } from '../engine/batch-leases.ts';
+import { buildBrewerEnv } from '../engine/brewer-env.ts';
+import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
 import { fold, type State } from '../engine/fold.ts';
 import { sameRepo } from '../engine/task-tree.ts';
+import { envNameKey } from '../platform/env.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { ResumeCommand } from '../schemas/commands.ts';
 import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
@@ -75,20 +78,38 @@ export interface ResumeShell {
  * else `.claude` in the home folder.
  */
 export const claudeConfigDir = (
-  _env: Readonly<Record<string, string | undefined>>,
-  _platform: NodeJS.Platform,
-  _home: string,
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+  home: string,
 ): string => {
-  throw new Error('not implemented');
+  const key = envNameKey(platform);
+  const set = Object.entries(env).find(([name]) => key(name) === 'CLAUDE_CONFIG_DIR')?.[1];
+  return set === undefined || set === '' ? join(home, '.claude') : set;
 };
 
 /** Whether a transcript `<id>.jsonl` is in any project folder of `projects/` under `config`. */
 export const sessionFoundIn = (
-  _config: string,
-  _id: string,
-  _fs: { folders: (path: string) => readonly string[]; exists: (path: string) => boolean },
+  config: string,
+  id: string,
+  fs: { folders: (path: string) => readonly string[]; exists: (path: string) => boolean },
 ): boolean => {
-  throw new Error('not implemented');
+  const projects = join(config, 'projects');
+  return fs.folders(projects).some((folder) => fs.exists(join(projects, folder, `${id}.jsonl`)));
+};
+
+/** What a terminal program reads to draw itself: the only variables of this process claude gets. */
+const TERMINAL_NAMES = ['TERM', 'COLORTERM', 'TERM_PROGRAM', 'LANG', 'LC_ALL'];
+
+const terminalEnv = (
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+): Record<string, string> => {
+  const key = envNameKey(platform);
+  return Object.fromEntries(
+    Object.entries(env).flatMap(([name, value]) =>
+      value !== undefined && TERMINAL_NAMES.includes(key(name)) ? [[name, value]] : [],
+    ),
+  );
 };
 
 /** The attempt resume opens: its session and the worktree it ran in. */
@@ -136,11 +157,15 @@ const targetOf = (
   }
   const at = step?.lastIndexOf('#') ?? -1;
   const stepId = at < 0 ? step : step?.slice(0, at);
+  const attempt = at < 0 ? undefined : step?.slice(at + 1);
+  if (attempt !== undefined && !/^[1-9][0-9]*$/.test(attempt)) {
+    return { refused: `${step} names no attempt: write <step>#<n> with a whole number n from 1` };
+  }
   if (stepId !== undefined && !batch.steps.has(stepId)) {
     return { refused: `batch ${batchId} has no attempt of step ${stepId}` };
   }
-  if (stepId !== undefined && at >= 0) {
-    return finishedTarget(state, { batchId, stepId, attempt: Number(step?.slice(at + 1)) });
+  if (stepId !== undefined && attempt !== undefined) {
+    return finishedTarget(state, { batchId, stepId, attempt: Number(attempt) });
   }
   const starts = events.flatMap(({ event }) =>
     event.type === 'step.started' &&
@@ -177,11 +202,17 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const { batchId } = ref;
     const label = `${batchId} ${labelOf(ref)}`;
     // A Claude Code session cannot hand its terminal to claude: the engineer runs it in one.
-    if (shell.nested) {
+    if (shell.terminal.claudeCode) {
       const run = `run this in a terminal in ${shell.cwd}:\n  foedrum resume ${label}\n`;
       const why =
         'foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over';
       return { exitCode: 0, stdout: `${why}; ${run}`, stderr: '' };
+    }
+    if (!shell.terminal.tty) {
+      const where = 'on Windows, a console window, or winpty in mintty';
+      return failed(
+        `stdin is not a terminal, and claude needs one: run foedrum resume in a terminal (${where})`,
+      );
     }
     if (!shell.sessionFound(session.id)) {
       const kept = 'Claude Code keeps a session where it ran, for 30 days by default';
@@ -201,24 +232,45 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const found = setup.brewers.find(recipe, ref.stepId);
     if (found === undefined) return failed(`recipe ${recipe} has no step ${ref.stepId}`);
 
-    // The batch's lease keeps every driver and another resume out; the attempt's makes the
-    // cleanup keep its worktree, also of an ended batch (worktreeClaims).
+    // The attempt's lease alone: the cleanup keeps its worktree, also of an ended batch
+    // (worktreeClaims), a driver starts no other attempt of its step meanwhile (ADR 0055), and a
+    // second resume of the session is refused. The batch stays free for its driver.
     const owner = `resume-${shell.pid}`;
     const key = attemptKey.encode(ref);
-    const hold = () =>
+    const named = `attempt ${labelOf(ref)} of batch ${batchId}`;
+    // Takes or renews the lease, unless another owner's is alive: then that lease.
+    const claim = (): Lease | undefined =>
       store.withTransaction((tx) => {
-        const held = holdBatch(tx, { batchId, owner, now: shell.now(), leaseMs: defaultLeaseMs });
-        if (held.kind === 'held') {
-          tx.putLease({ attemptKey: key, owner, expiresAt: held.lease.expiresAt });
-        }
-        return held;
+        const now = shell.now();
+        const other = store
+          .currentLeases(now)
+          .find((lease) => lease.attemptKey === key && lease.owner !== owner);
+        if (other !== undefined) return other;
+        tx.putLease({
+          attemptKey: key,
+          owner,
+          expiresAt: new Date(now.getTime() + defaultLeaseMs),
+        });
+        return undefined;
       });
-    const held = hold();
-    if (held.kind === 'other') {
-      const { owner: holder, expiresAt } = held.lease;
-      return failed(`batch ${batchId} is held by ${holder} until ${expiresAt.toISOString()}`);
+    const other = claim();
+    if (other !== undefined) {
+      return failed(`${named} is open in ${other.owner} until ${other.expiresAt.toISOString()}`);
     }
-    const stop = shell.heartbeat(defaultLeaseMs / 3, hold);
+    // A renewal never ends the session: what goes wrong is said on the terminal.
+    const renew = (): void => {
+      try {
+        const taken = claim();
+        if (taken !== undefined) {
+          const ends = 'the cleanup may remove its worktree once that claim ends';
+          shell.say(`foedrum resume: lost the claim on ${named} to ${taken.owner}: ${ends}`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        shell.say(`foedrum resume: could not renew the claim on ${named}: ${message}`);
+      }
+    };
+    const stop = shell.heartbeat(defaultLeaseMs / 3, renew);
     try {
       const { recreate } = await shell.worktrees(repository, setup.workRoot);
       const { path: folder } = await recreate(ref, worktree.commit);
@@ -232,12 +284,23 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
         tools: toolsOf(permissions.allow),
         sessionId: session.id,
       });
-      return { exitCode: await shell.claude(setup.claude, args, folder), stdout: '', stderr: '' };
+      // The attempt's environment (ADR 0109's forced variables included) with the terminal's own.
+      const env = buildBrewerEnv({
+        base: { ...setup.brewerEnv.base, ...terminalEnv(shell.env, shell.platform) },
+        brewer: found.brewer.env,
+        forced: setup.brewerEnv.forced,
+        platform: shell.platform,
+      });
+      const exitCode = await shell.claude(setup.claude, args, folder, env);
+      return { exitCode, stdout: '', stderr: '' };
     } finally {
       stop();
+      // Never another owner's lease.
       store.withTransaction((tx) => {
-        releaseBatch(tx, batchId, owner);
-        tx.releaseLease(key);
+        const leases = store.currentLeases(shell.now());
+        if (!leases.some((lease) => lease.attemptKey === key && lease.owner !== owner)) {
+          tx.releaseLease(key);
+        }
       });
     }
   } finally {
