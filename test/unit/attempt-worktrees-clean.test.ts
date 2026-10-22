@@ -341,6 +341,20 @@ describe('openAttemptWorktrees with a fake git', () => {
         assert.ok(existsSync(join(gitDirs, `${young.replace('f1', 'a1')}.git`)));
       });
 
+      it('removes them too when one batch has ended', async () => {
+        const gitDirs = join(workRoot, 'git-dirs');
+        mkdirSync(join(gitDirs, `${uuid}.git`), { recursive: true });
+        aged(join(gitDirs, `${uuid}.git`), at);
+        const { git } = noWorktrees();
+
+        const report = await open(git, now).clean(ended, { batchId: '12-1' });
+
+        assert.deepEqual(report.done, [
+          `removed git directory ${uuid}.git: a stopped call left it`,
+        ]);
+        assert.equal(existsSync(join(gitDirs, `${uuid}.git`)), false);
+      });
+
       it('reports a root it cannot read, and cleans the worktrees still', async () => {
         mkdirSync(join(path, 'leftover'), { recursive: true });
         mkdirSync(workRoot, { recursive: true });
