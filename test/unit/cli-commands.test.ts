@@ -156,7 +156,10 @@ describe('foedrum: commands that change state', () => {
       cancel: ['cancel', '23-1'],
       order: ['order', '#99'],
     };
-    const names = commands.filter((command) => command.changesState).map(({ name }) => name);
+    // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123).
+    const names = commands
+      .filter((command) => command.changesState && command.name !== 'brew')
+      .map(({ name }) => name);
     assert.deepStrictEqual(names, Object.keys(lines));
     for (const name of names) {
       opened = { readOnly: [], writable: [] };
