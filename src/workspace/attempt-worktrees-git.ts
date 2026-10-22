@@ -49,9 +49,8 @@ export interface AttemptWorktreesOptions {
   /** The clone's remote the fetch reaches; default `origin`. */
   remote?: string;
   /**
-   * The remote as Foedrum names it: its `root` is where the base fetch and the noPush guard's
-   * listing make their git directories, which the cleanup clears of what a stopped call left
-   * (ADR 0130, ADR 0137).
+   * The remote as Foedrum names it: its `root` is where the base fetch makes its git directories,
+   * which the cleanup clears of what a stopped call left (ADR 0130, ADR 0137).
    */
   own: OwnRemote;
   /** The clock for the age of a stale index.lock. */

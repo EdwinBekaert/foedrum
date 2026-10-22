@@ -36,9 +36,8 @@ export const managedClonePath = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'clone.git');
 
 /**
- * Where each base fetch and noPush listing of `repo` makes a git directory of its own, which writes
- * into its clone's objects and reads none of the clone's configuration (ADR 0090, ADR 0106,
- * ADR 0137).
+ * Where each base fetch of `repo` makes a git directory of its own, which writes into its clone's
+ * objects and reads none of the clone's configuration (ADR 0090, ADR 0137).
  */
 export const ownGitDirsRoot = (workRoot: string, repo: string): string =>
   join(workRoot, repoFolder(repo), 'git-dirs');

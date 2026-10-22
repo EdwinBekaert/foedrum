@@ -33,8 +33,8 @@ export interface BranchPushOptions {
    */
   remote?: string;
   /**
-   * The remote as Foedrum names it, which the base fetch and the noPush guard's listing reach
-   * (ADR 0090, ADR 0106); without it they refuse.
+   * The remote as Foedrum names it, which the base fetch reaches (ADR 0090); without it, it
+   * refuses.
    */
   own?: OwnRemote;
 }

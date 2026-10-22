@@ -1,7 +1,6 @@
 // Git in a clone that attempt worktrees share: the engine's calls there run with no hook or
-// fsmonitor (ADR 0137), and the push's base fetch and the noPush guard's listing run in a git
-// directory of Foedrum's own, with the clone's objects and the URL Foedrum names (ADR 0090,
-// ADR 0106).
+// fsmonitor (ADR 0137), and the push's base fetch runs in a git directory of Foedrum's own, with
+// the clone's objects and the URL Foedrum names (ADR 0090).
 
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
@@ -11,9 +10,8 @@ import { removeTree } from '../platform/remove.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 /**
- * The repository's remote as Foedrum names it, which the base fetch and the noPush guard's listing
- * reach from git directories of Foedrum's own, never through the clone's configuration (ADR 0090,
- * ADR 0106, ADR 0137).
+ * The repository's remote as Foedrum names it, which the base fetch reaches from git directories
+ * of Foedrum's own, never through the clone's configuration (ADR 0090, ADR 0137).
  */
 export interface OwnRemote {
   /** `https://github.com/<owner>/<name>.git`: the repository the pull request goes into. */
