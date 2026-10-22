@@ -87,6 +87,8 @@ describe('runBrew', () => {
   let lock: ReturnType<typeof fakeLock>;
   let locked: string[];
   let started: string[];
+  /** The runs the last shell's runner was asked to stop, by attempt key. */
+  let stops: readonly string[];
 
   beforeEach(() => {
     dir = makeTempDir('brew');
@@ -144,6 +146,7 @@ describe('runBrew', () => {
       started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
       return brew;
     });
+    stops = runner.stopped;
     return {
       out: (line) => lines.push(line),
       signal: new AbortController().signal,
@@ -321,6 +324,7 @@ describe('runBrew', () => {
     });
     assert.equal(await runBrew(setup, stopped, request), 1);
     assert.equal(lines.at(-1), 'foedrum brew: stopped; batch 12-1 brewing: brew #1 started');
+    assert.equal(stops.length, 1, 'the hung run was stopped');
     assert.equal(lock.held, false);
   });
 

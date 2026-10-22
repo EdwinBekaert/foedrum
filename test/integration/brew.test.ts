@@ -27,6 +27,7 @@ import { serveShell } from '../../src/cli/serve-shell.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { type Git, runGit } from '../../src/workspace/git.ts';
+import { hangGuardMs } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('foedrum brew', () => {
@@ -94,6 +95,9 @@ describe('foedrum brew', () => {
     const shell: ServeShell = {
       ...machine,
       intervalMs: 50,
+      // Only a guard against a hang (ADR 0075): brew stops, closing its driver, and the exit
+      // code below says it never got there.
+      signal: AbortSignal.any([machine.signal, AbortSignal.timeout(hangGuardMs)]),
       runner: (_claude, plan) =>
         scriptedBrewer({
           plan,
