@@ -296,6 +296,10 @@ const lex = (source: string, dialect: Dialect): Lexed => {
       const end = command.indexOf('}', i) + 1;
       add(command.slice(i, end));
       i = end;
+    } else if (char === '&' && (word?.text.endsWith('>') || command[i + 1] === '>')) {
+      // Part of a redirection (2>&1, &>log), not a separator.
+      add(char);
+      i++;
     } else if (SEPARATORS.has(char)) {
       endSegment();
       i++;
@@ -652,6 +656,10 @@ const gitAlias = (value: string): string =>
 // git push's options that take the next word as their value.
 const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack', '--exec']);
 
+// A redirection word, and one that is only the operator, whose target is the next word.
+const REDIRECTION = /^(?:\d+|&)?[<>]/;
+const REDIRECTION_ONLY = /^(?:\d+|&)?(?:>>?|<<?<?|>\||[<>]&)$/;
+
 // The remote a push names, as git reads it: its first operand, else --repo; undefined when it names
 // none, and null when it is computed at run time (ADR 0114).
 const pushRemote = (args: Word[]): string | null | undefined => {
@@ -659,7 +667,11 @@ const pushRemote = (args: Word[]): string | null | undefined => {
   let operand: Word | undefined;
   for (let i = 0; i < args.length && operand === undefined; i++) {
     const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
-    if (arg.text === '--') operand = args[i + 1];
+    // A redirection is the shell's (2>&1, >out.txt, &>log, 2> err.txt), with its target in the
+    // next word when the word is only the operator.
+    if (!arg.quoted && REDIRECTION.test(arg.text)) {
+      if (REDIRECTION_ONLY.test(arg.text)) i++;
+    } else if (arg.text === '--') operand = args[i + 1];
     else if (arg.text === '--repo') repo = args[++i];
     else if (arg.text.startsWith('--repo=')) repo = { ...arg, text: arg.text.slice(7) };
     else if (!arg.text.startsWith('-')) operand = arg;
