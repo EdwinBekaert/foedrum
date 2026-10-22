@@ -2,6 +2,7 @@
 // scripted for its step. What a settled attempt did goes through the real settleAttempt, so the
 // tests exercise the same rules the real runner uses.
 
+import { settleReadings } from '../../src/checks/gravity.ts';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import {
   type AttemptEnd,
@@ -13,6 +14,7 @@ import {
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
+import type { GravityReading } from '../../src/schemas/events.ts';
 import type { BlockerKind } from '../../src/schemas/out-doc.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 
@@ -22,7 +24,9 @@ export type Behaviour =
   /** The process runs, reporting `progress`, until the engine stops it. */
   | { kind: 'hang'; progress: AttemptProgress }
   /** The process died with the runner that ran it: it never ends, and nothing reports it. */
-  | { kind: 'lost' };
+  | { kind: 'lost' }
+  /** A check step read these, and ends as the check runner settles them (ADR 0069). */
+  | { kind: 'read'; readings: readonly GravityReading[] };
 
 /** An out doc with this frontmatter. */
 export const outDoc = (frontmatter: Record<string, unknown>): string =>
@@ -71,6 +75,7 @@ export const behave = {
   crash: (): Behaviour =>
     settle('---\n{ "status": "do', { exit: { kind: 'killed', signal: 'SIGSEGV' }, turns: 7 }),
   lost: (): Behaviour => ({ kind: 'lost' }),
+  read: (readings: readonly GravityReading[]): Behaviour => ({ kind: 'read', readings }),
   /** The stream is not stream-json, whatever the out doc says. */
   garbage: (): Behaviour =>
     settle(outDoc({ status: 'done', summary: 'Done' }), { garbage: '\u0000\u0007 Abort trap' }),
@@ -154,6 +159,14 @@ export const fakeBrewerRunner = (
       }
       case 'lost':
         return { ended: new Promise<AttemptEnd>(() => {}), stop: () => {} };
+      case 'read': {
+        const { readings } = behaviour;
+        const ended = Promise.resolve().then(() => ({
+          ending: settleReadings(readings),
+          readings,
+        }));
+        return { ended, stop: () => {} };
+      }
       default: {
         const unhandled: never = behaviour;
         throw new Error(`Unhandled behaviour ${JSON.stringify(unhandled)}`);

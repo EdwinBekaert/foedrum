@@ -111,7 +111,13 @@ export function passed(reading: GravityReading): boolean {
 }
 
 /** A check as a reason names it: its name and command, or a literal command alone. */
-const nameOf = ({ check, command }: { check?: CheckName | undefined; command: string }): string =>
+export const checkName = ({
+  check,
+  command,
+}: {
+  check?: CheckName | undefined;
+  command: string;
+}): string =>
   check === undefined ? `the check "${command}"` : `the check "${check}" (${command})`;
 
 /** The last line of `text` that is not blank. */
@@ -136,12 +142,12 @@ export function settleReadings(readings: readonly GravityReading[]): Ending {
       throw new Error('A skipped check passes');
     // The same tree would read the same again: no retry, the onFail route or Stuck.
     case 'exited': {
-      const reason = `${nameOf(decisive)} failed with exit code ${decisive.exitCode}`;
+      const reason = `${checkName(decisive)} failed with exit code ${decisive.exitCode}`;
       return { kind: 'failed', retryable: false, reason };
     }
     // A crash of the code under check is a failure of the tree, as an exit code is.
     case 'signaled': {
-      const reason = `${nameOf(decisive)} was ended by ${decisive.signal}`;
+      const reason = `${checkName(decisive)} was ended by ${decisive.signal}`;
       return { kind: 'failed', retryable: false, reason };
     }
     case 'killed':
@@ -149,13 +155,13 @@ export function settleReadings(readings: readonly GravityReading[]): Ending {
         case 'stopped':
           return { kind: 'cancelled' };
         case 'timed-out': {
-          const reason = `${nameOf(decisive)} did not finish by the step's deadline`;
+          const reason = `${checkName(decisive)} did not finish by the step's deadline`;
           return { kind: 'failed', retryable: false, reason };
         }
         // Another attempt would write as much again; a human makes the check quieter.
         case 'too-much-output':
           return environment(
-            `${nameOf(decisive)} wrote more output than the process runner's limit`,
+            `${checkName(decisive)} wrote more output than the process runner's limit`,
           );
         default: {
           const unhandled: never = decisive.killed;
@@ -166,7 +172,7 @@ export function settleReadings(readings: readonly GravityReading[]): Ending {
     case 'unstarted': {
       const why = lastLine(decisive.tail);
       return environment(
-        `${nameOf(decisive)} could not start${why === undefined ? '' : `: ${why}`}`,
+        `${checkName(decisive)} could not start${why === undefined ? '' : `: ${why}`}`,
       );
     }
     default: {

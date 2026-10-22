@@ -21,6 +21,8 @@ import {
   inputsOf,
   type PlannedInput,
   planAttempt,
+  routeInput,
+  routeOf,
   settingsFileOf,
 } from './attempt-plan.ts';
 import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claude-runner.ts';
@@ -149,6 +151,14 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       }
       const answers = answersOf(batch, stepId);
       if (answers !== undefined) inputs.push(answers);
+      // What sent it back, when a route scheduled it (ADR 0128).
+      const route = routeOf(batch, ref, (id) => brewers.find(recipe, id)?.brewer.output.doc);
+      if (route !== undefined) {
+        const { outDoc } = route;
+        const read =
+          outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
+        inputs.push(routeInput(route, read));
+      }
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
       const plan = planAttempt({

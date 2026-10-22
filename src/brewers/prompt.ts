@@ -14,7 +14,9 @@ export type InputSource =
   /** A lens's text (ADR 0098): `path` is the Brewery's `lenses/<lens>.md` or the default's. */
   | { kind: 'lens'; lens: string; path: string }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
-  | { kind: 'answers'; step: string };
+  | { kind: 'answers'; step: string }
+  /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
+  | { kind: 'route'; step: string; from: string; why: 'failed' | 'findings' };
 
 export interface PromptInput {
   /** The brewer's input name (`inputs[].name`, the `{variable}` in its body), when it has one. */
@@ -53,6 +55,10 @@ function describeSource(source: InputSource): string {
       return `lens ${source.lens}, file ${source.path}`;
     case 'answers':
       return `answers to the questions of step ${source.step}`;
+    case 'route': {
+      const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
+      return `why step ${source.step} runs again: ${what} of step ${source.from}`;
+    }
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);
