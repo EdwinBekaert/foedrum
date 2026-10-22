@@ -80,10 +80,9 @@ export interface OwnGitDir {
   /**
    * Fetches `refspec` from the URL Foedrum names, with nothing else: no tags, no FETCH_HEAD, no
    * submodules, no maintenance. Into a partial clone it fetches blobless, with that URL as the
-   * directory's promisor remote. With `prune`, the refs `refspec` writes that the remote no longer
-   * has go, before the fetch writes any.
+   * directory's promisor remote.
    */
-  fetch(refspec: string, timeoutMs: number, prune?: boolean): Promise<void>;
+  fetch(refspec: string, timeoutMs: number): Promise<void>;
 }
 
 /**
@@ -120,7 +119,7 @@ export const withOwnGitDir = async <T>(
       env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
       config: { ...options.config, ...OWN_CONFIG },
     });
-  const fetch = async (refspec: string, timeoutMs: number, prune = false): Promise<void> => {
+  const fetch = async (refspec: string, timeoutMs: number): Promise<void> => {
     // A partial clone as the clone's configuration says: a promisor remote, or the extension older
     // gits write. One that says so falsely fetches no files, and one that hides it fails to fetch.
     const promisor = await inClone(git)(
@@ -148,7 +147,6 @@ export const withOwnGitDir = async <T>(
         '--no-recurse-submodules',
         // A gc there would prune every object of the clone that its own refs do not reach.
         '--no-auto-maintenance',
-        ...(prune ? ['--prune'] : []),
         ...(partial ? [`--filter=${FILTER}`] : []),
         '--end-of-options',
         partial ? PROMISOR : url,
