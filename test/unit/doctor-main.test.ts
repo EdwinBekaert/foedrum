@@ -33,6 +33,8 @@ describe('doctorFromCheckout', () => {
     const facts = await doctorFromCheckout(dir.path, {
       exec,
       resolve: (name) => `/usr/bin/${name}`,
+      // Never the user's own list (ADR 0114).
+      denylist: () => ({ kind: 'none', path: '/made-up/denylist.txt' }),
     });
     assert.equal(facts.config, config);
     assert.deepEqual(

@@ -45,6 +45,9 @@ const defaultsInUse = (['recipes', 'brewers', 'lenses'] as const).flatMap((folde
   return names.sort().map((name) => `defaults/${folder}/${name}`);
 });
 const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
+// doctorHere gives doctor no denylist, so it never reads the user's own (ADR 0114).
+const DENYLIST_LINE =
+  'Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or /made-up/denylist.txt, ADR 0114)';
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // canned-gh-login.ts. The real tools' output is no longer read here (ADR 0075).
@@ -198,6 +201,7 @@ describe('foedrum doctor with stub tools', () => {
         ...platform.isolation,
         `Container: podman 5.2.0 at ${at('podman')}; the container level is available`,
         DEFAULTS_LINE,
+        DENYLIST_LINE,
         '',
         'Foedrum has everything it needs.',
         '',
@@ -235,6 +239,7 @@ describe('foedrum doctor with stub tools', () => {
         ...platform.isolation,
         `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
         DEFAULTS_LINE,
+        DENYLIST_LINE,
         '',
         'Problems:',
         '  npm not found: Foedrum is installed and updated with npm, which comes with Node',
@@ -281,6 +286,7 @@ describe('foedrum doctor with stub tools', () => {
         ...platform.isolation,
         `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
         DEFAULTS_LINE,
+        DENYLIST_LINE,
         '',
         'Foedrum has everything it needs.',
         '',

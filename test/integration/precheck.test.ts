@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -28,10 +28,12 @@ const testsDir = join(root, '.foedrum', 'tmp', 'tests');
 
 // The environment without npm's own variables, so a test controls which npm a child sees. git
 // stops at the tests folder, so a hook run in a test folder never sees this checkout's state,
-// such as a detached HEAD in CI or in a review's scratch tree.
+// such as a detached HEAD in CI or in a review's scratch tree. The denylist is a fixture without
+// entries, so no test reads the user's own (ADR 0114).
 const envWithoutNpm = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_/i.test(key))),
   GIT_CEILING_DIRECTORIES: testsDir,
+  FOEDRUM_DENYLIST: join(root, 'test', 'fixtures', 'denylist', 'empty.txt'),
   ...extra,
 });
 
@@ -158,6 +160,158 @@ describe('scripts/precheck.ts started by node', () => {
     } finally {
       // A real repository: removeTree clears git's read-only objects and retries busy files.
       await removeTree(project.path);
+    }
+  });
+
+  // The commits no remote-tracking ref has, read by real git (ADR 0114): the word in the commit the
+  // remote already has does not count.
+  it('blocks a push whose commits hold a word on the denylist, naming the place only', async () => {
+    const project = makeTempDir('denied-push');
+    try {
+      const git = (args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          stdio: 'ignore',
+        });
+      git(['init', '-q', '-b', 'main']);
+      writeFileSync(join(project.path, 'a.md'), 'examplecorp, already on the remote\n');
+      git(['add', 'a.md']);
+      git(['commit', '-q', '-m', 'Initial commit']);
+      git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+      writeFileSync(join(project.path, 'notes.md'), 'one\nWe ship to ExampleCorp\n');
+      git(['add', 'notes.md']);
+      git(['commit', '-q', '-m', 'Add notes']);
+      const list = `${project.path}-list.txt`;
+      const gate = async (words: string) => {
+        writeFileSync(list, words);
+        return run(process.execPath, [script], hookInput('git push', project.path), {
+          cwd: root,
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+        });
+      };
+      const denied = await gate('# clients\nexamplecorp\n');
+      assert.equal(denied.code, 2);
+      assert.match(
+        denied.stderr,
+        /^git push is blocked: it would send a word on your denylist \(ADR 0114\), at commit [0-9a-f]{7} notes\.md:2\. /,
+      );
+      assert.doesNotMatch(denied.stderr, /example ?corp/i);
+      // A word only in the commit the remote has passes on to the rest of the gate.
+      assert.doesNotMatch((await gate('remote\n')).stderr, /denylist/);
+    } finally {
+      await removeTree(project.path);
+      rmSync(`${project.path}-list.txt`, { force: true });
+    }
+  });
+
+  // What real git prints for messages, authors and a merge's conflict resolution, and a commit
+  // another remote has, read against the remote the push goes to (ADR 0114).
+  it('finds a word in a message, an author, a merge and a commit another remote has', async () => {
+    const project = makeTempDir('denied-merge');
+    const list = `${project.path}-list.txt`;
+    try {
+      const git = (args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+      const write = (text: string) => writeFileSync(join(project.path, 'a.md'), text);
+      git(['init', '-q', '-b', 'main']);
+      write('base\n');
+      git(['add', 'a.md']);
+      git(['commit', '-q', '-m', 'Initial commit']);
+      git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+      git(['checkout', '-q', '-b', 'side']);
+      write('side for examplecorp\n');
+      git(['commit', '-q', '-am', 'Side']);
+      const side = git(['rev-parse', 'HEAD']).trim();
+      // A private mirror has the side commit; the push to origin still sends it.
+      git(['update-ref', 'refs/remotes/work/side', 'HEAD']);
+      git(['checkout', '-q', 'main']);
+      write('main\n');
+      git(['commit', '-q', '-am', 'Tidy\n\nFor Acme Widget, see the notes']);
+      const tidy = git(['rev-parse', 'HEAD']).trim();
+      git([
+        'commit',
+        '-q',
+        '--allow-empty',
+        '--author',
+        'AcmeWidget Bot <bot@example.com>',
+        '-m',
+        'Empty',
+      ]);
+      const empty = git(['rev-parse', 'HEAD']).trim();
+      try {
+        git(['merge', '-q', 'side']);
+      } catch {
+        // The conflict is the point: its resolution is a line the merge adds of its own.
+      }
+      write('resolved for ExampleCorp\n');
+      git(['add', 'a.md']);
+      git(['commit', '-q', '--no-edit']);
+      const merge = git(['rev-parse', 'HEAD']).trim();
+      writeFileSync(list, 'examplecorp\nacmewidget\n');
+      const { code, stderr } = await run(
+        process.execPath,
+        [script],
+        hookInput('git push', project.path),
+        { cwd: root, env: envWithoutNpm({ FOEDRUM_DENYLIST: list }) },
+      );
+      assert.equal(code, 2, stderr);
+      for (const place of [
+        `commit ${tidy.slice(0, 7)} message line 3`,
+        `commit ${empty.slice(0, 7)} author`,
+        `commit ${side.slice(0, 7)} a.md:1`,
+        `commit ${merge.slice(0, 7)} a.md:1`,
+      ]) {
+        assert.ok(stderr.includes(place), `${place} in ${stderr}`);
+      }
+      assert.doesNotMatch(stderr, /example ?corp|acme ?widget/i);
+    } finally {
+      await removeTree(project.path);
+      rmSync(list, { force: true });
+    }
+  });
+
+  // The remote the command names reaches the scan through the real wiring (ADR 0114): origin has
+  // the word's commit, public does not, and a URL or a computed remote has no tracking refs.
+  it('reads against the remote the push names, and blocks one it cannot name', async () => {
+    const project = makeTempDir('denied-remote');
+    const list = `${project.path}-list.txt`;
+    try {
+      const git = (args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+      git(['init', '-q', '-b', 'main']);
+      git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      git(['update-ref', 'refs/remotes/public/main', 'HEAD']);
+      writeFileSync(join(project.path, 'notes.md'), 'We ship to ExampleCorp\n');
+      git(['add', 'notes.md']);
+      git(['commit', '-q', '-m', 'Add notes']);
+      git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+      writeFileSync(list, 'examplecorp\n');
+      const gate = (command: string) =>
+        run(process.execPath, [script], hookInput(command, project.path), {
+          cwd: root,
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+        });
+      const toPublic = await gate('git push public HEAD');
+      assert.equal(toPublic.code, 2);
+      assert.match(toPublic.stderr, /^git push is blocked: it would send a word .* notes\.md:1\. /);
+      for (const command of ['git push https://example.invalid/x.git HEAD', 'git push "$r" HEAD']) {
+        const blocked = await gate(command);
+        assert.equal(blocked.code, 2);
+        assert.match(blocked.stderr, /^git push is blocked: its remote is .*name the remote/);
+      }
+      // origin has the commit: the push to it passes on to the rest of the gate.
+      assert.doesNotMatch((await gate('git push origin HEAD')).stderr, /denylist/);
+    } finally {
+      await removeTree(project.path);
+      rmSync(list, { force: true });
     }
   });
 
