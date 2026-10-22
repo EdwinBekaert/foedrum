@@ -83,7 +83,7 @@ A check reads a tree; it fetches nothing. Dependencies are installed before it b
 - A check that needs the network (a test against a live service, an install) fails in the sandbox until its repository moves that to `setup` (#349); one that needs a toolchain installed in the home folder (`~/.nvm`, `~/.cargo`, `~/.rustup`, `~/.sdkman`) does not find it. Install toolchains outside the home folder for check steps.
 - `sandbox-exec` is deprecated. When macOS removes it, checks there are unstarted with the reason, never run unsandboxed.
 - A reading may carry `unsandboxed`; existing logs and state branches still fold.
-- `foedrum doctor`'s advice still says check steps run outside the sandbox on every level until #190. `src/cli/doctor.ts` is being changed by #345 meanwhile, so that line changes in a follow-up after it merges.
+- `foedrum doctor` says under the isolation level where check steps run: in the sandbox on the sandboxed level, only in bubblewrap's sandbox (or not at all) on permissions-only Linux, and outside any sandbox on native Windows.
 - The integration test (`test/integration/check-sandbox.test.ts`) runs where the sandbox runs: on macOS, and on Linux where `bwrap` is installed and can make its namespaces; elsewhere it skips with that reason.
 
 ## Alternatives considered

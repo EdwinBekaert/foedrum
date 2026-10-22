@@ -75,6 +75,12 @@ jobs:
           echo "npm run check took $(( $(date +%s) - start )) s" | tee "$RUNNER_TEMP/check-time.txt"
           exit "$status"
 
+      # The sandbox check steps run in on Linux (ADR 0076), so its integration test runs against
+      # the real bwrap here instead of skipping.
+      - name: Install bubblewrap
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt-get install -y bubblewrap
+
       # Tests against the real tools, kept out of npm run check (ADR 0021). The nightly run is
       # this same job, so they run there on every leg too.
       - name: npm run test:integration
