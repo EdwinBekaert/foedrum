@@ -26,7 +26,9 @@ export type HouseYeastRule = z.infer<typeof HouseYeastRule>;
 // .foedrum/house-yeast-candidates.jsonl until the state branch carries candidates (ADR 0122).
 export const HouseYeastCandidate = z.strictObject({
   lesson: PathSafeId.describe('The id of the rule the lesson would become'),
-  review: NonEmpty.describe('The pull request reviewed, or the branch of a local run'),
+  review: NonEmpty.describe(
+    'The head branch reviewed, so every run for one pull request is one review',
+  ),
   source: NonEmpty.describe('The finding or comment that taught the lesson'),
   seen: z.iso.date(),
   kind: HouseYeastRule.shape.kind,
