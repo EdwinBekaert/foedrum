@@ -505,6 +505,21 @@ describe('openDriver', () => {
       );
     });
 
+    it('starts no attempt whose own lease another driver holds: one that lost the batch to a takeover was starting it (ADR 0124)', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const key = attemptKey.encode(plan('b1'));
+      store.withTransaction((tx) =>
+        tx.putLease({ attemptKey: key, owner: 'session-7', expiresAt: at(3) }),
+      );
+      const driver = await open({ runner });
+      await driver.drive();
+      assert.deepStrictEqual(started, [], 'plan#1 waits');
+      now = at(3);
+      await driver.drive();
+      assert.deepStrictEqual(started, [plan('b1')]);
+    });
+
     describe('a retry while the run that Stuck abandoned still holds its lease (#150)', () => {
       // plan stalls after 10 minutes without progress; a stopped run ends only when the test
       // ends it, or never.
