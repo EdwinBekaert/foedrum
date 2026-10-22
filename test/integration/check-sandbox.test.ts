@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
+import { bwrapArgs, SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecOptions, execProcess } from '../../src/platform/processes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -22,11 +22,16 @@ const unavailable = (): string | undefined => {
     case 'linux': {
       const bwrap = resolveExecutable('bwrap');
       if (bwrap === undefined) return 'bwrap is not on PATH';
-      // Unprivileged namespaces may be off (a container, WSL 1, an AppArmor rule).
-      const probe = spawnSync(bwrap, ['--ro-bind', '/', '/', '--unshare-net', 'true'], {
-        timeout: 30_000,
-      });
-      return probe.status === 0 ? undefined : `bwrap cannot make its namespaces here`;
+      // Unprivileged namespaces may be off (a container, WSL 1, an AppArmor rule): probed with the
+      // arguments a check gets, so the probe and the run agree.
+      const probeDir = makeTempDir('check-sandbox-probe');
+      try {
+        const paths = { home: probeDir.path, worktree: probeDir.path, gitDir: undefined };
+        const probe = spawnSync(bwrap, bwrapArgs(paths, 'true'), { timeout: 30_000 });
+        return probe.status === 0 ? undefined : 'bwrap cannot make its sandbox here';
+      } finally {
+        probeDir.remove();
+      }
     }
     default:
       return `no check sandbox on ${process.platform} (ADR 0076)`;
@@ -73,21 +78,15 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
     assert.doesNotMatch(result.output, /planted-login/);
   });
 
-  // gh's login in the OS keyring (ADR 0073): the user's D-Bus socket under /run on Linux, the
-  // Keychain's service on macOS.
-  it('reaches no keyring', async () => {
-    if (process.platform === 'linux') {
-      const result = await check('ls -A /run');
-      assert.equal(result.exitCode, 0, result.output);
-      assert.equal(result.output.trim(), '');
-      return;
-    }
-    const line = 'security find-generic-password -s foedrum-check-sandbox-none';
-    const outside = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
-    const inside = await check(line);
-    assert.notEqual(inside.exitCode, 0, inside.output);
-    // Not found outside, refused inside.
-    assert.notDeepEqual([inside.exitCode, inside.output], [outside.exitCode, outside.output]);
+  // gh's login in the OS keyring (ADR 0073): the user's D-Bus socket under /run on Linux. The
+  // macOS Keychain is not asked, inside the sandbox or out: no test reaches the OS keyring
+  // (CLAUDE.md); the unit test pins the profile's denial.
+  it('sees an empty /run on Linux, where the D-Bus socket was', {
+    skip: process.platform !== 'linux' && 'the keyring socket is a Linux path',
+  }, async () => {
+    const result = await check('ls -A /run');
+    assert.equal(result.exitCode, 0, result.output);
+    assert.equal(result.output.trim(), '');
   });
 
   it('cannot open a connection to a server on 127.0.0.1', async () => {
