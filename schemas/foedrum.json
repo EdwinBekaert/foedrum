@@ -36,7 +36,7 @@
       "pattern": "^[1-9][0-9]*[smhd]$"
     },
     "isolation": {
-      "description": "The isolation the Brewery's attempts need; check steps refuse to run below it",
+      "description": "The isolation the Brewery needs; for now only check steps refuse to run below it",
       "type": "object",
       "properties": {
         "minimum": {

@@ -158,7 +158,7 @@ export const BreweryConfig = z
           .describe('The lowest isolation level the Brewery runs at (ADR 0010, ADR 0076)'),
       })
       .optional()
-      .describe("The isolation the Brewery's attempts need; check steps refuse to run below it"),
+      .describe('The isolation the Brewery needs; for now only check steps refuse to run below it'),
     permissionCeiling: z
       .array(CeilingTool)
       .default([])
