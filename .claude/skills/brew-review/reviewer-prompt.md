@@ -11,7 +11,7 @@ Read, in this order:
 2. Each ADR listed in `<bundle>/adrs.txt`, from `<bundle>/criteria/<path>`.
 3. `<bundle>/commits.txt`, `<bundle>/files.txt` and `<bundle>/diff.patch`: the change.
 
-You may read the changed files in `<checkout>` for context around the diff, `<bundle>/criteria/docs/glossary.md` for terms, and `<checkout>/docs/architecture.md` and `<checkout>/docs/brewers-and-recipes.md`, to check whether the change makes a line of them wrong. Do not read anything else.
+You may read the changed files in `<checkout>` for context around the diff, `<bundle>/criteria/docs/glossary.md` for terms, and `<checkout>/docs/architecture.md` and the pages under `<checkout>/docs/design/`, to check whether the change makes a line of them wrong. Do not read anything else.
 
 **Line numbers come from the numbered file, never from the diff.** The files in `<checkout>` are the files at HEAD, and the Read tool shows each line with its number. Before you cite a line, read the file in `<checkout>` and copy the number Read shows next to that line. Never count lines in `diff.patch`: hunk positions are not line numbers. Your citations are checked against the files, and one that points past the end of its file comes back to you.
 

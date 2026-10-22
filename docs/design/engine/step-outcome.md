@@ -1,0 +1,15 @@
+# Step outcome: the single contract
+
+Every step ends in one outcome, defined in [`src/schemas/step-outcome.ts`](../../../src/schemas/step-outcome.ts):
+
+| Kind | Carries |
+|---|---|
+| `succeeded` | the step's output |
+| `failed` | whether it is retryable, and the reason |
+| `needs_input` | the questions |
+| `cancelled` | nothing |
+
+Every step kind (brewer, check, human gate, action, fan-out) ends in exactly one of these kinds.
+An exhaustive `switch` makes an unhandled outcome a compile error ([ADR 0005](../../adr/0005-typed-step-outcomes-and-out-docs.md)).
+
+How a brewer attempt reaches its outcome: [how a brewer runs](../recipes/how-a-brewer-runs.md).

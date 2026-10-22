@@ -1,0 +1,44 @@
+# Drivers
+
+- **One event store per Brewery**, which the Cellar (`foedrum serve`) and interactive sessions drive batches on; every writer appends through the command log, one write transaction at a time ([ADR 0044](../../adr/0044-batch-leases-held-by-the-driver-and-one-command-log.md)).
+
+- **One Brewery per work root, one process per driver** ([ADR 0037](../../adr/0037-attempt-worktrees-in-the-engine-and-driver-locks.md)).
+  The work root records its Brewery in `brewery.json`, a marker that stays, and refuses the drivers of any other Brewery.
+  Each driver (the Cellar as `cellar`, each interactive session under an id it keeps when resumed) holds `drivers/<owner>.lock`, an exclusive SQLite lock that the operating system frees when the process dies, so a crashed driver's lock is taken over without cleanup and a second process of a live driver is refused (`lockDriver`, `src/engine/driver-lock.ts`).
+
+Foedrum has two **drivers** that share one deterministic engine library and one event store ([ADR 0019](../../adr/0019-interactive-sessions-and-one-command-layer.md)).
+The autonomous one, the Cellar, runs this loop (`runServe`, `src/cli/serve.ts`); a slow GitHub never holds up a tick, because the intake pass is not awaited:
+
+```mermaid
+flowchart TD
+  L["take the driver lock cellar"] --> S["catch up the store<br/>from the state branch"]
+  S --> W["open each repository's attempt worktrees"]
+  W --> D["open the driver with the real runner"]
+  D --> P{"pollEvery passed, no pass underway,<br/>no rate-limit pause?"}
+  P -->|"yes"| I["start an intake pass, not awaited<br/>order, claim, route"]
+  P -->|"no"| T
+  I --> T["driver tick: leases, supervisor,<br/>attempts, effects"]
+  T --> Z{"stop signal?"}
+  Z -->|"no, wait 5 s"| P
+  Z -->|"yes"| E["wait for the pass underway,<br/>stop the runs, let the lock go"]
+```
+
+- **Autonomous:** the Cellar (`foedrum serve`) picks up orders and commands from GitHub, and later from the Brewhouse dashboard.
+  Run in the Brewery's checkout, it reads `foedrum.jsonc` (with the Brewery's `brewery` name), `.foedrum/local.jsonc`, `models.jsonc` and the recipe files, checks `gh`'s login for the Brewery's GitHub host as doctor does, and refuses to start with one line per problem; then it takes the driver lock `cellar`, rebuilds or catches up its store from the state branch, opens each repository's attempt worktrees (making a managed clone first) and the driver with the real runner and the attempt plans, and ticks the driver every 5 seconds until a stop signal (Ctrl+C, a kill, a closed terminal, Ctrl+Break), which stops its runs and lets the lock go (`foedrum serve`, `src/cli/serve.ts` over the pure `serveSetup`; [ADR 0063](../../adr/0063-foedrum-serve-its-configuration-and-wiring.md)).
+  Beside the ticks, never inside one, it runs the intake every `pollEvery` (default a minute, ADR 0052): a pass orders labelled Brewery issues, then claims target-repository issues, within `concurrency` and to its deadline of half a batch lease, and routes the Ordered batches by label; it starts no pass during GitHub's rate-limit pause, and a stop waits for the pass underway.
+  It reads `gh`'s login at its start and gives the driver the status comments as its effects ([ADR 0072](../../adr/0072-the-status-comment-edits-as-revisions-in-the-ledger.md)), and with a target intake, or a claimed batch in its store, the claim marks and releases beside them (`combineEffects`, [ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
+
+A batch has one driver at a time, held as a batch lease that the driver renews on every tick; an expired lease frees the batch ([ADR 0044](../../adr/0044-batch-leases-held-by-the-driver-and-one-command-log.md)).
+A driver (`openDriver`, `src/engine/driver.ts`) takes its lock and runs `startDriver` before any work, takes a free batch only when told to (the Cellar every one, a session the batch it brews) and holds it until the batch has ended with no attempt running and no effect due.
+It skips a batch another driver holds, and stops at the next step boundary when another driver holds one of its own: it records how its running attempt ends and starts nothing more there.
+A run whose end rejects (the runner broke, not the attempt) is stopped and recorded like any other ended attempt, `blocked` + `environment` with the first line of the error's message, at most 120 characters, as its summary, and lets its lease go; the driver reports it with the whole error (`run_failed`) and its other runs go on ([ADR 0099](../../adr/0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md)).
+An end whose record throws (deciding or appending its finish fails) is reported (`command_failed`) and keeps its lease until it expires, so the supervisor loses and retries its attempt ([ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)); a throw from the read of the state after a recorded end is reported as `command_failed` against that end's finish too, although that finish is recorded and its lease released: only the check whether its batch ended failed, and the driver's next look at the ended batches in the store still cleans its worktrees.
+Either way the other ends of the pass are still recorded and let their leases go: the driver takes them off its queue one at a time (#278, #289).
+Its supervisor acts on its own and the free batches only, and it applies a batch's effects only while it holds the batch's lease, renewed before each effect, one pass at a time, each within a deadline below the lease that aborts it ([ADR 0050](../../adr/0050-the-intake-of-target-repository-issues.md)).
+Closing a driver stops the brewer runs it still has and lets its lock go; their ends are not recorded, so its next start loses and retries them (ADR 0063).
+Taking over is an explicit, recorded command ([ADR 0124](../../adr/0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md)): `foedrum takeover <batch> [--as <name>]`, or `foedrum brew <issue> --take`, puts the batch's lease to the new owner at once and records `batch.taken_over` with who, from where, from which owner and until when that owner's lease ran.
+A driver records each start in the transaction that renews its batch's lease, so the one that lost the batch starts nothing more there; an attempt still running under it ends under its attempt lease, and the new holder waits for that lease, also of the attempt the old driver was starting (ADR 0055).
+No driver applies an effect of the batch before the old lease's end, by which the effect the old driver may still be applying has ended.
+`foedrum resume <batch> [<step>[#<n>]]` steps into a finished brewer attempt's own session (`claude --resume`) in its worktree, recreated when the cleanup removed it, with its settings file written again, its guards on the command line and the attempt's own environment; it holds the attempt's lease, never the batch's, while claude runs in the foreground, says so when the session is not on this machine, refuses a running batch (#338), and from inside a Claude Code session prints the line to run in a terminal instead ([ADR 0126](../../adr/0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)).
+
+The interactive driver: [foedrum brew and the plugin](../humans/brew.md).

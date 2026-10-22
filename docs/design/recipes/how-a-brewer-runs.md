@@ -1,0 +1,56 @@
+# How a brewer runs
+
+A brewer compiles to one `claude` CLI invocation plus a generated per-attempt settings file, verified against `claude` 2.1.301 ([ADR 0042](../../adr/0042-the-claude-command-line-and-stream-contract.md)):
+
+```
+claude --print --verbose --output-format stream-json
+       --permission-mode dontAsk --permission-prompts none
+       --model <model id> --effort <effort> --max-turns <maxTurns>
+       --settings <per-attempt settings file: allow/deny, sandbox>
+       --setting-sources ""                           # no user, project or local settings
+       --tools <the built-in tools named in tools.allow>
+       --disable-slash-commands                       # unless skills (not supported yet, ADR 0046)
+       --strict-mcp-config [--mcp-config <file>]      # always; mcp not supported yet (ADR 0046)
+       --safe-mode                                    # context: lean
+       --session-id <new uuid> | --resume <session id>
+       [--append-system-prompt-file <file>]
+                                                      # the prompt on stdin, no prompt argument
+```
+
+- The settings file is written from a strict schema (`AttemptSettings`): `claude` silently drops a settings file that fails its validation, deny rules included.
+  It always denies `AskUserQuestion` and `git push` in each shell the brewer has, and refuses an allow rule that reaches git with no fixed subcommand, the toolchain's included (ADR 0062).
+  A bare tool name in `deny` removes the tool, a scoped rule denies matching calls.
+- File tools reach only the worktree, `claude`'s working directory: the settings file has a brewer's bare `Read`, `Grep` or `Glob` as `Read(./**)`, and a bare `Edit`, `Write`, `MultiEdit` or `NotebookEdit` as `Edit(./**)`, since Claude Code checks file permissions against `Read` and `Edit` path rules only.
+  `--tools` still lists the tools the brewer named.
+  The schema refuses a bare file-tool allow rule, and a path rule for `Write`, `MultiEdit`, `NotebookEdit` or `Glob`, which Claude Code never consults, naming the `Edit(…)` or `Read(…)` to write instead.
+  A brewer file with such a path rule (`Write(brew.md)`: write `Edit(brew.md)`) does not load; a repository toolchain rule with one fails each attempt as `the brewer could not start`.
+  A test against the installed `claude` (opt-in) shows `Write`, `Edit` and `Read` denied outside the worktree and through a junction or link, and `Write` and `Edit` through `..` ([ADR 0093](../../adr/0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md)).
+- `--setting-sources ""` makes the runner's file the only one: the user's `~/.claude/settings.json` could otherwise widen the allowlist and add variables, and the repository's settings are untrusted.
+  A test against the installed `claude` proves it with a throwaway user settings file ([ADR 0046](../../adr/0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md)).
+- Before it reads anything else, the runner checks the `system/init` event against what it asked for: the session id, exactly the tools of `--tools`, permission mode `dontAsk`, and no MCP server, skill or slash command.
+  Other `system` events may come first.
+  A mismatch ends the attempt as `blocked` + `environment`, never retried (ADR 0046).
+- The runner reads `system/init` (session id, model, permission mode, tools, CLI version), `assistant` and `user` messages (tool calls and results), `system/permission_denied` (one denial each, counted live) and the final `result` (`is_error`, `num_turns`, `terminal_reason`, `usage`); it ignores every other event type.
+  `is_error`, not `subtype`, says whether the run failed; when the stream ends with a `result`, the exit code is 0 exactly when `is_error` is false.
+  A run with no `result` is a crash, except one that wrote no line at all and exited with a code from 1 to 255: when its stderr names a lasting refusal (an unknown option, no login) it is the environment, and otherwise the runner starts `claude` once more after 5 s and makes a second such failure the environment ([ADR 0048](../../adr/0048-retried-pre-stream-failures-commit-detection-and-out-doc-identity.md)).
+  Captured streams for the parser: `test/fixtures/claude-stream/`.
+- The driver chooses the session id and records it in `step.started` as `session: { id, worktree }` before claude starts; the attempt's plan passes it to claude with `--session-id`, or, for a retry or an answered attempt that resumes, records the session it continues (`resumes`) and the plan passes it with `--resume` ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md), [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)).
+  What claude's init reports, its version and model, goes on `step.finished` as `claude` ([ADR 0047](../../adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md), [ADR 0116](../../adr/0116-the-driver-records-each-attempt-s-session-and-claude-s-report-goes-on-step-finished.md)).
+- The engine owns the child process, reads the event stream live, line by line with a limit per line and none in total (`streamProcess`, ADR 0046), keeps only the facts it needs (progress, tool calls, permission denials, usage) and kills the process tree on deadline, stall or cancel.
+
+- How the attempt ends follows from what the runner saw, by one rule shared with the fake runner (`settleAttempt`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)): a session that is not what was asked, or a failure before the model replied (an unknown model, no login, refused arguments) → `blocked` + `environment`; a resume that finds no session to resume → a retryable failure, whose retry starts a fresh session ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)); an error `result` that says a usage window ran out (`You've hit your session limit · resets 3:45pm`, and the weekly, Opus and Sonnet forms) → `blocked` + `environment`, naming the limit and its reset ([ADR 0091](../../adr/0091-a-run-out-usage-window-blocks-on-the-environment.md)); an error `result` that names a spend limit (`You've hit your monthly spend limit · …`, the individual, org's, channel's, team's and individual usage forms) or says `Credit balance is too low` → `blocked` + `environment`, saying no request goes through until the limit is raised or credits are added ([ADR 0129](../../adr/0129-a-spend-limit-or-a-too-low-credit-balance-blocks-on-the-environment.md)); a process that could not start → a failure; `maxDenials` reached → `blocked` + `environment`, naming the denied tools; `maxTurns` passed → a failure that is not retried; a stop within the limits → `cancelled`; a crash, output past the runner's limits, an error the `result` reported, garbage in the stream, or a missing, oversized or invalid out doc → a retryable failure, even next to a valid out doc; otherwise the out doc's status ([ADR 0047](../../adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)).
+
+- On Windows the native `claude.exe` starts without a shell, inside a Job Object (ADR 0039); npm's `claude.cmd` goes through cmd.exe with every argument validated (ADR 0031).
+  Either way, prompts and settings travel via stdin and files only, never arguments.
+- `--safe-mode` implements `context: lean`: without it, `claude -p` loads the target repository's `CLAUDE.md`, hooks and MCP servers.
+  How `context: repo` gives a brewer the repository's instructions without its hooks is open (ADR 0042).
+- Claude Code keeps an attempt's session where it ran (30 days by default), so anyone on that machine can step into a finished attempt's session with `foedrum resume <batch> [<step>[#<n>]]` from a terminal (ADR 0126); `/foedrum:resume` prints that line.
+
+## The runner in the engine
+
+A brewer attempt runs through the `BrewerRunner` interface (`src/engine/brewer-runner.ts`), which also reports progress to the supervisor.
+A `done` of a brewer that produces commits also needs a commit after its worktree's start commit, which the limits carry: after the stream the real runner asks git on the attempt's branch in the clone its worktree was added to, never in the worktree, whose `.git` file the brewer can write (`countCommits`, `src/workspace/attempt-commits-git.ts`); a stop while it counts ends the attempt cancelled, and no commit is `blocked` + `divergence` with the brewer's summary, a rewritten start commit a retryable failure, and git's failure `blocked` + `environment` ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)).
+The real runner, `claudeBrewerRunner` (`src/brewers/claude-runner.ts`), writes the attempt's settings, starts `claude` with the `BrewerPrompt` on stdin inside a Job Object on Windows, and reads its stream line by line with `readClaudeStream` (`src/brewers/claude-stream.ts`), a pure reader that also gives the supervisor its progress: when the brewer last wrote a file or made a commit, read from its tool calls (ADR 0047).
+Its plan comes from the brewer of the attempt's step (`createAttemptPlans`, `src/brewers/attempt-plans.ts`, over the pure `planAttempt`): the worktree recorded in `step.started`, `buildBrewerEnv`, the brewer's body with the out doc contract and its inputs in nonce tags, the model behind its alias in `models.jsonc`, its tools and permissions with the repository's toolchain rules (and, for `git.commit: true`, `Bash(git status *)`, `Bash(git add *)` and `Bash(git commit *)` with a contract line that says to commit, ADR 0074; every brewer whose Bash rules do not allow any program is told its commands in the contract, ADR 0085), a settings file under `<workRoot>/attempt-settings/`, and a new session with the id the driver chose and recorded in `step.started` as `session: { id, worktree }` before claude started (`brews`, `src/engine/driver.ts`; a check step has none); the version and model claude's init reported go on `step.finished` as `claude` ([ADR 0116](../../adr/0116-the-driver-records-each-attempt-s-session-and-claude-s-report-goes-on-step-finished.md)).
+The driver asks for each attempt's limits by the attempt, so they are its batch's brewer's ([ADR 0059](../../adr/0059-attempt-plans-from-the-brewer-of-the-step.md)).
+The `order` input is the body of the batch's issue, read through the GitHub reads (`githubOrderText`, `src/github/order-text.ts`), and the brewer's base environment is an allowlist of `serve`'s own that never holds a GitHub token (`brewerBaseEnv`, [ADR 0063](../../adr/0063-foedrum-serve-its-configuration-and-wiring.md)).

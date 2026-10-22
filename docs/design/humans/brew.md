@@ -1,0 +1,6 @@
+# foedrum brew and the plugin
+
+- **Interactive:** an engineer opens Claude Code and types a plugin command, for example `/foedrum:brew 21`.
+  The session drives the batch, without `foedrum serve` running: `/foedrum:brew` runs `foedrum brew --via plugin` in the background, shows where the batch went when it exits, and on `needs_input` asks the engineer each question, runs `foedrum answer` and brews again ([ADR 0125](../../adr/0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md)).
+  Judgement-heavy steps (refine, triage, review) run in the session itself.
+  Under it is `foedrum brew <issue> [--as <name>]` ([ADR 0123](../../adr/0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md)): a driver of its own, `--as` or `session-<id>` from `CLAUDE_CODE_SESSION_ID`, on the Cellar's wiring (`wireDriver`, `src/cli/driver-wiring.ts`) with `takes` that one batch; it orders and routes by label an issue with no batch, ticks until the batch is on tap (exit 0), Stuck (3), needs input (4, with the numbered questions `foedrum answer` takes) or cancelled (6), and refuses (5) a batch another driver holds, naming it, unless `--take` takes it over ([ADR 0124](../../adr/0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md)); a Stuck batch keeps its lease while the engineer answers.

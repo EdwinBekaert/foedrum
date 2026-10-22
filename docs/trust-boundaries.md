@@ -2,7 +2,7 @@
 
 One row per risk, and one owner per row: the single place that handles it. A new safeguard names its row first (CLAUDE.md, Security). If the row's owner already handles the risk, the answer is to improve the owner, or nothing. A second layer is only added with a decision recorded in an ADR that says what it catches that the owner misses; those are listed in the last column. Adding a row is the maintainer's decision.
 
-`docs/architecture.md` §10 describes how each owner works. This page only says which one is responsible.
+[The security model](design/security.md) describes how each owner works. This page only says which one is responsible.
 
 | Risk | Owner | Recorded second layers |
 |---|---|---|
