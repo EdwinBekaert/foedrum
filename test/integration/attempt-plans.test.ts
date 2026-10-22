@@ -239,6 +239,17 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
     );
     const [, , , started, finished] = events;
     assert.equal(started?.type === 'step.started' && started.worktree?.path, worktree);
+    // The session the driver chose, which claude ran under, and what claude's init reported
+    // (ADR 0116).
+    const session = started?.type === 'step.started' ? started.session : undefined;
+    assert.match(
+      session?.id ?? '',
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    assert.equal(session?.worktree, worktree);
+    const claude = finished?.type === 'step.finished' ? finished.claude : undefined;
+    assert.equal(claude?.model, 'claude-haiku-5-5');
+    assert.match(claude?.version ?? '', /^\d+\.\d+\.\d+/);
     assert.deepEqual(finished?.type === 'step.finished' && finished.outcome, {
       kind: 'succeeded',
       output: { status: 'done', summary: 'Brewed', assumptions: [] },

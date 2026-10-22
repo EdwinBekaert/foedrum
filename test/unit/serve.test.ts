@@ -631,6 +631,22 @@ describe('runServe', () => {
       ]);
     });
 
+    it("records a session for the brewer's attempt and none for the check's (ADR 0116)", async () => {
+      const { events } = await brewWithChecks(0);
+      const sessionOf = (stepId: string) =>
+        events.flatMap((event) =>
+          event.type === 'step.started' && event.stepId === stepId ? [event.session] : [],
+        );
+      const [brew, ...more] = sessionOf('brew');
+      assert.deepStrictEqual(more, []);
+      assert.match(
+        brew?.id ?? '',
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      assert.equal(brew?.worktree, join(dir.path, 'acme.web', 'attempts', '13-1', 'brew', '1'));
+      assert.deepStrictEqual(sessionOf('green'), [undefined]);
+    });
+
     it('sends the batch back along onFail when the test fails, then makes it Stuck', async () => {
       const { checks, events, batch } = await brewWithChecks(1);
       assert.deepStrictEqual(
