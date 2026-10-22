@@ -12,6 +12,7 @@ import { jobObjectCommand } from '../../src/platform/job-object.ts';
 import {
   execProcess,
   execProcessWith,
+  foregroundProcess,
   isPidAlive,
   processSpawner,
   runProcessThrough,
@@ -601,5 +602,25 @@ describe('execProcess and a .cmd file', { skip: process.platform !== 'win32' }, 
     } finally {
       planted.remove();
     }
+  });
+});
+
+describe('foregroundProcess with a real process (ADR 0126)', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('foreground');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  it('runs the program in the folder given, with its arguments, and answers its exit code', async () => {
+    const script =
+      "require('node:fs').writeFileSync('ran.json', JSON.stringify(process.argv.slice(1))); process.exit(7)";
+    const code = await foregroundProcess(process.execPath, ['-e', script, 'one', ''], dir.path);
+    assert.equal(code, 7);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir.path, 'ran.json'), 'utf8')), ['one', '']);
+  });
+
+  it('rejects when the program cannot start', async () => {
+    await assert.rejects(foregroundProcess(join(dir.path, 'no-such-program'), [], dir.path));
   });
 });
