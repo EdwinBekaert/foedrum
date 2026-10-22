@@ -146,7 +146,7 @@ describe('BrewerFrontmatter', () => {
       { ...taster, guards: ['requiresCommits'] },
     ],
     ['an unknown guard', { ...taster, guards: ['noSecrets'] }],
-    ['a guard listed twice', { ...taster, guards: ['noPush', 'noPush'] }],
+    ['a guard listed twice', { ...taster, guards: ['scope', 'scope'] }],
     ['no deadline', { ...taster, deadline: undefined }],
     ['an invalid deadline', { ...taster, deadline: '20' }],
     ['zero attempts', { ...taster, maxAttempts: 0 }],
