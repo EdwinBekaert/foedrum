@@ -60,9 +60,10 @@ export interface CliContext {
   serve: () => Promise<CliResult>;
   /**
    * Brews one issue's batch until it stops (ADR 0123), as `as` or the Claude Code session's
-   * owner; its lines go straight to the terminal.
+   * owner, recording who issued it and from where on an order it makes; its lines go straight to
+   * the terminal.
    */
-  brew: (input: BrewCommand) => Promise<CliResult>;
+  brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
 }
 
 export interface CliResult {

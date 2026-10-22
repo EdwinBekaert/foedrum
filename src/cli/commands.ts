@@ -393,6 +393,7 @@ export const commands: readonly RegisteredCommand[] = [
     options: { as: 'name' },
     schema: BrewCommand,
     // A driver of its own on the machine, run by the terminal (ADR 0123).
-    handler: async (input, context) => context.brew(input),
+    handler: async (input, context) =>
+      context.brew(input, { by: context.user(), via: context.surface }),
   }),
 ];

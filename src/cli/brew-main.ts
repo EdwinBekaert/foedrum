@@ -2,9 +2,8 @@
 // the Brewery's files read as serve reads them, and runBrew (brew.ts) on serve's shell
 // (serve-shell.ts) with the real git until the batch stops or a stop signal. cli-main.ts loads it.
 
-import { userInfo } from 'node:os';
-import { userName } from '../platform/env.ts';
 import type { BrewCommand } from '../schemas/commands.ts';
+import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
 import { brewOwner, runBrew } from './brew.ts';
 import type { CliResult } from './run.ts';
@@ -12,15 +11,18 @@ import { readServeSetup, type StartOptions } from './serve-main.ts';
 import { listenWhileServing, serveShell } from './serve-shell.ts';
 
 /**
- * Brews the batch of `input.issue` in the Brewery checkout `cwd`. A driver with no owner is a
- * mistake of the command line (exit 2); its lines go straight to the terminal.
+ * Brews the batch of `input.issue` in the Brewery checkout `cwd`, as the command layer `issued` it.
+ * A driver with no owner, from `--as` or the session in `env`, is a mistake of the command line
+ * (exit 2); its lines go straight to the terminal.
  */
 export const brewFromCheckout = async (
   cwd: string,
   input: BrewCommand,
+  issued: { by: string; via: Surface },
   options?: StartOptions,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<CliResult> => {
-  const owner = brewOwner(input.as, process.env);
+  const owner = brewOwner(input.as, env);
   if ('refused' in owner) {
     return { exitCode: 2, stdout: '', stderr: `foedrum brew: ${owner.refused}\n` };
   }
@@ -40,8 +42,7 @@ export const brewFromCheckout = async (
     const exitCode = await runBrew(setup, shell, {
       target: input.issue,
       owner: owner.owner,
-      by: userName(() => userInfo().username, process.env),
-      via: 'terminal',
+      ...issued,
     });
     return { exitCode, stdout: '', stderr: '' };
   } finally {
