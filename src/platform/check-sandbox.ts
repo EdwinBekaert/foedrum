@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { resolveExecutable } from './executables.ts';
+import { samePath } from './paths.ts';
 import type { ExecProcess, ExecResult } from './processes.ts';
 import { realPath as realPathOf } from './real-path.ts';
 import { removeTree } from './remove.ts';
@@ -28,6 +29,11 @@ export const SEATBELT_PROFILE = [
   '(deny network*)',
   // The Keychain's service, where gh keeps its login on macOS (ADR 0073).
   '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
+  // launchd and LaunchServices start what they are asked to outside the sandbox (review of #357).
+  '(deny job-creation)',
+  '(deny lsopen)',
+  '(deny appleevent-send)',
+  '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd"))',
   '(deny file-write*)',
   // Its output and terminal too, as bwrap's own /dev allows.
   '(allow file-write* (subpath (param "WORKTREE")) (subpath (param "TEMP")) (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/tty") (regex #"^/dev/fd/"))',
@@ -106,9 +112,9 @@ export const worktreeGitDir = (worktree: string): string | undefined => {
     if (basename(dirname(record)) !== 'worktrees') return undefined;
     // Written by git outside the worktree, where no check writes.
     const back = readFileSync(join(record, 'gitdir'), 'utf8').trim();
-    return resolve(record, back) === resolve(worktree, '.git')
-      ? dirname(dirname(record))
-      : undefined;
+    // As real paths: git records the real one, serve may name the worktree through a link.
+    const same = samePath(realPathOf(resolve(record, back)), realPathOf(join(worktree, '.git')));
+    return same ? dirname(dirname(record)) : undefined;
   } catch {
     // No file, or a folder: a repository inside the worktree, which is bound anyway.
     return undefined;
@@ -146,7 +152,11 @@ const unstarted = (why: string): ExecResult => {
  * command line runs.
  */
 const sandboxRun = (tool: string, result: ExecResult): ExecResult =>
-  result.exitCode !== null && result.exitCode !== 0 && result.stderr.startsWith(`${tool}: `)
+  result.killed === undefined &&
+  result.signal === undefined &&
+  result.exitCode !== null &&
+  result.exitCode !== 0 &&
+  result.stderr.startsWith(`${tool}: `)
     ? unstarted(result.stderr.trim())
     : result;
 
@@ -190,29 +200,38 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
       return unstarted(`${SANDBOX_EXEC} is not there: check steps run only in its sandbox here`);
     }
     let folder: string;
-    let real: string;
     try {
       folder = temp.make();
     } catch (error) {
       return unstarted(`the check's temporary folder cannot be made: ${messageOf(error)}`);
     }
-    try {
+    // A folder the check made hard to remove leaves its result as it is, with a line about it.
+    const removed = async (result: ExecResult): Promise<ExecResult> => {
       try {
-        real = realPath(folder);
+        await temp.remove(folder);
+        return result;
       } catch (error) {
-        return unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`);
+        const line = `foedrum: the check's temporary folder ${folder} was left: ${messageOf(error)}\n`;
+        return { ...result, stderr: `${result.stderr}${line}`, output: `${result.output}${line}` };
       }
-      // An empty home the check may write, as bwrap's hidden one is.
-      const env = { ...(call.env ?? process.env), TMPDIR: real, HOME: real };
-      const result = await exec(SANDBOX_EXEC, seatbeltArgs({ ...paths, temp: real }, file), {
-        ...call,
-        env,
-        shell: false,
-      });
-      return sandboxRun('sandbox-exec', result);
-    } finally {
-      await temp.remove(folder);
+    };
+    let real: string;
+    try {
+      real = realPath(folder);
+    } catch (error) {
+      return removed(unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`));
     }
+    // An empty home the check may write, as bwrap's hidden one is.
+    const env = { ...(call.env ?? process.env), TMPDIR: real, HOME: real };
+    let result: ExecResult;
+    try {
+      const args = seatbeltArgs({ ...paths, temp: real }, file);
+      result = await exec(SANDBOX_EXEC, args, { ...call, env, shell: false });
+    } catch (error) {
+      await removed({ exitCode: null, stdout: '', stderr: '', output: '' });
+      throw error;
+    }
+    return removed(sandboxRun('sandbox-exec', result));
   };
 }
 
