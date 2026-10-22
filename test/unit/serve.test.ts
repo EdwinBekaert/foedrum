@@ -173,8 +173,6 @@ describe('runServe', () => {
       },
       secretScan: async () => [],
     }),
-    // A remote with no refs, which no attempt changes.
-    refs: () => async () => '',
     runner: (claude, plan) => {
       calls.push(`runner ${claude}`);
       return planningRunner(plan);
