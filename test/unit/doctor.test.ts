@@ -1170,3 +1170,47 @@ describe('diagnose: notices when the files load (ADR 0141)', () => {
     ]);
   });
 });
+
+describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)', () => {
+  it('names a Brewery lens that only a brewer no recipe names reads', () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [
+          {
+            path: 'brewers/spare.md',
+            text: brewerText('spare', { inputs: [{ name: 'old', from: 'lens:old' }] }),
+          },
+        ],
+        lenses: [{ path: 'lenses/old.md', text: 'Old rules.' }],
+      },
+    });
+    assert.deepEqual(diagnosis.notices, [
+      'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
+      'lenses/old.md: no brewer\'s input names the lens "old" (ADR 0141)',
+    ]);
+  });
+
+  it('keeps a heading only by a heading, and a marked line only by a marked line', () => {
+    const { notices = [] } = diagnose({
+      ...linux(),
+      brewery: {
+        recipes: [],
+        brewers: [],
+        lenses: [{ path: 'lenses/style.md', text: '**Same words**\n\n## Other words\n' }],
+        defaults: {
+          lenses: [
+            { path: 'defaults/lenses/style.md', text: '## Same words\n\n**Other words**\n' },
+          ],
+        },
+      },
+    });
+    assert.deepEqual(
+      notices.filter((notice) => notice.includes(' replaces ')),
+      [
+        'lenses/style.md replaces defaults/lenses/style.md and drops: heading "Same words", marked line "Other words" (ADR 0141)',
+      ],
+    );
+  });
+});
