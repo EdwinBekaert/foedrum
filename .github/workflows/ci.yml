@@ -1,6 +1,6 @@
 # CI on all three platforms (ADR 0010); see issue #2.
 # From ADR 0004: npm ci, npm audit signatures, SHA-pinned actions and the lockfile
-# checker (scripts/check-deps.ts, #3).
+# checker (scripts/check-deps.ts, #3); npm audit once per run (ADR 0119).
 name: CI
 
 on:
@@ -59,8 +59,9 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == '24' }}
         run: npm run check:deps
 
+      # Checks the packages installed on this leg, so it runs on every leg. The advisory audit runs
+      # once per run, in the audit job (ADR 0119).
       - run: npm audit signatures
-      - run: npm audit --omit=dev
 
       # The same command contributors run locally; npm test enforces the coverage thresholds and
       # fails when one test file takes more than 5 s (scripts/test-budget-reporter.ts). The time
@@ -109,16 +110,40 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The single required status check: green only when every matrix entry passed.
+  # npm audit --omit=dev asks the advisory endpoint about the lockfile, which is the same on every
+  # leg, so it runs once per run (ADR 0119). A server error or no answer gets one retry after 30 s;
+  # a finding, a client error or a second failure fails the job, so an outage never reads as "no
+  # advisories". Dependabot alerts (ADR 0113) cover the time between runs.
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
+
+      # No npm ci: npm audit reads package-lock.json when node_modules is missing, and the script
+      # needs no package.
+      - run: npm run audit:advisories
+
+  # The single required status check: green only when every matrix entry and the audit passed.
   ci-ok:
     if: ${{ always() }}
-    needs: [check]
+    needs: [check, audit]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: All checks passed
         env:
-          RESULT: ${{ needs.check.result }}
+          CHECK: ${{ needs.check.result }}
+          AUDIT: ${{ needs.audit.result }}
         run: |
-          echo "check: $RESULT"
-          test "$RESULT" = success
+          echo "check: $CHECK"
+          echo "audit: $AUDIT"
+          test "$CHECK" = success && test "$AUDIT" = success
