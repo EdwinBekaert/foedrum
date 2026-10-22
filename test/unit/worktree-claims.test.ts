@@ -14,6 +14,7 @@ import {
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { planClean } from '../../src/workspace/attempt-worktrees.ts';
+import { sessionRef } from '../helpers/sessions.ts';
 
 const batch = (id: string, lane: Lane): Batch => ({
   id,
@@ -612,5 +613,85 @@ describe('worktreeClaims: the start in the order of the events (#309)', () => {
       worktreeClaims(state, []).unpushed,
       new Map([['foedrum/2-1/implement/2', BASE]]),
     );
+  });
+});
+
+describe('worktreeClaims: resumed sessions (ADR 0029)', () => {
+  const at = '2026-10-15T13:00:00.000Z';
+  const expiresAt = new Date(at);
+  const ref = (attempt: number) => ({ batchId: '3-1', stepId: 'implement', attempt });
+  const leaseOf = (attempt: number) => ({
+    attemptKey: attemptKey.encode(ref(attempt)),
+    owner: 'driver',
+    expiresAt,
+  });
+  const path = (attempt: number) => `work/acme.app/attempts/3-1/implement/${attempt}`;
+  const crashed = { kind: 'failed', retryable: true, reason: 'crash' } as const;
+  // An attempt of implement that resumes the session `resumes` runs in the worktree of the
+  // attempt that started it, `in`, and has none of its own; any other gets its own.
+  const started = (attempt: number, session: { id: string; resumes?: string; in?: number }) => {
+    const own = session.in ?? attempt;
+    return [
+      { type: 'step.scheduled', batchId: '3-1', stepId: 'implement', attempt, deadlineAt: at },
+      {
+        type: 'step.started',
+        batchId: '3-1',
+        stepId: 'implement',
+        attempt,
+        session: sessionRef({
+          id: session.id,
+          ...(session.resumes === undefined ? {} : { resumes: session.resumes }),
+          worktree: path(own),
+        }),
+        ...(session.in === undefined
+          ? {
+              worktree: {
+                repo: 'acme/app',
+                path: path(attempt),
+                branch: `foedrum/3-1/implement/${attempt}`,
+                commit: 'a'.repeat(40),
+              },
+            }
+          : {}),
+      },
+    ] satisfies Event[];
+  };
+  const finished = (attempt: number): Event => ({
+    type: 'step.finished',
+    batchId: '3-1',
+    stepId: 'implement',
+    attempt,
+    outcome: crashed,
+  });
+  const ordered: Event = {
+    type: 'batch.ordered',
+    batchId: '3-1',
+    order: { issue: 3 },
+    routeBy: at,
+  };
+
+  it('claims nothing for a resumed attempt that ended, and nothing back from a fresh one', () => {
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      finished(1),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+      finished(2),
+      ...started(3, { id: 's3' }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, []).leased, []);
+    assert.deepEqual(worktreeClaims(state, [leaseOf(3)]).leased, [ref(3)]);
+  });
+
+  it('claims only back along the chain: a lease of the resumed attempt claims no later one', () => {
+    // Stuck abandoned attempt 1, whose lease is live until its run has stopped (ADR 0055).
+    const state = fold([
+      ordered,
+      ...started(1, { id: 's1' }),
+      ...started(2, { id: 's2', resumes: 's1', in: 1 }),
+    ]);
+
+    assert.deepEqual(worktreeClaims(state, [leaseOf(1)]).leased, [ref(1)]);
   });
 });
