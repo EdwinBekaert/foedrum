@@ -99,25 +99,32 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
   // its run ends or the lease expires, and the next attempt of the step waits for that (I2, #150);
   // its deadline still runs (nothingOverdue). A lease of an attempt not over does not count: no
   // later attempt of its step is scheduled while it runs.
+  const holders = new Map(
+    engine
+      .store()
+      .batchLeases(engine.now())
+      .map(({ batchId, owner }) => [batchId, owner]),
+  );
   const leased = new Set(
     engine
       .store()
       .currentLeases(engine.now())
-      .flatMap(({ attemptKey: key }) => attemptKey.decode(key) ?? [])
-      .filter((ref) => {
-        const attempt = state.batches
-          .get(ref.batchId)
-          ?.steps.get(ref.stepId)
-          ?.attempts.get(ref.attempt);
-        // Or the scheduled attempt's own, which a driver that lost the batch to a takeover had
-        // taken to start it (ADR 0124).
-        return (
-          attempt?.phase === 'finished' ||
-          attempt?.phase === 'scheduled' ||
-          attempt?.abandoned === true
-        );
+      .flatMap(({ attemptKey: key, owner }) => {
+        const ref = attemptKey.decode(key);
+        return ref === undefined ? [] : [{ ref, owner }];
       })
-      .map((ref) => `${ref.batchId} ${ref.stepId}`),
+      .filter(({ ref, owner }) => {
+        const batch = state.batches.get(ref.batchId);
+        const attempt = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+        // Or the scheduled attempt's own, in a batch taken over from the driver that leased it
+        // to start it (ADR 0124); a lease its batch's holder left behind still counts.
+        const handedOver =
+          attempt?.phase === 'scheduled' &&
+          batch?.takeover !== undefined &&
+          holders.get(ref.batchId) !== owner;
+        return attempt?.phase === 'finished' || attempt?.abandoned === true || handedOver;
+      })
+      .map(({ ref }) => `${ref.batchId} ${ref.stepId}`),
   );
   for (const batch of state.batches.values()) {
     if (waiting.has(batch.id) || batch.lane.kind !== 'brewing') continue;
