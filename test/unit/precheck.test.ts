@@ -2289,6 +2289,16 @@ describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh acc
     });
   }
 
+  // The endpoint itself percent-encoded, which the server may decode (#329).
+  for (const endpoint of ['%67raphql', '/%67raphql', 'https://api.github.com/%67raphql']) {
+    it(`forbids a query it cannot read through a percent-encoded endpoint: ${endpoint}`, () => {
+      assert.match(
+        forbiddenReason(`gh api ${endpoint} --input body.json`) ?? '',
+        /^gh api graphql with a query the gate cannot read/,
+      );
+    });
+  }
+
   const allowed = [
     'gh api "$base/repos/o/r/issues" --input body.json',
     // A dot segment elsewhere, or a last segment that only starts with graphql, is no endpoint.
