@@ -940,6 +940,19 @@ describe('openDriver', () => {
       assert.equal(implemented?.stepId, 'implement');
       assert.equal(implemented?.claude, undefined);
     });
+
+    it('records the ending without claude when its init reported a blank version or model', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const sessionId = '0f8fad5b-d9cb-469f-a165-708677289500';
+      end(plan('b1'), succeeded, { session: { sessionId, model: ' ', claudeVersion: '' } });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.equal(planned?.outcome.kind, 'succeeded');
+      assert.equal(planned?.claude, undefined);
+    });
   });
 
   describe('the repository a batch writes in (ADR 0063)', () => {
