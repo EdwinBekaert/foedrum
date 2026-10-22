@@ -154,7 +154,7 @@ const continuedBy = (state: State, ref: AttemptRef): AttemptRef[] => {
     if (id === undefined || followed.has(id)) continue;
     followed.add(id);
     for (const continued of sessions) {
-      if (continued.session.id !== id || claimed.has(continued.key)) continue;
+      if (continued.session.id !== id) continue;
       claimed.set(continued.key, continued.ref);
       pending.push(continued.session.resumes);
     }
