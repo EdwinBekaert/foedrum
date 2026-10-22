@@ -204,10 +204,14 @@ await next();
 await foedrum(brewery, ['status']);
 
 await next();
-say(`demo: ${USER} labels issue #${BREW_ORDER.number} recipe:nip, now the Cellar has stopped`);
+// The label of the Cellar's order, so the second order is routed to the same recipe.
+const { labels } = ORDER;
+say(
+  `demo: ${USER} labels issue #${BREW_ORDER.number} ${labels.join(', ')}, now the Cellar has stopped`,
+);
 await host.fetch(`https://api.github.com/repos/${BREWERY}/issues/${BREW_ORDER.number}/labels`, {
   method: 'POST',
-  body: JSON.stringify({ labels: ['recipe:nip'] }),
+  body: JSON.stringify({ labels }),
 });
 say(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}`);
 const brew = await live('brew');
