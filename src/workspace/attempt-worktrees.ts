@@ -47,7 +47,7 @@ export const ownGitDirsRoot = (workRoot: string, repo: string): string =>
  * the longest call can keep one, its 300 s transfer and the minute each of its local calls may
  * take (ADR 0130).
  */
-export const OWN_GIT_DIR_FLOOR_MS = 3_600_000;
+const OWN_GIT_DIR_FLOOR_MS = 3_600_000;
 
 /** An entry of the git directories' root. */
 export interface OwnGitDirEntry {
