@@ -462,7 +462,11 @@ const replacementNotice = (own: BreweryFile, replaced: BreweryFile): string => {
 };
 
 /** Costly prompts, then the Brewery's brewers and lenses nothing names (ADR 0141). */
-const catalogNotices = (catalog: Catalog, prompts: readonly PromptSize[]): string[] => [
+const catalogNotices = (
+  catalog: Catalog,
+  defaults: readonly string[],
+  prompts: readonly PromptSize[],
+): string[] => [
   ...prompts
     .filter(({ tokens }) => tokens > COSTLY_PROMPT_TOKENS)
     .map(
@@ -470,10 +474,10 @@ const catalogNotices = (catalog: Catalog, prompts: readonly PromptSize[]): strin
         `${path}: the brewer "${brewer}" has a prompt of about ${tokens} tokens before its other inputs, above ${COSTLY_PROMPT_TOKENS} (ADR 0141)`,
     ),
   ...catalog.brewers
-    .filter(({ name, isDefault }) => !isDefault && !catalog.named.brewers.has(name))
+    .filter(({ name, path }) => !defaults.includes(path) && !catalog.named.brewers.has(name))
     .map(({ name, path }) => `${path}: no recipe names the brewer "${name}" (ADR 0141)`),
   ...catalog.lenses
-    .filter(({ name, isDefault }) => !isDefault && !catalog.named.lenses.has(name))
+    .filter(({ name, path }) => !defaults.includes(path) && !catalog.named.lenses.has(name))
     .map(({ name, path }) => `${path}: no brewer's input names the lens "${name}" (ADR 0141)`),
 ];
 
@@ -499,7 +503,7 @@ const recipesOf = ({
       problems: [],
       defaults: [...loaded.defaults],
       prompts,
-      notices: [...catalogNotices(loaded.catalog, prompts), ...replacements],
+      notices: [...catalogNotices(loaded.catalog, loaded.defaults, prompts), ...replacements],
     };
   }
   return {
@@ -675,7 +679,7 @@ export const formatDiagnosis = ({
   advice,
   problems,
   defaults,
-  prompts,
+  prompts = [],
   notices = [],
   denylist,
   ok,
@@ -708,7 +712,7 @@ export const formatDiagnosis = ({
     ...(denylist === undefined ? [] : [denylistLine(denylist)]),
     '',
   ];
-  if (prompts !== undefined && prompts.length > 0) {
+  if (prompts.length > 0) {
     lines.push(
       'Brewer prompts (instructions and lens inputs, ADR 0141):',
       ...columns(

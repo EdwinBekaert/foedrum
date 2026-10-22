@@ -56,8 +56,8 @@ export interface StepBrewer {
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
 export interface Catalog {
-  brewers: readonly (StepBrewer & { name: string; path: string; isDefault: boolean })[];
-  lenses: readonly (Lens & { isDefault: boolean })[];
+  brewers: readonly (StepBrewer & { name: string; path: string })[];
+  lenses: readonly Lens[];
   /** The brewers the recipes' steps name, and the lenses the brewers' inputs name. */
   named: { brewers: ReadonlySet<string>; lenses: ReadonlySet<string> };
 }
@@ -634,18 +634,12 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     );
   }
   if (problems.length > 0) return { valid: false, problems };
-  const defaults = defaultsInUse(breweryFiles);
-  const isDefault = (path: string) => defaults.includes(path);
   return {
     valid: true,
-    defaults,
+    defaults: defaultsInUse(breweryFiles),
     catalog: {
-      brewers: brewerFiles.map(({ path, value }) => ({
-        ...value,
-        path,
-        isDefault: isDefault(path),
-      })),
-      lenses: [...lenses.values()].map((lens) => ({ ...lens, isDefault: isDefault(lens.path) })),
+      brewers: brewerFiles.map(({ path, value }) => ({ ...value, path })),
+      lenses: [...lenses.values()],
       named: {
         brewers: namedBrewers,
         lenses: new Set(
