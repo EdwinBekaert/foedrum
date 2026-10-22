@@ -629,6 +629,30 @@ describe('openDriver', () => {
       await after.tick();
       assert.deepStrictEqual(second.started, [plan('b1', 2)]);
     });
+
+    it('drives on only the batches drivesOn keeps of those its owner held, and lets the others lapse (ADR 0123)', async () => {
+      order('b1');
+      order('b2');
+      const before = await open({ owner: 'session-7' });
+      await before.drive();
+      before.close();
+      drivers.splice(0);
+      const left = batchLease('b1')?.expiresAt;
+      // An interactive driver for b2 alone: b1, which its owner left, is not driven or renewed.
+      const second = handRunner();
+      const after = await open({
+        owner: 'session-7',
+        runner: second.runner,
+        takes: (id) => id === 'b2',
+        drivesOn: () => false,
+      });
+      assert.deepStrictEqual(after.held(), []);
+      now = at(1);
+      await after.tick();
+      assert.deepStrictEqual(after.held(), ['b2']);
+      assert.deepStrictEqual(batchLease('b1')?.expiresAt, left);
+      assert.ok(second.started.every(({ batchId }) => batchId === 'b2'));
+    });
   });
 
   describe('attempt worktrees (ADR 0037)', () => {

@@ -343,6 +343,15 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  it('drives its batch alone, leaving a lease its owner holds of another batch to lapse (ADR 0123)', async () => {
+    // A batch this owner left Stuck in an earlier brew, its lease still live.
+    const expiresAt = new Date(t0.getTime() + 60_000);
+    store.withTransaction((tx) => tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt }));
+    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 0);
+    const other = store.batchLeases(t0).find(({ batchId }) => batchId === '13-1');
+    assert.deepStrictEqual(other, { batchId: '13-1', owner: 'ann', expiresAt });
+  });
+
   it('refuses a recipe label that names no recipe of the Brewery, ordering nothing: exit 5', async () => {
     const typo = { ...request, target: { issue: 15 } };
     assert.equal(await runBrew(setup, shell(behave.succeed()), typo), 5);
