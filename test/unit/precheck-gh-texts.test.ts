@@ -135,6 +135,28 @@ describe('forbiddenReason on what gh pr and gh issue would post', () => {
     assert.match(reason, /\(ADR 0132\)/);
   });
 
+  it('blocks a body file it cannot read whose path holds the word, without the path', () => {
+    const reason = refusal('gh pr comment 5 -F notes/examplecorp.md');
+    assert.match(
+      reason,
+      /^gh pr comment is blocked: could not read its --body-file from a file whose path holds a denied word, /,
+    );
+    assert.doesNotMatch(reason, /ENOENT/);
+  });
+
+  // A value of another option is never read as a title or body, nor anything after --.
+  it('skips the values of the other options, and what comes after --', () => {
+    for (const command of [
+      'gh issue edit 3 --add-label -tExampleCorp',
+      'gh pr create -B -bExampleCorp -t plain',
+      'gh pr comment 5 -- -b ExampleCorp',
+      'gh api repos/o/r/issues -H title=ExampleCorp',
+      'gh api repos/o/r/issues --jq body=ExampleCorp',
+    ]) {
+      assert.equal(forbiddenReason(command, scan().deniedTexts, CWD), undefined, command);
+    }
+  });
+
   // The error names the path as resolved, from the hook's working directory or the home folder.
   it('never quotes a read error that holds the word', () => {
     const readAt = () => {
@@ -289,6 +311,21 @@ describe('forbiddenReason on what gh api would post', () => {
     );
     assert.deepEqual(reads, [['draft.json'], ['raw.txt']]);
   });
+
+  const BOM = String.fromCodePoint(0xfeff);
+  const inputs: [string, string][] = [
+    ['{"labels":{"ExampleCorp":1}}', 'gh api --input d.json, labels line 1'],
+    ['{"labels":["plain","for ExampleCorp"]}', 'gh api --input d.json, labels line 1'],
+    ['{"ExampleCorp":"plain"}', 'gh api --input d.json, a field whose name holds a denied word'],
+    ['["plain",\n"ExampleCorp"]', 'gh api --input d.json:2'],
+    [`${BOM}{"body":"ExampleCorp"}`, 'gh api --input d.json, body line 1'],
+  ];
+  for (const [json, place] of inputs) {
+    it(`reads the keys and nested strings of a JSON --input, and an array by its lines: ${place}`, () => {
+      const reason = refusal(`${ISSUES} --input d.json`, { 'd.json': json });
+      assert.match(reason, hit('gh api', place));
+    });
+  }
 
   it('lets the review skill file a clean draft with --input (ADR 0094)', () => {
     const draft = JSON.stringify({ title: 'A plain title', body: 'A plain body.' });
