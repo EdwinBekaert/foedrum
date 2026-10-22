@@ -22,6 +22,7 @@ import {
   inputsOf,
   type PlannedInput,
   planAttempt,
+  type Resumed,
   routeInput,
   routeOf,
   settingsFileOf,
@@ -183,10 +184,19 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const recipe = batch.recipe?.name ?? '';
       const found = brewers.find(recipe, stepId);
       if (found === undefined) throw new Error(`recipe ${recipe} has no step ${stepId}`);
-      // A resumed session holds the inputs its first attempt read, and only a retry resumes one,
-      // which no route scheduled (ADR 0117).
-      const resumes = session.resumes !== undefined;
-      const inputs = resumes ? [] : await inputsFor(batch, ref, found, worktree.path);
+      // A resumed session holds the inputs its first attempt read and the answers of the rounds
+      // before, so an answered attempt gets this round's alone (ADR 0118). Only a retry or an
+      // answered attempt resumes one, which no route scheduled (ADR 0117).
+      const answered = startedOf(batch, ref)?.answered === true;
+      const resumes: Resumed | undefined =
+        session.resumes === undefined ? undefined : answered ? 'answered' : 'retry';
+      const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
+      const inputs =
+        resumes === undefined
+          ? await inputsFor(batch, ref, found, worktree.path)
+          : latest === undefined
+            ? []
+            : [latest];
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
       const plan = planAttempt({
@@ -199,7 +209,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         sandbox: options.sandbox,
         settingsFile,
         sessionId: session.id,
-        resumes,
+        ...(resumes === undefined ? {} : { resumes }),
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });

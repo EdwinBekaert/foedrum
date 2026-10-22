@@ -299,7 +299,7 @@ function apply(state: State, event: Event): State {
       }));
     }
     case 'step.scheduled': {
-      const { batchId, stepId, attempt, deadlineAt, route, retry } = event;
+      const { batchId, stepId, attempt, deadlineAt, route, retry, answered } = event;
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
@@ -314,6 +314,7 @@ function apply(state: State, event: Event): State {
               deadlineAt,
               ...(route === undefined ? {} : { route }),
               ...(retry === undefined ? {} : { retry }),
+              ...(answered === undefined ? {} : { answered }),
             }),
           }),
         };

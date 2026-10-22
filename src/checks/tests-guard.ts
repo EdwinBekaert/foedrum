@@ -6,6 +6,7 @@
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
+import { ranIn } from '../engine/session-resume.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
@@ -47,10 +48,14 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
     const of = protects(ref);
     if (of === undefined) return end;
     const batch = state().batches.get(ref.batchId);
-    const current = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
-    const worktree = current?.phase === 'scheduled' ? undefined : current?.worktree;
-    // Without its own worktree the attempt changed nothing the guard could read.
-    if (batch === undefined || worktree === undefined) return end;
+    const step = batch?.steps.get(ref.stepId);
+    const current = step?.attempts.get(ref.attempt);
+    // Its own worktree, or for a resumed attempt the one its session ran in, whose maker's branch
+    // carries the changes of every attempt of that session (ADR 0117).
+    const ran = step === undefined || current === undefined ? undefined : ranIn(step, current);
+    // Without a worktree the attempt changed nothing the guard could read.
+    if (batch === undefined || ran === undefined) return end;
+    const { worktree } = ran;
     // A step the batch skipped, or that never succeeded, committed no tests to keep.
     const proven = stepCommits(batch, of);
     if (proven === undefined) return end;
@@ -64,7 +69,8 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       if ('error' in tests) return tests;
       // Up to its branch, which the task tree carries on whatever HEAD is (ADR 0066), and only in
       // the files whose lines the guard keeps.
-      const own = { from: worktree.commit, to: `refs/heads/${attemptBranch(ref)}` };
+      const branch = attemptBranch({ ...ref, attempt: ran.attempt });
+      const own = { from: worktree.commit, to: `refs/heads/${branch}` };
       const paths = tests.files.flatMap(({ newPath }) => (newPath === undefined ? [] : [newPath]));
       const changes = await readDiff(git, cwd, own, { signal, paths });
       return 'error' in changes ? changes : { tests: tests.files, changes: changes.files };

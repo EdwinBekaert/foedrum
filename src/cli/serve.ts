@@ -38,10 +38,13 @@ export interface ServeShell {
   /** Opens the event store at `path`, making it when missing. */
   openStore: (path: string) => EventStore;
   stateBranch: (store: EventStore) => Pick<StateBranch, 'start' | 'flush'>;
-  /** The attempt worktrees of a repository, making its managed clone first. */
+  /**
+   * The attempt worktrees of a repository, making its managed clone first; `recreate` gives a
+   * resumed attempt the worktree its session ran in back (ADR 0117).
+   */
   worktrees: (
     repository: ServeRepository,
-  ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>>;
+  ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'recreate' | 'clean'>>;
   /**
    * The pushes of the openPullRequest action (ADR 0071), from the clone the repository's
    * worktrees are added to: the user's, or the managed one.

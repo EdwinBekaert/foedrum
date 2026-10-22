@@ -113,8 +113,9 @@ export interface DriverOptions {
    */
   brews?: (attempt: AttemptRef) => boolean;
   /**
-   * Whether the brewer of an attempt resumes the session of the attempt before it on a retry
-   * (`retryMode: resume`, ADR 0117); never by default, until the loader lets it through (#327).
+   * Whether the brewer of an attempt resumes the session of the attempt before it on a retry or an
+   * answer (`retryMode: resume`, ADR 0117, ADR 0118); never by default. `foedrum serve` and
+   * `foedrum brew` ask the brewer of the attempt's step.
    */
   resumes?: (attempt: AttemptRef) => boolean;
   /** The id of a new session; default `randomUUID`. */

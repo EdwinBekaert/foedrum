@@ -241,6 +241,9 @@ export const wireDriver = async (
     worktrees,
     // A check step runs no claude, so it has no session (ADR 0116).
     brews: (ref) => !isCheck(ref),
+    // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
+    resumes: ({ batchId, stepId }) =>
+      setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.retryMode === 'resume',
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,
