@@ -114,6 +114,26 @@ describe('auditAdvisories', () => {
     assert.ok(run.lines.some((line) => line.includes('timed out')));
   });
 
+  it('adds no empty line when npm is killed before writing to stderr', async () => {
+    const { exec, wait } = fake({
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      output: '',
+      killed: 'stopped',
+    });
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.deepEqual(run.lines, ['npm audit did not finish (stopped)']);
+  });
+
+  it('numbers its tries, not attempts, which are steps of a batch (glossary)', async () => {
+    const { exec, wait } = fake(answer('server-error'), answer('clean'));
+    const run = await auditAdvisories(cwd, env, execPath, exec, wait);
+    assert.ok(run.lines.some((line) => line.startsWith('try 1 of 2: ')));
+    assert.ok(run.lines.some((line) => line.startsWith('try 2 of 2: ')));
+    assert.ok(run.lines.every((line) => !line.includes('attempt')));
+  });
+
   it('fails without running anything when npm_execpath is not set', async () => {
     const { calls, exec, wait } = fake();
     const run = await auditAdvisories(cwd, {}, execPath, exec, wait);
