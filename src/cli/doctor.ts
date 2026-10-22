@@ -39,7 +39,14 @@ export interface DoctorFacts {
   brewery?: BreweryFiles | undefined;
   /** gh's login and git's credential helpers for the Brewery's GitHub host (ADR 0073). */
   github?: GitHubFacts | undefined;
+  /** Whether the local gate's personal denylist is set, and where (ADR 0114); never its words. */
+  denylist?: DenylistFact | undefined;
 }
+
+/** The denylist's state as doctor reports it: its path, never its words or their count. */
+export type DenylistFact =
+  | { kind: 'none' | 'set'; path: string }
+  | { kind: 'unreadable'; path: string; why: string };
 
 /** How a command answered: its exit code (`null` when it could not start or was killed) and output. */
 export interface CommandRun {
@@ -101,6 +108,8 @@ export interface Diagnosis {
    * and they load: those it has no file of the same name for (ADR 0098).
    */
   defaults?: readonly string[];
+  /** The local gate's denylist, when doctor looked for it (ADR 0114). */
+  denylist?: DenylistFact;
   /** No required problem. */
   ok: boolean;
 }

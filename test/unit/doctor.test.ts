@@ -733,6 +733,35 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
   });
 });
 
+describe("formatDiagnosis: the local gate's denylist (ADR 0114)", () => {
+  const path = '/home/ada/.config/foedrum/denylist.txt';
+  const lines: [DoctorFacts['denylist'], RegExp][] = [
+    [
+      { kind: 'set', path },
+      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt \(the local gate blocks its words in what leaves the machine, ADR 0114\)\n/,
+    ],
+    [
+      { kind: 'none', path },
+      /\nDenylist: none \(optional; the local gate reads FOEDRUM_DENYLIST or \/home\/ada\/\.config\/foedrum\/denylist\.txt, ADR 0114\)\n/,
+    ],
+    [
+      { kind: 'unreadable', path, why: 'EACCES' },
+      /\nDenylist: \/home\/ada\/\.config\/foedrum\/denylist\.txt cannot be read \(EACCES\); the local gate blocks every push until it can \(ADR 0114\)\n/,
+    ],
+  ];
+  for (const [denylist, line] of lines) {
+    it(`says the denylist is ${denylist?.kind} in one line`, () => {
+      const report = formatDiagnosis(diagnose({ ...linux(), denylist }));
+      assert.match(report, line);
+      assert.equal(report.match(/Denylist/g)?.length, 1);
+    });
+  }
+
+  it('says nothing of a denylist it did not look for', () => {
+    assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /Denylist/);
+  });
+});
+
 describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
   const lens = { path: 'defaults/lenses/security.md', text: 'Look for secrets.' };
   const replaced = { path: 'defaults/lenses/correctness.md', text: 'Look for bugs.' };

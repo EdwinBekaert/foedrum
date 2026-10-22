@@ -206,6 +206,77 @@ describe('precheck on a stale node_modules', () => {
   }
 });
 
+// The personal denylist's scan of what a push sends (ADR 0114), injected: its own tests are in
+// denylist-shell.test.ts.
+describe('precheck with a personal denylist', () => {
+  const upToDate = async (): Promise<string | undefined> => undefined;
+  const onBranch = async (): Promise<boolean> => false;
+  const fakeScan = (answer: () => Promise<string | undefined>) => {
+    const calls: string[] = [];
+    const deniedPush = async (dir: string) => {
+      calls.push(dir);
+      return answer();
+    };
+    return { calls, deniedPush };
+  };
+  const gate = (
+    command: string,
+    runCheck: (cwd: string) => Promise<CheckResult>,
+    deniedPush: (dir: string) => Promise<string | undefined>,
+    detached = false,
+  ) =>
+    precheck(
+      hookInput(command, '/work/tree'),
+      runCheck,
+      upToDate,
+      async () => detached,
+      undefined,
+      undefined,
+      undefined,
+      deniedPush,
+    );
+  const REFUSAL = 'git push is blocked: it would send a word on your denylist (ADR 0114), at x';
+
+  it('blocks a push with the scan’s line, before the check, in the tree it pushes', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => REFUSAL);
+    const result = await gate('git -C sub push', runCheck, scan.deniedPush);
+    assert.deepEqual(result, { exitCode: 2, stderr: `${REFUSAL}\n` });
+    assert.deepEqual(scan.calls, [resolve('/work/tree', 'sub')]);
+    assert.deepEqual(calls, []);
+  });
+
+  it('runs the check when the scan finds nothing', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => undefined);
+    const result = await gate('git push', runCheck, scan.deniedPush);
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(scan.calls, ['/work/tree']);
+    assert.deepEqual(calls, ['/work/tree']);
+  });
+
+  it('blocks the push when the scan fails', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => {
+      throw new Error('no git');
+    });
+    const result = await gate('git push', runCheck, scan.deniedPush);
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /^git push is blocked: could not check it against your denylist/);
+    assert.match(result.stderr, /no git/);
+    assert.deepEqual(calls, []);
+  });
+
+  it('does not scan a push from a detached HEAD, or what pushes nothing', async () => {
+    const { runCheck } = fakeCheck({ ok: true, output: '' });
+    const scan = fakeScan(async () => REFUSAL);
+    await gate('git push', runCheck, scan.deniedPush, true);
+    await gate('gh pr create --draft', runCheck, scan.deniedPush);
+    await gate('git status', runCheck, scan.deniedPush);
+    assert.deepEqual(scan.calls, []);
+  });
+});
+
 describe('precheck on a detached HEAD', () => {
   // A HEAD check that records where it looked and answers with the given state.
   const fakeHead = (detached: boolean) => {

@@ -1112,6 +1112,10 @@ export type HeadIsDetached = (cwd: string) => Promise<boolean>;
 // Whether the package around `cwd` has `node_modules/.bin/<name>`, a binary the lockfile installed.
 export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
 
+// Why a push from `dir` would send a word on the personal denylist, or undefined (ADR 0114);
+// rejects when it cannot tell.
+export type DeniedPush = (dir: string) => Promise<string | undefined>;
+
 // Whether a directory a command changes into is inside the project the session works in
 // (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
 export type InProject = (dir: string) => Promise<boolean>;
@@ -1207,6 +1211,7 @@ export const precheck = async (
   },
   binaryInstalled: BinaryInstalled = async () => false,
   inProject: InProject = async () => true,
+  _deniedPush: DeniedPush = async () => undefined,
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(input)) return { exitCode: 0, stderr: '' };
   let parsed: unknown;

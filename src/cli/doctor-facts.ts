@@ -4,6 +4,7 @@
 
 import { join } from 'node:path';
 import type { BreweryFiles } from '../engine/recipe-files.ts';
+import type { DenylistState } from '../platform/denylist.ts';
 import { withoutGitHubTokens } from '../platform/env.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import {
@@ -49,6 +50,8 @@ export interface DoctorShell {
   readFile?: (path: string) => string | undefined;
   /** The Brewery's recipe and brewer files in `cwd` (`readBreweryFiles`, ADR 0053). */
   readBrewery?: () => BreweryFiles;
+  /** The local gate's personal denylist (`readDenylist`, ADR 0114); doctor keeps only its path. */
+  denylist?: () => DenylistState;
   /** The environment gh runs in, without the GitHub token variables; default this process's. */
   env?: NodeJS.ProcessEnv;
   /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
