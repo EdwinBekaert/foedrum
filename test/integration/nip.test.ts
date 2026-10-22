@@ -261,9 +261,10 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
   ]);
 };
 
-/** The route input of the Cellarman's second attempt, with the failing assertion (ADR 0128). */
+/** The route input of the Cellarman's second attempt (ADR 0128). */
 const ROUTE = /why step implement runs again: the failed checks of step green/;
-const FAILED_READING = /Hello, stranger/;
+/** The failed check's own TAP line for the Gauger's test, which no order or file holds. */
+const FAILED_READING = /not ok \d+ - greets a stranger when no name is given/;
 
 describe('the Nip recipe end to end', () => {
   let dir: TempDir;
@@ -290,6 +291,7 @@ describe('the Nip recipe end to end', () => {
       prompts.get(attemptKey.encode({ batchId: BATCH, stepId: 'implement', attempt })) ?? '';
     assert.ok(promptOf(1) !== '' && promptOf(2) !== '', [...prompts.keys()].join(', '));
     assert.doesNotMatch(promptOf(1), ROUTE);
+    assert.doesNotMatch(promptOf(1), FAILED_READING);
     assert.match(promptOf(2), ROUTE);
     assert.match(promptOf(2), FAILED_READING);
   });
@@ -390,12 +392,17 @@ describe('the Nip recipe end to end with the real claude', {
 
     // The model saw the route input only in the Cellarman's second session.
     const cellarman = api.bodies.filter((body) => body.includes('# Cellarman'));
-    assert.ok(cellarman.some((body) => !ROUTE.test(body)));
+    assert.ok(cellarman.some((body) => !ROUTE.test(body) && !FAILED_READING.test(body)));
     assert.ok(cellarman.some((body) => ROUTE.test(body) && FAILED_READING.test(body)));
-    // The push was denied and never reached the remote.
+    // The push, the Gauger's first tool, was denied and never reached the remote: the Gauger's
+    // call with exactly one tool result carries the probe's, and it is an error.
+    const afterProbe = api.bodies.filter(
+      (body) => body.includes('# Gauger') && body.split('"tool_result"').length === 2,
+    );
+    assert.ok(afterProbe.length > 0, 'the Gauger never answered the probe');
     assert.ok(
-      api.bodies.some((body) => /"is_error":true/.test(body)),
-      'no tool result was an error',
+      afterProbe.every((body) => /"is_error":true/.test(body)),
+      'the probe was not refused',
     );
     const refs = await brewed.run(scratch, ['--git-dir', join(scratch, 'web.git'), 'show-ref']);
     assert.doesNotMatch(refs, /refs\/heads\/probe/);
