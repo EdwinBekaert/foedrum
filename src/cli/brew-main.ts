@@ -44,6 +44,7 @@ export const brewFromCheckout = async (
       target: input.issue,
       owner: owner.owner,
       ...issued,
+      ...(input.take === true ? { take: true } : {}),
     });
     return { exitCode, stdout: '', stderr: '' };
   } finally {

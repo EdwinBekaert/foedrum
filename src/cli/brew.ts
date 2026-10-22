@@ -4,6 +4,7 @@
 // routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
 // Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
 
+import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
@@ -153,7 +154,16 @@ export const runBrew = async (
       );
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined) return refuse(drivenBy(leased));
+    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
+    // --take: the batch is this driver's at once; the one that held it stops (ADR 0124).
+    if (leased !== undefined) {
+      const handover = { batchId: leased.batchId, owner, by, via, now: clock(), leaseMs };
+      const decision = takeOver(log, handover);
+      if (decision.kind === 'refused') return refuse(decision.reason);
+      const [handed] = decision.events;
+      const from = handed?.type === 'batch.taken_over' ? handed.from : leased.owner;
+      say(`took batch ${leased.batchId} over from ${from}`);
+    }
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068).
     let recipe: string | undefined;
     if (latest === undefined || latest.lane.kind === 'ordered') {

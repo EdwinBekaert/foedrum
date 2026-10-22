@@ -476,8 +476,13 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
-    case 'batch.taken_over':
-      throw new Error('not implemented');
+    case 'batch.taken_over': {
+      const { by, via, from, to, until } = event;
+      return updateBatch(state, event.batchId, (batch) => ({
+        ...batch,
+        takeover: { by, via, from, to, until },
+      }));
+    }
     case 'batch.cancelled':
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
     case 'pull_request.ended': {

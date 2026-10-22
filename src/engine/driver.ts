@@ -15,7 +15,7 @@ import { type AttemptRef, attemptKey } from './attempt-key.ts';
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
-import type { Ending, EngineCommand } from './decide.ts';
+import type { Ending, EngineCommand, RecordedEvent } from './decide.ts';
 import type { DriverLock } from './driver-lock.ts';
 import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
@@ -220,9 +220,10 @@ const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
   return { kind: 'finish', ...ref, ...rest, ...(report.success ? { claude: report.data } : {}) };
 };
 
-/** A live lease of an attempt, and when it expires unless it is renewed. */
+/** A live lease of an attempt, whose it is, and when it expires unless it is renewed. */
 interface AttemptLease {
   ref: AttemptRef;
+  owner: string;
   expiresAt: Date;
 }
 
@@ -413,6 +414,39 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     });
   };
 
+  /**
+   * Records the start `event` with `also`'s writes in the transaction that renews its batch's
+   * lease, so a driver that lost the batch, as to a takeover since it last claimed it, starts
+   * nothing more there (ADR 0124): the batch is lost instead. False when it is not recorded.
+   */
+  const recordStart = (
+    event: Extract<RecordedEvent, { type: 'step.started' }>,
+    also?: (tx: EventStoreTransaction) => void,
+  ): boolean => {
+    const { batchId } = event;
+    let holder: BatchLease | undefined;
+    const command = { kind: 'record', event } as const;
+    const decision = log.issue(
+      (tx) => {
+        const hold = holdBatch(tx, { batchId, owner, now: clock(), leaseMs });
+        if (hold.kind === 'held') return command;
+        holder = hold.lease;
+        return { refused: `batch ${batchId} is driven by ${hold.lease.owner}` };
+      },
+      clock(),
+      also,
+    );
+    if (holder !== undefined) {
+      lose(batchId, holder);
+      return false;
+    }
+    if (decision.kind === 'refused') {
+      report({ kind: 'refused', command, reason: decision.reason });
+      return false;
+    }
+    return true;
+  };
+
   const leaseAttempt = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({ attemptKey: key, owner, expiresAt: new Date(clock().getTime() + leaseMs) });
   const releaseAttempt = (key: string): void => store.withTransaction((tx) => tx.releaseLease(key));
@@ -426,7 +460,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
     const started = { type: 'step.started', ...ref } as const;
     if (worktrees.length === 0) {
-      return issue({ kind: 'record', event: started }, (tx) => leaseAttempt(tx, key));
+      return recordStart(started, (tx) => leaseAttempt(tx, key));
     }
     // The lease first: only the holder of an attempt's lease may make its worktree.
     store.withTransaction((tx) => leaseAttempt(tx, key));
@@ -442,7 +476,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       if (resumed.kind === 'resumed') {
         // In the worktree of the session it continues, with none of its own (ADR 0029).
         const event = { ...started, session: resumed.session };
-        if (issue({ kind: 'record', event })) return true;
+        if (recordStart(event)) return true;
         releaseAttempt(key);
         return false;
       }
@@ -452,7 +486,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     } catch (error) {
       const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;
-      if (issue({ kind: 'record', event: started })) issue({ kind: 'finish', ...ref, ending });
+      if (recordStart(started)) issue({ kind: 'finish', ...ref, ending });
       releaseAttempt(key);
       return false;
     }
@@ -466,7 +500,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           },
         }
       : {};
-    if (issue({ kind: 'record', event: { ...started, ...session, worktree } })) return true;
+    if (recordStart({ ...started, ...session, worktree })) return true;
     releaseAttempt(key);
     return false;
   };
@@ -506,7 +540,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * actions to run it, the attempt is blocked on its environment at once.
    */
   const startAction = (ref: AttemptRef, action: RecipeAction): boolean => {
-    if (!issue({ kind: 'record', event: { type: 'step.started', ...ref } })) return false;
+    if (!recordStart({ type: 'step.started', ...ref })) return false;
     if (actions === undefined) {
       const summary = `the driver has no code host to run the ${action} action of step ${ref.stepId} on`;
       issue({
@@ -528,10 +562,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    */
   const stepLease = (leases: readonly AttemptLease[], ref: AttemptRef): AttemptLease | undefined =>
     leases.find(
-      ({ ref: other }) =>
+      ({ ref: other, owner: holder }) =>
         other.batchId === ref.batchId &&
         other.stepId === ref.stepId &&
-        other.attempt !== ref.attempt,
+        // Or `ref` itself, which a driver that lost the batch to a takeover is starting (ADR 0124).
+        (other.attempt !== ref.attempt || holder !== owner),
     );
   // The attempts it said wait for a lease, by key: each is said once, not on every pass (#155).
   // A key goes when its attempt starts; one whose batch went Stuck or ended first stays, one key
@@ -544,9 +579,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     for (;;) {
       let moved = false;
       // Once per pass: a run that ended in the pass before let its lease go.
-      const leases = store.currentLeases(clock()).flatMap(({ attemptKey: key, expiresAt }) => {
+      const leases = store.currentLeases(clock()).flatMap(({ attemptKey: key, ...lease }) => {
         const ref = attemptKey.decode(key);
-        return ref === undefined ? [] : [{ ref, expiresAt }];
+        return ref === undefined ? [] : [{ ref, ...lease }];
       });
       for (const batch of log.state().batches.values()) {
         if (batch.lane.kind !== 'brewing') continue;
@@ -717,6 +752,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
   };
 
+  /**
+   * Whether `batchId` was taken over from a driver whose lease has not run out: an effect it began
+   * under that lease may still be applied, and ends before it does (ADR 0124).
+   */
+  const awaitsTakeover = (batchId: string): boolean => {
+    const until = log.state().batches.get(batchId)?.takeover?.until;
+    return until !== undefined && Date.parse(until) > clock().getTime();
+  };
+
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
   // and passes of this driver run one after another (ADR 0033).
   const applyPass = async (): Promise<void> => {
@@ -736,7 +780,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         const { key, target } = next;
         tried.add(effectKey.encode(key));
         heartbeat();
-        if (!claim(batch.id)) {
+        if (!claim(batch.id) || awaitsTakeover(batch.id)) {
           stopped = true;
           break;
         }

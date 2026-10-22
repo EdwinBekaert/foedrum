@@ -59,6 +59,19 @@ export interface TakeoverRequest {
  * Hands `batchId` from the driver whose live lease holds it to `owner`, and records the handover
  * (ADR 0124): the lease is read, and given, in the transaction that appends.
  */
-export const takeOver = (_log: CommandLog, _request: TakeoverRequest): Decision => {
-  throw new Error('not implemented');
+export const takeOver = (log: CommandLog, request: TakeoverRequest): Decision => {
+  const { batchId, owner, by, via, now, leaseMs } = request;
+  return log.issue(
+    (tx) => {
+      const current = tx.batchLease(batchId);
+      if (current === undefined || current.expiresAt <= now) {
+        return { refused: `no driver holds batch ${batchId}; foedrum brew drives it` };
+      }
+      if (current.owner === owner) return { refused: `${owner} holds batch ${batchId} already` };
+      const until = current.expiresAt.toISOString();
+      return { kind: 'take_over', batchId, by, via, from: current.owner, to: owner, until };
+    },
+    now,
+    (tx) => tx.putBatchLease({ batchId, owner, expiresAt: new Date(now.getTime() + leaseMs) }),
+  );
 };

@@ -319,8 +319,12 @@ function run(draft: Draft, command: Command): Event[] {
       });
       break;
     }
-    case 'take_over':
-      throw new Error('not implemented');
+    case 'take_over': {
+      const { batchId, by, via, from, to, until } = command;
+      requireLane(draft.batch(batchId), 'take over', nonTerminal);
+      draft.push({ type: 'batch.taken_over', batchId, by, via, from, to, until });
+      break;
+    }
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);

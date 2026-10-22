@@ -145,7 +145,10 @@ const goals: Readonly<Record<string, (engine: ChaosEngine) => boolean>> = {
     engine.losses.some(
       ({ driver, batchId, running }) =>
         running.length > 0 &&
-        takenOver(engine).some((i) => i.driver === driver && i.batchId === batchId),
+        takenOver(engine).some(
+          ({ command }) =>
+            command.kind === 'take_over' && command.from === driver && command.batchId === batchId,
+        ),
     ),
   // A driver restarted under its owner: it drives on the batches it held, and its earlier
   // attempts are lost and retried (ADR 0033).

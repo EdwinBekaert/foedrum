@@ -48,10 +48,9 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.rewound':
     case 'batch.on_tap':
     case 'batch.cancelled':
+    case 'batch.taken_over':
     case 'pull_request.ended':
       return event.batchId;
-    case 'batch.taken_over':
-      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

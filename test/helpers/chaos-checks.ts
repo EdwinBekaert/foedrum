@@ -31,12 +31,17 @@ const heldByTheDown = ({ engine }: ChaosRun): Set<string> => {
 
 /**
  * Every batch's pending deadline is ahead: its running attempts', its routing deadline or its
- * reminder. Except a batch a driver that is down holds.
+ * reminder. Except a batch a driver that is down holds, and one taken over in this move: the
+ * supervisor of the driver it went to may have skipped it before, and acts at its next tick
+ * (ADR 0124).
  */
 export const nothingOverdue = (run: ChaosRun): void => {
   const { engine } = run;
   const now = engine.now().getTime();
   const waiting = heldByTheDown(run);
+  for (const { move, batchId, accepted, command } of engine.interjections) {
+    if (accepted && command.kind === 'take_over' && move === run.moves.length) waiting.add(batchId);
+  }
   for (const batch of engine.state().batches.values()) {
     if (waiting.has(batch.id)) continue;
     const { lane } = batch;
@@ -104,7 +109,13 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
           .get(ref.batchId)
           ?.steps.get(ref.stepId)
           ?.attempts.get(ref.attempt);
-        return attempt?.phase === 'finished' || attempt?.abandoned === true;
+        // Or the scheduled attempt's own, which a driver that lost the batch to a takeover had
+        // taken to start it (ADR 0124).
+        return (
+          attempt?.phase === 'finished' ||
+          attempt?.phase === 'scheduled' ||
+          attempt?.abandoned === true
+        );
       })
       .map((ref) => `${ref.batchId} ${ref.stepId}`),
   );
