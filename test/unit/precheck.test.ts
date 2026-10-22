@@ -57,11 +57,6 @@ describe('isGatedCommand', () => {
     'GIT_TRACE=1 git push',
     'git.exe push',
     '& git push',
-    'gh pr create --draft --title "Local gate"',
-    'gh pr new',
-    'git log --oneline -1 && gh pr create --body-file body.md',
-    'gh -R owner/repo pr create --draft',
-    'gh pr --repo owner/repo create',
   ];
   for (const command of gated) {
     it(`gates: ${command}`, () => {
@@ -78,6 +73,10 @@ describe('isGatedCommand', () => {
     'gh pr list --state all',
     'gh issue create --title push',
     'gh -R owner/repo pr view 30',
+    // The push before it checked the tree a pull request opens (ADR 0135).
+    'gh pr create --draft --title "Local gate"',
+    'gh pr new',
+    'gh -R owner/repo pr create --draft',
     'npm run check',
     '',
   ];
@@ -105,7 +104,7 @@ describe('precheck', () => {
 
   it('blocks a push with exit code 2 and the check output when the check fails', async () => {
     const { runCheck } = fakeCheck({ ok: false, output: 'not ok 1 - fold replays events' });
-    const result = await precheck(hookInput('gh pr create --draft'), runCheck);
+    const result = await precheck(hookInput('git push -u origin 24-local-gate'), runCheck);
     assert.equal(result.exitCode, 2);
     assert.match(result.stderr, /npm run check failed/);
     assert.match(result.stderr, /not ok 1 - fold replays events/);
@@ -184,11 +183,7 @@ describe('precheck on a stale node_modules', () => {
   it('runs the check in the hook cwd when node_modules is up to date', async () => {
     const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
     const stale = fakeStale(undefined);
-    const result = await precheck(
-      hookInput('gh pr create', '/work/tree'),
-      runCheck,
-      stale.staleReason,
-    );
+    const result = await precheck(hookInput('git push', '/work/tree'), runCheck, stale.staleReason);
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
     assert.deepEqual(stale.calls, ['/work/tree']);
     assert.deepEqual(calls, ['/work/tree']);
@@ -540,7 +535,7 @@ describe('precheck on a push from another directory', () => {
     ['Set-Location -LiteralPath ../wt; git push', worktree, 'PowerShell'],
     ['Set-Location -Path:../wt; git push', worktree, 'PowerShell'],
     ['Push-Location -StackName s ../wt; git push', worktree, 'PowerShell'],
-    // A push and a pull request from one tree: the push still gets its HEAD check.
+    // A pull request after the push: only the push is checked (ADR 0135).
     ['cd ../wt && git push && gh pr create --draft', worktree],
     ['cd ../wt && gh pr create --draft && git push', worktree],
   ];
@@ -563,13 +558,6 @@ describe('precheck on a push from another directory', () => {
     assert.deepEqual(checks, []);
   });
 
-  it('checks the tree of gh pr create after a cd', async () => {
-    const { result, checks, heads } = await gate('cd ../wt && gh pr create --draft');
-    assert.deepEqual(result, { exitCode: 0, stderr: '' });
-    assert.deepEqual(checks, [worktree]);
-    assert.deepEqual(heads, []);
-  });
-
   for (const command of ['cd ../wt && gh pr ready', 'cd ../wt && gh pr ready 5']) {
     it(`looks the pull request up where gh runs: ${command}`, async () => {
       const { result, lookups } = await gate(command);
@@ -588,7 +576,7 @@ describe('precheck on a push from another directory', () => {
     const { result, checks, heads } = await gate('git -C a push; git -C b push');
     assert.deepEqual(result, {
       exitCode: 2,
-      stderr: `This command pushes or opens pull requests from more than one directory (${join(root, 'a')}, ${join(root, 'b')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.\n`,
+      stderr: `This command pushes from more than one directory (${join(root, 'a')}, ${join(root, 'b')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.\n`,
     });
     assert.deepEqual(heads, []);
     assert.deepEqual(checks, []);
@@ -646,16 +634,6 @@ describe('precheck on a push from another directory', () => {
       assert.deepEqual(checks, []);
     });
   }
-
-  it('blocks gh pr create from a directory computed at run time', async () => {
-    const { result, checks } = await gate('cd "$d" && gh pr create --draft');
-    assert.deepEqual(result, {
-      exitCode: 2,
-      stderr:
-        'gh pr create is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which tree to check: run it from inside the worktree, or name its path as it is.\n',
-    });
-    assert.deepEqual(checks, []);
-  });
 
   it('blocks gh pr ready without a number from a directory computed at run time', async () => {
     const { result, lookups } = await gate('cd "$d" && gh pr ready');
@@ -719,10 +697,6 @@ describe('precheck on a push from outside the project', () => {
     [
       'git -C ../other push',
       `git push is blocked: it runs in ${other}, outside the project this session works in, so the gate does not run that tree's code: push from inside that checkout.`,
-    ],
-    [
-      'cd ../other && gh pr create --draft',
-      `gh pr create is blocked: it runs in ${other}, outside the project this session works in, so the gate does not run that tree's code: run gh pr create from inside that checkout.`,
     ],
     [
       'cd ../other && gh pr ready',
@@ -1007,26 +981,6 @@ describe('forbiddenReason through wrappers, other shells and aliases', () => {
     });
   }
 
-  // A git or gh alias hides the push or merge behind another name, so defining one is blocked.
-  const aliases = [
-    'git config alias.p push && git p -f',
-    'git config --global alias.p "push -f"',
-    'git config alias.p push',
-    "git config alias.p '!git push -f'",
-    'git config set alias.p push',
-    'git -c alias.p=push p -f',
-    'git -c alias.p=push p',
-    "gh alias set m 'pr merge'",
-    "gh alias set c 'pr create --draft'",
-    "gh alias set --shell m 'gh pr merge $1'",
-    "bash -c 'git config alias.p push'",
-  ];
-  for (const command of aliases) {
-    it(`forbids defining an alias that pushes, merges or opens a pull request: ${command}`, () => {
-      assert.match(forbiddenReason(command) ?? '', /alias/);
-    });
-  }
-
   it('blocks commands nested too deeply to check', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(40)}git status`) ?? '', /too deeply/);
   });
@@ -1159,11 +1113,11 @@ describe('isGatedCommand through wrappers, other shells and aliases', () => {
     'env FOO=1 git push -u origin 42-harden-gate',
     'time git push',
     'bash -c "git push"',
-    'pwsh -Command "gh pr create --draft"',
+    'pwsh -Command "git push"',
     'cmd /c git push',
     "iex 'git push'",
     '"C:\\Program Files\\Git\\cmd\\git.exe" push',
-    "& 'C:\\Program Files\\GitHub CLI\\gh.exe' pr create --draft",
+    "& 'C:\\Program Files\\Git\\cmd\\git.exe' push",
     'Start-Process git -ArgumentList push',
     // A program or subcommand computed at run time may be git push.
     '$g push',
@@ -1776,26 +1730,12 @@ describe('precheck on gh pr ready', () => {
     assert.deepEqual(lookups, []);
   });
 
-  const api = [
-    `gh api graphql -f query='mutation { markPullRequestReadyForReview(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    'gh api graphql -F id=PR_kw1 -f query="mutation(\\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \\$id}) { clientMutationId } }"',
-  ];
-  for (const command of api) {
-    it(`blocks marking a pull request ready through gh api: ${command}`, async () => {
-      const { result, lookups } = await ready(command, facts([summary(c3.sha)], [c1, c2, c3]));
-      assert.equal(result.exitCode, 2);
-      assert.match(result.stderr, /through gh api is blocked: run gh pr ready <n>/);
-      assert.deepEqual(lookups, []);
-    });
-  }
-
   // The lookup runs before the command does, so it would see the head from before the push.
   for (const command of [
     'git push && gh pr ready 160',
-    'gh pr create --draft --fill && gh pr ready',
     'bash -c "git push origin 154-x; gh pr ready 160"',
   ]) {
-    it(`blocks gh pr ready in the same command as a push or a new pull request: ${command}`, async () => {
+    it(`blocks gh pr ready in the same command as a push: ${command}`, async () => {
       const { result, lookups, checks } = await ready(
         command,
         facts([summary(c3.sha)], [c1, c2, c3]),
@@ -1834,18 +1774,6 @@ describe('precheck on gh pr ready', () => {
       assert.equal(result.exitCode, 2);
       assert.match(result.stderr, /GH_REPO or GH_HOST/);
       assert.deepEqual(lookups, []);
-    });
-  }
-
-  for (const command of [
-    'gh api graphql -F query=@ready.graphql -F id=PR_kw1',
-    'gh api graphql --input body.json',
-    'gh api graphql -f query="$q"',
-  ]) {
-    it(`blocks gh api graphql with a query the gate cannot read: ${command}`, async () => {
-      const { result } = await ready(command, facts([], [c1, c2, c3]));
-      assert.equal(result.exitCode, 2);
-      assert.match(result.stderr, /gh api graphql with a query the gate cannot read/);
     });
   }
 
@@ -1935,25 +1863,8 @@ describe('precheck on gh pr ready', () => {
     assert.deepEqual(lookups, []);
   });
 
-  for (const command of [
-    'gh api -X POST graphql -F query=@ready.graphql -F id=PR_kw1',
-    "gh api -H 'Accept: application/json' graphql --input body.json",
-    'gh api graphql -Fquery=@ready.graphql',
-    'gh api graphql --field=query=@ready.graphql',
-    'gh api graphql --raw-field=query="$q"',
-  ]) {
-    it(`blocks gh api graphql with a query the gate cannot read, in any order: ${command}`, async () => {
-      const { result } = await ready(command, facts([], [c1, c2, c3]));
-      assert.match(result.stderr, /gh api graphql with a query the gate cannot read/);
-    });
-  }
-
   it('names gh pr ready among the plain commands when a command nests too deeply', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(40)}gh pr ready 160`) ?? '', /gh pr ready/);
-  });
-
-  it("forbids defining an alias that marks a pull request ready: gh alias set r 'pr ready'", () => {
-    assert.match(forbiddenReason("gh alias set r 'pr ready'") ?? '', /alias/);
   });
 });
 
@@ -2210,8 +2121,8 @@ describe('precheck on forbidden commands', () => {
   }
 });
 
-// gh api can merge a pull request as gh pr merge does: a PUT to its merge endpoint, or the
-// GraphQL mutations that merge it or turn on auto-merge (#297).
+// gh api can merge a pull request as gh pr merge does: a PUT to its merge endpoint (#297).
+// GraphQL is not read: the ruleset on main owns merging (ADR 0135).
 describe('forbiddenReason on a merge through gh api', () => {
   const blocked = [
     'gh api -X PUT repos/o/r/pulls/30/merge',
@@ -2235,30 +2146,14 @@ describe('forbiddenReason on a merge through gh api', () => {
     'gh api -X=PUT repos/o/r/pulls/30/merge',
     // gh's command group computed at run time may be api.
     'gh $g -X PUT repos/o/r/pulls/30/merge',
-    `gh $(echo api) graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    `gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    `gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    `gh api graphql -F query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    `gh api graphql --raw-field query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    `gh api graphql --raw-field='query=mutation { enablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-    `gh api graphql -F id=PR_kw1 -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }'`,
     `bash -c "gh api -X PUT repos/o/r/pulls/30/merge"`,
     `pwsh -Command "gh api --method PUT repos/o/r/pulls/30/merge"`,
-    `bash -c "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \\"PR_kw1\\"}) { clientMutationId } }'"`,
-    `pwsh -Command "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: ''PR_kw1''}) { clientMutationId } }'"`,
   ];
   for (const command of blocked) {
     it(`forbids: ${command}`, () => {
       assert.match(forbiddenReason(command) ?? '', /^`gh pr merge` is blocked/);
     });
   }
-
-  it('says that a query it cannot read may merge a pull request too', () => {
-    assert.match(
-      forbiddenReason('gh api graphql -F query=@merge.graphql') ?? '',
-      /does not merge a pull request or mark one ready/,
-    );
-  });
 
   const allowed = [
     // A GET only asks whether the pull request is merged.
@@ -2277,160 +2172,6 @@ describe('forbiddenReason on a merge through gh api', () => {
     'gh api graphql -f query=\'query { repository(owner: "o", name: "r") { pullRequest(number: 30) { merged } } }\'',
     'gh api graphql -f query=\'mutation { disablePullRequestAutoMerge(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }\'',
     "git commit -m 'block gh api -X PUT repos/o/r/pulls/30/merge'",
-  ];
-  for (const command of allowed) {
-    it(`allows: ${command}`, () => {
-      assert.equal(forbiddenReason(command), undefined);
-    });
-  }
-});
-
-// gh posts to the GraphQL endpoint for `graphql`, for `/graphql` (the REST prefix plus the path,
-// which is api.github.com/graphql) and for a full URL, which it uses as it is (#314).
-describe('forbiddenReason on gh api with the GraphQL endpoint in any form gh accepts', () => {
-  const endpoints = [
-    'graphql',
-    '/graphql',
-    'https://api.github.com/graphql',
-    'https://ghe.example.com/api/graphql',
-    'https://api.github.com/graphql?x=1',
-    'https://api.github.com/graphql/',
-    'HTTPS://API.GITHUB.COM/GRAPHQL',
-  ];
-  const unreadable = ['-F query=@merge.graphql', '--input body.json', '-f query="$q"'];
-  for (const endpoint of endpoints) {
-    for (const query of unreadable) {
-      const unquoted = query.replaceAll('"', '');
-      for (const command of [
-        `gh api ${endpoint} -X POST ${query}`,
-        `bash -c 'gh api ${endpoint} ${unquoted}'`,
-        `pwsh -Command "gh api ${endpoint} ${unquoted}"`,
-      ]) {
-        it(`forbids a query it cannot read: ${command}`, () => {
-          assert.match(
-            forbiddenReason(command) ?? '',
-            /^gh api graphql with a query the gate cannot read/,
-          );
-        });
-      }
-    }
-  }
-
-  for (const endpoint of endpoints.slice(1)) {
-    it(`forbids a merge mutation through ${endpoint}`, () => {
-      assert.match(
-        forbiddenReason(
-          `gh api ${endpoint} -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-        ) ?? '',
-        /^`gh pr merge` is blocked/,
-      );
-    });
-    it(`forbids a ready mutation through ${endpoint}`, () => {
-      assert.match(
-        forbiddenReason(
-          `gh api ${endpoint} -f query='mutation { markPullRequestReadyForReview(input: {pullRequestId: "PR_kw1"}) { clientMutationId } }'`,
-        ) ?? '',
-        /^Marking a pull request ready through gh api is blocked/,
-      );
-    });
-    it(`allows a readable query that neither merges nor marks ready through ${endpoint}`, () => {
-      assert.equal(
-        forbiddenReason(`gh api ${endpoint} -f query='query { viewer { login } }'`),
-        undefined,
-      );
-    });
-  }
-
-  // An endpoint built at run time is taken at its worst when its literal text still ends in
-  // /graphql, as for the merge endpoint (ADR 0108).
-  for (const command of [
-    'gh api "$base/graphql" --input body.json',
-    'gh api "${host}/api/graphql" -F query=@merge.graphql',
-    'gh api "$base/graphql?x=1" -f query="$q"',
-    'gh api "$env:GH_API/graphql" --input body.json',
-  ]) {
-    it(`forbids a query it cannot read through an endpoint built at run time: ${command}`, () => {
-      assert.match(
-        forbiddenReason(command) ?? '',
-        /^gh api graphql with a query the gate cannot read/,
-      );
-    });
-  }
-
-  // gh joins a literal path to the REST prefix without resolving its dot segments, so whether
-  // x/../graphql reaches the GraphQL endpoint is up to the server: the gate takes it at its worst
-  // (#329).
-  const dotted = [
-    'x/../graphql',
-    './graphql',
-    '../graphql',
-    '/api/v3/../graphql',
-    'a/./graphql/',
-    // Dot segments after it, and the same segments percent-encoded, which a server may decode.
-    'graphql/x/..',
-    'graphql/.',
-    'x/%2e%2e/graphql',
-    'x/%2E%2E/graphql',
-    'x/../%67raphql',
-  ];
-  for (const endpoint of dotted) {
-    for (const query of unreadable) {
-      const unquoted = query.replaceAll('"', '');
-      for (const command of [
-        `gh api ${endpoint} ${query}`,
-        `bash -c 'gh api ${endpoint} ${unquoted}'`,
-        `pwsh -Command "gh api ${endpoint} ${unquoted}"`,
-      ]) {
-        it(`forbids a query it cannot read through a path with dot segments: ${command}`, () => {
-          assert.match(
-            forbiddenReason(command) ?? '',
-            /^gh api graphql with a query the gate cannot read/,
-          );
-        });
-      }
-    }
-    it(`allows a readable query through a path with dot segments: ${endpoint}`, () => {
-      assert.equal(
-        forbiddenReason(`gh api ${endpoint} -f query='query { viewer { login } }'`),
-        undefined,
-      );
-    });
-  }
-
-  // A % that starts no escape leaves the path as it is, dot segments still resolved.
-  it('forbids a query it cannot read through a dotted path with a stray %', () => {
-    assert.match(
-      forbiddenReason('gh api x/%zz/../../graphql --input body.json') ?? '',
-      /^gh api graphql with a query the gate cannot read/,
-    );
-  });
-
-  // The endpoint itself percent-encoded, which the server may decode (#329).
-  for (const endpoint of ['%67raphql', '/%67raphql', 'https://api.github.com/%67raphql']) {
-    it(`forbids a query it cannot read through a percent-encoded endpoint: ${endpoint}`, () => {
-      assert.match(
-        forbiddenReason(`gh api ${endpoint} --input body.json`) ?? '',
-        /^gh api graphql with a query the gate cannot read/,
-      );
-    });
-  }
-
-  const allowed = [
-    'gh api "$base/repos/o/r/issues" --input body.json',
-    // A dot segment elsewhere, or a last segment that only starts with graphql, is no endpoint.
-    'gh api repos/o/r/../r/contents/a.json --input body.json',
-    'gh api ../graphql-tools --input body.json',
-    'gh api repos/o/r/contents/.graphql --input body.json',
-    'gh api repos/o/graphql/.. --input body.json',
-    'gh api repos/o/r/contents/%67raphql --input body.json',
-    // A REST path that names graphql elsewhere is not the GraphQL endpoint.
-    'gh api repos/o/graphql/contents/a.json -F query=@a.txt',
-    'gh api /repos/o/graphql-tools/issues --input body.json',
-    'gh api https://api.github.com/repos/o/graphql/issues --input body.json',
-    'gh api search/code -f q=graphql --input body.json',
-    // A literal REST path that ends in graphql goes to the REST API, not the GraphQL endpoint.
-    'gh api repos/o/r/contents/graphql --input body.json',
-    'gh api /repos/o/graphql --input body.json',
   ];
   for (const command of allowed) {
     it(`allows: ${command}`, () => {

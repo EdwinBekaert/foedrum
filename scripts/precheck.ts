@@ -1,7 +1,6 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
-// `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push` and
-// `gh pr create`, and lets `gh pr ready` through only when the pull request has the /brew-review
-// summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
+// `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push`, and lets
+// `gh pr ready` through only when the pull request has the /brew-review summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
 // its relatives when they would run a package the lockfile did not install (#175), and a recursive
 // delete of a path built from a variable or a substitution (#281), and a push whose commits hold a
 // word on the user's personal denylist (#131). The checks run in the tree the command pushes: the
@@ -16,8 +15,7 @@
 // The command is read the way bash and PowerShell would read it, both ways, and blocked when
 // either reading pushes or merges (#42). Quotes are honoured; wrapper words (env, time, xargs,
 // Start-Process, …) are skipped; what other shells and evaluators run (bash -c, pwsh -Command,
-// cmd /c, iex, eval) is read as a command too; a git or gh alias that would push, merge or open a
-// pull request is blocked where it is defined; and a program or subcommand computed at run time
+// cmd /c, iex, eval) is read as a command too; and a program or subcommand computed at run time
 // is assumed to be the worst it could be. Arguments computed at run time are not evaluated.
 
 export interface CheckResult {
@@ -85,28 +83,20 @@ const PR_MERGE_BLOCKED =
   '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
 const COMPUTED_PR_ACTION_BLOCKED =
   '`gh pr` with an action computed at run time is blocked: the gate cannot tell it from `gh pr merge`.';
-const ALIAS_BLOCKED =
-  'Defining a git or gh alias that pushes, merges, opens a pull request or marks one ready is blocked: run git push, gh pr create or gh pr ready as it is, so the gate sees it.';
 const READY_COMPUTED_BLOCKED =
   'gh pr ready with a pull request or repository computed at run time is blocked: give them as they are, so the gate can find the review summary.';
-const READY_API_BLOCKED =
-  'Marking a pull request ready through gh api is blocked: run gh pr ready <n>, so the gate can check its /brew-review summary.';
 const TOO_DEEP_BLOCKED =
-  'This command nests shells or commands too deeply for the gate to check: run git push, gh pr create and gh pr ready as plain commands.';
-const UNREADABLE_QUERY_BLOCKED =
-  'gh api graphql with a query the gate cannot read (from a file, --input or a variable) is blocked: give the query inline, so the gate can tell that it does not merge a pull request or mark one ready.';
+  'This command nests shells or commands too deeply for the gate to check: run git push and gh pr ready as plain commands.';
 const READY_COMBINED_BLOCKED =
-  'gh pr ready is blocked in the same command as git push or gh pr create: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
+  'gh pr ready is blocked in the same command as git push: the gate reads the pull request before the command runs, so it would check the old head: run it as a command of its own.';
 const READY_GH_REPO_BLOCKED =
   'gh pr ready is blocked in a command that mentions GH_REPO or GH_HOST: the gate looks the pull request up without them; give the repository with -R instead.';
 const PUSH_PLACE_BLOCKED =
   'git push is blocked: it runs in a directory computed at run time (such as cd "$d" or git -C $d), so the gate cannot tell which tree to check: push from inside the worktree, or name its path as it is.';
-const CREATE_PLACE_BLOCKED =
-  'gh pr create is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which tree to check: run it from inside the worktree, or name its path as it is.';
 const READY_PLACE_BLOCKED =
   'gh pr ready is blocked: it runs in a directory computed at run time (such as cd "$d"), so the gate cannot tell which pull request it marks ready: give the pull request number.';
 const manyPlacesBlocked = (dirs: string[]): string =>
-  `This command pushes or opens pull requests from more than one directory (${dirs.join(', ')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.`;
+  `This command pushes from more than one directory (${dirs.join(', ')}), or the gate read its directory two ways (write the path with /): the gate checks one tree per command; run each from a command of its own.`;
 const outsideBlocked = (what: string, dir: string): string =>
   `${what} is blocked: it runs in ${dir}, outside the project this session works in, so the gate does not run that tree's code: ${what === 'git push' ? 'push' : `run ${what}`} from inside that checkout.`;
 const VARIABLE_DELETE_BLOCKED =
@@ -637,8 +627,8 @@ const isDeleteOrMirrorArg = (arg: string): boolean =>
 interface Findings {
   reasons: string[];
   gated: boolean;
-  // Where each push and gh pr create runs, and whether it is a push.
-  places: { place: Place; push: boolean; remote?: string | null | undefined }[];
+  // Where each push runs, and the remote it names.
+  places: { place: Place; remote: string | null | undefined }[];
   // The pull requests `gh pr ready` marks ready, each needing its review summary, and where gh
   // runs.
   readies: { target: ReadyTarget; place: Place }[];
@@ -653,19 +643,13 @@ interface Findings {
   reads: number;
 }
 
-// What one reading of a command collects besides findings: more commands to read, and the
-// commands that alias definitions would run.
+// What one reading of a command collects besides findings: more commands to read.
 interface Reading {
   found: Findings;
   nested: string[];
-  aliases: string[];
   // Where the command being read runs.
   place: Place;
 }
-
-// The command a git alias value runs: `!…` runs a shell command, anything else a git command.
-const gitAlias = (value: string): string =>
-  value.startsWith('!') ? value.slice(1) : `git ${value}`;
 
 // git push's options that take the next word as their value.
 const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack', '--exec']);
@@ -695,30 +679,23 @@ const pushRemote = (args: Word[]): string | null | undefined => {
   return remote === undefined ? undefined : remote.dynamic ? null : remote.text;
 };
 
-const readGit = (args: Word[], literal: boolean, { found, aliases, place }: Reading): void => {
+const readGit = (args: Word[], literal: boolean, { found, place }: Reading): void => {
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
   let gitPlace = place;
   while (args[i]?.text.startsWith('-')) {
     const option = args[i]?.text ?? '';
     const value = args[i + 1]?.text ?? '';
-    if (option === '-c' && /^alias\..*=/is.test(value)) {
-      aliases.push(gitAlias(value.slice(value.indexOf('=') + 1)));
-    }
     if (option === '-C') gitPlace = moveTo(gitPlace, args[i + 1]?.dynamic ? undefined : value);
     i += GIT_OPTIONS_WITH_VALUE.has(option) ? 2 : 1;
   }
   const subcommand = args[i];
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
     found.gated = true;
-    found.places.push({ place: gitPlace, push: true, remote: pushRemote(args.slice(i + 1)) });
+    found.places.push({ place: gitPlace, remote: pushRemote(args.slice(i + 1)) });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
-  } else if (subcommand?.text === 'config') {
-    const key = args.findIndex((word, j) => j > i && /^alias\./i.test(word.text));
-    const value = key < 0 ? undefined : args[key + 1];
-    if (value !== undefined) aliases.push(gitAlias(value.text));
   }
 };
 
@@ -747,56 +724,6 @@ const lastOption = (args: Word[], short: string, long: string): Word | undefined
   return value;
 };
 
-// GitHub's GraphQL endpoint as gh api takes it: `graphql`; `/graphql`, which gh joins to the REST
-// prefix (api.github.com/graphql); or a full URL, which gh uses as it is, ending in /graphql
-// (api.github.com/graphql, <host>/api/graphql on GitHub Enterprise Server), before any query
-// string (#314). An endpoint built at run time is taken at its worst when its literal text still
-// ends in /graphql ("$base/graphql"), as for the merge endpoint. So is a literal path with a . or ..
-// segment, also percent-encoded, whose last segment is graphql once they are resolved
-// (x/../graphql, graphql/x/.., x/%2e%2e/graphql): gh sends the path as it is, and the server may
-// decode and resolve it (#329).
-const GRAPHQL_ENDPOINT = /^(?:\/?graphql|[a-z][\w+.-]*:\/\/[^?#]*\/graphql)\/?(?:[?#].*)?$/is;
-const GRAPHQL_PATH = /\/graphql\/?(?:[?#].*)?$/is;
-// An endpoint with its percent-escapes decoded, as the server may read it; a % that starts no
-// escape leaves it as it is.
-const decoded = (text: string): string => {
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return text;
-  }
-};
-// The segments of a literal endpoint's path, percent-escapes decoded and . and .. resolved, or
-// undefined when it has no dot segment.
-const resolvedSegments = (text: string): string[] | undefined => {
-  const path = text.replace(/^[a-z][\w+.-]*:\/\/[^/?#]*/is, '').replace(/[?#].*$/s, '');
-  const segments = decoded(path).split('/');
-  if (!segments.some((segment) => segment === '.' || segment === '..')) return undefined;
-  const kept: string[] = [];
-  for (const segment of segments) {
-    if (segment === '..') kept.pop();
-    else if (segment !== '.' && segment !== '') kept.push(segment);
-  }
-  return kept;
-};
-const isGraphqlEndpoint = (arg: Word): boolean =>
-  GRAPHQL_ENDPOINT.test(decoded(arg.text)) ||
-  /^graphql$/i.test(resolvedSegments(arg.text)?.at(-1) ?? '') ||
-  (arg.dynamic && GRAPHQL_PATH.test(arg.text));
-
-// Whether a `gh api graphql` call takes its query from where the gate cannot read it: a file
-// (query=@…), its input (--input) or a value computed at run time, also with the field flag
-// joined to it (-Fquery=…, --field=query=…).
-const unreadableQuery = (args: Word[]): boolean =>
-  args.some((arg) => {
-    const field = arg.text.replace(/^(?:-[fF]|--(?:raw-)?field=)/, '');
-    return (
-      arg.text === '--input' ||
-      arg.text.startsWith('--input=') ||
-      (/^query=/.test(field) && (arg.dynamic || field.startsWith('query=@')))
-    );
-  });
-
 // The method of a `gh api` call, from its last -X or --method, also after -i in one group of short
 // flags (-iX PUT): undefined when none is given, and COMPUTED when it is computed at run time.
 const apiMethod = (args: Word[]): string | undefined => {
@@ -806,16 +733,14 @@ const apiMethod = (args: Word[]): string | undefined => {
 };
 
 // Whether a `gh api` call merges a pull request: a PUT (or a method computed at run time) to a path
-// or URL ending in pulls/<n>/merge, before any query string, or a GraphQL query naming the
-// mutations that merge one, turn on its auto-merge or add it to the merge queue. A GET of the
-// endpoint only asks whether the pull request is merged.
+// or URL ending in pulls/<n>/merge, before any query string. A GET of the endpoint only asks
+// whether the pull request is merged. GraphQL is not read: the ruleset on main and the
+// maintainer's merge own merging (ADR 0135).
 const MERGE_ENDPOINT = /(?:^|\/)pulls\/[^/?#]+\/merge(?:[?#].*)?$/s;
-const MERGE_MUTATION = /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest)\b/;
 const apiMerges = (args: Word[]): boolean => {
   const method = apiMethod(args);
   return (
-    args.some((arg) => MERGE_MUTATION.test(arg.text)) ||
-    ((method === 'PUT' || method === COMPUTED) && args.some((arg) => MERGE_ENDPOINT.test(arg.text)))
+    (method === 'PUT' || method === COMPUTED) && args.some((arg) => MERGE_ENDPOINT.test(arg.text))
   );
 };
 
@@ -998,8 +923,8 @@ const apiTexts = (args: Word[], place: Place): GhText[] => {
 };
 
 const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
-  const { found, aliases } = reading;
-  const [group, action, name, expansion] = positionals(args, GH_OPTIONS_WITH_VALUE);
+  const { found } = reading;
+  const [group, action, name] = positionals(args, GH_OPTIONS_WITH_VALUE);
   // What gh would post, against the personal denylist (ADR 0132).
   if ((group?.text === 'pr' || group?.text === 'issue') && !group.dynamic && action) {
     if (!action.dynamic && POSTS.has(action.text)) {
@@ -1012,24 +937,11 @@ const readGh = (args: Word[], literal: boolean, reading: Reading): void => {
     if (action?.dynamic || (group?.dynamic && action?.text === 'merge')) {
       found.reasons.push(COMPUTED_PR_ACTION_BLOCKED);
     } else if (action?.text === 'merge') found.reasons.push(PR_MERGE_BLOCKED);
-    else if (action?.text === 'create' || action?.text === 'new') {
-      found.gated = true;
-      found.places.push({ place: reading.place, push: false });
-    } else if (action?.text === 'ready') readReady(args, name, reading);
+    else if (action?.text === 'ready') readReady(args, name, reading);
   }
   // A group computed at run time may be pr or api, so it is read as both.
-  if (group?.text === 'api' || group?.dynamic) {
-    if (args.some((arg) => /markPullRequestReadyForReview/i.test(arg.text))) {
-      found.reasons.push(READY_API_BLOCKED);
-    } else if (apiMerges(args)) found.reasons.push(PR_MERGE_BLOCKED);
-    // Anywhere: gh api's own options (-X POST, -H …) take values that positionals cannot skip.
-    else if (args.some(isGraphqlEndpoint) && unreadableQuery(args)) {
-      found.reasons.push(UNREADABLE_QUERY_BLOCKED);
-    }
-  } else if (literal && group?.text === 'alias' && action?.text === 'set' && name && expansion) {
-    const shell = args.some((arg) => arg.text === '--shell' || arg.text === '-s');
-    const value = expansion.text;
-    aliases.push(shell || value.startsWith('!') ? value.replace(/^!/, '') : `gh ${value}`);
+  if ((group?.text === 'api' || group?.dynamic) && apiMerges(args)) {
+    found.reasons.push(PR_MERGE_BLOCKED);
   }
 };
 
@@ -1222,12 +1134,11 @@ const read = (
     return;
   }
   const nested = new Set<string>();
-  const aliases = new Set<string>();
   const unquoted = new Set<string>();
   let moved = false;
   for (const dialect of dialects) {
     const lexed = lex(command, dialect);
-    const reading: Reading = { found, nested: [...lexed.substitutions], aliases: [], place: base };
+    const reading: Reading = { found, nested: [...lexed.substitutions], place: base };
     // A change of directory lasts for the rest of the command.
     let place = base;
     let runsText = false;
@@ -1256,36 +1167,25 @@ const read = (
     // changes of directory included, so it runs where this command does.
     if (lexed.unclosed) unquoted.add(withoutQuotes(command));
     for (const each of reading.nested) nested.add(each);
-    for (const each of reading.aliases) aliases.add(each);
   }
   for (const each of nested) {
     if (each.trim() !== '') read(each, depth + 1, found, DIALECTS, moved ? undefined : base);
   }
   for (const each of unquoted) read(each, depth + 1, found, DIALECTS, base);
-  for (const alias of aliases) {
-    const defined = noFindings(found.reads);
-    read(alias, depth + 1, defined, DIALECTS, []);
-    found.reads = defined.reads;
-    if (defined.gated || defined.readies.length > 0 || defined.reasons.length > 0) {
-      found.reasons.push(ALIAS_BLOCKED);
-    }
-  }
 };
 
-const noFindings = (reads: number): Findings => ({
-  reasons: [],
-  gated: false,
-  places: [],
-  readies: [],
-  ghEnv: false,
-  packages: [],
-  movesDir: false,
-  texts: [],
-  reads,
-});
-
 const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Findings => {
-  const found = noFindings(0);
+  const found: Findings = {
+    reasons: [],
+    gated: false,
+    places: [],
+    readies: [],
+    ghEnv: false,
+    packages: [],
+    movesDir: false,
+    texts: [],
+    reads: 0,
+  };
   read(command, 0, found, dialects, []);
   return found;
 };
@@ -1541,7 +1441,7 @@ export const precheck = async (
   if (readies.size > 0 && found.ghEnv) {
     return { exitCode: 2, stderr: `${READY_GH_REPO_BLOCKED}\n` };
   }
-  // Where gh and the check run: the directory the command changes into, if any (#132). The gate
+  // Where gh pr ready and the check run: the directory the command changes into, if any (#132). The gate
   // runs that tree's code (npm run check, git, gh) before the command is approved, so a
   // directory outside the project blocks the command instead.
   const dirOf = async (dirs: readonly string[], what: string): Promise<string | HookResult> => {
@@ -1564,52 +1464,48 @@ export const precheck = async (
     if (refusal !== undefined) return { exitCode: 2, stderr: `${refusal}\n` };
   }
   if (!found.gated) return { exitCode: 0, stderr: '' };
-  const computed = found.places.find(({ place }) => place === undefined);
-  if (computed !== undefined) {
-    const blocked = computed.push ? PUSH_PLACE_BLOCKED : CREATE_PLACE_BLOCKED;
-    return { exitCode: 2, stderr: `${blocked}\n` };
+  if (found.places.some(({ place }) => place === undefined)) {
+    return { exitCode: 2, stderr: `${PUSH_PLACE_BLOCKED}\n` };
   }
-  // Each directory, and whether a push runs there.
-  const trees = new Map<string, boolean>();
-  for (const { place, push } of found.places) {
-    const dir = await dirOf(place ?? [], push ? 'git push' : 'gh pr create');
+  // Each directory a push runs in.
+  const trees = new Set<string>();
+  for (const { place } of found.places) {
+    const dir = await dirOf(place ?? [], 'git push');
     if (typeof dir !== 'string') return dir;
-    trees.set(dir, push || trees.get(dir) === true);
+    trees.add(dir);
   }
   if (trees.size > 1) {
-    return { exitCode: 2, stderr: `${manyPlacesBlocked([...trees.keys()])}\n` };
+    return { exitCode: 2, stderr: `${manyPlacesBlocked([...trees])}\n` };
   }
-  const [dir = cwd, pushes = false] = [...trees][0] ?? [];
+  const [dir = cwd] = trees;
   // A session pushes a branch; commits made on a detached HEAD are on none (#80).
-  if (pushes) {
-    let detached: boolean;
-    try {
-      detached = await headIsDetached(dir);
-    } catch (error) {
-      const why = error instanceof Error ? error.message : String(error);
-      return {
-        exitCode: 2,
-        stderr: `git push is blocked: could not tell whether HEAD is detached in ${dir} (${why}).\n`,
-      };
-    }
-    if (detached) {
-      return {
-        exitCode: 2,
-        stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
-      };
-    }
-    // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
-    // nothing runs. One scan for the command, with every remote it pushes to.
-    const remotes = new Set(found.places.flatMap(({ push, remote }) => (push ? [remote] : [])));
-    let denied: string | undefined;
-    try {
-      denied = await deniedPush(dir, ...remotes);
-    } catch (error) {
-      const why = error instanceof Error ? error.message : String(error);
-      denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
-    }
-    if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
+  let detached: boolean;
+  try {
+    detached = await headIsDetached(dir);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    return {
+      exitCode: 2,
+      stderr: `git push is blocked: could not tell whether HEAD is detached in ${dir} (${why}).\n`,
+    };
   }
+  if (detached) {
+    return {
+      exitCode: 2,
+      stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
+    };
+  }
+  // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
+  // nothing runs. One scan for the command, with every remote it pushes to.
+  const remotes = new Set(found.places.map(({ remote }) => remote));
+  let denied: string | undefined;
+  try {
+    denied = await deniedPush(dir, ...remotes);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
+  }
+  if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
   // A stale tree fails the check deep in an import; say why in one line instead.
   const stale = await staleReason(dir);
   if (stale !== undefined) {
