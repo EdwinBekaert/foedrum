@@ -1,6 +1,6 @@
 # 0128. An attempt a route schedules gets what sent it back
 
-Date: 2026-10-22 · Status: Accepted · Amends [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (what an `onBlocked` round hands its `goto` step) and [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (what an `onFail` round hands its `goto` step)
+Date: 2026-10-22 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (one more input after the answers), [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (what an `onBlocked` round hands its `goto` step) and [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (what an `onFail` round hands its `goto` step)
 
 ## Context
 A recipe sends a batch back to an earlier step in two ways: a check step's `onFail: { goto, maxRounds }` ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)) and a brewer step's `onBlocked: { findings: { goto, maxRounds } }` ([ADR 0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md)). In Nip, a failed `green` reading sends the batch back to `implement`, and a Cellarman who finds one of the Gauger's tests wrong sends it back to `gauge`. The attempt the route schedules records why (`step.scheduled` with `route: { from, why }`), but its brewer's inputs are only the ones its file declares (`order`, `step:<id>`, `file:`, `lens:`) and the answers after `needs_input` ([ADR 0006](0006-no-mid-run-questions.md)). A check step has no out doc, and the `goto` step's brewer does not declare an input from the step that blocked. So the second attempt starts with the first one's inputs, without the failing checks or the findings, and may make the same mistake again; with `maxRounds: 1` the batch is then Stuck. ADR 0069 named this as a follow-up (#341).
@@ -17,6 +17,7 @@ A recipe sends a batch back to an earlier step in two ways: a check step's `onFa
 - A Cellarman sent back by a failed `green` sees the failing test's output, and a Gauger sent back by "this test is wrong" sees why.
 - The out doc of a blocked attempt is read into a prompt, which [ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md) says nothing does with the copy the store keeps: this one is read from the worktree, as a `step:<id>` input is, never from the store or the state branch.
 - A route input costs at most 64 KiB of prompt, once per round.
+- A retry of a routed attempt (claude crashed, the Cellar was stopped) is scheduled without a route, so it starts without the route input and may repeat the first round's mistake. Carrying the route over to a retry in the same round is a change of this rule, for a later decision.
 - No event or schema changes: the fold already keeps the route and the readings.
 
 ## Alternatives considered
