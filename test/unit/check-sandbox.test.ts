@@ -3,14 +3,18 @@
 // process runner records what would start (ADR 0021); whether the tools work is theirs.
 
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   SEATBELT_PROFILE,
   sandboxedChecks,
+  worktreeGitDir,
 } from '../../src/platform/check-sandbox.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const home = '/home/ada';
 const worktree = '/home/ada/.foedrum/acme/attempts/12-1/green/1';
@@ -248,5 +252,55 @@ describe('sandboxedChecks elsewhere', () => {
     const run = sandboxedChecks(options(exec, { platform: 'linux' }));
     await run('git', ['status'], { cwd: worktree });
     assert.deepEqual(calls, [{ file: 'git', args: ['status'], options: { cwd: worktree } }]);
+  });
+});
+
+describe('worktreeGitDir', () => {
+  /** A worktree folder whose `.git` holds `text`, or is a folder when `text` is undefined. */
+  const worktreeWith = (text: string | undefined) => {
+    const dir = makeTempDir('git-dir');
+    const path = join(dir.path, 'worktree');
+    mkdirSync(path);
+    if (text === undefined) mkdirSync(join(path, '.git'));
+    else writeFileSync(join(path, '.git'), text);
+    return { dir, path };
+  };
+
+  it("names the repository a linked worktree's record sits in", () => {
+    const repository = join('/work', 'clone', '.git');
+    const { dir, path } = worktreeWith(`gitdir: ${join(repository, 'worktrees', 'green-1')}\n`);
+    try {
+      assert.equal(worktreeGitDir(path), repository);
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('names none for a repository inside the worktree, which is bound with it', () => {
+    const { dir, path } = worktreeWith(undefined);
+    try {
+      assert.equal(worktreeGitDir(path), undefined);
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('resolves a relative record against the worktree, and keeps one outside worktrees/', () => {
+    const { dir, path } = worktreeWith('gitdir: ../repo.git\r\n');
+    try {
+      assert.equal(worktreeGitDir(path), join(dir.path, 'repo.git'));
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('names none without a .git file, or one that names no gitdir', () => {
+    const { dir, path } = worktreeWith('not a gitdir line');
+    try {
+      assert.equal(worktreeGitDir(path), undefined);
+      assert.equal(worktreeGitDir(join(dir.path, 'missing')), undefined);
+    } finally {
+      dir.remove();
+    }
   });
 });
