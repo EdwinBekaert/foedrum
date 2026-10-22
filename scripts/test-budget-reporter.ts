@@ -93,7 +93,15 @@ export interface BudgetOptions {
   remeasureForMs?: number;
   // The time in ms; performance.now by default.
   now?: () => number;
+  // Whether the run is in CI (runsInCi); outside it, a file over its limit is listed in the times
+  // and fails nothing, and is not run alone (ADR 0136). True by default.
+  ci?: boolean;
 }
+
+// Whether npm test runs in CI: CI set and not empty, as scripts/below-normal-priority.ts reads it.
+export const runsInCi = (_env: NodeJS.ProcessEnv): boolean => {
+  throw new Error('not implemented');
+};
 
 // One file's run alone gets a minute: a unit file within the budget takes a few seconds.
 const REMEASURE_TIMEOUT_MS = 60_000;

@@ -8,6 +8,7 @@ import {
   budgetReporter,
   recordCpuTime,
   remeasureAlone,
+  runsInCi,
   type TestEvent,
   withoutCpuTimes,
 } from '../../scripts/test-budget-reporter.ts';
@@ -317,6 +318,85 @@ describe('budgetReporter', () => {
 
   it('prints nothing when no test file ran', async () => {
     assert.deepEqual(await report([]), { lines: [], failed: false });
+  });
+});
+
+// A shared machine's load can push a file over its limit with nothing wrong in it, so outside CI
+// the budget and the ceiling only report; in CI, where the machine is not shared, they fail
+// (ADR 0136).
+describe('budgetReporter outside CI and in CI (ADR 0136)', () => {
+  const measuring = () => {
+    const measured: string[] = [];
+    const remeasure = async (file: string) => {
+      measured.push(file);
+      return 1000;
+    };
+    return { measured, remeasure };
+  };
+
+  it('with CI unset, lists a unit file over the budget in the times and fails nothing, without running it alone', async () => {
+    const { measured, remeasure } = measuring();
+    const { lines, failed } = await report(
+      [...timed(fileA, 6500, 6000), ...timed(fileB, 900, 800)],
+      5000,
+      5,
+      { ci: runsInCi({}), remeasure },
+    );
+    assert.equal(failed, false);
+    assert.deepEqual(measured, []);
+    assert.deepEqual(overLines(lines), []);
+    assert.deepEqual(lines, [
+      'test file times (budget 5 s of CPU time per file in test/unit/, ADR 0036)',
+      '  6.00 s CPU  6.50 s wall  test/unit/a.test.ts',
+      '  0.80 s CPU  0.90 s wall  test/unit/b.test.ts',
+      '  ⚠ test/unit/a.test.ts used 6.00 s of CPU time, over the 5 s budget for one test file: make it cheaper, or move real tools and file system trees to test/integration/ (ADR 0021); it fails only in CI (ADR 0136)',
+      'end of test file times',
+    ]);
+  });
+
+  it('with CI unset, lists a chaos file over the ceiling and a file without a CPU time, and fails nothing', async () => {
+    const { lines, failed } = await report(
+      [...timed(fileD, 16_000, 15_500), summary(fileA, 5100)],
+      5000,
+      5,
+      { ci: runsInCi({ CI: '' }) },
+    );
+    assert.equal(failed, false);
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith('  ⚠')),
+      [
+        '  ⚠ test/chaos/d.test.ts used 15.50 s of CPU time, over the 15 s ceiling for a property or chaos file: lower its run count (#87); it fails only in CI (ADR 0136)',
+        '  ⚠ test/unit/a.test.ts took 5.10 s of wall time (no CPU time reported), over the 5 s budget for one test file: make it cheaper, or move real tools and file system trees to test/integration/ (ADR 0021); it fails only in CI (ADR 0136)',
+      ],
+    );
+    assert.equal(lines.at(-1), 'end of test file times');
+  });
+
+  it('with CI set, fails the run for a unit file over the budget after running it alone', async () => {
+    const { measured, remeasure } = measuring();
+    const { lines, failed } = await report(timed(fileA, 6500, 6000), 5000, 5, {
+      ci: runsInCi({ CI: 'true' }),
+      remeasure: async (file) => {
+        await remeasure(file);
+        return 5500;
+      },
+    });
+    assert.equal(failed, true);
+    assert.equal(measured.length, 3);
+    assert.ok(!lines.some((line) => line.startsWith('  ⚠')));
+    assert.match(
+      overLines(lines)[0] ?? '',
+      /^✖ test\/unit\/a\.test\.ts used 5\.50 s of CPU time alone \(6\.00 s in the run\), over the 5 s budget/,
+    );
+  });
+});
+
+describe('runsInCi', () => {
+  it('is false with CI unset or empty, and true with CI set to anything else', () => {
+    assert.equal(runsInCi({}), false);
+    assert.equal(runsInCi({ CI: '' }), false);
+    assert.equal(runsInCi({ CI: 'true' }), true);
+    assert.equal(runsInCi({ CI: '1' }), true);
   });
 });
 
