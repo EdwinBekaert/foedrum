@@ -38,7 +38,7 @@ export const NIP_TARGET_FILES: Readonly<Record<string, string>> = {
 };
 
 /** The test the Gauger adds, by the name the runner reports. */
-export const NIP_TEST = 'greets a stranger when no name is given';
+const NIP_TEST = 'greets a stranger when no name is given';
 
 /** One scripted attempt: the files it writes, its commit, and its out doc's summary. */
 interface Scripted {

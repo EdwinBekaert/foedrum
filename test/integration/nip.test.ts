@@ -69,7 +69,6 @@ const BATCH = `${NIP_ORDER.number}-1`;
 type Brewers = (
   plan: (start: AttemptStart) => Promise<ClaudeAttemptPlan>,
   git: Git,
-  write: (path: string, text: string) => void,
 ) => BrewerRunner;
 
 interface Brewed {
@@ -163,7 +162,7 @@ const brewNip = async (
       ended.abort();
     },
     runner: (claude, plan) =>
-      brewers === undefined ? machine.runner(claude, plan) : brewers(plan, git, write),
+      brewers === undefined ? machine.runner(claude, plan) : brewers(plan, git),
     gh: ghOver(api.fetch).exec,
   };
   let code: number;

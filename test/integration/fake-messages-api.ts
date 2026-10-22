@@ -59,10 +59,10 @@ const streamed = (message: Record<string, unknown>, content: Block[]): string =>
 export const startFakeMessagesApi = async (
   tools: ToolCall | readonly ToolCall[] | ((body: string) => readonly ToolCall[]),
 ): Promise<FakeMessagesApi> => {
-  const fixed: readonly ToolCall[] | undefined =
-    typeof tools === 'function' ? undefined : Array.isArray(tools) ? tools : [tools];
+  const fixed: readonly ToolCall[] =
+    typeof tools === 'function' ? [] : Array.isArray(tools) ? tools : [tools];
   const scriptOf = (body: string): readonly ToolCall[] =>
-    typeof tools === 'function' ? tools(body) : (fixed ?? []);
+    typeof tools === 'function' ? tools(body) : fixed;
   let calls = 0;
   const bodies: string[] = [];
   const server = createServer((request, response) => {
