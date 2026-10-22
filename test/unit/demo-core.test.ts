@@ -61,6 +61,17 @@ describe('scratchFolder', () => {
     );
   });
 
+  it('refuses a Windows folder beside .foedrum/tmp, or .foedrum/tmp itself, on the same drive', () => {
+    const root = 'D:\\repo';
+    for (const asked of ['D:\\repo\\.foedrum\\other', 'D:\\repo\\.foedrum\\tmp', 'D:\\repo']) {
+      assert.throws(
+        () => scratchFolder(root, asked, root, win32),
+        /works only in a folder inside D:\\repo\\\.foedrum\\tmp/,
+        asked,
+      );
+    }
+  });
+
   it('keeps a Windows folder inside .foedrum/tmp, asked from another drive or with a lower-case drive letter', () => {
     const root = 'D:\\repo';
     assert.equal(
