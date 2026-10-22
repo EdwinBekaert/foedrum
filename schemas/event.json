@@ -520,6 +520,10 @@
                     "type": "string",
                     "pattern": "\\S"
                   },
+                  "unsandboxed": {
+                    "type": "boolean",
+                    "const": true
+                  },
                   "exitCode": {
                     "type": "integer",
                     "minimum": -9007199254740991,
@@ -558,6 +562,10 @@
                   "command": {
                     "type": "string",
                     "pattern": "\\S"
+                  },
+                  "unsandboxed": {
+                    "type": "boolean",
+                    "const": true
                   },
                   "killed": {
                     "type": "string",
@@ -601,6 +609,10 @@
                     "type": "string",
                     "pattern": "\\S"
                   },
+                  "unsandboxed": {
+                    "type": "boolean",
+                    "const": true
+                  },
                   "signal": {
                     "type": "string",
                     "pattern": "\\S"
@@ -638,6 +650,10 @@
                   "command": {
                     "type": "string",
                     "pattern": "\\S"
+                  },
+                  "unsandboxed": {
+                    "type": "boolean",
+                    "const": true
                   },
                   "tail": {
                     "type": "string",

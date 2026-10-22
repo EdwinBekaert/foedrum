@@ -529,18 +529,18 @@ describe('runServe', () => {
 
   describe('a recipe with a check step (ADR 0069)', () => {
     const outsideSandbox =
-      'foedrum serve: check steps run outside the OS sandbox: their commands can run code a brewer wrote, with network and home-folder access (ADR 0069)';
+      'foedrum serve: check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)';
 
-    it('says at its start, once, that check steps run outside the OS sandbox', async () => {
-      assert.equal(setup.sandbox, true);
-      assert.equal(await runServe(setup, shell()), 0);
+    it('says at its start, once, that check steps run outside an OS sandbox on native Windows', async () => {
+      assert.equal(await runServe({ ...setup, unsandboxedChecks: true }, shell()), 0);
       assert.equal(lines[1], outsideSandbox);
       assert.equal(lines.filter((line) => line === outsideSandbox).length, 1);
     });
 
-    it('says nothing of it when nothing runs sandboxed', async () => {
-      assert.equal(await runServe({ ...setup, sandbox: false }, shell()), 0);
-      assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
+    it('says nothing of it where check steps run in the sandbox (ADR 0076)', async () => {
+      assert.equal(setup.unsandboxedChecks, false);
+      assert.equal(await runServe(setup, shell()), 0);
+      assert.ok(!lines.some((line) => line.includes('outside')), lines.join('\n'));
     });
 
     it('says nothing of it when no recipe has a check step', async () => {
@@ -555,7 +555,7 @@ describe('runServe', () => {
         }),
       );
       assert.ok(stoutOnly.kind === 'ready');
-      assert.equal(await runServe(stoutOnly.setup, shell()), 0);
+      assert.equal(await runServe({ ...stoutOnly.setup, unsandboxedChecks: true }, shell()), 0);
       assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
     });
 
@@ -625,7 +625,15 @@ describe('runServe', () => {
           attempt: 1,
           outcome: { kind: 'succeeded', output: null },
           readings: [
-            { result: 'exited', check: 'test', command: 'npm test', exitCode: 0, tail: 'ok 1\n' },
+            {
+              result: 'exited',
+              check: 'test',
+              command: 'npm test',
+              // serve's check runner reads this process's platform (ADR 0076).
+              ...(process.platform === 'win32' ? { unsandboxed: true } : {}),
+              exitCode: 0,
+              tail: 'ok 1\n',
+            },
           ],
         },
       ]);

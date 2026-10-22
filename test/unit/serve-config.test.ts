@@ -325,3 +325,45 @@ describe('serveSetup', () => {
     }
   });
 });
+
+describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
+  const requires = (minimum: string) => config({ isolation: { minimum } });
+
+  it('refuses a Brewery that requires the sandboxed level when its check steps would run below it, and only then', () => {
+    const files = inputs().files;
+    const problems = refused(
+      inputs({
+        platform: 'win32',
+        files: { ...files, config: requires('sandboxed') },
+        diagnosis: diagnose(windows),
+      }),
+    );
+    assert.deepStrictEqual(problems, [
+      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands) (ADR 0076)',
+    ]);
+    // Where the level is sandboxed, where the Brewery requires no more, or without a check step.
+    ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
+    const onWindows = { platform: 'win32', diagnosis: diagnose(windows) } as const;
+    ready(inputs({ ...onWindows, files: { ...files, config: requires('permissions only') } }));
+    const stoutOnly = { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) };
+    ready(
+      inputs({
+        ...onWindows,
+        files: { ...files, config: requires('sandboxed'), brewery: stoutOnly },
+      }),
+    );
+  });
+
+  it('says that check steps run unsandboxed on native Windows only', () => {
+    assert.equal(ready(inputs()).unsandboxedChecks, false);
+    const windowsSetup = ready(inputs({ platform: 'win32', diagnosis: diagnose(windows) }));
+    assert.equal(windowsSetup.unsandboxedChecks, true);
+    // Linux below the sandboxed level still runs checks in bwrap, or not at all.
+    const bare = ready(
+      inputs({
+        diagnosis: { ...diagnose(linux()), isolation: { level: 'permissions only', why: 'x' } },
+      }),
+    );
+    assert.equal(bare.unsandboxedChecks, false);
+  });
+});

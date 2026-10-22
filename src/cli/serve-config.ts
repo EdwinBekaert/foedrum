@@ -99,6 +99,8 @@ export interface ServeSetup {
   claude: string;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Whether check steps run without an OS sandbox: on native Windows only (ADR 0076). */
+  unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */
   brewerEnv: { base: Env; forced: Env };
 }
@@ -293,6 +295,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
+      unsandboxedChecks: false,
       brewerEnv: {
         base: brewerBaseEnv(env, platform),
         forced: brewerForcedEnv(),
