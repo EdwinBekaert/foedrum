@@ -64,6 +64,35 @@ describe('the demo brewers', () => {
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
   });
 
+  it("play each step's script in turn per batch: the Cellarman's two fixes, and each batch's Gauger", async () => {
+    const messages: string[] = [];
+    const { runner } = brewers('finish', {
+      git: async (_at, args) => {
+        if (args[0] === 'commit') messages.push(args.at(-1) ?? '');
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    const of = (batchId: string, stepId: string, attempt: number) => ({
+      ...startOf(stepId, attempt),
+      ref: { batchId, stepId, attempt },
+    });
+    for (const start of [
+      of('1-1', 'implement', 1),
+      of('1-1', 'implement', 2),
+      of('1-1', 'gauge', 1),
+      of('2-1', 'gauge', 1),
+    ]) {
+      const { ending } = await runner.start(start).ended;
+      assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    }
+    assert.deepStrictEqual(messages, [
+      NIP_SCRIPT.implement?.[0]?.message,
+      NIP_SCRIPT.implement?.[1]?.message,
+      NIP_SCRIPT.gauge?.[0]?.message,
+      NIP_SCRIPT.gauge?.[0]?.message,
+    ]);
+  });
+
   it('in the life that crashes, are killed once the commit is made, before the attempt ends', async () => {
     const { runner, log } = brewers('crash');
     let ended = false;

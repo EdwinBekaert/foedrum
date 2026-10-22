@@ -48,7 +48,8 @@ interface Scripted {
 }
 
 /**
- * What each attempt of a step commits, by step id and then attempt: the Gauger's failing test,
+ * What each attempt of a step commits, by step id and then in the order the runner starts that
+ * step's attempts in a batch (ADR 0139): the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
