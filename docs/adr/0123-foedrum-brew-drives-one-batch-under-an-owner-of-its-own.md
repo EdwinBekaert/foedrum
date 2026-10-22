@@ -32,7 +32,7 @@ So a command run by the session's own tools reads its session's id, which `--res
 - After `/clear`, or a resume that gives the session a new id, the owner is another one. The batch is then refused while the old owner's lease lives, at most one lease (5 minutes), then it is free. The plugin (#336) can pass `--as` when that matters; takeover (#335) is the way to take a batch at once.
 
 ### How it runs, and its exit codes
-It reads the Brewery's files as `serve` does, takes the lock of its owner (a second `brew` under one owner is refused), opens the driver with `takes` that batch alone, and ticks it every 5 seconds until the batch stops:
+It reads the Brewery's files as `serve` does, takes the lock of its owner (a second `brew` under one owner is refused), opens the store as `serve` does (made, or rebuilt from the state branch, when missing), opens the driver with `takes` that batch alone, and ticks it every 5 seconds until the batch stops:
 
 | Exit | When | It prints last |
 |---|---|---|
