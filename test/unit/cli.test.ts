@@ -231,6 +231,8 @@ describe('foedrum: the command line', () => {
     assert.equal(help.stderr, '');
     snapshot(t, help.stdout);
     assert.deepEqual(await run(['-h']), help);
+    // The option every command of the registry takes (ADR 0125).
+    assert.match(help.stdout, /^Every command takes --via <plugin\|terminal>/m);
   });
 
   it('runs foedrum serve through its context, with its exit code (ADR 0063)', async () => {
