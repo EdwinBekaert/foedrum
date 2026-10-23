@@ -51,9 +51,9 @@ function readFolder(root: string, folder: string, extension: string, prefix = ''
  * The lens files of `lenses/diff/` and `lenses/plan/`, and those directly in `lenses/`, which the
  * load refuses for their place (ADR 0143). A `lenses/` that cannot be read is listed alone.
  */
-function readLenses(root: string, prefix?: string): BreweryFile[] {
+function readLenses(root: string, prefix = ''): BreweryFile[] {
   const stray = readFolder(root, 'lenses', '.md', prefix);
-  if (stray.some(({ path }) => path === `${prefix ?? ''}lenses`)) return stray;
+  if (stray.some(({ path }) => path === `${prefix}lenses`)) return stray;
   return [
     ...stray,
     ...readFolder(root, 'lenses/diff', '.md', prefix),
