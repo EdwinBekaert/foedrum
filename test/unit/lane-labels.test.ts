@@ -200,10 +200,8 @@ describe('laneLabelEffects', () => {
     const driver = await open();
     await driver.tick();
     assert.deepEqual(revision(1), { result: { label: 'foedrum:ordered' } });
-    assert.deepEqual(
-      labels.calls.filter((call) => !call.startsWith('labels')),
-      [],
-    );
+    // Found by its one read: apply, which reads again, never ran.
+    assert.deepEqual(labels.calls, ['labels']);
   });
 
   it('takes off a lane label a run before left when it was killed between adding and removing', async () => {
@@ -249,6 +247,8 @@ describe('laneLabelEffects', () => {
     await driver.tick();
     assert.deepEqual(labels.of(brewery, 7), []);
     assert.equal(revision(1), undefined);
+    // Cancelled before its first label, 7-2 has none due either.
+    assert.equal(store.findEffect({ batchId: '7-2', effect: 'label.1' }), undefined);
   });
 
   it('labels no claimed target issue, which keeps only foedrum:claimed', async () => {

@@ -139,6 +139,31 @@ describe('renderStatus', () => {
     assert.doesNotMatch(renderStatus(batch(), steps), /Path:/);
   });
 
+  it('marks a running, a stopped and an asking attempt on the path (#406)', () => {
+    const asked: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'needs_input',
+        questions: [{ q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' }],
+      },
+    };
+    const stopped: Attempt = { phase: 'started', attempt: 1, deadlineAt: at, abandoned: true };
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('plan', asked), step('brew', stopped), step('taste', running(1))]),
+        path: [
+          { stepId: 'plan', attempt: 1 },
+          { stepId: 'brew', attempt: 1 },
+          { stepId: 'taste', attempt: 1 },
+        ],
+      }),
+      steps,
+    );
+    assert.ok(text.split('\n').includes('Path: `plan #1` ❓ → `brew #1` ⏹️ → `taste #1` ▶️'), text);
+  });
+
   it('ends the path where the batch is Stuck, though that attempt never started (#406)', () => {
     const scheduled: Attempt = { phase: 'scheduled', attempt: 2, deadlineAt: at };
     const text = renderStatus(

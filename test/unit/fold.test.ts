@@ -942,6 +942,21 @@ describe('fold', () => {
     ]);
   });
 
+  it('keeps the path when an attempt starts in a worktree (#406)', () => {
+    const worktree = {
+      repo: 'acme/app',
+      path: 'work/acme/app/attempts/b1/plan/1',
+      branch: 'foedrum/b1/plan/1',
+      commit: 'a'.repeat(40),
+    };
+    const state = fold([
+      ordered,
+      scheduled,
+      { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1, worktree },
+    ]);
+    assert.deepStrictEqual(batch(state).path, [{ stepId: 'plan', attempt: 1 }]);
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });
