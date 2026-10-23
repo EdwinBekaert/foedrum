@@ -19,7 +19,13 @@ const fullSha = (sha: string): string => {
   return sha;
 };
 
-export const openWorktreeMerge = (git: Git): WorktreeMerge => {
+export interface WorktreeMergeOptions {
+  git: Git;
+  /** The clone the attempt worktrees are added to: the user's, or the managed one. */
+  clone: string;
+}
+
+export const openWorktreeMerge = ({ git }: WorktreeMergeOptions): WorktreeMerge => {
   const local = inClone(git);
   const head = async (path: string, signal?: AbortSignal): Promise<string> => {
     const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', 'HEAD^{commit}'];

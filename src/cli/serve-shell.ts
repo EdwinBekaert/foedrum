@@ -121,7 +121,8 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         own: ownRemote(repository.repo),
       }),
     // In the worktree of the check attempt, git as the engine's calls in the clone (ADR 0137).
-    merge: openWorktreeMerge(git),
+    merge: (repository) =>
+      openWorktreeMerge({ git, clone: worktreeClonePath(workRoot, repository) }),
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
     // A check's command line runs in the OS sandbox (ADR 0076).
     exec: sandboxedChecks({ exec: execProcess, ...checks }),

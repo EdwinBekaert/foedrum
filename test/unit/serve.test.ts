@@ -168,7 +168,7 @@ describe('runServe', () => {
       calls.push(`worktrees ${repository.repo} ${repository.base}`);
       return fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
     },
-    merge: fakeWorktreeMerge(),
+    merge: () => fakeWorktreeMerge(),
     push: (repository) => ({
       // The task tree is at FAKE_COMMIT, the base elsewhere.
       commit: async () => FAKE_COMMIT,
@@ -608,7 +608,7 @@ describe('runServe', () => {
           runner: () => succeeding,
           exec,
           ...(prepare === undefined ? {} : { setup: prepare }),
-          ...(merge === undefined ? {} : { merge }),
+          ...(merge === undefined ? {} : { merge: () => merge }),
           wait: async () => {
             calls.push('wait');
             const lane = log.state().batches.get('13-1')?.lane.kind;

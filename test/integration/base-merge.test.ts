@@ -153,7 +153,7 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
             clone: user,
             own: own(),
           }),
-          merge: { base: 'main', push, worktree: openWorktreeMerge(runGit) },
+          merge: { base: 'main', push, worktree: openWorktreeMerge({ git: runGit, clone: user }) },
         },
       ],
       actions: pullRequestActions({
@@ -264,7 +264,7 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
         {
           base: 'main',
           push: openBranchPush({ git: runGit, clone: user, own: own() }),
-          worktree: openWorktreeMerge(runGit),
+          worktree: openWorktreeMerge({ git: runGit, clone: user }),
         },
         tree,
         'green',

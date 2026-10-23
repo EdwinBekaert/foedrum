@@ -182,7 +182,7 @@ describe('runBrew', () => {
         flush: async () => ({ kind: 'unchanged' }),
       }),
       worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
-      merge: fakeWorktreeMerge(),
+      merge: () => fakeWorktreeMerge(),
       push: () => ({
         commit: async () => FAKE_COMMIT,
         baseTip: async () => 'b'.repeat(40),

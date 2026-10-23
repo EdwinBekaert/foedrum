@@ -51,8 +51,11 @@ export interface ServeShell {
    * worktrees are added to: the user's, or the managed one.
    */
   push: (repository: ServeRepository) => BranchPush;
-  /** The merge of the base into the worktree of a batch's last check (ADR 0164). */
-  merge: WorktreeMerge;
+  /**
+   * The merge of the base into the worktree of a batch's last check (ADR 0164), in the clone the
+   * repository's worktrees are added to.
+   */
+  merge: (repository: ServeRepository) => WorktreeMerge;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,

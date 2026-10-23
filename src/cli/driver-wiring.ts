@@ -106,7 +106,7 @@ export const wireDriver = async (
     const into = base.slice(base.indexOf('/') + 1);
     const push = shell.push(repository);
     // The last check before the pull request merges that branch as the push fetches it (ADR 0164).
-    const merge = { base: into, push, worktree: shell.merge };
+    const merge = { base: into, push, worktree: shell.merge(repository) };
     worktrees.push({ repo, base, manager, merge });
     pushes.push({ repo, base: into, push });
   }
