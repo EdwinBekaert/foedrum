@@ -13,6 +13,7 @@ import {
 import { emptyState, fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
+import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const deadlineAt = '2026-10-23T10:00:00.000Z';
 const remindAt = '2026-10-25T10:00:00.000Z';
@@ -25,7 +26,7 @@ const usage = (input: number, output: number, read: number, write: number): Usag
 });
 const none = { succeeded: 0, failed: 0, needs_input: 0, cancelled: 0, unfinished: 0 };
 
-// pint: plan (planner), test (a check step), implement (coder). The recipe `old` is gone, and
+// pint: plan (planner), test (a step without a brewer: a check or an action), implement (coder). The recipe `old` is gone, and
 // pint has no step `review` any more.
 const source: BrewerSource = {
   brewers: [
@@ -37,7 +38,7 @@ const source: BrewerSource = {
     if (recipe !== 'pint') return undefined;
     if (stepId === 'plan') return { brewer: 'planner' };
     if (stepId === 'implement') return { brewer: 'coder' };
-    if (stepId === 'test') return { check: true };
+    if (stepId === 'test') return { brewer: undefined };
     return undefined;
   },
 };
@@ -303,19 +304,15 @@ describe('formatBrewerReport', () => {
 });
 
 describe('brewerSource', () => {
-  // pint: plan (planner) and green (a check step), from loaded files.
+  // pint: plan (planner), green (a check step) and open-pull-request (an action step), from
+  // loaded files.
   const stepBrewer = (name: string) =>
     ({ brewer: { name }, instructions: '' }) as unknown as StepBrewer;
   const loaded: LoadedBrewers = {
+    recipes: fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'green', 'open-pull-request'] }) }),
     brewers: {
       find: (recipe, stepId) =>
         recipe === 'pint' && stepId === 'plan' ? stepBrewer('planner') : undefined,
-    },
-    checks: {
-      find: (recipe, stepId) => (recipe === 'pint' && stepId === 'green' ? ['test'] : undefined),
-      any: () => true,
-      proves: () => undefined,
-      redProof: () => undefined,
     },
     catalog: {
       brewers: [
@@ -334,10 +331,11 @@ describe('brewerSource', () => {
     ]);
   });
 
-  it("gives a brewer step's brewer, a check step, and nothing for a step no recipe has", () => {
+  it("gives a brewer step's brewer, none for a check or an action step, and nothing for a step no recipe has", () => {
     const { step } = brewerSource(loaded);
     assert.deepStrictEqual(step('pint', 'plan'), { brewer: 'planner' });
-    assert.deepStrictEqual(step('pint', 'green'), { check: true });
+    assert.deepStrictEqual(step('pint', 'green'), { brewer: undefined });
+    assert.deepStrictEqual(step('pint', 'open-pull-request'), { brewer: undefined });
     assert.equal(step('pint', 'review'), undefined);
     assert.equal(step('stout', 'plan'), undefined);
   });

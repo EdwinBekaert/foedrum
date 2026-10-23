@@ -12,10 +12,11 @@ export interface BrewerSource {
   /** Every brewer in use, Brewery's and default, with its file. */
   brewers: readonly { name: string; path: string }[];
   /**
-   * Step `stepId` of recipe `recipe` as the files have it: a brewer step with its brewer's name, a
-   * check step, or `undefined` when no recipe of that name has that step.
+   * Step `stepId` of recipe `recipe` as the files have it, with its brewer's name when it is a
+   * brewer step (a check or an action step has none), or `undefined` when no recipe of that name
+   * has that step.
    */
-  step: (recipe: string, stepId: string) => { brewer: string } | { check: true } | undefined;
+  step: (recipe: string, stepId: string) => { brewer: string | undefined } | undefined;
 }
 
 /** How the started attempts ended: by outcome, and those not finished. */
@@ -169,7 +170,7 @@ export const formatBrewerReport = ({ brewers, gone }: BrewerReport): string => {
 /** What the report needs from the Brewery's loaded files. */
 export type LoadedBrewers = Pick<
   Extract<LoadedRecipes, { valid: true }>,
-  'brewers' | 'checks' | 'catalog'
+  'recipes' | 'brewers' | 'catalog'
 >;
 
 /** The brewers in use and each recipe's steps, from the loaded files. */
