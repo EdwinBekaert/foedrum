@@ -885,7 +885,10 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
           lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
           defaults: {
             lenses: [replaced],
-            models: { path: 'defaults/models.jsonc', text: '{ "models": { "builder": "sonnet" } }' },
+            models: {
+              path: 'defaults/models.jsonc',
+              text: '{ "models": { "builder": "sonnet" } }',
+            },
           },
         },
       }),
