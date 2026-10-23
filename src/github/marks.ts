@@ -110,11 +110,15 @@ export const githubIssueMarks = (
       if (title === undefined) throw new Error(`GitHub answered ${repo}#${issue} without a title`);
       return title;
     },
-    // GitHub answers 410 for an issue a person deleted, and 404 for one that is not there.
+    // GitHub answers 410 for an issue a person deleted, and also for every issue of a repository
+    // that turned issues off; a 404 may be a token that lost access. Only the first is gone.
     issueState: async (repo, issue, signal) => {
       const what = `the issue ${repo}#${issue}`;
       const answer = await reads.get(issuePath(repo, issue), signal);
-      if (answer.status === 410 || answer.status === 404) return 'gone';
+      const error = GitHubError.safeParse(answer.body);
+      if (answer.status === 410 && error.success && /\bdeleted\b/i.test(error.data.message)) {
+        return 'gone';
+      }
       return checked(GitHubIssue, expect(answer, 200, what).body, what).state;
     },
     setIssueState: async (repo, issue, state, signal) => {
