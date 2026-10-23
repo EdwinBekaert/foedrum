@@ -1182,6 +1182,26 @@ describe('openDriver', () => {
       });
     }
 
+    it('fails the attempt for good, running no check, when the ledger holds a merge the engine does not record', async () => {
+      const { merge, calls } = fakeMerge();
+      const key = effectKey.encode(baseMergeKey(green));
+      // Both a merge commit and conflicts: no merge the engine records.
+      const result = { base: BASE, merged: MERGED, conflicts: ['a.ts'] };
+      const planted: EventStore = {
+        ...store,
+        findEffect: (found) =>
+          effectKey.encode(found) === key ? { result } : store.findEffect(found),
+      };
+      const { driver, hand } = await brewToGreen(merge, { store: planted });
+      assert.deepStrictEqual(hand.started, [implement]);
+      assert.deepStrictEqual(calls, []);
+      assert.deepStrictEqual(greenOutcome(driver), {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the ledger holds a merge of the base that is not one the engine records',
+      });
+    });
+
     it('names at most 50 of the files a merge conflicts in', async () => {
       const files = Array.from({ length: 51 }, (_, n) => `f${n}.ts`);
       const { merge } = fakeMerge(() => ({ kind: 'conflicts', files }));

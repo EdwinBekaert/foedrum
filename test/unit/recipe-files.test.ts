@@ -561,6 +561,23 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     assert.equal(pale?.loopBack(batch({ gauge: 1 }), 'red', 'failed'), 'gauge');
   });
 
+  it('merges before the last check that expects to pass, never before a red proof after it (ADR 0164)', () => {
+    const steps = [
+      { id: 'gauge', brewer: 'gauger' },
+      { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
+      { id: 'implement', brewer: 'cellarman' },
+      { id: 'green', check: 'test' },
+      { id: 'again', check: 'test', expect: 'fail', of: 'implement' },
+    ];
+    const result = loadRecipes(withWriters(opened('pale', steps)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.deepEqual(
+      ['gauge', 'red', 'implement', 'green', 'again'].map((id) => pale?.mergesBase(id)),
+      [false, false, false, true, false],
+    );
+  });
+
   it("keeps a recipe's first red proof when it has two", () => {
     const steps = [
       { id: 'gauge', brewer: 'gauger' },

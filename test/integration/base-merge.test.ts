@@ -60,10 +60,30 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
   let other: string;
   let store: EventStore;
 
+  // Every git of the file, the engine's included, reads only the test's own configuration: the
+  // machine's (a global commit.gpgsign, an editor) takes no part. The file runs in a process of
+  // its own.
+  const machine = {
+    global: process.env.GIT_CONFIG_GLOBAL,
+    system: process.env.GIT_CONFIG_NOSYSTEM,
+  };
   before(() => {
     dir = makeTempDir('base-merge');
+    const config = join(dir.path, 'gitconfig');
+    writeFileSync(config, '[user]\n\tname = Test\n\temail = t@example.com\n');
+    process.env.GIT_CONFIG_GLOBAL = config;
+    process.env.GIT_CONFIG_NOSYSTEM = '1';
   });
-  after(() => removeTree(dir.path));
+  after(() => {
+    for (const [name, value] of [
+      ['GIT_CONFIG_GLOBAL', machine.global],
+      ['GIT_CONFIG_NOSYSTEM', machine.system],
+    ] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    removeTree(dir.path);
+  });
   let runs = 0;
   beforeEach(() => {
     const run = join(dir.path, String(++runs));
@@ -78,9 +98,6 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     git(run, ['clone', '-q', '--bare', seed, origin]);
     git(run, ['clone', '-q', origin, user]);
     git(run, ['clone', '-q', origin, other]);
-    // The merge commit is the user's, as a brewer's commits are.
-    git(user, ['config', 'user.name', 'Test']);
-    git(user, ['config', 'user.email', 't@example.com']);
     store = openSqliteEventStore(':memory:');
   });
   afterEach(() => store.close());
@@ -295,6 +312,15 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       assert.deepEqual(result, { base, merged });
       assert.deepEqual(git(user, ['rev-parse', `${merged}^1`]).trim(), tree.start);
       assert.equal(git(other, ['rev-parse', 'HEAD']).trim(), elsewhere);
+    });
+
+    it("throws with git's reason when the merge fails with nothing in conflict", async () => {
+      const tree = worktree();
+      mergeIntoMain('other.txt', 'other\n');
+      // An untracked file the merge would overwrite: git refuses before it merges anything.
+      writeFileSync(join(tree.path, 'other.txt'), 'mine\n');
+      await assert.rejects(target(tree).apply(key), /^Error: git merge failed: /);
+      assert.equal(git(tree.path, ['rev-parse', 'HEAD']).trim(), tree.start);
     });
 
     it('aborts a merge a killed run left in progress, and finds nothing', async () => {
