@@ -354,30 +354,26 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
     );
   });
 
-  it("refuses a Brewery that requires the sandboxed level when a repository's setup would run before its check steps (ADR 0140)", () => {
+  // A setup runs in the check sandbox, network kept, wherever a check does (ADR 0158).
+  it("meets a sandboxed minimum with a repository's setup where check steps are sandboxed, and refuses it with the checks' line elsewhere", () => {
     const files = inputs().files;
-    const setup = { setup: { command: 'npm ci', timeout: '10m' } };
+    const sandboxed = config(
+      { isolation: { minimum: 'sandboxed' } },
+      {
+        setup: { command: 'npm ci', timeout: '10m' },
+      },
+    );
+    ready(inputs({ files: { ...files, config: sandboxed } }));
     const problems = refused(
       inputs({
-        files: { ...files, config: config({ isolation: { minimum: 'sandboxed' } }, setup) },
+        platform: 'win32',
+        files: { ...files, config: sandboxed },
+        diagnosis: diagnose(windows),
       }),
     );
     assert.deepStrictEqual(problems, [
-      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup runs outside the sandbox before its check steps (ADR 0140)",
+      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands) (ADR 0076)',
     ]);
-    // Where the Brewery requires no more, where no recipe has a check step, or without a setup.
-    ready(inputs({ files: { ...files, config: config({}, setup) } }));
-    const stoutOnly = { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) };
-    ready(
-      inputs({
-        files: {
-          ...files,
-          config: config({ isolation: { minimum: 'sandboxed' } }, setup),
-          brewery: stoutOnly,
-        },
-      }),
-    );
-    ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
   });
 
   it('says that check steps run unsandboxed on native Windows only', () => {

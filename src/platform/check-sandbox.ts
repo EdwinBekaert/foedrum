@@ -27,7 +27,7 @@ export interface CheckSandboxPaths {
  * folders above the worktree and its repository in the home folder, as `PARENT_<n>`, whose
  * metadata a check may read, since node stats each folder above a file it loads (ADR 0142).
  */
-export const seatbeltProfile = (parents: number): string => {
+export const seatbeltProfile = (parents: number, _sandbox: { network?: boolean } = {}): string => {
   const literals = Array.from({ length: parents }, (_, n) => `(literal (param "PARENT_${n}"))`);
   return [
     '(version 1)',
@@ -166,6 +166,8 @@ export interface SandboxedChecksOptions {
   gitDirOf?: (worktree: string) => string | undefined;
   /** Default folders under `os.tmpdir()`. */
   temp?: TempFolders;
+  /** Whether the sandbox keeps the network, as a repository's setup needs (ADR 0158). */
+  network?: boolean;
 }
 
 /** What a check that could not start reads: no exit code, and why (ADR 0069's `unstarted`). */

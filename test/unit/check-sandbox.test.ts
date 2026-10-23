@@ -405,6 +405,92 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
   });
 });
 
+// A repository's setup installs, so its sandbox keeps the network and nothing else (ADR 0158).
+describe('sandboxedChecks with the network kept, for a setup', () => {
+  it('starts the line in bwrap without a network namespace of its own, everything else as a check', async () => {
+    const checked = fake();
+    await sandboxedChecks(options(checked.exec, { platform: 'linux' }))(line, [], call);
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(options(exec, { platform: 'linux', network: true }));
+    await run(line, [], call);
+    assert.deepEqual(calls, [
+      {
+        ...checked.calls[0],
+        args: checked.calls[0]?.args.filter((arg) => arg !== '--unshare-net'),
+      },
+    ]);
+  });
+
+  // Ubuntu's /etc/resolv.conf links into /run, which the sandbox hides: an install could not
+  // find its registry's address without the one file.
+  it("binds the resolver's file read-only where /etc/resolv.conf links into the hidden /run", async () => {
+    const stub = '/run/systemd/resolve/stub-resolv.conf';
+    const realPath = (path: string) => (path === '/etc/resolv.conf' ? stub : path);
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(options(exec, { platform: 'linux', network: true, realPath }));
+    await run(line, [], call);
+    const args = calls[0]?.args ?? [];
+    const at = args.indexOf('/run');
+    assert.deepEqual(args.slice(at - 1, at + 6), [
+      '--tmpfs',
+      '/run',
+      '--tmpfs',
+      home,
+      '--ro-bind',
+      stub,
+      stub,
+    ]);
+    // A check has no network, so it gets no resolver.
+    const checked = fake();
+    await sandboxedChecks(options(checked.exec, { platform: 'linux', realPath }))(line, [], call);
+    assert.ok(!checked.calls[0]?.args.includes(stub));
+  });
+
+  it("binds no resolver's file when /etc/resolv.conf is outside /run or cannot be resolved", async () => {
+    for (const realPath of [
+      (path: string) => (path === '/etc/resolv.conf' ? '/mnt/wsl/resolv.conf' : path),
+      (path: string) => {
+        if (path === '/etc/resolv.conf') throw new Error('ENOENT: no such file');
+        return path;
+      },
+    ]) {
+      const { calls, exec } = fake();
+      const run = sandboxedChecks(options(exec, { platform: 'linux', network: true, realPath }));
+      await run(line, [], call);
+      assert.equal(calls[0]?.args.filter((arg) => arg === '--ro-bind').length, 2);
+    }
+  });
+
+  it('starts the line under the profile without its denial of the network, everything else as a check', async () => {
+    assert.equal(
+      seatbeltProfile(2, { network: true }),
+      seatbeltProfile(2).replace('(deny network*)\n', ''),
+    );
+    const { calls, exec } = fake();
+    const temp = { make: () => '/private/var/folders/x/T/foedrum-check-3', remove: async () => {} };
+    const run = sandboxedChecks(options(exec, { platform: 'darwin', network: true, temp }));
+    await run(line, [], call);
+    const args = calls[0]?.args ?? [];
+    assert.equal(args[args.indexOf('-p') + 1], seatbeltProfile(8, { network: true }));
+    assert.equal(calls[0]?.options.env?.HOME, '/private/var/folders/x/T/foedrum-check-3');
+  });
+
+  it('does not run the line without bwrap or sandbox-exec, as a check', async () => {
+    const { calls, exec } = fake();
+    const linux = { platform: 'linux', network: true, findBwrap: () => undefined } as const;
+    assert.equal((await sandboxedChecks(options(exec, linux))(line, [], call)).exitCode, null);
+    const mac = { platform: 'darwin', network: true, hasSandboxExec: () => false } as const;
+    assert.equal((await sandboxedChecks(options(exec, mac))(line, [], call)).exitCode, null);
+    assert.deepEqual(calls, []);
+  });
+
+  it('runs the line as before on native Windows', async () => {
+    const { calls, exec } = fake();
+    await sandboxedChecks(options(exec, { platform: 'win32', network: true }))(line, [], call);
+    assert.deepEqual(calls, [{ file: line, args: [], options: call }]);
+  });
+});
+
 describe('sandboxedChecks elsewhere', () => {
   it('runs the line as before on native Windows, which has no sandbox for shell commands', async () => {
     const { calls, exec } = fake();
