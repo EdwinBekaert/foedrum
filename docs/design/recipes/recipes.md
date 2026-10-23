@@ -28,9 +28,9 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
         "until": "tasting.verdict == 'approve'",
         "steps": [
           { "id": "tasting", "parallel": [                   // approve = every verdict approves
-              { "id": "correctness", "brewer": "taster", "lens": "correctness" },
-              { "id": "security", "brewer": "taster", "lens": "security" },
-              { "id": "test-design", "brewer": "taster", "lens": "test-design" },
+              { "id": "correctness", "brewer": "taster", "lens": "diff/correctness" },
+              { "id": "security", "brewer": "taster", "lens": "diff/security" },
+              { "id": "test-design", "brewer": "taster", "lens": "diff/test-design" },
               { "id": "mutants", "brewer": "brett" }         // advisory unless "blocking": true
           ] },
           { "id": "fix", "brewer": "cooper", "when": "tasting.verdict != 'approve'" },
@@ -45,7 +45,7 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
 }
 ```
 
-**Loading.** The Brewery's recipe, brewer and lens files load all or nothing (`loadRecipes`, [ADR 0053](../../adr/0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)), on top of Foedrum's own defaults (`defaults/recipes/`, `defaults/brewers/`, `defaults/lenses/` of its install, never of the working directory): a Brewery file replaces the default of the same name whole, every default it keeps loads like its own file, and `foedrum doctor` lists the defaults in use ([ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)); it also names a Brewery file that replaces a default with the default's headings and marked lines (lines that start with a bold phrase) it no longer has, so a rule a copy dropped shows ([ADR 0141](../../adr/0141-doctor-reports-prompt-sizes-unused-files-and-what-a-brewery-file-drops-from-its-default.md)).
+**Loading.** The Brewery's recipe, brewer and lens files load all or nothing (`loadRecipes`, [ADR 0053](../../adr/0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)), on top of Foedrum's own defaults (`defaults/recipes/`, `defaults/brewers/`, `defaults/lenses/diff/` and `defaults/lenses/plan/` of its install, never of the working directory): a Brewery file replaces the default of the same name whole, every default it keeps loads like its own file, and `foedrum doctor` lists the defaults in use ([ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)); it also names a Brewery file that replaces a default with the default's headings and marked lines (lines that start with a bold phrase) it no longer has, so a rule a copy dropped shows ([ADR 0141](../../adr/0141-doctor-reports-prompt-sizes-unused-files-and-what-a-brewery-file-drops-from-its-default.md)).
 Beyond that: a file must hold the recipe or brewer it is named after, every brewer a recipe names needs a file, the Brewery's or a default, a lens holds at most 1 MiB, and one file that does not load stops every command that needs recipes with the line `foedrum doctor` gives (`the Brewery's recipes are not valid: <file>: <problem>; …`).
 For now the engine brews only brewer steps, without `lens` or `blocking`, and check steps in a line: a brewer step's deadline is its own or its brewer's, its stall limit and `maxAttempts` are its brewer's, a deadline is at most 365 days, and after the last step the batch is done.
 
@@ -79,7 +79,7 @@ A `session` step needs a `deadline` and may name a `fallback` brewer.
 |---|---|
 | `id` | Unique step id within the recipe, nested loop and parallel steps included. Expressions (`tasting.verdict`), `goto`, `of` and `from: "step:<id>"` refer to it, and every reference must name a step. It is a file name on the state branch, so it follows `PathSafeId` (`src/schemas/ids.ts`): 1 to 64 lower-case letters, digits, `.`, `_` or `-`, a letter or digit at both ends, no Windows device name; `recipe` is reserved. Required, except on brewer steps (default: the brewer name) and actions (default: the action in kebab case, `open-pull-request`) |
 | `when` | Run the step only when the expression is true; otherwise it is skipped and recorded as skipped. Expressions read step results by id (`tasting.verdict`, `mutants.survivors`) and the recipe's settings after routing (`recipe.testFirst`), optionally compared with a value in single quotes (`tasting.verdict != 'approve'`) |
-| `lens` | Taster only: the lens file (`lenses/<lens>.md`) that sets the review focus |
+| `lens` | Taster only: the lens that sets the review focus, `diff/<name>` or `plan/<name>` (`lenses/diff/<name>.md`, `lenses/plan/<name>.md`), of the folder of what the step reviews ([tasting](tasting.md), [ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md)) |
 | `expect` | `check` only: `"pass"` (default) or `"fail"`. `"fail"` is a **red proof**, which runs `"check": "test"` only, because it reads the test report |
 | `of` | Red proof only: an earlier step whose committed tests must fail because the behaviour is missing (a failed assertion or an error thrown by the code under test); load, compile, import or collection errors do not count |
 | `blocking` | Brett only: `true` makes confirmed surviving mutants block the tasting verdict (default `false`, advisory) |

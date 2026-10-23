@@ -34,7 +34,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Lab tech | Verifies a fix in a real environment | sonnet | high |
 | Tasting panel | Runs evaluations | — (uses the model under test) | — |
 
-Shipped in `defaults/brewers/` so far: the Gauger, whose test rules are the test-design lens, passed in as `"from": "lens:test-design"`, and Cellarman, both on the alias `builder`, which a Brewery that keeps them maps in `models.jsonc` ([ADR 0100](../../adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)).
+Shipped in `defaults/brewers/` so far: the Gauger, whose test rules are the test-design lens, passed in as `"from": "lens:diff/test-design"`, and Cellarman, both on the alias `builder`, which a Brewery that keeps them maps in `models.jsonc` ([ADR 0100](../../adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)).
 The others follow as the engine learns what they need.
 
 Default lenses: [tasting](tasting.md).

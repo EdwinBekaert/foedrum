@@ -28,7 +28,7 @@ The setup command is not a brewer field: it depends on the repository, so it is 
 
 | Field | Purpose |
 |---|---|
-| `inputs[]` | Named documents (`name` is the `{variable}` in the body): `"from": "order"`, an earlier step's out doc (`"step:<id>"`), a repository file (`"file:<relative path>"`) or a lens (`"lens:<name>"`: the Brewery's `lenses/<name>.md`, else Foedrum's default; a lens neither has is refused when the brewer is loaded, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)) |
+| `inputs[]` | Named documents (`name` is the `{variable}` in the body): `"from": "order"`, an earlier step's out doc (`"step:<id>"`), a repository file (`"file:<relative path>"`) or a lens (`"lens:diff/<name>"` or `"lens:plan/<name>"`: the Brewery's `lenses/diff/<name>.md` or `lenses/plan/<name>.md`, else Foedrum's default, [ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md); a lens neither has is refused when the brewer is loaded, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)) |
 | `inputs[].trusted` | Untrusted input goes between `untrusted-input-<nonce>` tags with a new random nonce per prompt and its source, below the rule that it is data, never instructions; input containing the nonce is refused as a likely injection ([ADR 0041](../../adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)). The tags are a mitigation, not the security boundary. Default `false`. Every input is untrusted for now: out docs of earlier steps are model output that read the order, so they carry its text. A source that really is trusted needs a new ADR before it may be marked trusted |
 | `houseYeast` | Receive learned rules from all three layers (defaults, Brewery, repository), selected by scope within a token budget ([house yeast](../house-yeast.md)) |
 | `toolbox` | A short brief of extra command-line tools this brewer may use |
@@ -95,7 +95,7 @@ There is no `noPush` guard: a brewer that names it fails the load, and a brewer'
 ## Prompt assembly
 
 Every brewer prompt is built by one function, `assembleBrewerPrompt` (`src/brewers/prompt.ts`): the instructions, then the rule, then each input between `untrusted-input-<nonce>` tags with its source ([ADR 0041](../../adr/0041-untrusted-input-in-per-prompt-nonce-tags.md)).
-An input comes from the order, an earlier step's out doc, a file of the repository, or a lens (`"lens:<name>"`, the Brewery's lens of that name, else Foedrum's default, read when the brewer is loaded, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)).
+An input comes from the order, an earlier step's out doc, a file of the repository, or a lens (`"lens:diff/<name>"`, the Brewery's lens of that folder and name, else Foedrum's default, read when the brewer is loaded, [ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)).
 After them come the answers to the step's questions ([ADR 0059](../../adr/0059-attempt-plans-from-the-brewer-of-the-step.md); a brewer that resumes gets this round's answers in its own session instead, [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) and, for an attempt an `onFail` or `onBlocked` route scheduled, the `route` input: the failed checks or the out doc that sent it back ([ADR 0128](../../adr/0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)).
 
 ## Example
