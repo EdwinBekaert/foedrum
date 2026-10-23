@@ -234,8 +234,8 @@ describe('judgeRed', () => {
     const suites = [
       {
         newPath: 'test/calculator.test.ts',
+        // The suite was there before: its title alone is no declaration of these tests.
         added: [
-          "describe('the calculator', () => {",
           "  it('adds two numbers', () => {",
           "  it('subtracts', () => {",
           "  it('adds a negative number', () => {",
