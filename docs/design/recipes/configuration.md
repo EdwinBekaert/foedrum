@@ -47,14 +47,14 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   Foedrum's own repository allows them within a ceiling that names them and nothing broader:
 
   ```jsonc
-  "permissionCeiling": ["Bash(npm run *)", "Bash(npx biome format --write *)", "Bash(node --test *)"],
+  "permissionCeiling": ["Bash(npm run *)", "Bash(node --test *)"],
   "repositories": {
     "edwinbekaert/foedrum": {
       "setup": { "command": "npm ci", "timeout": "10m" },
       "tools": [
         "Bash(npm run lint)",
         "Bash(npm run typecheck)",
-        "Bash(npx biome format --write *)",                       // format the files it changed
+        "Bash(npm run lint -- --write *)",                        // format and fix the files it changed
         "Bash(node --test *)"                                     // the test files it touched
       ]
     }
@@ -62,6 +62,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   ```
 
   A brewer's command runs in Claude Code's sandbox where the isolation level is sandboxed (ADR 0010); a command `tools` does not allow is denied and counts toward the brewer's denials.
+  Format through the repository's own script (`npm run lint -- --write <path>`), not `npx`: `npx` runs the rest of its line as a command, so `Bash(npx biome format --write *)` passes the ceiling but fails each attempt when it is planned, since its star could start git or gh ([ADR 0062](../../adr/0062-brewers-never-allow-git-with-no-fixed-subcommand.md), [ADR 0082](../../adr/0082-brewers-never-allow-gh.md)).
 - Repository keys are `owner/name`, unique regardless of case.
 - `intake` (`labels`, at least one, and an optional `milestone`) makes the intake claim and brew the repository's open issues that pass it (ADR 0043).
   It needs an `alias`: a lower-case letter, then letters and digits, at most 20, unique in the Brewery; the batch of a claimed issue is `<alias>-<issue>` ([ADR 0050](../../adr/0050-the-intake-of-target-repository-issues.md)).
