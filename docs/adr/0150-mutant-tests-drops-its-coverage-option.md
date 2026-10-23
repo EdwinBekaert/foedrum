@@ -1,4 +1,4 @@
-# 0139. mutant-tests drops its coverage option
+# 0150. mutant-tests drops its coverage option
 
 Date: 2026-10-22 · Status: Accepted · Amends [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) (`scripts/mutant-tests.ts --coverage` goes) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the script selects the mutation check's tests only)
 
