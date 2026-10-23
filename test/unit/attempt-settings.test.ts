@@ -3,9 +3,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
+  type AttemptPermissions,
   attemptSettings,
   type ConfigDirs,
   configDirsOf,
+  toolchainOf,
   writeAttemptSettings,
 } from '../../src/brewers/attempt-settings.ts';
 import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/attempt-settings.ts';
@@ -20,6 +22,10 @@ const attributionOf = (settings: AttemptSettings): unknown =>
 const readBlockOf = (settings: AttemptSettings): unknown =>
   (settings.permissions as { blockReadsOutsideWorkingDirectories?: unknown })
     .blockReadsOutsideWorkingDirectories;
+
+// The folders re-opened to sandboxed commands (ADR 0162), read the same way.
+const allowReadOf = (settings: AttemptSettings): unknown =>
+  (settings.sandbox as { filesystem?: { allowRead?: unknown } } | undefined)?.filesystem?.allowRead;
 
 describe('attemptSettings', () => {
   it("keeps the brewer's rules and always denies AskUserQuestion and git push in each shell", () => {
@@ -177,6 +183,149 @@ describe('attemptSettings', () => {
 
   it('writes no credentials without a sandbox, whatever the variables say', () => {
     assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }, false), []);
+  });
+
+  // #427: the block takes a toolchain under the home from sandboxed commands; `allowRead` from the
+  // runner's `--settings` re-opens its folders, never a PATH entry's parent blindly (ADR 0162).
+  describe('the toolchain folders it re-opens to sandboxed commands (ADR 0162)', () => {
+    const HOME = '/home/brewer';
+    const settingsFor = (PATH: string, more: Partial<AttemptPermissions> = {}) =>
+      attemptSettings({
+        allow: ['Read'],
+        deny: [],
+        sandbox: true,
+        toolchain: { HOME, PATH },
+        ...more,
+      });
+    const reopened = (PATH: string, more: Partial<AttemptPermissions> = {}): unknown =>
+      allowReadOf(settingsFor(PATH, more));
+
+    // nvm's bin holds links into ../lib/node_modules (npm, npx, global packages): the version's
+    // folder holds both, and nothing else of ~/.nvm.
+    it("re-opens the node version nvm put on the PATH, with its lib, and nothing else of nvm's", () => {
+      assert.deepEqual(reopened(`${HOME}/.nvm/versions/node/v24.15.0/bin:/usr/bin:/bin`), [
+        `${HOME}/.nvm/versions/node/v24.15.0`,
+      ]);
+    });
+
+    // Volta's shims run the tools it keeps in ~/.volta/tools.
+    it("re-opens Volta's folder when its shims are on the PATH", () => {
+      assert.deepEqual(reopened(`${HOME}/.volta/bin:/usr/bin`), [`${HOME}/.volta`]);
+    });
+
+    // asdf's shims run `asdf exec`, which runs the version under ~/.asdf/installs.
+    it("re-opens asdf's folder once, for its shims and its bin", () => {
+      assert.deepEqual(reopened(`${HOME}/.asdf/shims:${HOME}/.asdf/bin:/usr/bin`), [
+        `${HOME}/.asdf`,
+      ]);
+    });
+
+    // Homebrew on Linux lives under /home, a user root the block denies whoever's home it is.
+    it("re-opens Homebrew's prefix on Linux, under /home, once for its bin and sbin", () => {
+      const linuxbrew = '/home/linuxbrew/.linuxbrew';
+      assert.deepEqual(reopened(`${linuxbrew}/bin:${linuxbrew}/sbin:/usr/bin`), [linuxbrew]);
+    });
+
+    // ~/.local holds ~/.local/share/keyrings, ~/.cargo holds crates.io's credentials.toml, and ~/bin's
+    // parent is the home itself.
+    it('re-opens any other PATH folder under the home as it is, never its parent', () => {
+      assert.deepEqual(reopened(`${HOME}/.local/bin:${HOME}/bin:${HOME}/.cargo/bin`), [
+        `${HOME}/.local/bin`,
+        `${HOME}/bin`,
+        `${HOME}/.cargo/bin`,
+      ]);
+    });
+
+    it('re-opens each folder once, in PATH order, whatever its spelling', () => {
+      assert.deepEqual(
+        reopened(`${HOME}/bin:${HOME}/.volta/bin/:${HOME}//bin/:${HOME}/.volta/bin`),
+        [`${HOME}/bin`, `${HOME}/.volta`],
+      );
+    });
+
+    // Outside the user roots the block takes nothing; on WSL2 the Windows folders under /mnt are
+    // Windows programs, and another user's home is theirs.
+    it('re-opens nothing outside the home but Homebrew on Linux', () => {
+      const settings = settingsFor(
+        '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/mnt/c/Windows/System32:/home/other/.nvm/versions/node/v24.15.0/bin',
+      );
+      assert.equal(Object.hasOwn(settings.sandbox ?? {}, 'filesystem'), false);
+    });
+
+    // A relative or empty entry resolves against whichever directory a command runs in; a glob
+    // character would be read as a wildcard (sandbox path prefixes); `..` leaves the folder named.
+    it('re-opens neither the home itself nor an entry that names no one folder under it', () => {
+      const entries = [
+        HOME,
+        `${HOME}/`,
+        `${HOME}/.nvm/versions/node/v24.15.0/bin/../../../../..`,
+        `${HOME}/../other/bin`,
+        'node_modules/.bin',
+        '.',
+        '',
+        `${HOME}/[tools]/bin`,
+        `${HOME}/tools*/bin`,
+        `${HOME}/tool?/bin`,
+      ];
+      assert.equal(allowReadOf(settingsFor(entries.join(':'))), undefined);
+    });
+
+    // The docs: "When read rules overlap, the rule with the narrower path applies", so an
+    // `allowRead` inside a hidden login would re-open it, and one around it would re-open what
+    // else lies there.
+    it('re-opens no folder at, inside or around a login the sandbox hides', () => {
+      const entries = [
+        `${HOME}/.config/gh/bin`,
+        `${HOME}/.ssh`,
+        `${HOME}/.aws/cli/bin`,
+        `${HOME}/.config`,
+        `${HOME}/.claude`,
+        `${HOME}/xdg/gh/bin`,
+      ];
+      const settings = settingsFor(entries.join(':'), {
+        configDirs: { XDG_CONFIG_HOME: `${HOME}/xdg` },
+      });
+      assert.equal(allowReadOf(settings), undefined);
+    });
+
+    // The overlap table: "The deny holds inside a wider allow, so a broad allow can't silently
+    // re-expose a secret"; `credentials.files` is the same restriction as `denyRead`.
+    it('keeps every hidden login next to the folders it re-opens', () => {
+      const settings = settingsFor(`${HOME}/.nvm/versions/node/v24.15.0/bin`);
+      assert.deepEqual(
+        settings.sandbox?.credentials.files.map(({ path }) => path),
+        sandboxCredentials.files.map(({ path }) => path),
+      );
+    });
+
+    // `~/` in a sandbox path would expand to the HOME of the process that reads it.
+    it('re-opens only Homebrew on Linux without an absolute home other than the root', () => {
+      const PATH = `/root/.volta/bin:/x/.volta/bin:/home/linuxbrew/.linuxbrew/bin:/.volta/bin`;
+      for (const home of [undefined, '', '/', 'brewer']) {
+        const settings = attemptSettings({
+          allow: ['Read'],
+          deny: [],
+          sandbox: true,
+          toolchain: home === undefined ? { PATH } : { HOME: home, PATH },
+        });
+        assert.deepEqual(allowReadOf(settings), ['/home/linuxbrew/.linuxbrew'], String(home));
+      }
+    });
+
+    it('re-opens nothing without a PATH', () => {
+      const settings = attemptSettings({
+        allow: ['Read'],
+        deny: [],
+        sandbox: true,
+        toolchain: { HOME },
+      });
+      assert.equal(allowReadOf(settings), undefined);
+    });
+
+    it('writes no read paths without a sandbox', () => {
+      const settings = settingsFor(`${HOME}/.volta/bin`, { sandbox: false });
+      assert.equal(Object.hasOwn(settings, 'sandbox'), false);
+    });
   });
   it('refuses a rule claude could not read', () => {
     assert.throws(
@@ -670,5 +819,23 @@ describe('configDirsOf', () => {
     assert.deepEqual(configDirsOf({ XDG_CONFIG_HOME: '/data/config', GH_CONFIG_DIR: undefined }), {
       XDG_CONFIG_HOME: '/data/config',
     });
+  });
+});
+
+describe('toolchainOf', () => {
+  it('keeps only the home and the PATH', () => {
+    assert.deepEqual(
+      toolchainOf({
+        HOME: '/home/brewer',
+        PATH: '/usr/bin',
+        GH_CONFIG_DIR: '/srv/gh',
+        NVM_DIR: '/x',
+      }),
+      { HOME: '/home/brewer', PATH: '/usr/bin' },
+    );
+  });
+
+  it('leaves out the variables that are not set', () => {
+    assert.deepEqual(toolchainOf({ PATH: '/usr/bin', HOME: undefined }), { PATH: '/usr/bin' });
   });
 });

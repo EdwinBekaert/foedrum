@@ -20,7 +20,17 @@ export interface AttemptPermissions {
   sandbox: boolean;
   /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
   configDirs?: ConfigDirs;
+  /** The driver's home and PATH, whose toolchain folders sandboxed commands may read (ADR 0162). */
+  toolchain?: Toolchain;
 }
+
+/** The variables of the driver's environment the toolchain's folders are found from (ADR 0162). */
+export type Toolchain = Partial<Record<'HOME' | 'PATH', string>>;
+
+/** The variables of `env` the toolchain's folders are found from. */
+export const toolchainOf = (_env: Readonly<Record<string, string | undefined>>): Toolchain => {
+  throw new Error('not implemented');
+};
 
 const CONFIG_DIRS = ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR'] as const;
 

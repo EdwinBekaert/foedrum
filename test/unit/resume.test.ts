@@ -241,6 +241,18 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.ok(files?.includes('/data/claude-work/.credentials.json'), JSON.stringify(files));
   });
 
+  // ADR 0162: and re-open the toolchain folders of serve's PATH under its home.
+  it("writes the settings again with the toolchain folders of serve's PATH", async () => {
+    const base = {
+      PATH: '/home/brewer/.nvm/versions/node/v24.15.0/bin:/bin',
+      HOME: '/home/brewer',
+    };
+    const withNvm = { ...setup, brewerEnv: { ...setup.brewerEnv, base } };
+    await resume(undefined, { setup: async () => ({ kind: 'ready', setup: withNvm }) });
+    const sandbox = settings[0]?.settings.sandbox as { filesystem?: { allowRead?: unknown } };
+    assert.deepEqual(sandbox.filesystem?.allowRead, ['/home/brewer/.nvm/versions/node/v24.15.0']);
+  });
+
   it('opens the latest finished attempt in its worktree, with its settings written again and the brewer environment', async () => {
     const result = await resume();
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
