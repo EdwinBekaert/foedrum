@@ -329,10 +329,11 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     },
   ];
   /** The Taster's prompt, planned with `git` answering the change, and the git calls it made. */
-  const planTaster = async (git: Git, files: BreweryFiles = room) => {
+  const planTaster = async (git: Git, files: BreweryFiles = room, more: readonly Event[] = []) => {
     const calls: { cwd: string; args: readonly string[]; config: unknown }[] = [];
     const plans = createAttemptPlans({
-      state: () => fold(events),
+      // `more` happens before the Taster is scheduled.
+      state: () => fold([...events.slice(0, -2), ...more, ...events.slice(-2)]),
       brewers: valid(loadRecipes(files)).brewers,
       models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
       repoTools: () => [],
@@ -412,6 +413,42 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
         config: inClone,
       },
     ]);
+  });
+
+  it("reviews only the batch's own change after a merge of the base, from the base it merged (ADR 0164)", async () => {
+    const merged = 'c'.repeat(40);
+    const head = 'b'.repeat(40);
+    // The green check merged the base, at `merged`, into the task tree the Taster starts at.
+    const green = { batchId: '12-1', stepId: 'green', attempt: 1 };
+    const checked: Event[] = [
+      { type: 'step.scheduled', ...green, deadlineAt: '2026-10-23T13:00:00.000Z' },
+      { type: 'step.started', ...green, worktree: worktree('green-1', base) },
+      {
+        type: 'effect.applied',
+        key: '["12-1","green",1,"merge_base"]',
+        result: { base: merged, merged: head },
+      },
+      {
+        type: 'step.finished',
+        ...green,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'Green', assumptions: [] },
+        },
+      },
+    ];
+    const { plan, calls } = await planTaster(answers, room, checked);
+    const { prompt } = await plan;
+    assert.ok(
+      prompt.includes(`source="the change since commit ${merged}" name="change">`),
+      'the change does not start at the merged base',
+    );
+    assert.deepEqual(
+      calls.map(({ args }) =>
+        args.filter((arg) => arg.includes('..') || /^[0-9a-f]{40}$/.test(arg)),
+      ),
+      [[`${merged}..${head}`], [merged, head]],
+    );
   });
 
   it('cuts a change longer than 256 KiB, saying so', async () => {
