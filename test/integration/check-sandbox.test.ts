@@ -2,16 +2,18 @@
 // cannot write outside its worktree, read a file in the home folder or open a connection to a
 // server on 127.0.0.1. It tests our arguments and profile with the real tools, not the tools
 // themselves; it runs where the sandbox runs (macOS, Linux with a working bwrap) and skips elsewhere.
+// A setup's sandbox keeps the network and nothing else (ADR 0158).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { bwrapArgs, SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecOptions, execProcess } from '../../src/platform/processes.ts';
+import { waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 /** Why the sandbox cannot run on this machine, or undefined when it can. */
@@ -141,5 +143,128 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
     } finally {
       await new Promise((done) => server.close(done));
     }
+  });
+});
+
+/** The first folder under /run that /etc/resolv.conf's real path is in, as the sandbox binds it. */
+const resolverFolder = (): string | undefined => {
+  try {
+    const real = realpathSync('/etc/resolv.conf');
+    return real.startsWith('/run/') ? real.split('/')[2] : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// A repository's setup in the same sandbox with the network kept (ADR 0158): it reaches a server,
+// as an install reaches its registry, and still cannot read the home folder or write outside.
+describe('a setup in the real sandbox, the network kept', { skip: skip ?? false }, () => {
+  let dir: TempDir;
+  let home: string;
+  let worktree: string;
+  let outside: string;
+  let run: ReturnType<typeof sandboxedChecks>;
+  const setup = (line: string) => {
+    const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+    return run(line, [], { cwd: worktree, env, shell: true, timeoutMs: 60_000 });
+  };
+
+  before(() => {
+    dir = makeTempDir('setup-sandbox');
+    home = join(dir.path, 'home');
+    worktree = join(dir.path, 'worktree');
+    outside = join(dir.path, 'outside');
+    for (const folder of [home, worktree, outside]) mkdirSync(folder);
+    writeFileSync(join(home, 'secret.txt'), 'planted-login\n');
+    run = sandboxedChecks({ exec: execProcess, home, network: true });
+  });
+  after(() => dir.remove());
+
+  it('opens a connection to a server on 127.0.0.1', async () => {
+    let connections = 0;
+    const server = createServer((socket) => {
+      connections++;
+      socket.destroy();
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    try {
+      const address = server.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      const connect = `require('net').connect(${port},'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))`;
+      const result = await setup(`"${process.execPath}" -e "${connect}"`);
+      assert.equal(result.exitCode, 0, result.output);
+      await waitUntil('the server saw the connection', () => connections === 1);
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
+  });
+
+  it('cannot read a file in the home folder', async () => {
+    writeFileSync(join(worktree, 'package.json'), '{}\n');
+    const result = await setup(`cat package.json && cat "${home}/secret.txt"`);
+    assert.match(result.output, /\{\}/);
+    assert.notEqual(result.exitCode, 0, result.output);
+    assert.doesNotMatch(result.output, /planted-login/);
+  });
+
+  it('writes in its worktree, and not outside it', async () => {
+    const result = await setup(`echo in > installed.txt && echo out > "${outside}/x.txt"`);
+    assert.notEqual(result.exitCode, 0, result.output);
+    assert.ok(existsSync(join(worktree, 'installed.txt')), result.output);
+    assert.ok(!existsSync(join(outside, 'x.txt')), result.output);
+  });
+
+  // Seatbelt's network* covers Unix sockets too, such as launchd's ssh-agent under /private/tmp
+  // (review of #422): a setup keeps IP, not them.
+  it('cannot connect to a Unix socket outside its worktree on macOS', {
+    skip: process.platform !== 'darwin' && 'the profile is macOS only',
+  }, async () => {
+    // By relative paths: macOS caps a socket's path at 104 bytes, and a checkout can be deep.
+    const server = createServer((socket) => socket.destroy());
+    await new Promise<void>((done, fail) => {
+      server.once('error', fail);
+      server.listen(relative(process.cwd(), join(outside, 'a.sock')), done);
+    });
+    try {
+      const connect = `require('net').connect('../outside/a.sock').on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))`;
+      const line = `"${process.execPath}" -e "${connect}"`;
+      // The same line outside the sandbox reaches the socket: the refusal is the sandbox's.
+      const open = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
+      assert.equal(open.exitCode, 0, open.output);
+      const result = await setup(line);
+      assert.equal(result.exitCode, 3, result.output);
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
+  });
+
+  // macOS's resolver answers through mDNSResponder's socket, the one Unix socket a setup keeps
+  // (review of #422); localhost needs no network.
+  it('looks a name up on macOS', {
+    skip: process.platform !== 'darwin' && 'the resolver socket is a macOS path',
+  }, async () => {
+    const lookup = `require('dns').lookup('localhost',(e)=>process.exit(e?3:0))`;
+    const result = await setup(`"${process.execPath}" -e "${lookup}"`);
+    assert.equal(result.exitCode, 0, result.output);
+  });
+
+  // An install looks its registry up by name: the resolver's list must be there to read.
+  it('reads /etc/resolv.conf on Linux, also where it links into the hidden /run', {
+    skip:
+      (process.platform !== 'linux' && 'the resolver bind is a Linux path') ||
+      (resolverFolder() === undefined && '/etc/resolv.conf does not link into /run here'),
+  }, async () => {
+    const result = await setup('cat /etc/resolv.conf > /dev/null');
+    assert.equal(result.exitCode, 0, result.output);
+  });
+
+  it('sees no user folder under /run on Linux, where the D-Bus socket was', {
+    skip: process.platform !== 'linux' && 'the keyring socket is a Linux path',
+  }, async () => {
+    const result = await setup('ls -A /run');
+    assert.equal(result.exitCode, 0, result.output);
+    // Only the resolver's folder, bound back for the network where /etc/resolv.conf links into
+    // /run (ADR 0158): systemd-resolved, resolvconf or NetworkManager, as the machine has it.
+    assert.equal(result.output.trim(), resolverFolder() ?? '');
   });
 });
