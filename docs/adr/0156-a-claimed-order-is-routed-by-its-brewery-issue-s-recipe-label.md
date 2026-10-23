@@ -37,7 +37,7 @@ That is gone: only people who can label issues in the Brewery choose it, the sam
 - The target issue of a claimed order carries only the intake filter's labels and the claim marks; `recipe:<name>` there is ignored.
 - A Brewery's owner chooses a claimed order's recipe by labelling its Brewery issue, which `foedrum status` names as `#<order> (<alias>#<n>)`; until it is open, a person can still choose with `foedrum recipe` once the batch is Stuck on routing.
 - A claimed order now waits for its Brewery issue before it can be routed: at least one driver tick after the claim, and the next pass after that. ADR 0068's routing "in the same pass that orders" holds only for the Brewery's own orders.
-- The analyze recipe (#388), which a Brewery issue without a recipe label gets by default, reads the same place: a claimed order's Brewery issue.
+- When the analyze recipe (#388) becomes the default for a Brewery issue without a recipe label, it reads the same place: a claimed order's Brewery issue.
 - The chaos case of the intake (`test/chaos/intake.test.ts`) gives each claimed target issue the label `recipe:half` and its Brewery issue what the plan asks for, and routes a claimed batch only once its Brewery issue is recorded.
 
 ## Alternatives considered
