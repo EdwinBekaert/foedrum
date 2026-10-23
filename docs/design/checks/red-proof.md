@@ -10,6 +10,7 @@ A recipe that needs red proof on a repository without one stops at the start of 
 **What the red proof reads** ([ADR 0078](../../adr/0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).
 The engine runs the repository's `test` check, removing a report file of a previous run first, then reads the report and what the `of` step committed, from where its first attempt started to its latest success.
 The `of` step's tests are the report's tests whose names stand as a whole in a line the step added, as a declaration writes them (`test('adds two numbers'`, `def test_adds(`), so give tests names the runner reports as written.
+A name also counts without a runner's parameters (`adds(int, int)[1]` as `adds`), as its part after suite titles (`the calculator > adds two numbers`), and as that part's last part after a class or module (`com.acme.AddTest.adds` as `adds`), which holds no space, so a sentence that ends in a dotted word (`… with git.commit`) counts only as a whole (#406).
 The red proof passes when every one of them fails, none passes (a stub must throw, not return a value) or is skipped, and nothing in the report names a load, compile, import or collection error (`SyntaxError`, `Cannot find module`, `ImportError`, `error TS2304`, `errors during collection`, …), not even in one of those tests' own failure: test such an error by asserting on it.
 Tests the step did not add may pass or fail on an assertion.
 

@@ -928,6 +928,35 @@ describe('fold', () => {
     });
   });
 
+  it('keeps the attempts of a batch in the order they started, across its steps (#406)', () => {
+    const run = (stepId: string, attempt: number): Event[] => [
+      { type: 'step.scheduled', batchId: 'b1', stepId, attempt, deadlineAt },
+      { type: 'step.started', batchId: 'b1', stepId, attempt },
+    ];
+    assert.equal(batch(fold([ordered, scheduled])).path, undefined);
+    const state = fold([ordered, ...run('gauge', 1), ...run('red', 1), ...run('gauge', 2)]);
+    assert.deepStrictEqual(batch(state).path, [
+      { stepId: 'gauge', attempt: 1 },
+      { stepId: 'red', attempt: 1 },
+      { stepId: 'gauge', attempt: 2 },
+    ]);
+  });
+
+  it('keeps the path when an attempt starts in a worktree (#406)', () => {
+    const worktree = {
+      repo: 'acme/app',
+      path: 'work/acme/app/attempts/b1/plan/1',
+      branch: 'foedrum/b1/plan/1',
+      commit: 'a'.repeat(40),
+    };
+    const state = fold([
+      ordered,
+      scheduled,
+      { type: 'step.started', batchId: 'b1', stepId: 'plan', attempt: 1, worktree },
+    ]);
+    assert.deepStrictEqual(batch(state).path, [{ stepId: 'plan', attempt: 1 }]);
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });

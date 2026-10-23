@@ -105,8 +105,9 @@ const failed = (command: string, message: string): CliResult => ({
   stderr: `foedrum ${command}: ${message}\n`,
 });
 
-// Reads every event of the Brewery's store and folds them; one line when there is no store or the
-// fold refuses the log. Never writes (ADR 0030). The store closes once `show` is done.
+// Reads every event of the Brewery's store and folds them; one line when there is no store (or
+// `none`, for a command that has an answer without one) or the fold refuses the log. Never writes
+// (ADR 0030). The store closes once `show` is done.
 const readBrewery = async (
   command: string,
   { cwd, openStore }: CliContext,
@@ -115,10 +116,11 @@ const readBrewery = async (
     state: State,
     store: EventStore,
   ) => CliResult | Promise<CliResult>,
+  none?: CliResult,
 ): Promise<CliResult> => {
   const path = storePath(cwd);
   const store = openStore(path);
-  if (store === undefined) return failed(command, `no event store at ${path}`);
+  if (store === undefined) return none ?? failed(command, `no event store at ${path}`);
   try {
     const events = store.eventsAfter(0);
     let state: State;
@@ -270,20 +272,26 @@ export const commands: readonly RegisteredCommand[] = [
     positionals: [],
     schema: StatusCommand,
     handler: async (_input, context) =>
-      readBrewery('status', context, async (_events, state, store) => {
-        // The task-tree branches the cleanup keeps (ADR 0084), read only when there are any.
-        const unpushed = worktreeClaims(state, []).unpushed ?? new Map<string, string>();
-        const readings =
-          unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
-        // The batches an interactive driver holds now, by its owner (ADR 0123).
-        const interactive = new Map(
-          store
-            .batchLeases(context.now())
-            .filter(({ owner }) => owner !== CELLAR_OWNER)
-            .map(({ batchId, owner }) => [batchId, owner]),
-        );
-        return done(formatStatus(state, keptBranchLines(unpushed, readings), interactive));
-      }),
+      readBrewery(
+        'status',
+        context,
+        async (_events, state, store) => {
+          // The task-tree branches the cleanup keeps (ADR 0084), read only when there are any.
+          const unpushed = worktreeClaims(state, []).unpushed ?? new Map<string, string>();
+          const readings =
+            unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
+          // The batches an interactive driver holds now, by its owner (ADR 0123).
+          const interactive = new Map(
+            store
+              .batchLeases(context.now())
+              .filter(({ owner }) => owner !== CELLAR_OWNER)
+              .map(({ batchId, owner }) => [batchId, owner]),
+          );
+          return done(formatStatus(state, keptBranchLines(unpushed, readings), interactive));
+        },
+        // A fresh Brewery: serve and brew make the store when they first start.
+        done('No batches yet.\n'),
+      ),
   }),
   define({
     name: 'stuck',

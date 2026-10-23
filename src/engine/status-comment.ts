@@ -220,6 +220,52 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
   }
 };
 
+/** How attempt `n` of `stepId` stands, as the step list marks it. */
+const markOf = (batch: Batch, stepId: string, n: number): string => {
+  const attempt = batch.steps.get(stepId)?.attempts.get(n);
+  const { lane } = batch;
+  const latest = latestFirst(batch, stepId)[0]?.attempt;
+  if (lane.kind === 'stuck' && 'stepId' in lane.reason && lane.reason.stepId === stepId) {
+    if (latest === n) return '🔔';
+  }
+  if (attempt === undefined || attempt.phase !== 'finished') {
+    return attempt?.abandoned === true ? '⏹️' : '▶️';
+  }
+  switch (attempt.outcome.kind) {
+    case 'succeeded':
+      return '✅';
+    case 'failed':
+      return '❌';
+    case 'needs_input':
+      return '❓';
+    case 'cancelled':
+      return '⏹️';
+    default:
+      return attempt.outcome satisfies never;
+  }
+};
+
+/**
+ * The batch's attempts in the order they ran, each marked, on one line; none before its first.
+ * Each is a code span: GitHub would link a bare `#1` to issue 1.
+ */
+const pathLine = (batch: Batch): string[] => {
+  const { path = [], lane } = batch;
+  // Stuck at an attempt that never started: the path ends there all the same.
+  const stuckAt = lane.kind === 'stuck' && 'stepId' in lane.reason ? lane.reason.stepId : undefined;
+  const latest = stuckAt === undefined ? undefined : latestFirst(batch, stuckAt)[0]?.attempt;
+  const onPath = path.some((each) => each.stepId === stuckAt && each.attempt === latest);
+  const all =
+    stuckAt === undefined || latest === undefined || onPath
+      ? path
+      : [...path, { stepId: stuckAt, attempt: latest }];
+  if (all.length === 0) return [];
+  const shown = all.map(
+    ({ stepId, attempt }) => `${code(`${stepId} #${attempt}`)} ${markOf(batch, stepId, attempt)}`,
+  );
+  return [`Path: ${shown.join(' → ')}`];
+};
+
 /** The assumptions of the latest out doc of `stepId` that succeeded. */
 const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   for (const attempt of latestFirst(batch, stepId)) {
@@ -260,7 +306,11 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     laneText(batch.lane, told),
-    [recipeText(batch.recipe), ...stepIds.map((stepId) => stepLine(batch, stepId, told))],
+    [
+      recipeText(batch.recipe),
+      ...pathLine(batch),
+      ...stepIds.map((stepId) => stepLine(batch, stepId, told)),
+    ],
   ];
   const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
@@ -298,6 +348,28 @@ const recorded = (state: State, batchId: string, revision: number): StatusRevisi
   return parsed.data;
 };
 
+/**
+ * The id of the status comment of `batchId` the latest recorded revision made or edited, or
+ * undefined before its first: a comment deleted by hand is made again with a new id.
+ */
+export const statusCommentOf = (state: State, batchId: string): number | undefined =>
+  latestRevision(state, batchId).latest?.comment;
+
+/** The latest revision of `batchId` recorded, if any, and the number of the next. */
+const latestRevision = (
+  state: State,
+  batchId: string,
+): { next: number; latest: StatusRevision | undefined } => {
+  let next = 1;
+  let latest: StatusRevision | undefined;
+  for (let found = recorded(state, batchId, next); found !== undefined; ) {
+    latest = found;
+    next += 1;
+    found = recorded(state, batchId, next);
+  }
+  return { next, latest };
+};
+
 /** A revision of a status comment that is due. */
 interface DueRevision {
   key: BatchEffectKey;
@@ -320,13 +392,7 @@ const statusDue = (
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined || batch.repo !== undefined) return undefined;
-  let revision = 1;
-  let previous: StatusRevision | undefined;
-  for (let found = recorded(state, batchId, revision); found !== undefined; ) {
-    previous = found;
-    revision += 1;
-    found = recorded(state, batchId, revision);
-  }
+  const { next: revision, latest: previous } = latestRevision(state, batchId);
   const text = renderStatus(batch, steps, knownCommits(state, batchId));
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

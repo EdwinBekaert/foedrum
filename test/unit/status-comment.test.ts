@@ -115,6 +115,68 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
+  it('shows the attempts in the order they ran on one line before the steps (#406)', () => {
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'blocked', stepId: 'gauge', blockerKind: 'environment', summary: 'x' }),
+        steps: new Map([
+          step('gauge', done(1), failed(2, 'blocked')),
+          step('red', failed(1, 'passes')),
+        ]),
+        path: [
+          { stepId: 'gauge', attempt: 1 },
+          { stepId: 'red', attempt: 1 },
+          { stepId: 'gauge', attempt: 2 },
+        ],
+      }),
+      ['gauge', 'red', 'implement'],
+    );
+    const lines = text.split('\n');
+    const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ → `gauge #2` 🔔');
+    assert.ok(path >= 0, text);
+    const firstStep = lines.findIndex((line) => line.startsWith('- ') && line.includes('`gauge`'));
+    assert.ok(path < firstStep, 'the path comes before the steps');
+    assert.doesNotMatch(renderStatus(batch(), steps), /Path:/);
+  });
+
+  it('marks a running, a stopped and an asking attempt on the path (#406)', () => {
+    const asked: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'needs_input',
+        questions: [{ q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' }],
+      },
+    };
+    const stopped: Attempt = { phase: 'started', attempt: 1, deadlineAt: at, abandoned: true };
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('plan', asked), step('brew', stopped), step('taste', running(1))]),
+        path: [
+          { stepId: 'plan', attempt: 1 },
+          { stepId: 'brew', attempt: 1 },
+          { stepId: 'taste', attempt: 1 },
+        ],
+      }),
+      steps,
+    );
+    assert.ok(text.split('\n').includes('Path: `plan #1` ❓ → `brew #1` ⏹️ → `taste #1` ▶️'), text);
+  });
+
+  it('ends the path where the batch is Stuck, though that attempt never started (#406)', () => {
+    const scheduled: Attempt = { phase: 'scheduled', attempt: 2, deadlineAt: at };
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'waiting_for_session', stepId: 'gauge' }),
+        steps: new Map([step('gauge', done(1), scheduled)]),
+        path: [{ stepId: 'gauge', attempt: 1 }],
+      }),
+      ['gauge'],
+    );
+    assert.ok(text.split('\n').includes('Path: `gauge #1` ✅ → `gauge #2` 🔔'), text);
+  });
+
   it('lists the steps the batch has when its recipe is unknown', () => {
     const text = renderStatus(batch({ steps: new Map([step('mash', done(1))]) }), undefined);
     assert.match(lineOf(text, 'mash'), /✅/);

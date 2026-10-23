@@ -24,6 +24,7 @@ import { combineEffects } from '../engine/effects.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
+import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
@@ -116,17 +117,17 @@ export const wireDriver = async (
     recipes: setup.recipes,
     clock,
   });
+  const marks = githubIssueMarks({ client, reads, login });
+  // Each Brewery issue's lane label, through the ledger as its status comment (ADR 0154).
+  const labels = laneLabelEffects({ brewery: setup.brewery, host: marks });
   // A claimed batch the store has keeps its marks and release due, intake or not (ADR 0050).
   const claimed = [
     ...createCommandLog({ store, recipes: setup.recipes }).state().batches.values(),
   ].some((batch) => batch.repo !== undefined);
   const effects =
     setup.intake.repositories.length > 0 || claimed
-      ? combineEffects(
-          status,
-          claimEffects({ claimant, marks: githubIssueMarks({ client, reads, login }), claims }),
-        )
-      : status;
+      ? combineEffects(status, labels, claimEffects({ claimant, marks, claims }))
+      : combineEffects(status, labels);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
