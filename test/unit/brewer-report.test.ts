@@ -348,6 +348,55 @@ describe('brewerReport', () => {
     );
   });
 
+  it("takes each batch's own recipe when batches choose theirs between each other's attempts", () => {
+    // b1 chose pint, then b2 chose a recipe no file has, then b1's plan was scheduled.
+    const events: Event[] = [
+      ...ordered('b1', 1, 'pint'),
+      ...ordered('b2', 2, 'old'),
+      ...finished('b1', 'plan', 1, { kind: 'succeeded', output: {} }),
+    ];
+    assert.deepStrictEqual(
+      recipesRun(events),
+      new Map([[JSON.stringify(['b1', 'plan', 1]), 'pint']]),
+    );
+    const interleaved = report(events);
+    assert.equal(interleaved.brewers.find(({ name }) => name === 'planner')?.attempts, 1);
+    assert.deepStrictEqual(interleaved.gone, []);
+  });
+
+  it('gives a batch Stuck at a step without a brewer to no brewer', () => {
+    const atCheck = report([
+      ...ordered('b1', 1, 'pint'),
+      ...finished('b1', 'test', 1, { kind: 'failed', retryable: true, reason: 'tests fail' }),
+      {
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason: {
+          kind: 'attempts_exhausted',
+          stepId: 'test',
+          attempts: 1,
+          lastReason: 'tests fail',
+        },
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt,
+      },
+    ]);
+    assert.deepStrictEqual(
+      atCheck.brewers.flatMap(({ stuck }) => stuck),
+      [],
+    );
+    assert.deepStrictEqual(atCheck.gone, []);
+  });
+
+  it("counts an attempt `ran` does not have under the batch's recipe now", () => {
+    const events = [
+      ...ordered('b1', 1, 'pint'),
+      ...finished('b1', 'plan', 1, { kind: 'succeeded', output: {} }),
+    ];
+    const { brewers } = brewerReport(fold(events), source, new Map());
+    assert.equal(brewers.find(({ name }) => name === 'planner')?.attempts, 1);
+  });
+
   it('counts an attempt abandoned when its batch went Stuck as unfinished', () => {
     const abandoned = report([
       ...ordered('b7', 7, 'pint'),
