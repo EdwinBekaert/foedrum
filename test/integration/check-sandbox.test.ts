@@ -214,6 +214,16 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
     assert.ok(!existsSync(join(outside, 'x.txt')), result.output);
   });
 
+  // An install looks its registry up by name: the resolver's list must be there to read.
+  it('reads /etc/resolv.conf on Linux, also where it links into the hidden /run', {
+    skip:
+      (process.platform !== 'linux' && 'the resolver bind is a Linux path') ||
+      (resolverFolder() === undefined && '/etc/resolv.conf does not link into /run here'),
+  }, async () => {
+    const result = await setup('cat /etc/resolv.conf > /dev/null');
+    assert.equal(result.exitCode, 0, result.output);
+  });
+
   it('sees no user folder under /run on Linux, where the D-Bus socket was', {
     skip: process.platform !== 'linux' && 'the keyring socket is a Linux path',
   }, async () => {

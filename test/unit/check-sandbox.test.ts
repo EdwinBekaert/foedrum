@@ -449,6 +449,9 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
   it("binds no resolver's file when /etc/resolv.conf is outside /run or cannot be resolved", async () => {
     for (const realPath of [
       (path: string) => (path === '/etc/resolv.conf' ? '/mnt/wsl/resolv.conf' : path),
+      // Near misses: a folder whose name only starts with run, and /run itself.
+      (path: string) => (path === '/etc/resolv.conf' ? '/runner/resolv.conf' : path),
+      (path: string) => (path === '/etc/resolv.conf' ? '/run' : path),
       (path: string) => {
         if (path === '/etc/resolv.conf') throw new Error('ENOENT: no such file');
         return path;
