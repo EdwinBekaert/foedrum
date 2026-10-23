@@ -61,7 +61,7 @@ Brewer-specific fields (for example a review verdict) are added by the brewer's 
 | Out doc | Next |
 |---|---|
 | `done` | Guards pass → next step |
-| `needs_input` | Stuck 🔔 with the questions; the answer, from any surface, resumes the brewer's session as the next attempt when its `retryMode` is `resume`; otherwise, or when the session cannot be resumed, a fresh attempt gets every round's answers as its `answers` input ([ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) |
+| `needs_input` | Stuck 🔔 with the questions; the answer, from any surface, resumes the brewer's session as the next attempt when its `retryMode` is `resume` ([brewers](brewers.md) says when that is overridden); otherwise, or when the session cannot be resumed, a fresh attempt gets every round's answers as its `answers` input ([ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) |
 | `blocked` + `findings` | Next loop round, until `maxRounds`; outside a loop, the step's `onBlocked` route, else Stuck |
 | `blocked` + `environment` | Stuck immediately: another round would hit the same wall |
 | `blocked` + `divergence` | Stuck: the plan does not match reality |
