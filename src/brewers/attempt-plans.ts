@@ -16,6 +16,7 @@ import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { parseRule } from '../schemas/primitives.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import {
   answersOf,
@@ -73,6 +74,9 @@ export interface AttemptPlans {
   /** The out doc of the brewer of a step in its batch's recipe; undefined without one (ADR 0081). */
   outDoc(step: { batchId: string; stepId: string }): string | undefined;
 }
+
+/** The tools that run a command: a brewer without one cannot use an install (ADR 0163). */
+const shellTools = new Set(['Bash', 'PowerShell']);
 
 const realFiles = {
   read: readOutDocFile,
@@ -223,8 +227,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(options.random === undefined ? {} : { random: options.random }),
       });
       // Every attempt's worktree gets its repository's dependencies before the brewer starts: a
-      // resumed one too, since the driver may have added its worktree again (ADR 0163).
-      const setup = options.repoSetup?.(worktree.repo);
+      // resumed one too, since the driver may have added its worktree again. Not for a brewer
+      // that cannot run a command, such as a read-only Taster: it could not use them (ADR 0163).
+      const shell = plan.permissions.allow.some((rule) => shellTools.has(parseRule(rule).tool));
+      const setup = shell ? options.repoSetup?.(worktree.repo) : undefined;
       const prepared =
         setup === undefined || started === undefined
           ? plan
