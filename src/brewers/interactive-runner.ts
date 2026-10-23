@@ -216,6 +216,15 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
   };
 }
 
+/**
+ * The headless runner of a fresh attempt on the real machine, which runs the attempt's setup
+ * through `setup` (ADR 0163).
+ */
+export const headlessRunner =
+  (claude: string, setup: ExecProcess) =>
+  (plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>): BrewerRunner =>
+    claudeBrewerRunner({ claude, plan, setup });
+
 /** The runner on the real machine: files, git and the headless runner of a fresh attempt. */
 export function interactiveBrewerRunner(
   options: Pick<
@@ -226,10 +235,9 @@ export function interactiveBrewerRunner(
     setup: ExecProcess;
   },
 ): BrewerRunner {
-  const { setup } = options;
   return interactiveBrewerRunnerWith({
     ...options,
-    headless: (plan) => claudeBrewerRunner({ claude: options.claude, plan, setup }),
+    headless: headlessRunner(options.claude, options.setup),
     files: {
       writeSettings: writeAttemptSettings,
       readOutDoc: readOutDocFile,
