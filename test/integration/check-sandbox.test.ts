@@ -214,6 +214,27 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
     assert.ok(!existsSync(join(outside, 'x.txt')), result.output);
   });
 
+  // Seatbelt's network* covers Unix sockets too, such as launchd's ssh-agent under /private/tmp
+  // (review of #422): a setup keeps IP, not them.
+  it('cannot connect to a Unix socket outside its worktree on macOS', {
+    skip: process.platform !== 'darwin' && 'the profile is macOS only',
+  }, async () => {
+    const path = join(outside, 'a.sock');
+    const server = createServer((socket) => socket.destroy());
+    await new Promise<void>((done) => server.listen(path, done));
+    try {
+      const connect = `require('net').connect('${path}').on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))`;
+      const line = `"${process.execPath}" -e "${connect}"`;
+      // The same line outside the sandbox reaches the socket: the refusal is the sandbox's.
+      const open = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
+      assert.equal(open.exitCode, 0, open.output);
+      const result = await setup(line);
+      assert.equal(result.exitCode, 3, result.output);
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
+  });
+
   // An install looks its registry up by name: the resolver's list must be there to read.
   it('reads /etc/resolv.conf on Linux, also where it links into the hidden /run', {
     skip:
