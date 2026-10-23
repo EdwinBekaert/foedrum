@@ -11,6 +11,7 @@ import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import type { BrewCommand, ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
+import type { BrewerSource } from './brewer-report.ts';
 import { columns } from './columns.ts';
 import { commands } from './commands.ts';
 import type { DoctorFacts } from './doctor.ts';
@@ -33,6 +34,11 @@ export interface CliContext {
    * changes state calls it.
    */
   recipes: () => Recipes;
+  /**
+   * The brewers in use and each recipe's steps, from the Brewery's files, for `foedrum brewers`
+   * (ADR 0159); throws doctor's line when the files do not load.
+   */
+  brewers: () => BrewerSource;
   /** Who issues the command: the name its events record (ADR 0019). */
   user: () => string;
   /** Where the command comes from: the surface its events record. */
@@ -66,8 +72,12 @@ export interface CliContext {
   brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
   /** The environment, for the Claude Code session that names a driver (ADR 0123, ADR 0124). */
   env: Readonly<Record<string, string | undefined>>;
-  /** Opens a finished attempt's session in its worktree (ADR 0126); claude has the terminal. */
-  resume: (input: ResumeCommand) => Promise<CliResult>;
+  /**
+   * Opens a finished attempt's session in its worktree (ADR 0126), or takes a running batch over
+   * and continues the session of its step (ADR 0127), recording who issued it and from where;
+   * claude has the terminal.
+   */
+  resume: (input: ResumeCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
 }
 
 export interface CliResult {

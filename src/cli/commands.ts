@@ -1,6 +1,6 @@
 // The command registry (ADR 0019): one schema and one handler per command. Surfaces turn their
-// input into a command's input and run it; run.ts is the terminal's. doctor, status, stuck and
-// replay only read, so they append nothing (ADR 0030). The others turn their input into one of
+// input into a command's input and run it; run.ts is the terminal's. doctor, status, stuck,
+// brewers and replay only read, so they append nothing (ADR 0030). The others turn their input into one of
 // the engine's human commands and append its events through the command log, recorded with who
 // issued it and from where (ADR 0025).
 
@@ -10,7 +10,7 @@ import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
-import { type Batch, fold, InvalidLogError, type State } from '../engine/fold.ts';
+import { type Batch, emptyState, fold, InvalidLogError, type State } from '../engine/fold.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
@@ -18,6 +18,7 @@ import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
   BrewCommand,
+  BrewersCommand,
   CancelCommand,
   CELLAR_OWNER,
   DoctorCommand,
@@ -34,6 +35,7 @@ import {
 } from '../schemas/commands.ts';
 import type { OrderRef, Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
+import { brewerReport, formatBrewerReport, recipesRun } from './brewer-report.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import { brewOwner } from './driver-owner.ts';
 import { keptBranchLines } from './kept-branches.ts';
@@ -303,6 +305,30 @@ export const commands: readonly RegisteredCommand[] = [
       readBrewery('stuck', context, (_events, state) => done(formatStuck(state))),
   }),
   define({
+    name: 'brewers',
+    summary: "Report each brewer's attempts, outcomes, Stuck batches and tokens",
+    changesState: false,
+    positionals: [],
+    schema: BrewersCommand,
+    handler: async (_input, context) => {
+      // Files that do not load refuse it with doctor's line, before the store is opened.
+      const source = context.brewers();
+      const show = (state: State, events: readonly StoredEvent[]) =>
+        done(
+          formatBrewerReport(
+            brewerReport(state, source, recipesRun(events.map(({ event }) => event))),
+          ),
+        );
+      // A fresh Brewery: every brewer, none with an attempt yet.
+      return readBrewery(
+        'brewers',
+        context,
+        (events, state) => show(state, events),
+        show(emptyState, []),
+      );
+    },
+  }),
+  define({
     name: 'replay',
     summary: "Show a batch's events and its folded state",
     changesState: false,
@@ -323,12 +349,15 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'resume',
-    summary: "Open a finished brewer attempt's Claude Code session in its worktree",
-    changesState: false,
+    summary:
+      "Open a brewer attempt's Claude Code session in its worktree; take a running batch over",
+    // On a running batch it drives the batch, through serve's wiring as brew (ADR 0127).
+    changesState: true,
     positionals: ['batch'],
     optional: ['step'],
     schema: ResumeCommand,
-    handler: async (input, context) => context.resume(input),
+    handler: async (input, context) =>
+      context.resume(input, { by: context.user(), via: context.surface }),
   }),
   define({
     name: 'retry',

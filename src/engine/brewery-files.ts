@@ -10,6 +10,7 @@ import {
   type BreweryFile,
   type BreweryFiles,
   invalidRecipes,
+  type LoadedRecipes,
   loadRecipes,
 } from './recipe-files.ts';
 import type { Recipes } from './recipes.ts';
@@ -92,9 +93,14 @@ export function readBreweryFiles(root: string, defaults = FOEDRUM_DEFAULTS): Bre
   };
 }
 
-/** The Brewery's recipes; throws doctor's message when its files are not valid. */
-export function breweryRecipes(root: string): Recipes {
+/** The Brewery's loaded files; throws doctor's message when they are not valid. */
+export function loadBrewery(root: string): Extract<LoadedRecipes, { valid: true }> {
   const loaded = loadRecipes(readBreweryFiles(root));
   if (!loaded.valid) throw new Error(invalidRecipes(loaded.problems));
-  return loaded.recipes;
+  return loaded;
+}
+
+/** The Brewery's recipes; throws doctor's message when its files are not valid. */
+export function breweryRecipes(root: string): Recipes {
+  return loadBrewery(root).recipes;
 }

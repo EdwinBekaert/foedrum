@@ -4,6 +4,7 @@
 // routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
 // Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
 
+import { attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -80,13 +81,17 @@ const questionLines = (batchId: string, stepId: string, batch: Batch): string[] 
 const BREAKS = new Set([0x0a, 0x2028, 0x2029]);
 
 /** `text` with each line break shown as a `\uXXXX` escape, as `printable` shows the rest. */
-const oneLine = (text: string): string =>
+export const oneLine = (text: string): string =>
   [...text]
     .map((char) => {
       const code = char.codePointAt(0) ?? 0;
       return BREAKS.has(code) ? `\\u${code.toString(16).padStart(4, '0')}` : char;
     })
     .join('');
+
+/** Who drives a batch another driver holds, and until when. */
+export const drivenBy = (lease: BatchLease): string =>
+  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
 
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
@@ -144,8 +149,6 @@ export const runBrew = async (
   let batchId: string | undefined;
   // Another driver's lease of the batch, once this driver lost it or never got it.
   let holder: BatchLease | undefined;
-  const drivenBy = (lease: BatchLease): string =>
-    `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
   try {
     const { store, driver, reads, claims } = await wireDriver(setup, shell, opened, {
       // This batch alone, once it is known (ADR 0044).
@@ -237,6 +240,35 @@ export const runBrew = async (
     }
     say(`brewing batch ${batchId} as ${owner}`);
 
+    /**
+     * After a takeover from this driver that resumes a step, the ends of the runs it stopped there,
+     * recorded at the step boundary before brew lets its driver go, within a lease: the new holder
+     * waits for their leases before it continues the session (ADR 0127). A closed driver records
+     * no end, and its runs' leases would hold the step for a whole lease.
+     */
+    const endStoppedRuns = async (id: string, holder: BatchLease): Promise<void> => {
+      const takeover = driver.state().batches.get(id)?.takeover;
+      if (takeover?.from !== owner || takeover.resumes === undefined) return;
+      // A takeover whose owner let the batch go since resumes nothing now (ADR 0127).
+      if (holder.owner !== takeover.to) return;
+      const until = clock().getTime() + leaseMs;
+      const running = () =>
+        store
+          .currentLeases(clock())
+          .some(
+            (lease) => lease.owner === owner && attemptKey.decode(lease.attemptKey)?.batchId === id,
+          );
+      while (running() && clock().getTime() < until && !signal.aborted) {
+        await wait(intervalMs, signal);
+        try {
+          await driver.tick();
+        } catch (error) {
+          if (error instanceof StateBranchStopError) throw error;
+          say(formatNotice({ kind: 'tick_failed', error }));
+        }
+      }
+    };
+
     let shown = '';
     // When the last line was said, and when this driver first saw each attempt run.
     let saidAt = clock().getTime();
@@ -250,7 +282,10 @@ export const runBrew = async (
         say(formatNotice({ kind: 'tick_failed', error }));
       }
       const other = holder ?? heldElsewhere(batchId);
-      if (other !== undefined) return refuse(drivenBy(other));
+      if (other !== undefined) {
+        await endStoppedRuns(batchId, other);
+        return refuse(drivenBy(other));
+      }
       const now = driver.state().batches.get(batchId) as Batch;
       const { lane, detail } = describeLane(now);
       // The status comment, on the batch's Brewery issue, once its first revision is recorded

@@ -459,6 +459,14 @@ describe('runServe', () => {
     assert.ok(plans[0]?.permissions.allow.includes('Bash(npm test*)'));
   });
 
+  // ADR 0160: the sandbox hides the logins where serve's environment moved them.
+  it('gives each brewer the sandbox and where the environment moves the logins', async () => {
+    const configDirs = { GH_CONFIG_DIR: '/srv/gh' };
+    assert.equal(await runServe({ ...setup, sandbox: true, configDirs }, shell()), 0);
+    assert.equal(plans[0]?.permissions.sandbox, true);
+    assert.deepStrictEqual(plans[0]?.permissions.configDirs, configDirs);
+  });
+
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {
     const broken: BrewerRunner = {
       start: () => {

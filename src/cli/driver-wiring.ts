@@ -67,6 +67,13 @@ export interface WiringOptions {
   takes: (batchId: string) => boolean;
   /** Which batches its owner held at its start it drives on; every one by default (ADR 0123). */
   drivesOn?: (batchId: string) => boolean;
+  /**
+   * Whether an attempt's retry or answer resumes its session: by default when its brewer's
+   * `retryMode` is `resume` (ADR 0118); `foedrum resume` of a running batch, always (ADR 0127).
+   */
+  resumes?: (attempt: AttemptRef) => boolean;
+  /** Whether the driver goes on with a batch it may hold; every one by default (ADR 0127). */
+  holds?: (batchId: string) => boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
   /** Reports a driver's notice. */
@@ -81,7 +88,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, holds, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -159,6 +166,7 @@ export const wireDriver = async (
     // Where a commit-producing attempt's commits are counted (ADR 0074).
     clone,
     sandbox: setup.sandbox,
+    ...(setup.configDirs === undefined ? {} : { configDirs: setup.configDirs }),
     workRoot: setup.workRoot,
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),
@@ -238,6 +246,7 @@ export const wireDriver = async (
     lock: () => lock,
     takes,
     ...(drivesOn === undefined ? {} : { drivesOn }),
+    ...(holds === undefined ? {} : { holds }),
     stateBranch,
     limits: plans.limits,
     outDoc: plans.outDoc,
@@ -245,8 +254,10 @@ export const wireDriver = async (
     // A check step runs no claude, so it has no session (ADR 0116).
     brews: (ref) => !isCheck(ref),
     // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
-    resumes: ({ batchId, stepId }) =>
-      setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.retryMode === 'resume',
+    resumes:
+      resumes ??
+      (({ batchId, stepId }) =>
+        setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.retryMode === 'resume'),
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,

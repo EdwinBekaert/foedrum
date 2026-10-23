@@ -10,7 +10,7 @@ Foedrum doctor
   socat   1.7.4.4  /usr/bin/socat
 
 Isolation: sandboxed (bubblewrap and socat)
-  The sandbox hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).
+  The sandbox hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).
 Container: podman 5.2.0 at /usr/bin/podman; the container level is available
 
 Foedrum has everything it needs.
@@ -28,7 +28,7 @@ Foedrum doctor
 
 Isolation: permissions only (native Windows has no sandbox for shell commands)
   For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.
-  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. In WSL2, the sandboxed level hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087). For brewers, the container level mounts only the worktree, which closes both. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076).
+  A brewer or a check step runs as you here, so it can still read gh's login from the OS keyring or its hosts file. In WSL2, the sandboxed level hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160). For brewers, the container level mounts only the worktree, which closes both. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076).
 Container: no Podman or Docker (optional)
 
 Foedrum has everything it needs.
@@ -47,7 +47,7 @@ Foedrum doctor
   socat   1.7.4.4  /usr/bin/socat
 
 Isolation: permissions only (the sandbox needs bubblewrap and socat)
-  A brewer runs as you here, so it can still read gh's login from the OS keyring or its hosts file. The sandboxed level (bubblewrap and socat) hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. For brewers, the container level mounts only the worktree, which closes both. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).
+  A brewer runs as you here, so it can still read gh's login from the OS keyring or its hosts file. The sandboxed level (bubblewrap and socat) hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. For brewers, the container level mounts only the worktree, which closes both. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).
 Container: no Podman or Docker (optional)
 
 Problems:
@@ -134,8 +134,9 @@ Commands:
   doctor                               Check the tools Foedrum needs and the isolation level
   status                               List the batches and their lanes
   stuck                                List the Stuck batches with their options and questions
+  brewers                              Report each brewer's attempts, outcomes, Stuck batches and tokens
   replay <batch>                       Show a batch's events and its folded state
-  resume <batch> [<step>]              Open a finished brewer attempt's Claude Code session in its worktree
+  resume <batch> [<step>]              Open a brewer attempt's Claude Code session in its worktree; take a running batch over
   retry <batch>                        Give the step a Stuck batch stopped at another attempt
   skip <batch>                         Go on after the step a Stuck batch stopped at
   answer <batch> <answers>...          Answer a Stuck batch's questions, one answer each, in order
