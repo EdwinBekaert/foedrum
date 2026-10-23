@@ -29,7 +29,10 @@ const review = {
     maxRounds: 2,
     until: "tasting.verdict == 'approve'",
     steps: [
-      { id: 'tasting', parallel: [{ id: 'correctness', brewer: 'taster', lens: 'correctness' }] },
+      {
+        id: 'tasting',
+        parallel: [{ id: 'correctness', brewer: 'taster', lens: 'diff/correctness' }],
+      },
       { id: 'fix', brewer: 'cellarman' },
     ],
   },
@@ -51,7 +54,10 @@ describe('resolveRecipe', () => {
   });
 
   it('turns testFirst off when it is unset and no brewer produces commits', () => {
-    const steps = [plan, { id: 'tasting', parallel: [{ brewer: 'taster', lens: 'security' }] }];
+    const steps = [
+      plan,
+      { id: 'tasting', parallel: [{ brewer: 'taster', lens: 'diff/security' }] },
+    ];
     assert.equal(resolveRecipe(recipe(steps), brewers).testFirst, false);
   });
 

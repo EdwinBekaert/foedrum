@@ -4,7 +4,7 @@ Reviews produce lessons ("never swallow errors in this module", "use the shared 
 Kept as one ever-growing rules file and read in full by every agent, such a flywheel quickly reaches tens of thousands of tokens per run, and adherence drops as the list grows.
 House yeast is designed to stay small, relevant and enforceable ([ADR 0015](../adr/0015-house-yeast.md)):
 
-1. **Rules carry metadata:** scope (repository, file globs, language, optionally a tasting lens), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
+1. **Rules carry metadata:** scope (repository, file globs, language, optionally a tasting lens, by its bare name such as `security`, [ADR 0143](../adr/0143-lenses-in-two-folders-diff-and-plan.md)), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
 2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on (and, for a Taster, its lens), ordered by relevance and recency, within a token budget (default about 2,000 tokens).
    Never the whole collection.
 3. **Promoted to gravity readings:** a rule that can be checked mechanically (a lint rule, a search pattern, a test) becomes a deterministic check — enforced every time at zero tokens — and leaves the prompt.

@@ -84,9 +84,9 @@
               "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "lens": {
-              "description": "Taster only: the lens file that sets the review focus",
+              "description": "Taster only: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143)",
               "type": "string",
-              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+              "pattern": "^(?:diff|plan)\\/(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
             },
             "blocking": {
               "description": "Brett only: surviving mutants block the verdict",
@@ -445,9 +445,9 @@
                     "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
                   },
                   "lens": {
-                    "description": "Taster only: the lens file that sets the review focus",
+                    "description": "Taster only: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143)",
                     "type": "string",
-                    "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                    "pattern": "^(?:diff|plan)\\/(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                   },
                   "blocking": {
                     "description": "Brett only: surviving mutants block the verdict",

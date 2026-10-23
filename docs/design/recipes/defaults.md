@@ -26,7 +26,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Brewmaster | Writes the plan with acceptance criteria | opus | medium |
 | Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | builder (sonnet) | high |
 | Cellarman | Makes the Gauger's tests pass without changing them | builder (sonnet) | high |
-| Taster | Reviews a diff through one lens (read-only) | opus | medium |
+| Taster | Reviews a diff or a plan through one lens (read-only; [tasting](tasting.md)) | opus | medium |
 | Brett | Mutation check: proposes plausible bugs; the engine confirms which ones the tests miss (advisory by default) | sonnet | medium |
 | Cooper | Fixes review findings | sonnet | high |
 | Blender | Resolves merge conflicts (bounded) | opus | medium |
@@ -34,7 +34,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Lab tech | Verifies a fix in a real environment | sonnet | high |
 | Tasting panel | Runs evaluations | — (uses the model under test) | — |
 
-Shipped in `defaults/brewers/` so far: the Gauger, whose test rules are the test-design lens, passed in as `"from": "lens:test-design"`, and Cellarman, both on the alias `builder`, which a Brewery that keeps them maps in `models.jsonc` ([ADR 0100](../../adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)).
+Shipped in `defaults/brewers/` so far: the Gauger, whose test rules are the test-design lens, passed in as `"from": "lens:diff/test-design"`, and Cellarman, both on the alias `builder`, which a Brewery that keeps them maps in `models.jsonc` ([ADR 0100](../../adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)).
 The others follow as the engine learns what they need.
 
 Default lenses: [tasting](tasting.md).

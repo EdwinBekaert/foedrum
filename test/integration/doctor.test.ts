@@ -41,13 +41,15 @@ const realGit = resolveExecutable('git') ?? '';
 // doctor runs in a Brewery without files of its own, so every file under Foedrum's defaults/ is in
 // use (ADR 0098), listed here from the folders themselves.
 const defaultsRoot = join(import.meta.dirname, '..', '..', 'defaults');
-const defaultsInUse = (['recipes', 'brewers', 'lenses'] as const).flatMap((folder) => {
-  const extension = folder === 'recipes' ? '.jsonc' : '.md';
-  const names = existsSync(join(defaultsRoot, folder))
-    ? readdirSync(join(defaultsRoot, folder)).filter((name) => name.endsWith(extension))
-    : [];
-  return names.sort().map((name) => `defaults/${folder}/${name}`);
-});
+const defaultsInUse = (['recipes', 'brewers', 'lenses/diff', 'lenses/plan'] as const).flatMap(
+  (folder) => {
+    const extension = folder === 'recipes' ? '.jsonc' : '.md';
+    const names = existsSync(join(defaultsRoot, folder))
+      ? readdirSync(join(defaultsRoot, folder)).filter((name) => name.endsWith(extension))
+      : [];
+    return names.sort().map((name) => `defaults/${folder}/${name}`);
+  },
+);
 const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
 // The default brewers' prompts (ADR 0141), measured here from the files in defaults/ themselves,
 // since their sizes change with every edit of a default brewer or lens: each brewer's body and its
@@ -59,7 +61,7 @@ const promptOf = (file: string) => {
     if (!from.startsWith('lens:')) return [];
     const lens = from.slice('lens:'.length);
     const path = `defaults/lenses/${lens}.md`;
-    const text = readFileSync(join(defaultsRoot, 'lenses', `${lens}.md`), 'utf8');
+    const text = readFileSync(join(defaultsRoot, 'lenses', ...`${lens}.md`.split('/')), 'utf8');
     return [{ name, source: { kind: 'lens' as const, lens, path }, text }];
   });
   const assembled = assembleBrewerPrompt(doc.body, inputs);
