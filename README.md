@@ -23,7 +23,7 @@ or, from a checkout of this repository, `claude --plugin-dir plugin`. Then, in a
 /foedrum:brew <issue>
 ```
 
-The plugin's skills run the `foedrum` command from your PATH; until the npm package is published, that is a checkout's `node src/cli/main.ts`.
+The plugin's skills run the `foedrum` command from your PATH. The npm package is not published yet, so put a command named `foedrum` on your PATH that runs `node <checkout>/src/cli/main.ts` with its arguments, where `<checkout>` is the folder of your clone of this repository after `npm ci`.
 
 ## Why Foedrum
 
