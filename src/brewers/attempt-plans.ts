@@ -15,6 +15,7 @@ import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
+import type { Git } from '../workspace/git.ts';
 import {
   answersOf,
   attemptLimits,
@@ -51,6 +52,11 @@ export interface AttemptPlansOptions {
   platform?: NodeJS.Platform;
   /** The text of an order's issue, untrusted. */
   orderText: (order: Extract<InputRead, { kind: 'order' }>) => Promise<string>;
+  /**
+   * Reads the change a Taster that reviews a diff is given, in its worktree (ADR 0161); a plan
+   * that needs it fails without it.
+   */
+  git?: Git;
   /** Default the file system's: `readOutDocFile` and a recursive `mkdir`. */
   files?: {
     read: (file: string, maxBytes: number, root: string) => OutDocRead;

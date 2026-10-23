@@ -22,6 +22,7 @@ import {
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
@@ -257,76 +258,77 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     { action: 'openPullRequest' },
   ]);
 
-  it('is read-only: it reports, commits nothing and writes only its out doc', () => {
+  it('is read-only: it reports, commits nothing, runs no shell and writes only its out doc', () => {
     const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
     assert.ok(found !== undefined);
     const { brewer } = found;
     assert.equal(brewer.access, 'read');
     assert.equal(brewer.produces, 'report');
     assert.equal(brewer.output.schema, 'tasting');
-    const writes = brewer.tools.allow.filter((tool) => /^(Edit|Write|NotebookEdit)\(/.test(tool));
-    assert.deepEqual(writes, [`Edit(${brewer.output.doc})`]);
+    // No Bash: git diff --output and --no-index reach any file outside a sandbox (ADR 0161).
+    assert.deepEqual(brewer.tools.allow, ['Read', 'Grep', 'Glob', `Edit(${brewer.output.doc})`]);
   });
 
-  it("holds its step's lens and the change to review in its prompt, as inputs", async () => {
-    const lens = readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff', 'correctness.md'), 'utf8');
-    const base = 'a'.repeat(40);
-    const worktree = (name: string, commit: string) => ({
-      repo: 'acme/api',
-      path: join('/work', name),
-      branch: `foedrum/12-1/${name}`,
-      commit,
-    });
-    const ref = { batchId: '12-1', stepId: 'correctness', attempt: 1 };
-    const events: Event[] = [
-      {
-        type: 'batch.ordered',
-        batchId: '12-1',
-        order: { issue: 12 },
-        routeBy: '2026-10-23T13:00:00.000Z',
+  const base = 'a'.repeat(40);
+  const ref = { batchId: '12-1', stepId: 'correctness', attempt: 1 };
+  const worktree = (name: string, commit: string) => ({
+    repo: 'acme/api',
+    path: join('/work', name),
+    branch: `foedrum/12-1/${name}`,
+    commit,
+  });
+  const events: Event[] = [
+    {
+      type: 'batch.ordered',
+      batchId: '12-1',
+      order: { issue: 12 },
+      routeBy: '2026-10-23T13:00:00.000Z',
+    },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: '12-1',
+      recipe: 'amber',
+      reason: 'label',
+      source: 'label',
+    },
+    {
+      type: 'step.scheduled',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 1,
+      deadlineAt: '2026-10-23T13:00:00.000Z',
+    },
+    {
+      type: 'step.started',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 1,
+      worktree: worktree('implement-1', base),
+    },
+    {
+      type: 'step.finished',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 1,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Done', assumptions: [] },
       },
-      {
-        type: 'batch.recipe_chosen',
-        batchId: '12-1',
-        recipe: 'amber',
-        reason: 'label',
-        source: 'label',
+    },
+    { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-23T13:00:00.000Z' },
+    {
+      type: 'step.started',
+      ...ref,
+      session: {
+        id: '0f8fad5b-d9cb-469f-a165-70867728950e',
+        worktree: join('/work', 'correctness-1'),
       },
-      {
-        type: 'step.scheduled',
-        batchId: '12-1',
-        stepId: 'implement',
-        attempt: 1,
-        deadlineAt: '2026-10-23T13:00:00.000Z',
-      },
-      {
-        type: 'step.started',
-        batchId: '12-1',
-        stepId: 'implement',
-        attempt: 1,
-        worktree: worktree('implement-1', base),
-      },
-      {
-        type: 'step.finished',
-        batchId: '12-1',
-        stepId: 'implement',
-        attempt: 1,
-        outcome: {
-          kind: 'succeeded',
-          output: { status: 'done', summary: 'Done', assumptions: [] },
-        },
-      },
-      { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-23T13:00:00.000Z' },
-      {
-        type: 'step.started',
-        ...ref,
-        session: {
-          id: '0f8fad5b-d9cb-469f-a165-70867728950e',
-          worktree: join('/work', 'correctness-1'),
-        },
-        worktree: worktree('correctness-1', 'b'.repeat(40)),
-      },
-    ];
+      worktree: worktree('correctness-1', 'b'.repeat(40)),
+    },
+  ];
+  /** The Taster's prompt, planned with `git` answering the change, and the git calls it made. */
+  const planTaster = async (git: Git) => {
+    const calls: { cwd: string; args: readonly string[] }[] = [];
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: valid(loadRecipes(room)).brewers,
@@ -338,21 +340,66 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Wait for a bottle to be merged.',
+      git: (cwd, args, options) => {
+        calls.push({ cwd, args });
+        return git(cwd, args, options);
+      },
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
     });
-    const { prompt } = await plans.plan({ ref, limits: plans.limits(ref) });
+    return { plan: plans.plan({ ref, limits: plans.limits(ref) }), calls };
+  };
+  const LOG = 'f00dfee Wait for a bottle to be merged';
+  const DIFF = 'diff --git a/src/wait.ts b/src/wait.ts\n+  while (!(await isMerged())) {}';
+  const answers: Git = async (_cwd, args) => ({
+    code: 0,
+    stdout: args[0] === 'log' ? `${LOG}\n` : `${DIFF}\n`,
+    stderr: '',
+  });
+
+  it("holds its step's lens, and the change the engine read with git, in its prompt as inputs", async () => {
+    const lens = readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff', 'correctness.md'), 'utf8');
+    const { plan, calls } = await planTaster(answers);
+    const { prompt } = await plan;
     assert.ok(
       prompt.includes(
         `source="lens diff/correctness, file defaults/lenses/diff/correctness.md" name="lens">\n${lens}\n</`,
       ),
       'the prompt does not hold the lens as an input',
     );
-    assert.match(
-      prompt,
-      new RegExp(
-        `source="the change since commit ${base}" name="change">\\n.*git diff ${base} HEAD`,
-      ),
+    assert.ok(
+      prompt.includes(`source="the change since commit ${base}" name="change">\n`),
+      'the prompt does not hold the change as an input',
+    );
+    const change = prompt.slice(prompt.indexOf('name="change">'));
+    assert.ok(change.includes(LOG) && change.includes(DIFF), change.slice(0, 400));
+    // In the Taster's worktree, from the commit the batch started at to HEAD.
+    assert.deepEqual(calls, [
+      { cwd: join('/work', 'correctness-1'), args: ['log', '--format=%h %s', `${base}..HEAD`] },
+      { cwd: join('/work', 'correctness-1'), args: ['diff', base, 'HEAD'] },
+    ]);
+  });
+
+  it('cuts a change longer than 256 KiB, saying so', async () => {
+    const long: Git = async (_cwd, args) => ({
+      code: 0,
+      stdout: args[0] === 'log' ? `${LOG}\n` : `${DIFF}\n${'+x\n'.repeat(200_000)}`,
+      stderr: '',
+    });
+    const { plan } = await planTaster(long);
+    const { prompt } = await plan;
+    const start = prompt.indexOf('name="change">\n') + 'name="change">\n'.length;
+    const change = prompt.slice(start, prompt.indexOf('\n</untrusted-input', start));
+    assert.ok(Buffer.byteLength(change, 'utf8') <= 256 * 1024, `${change.length} characters`);
+    assert.match(change, /\[cut: the rest is past the change input's limit of 262144 bytes\]$/);
+  });
+
+  it('fails the plan, naming the git call, when git cannot read the change', async () => {
+    const broken: Git = async () => ({ code: 128, stdout: '', stderr: 'fatal: bad object' });
+    const { plan } = await planTaster(broken);
+    await assert.rejects(
+      plan,
+      /the change since commit a{40} was not read: git log .* exited with code 128: fatal: bad object/,
     );
   });
 });
