@@ -11,7 +11,10 @@ export type InputSource =
   | { kind: 'out-doc'; step: string }
   | { kind: 'file'; path: string }
   | { kind: 'house-yeast'; rule: string }
-  /** A lens's text (ADR 0098): `path` is the Brewery's `lenses/<lens>.md` or the default's. */
+  /**
+   * A lens's text (ADR 0098): `path` is the Brewery's `lenses/diff/<name>.md` or
+   * `lenses/plan/<name>.md` (ADR 0143), or the default's.
+   */
   | { kind: 'lens'; lens: string; path: string }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
