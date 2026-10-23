@@ -48,9 +48,14 @@ const BrewerStep = z.strictObject({
   brewer: PathSafeId,
   when,
   lens: LensName.optional().describe(
-    'Taster only: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143)',
+    'Taster only (out doc schema tasting), and required there: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)',
   ),
-  blocking: z.boolean().optional().describe('Brett only: surviving mutants block the verdict'),
+  blocking: z
+    .boolean()
+    .optional()
+    .describe(
+      'Taster: a changes verdict blocks the step (ADR 0161); Brett: surviving mutants block the verdict',
+    ),
   // Only findings are routed: an environment or divergence blocker always makes the batch Stuck.
   onBlocked: z.strictObject({ findings: Route }).optional(),
   deadline: Duration.optional().describe("Overrides the brewer's deadline"),

@@ -1,8 +1,8 @@
 // The Nip fixture (#180, ADR 0121): a tiny target repository with one source file and one
 // `node --test` test, a Brewery that brews with Nip from `defaults/` (ADR 0098), the order that
-// routes to it, and the scripted Gauger and Cellarman that play it in serve's runner seam: the
-// Gauger commits a failing test, the Cellarman's first fix fails the check once, and its second
-// one passes. Each attempt commits in its own worktree and leaves its out doc there, as a brewer
+// routes to it, and the scripted Gauger, Cellarman and Taster that play it in serve's runner seam:
+// the Gauger commits a failing test, the Cellarman's first fix fails the check once, its second
+// one passes, and the Taster reports one advisory finding. Each attempt commits in its own worktree and leaves its out doc there, as a brewer
 // would, so the red proof, the testsUnchanged guard, the checks and the route input (ADR 0128)
 // all read what a real run gives them. No model is asked. The E2E test, foedrum brew's integration
 // test and `npm run demo` (ADR 0139) use it.
@@ -40,17 +40,22 @@ export const NIP_TARGET_FILES: Readonly<Record<string, string>> = {
 /** The test the Gauger adds, by the name the runner reports. */
 const NIP_TEST = 'greets a stranger when no name is given';
 
-/** One scripted attempt: the files it writes, its commit, and its out doc's summary. */
+/**
+ * One scripted attempt: the files it writes, its commit, and its out doc's summary; a Taster
+ * commits nothing and adds its verdict and findings (ADR 0161).
+ */
 interface Scripted {
   files: Record<string, string>;
   message: string;
   summary: string;
+  tasting?: { verdict: 'approve' | 'changes'; findings: readonly Record<string, unknown>[] };
 }
 
 /**
  * What each attempt of a step commits, by step id and then in the order the runner starts that
  * step's attempts in a batch (ADR 0139): the Gauger's failing test,
- * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not.
+ * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not,
+ * and the Taster's advisory finding through the correctness lens.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   gauge: [
@@ -80,10 +85,37 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
       summary: 'greet("") says "Hello, stranger!", as the test asks.',
     },
   ],
+  taste: [
+    {
+      files: {},
+      message: '',
+      summary: 'One minor finding through diff/correctness.',
+      tasting: {
+        verdict: 'approve',
+        findings: [
+          {
+            file: 'greet.mjs',
+            line: 2,
+            severity: 'minor',
+            why: 'a name of only spaces is greeted as itself, not as a stranger',
+            introduced: true,
+          },
+        ],
+      },
+    },
+  ],
 };
 
 /** The out doc each brewer of Nip writes, from its file in `defaults/brewers/`. */
-const OUT_DOCS: Readonly<Record<string, string>> = { gauge: 'gauge.md', implement: 'brew.md' };
+const OUT_DOCS: Readonly<Record<string, string>> = {
+  gauge: 'gauge.md',
+  implement: 'brew.md',
+  taste: 'taste.md',
+};
+
+/** The out doc of a scripted attempt that is done. */
+export const scriptedOutDoc = ({ summary, tasting }: Scripted): string =>
+  outDoc({ status: 'done', summary, ...tasting });
 
 /**
  * The repository's checks and test report: only `test`, which writes TAP to stdout, as the red
@@ -104,7 +136,7 @@ const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /**
  * The Brewery's files, by path relative to its checkout: no recipe or brewer of its own, so Nip,
- * the Gauger and the Cellarman come from `defaults/`. Their model alias is builder (ADR 0100).
+ * the Gauger, the Cellarman and the Taster come from `defaults/`. Their model alias is builder (ADR 0100).
  */
 export const nipBreweryFiles = (options: {
   brewery: string;
@@ -134,7 +166,7 @@ export interface ScriptedNip extends BrewerRunner {
   readonly prompts: ReadonlyMap<string, string>;
 }
 
-/** The scripted Gauger and Cellarman of `NIP_SCRIPT`, in serve's runner seam. */
+/** The scripted Gauger, Cellarman and Taster of `NIP_SCRIPT`, in serve's runner seam. */
 export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
   const { plan, git, config, write } = options;
   const prompts = new Map<string, string>();
@@ -157,18 +189,24 @@ export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
     return scripted;
   };
   // The tests' runner settles each attempt with the out doc the brewer wrote.
-  const settled = fakeBrewerRunner(({ ref }) => behave.succeed(scriptOf(ref).summary));
+  const settled = fakeBrewerRunner(({ ref }) => {
+    const done = behave.succeed();
+    return done.kind === 'settle'
+      ? { ...done, facts: { ...done.facts, outDoc: scriptedOutDoc(scriptOf(ref)) } }
+      : done;
+  });
   /** Writes and commits the attempt's change and its out doc; why it could not, if not. */
   const brew = async (start: AttemptStart): Promise<string | undefined> => {
     try {
       const planned = await plan(start);
       prompts.set(attemptKey.encode(start.ref), planned.prompt);
-      const { files, message, summary } = scriptOf(start.ref);
+      const scripted = scriptOf(start.ref);
+      const { files, message } = scripted;
       for (const [path, text] of Object.entries(files)) write(join(planned.cwd, path), text);
       const doc = OUT_DOCS[start.ref.stepId];
-      if (doc !== undefined) {
-        write(join(planned.cwd, doc), outDoc({ status: 'done', summary }));
-      }
+      if (doc !== undefined) write(join(planned.cwd, doc), scriptedOutDoc(scripted));
+      // A Taster commits nothing.
+      if (Object.keys(files).length === 0) return undefined;
       for (const args of [
         ['add', '--', ...Object.keys(files)],
         ['commit', '-q', '-m', message],

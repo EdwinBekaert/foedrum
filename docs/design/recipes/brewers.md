@@ -38,7 +38,7 @@ The setup command is not a brewer field: it depends on the repository, so it is 
 | Field | Purpose |
 |---|---|
 | `output.doc` | File the brewer must write |
-| `output.schema` | Named schema for the frontmatter (validated) |
+| `output.schema` | Named schema for the frontmatter (validated): `tasting` makes the brewer a Taster, whose out doc adds `findings` and a `verdict` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)); any other name is read against the out doc contract |
 | `produces` | Expected side effects: `commits`, `report`, `comment`, `none` |
 
 **Model**

@@ -1,5 +1,5 @@
-// npm run demo's brewers (ADR 0097, ADR 0139): the Nip fixture's scripted Gauger and Cellarman
-// (test/helpers/nip-fixture.ts) in serve's runner seam, as the E2E test runs them, so each attempt
+// npm run demo's brewers (ADR 0097, ADR 0139): the Nip fixture's scripted Gauger, Cellarman and Taster
+// (test/helpers/nip-fixture.ts) in serve's runner seam, as the E2E test runs them, so each attempt but the Taster's
 // commits in its worktree and no model is asked. In the life that crashes, the Cellar's process is
 // killed once the first attempt has committed, before that attempt ends.
 

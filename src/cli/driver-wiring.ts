@@ -170,6 +170,8 @@ export const wireDriver = async (
     workRoot: setup.workRoot,
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),
+    // A Taster's change is read by the engine, so the Taster runs no git (ADR 0161).
+    git: shell.git,
   });
   // A check step's commands run in the brewers' environment, without a token variable (ADR 0069);
   // as the same OS user they can still start gh, which answers from its login (ADR 0073, #204).

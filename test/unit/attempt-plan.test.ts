@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import {
   answersOf,
   attemptLimits,
+  changeStart,
   gitRulesOf,
   inputsOf,
   modelOf,
@@ -17,6 +18,7 @@ import {
   toolsOf,
 } from '../../src/brewers/attempt-plan.ts';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
+import { settleAttempt } from '../../src/engine/brewer-runner.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
@@ -24,6 +26,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import type { ModelsConfig } from '../../src/schemas/models.ts';
 import { OutDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
 import { BrewerAllowedTool } from '../../src/schemas/primitives.ts';
+import { outDoc } from '../helpers/fake-brewer-runner.ts';
 
 const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
   BrewerFrontmatter.parse({
@@ -148,6 +151,189 @@ describe('attemptLimits', () => {
     assert.deepEqual(attemptLimits(brewer(), sha), {
       outDoc: { file: 'brew.md', schema: OutDocFrontmatter },
     });
+  });
+});
+
+describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
+  const taster = brewer({ name: 'taster', output: { doc: 'taste.md', schema: 'tasting' } });
+  const finding = {
+    file: 'src/wait.ts',
+    line: 13,
+    severity: 'blocker',
+    why: 'The poll has no deadline',
+    introduced: true,
+  };
+  // A changes verdict with the blocker it is about; an approve without one.
+  const ended = (
+    verdict: string,
+    blocking: boolean,
+    findings: readonly unknown[] = verdict === 'changes' ? [finding] : [],
+  ) =>
+    settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc({ status: 'done', summary: 'Tasted', verdict, findings }),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+      },
+      attemptLimits(taster, undefined, blocking),
+    );
+
+  it('reads the findings and the verdict, which hold nothing up by default', () => {
+    assert.deepEqual(ended('changes', false), {
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Tasted',
+        assumptions: [],
+        verdict: 'changes',
+        findings: [finding],
+      },
+    });
+  });
+
+  it('blocks a blocking step by findings when the verdict is changes', () => {
+    assert.deepEqual(ended('changes', true), {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: Tasted',
+    });
+    assert.equal(ended('approve', true).kind, 'succeeded');
+  });
+
+  it('fails a verdict that disagrees with the findings: changes only for an introduced blocker or major', () => {
+    const invalid = (verdict: string, findings: readonly unknown[]) => {
+      const ending = ended(verdict, true, findings);
+      assert.equal(ending.kind, 'failed', `${verdict} ${JSON.stringify(findings)}`);
+      assert.match(
+        ending.kind === 'failed' ? ending.reason : '',
+        /the out doc taste\.md is invalid/,
+      );
+    };
+    const major = { ...finding, severity: 'major' };
+    const minor = { ...finding, severity: 'minor' };
+    const before = { ...finding, introduced: false };
+    invalid('approve', [finding]);
+    invalid('approve', [minor, major]);
+    invalid('changes', []);
+    invalid('changes', [minor]);
+    invalid('changes', [before]);
+    assert.equal(ended('approve', true, [minor, before]).kind, 'succeeded');
+    assert.equal(ended('changes', true, [major, minor]).kind, 'blocked');
+  });
+
+  it('reads only approve and changes as a verdict', () => {
+    const maybe = ended('maybe', false);
+    assert.equal(maybe.kind, 'failed');
+    assert.match(maybe.kind === 'failed' ? maybe.reason : '', /the out doc taste\.md is invalid/);
+    assert.equal(ended('approve', false).kind, 'succeeded');
+  });
+
+  it('fails a done out doc without a verdict, or with a finding without its severity', () => {
+    const without = (frontmatter: Record<string, unknown>) =>
+      settleAttempt(
+        {
+          exit: { kind: 'exited', code: 0 },
+          outDoc: outDoc(frontmatter),
+          denials: 0,
+          deniedTools: [],
+          turns: 3,
+        },
+        attemptLimits(taster),
+      );
+    for (const frontmatter of [
+      { status: 'done', summary: 'Tasted', findings: [] },
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'approve',
+        findings: [{ ...finding, severity: undefined }],
+      },
+      // Near misses of a finding's location, each else valid: a file on two lines, by either line
+      // break, and line 0.
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'changes',
+        findings: [{ ...finding, file: 'a.ts\nb' }],
+      },
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'changes',
+        findings: [{ ...finding, file: 'a.ts\rb' }],
+      },
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'changes',
+        findings: [{ ...finding, line: 0 }],
+      },
+    ]) {
+      const ending = without(frontmatter);
+      assert.equal(ending.kind, 'failed', JSON.stringify(frontmatter));
+      assert.match(
+        ending.kind === 'failed' ? ending.reason : '',
+        /the out doc taste\.md is invalid/,
+      );
+    }
+  });
+
+  it('blocks a blocking changes verdict by findings before it counts commits', () => {
+    const ending = settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc({
+          status: 'done',
+          summary: 'Tasted',
+          verdict: 'changes',
+          findings: [finding],
+        }),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+        commits: { kind: 'counted', count: 0 },
+      },
+      { ...attemptLimits(taster, undefined, true), commitsSince: sha },
+    );
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: Tasted',
+    });
+  });
+});
+
+describe("changeStart: where a Taster's change starts (ADR 0161)", () => {
+  it('is the commit the batch started at in the repository, in any case of its name', () => {
+    const started = fold([
+      ...events.slice(0, 2),
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 1,
+        deadlineAt: '2026-10-17T13:00:00.000Z',
+      },
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 1,
+        worktree: { ...worktreeOf('malt-1'), repo: 'Acme/API' },
+      },
+    ]).batches.get('12-1');
+    assert.ok(started !== undefined);
+    assert.equal(changeStart(started, 'acme/api'), sha);
+    assert.equal(changeStart(started, 'ACME/Api'), sha);
+    assert.equal(changeStart(started, 'acme/web'), undefined);
+  });
+
+  it('is none before an attempt recorded where the batch started', () => {
+    const ordered = fold(events.slice(0, 2)).batches.get('12-1');
+    assert.ok(ordered !== undefined);
+    assert.equal(changeStart(ordered, 'acme/api'), undefined);
   });
 });
 
