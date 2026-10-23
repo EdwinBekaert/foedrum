@@ -40,6 +40,24 @@ export interface IssueMarks {
   ): Promise<number | undefined>;
   /** Comments on the issue; the new comment's id. */
   comment(repo: string, issue: number, body: string, signal?: AbortSignal): Promise<number>;
+  /** The issue's title. */
+  title(repo: string, issue: number, signal?: AbortSignal): Promise<string>;
+  /** Whether the issue is open or closed. */
+  issueState(repo: string, issue: number, signal?: AbortSignal): Promise<'open' | 'closed'>;
+  /** Closes or reopens the issue. */
+  setIssueState(
+    repo: string,
+    issue: number,
+    state: 'open' | 'closed',
+    signal?: AbortSignal,
+  ): Promise<void>;
+  /**
+   * The number of an issue of `repo` that carries `marker` and that the Brewery's own identity
+   * opened, or undefined (ADR 0144).
+   */
+  findIssue(repo: string, marker: string, signal?: AbortSignal): Promise<number | undefined>;
+  /** Opens an issue in `repo`; its number. */
+  openIssue(repo: string, title: string, body: string, signal?: AbortSignal): Promise<number>;
 }
 
 /** The hidden marker that carries an effect's key in a comment, so `findComment` finds it. */
@@ -121,6 +139,9 @@ export const claimEffectTarget = (
         apply: (_key, signal) =>
           releaseClaim(claims, { repo, issue, brewery: effect.brewery, signal }),
       };
+    case 'open_order':
+    case 'issue_state':
+      throw new Error('not implemented');
     default:
       return effect satisfies never;
   }

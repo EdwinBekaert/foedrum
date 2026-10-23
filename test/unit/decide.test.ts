@@ -1444,6 +1444,21 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       ]);
     });
 
+    it('refuses its Brewery issue as a Brewery issue: the claimed issue is ordered by its alias (ADR 0144)', () => {
+      const opened: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: 'web-7', effect: 'order.issue' }),
+        result: 200,
+      };
+      const events = [...webCancelled, opened, ...released];
+      refuses(
+        events,
+        again('200-1', { issue: 200 }),
+        /^issue #200 is the order of acme\/web#7; order web#7 again$/,
+      );
+      accepts(events, again('201-1', { issue: 201 }), [orderedAgain('201-1', { issue: 201 })]);
+    });
+
     it('compares its repository ignoring case', () => {
       refuses(
         [webOrdered],

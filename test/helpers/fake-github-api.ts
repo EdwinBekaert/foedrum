@@ -48,6 +48,8 @@ export interface FakeGitHubApi {
   /** The comments on each issue, by `<repo>#<n>` in lower case. */
   readonly comments: Map<string, { id: number; author: string; body: string }[]>;
   issue(repo: string, number: number): FakeApiIssue | undefined;
+  /** The issues of each repository, those opened through the API included (ADR 0144). */
+  readonly issues: Record<string, FakeApiIssue[]>;
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
@@ -69,6 +71,26 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   let ids = 0;
   let commits = 0;
   const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
+  // An issue opened through the API, numbered after every issue and pull request of its repository.
+  const openIssue = (repo: string, fields: { title?: string; body?: string }): FakeApiIssue => {
+    const key = repo.toLowerCase();
+    const listed = options.issues[key] ?? [];
+    options.issues[key] = listed;
+    const numbers = [
+      ...listed.map((each) => each.number),
+      ...pulls.filter((pull) => pull.repo === key).map((pull) => pull.number),
+    ];
+    const made: FakeApiIssue = {
+      number: Math.max(0, ...numbers) + 1,
+      labels: [],
+      author: login,
+      title: fields.title ?? '',
+      body: fields.body ?? '',
+      state: 'open',
+    };
+    listed.push(made);
+    return made;
+  };
   const issue = (repo: string, number: number) =>
     repoIssues(repo).find((each) => each.number === number);
   const asIssue = (found: FakeApiIssue) => ({
@@ -107,8 +129,17 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const found = issue(repo, Number(number));
     if (found === undefined) return notFound();
     const key = `${repo.toLowerCase()}#${found.number}`;
-    const fields = (body ?? {}) as { assignees?: string[]; labels?: string[]; body?: string };
+    const fields = (body ?? {}) as {
+      assignees?: string[];
+      labels?: string[];
+      body?: string;
+      state?: 'open' | 'closed';
+    };
     if (method === 'GET' && what === '') return json(200, asIssue(found));
+    if (method === 'PATCH' && what === '') {
+      if (fields.state !== undefined) found.state = fields.state;
+      return json(200, asIssue(found));
+    }
     if (method === 'POST' && what === 'assignees') {
       found.assignees = [...(found.assignees ?? []), ...(fields.assignees ?? [])];
       return json(201, asIssue(found));
@@ -211,11 +242,18 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const [, repo = '', rest = ''] = /^\/repos\/([^/]+\/[^/]+)\/(.*)$/.exec(path) ?? [];
     if (method === 'GET' && rest === 'issues') {
       const wanted = url.searchParams.get('labels')?.split(',') ?? [];
+      const all = url.searchParams.get('state') === 'all';
+      const creator = url.searchParams.get('creator');
       const listed = repoIssues(repo).filter(
         (each) =>
-          (each.state ?? 'open') === 'open' && wanted.every((label) => each.labels.includes(label)),
+          (all || (each.state ?? 'open') === 'open') &&
+          (creator === null || each.author === creator) &&
+          wanted.every((label) => each.labels.includes(label)),
       );
       return json(200, listed.map(asIssue));
+    }
+    if (method === 'POST' && rest === 'issues') {
+      return json(201, asIssue(openIssue(repo, body as { title?: string; body?: string })));
     }
     const [, id] = /^issues\/comments\/(\d+)$/.exec(rest) ?? [];
     if (id !== undefined) return onComment(method, repo, Number(id), body);
@@ -248,5 +286,6 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     pulls,
     comments,
     issue,
+    issues: options.issues,
   };
 };

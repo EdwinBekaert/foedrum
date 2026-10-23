@@ -10,6 +10,22 @@ export interface FakeIssue {
   assignees: string[];
   labels: string[];
   comments: { author: string; body: string }[];
+  /** Absent: a title the fake makes up from the number. */
+  title?: string;
+  /** Absent: open. */
+  state?: 'open' | 'closed';
+  /** Set on an issue `openIssue` opened, with the login that opened it. */
+  body?: string;
+  author?: string;
+}
+
+/** An issue the Brewery opened (ADR 0144). */
+export interface OpenedIssue {
+  number: number;
+  title: string;
+  body: string;
+  author: string;
+  state: 'open' | 'closed';
 }
 
 export interface FakeGitHub {
@@ -19,6 +35,8 @@ export interface FakeGitHub {
   readonly refs: Map<string, string>;
   /** The marks on an issue, made empty on first use. */
   issue(repo: string, issue: number): FakeIssue;
+  /** The issues opened in `repo` through `openIssue`, in the order they were opened. */
+  opened(repo: string): OpenedIssue[];
   /** How many times each kind of call reached the host. */
   readonly calls: Map<string, number>;
   /**
@@ -67,6 +85,43 @@ export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
     issues.set(key, found);
     return found;
   };
+  // The numbers of the issues opened in each repository, in order.
+  const openedIn = new Map<string, number[]>();
+  const opened = (repo: string): OpenedIssue[] =>
+    (openedIn.get(repo) ?? []).map((number) => {
+      const found = issue(repo, number);
+      return {
+        number,
+        title: found.title ?? '',
+        body: found.body ?? '',
+        author: found.author ?? '',
+        state: found.state ?? 'open',
+      };
+    });
+  /** Opens an issue in `repo` as `login`, numbered after every issue the fake has there. */
+  const openIssue = (repo: string, title: string, body: string, login: string): number => {
+    const prefix = `${repo}#`;
+    const numbers = [...issues.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => Number(key.slice(prefix.length)));
+    const number = Math.max(0, ...numbers) + 1;
+    issues.set(refKey(repo, number), {
+      assignees: [],
+      labels: [],
+      comments: [],
+      title,
+      body,
+      author: login,
+      state: 'open',
+    });
+    openedIn.set(repo, [...(openedIn.get(repo) ?? []), number]);
+    return number;
+  };
+  /** The issue in `repo` that `login` opened with `marker` in its body. */
+  const findIssue = (repo: string, marker: string, login: string): number | undefined =>
+    opened(repo).find(({ author, body }) => author === login && body.includes(marker))?.number;
+  const titleOf = (repo: string, number: number): string =>
+    issue(repo, number).title ?? `Issue ${number}`;
 
   const host: ClaimHost = {
     create: async (repo, number, message) => {
@@ -146,6 +201,30 @@ export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
             return marks.comments.length - 1;
           },
         };
+      case 'open_order':
+        return {
+          find: async (key) => {
+            const number = findIssue(effect.brewery, marker(key), login);
+            return number === undefined ? undefined : { result: number };
+          },
+          apply: async (key) =>
+            openIssue(
+              effect.brewery,
+              titleOf(effect.repo, effect.issue),
+              `${effect.body}
+${marker(key)}`,
+              login,
+            ),
+        };
+      case 'issue_state':
+        return {
+          find: async () =>
+            (marks.state ?? 'open') === effect.state ? { result: null } : undefined,
+          apply: async () => {
+            marks.state = effect.state;
+            return null;
+          },
+        };
       case 'release_ref':
         return {
           find: async () =>
@@ -195,6 +274,26 @@ export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
       comments.push({ author: login, body });
       return comments.length;
     },
+    title: async (repo, number) => {
+      count('title');
+      return titleOf(repo, number);
+    },
+    issueState: async (repo, number) => {
+      count('issueState');
+      return issue(repo, number).state ?? 'open';
+    },
+    setIssueState: async (repo, number, state) => {
+      count('setIssueState');
+      issue(repo, number).state = state;
+    },
+    findIssue: async (repo, marker) => {
+      count('findIssue');
+      return findIssue(repo, marker, login);
+    },
+    openIssue: async (repo, title, body) => {
+      count('openIssue');
+      return openIssue(repo, title, body, login);
+    },
   });
 
   const github: FakeGitHub = {
@@ -202,6 +301,7 @@ export const fakeGitHub = (options: FakeGitHubOptions = {}): FakeGitHub => {
     marks,
     refs,
     issue,
+    opened,
     calls,
     target,
     setRef: (repo, number, message) => {

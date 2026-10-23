@@ -176,6 +176,9 @@ describe('githubIssueMarks', () => {
       ['removeLabel', (marks) => marks.removeLabel(repo, 7, 'foedrum:claimed')],
       ['findComment', (marks) => marks.findComment(repo, 7, marker)],
       ['comment', (marks) => marks.comment(repo, 7, 'Hello')],
+      ['title', (marks) => marks.title(repo, 7)],
+      ['issueState', (marks) => marks.issueState(repo, 7)],
+      ['setIssueState', (marks) => marks.setIssueState(repo, 7, 'closed')],
     ];
     for (const [name, call] of refusals) {
       const { marks } = marksWith([{ status: 410, body: { message: 'Issues are disabled' } }]);
@@ -185,6 +188,91 @@ describe('githubIssueMarks', () => {
         return true;
       });
     }
+  });
+
+  describe('the Brewery issue that is the order of a claimed issue (ADR 0144)', () => {
+    const brewery = 'acme/brewery';
+    const order = '<!-- foedrum:["web-7","order.issue"] -->';
+    const made = (number: number, login: string, body: string, fields: object = {}) => ({
+      number,
+      state: 'open',
+      user: { login },
+      labels: [],
+      title: `Issue ${number}`,
+      body,
+      ...fields,
+    });
+
+    it('reads the title and the state of an issue', async () => {
+      const { marks } = marksWith([
+        { status: 200, body: fixture('issue') },
+        { status: 200, body: { ...(fixture('issue') as object), state: 'closed' } },
+      ]);
+      assert.equal(await marks.title(repo, 7), 'Add a dark theme');
+      assert.equal(await marks.issueState(repo, 7), 'closed');
+    });
+
+    it('fails on an issue without a title', async () => {
+      const { title: _, ...untitled } = fixture('issue') as { title: string };
+      const { marks } = marksWith([{ status: 200, body: untitled }]);
+      await assert.rejects(marks.title(repo, 7), /acme\/web#7/);
+    });
+
+    it('opens an issue with the title and the body, and answers its number', async () => {
+      const { marks, requests } = marksWith([
+        { status: 201, body: made(200, 'alice', `Body\n\n${order}`) },
+      ]);
+      assert.equal(await marks.openIssue(brewery, 'Add a dark theme', 'Body'), 200);
+      assert.deepStrictEqual(asked(requests), [
+        {
+          method: 'POST',
+          url: `${api}/repos/acme/brewery/issues`,
+          body: { title: 'Add a dark theme', body: 'Body' },
+        },
+      ]);
+    });
+
+    it('closes and reopens an issue', async () => {
+      const { marks, requests } = marksWith([
+        { status: 200, body: made(200, 'alice', '', { state: 'closed' }) },
+        { status: 200, body: made(200, 'alice', '') },
+      ]);
+      await marks.setIssueState(brewery, 200, 'closed');
+      await marks.setIssueState(brewery, 200, 'open');
+      assert.deepStrictEqual(asked(requests), [
+        { method: 'PATCH', url: `${api}/repos/acme/brewery/issues/200`, body: { state: 'closed' } },
+        { method: 'PATCH', url: `${api}/repos/acme/brewery/issues/200`, body: { state: 'open' } },
+      ]);
+    });
+
+    it('finds only an issue its own login opened with the marker, never a pull request', async () => {
+      const listed = [
+        made(196, 'alice', 'No marker at all.'),
+        made(197, 'alice', order, { pull_request: {} }),
+        made(198, 'mallory', order),
+        made(199, 'alice', '<!-- foedrum:["web-8","order.issue"] -->'),
+        made(200, 'Alice', `The order of acme/web#7.\n\n${order}`),
+      ];
+      const { marks, requests } = marksWith([{ status: 200, body: listed }]);
+      assert.equal(await marks.findIssue(brewery, order), 200);
+      const url = new URL(requests[0]?.url ?? '');
+      assert.equal(url.pathname, '/repos/acme/brewery/issues');
+      assert.equal(url.searchParams.get('state'), 'all');
+      assert.equal(url.searchParams.get('creator'), 'alice');
+      assert.ok(perPage(requests[0]?.url) <= longestFit);
+      const none = marksWith([{ status: 200, body: listed.slice(0, 4) }]);
+      assert.equal(await none.marks.findIssue(brewery, order), undefined);
+    });
+
+    it('fails on an answer it did not expect, naming the repository', async () => {
+      for (const call of [
+        (marks: IssueMarks) => marks.findIssue(brewery, order),
+        (marks: IssueMarks) => marks.openIssue(brewery, 'Title', 'Body'),
+      ]) {
+        const { marks } = marksWith([{ status: 410, body: { message: 'Issues are disabled' } }]);
+        await assert.rejects(call(marks), /410 .*acme\/brewery.*Issues are disabled/);
+      }
+    });
   });
 
   it('fails on a comment id or an issue it cannot read', async () => {
@@ -210,6 +298,11 @@ describe('githubIssueMarks', () => {
       ['removeLabel', (marks, signal) => marks.removeLabel(repo, 7, 'foedrum:claimed', signal)],
       ['findComment', (marks, signal) => marks.findComment(repo, 7, marker, signal)],
       ['comment', (marks, signal) => marks.comment(repo, 7, 'Hello', signal)],
+      ['title', (marks, signal) => marks.title(repo, 7, signal)],
+      ['issueState', (marks, signal) => marks.issueState(repo, 7, signal)],
+      ['setIssueState', (marks, signal) => marks.setIssueState(repo, 7, 'open', signal)],
+      ['findIssue', (marks, signal) => marks.findIssue(repo, marker, signal)],
+      ['openIssue', (marks, signal) => marks.openIssue(repo, 'Title', 'Body', signal)],
     ];
     for (const [name, call] of calls) {
       const { marks, requests } = marksWith(['hang']);

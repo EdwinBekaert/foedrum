@@ -236,12 +236,23 @@ export const releaseClaim = async (
 /** How a pull request of a batch stands. */
 export type PullRequestState = 'open' | 'merged' | 'closed';
 
+/**
+ * The Brewery issue that is the order of a claimed batch (ADR 0144): the one an earlier batch of the
+ * same issue opened, and whether a release closed it since, and the batch's own once it is known.
+ */
+export interface ClaimOrder {
+  earlier?: { issue: number; closed: boolean };
+  issue?: number;
+}
+
 /** A batch of a claimed target-repository issue. */
 export interface ClaimedBatch {
   batchId: string;
   repo: string;
   issue: number;
   lane: Lane;
+  /** Its Brewery issue; absent as for a batch whose Brewery issue nothing opened yet. */
+  order?: ClaimOrder;
 }
 
 /** What an effect of a claim does on the code host. */
@@ -250,7 +261,11 @@ export type ClaimEffect =
   | { kind: 'add_label'; repo: string; issue: number; label: string }
   | { kind: 'remove_label'; repo: string; issue: number; label: string }
   | { kind: 'comment'; repo: string; issue: number; body: string }
-  | { kind: 'release_ref'; repo: string; issue: number; brewery: string };
+  | { kind: 'release_ref'; repo: string; issue: number; brewery: string }
+  /** Opens the Brewery issue of the claimed `repo#issue` in `brewery`, with its title (ADR 0144). */
+  | { kind: 'open_order'; repo: string; issue: number; brewery: string; body: string }
+  /** Closes or reopens the issue `repo#issue`: the Brewery issue of a claimed batch. */
+  | { kind: 'issue_state'; repo: string; issue: number; state: 'open' | 'closed' };
 
 export interface DueClaimEffect {
   key: BatchEffectKey;

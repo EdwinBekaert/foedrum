@@ -995,6 +995,7 @@ describe('runServe', () => {
               number: 7,
               labels: ['foedrum', 'recipe:stout'],
               author: 'ann',
+              title: 'Dark theme',
               body: 'Add a dark theme.',
             },
           ],
@@ -1005,12 +1006,15 @@ describe('runServe', () => {
             ? { status: 200, body: { state: 'closed', merged: true } }
             : undefined,
       });
+      // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
+      const order = () => github.issue('acme/brewery', 13);
       const done = () =>
         lane('12-1') === 'on_tap' &&
         lane('web-7') === 'on_tap' &&
         github.created.length === 1 &&
         github.refs.size === 0 &&
-        github.comments.get('acme/web#7')?.length === 2;
+        github.comments.get('acme/web#7')?.length === 2 &&
+        order()?.state === 'closed';
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
       assert.ok(done(), lines.join('\n'));
       for (const batchId of ['12-1', 'web-7']) {
@@ -1036,6 +1040,44 @@ describe('runServe', () => {
       assert.deepStrictEqual(
         plans.map(({ prompt }) => /Add a (--json flag|dark theme)/.exec(prompt)?.[0]).sort(),
         ['Add a --json flag', 'Add a dark theme'],
+      );
+      // One Brewery issue, the title copied and the target issue linked, closed with the release.
+      const opened = (github.issues['acme/brewery'] ?? []).filter((each) => each.number !== 12);
+      assert.deepStrictEqual(
+        opened.map(({ number, title, author }) => ({ number, title, author })),
+        [{ number: 13, title: 'Dark theme', author: 'ann' }],
+      );
+      assert.match(order()?.body ?? '', /acme\/web#7/);
+      // The pull request is the target repository's: it closes the target issue and never names
+      // the Brewery issue, which is private.
+      const pull = github.pulls.find((each) => each.repo === 'acme/web');
+      assert.match(pull?.body ?? '', /Closes acme\/web#7/);
+      assert.doesNotMatch(`${pull?.title}\n${pull?.body}`, /acme\/brewery|#13\b/i);
+      assert.equal(lane('13-1'), undefined, 'the intake never orders the Brewery issue');
+    });
+
+    it('opens the Brewery issue of a target issue ordered by hand, once (ADR 0105, ADR 0144)', async () => {
+      store = empty();
+      setup = intakeSetup();
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      const order = { issue: 7, repo: 'acme/web' };
+      const by = { by: 'ann', via: 'terminal' } as const;
+      log.issue({ kind: 'order_again', batchId: 'web-7', order, ...by }, t0);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [],
+          'acme/web': [{ number: 7, labels: ['foedrum'], author: 'ann', title: 'Dark theme' }],
+        },
+      });
+      const marked = () =>
+        github.comments.get('acme/web#7')?.length === 1 &&
+        github.issues['acme/brewery']?.length === 1;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(marked) })), 0);
+      assert.ok(marked(), lines.join('\n'));
+      assert.deepStrictEqual(
+        (github.issues['acme/brewery'] ?? []).map(({ number, title }) => ({ number, title })),
+        [{ number: 1, title: 'Dark theme' }],
       );
     });
 

@@ -87,5 +87,20 @@ export const githubIssueMarks = (options: GitHubIssueMarksOptions): IssueMarks =
       const answer = expect(await client.rest('POST', path, { body }, signal), 201, what);
       return checked(GitHubComment, answer.body, what).id;
     },
+    title: async () => {
+      throw new Error('not implemented');
+    },
+    issueState: async () => {
+      throw new Error('not implemented');
+    },
+    setIssueState: async () => {
+      throw new Error('not implemented');
+    },
+    findIssue: async () => {
+      throw new Error('not implemented');
+    },
+    openIssue: async () => {
+      throw new Error('not implemented');
+    },
   };
 };

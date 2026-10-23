@@ -154,6 +154,122 @@ describe('claimEffects', () => {
     assert.deepStrictEqual(ledger('claim.comment'), { result: 2 });
   });
 
+  describe('the Brewery issue that is its order (ADR 0144)', () => {
+    const brewery = alice.brewery;
+    const opened = () => github.opened(brewery);
+    const orderAgain = (batchId: string): void => {
+      github.setRef(repo, 7, record(alice.brewery));
+      issue({
+        kind: 'order_again',
+        batchId,
+        order: { issue: 7, repo },
+        by: 'ann',
+        via: 'terminal',
+      });
+    };
+
+    it('opens it once, in the Brewery, through the ledger: the title copied, the target issue linked', async () => {
+      marks().title = 'Add a dark theme';
+      order();
+      const driver = await open();
+      await driver.tick();
+      await driver.tick();
+      assert.equal(opened().length, 1);
+      const [made] = opened();
+      assert.equal(made?.title, 'Add a dark theme');
+      assert.equal(made?.author, 'alice');
+      assert.match(made?.body ?? '', /acme\/web#7/);
+      assert.doesNotMatch(made?.body ?? '', /Add a dark theme/, 'only its title is copied');
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      assert.ok(made?.body.includes(effectMarker(key)), 'the issue carries its key');
+      assert.deepStrictEqual(ledger('order.issue'), { result: made?.number });
+      assert.equal(github.issue(repo, 7).comments.length, 1, 'the target issue gets no more');
+      assert.deepStrictEqual(notices, []);
+    });
+
+    it('finds the one a run before opened and was killed before it recorded', async () => {
+      order();
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      const made = await github.marks('alice').openIssue(brewery, 'Issue 7', effectMarker(key));
+      const driver = await open();
+      await driver.tick();
+      assert.equal(opened().length, 1);
+      assert.deepStrictEqual(ledger('order.issue'), { result: made });
+    });
+
+    it('counts only an issue its own identity opened, not one someone else planted', async () => {
+      order();
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      await github.marks('mallory').openIssue(brewery, 'Issue 7', effectMarker(key));
+      const driver = await open();
+      await driver.tick();
+      assert.equal(opened().length, 2);
+      assert.deepStrictEqual(ledger('order.issue'), { result: 2 });
+    });
+
+    it('refuses an issue number the code host answered that is no positive integer', async () => {
+      order();
+      const driver = await open({ marks: { ...github.marks('alice'), openIssue: async () => 0 } });
+      await driver.tick();
+      assert.equal(ledger('order.issue'), undefined);
+      assert.ok(
+        notices.some(
+          (notice) => notice.kind === 'effect_failed' && notice.key.effect === 'order.issue',
+        ),
+      );
+    });
+
+    it('closes it when every pull request merged, as the release of the claim', async () => {
+      onTap();
+      const driver = await open();
+      await driver.tick();
+      ended(merged, 'merged');
+      ended(other, 'merged');
+      await driver.tick();
+      assert.equal(opened()[0]?.state, 'closed');
+      assert.deepStrictEqual(ledger('release.order'), { result: null });
+      assert.equal(github.refs.has(`${repo}#7`), false);
+    });
+
+    it('leaves it open when the batch is cancelled, as the target issue stays open', async () => {
+      order();
+      const driver = await open();
+      await driver.tick();
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      await driver.tick();
+      assert.equal(opened()[0]?.state, 'open');
+      assert.equal(github.refs.has(`${repo}#7`), false);
+    });
+
+    it('orders the same Brewery issue again when the issue is ordered again (ADR 0105)', async () => {
+      order();
+      const driver = await open();
+      await driver.tick();
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      await driver.tick();
+      orderAgain('web-7-2');
+      await driver.tick();
+      assert.equal(opened().length, 1);
+      assert.equal(store.findEffect({ batchId: 'web-7-2', effect: 'order.issue' }), undefined);
+    });
+
+    it('reopens it when the issue is ordered again after a merge closed it', async () => {
+      onTap();
+      const driver = await open();
+      await driver.tick();
+      ended(merged, 'merged');
+      ended(other, 'merged');
+      await driver.tick();
+      orderAgain('web-7-2');
+      await driver.tick();
+      assert.equal(opened().length, 1);
+      assert.equal(opened()[0]?.state, 'open');
+      assert.deepStrictEqual(store.findEffect({ batchId: 'web-7-2', effect: 'order.reopen' }), {
+        result: null,
+      });
+    });
+  });
+
   it('has no effects for a batch of a Brewery issue', async () => {
     issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
     const driver = await open();
@@ -265,6 +381,19 @@ describe('claimEffects', () => {
       comment: (r, n, b, signal) => (
         signals.push({ call: 'comment', signal }), base.comment(r, n, b)
       ),
+      title: (r, n, signal) => (signals.push({ call: 'title', signal }), base.title(r, n)),
+      issueState: (r, n, signal) => (
+        signals.push({ call: 'issueState', signal }), base.issueState(r, n)
+      ),
+      setIssueState: (r, n, s, signal) => (
+        signals.push({ call: 'setIssueState', signal }), base.setIssueState(r, n, s)
+      ),
+      findIssue: (r, m, signal) => (
+        signals.push({ call: 'findIssue', signal }), base.findIssue(r, m)
+      ),
+      openIssue: (r, t, b, signal) => (
+        signals.push({ call: 'openIssue', signal }), base.openIssue(r, t, b)
+      ),
     };
     const host = github.host;
     const claims = {
@@ -300,6 +429,9 @@ describe('claimEffects', () => {
       'addLabel',
       'findComment',
       'comment',
+      'findIssue',
+      'title',
+      'openIssue',
       'removeLabel',
       'read',
       'delete',
