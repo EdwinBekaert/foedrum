@@ -15,7 +15,9 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import type { SetupRun } from '../checks/setup.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
+import type { Env } from '../engine/brewer-env.ts';
 import {
   type AttemptEnd,
   type AttemptFacts,
@@ -29,6 +31,7 @@ import type { AttemptProgress } from '../engine/supervisor.ts';
 import { pathInside } from '../platform/paths.ts';
 import {
   DEFAULT_MAX_OUTPUT_BYTES,
+  type ExecProcess,
   type StreamProcess,
   type StreamResult,
   streamProcess,
@@ -63,6 +66,12 @@ export interface ClaudeAttemptPlan {
    * branch, where its commits are counted, never what its worktree says (ADR 0074).
    */
   commits?: { clone: string; branch: string };
+  /**
+   * The repository's setup, for an attempt that starts fresh in a worktree of its own: the runner
+   * runs it there before claude starts, in the checks' environment, killed before the attempt's
+   * deadline (ADR 0163).
+   */
+  setup?: { run: SetupRun; deadlineAt: string; env: Env };
 }
 
 /** An out doc as the runner found it. */
@@ -76,6 +85,11 @@ export interface ClaudeRunnerDeps {
   claude: string;
   plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>;
   stream: StreamProcess;
+  /**
+   * The process runner a repository's setup runs through: the check sandbox, network kept (ADR
+   * 0158). A plan with a setup and no runner for it is blocked on its environment.
+   */
+  setup?: ExecProcess;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Reads the out doc only inside `root`, the worktree. */
@@ -439,7 +453,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
 
 /** The runner with the real process runner, files and clock. */
 export function claudeBrewerRunner(
-  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup'>,
 ): BrewerRunner {
   return claudeBrewerRunnerWith({
     ...options,

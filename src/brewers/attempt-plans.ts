@@ -11,6 +11,7 @@ import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
@@ -39,6 +40,8 @@ export interface AttemptPlansOptions {
   models: ModelsConfig;
   /** The toolchain rules of a repository (`foedrum.jsonc`, ADR 0023). */
   repoTools: (repo: string) => readonly string[];
+  /** A repository's setup (`foedrum.jsonc`), run before a fresh attempt's brewer (ADR 0163). */
+  repoSetup?: (repo: string) => RepositorySetup | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
   /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
