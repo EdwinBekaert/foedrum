@@ -7,6 +7,10 @@ import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/atte
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
+// The key the schema does not know yet (ADR 0151), read without a type that has it.
+const attributionOf = (settings: AttemptSettings): unknown =>
+  (settings as { attribution?: unknown }).attribution;
+
 describe('attemptSettings', () => {
   it("keeps the brewer's rules and always denies AskUserQuestion and git push in each shell", () => {
     const settings = attemptSettings({
@@ -19,7 +23,35 @@ describe('attemptSettings', () => {
         allow: ['Read(./**)', 'Bash(npm test)', 'PowerShell(npm test)'],
         deny: ['WebFetch', 'AskUserQuestion', 'Bash(git push *)', 'PowerShell(git push *)'],
       },
+      attribution: { commit: '', pr: '', sessionUrl: false },
     });
+  });
+
+  // ADR 0151: with `--setting-sources ""` Claude Code's default attribution applies, and a brewer's
+  // commits in a target repository would get a Co-Authored-By trailer. The empty-string object is
+  // the form every Claude Code version reads; `false` makes an older one skip the whole file.
+  it('hides the attribution of commits and pull requests without a sandbox', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
+    assert.deepEqual(attributionOf(settings), { commit: '', pr: '', sessionUrl: false });
+  });
+
+  it('hides the attribution of commits and pull requests with a sandbox', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    assert.deepEqual(attributionOf(settings), { commit: '', pr: '', sessionUrl: false });
+  });
+
+  it('hides the attribution whatever rules the brewer has', () => {
+    const settings = attemptSettings({
+      allow: ['Read', 'Edit', 'Bash(git commit *)', 'PowerShell(npm test)'],
+      deny: ['WebFetch'],
+      sandbox: false,
+    });
+    assert.deepEqual(attributionOf(settings), { commit: '', pr: '', sessionUrl: false });
+  });
+
+  it('hides the attribution when the brewer has no rules', () => {
+    const settings = attemptSettings({ allow: [], deny: [], sandbox: false });
+    assert.deepEqual(attributionOf(settings), { commit: '', pr: '', sessionUrl: false });
   });
 
   it('denies git push only in the shells the brewer has, and each rule once', () => {
@@ -387,6 +419,18 @@ describe('writeAttemptSettings', () => {
     writeAttemptSettings(file, settings);
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
       permissions: { allow: ['Read(./**)'], deny: ['AskUserQuestion'] },
+      attribution: { commit: '', pr: '', sessionUrl: false },
+    });
+  });
+
+  // The schema must read the key, or the whole file is refused and no brewer starts (ADR 0151).
+  it('writes the attribution of a sandboxed attempt too', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    writeAttemptSettings(file, settings);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).attribution, {
+      commit: '',
+      pr: '',
+      sessionUrl: false,
     });
   });
 
