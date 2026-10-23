@@ -1072,13 +1072,14 @@ describe('openDriver', () => {
       const route = { kind: 'route', batchId: 'b1', recipe: 'nip', reason: 'label' } as const;
       intake.issue({ ...route, source: 'label' }, now);
     };
-    const brewToGreen = async (merge: BaseMerge) => {
+    const brewToGreen = async (merge: BaseMerge, more: Partial<DriverOptions> = {}) => {
       const hand = handRunner();
       const manager = fakeWorktrees();
       orderNip();
       const driver = await open({
         runner: hand.runner,
         worktrees: [{ repo: 'acme/app', base: 'origin/main', manager, merge }],
+        ...more,
       });
       await driver.drive();
       assert.deepStrictEqual(hand.started, [implement]);
@@ -1151,6 +1152,68 @@ describe('openDriver', () => {
       assert.deepStrictEqual(hand.started, [implement, green]);
       assert.deepStrictEqual(calls, []);
       assert.deepStrictEqual(ledgerOf(driver), { base: BASE, merged: MERGED });
+    });
+
+    /** How green#1 ended. */
+    const greenOutcome = (driver: Driver) => {
+      const attempt = driver.state().batches.get('b1')?.steps.get('green')?.attempts.get(1);
+      return attempt?.phase === 'finished' ? attempt.outcome : undefined;
+    };
+
+    for (const [moved, parents] of [
+      ['a commit of its own', [FAKE_COMMIT]],
+      ['a merge of another commit', ['d'.repeat(40), BASE]],
+      ['a merge of three commits', [FAKE_COMMIT, BASE, 'd'.repeat(40)]],
+    ] as const) {
+      it(`fails the attempt retryably, recording nothing, when its HEAD moved to ${moved}`, async () => {
+        const { merge, calls } = fakeMerge();
+        const moved = 'e'.repeat(40);
+        merge.worktree.head = async () => moved;
+        merge.worktree.parents = async () => [...parents];
+        const { driver, hand } = await brewToGreen(merge);
+        assert.deepStrictEqual(hand.started, [implement]);
+        assert.deepStrictEqual(calls, []);
+        assert.equal(ledgerOf(driver), undefined);
+        assert.deepStrictEqual(greenOutcome(driver), {
+          kind: 'failed',
+          retryable: true,
+          reason: `the base could not be merged: The worktree ${greenPath} moved from ${FAKE_COMMIT} to ${moved}, which is no merge of it`,
+        });
+      });
+    }
+
+    it('names at most 50 of the files a merge conflicts in', async () => {
+      const files = Array.from({ length: 51 }, (_, n) => `f${n}.ts`);
+      const { merge } = fakeMerge(() => ({ kind: 'conflicts', files }));
+      const { driver } = await brewToGreen(merge);
+      const named = files.slice(0, 50);
+      assert.deepStrictEqual(ledgerOf(driver), { base: BASE, conflicts: named });
+      const lane = driver.state().batches.get('b1')?.lane;
+      assert.ok(lane?.kind === 'stuck');
+      assert.deepStrictEqual(lane.reason, {
+        kind: 'blocked',
+        stepId: 'green',
+        blockerKind: 'divergence',
+        summary: `conflicts with main in ${named.join(', ')}`,
+      });
+    });
+
+    it("gives the merge up at an effect's deadline, and fails the attempt retryably", async () => {
+      const { merge } = fakeMerge();
+      // A fetch that hangs until it is aborted.
+      merge.push.baseTip = (_base, signal) =>
+        new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
+      const effects = { due: () => [], target: fakeHost().target, deadlineMs: 1 };
+      const { driver, hand } = await brewToGreen(merge, { effects });
+      assert.deepStrictEqual(hand.started, [implement]);
+      assert.equal(ledgerOf(driver), undefined);
+      assert.deepStrictEqual(greenOutcome(driver), {
+        kind: 'failed',
+        retryable: true,
+        reason:
+          'the base could not be merged: The effect ["b1","green",1,"merge_base"] took longer than its deadline of 1 ms',
+      });
+      assert.deepStrictEqual(store.currentLeases(now), []);
     });
   });
 
