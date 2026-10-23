@@ -134,7 +134,6 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
           result: 'exited',
           setup: true,
           command: 'npm ci',
-          unsandboxed: true,
           exitCode: 0,
           tail: 'added 7 packages\n',
         },
@@ -156,6 +155,26 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
     });
     await started.ended;
     assert.deepEqual(calls, ['setup npm.cmd ci', 'check npm test']);
+  });
+
+  // Elsewhere the setup runs in the check sandbox with the network kept (ADR 0158).
+  it('says the setup ran unsandboxed on native Windows only, as a check', async () => {
+    const onWindows = await run({ platform: 'win32' }).started.ended;
+    assert.deepEqual(
+      onWindows.readings?.map((reading) => 'unsandboxed' in reading && reading.unsandboxed),
+      [true, true],
+    );
+    for (const platform of ['linux', 'darwin'] as const) {
+      const end = await run({ platform }).started.ended;
+      assert.deepEqual(
+        end.readings?.map((reading) => [reading.result, 'unsandboxed' in reading]),
+        [
+          ['exited', false],
+          ['exited', false],
+        ],
+        platform,
+      );
+    }
   });
 
   it('runs no setup for a repository that has none', async () => {
@@ -196,7 +215,6 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
           result: 'exited',
           setup: true,
           command: 'npm ci',
-          unsandboxed: true,
           exitCode: 1,
           tail: 'npm ERR! missing package-lock.json\n',
         },
