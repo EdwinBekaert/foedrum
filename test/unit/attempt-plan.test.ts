@@ -250,12 +250,19 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
         verdict: 'approve',
         findings: [{ ...finding, severity: undefined }],
       },
-      // Near misses of a finding's location, each else valid: a file on two lines, and line 0.
+      // Near misses of a finding's location, each else valid: a file on two lines, by either line
+      // break, and line 0.
       {
         status: 'done',
         summary: 'Tasted',
         verdict: 'changes',
         findings: [{ ...finding, file: 'a.ts\nb' }],
+      },
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'changes',
+        findings: [{ ...finding, file: 'a.ts\rb' }],
       },
       {
         status: 'done',

@@ -23,6 +23,7 @@ import {
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import { TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
@@ -348,7 +349,11 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
     });
-    return { plan: plans.plan({ ref, limits: plans.limits(ref) }), calls };
+    return {
+      plan: plans.plan({ ref, limits: plans.limits(ref) }),
+      calls,
+      limits: plans.limits(ref),
+    };
   };
   const LOG = 'f00dfee Wait for a bottle to be merged';
   const DIFF = 'diff --git a/src/wait.ts b/src/wait.ts\n+  while (!(await isMerged())) {}';
@@ -433,6 +438,55 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     );
     assert.doesNotMatch(prompt, /name="change"/);
     assert.deepEqual(calls, []);
+  });
+
+  it("gives the runner a Taster's schema, and blocking only on a blocking step", async () => {
+    const blocking = withRecipe('amber', [
+      { id: 'implement', brewer: 'cellarman' },
+      {
+        id: 'correctness',
+        brewer: 'taster',
+        lens: 'diff/correctness',
+        blocking: true,
+        onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
+      },
+      { action: 'openPullRequest' },
+    ]);
+    for (const [files, expected] of [
+      [blocking, { blocking: true }],
+      [room, {}],
+    ] as const) {
+      const { outDoc, ...rest } = (await planTaster(answers, files)).limits;
+      assert.equal(outDoc.file, 'taste.md');
+      assert.equal(outDoc.schema, TastingOutDoc);
+      assert.deepEqual(rest, { maxTurns: 60, ...expected });
+    }
+  });
+
+  it('keeps the start of a change git was stopped for, past its output limit, and cuts it', async () => {
+    // As the runner answers when it kills git for its output (ADR 0035).
+    const stopped: Git = async (_cwd, args) =>
+      args[0] === 'log'
+        ? { code: 0, stdout: `${LOG}\n`, stderr: '' }
+        : {
+            code: null,
+            stdout: `${DIFF}\n${'+x\n'.repeat(200_000)}`,
+            stderr: 'git output passed 524288 bytes',
+            killed: 'too-much-output',
+          };
+    const { prompt } = await (await planTaster(stopped)).plan;
+    assert.match(prompt, /\[cut: the rest is past the change input's limit of 262144 bytes\]/);
+  });
+
+  it('fails the plan when git timed out reading the change', async () => {
+    const late: Git = async () => ({
+      code: null,
+      stdout: '',
+      stderr: 'git timed out after 60000 ms',
+      killed: 'timed-out',
+    });
+    const { plan } = await planTaster(late);
+    await assert.rejects(plan, /was not read: git log .* exited with code null: git timed out/);
   });
 
   it('fails the plan, naming the git call, when git cannot read the change', async () => {
