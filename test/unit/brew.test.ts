@@ -230,6 +230,43 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  it("labels the order's issue with its batch's lane, made in the Brewery first (#406)", async () => {
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.deepStrictEqual(api.issue('acme/brewery', 12)?.labels, [
+      'recipe:stout',
+      'foedrum:on-tap',
+    ]);
+    assert.ok(api.labels.get('acme/brewery')?.has('foedrum:on-tap'));
+  });
+
+  it('prints the link to the status comment once it is made (#406)', async () => {
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    const [comment] = api.comments.get('acme/brewery#12') ?? [];
+    const link = `https://github.com/acme/brewery/issues/12#issuecomment-${comment?.id}`;
+    const shown = lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
+    assert.equal(shown.length, 1, lines.join('\n'));
+  });
+
+  it('says about every 30 s which step runs and for how long (#406)', async () => {
+    const controller = new AbortController();
+    let now = t0;
+    const running = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+    const ticking = shell(running, {
+      signal: controller.signal,
+      clock: () => now,
+      wait: async () => {
+        now = new Date(now.getTime() + 5_000);
+        if (now.getTime() - t0.getTime() > 60_000) controller.abort();
+      },
+    });
+    assert.equal(await runBrew(setup, ticking, request), 1);
+    const progress = lines.filter((line) => line.includes('running for'));
+    assert.deepStrictEqual(progress, [
+      'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
+      'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
+    ]);
+  });
+
   it('refuses a batch another driver leases, naming it and when its lease ends: exit 5', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue(
