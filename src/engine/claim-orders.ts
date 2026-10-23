@@ -65,6 +65,19 @@ export const claimOfOrder = (state: State, issue: number): Batch | undefined => 
   return found;
 };
 
+/**
+ * The Brewery issue that shows a batch's status comment and lane label: a Brewery issue's batch's
+ * own, and a claimed batch's order once the ledger records it, never the target issue's number.
+ */
+export const breweryIssueOf = (state: State, batch: Batch): number | undefined =>
+  batch.repo === undefined ? batch.issue : claimOrderOf(state, batch.id).issue;
+
+/** Whether `batch` is the latest batch of the Brewery issue `issue`, the one that labels it. */
+export const latestOf = (state: State, batch: Batch, issue: number): boolean => {
+  if (batch.repo !== undefined) return claimOfOrder(state, issue)?.id === batch.id;
+  return (state.orders.get(issue) ?? state.subOrders.get(issue))?.batchIds.at(-1) === batch.id;
+};
+
 /** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
 export const claimedName = (batch: Batch): string =>
   `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;

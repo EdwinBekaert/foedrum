@@ -9,6 +9,7 @@ import { OutDocAssumptions } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
+import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
@@ -382,8 +383,8 @@ interface DueRevision {
 
 /**
  * The revision of the status comment of `batchId` that the recorded events call for: the next one
- * when the batch's text is not the one the latest revision showed, else none. A batch of a claimed
- * target issue has none (ADR 0072).
+ * when the batch's text is not the one the latest revision showed, else none. A claimed batch's is
+ * on the Brewery issue that is its order, and none is due before that is recorded (ADR 0155).
  */
 const statusDue = (
   state: State,
@@ -391,12 +392,13 @@ const statusDue = (
   steps?: readonly string[],
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
-  if (batch === undefined || batch.repo !== undefined) return undefined;
+  const issue = batch === undefined ? undefined : breweryIssueOf(state, batch);
+  if (batch === undefined || issue === undefined) return undefined;
   const { next: revision, latest: previous } = latestRevision(state, batchId);
   const text = renderStatus(batch, steps, knownCommits(state, batchId));
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
-  const due = { key: revisionKey(batchId, revision), issue: batch.issue, text, digest };
+  const due = { key: revisionKey(batchId, revision), issue, text, digest };
   return previous === undefined ? due : { ...due, previous };
 };
 
@@ -420,9 +422,9 @@ const revisionOf = (comment: number, digest: string): StatusRevision => {
 };
 
 /**
- * The status comment of every batch of a Brewery issue, for the driver: a revision whenever its
- * text changed, at most one a minute per batch, except its first and the one that shows it
- * ended, which are due at once (ADR 0072).
+ * The status comment of every batch of a Brewery issue, a claimed batch's order included, for the
+ * driver: a revision whenever its text changed, at most one a minute per batch, except its first
+ * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
   const { brewery, comments, recipes, clock } = options;
