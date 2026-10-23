@@ -27,6 +27,10 @@ const readBlockOf = (settings: AttemptSettings): unknown =>
 const allowReadOf = (settings: AttemptSettings): unknown =>
   (settings.sandbox as { filesystem?: { allowRead?: unknown } } | undefined)?.filesystem?.allowRead;
 
+// The npm configuration files hidden inside them (review of #437), read the same way.
+const denyReadOf = (settings: AttemptSettings): unknown =>
+  (settings.sandbox as { filesystem?: { denyRead?: unknown } } | undefined)?.filesystem?.denyRead;
+
 describe('attemptSettings', () => {
   it("keeps the brewer's rules and always denies AskUserQuestion and git push in each shell", () => {
     const settings = attemptSettings({
@@ -325,6 +329,58 @@ describe('attemptSettings', () => {
     it('writes no read paths without a sandbox', () => {
       const settings = settingsFor(`${HOME}/.volta/bin`, { sandbox: false });
       assert.equal(Object.hasOwn(settings, 'sandbox'), false);
+    });
+
+    // Review of #437: a folder whose name starts with the home's is not under it.
+    it("re-opens nothing in a folder beside the home whose name starts with the home's", () => {
+      const settings = settingsFor(`/home/brewer2/bin:/home/brewer.old/.volta/bin`);
+      assert.equal(allowReadOf(settings), undefined);
+    });
+
+    // Review of #437: a folder whose name starts with a login's is not at, inside or around it.
+    it("re-opens a folder beside a hidden login whose name starts with the login's", () => {
+      const entries = [`${HOME}/.sshtools/bin`, `${HOME}/.aws-vault/bin`, `${HOME}/.conf/bin`];
+      assert.deepEqual(reopened(entries.join(':')), entries);
+    });
+
+    // Review of #437: only a layout's own bin goes up to its prefix.
+    it("re-opens a folder deeper than a layout's bin as it is", () => {
+      assert.deepEqual(reopened(`${HOME}/.volta/bin/sub:${HOME}/.asdf/shims/x`), [
+        `${HOME}/.volta/bin/sub`,
+        `${HOME}/.asdf/shims/x`,
+      ]);
+    });
+
+    // Review of #437: a moved login spelled with a trailing slash is the same folder.
+    it('re-opens no folder inside a moved login spelled with a trailing slash', () => {
+      const settings = settingsFor(`${HOME}/ghc/bin:${HOME}/ghd/bin`, {
+        configDirs: { GH_CONFIG_DIR: `${HOME}/ghc/` },
+      });
+      assert.deepEqual(allowReadOf(settings), [`${HOME}/ghd/bin`]);
+    });
+
+    // Review of #437: npm reads its global configuration from `<prefix>/etc/npmrc` and its builtin
+    // one from the npm package's own `npmrc`, and either can hold the login ADR 0087 hides as
+    // `~/.npmrc`; a deny holds inside a wider allow, a wildcard one too.
+    it('hides every npm configuration file inside each folder it re-opens', () => {
+      const folders = [
+        `${HOME}/.nvm/versions/node/v24.15.0`,
+        `${HOME}/.volta`,
+        '/home/linuxbrew/.linuxbrew',
+        `${HOME}/bin`,
+      ];
+      const PATH = [
+        `${HOME}/.nvm/versions/node/v24.15.0/bin`,
+        `${HOME}/.volta/bin`,
+        '/home/linuxbrew/.linuxbrew/bin',
+        `${HOME}/bin`,
+      ].join(':');
+      const settings = settingsFor(PATH);
+      assert.deepEqual(allowReadOf(settings), folders);
+      assert.deepEqual(
+        denyReadOf(settings),
+        folders.flatMap((folder) => [`${folder}/**/npmrc`, `${folder}/**/.npmrc`]),
+      );
     });
   });
   it('refuses a rule claude could not read', () => {
