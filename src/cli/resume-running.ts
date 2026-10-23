@@ -5,7 +5,12 @@
 // the session has ended (the shell's runner runs it in the foreground, resume-main.ts), and lets
 // the batch go, so the driver that takes it next goes on from the next step.
 
-import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
+import {
+  holdBatch,
+  defaultLeaseMs as leaseMs,
+  releaseBatch,
+  takeOver,
+} from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { Batch } from '../engine/fold.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -54,6 +59,26 @@ const resumedAttempt = (batch: Batch | undefined, stepId: string): number => {
   return attempts.get(latest)?.phase === 'scheduled' ? latest : latest + 1;
 };
 
+/**
+ * The step's latest attempt when the step's run is over for resume (ADR 0127): the attempt that
+ * continues the session has ended, or the run before it ended by itself, not by the stop, so no
+ * attempt will continue its session. Undefined while it waits or runs.
+ */
+const ranOut = (
+  batch: Batch | undefined,
+  stepId: string,
+  attempt: number,
+): { attempt: number; outcome: StepOutcome } | undefined => {
+  const attempts = batch?.steps.get(stepId)?.attempts;
+  if (attempts === undefined || attempts.size === 0) return undefined;
+  const latest = attempts.get(Math.max(...attempts.keys()));
+  if (latest?.phase !== 'finished') return undefined;
+  const { outcome } = latest;
+  // The stop's own end schedules the retry that continues the session, or leaves the batch Stuck.
+  if (latest.attempt < attempt && outcome.kind === 'cancelled') return undefined;
+  return { attempt: latest.attempt, outcome };
+};
+
 /** Takes the batch over, drives it until the resumed attempt ended, and lets it go; 0 when it did. */
 export const runResumeRunning = async (
   setup: ServeSetup,
@@ -72,6 +97,9 @@ export const runResumeRunning = async (
     return 1;
   }
   const opened: Opened = { lock };
+  // The attempt that continues the session, once the log is read, and the state as it is now.
+  let attempt = 0;
+  let now: (() => Batch | undefined) | undefined;
   try {
     const { store, driver } = await wireDriver(setup, shell, opened, {
       takes: (id) => id === batchId,
@@ -79,6 +107,9 @@ export const runResumeRunning = async (
       // The batch's retries and answers continue their sessions, whatever the brewer's retryMode:
       // the engineer took it over to continue one.
       resumes: (ref) => ref.batchId === batchId,
+      // Nothing more once the step's run is over: in the pass that records its end, the next
+      // attempt is the batch's next driver's to start (ADR 0127).
+      holds: (id) => id !== batchId || ranOut(now?.(), stepId, attempt) === undefined,
       say,
       report: (notice) => say(formatNotice(notice)),
     });
@@ -87,7 +118,8 @@ export const runResumeRunning = async (
       store
         .batchLeases(clock())
         .find((lease) => lease.batchId === batchId && lease.owner !== owner);
-    const attempt = resumedAttempt(log.state().batches.get(batchId), stepId);
+    now = () => driver.state().batches.get(batchId);
+    attempt = resumedAttempt(log.state().batches.get(batchId), stepId);
     const label = `${stepId}#${attempt}`;
     try {
       // The driver that holds the batch stops its run of the step at its next tick (ADR 0127). A
@@ -105,6 +137,8 @@ export const runResumeRunning = async (
         return 1;
       }
       for (;;) {
+        // Held from the takeover on, also before the driver claims it for an attempt or an effect.
+        store.withTransaction((tx) => holdBatch(tx, { batchId, owner, now: clock(), leaseMs }));
         try {
           await driver.tick();
         } catch (error) {
@@ -122,6 +156,12 @@ export const runResumeRunning = async (
               : where;
           say(`${label} ${endedAs(resumed.outcome)}; ${next}`);
           return 0;
+        }
+        const ended = ranOut(batch, stepId, attempt);
+        if (ended !== undefined && ended.attempt < attempt) {
+          const { attempt: n, outcome } = ended;
+          say(`${stepId}#${n} ${endedAs(outcome)} before it was stopped; nothing was resumed`);
+          return 1;
         }
         if (batch.lane.kind !== 'brewing' && batch.lane.kind !== 'ordered') {
           const left = resumed === undefined || resumed.phase === 'scheduled';

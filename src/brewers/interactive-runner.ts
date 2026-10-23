@@ -5,6 +5,7 @@
 
 import { resolve } from 'node:path';
 import { attemptKey } from '../engine/attempt-key.ts';
+import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import {
   type AttemptEnd,
   type AttemptFacts,
@@ -122,12 +123,18 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       deps.say(
         `foedrum resume: opening session ${plan.call.session.id} of ${label} in ${plan.cwd}: ${what}`,
       );
-      // The attempt's environment (ADR 0109's forced variables included) with the terminal's own.
-      const env = Object.fromEntries(
-        Object.entries({ ...plan.env, ...deps.terminalEnv }).flatMap(([name, value]) =>
-          value === undefined ? [] : [[name, value]],
+      // The terminal's own variables under the attempt's environment (ADR 0109's forced variables
+      // included), by name as the platform reads it, as for a finished attempt (ADR 0126).
+      const env = buildBrewerEnv({
+        base: deps.terminalEnv,
+        brewer: Object.fromEntries(
+          Object.entries(plan.env).flatMap(([name, value]) =>
+            value === undefined ? [] : [[name, value]],
+          ),
         ),
-      );
+        forced: {},
+        platform: deps.platform,
+      });
       open.add(key);
       let code: number;
       try {

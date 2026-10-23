@@ -72,6 +72,8 @@ export interface WiringOptions {
    * `retryMode` is `resume` (ADR 0118); `foedrum resume` of a running batch, always (ADR 0127).
    */
   resumes?: (attempt: AttemptRef) => boolean;
+  /** Whether the driver goes on with a batch it may hold; every one by default (ADR 0127). */
+  holds?: (batchId: string) => boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
   /** Reports a driver's notice. */
@@ -86,7 +88,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, resumes, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, holds, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -243,6 +245,7 @@ export const wireDriver = async (
     lock: () => lock,
     takes,
     ...(drivesOn === undefined ? {} : { drivesOn }),
+    ...(holds === undefined ? {} : { holds }),
     stateBranch,
     limits: plans.limits,
     outDoc: plans.outDoc,

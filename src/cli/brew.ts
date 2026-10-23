@@ -246,9 +246,11 @@ export const runBrew = async (
      * waits for their leases before it continues the session (ADR 0127). A closed driver records
      * no end, and its runs' leases would hold the step for a whole lease.
      */
-    const endStoppedRuns = async (id: string): Promise<void> => {
+    const endStoppedRuns = async (id: string, holder: BatchLease): Promise<void> => {
       const takeover = driver.state().batches.get(id)?.takeover;
       if (takeover?.from !== owner || takeover.resumes === undefined) return;
+      // A takeover whose owner let the batch go since resumes nothing now (ADR 0127).
+      if (holder.owner !== takeover.to) return;
       const until = clock().getTime() + leaseMs;
       const running = () =>
         store
@@ -276,7 +278,7 @@ export const runBrew = async (
       }
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
-        await endStoppedRuns(batchId);
+        await endStoppedRuns(batchId, other);
         return refuse(drivenBy(other));
       }
       const now = driver.state().batches.get(batchId) as Batch;
