@@ -51,7 +51,7 @@ The table below is rebuilt when a milestone closes (`node scripts/adr-index.ts`)
 | [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) | Target-repository issues as a work queue, claimed by a ref (amends 0008, 0013, 0024, 0029 and 0033) | Accepted, amended by 0050, 0059 and 0105 |
 | [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) | Batch leases held by the driver, and one command log (amends 0002, 0011, 0019, 0024, 0025, 0027, 0028 and 0033) | Accepted, amended by 0050, 0051, 0055, 0063, 0123, 0124 and 0126 |
 | [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) | The local gate reads commands as the shells would, and assumes the worst of what it cannot read | Accepted, amended by 0056, 0060, 0065, 0102, 0104, 0108, 0114 and 0135 |
-| [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057, 0062, 0087 and 0117 |
+| [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md) | Only the runner's settings, the init check, and a stream read line by line (amends 0028 and 0042) | Accepted, amended by 0047, 0049, 0057, 0062, 0087, 0117 and 0151 |
 | [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) | The `claude` brewer runner: its stream, its endings and its progress (amends 0027, 0028, 0042 and 0046) | Accepted, amended by 0048, 0057, 0059, 0091, 0116, 0117 and 0129 |
 | [0048](0048-retried-pre-stream-failures-commit-detection-and-out-doc-identity.md) | Retried failures before the stream, commit detection, and the out doc's identity (amends 0047) | Accepted |
 | [0049](0049-reviewers-read-only-inside-the-checkout.md) | Reviewers read only inside the checkout: a read guard for the read-only agents, scoped rules for brewers (amends 0010 and 0046) | Accepted, amended by 0057 and 0093 |
@@ -142,6 +142,7 @@ The table below is rebuilt when a milestone closes (`node scripts/adr-index.ts`)
 | [0142](0142-a-macos-check-may-stat-the-folders-above-its-worktree-in-the-home-folder.md) | A macOS check may stat the folders above its worktree in the home folder (amends 0076) | Accepted |
 | [0149](0149-docs-layout-a-map-and-one-page-per-concept.md) | Docs layout: a map, and one page per concept under docs/design/ | Accepted |
 | [0150](0150-mutant-tests-drops-its-coverage-option.md) | mutant-tests drops its coverage option (amends 0054 and 0134) | Accepted |
+| [0151](0151-brewers-write-no-attribution.md) | Brewers write no attribution (amends 0046) | Accepted |
 
 ## Template
 
