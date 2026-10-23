@@ -122,7 +122,7 @@ const events: Event[] = [
     options: ['answer', 'retry', 'skip', 'recipe', 'rewind', 'cancel'],
     remindAt,
   },
-  // b2: plan runs now; a second attempt was scheduled and never started.
+  // b2: plan runs now.
   ...ordered('b2', 2, 'pint'),
   ...started('b2', 'plan', 1),
   // b3: a recipe no file has now.
@@ -157,7 +157,7 @@ const events: Event[] = [
     options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
     remindAt,
   },
-  // b6: never routed, so Stuck at no step.
+  // b6: never routed, so Stuck at no step and with no recipe.
   ...ordered('b6', 6),
   {
     type: 'batch.stuck',
@@ -291,6 +291,61 @@ describe('brewerReport', () => {
     assert.deepStrictEqual(tally('coder'), { attempts: 1, usage: usage(0, 1, 0, 0) });
     assert.deepStrictEqual(tally('brewmaster'), { attempts: 1, usage: usage(0, 0, 1, 0) });
     assert.deepStrictEqual(changed.gone, []);
+  });
+
+  it('gives a batch Stuck at no step to no brewer, also when it had a recipe', () => {
+    // b9 brewed pint, was sent back to Ordered by a retry, and was not routed again in time.
+    const routing = report([
+      ...ordered('b9', 9, 'pint'),
+      ...finished('b9', 'plan', 1, { kind: 'succeeded', output: {} }),
+      {
+        type: 'batch.stuck',
+        batchId: 'b9',
+        reason: { kind: 'routing', deadlineAt },
+        options: ['retry', 'recipe', 'cancel'],
+        remindAt,
+      },
+    ]);
+    assert.deepStrictEqual(
+      routing.brewers.flatMap(({ stuck }) => stuck),
+      [],
+    );
+    assert.deepStrictEqual(routing.gone, []);
+  });
+
+  it('sorts the steps the files no longer have by recipe, then step', () => {
+    const lost = report([
+      ...ordered('b1', 1, 'zz'),
+      ...finished('b1', 'b', 1, { kind: 'cancelled' }),
+      ...ordered('b2', 2, 'pint'),
+      ...finished('b2', 'zeta', 1, { kind: 'cancelled' }),
+      ...finished('b2', 'alpha', 1, { kind: 'cancelled' }),
+    ]);
+    assert.deepStrictEqual(
+      lost.gone.map(({ recipe, stepId }) => `${recipe}/${stepId}`),
+      ['pint/alpha', 'pint/zeta', 'zz/b'],
+    );
+  });
+
+  it('lists a brewer a step names that is not among the brewers in use, without a file', () => {
+    const ghostly: BrewerSource = {
+      ...source,
+      step: (recipe, stepId) =>
+        stepId === 'plan' ? { brewer: 'ghost' } : source.step(recipe, stepId),
+    };
+    const { brewers } = report(
+      [...ordered('b1', 1, 'pint'), ...finished('b1', 'plan', 1, { kind: 'cancelled' })],
+      ghostly,
+    );
+    assert.deepStrictEqual(
+      brewers.map(({ name, path, attempts }) => [name, path, attempts]),
+      [
+        ['coder', 'brewers/coder.md', 0],
+        ['ghost', '', 1],
+        ['planner', 'defaults/brewers/planner.md', 0],
+        ['reviewer', 'brewers/reviewer.md', 0],
+      ],
+    );
   });
 
   it('counts an attempt abandoned when its batch went Stuck as unfinished', () => {
