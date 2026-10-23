@@ -1459,6 +1459,18 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       accepts(events, again('201-1', { issue: 201 }), [orderedAgain('201-1', { issue: 201 })]);
     });
 
+    it('orders a target issue whose number is that of a Brewery issue that is an order', () => {
+      const opened: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: 'web-7', effect: 'order.issue' }),
+        result: 200,
+      };
+      const api = { issue: 200, repo: 'acme/api' } as const;
+      accepts([...webCancelled, opened, ...released], again('api-200', api), [
+        orderedAgain('api-200', api),
+      ]);
+    });
+
     it('compares its repository ignoring case', () => {
       refuses(
         [webOrdered],
