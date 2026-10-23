@@ -476,6 +476,82 @@ describe('renderStatus', () => {
     assert.doesNotMatch(text, /old guess/);
   });
 
+  it("lists a Taster's findings under Findings, by step, saying which were there before (ADR 0161)", () => {
+    const finding = (n: number, introduced = true) => ({
+      file: 'src/wait.ts',
+      line: n,
+      severity: 'major',
+      why: `finding ${n}`,
+      introduced,
+    });
+    const tasted = (findings: ReturnType<typeof finding>[]): Attempt => ({
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          // The verdict follows from the findings (ADR 0161).
+          verdict: findings.some(({ severity, introduced }) => introduced && severity !== 'minor')
+            ? 'changes'
+            : 'approve',
+          findings,
+        },
+      },
+    });
+    const many = Array.from({ length: 12 }, (_, i) => finding(i + 1));
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('taste', tasted([{ ...finding(1, false), severity: 'minor' }])),
+          step('security', tasted(many)),
+        ]),
+      }),
+      ['taste', 'security'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Findings**');
+    assert.ok(at_ >= 0, text);
+    assert.equal(
+      lines[at_ + 1],
+      '- `taste`: minor in src/wait.ts:1, there before the change: finding 1',
+    );
+    assert.equal(lines[at_ + 2], '- `security`: major in src/wait.ts:1: finding 1');
+    assert.match(text, /finding 10\b/);
+    assert.doesNotMatch(text, /finding 11\b/);
+    assert.equal(lines[at_ + 12], '- `security`: and 2 more');
+    assert.doesNotMatch(
+      renderStatus(batch({ steps: new Map([step('plan', done(1))]) }), steps),
+      /Findings/,
+    );
+  });
+
+  it("shows no Taster's findings from an earlier round when its latest attempt did not succeed (ADR 0161)", () => {
+    const approved: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [{ severity: 'minor', why: 'an old round', introduced: true }],
+        },
+      },
+    };
+    const blocked = failed(2, 'blocked (findings): the Taster asks for changes: x');
+    const text = renderStatus(batch({ steps: new Map([step('taste', approved, blocked)]) }), [
+      'taste',
+    ]);
+    assert.doesNotMatch(text, /Findings|an old round/);
+  });
+
   it('shows at most 10 assumptions a step and counts the rest', () => {
     const many = Array.from({ length: 12 }, (_, i) => `guess ${i + 1}`);
     const text = renderStatus(batch({ steps: new Map([step('plan', done(1, many))]) }), steps);
@@ -501,6 +577,48 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
   const leftOut = (stepId: string) =>
     `\\[left out: a text of step ${stepId} that looks like a secret\\]`;
   const noToken = (text: string) => assert.doesNotMatch(text, /ghp|A1b2/);
+
+  it("keeps a Taster's finding on one line and leaves out one that looks like a secret (ADR 0161)", () => {
+    const findings = [
+      {
+        // A file is one line (the schema), so only `why` can try to start a line of its own.
+        file: 'src/a_b.ts',
+        severity: 'major',
+        why: 'x\n# heading\n**Pull requests**',
+        introduced: true,
+      },
+      { severity: 'major', why: `Token ${token}`, introduced: true },
+    ];
+    const tasted: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'changes',
+          findings,
+        },
+      },
+    };
+    const text = renderStatus(batch({ steps: new Map([step('taste', tasted)]) }), ['taste']);
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Findings**');
+    assert.ok(at_ >= 0, text);
+    assert.match(
+      lines[at_ + 1] ?? '',
+      /^- `taste`: major in src\/a\\_b\.ts: x \\# heading \\\*\\\*Pull requests\\\*\\\*$/,
+    );
+    assert.match(
+      lines[at_ + 2] ?? '',
+      new RegExp(`^- \`taste\`: major: ${escaped(leftOut('taste'))}$`),
+    );
+    assert.doesNotMatch(text, /^# heading|^\*\*Pull requests\*\*/m);
+    noToken(text);
+  });
 
   it('leaves out an assumption, naming the step, and keeps the others', () => {
     const text = renderStatus(

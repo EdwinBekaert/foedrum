@@ -13,7 +13,7 @@ import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { OutDocFrontmatter, TASTING, TastingOutDoc } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
@@ -72,13 +72,21 @@ export interface PlanFacts {
 
 /**
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
- * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074).
+ * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074). A Taster's
+ * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
+ * blocks it by findings (ADR 0161).
  */
-export function attemptLimits(brewer: BrewerFrontmatter, start?: string): AttemptLimits {
+export function attemptLimits(
+  brewer: BrewerFrontmatter,
+  start?: string,
+  blocking = false,
+): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
-  // Brewer-specific schemas are not built yet: every out doc is read against the contract's.
+  // Every other out doc is read against the contract's schema.
+  const schema = brewer.output.schema === TASTING ? TastingOutDoc : OutDocFrontmatter;
   return {
-    outDoc: { file: brewer.output.doc, schema: OutDocFrontmatter },
+    outDoc: { file: brewer.output.doc, schema },
+    ...(blocking ? { blocking } : {}),
     ...(maxTurns === undefined ? {} : { maxTurns }),
     ...(maxDenials === undefined ? {} : { maxDenials }),
     ...(brewer.produces === 'commits' && start !== undefined ? { commitsSince: start } : {}),
@@ -220,6 +228,33 @@ export function answersOf(
   return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
 }
 
+/**
+ * Where the change a Taster's step that reviews a diff is given starts (ADR 0161): the commit
+ * `batch` started at in `repo`; none before any attempt recorded one.
+ */
+export const changeStart = (batch: Batch, repo: string): string | undefined =>
+  batch.starts?.[repo.toLowerCase()]?.commit;
+
+/** The most of a change input a prompt holds, in UTF-8 bytes (ADR 0161). */
+export const MAX_CHANGE_INPUT_BYTES = 256 * 1024;
+
+/**
+ * The change input of a Taster that reviews a diff (ADR 0161): the commits after `since` and their
+ * diff, as git printed them, held to its limit. The engine reads them, so the Taster runs no git.
+ */
+export function changeInput(since: string, log: string, diff: string): PromptInput {
+  const text = `The commits after ${since}, up to HEAD:
+${log.trimEnd()}
+
+Their diff:
+${diff}`;
+  return {
+    name: 'change',
+    source: { kind: 'change', since },
+    text: bounded(text, MAX_CHANGE_INPUT_BYTES, 'change input'),
+  };
+}
+
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
 export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
 
@@ -286,12 +321,12 @@ function failedReading(reading: GravityReading): string[] {
   return [`${checkName(reading)} ${ended}. The end of its output:\n${reading.tail}`];
 }
 
-/** `text` held to the route input's limit: its start, never half a character, then a note. */
-function bounded(text: string): string {
+/** `text` held to `limit` bytes: its start, never half a character, then a note naming `what`. */
+function bounded(text: string, limit: number, what: string): string {
   const bytes = Buffer.from(text, 'utf8');
-  if (bytes.length <= MAX_ROUTE_INPUT_BYTES) return text;
-  const note = `\n[cut: the rest is past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes]`;
-  let end = MAX_ROUTE_INPUT_BYTES - Buffer.byteLength(note, 'utf8');
+  if (bytes.length <= limit) return text;
+  const note = `\n[cut: the rest is past the ${what}'s limit of ${limit} bytes]`;
+  let end = limit - Buffer.byteLength(note, 'utf8');
   // Back to the first byte of a character.
   while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
   return `${bytes.subarray(0, end).toString('utf8')}${note}`;
@@ -315,7 +350,11 @@ export function routeInput(planned: PlannedRoute, outDoc?: OutDocRead): PromptIn
       }
     }
   })();
-  return { name: 'route', source: planned.source, text: bounded(`${planned.text}${doc}`) };
+  return {
+    name: 'route',
+    source: planned.source,
+    text: bounded(`${planned.text}${doc}`, MAX_ROUTE_INPUT_BYTES, 'route input'),
+  };
 }
 
 /** One example out doc of the contract: the keys every status shares, then the status's own key. */

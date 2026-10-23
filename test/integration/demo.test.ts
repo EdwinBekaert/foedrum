@@ -154,6 +154,7 @@ describe('npm run demo', () => {
       'green#1 failed',
       'implement#2 succeeded',
       'green#2 succeeded',
+      'taste#1 succeeded',
       'open-pull-request#1 succeeded',
     ]);
     assert.ok(

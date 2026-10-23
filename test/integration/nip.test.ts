@@ -2,7 +2,7 @@
 // end through `foedrum serve`'s own runServe and serveShell, with Nip from `defaults/`. Real: git,
 // the attempt worktrees, the target's own `node --test` in the check steps, the red proof, the
 // testsUnchanged guard, the recipe loader and serve's shell. Faked: GitHub, the tests' fake code
-// host behind the fake gh (ADR 0073), and the brewers, the scripted Gauger and Cellarman of the
+// host behind the fake gh (ADR 0073), and the brewers, the scripted Gauger, Cellarman and Taster of the
 // Nip fixture, so no model runs. The Gauger's test is proved red, the Cellarman's first fix fails
 // the check, its second attempt gets that reading (ADR 0128) and passes, and openPullRequest pushes
 // the bottle branch and opens the pull request. Opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057), the
@@ -50,6 +50,7 @@ import {
   NIP_TARGET_FILES,
   nipBreweryFiles,
   scriptedNip,
+  scriptedOutDoc,
 } from '../helpers/nip-fixture.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -214,6 +215,7 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
       'green#1 failed',
       'implement#2 succeeded',
       'green#2 succeeded',
+      'taste#1 succeeded',
       'open-pull-request#1 succeeded',
     ],
     dump,
@@ -244,6 +246,12 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
   // The bottle branch: the Gauger's test, then the Cellarman's two fixes.
   assert.equal(pull?.base, 'main');
   assert.equal(pull?.title, NIP_ORDER.title);
+  // The Taster's advisory finding, in the pull request it did not hold up (ADR 0161).
+  assert.match(
+    pull?.body ?? '',
+    /taste: One minor finding through diff\/correctness\.\n {2}verdict: approve\n {2}finding: minor in greet\.mjs:2: a name of only spaces/,
+  );
+  assert.match(comments[0]?.body ?? '', /\*\*Findings\*\*\n- `taste`: minor in greet\.mjs:2: /);
   const gitDir = join(scratch, 'web.git');
   const log = await run(scratch, [
     '--git-dir',
@@ -356,6 +364,14 @@ describe('the Nip recipe end to end with the real claude', {
     };
     api = await startFakeMessagesApi((body) => {
       if (body.includes('# Gauger')) return [probe, ...brew('gauge', 1, 'gauge.md')];
+      if (body.includes('# Taster')) {
+        const [scripted] = NIP_SCRIPT.taste ?? [];
+        assert.ok(scripted !== undefined);
+        const content = scriptedOutDoc(scripted);
+        // The Taster's only rule that writes is Edit on its out doc, so Edit makes the file.
+        const file_path = join(worktree('taste', 1), 'taste.md');
+        return [{ name: 'Edit', input: { file_path, old_string: '', new_string: content } }];
+      }
       return brew('implement', ROUTE.test(body) ? 2 : 1, 'brew.md');
     });
     const user = join(scratch, 'user');

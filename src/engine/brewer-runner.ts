@@ -22,6 +22,8 @@ export interface AttemptLimits {
    * needs a commit after it (ADR 0074).
    */
   commitsSince?: string;
+  /** For a Taster's blocking step: a `done` with the verdict `changes` is blocked by findings (ADR 0161). */
+  blocking?: boolean;
 }
 
 export interface AttemptStart {
@@ -287,6 +289,15 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
   const frontmatter = read.frontmatter;
   switch (frontmatter.status) {
     case 'done':
+      // The engine reads the verdict; the Taster does not choose to block (ADR 0161).
+      if (
+        limits.blocking === true &&
+        'verdict' in frontmatter &&
+        frontmatter.verdict === 'changes'
+      ) {
+        const summary = `the Taster asks for changes: ${frontmatter.summary}`;
+        return { kind: 'blocked', blockerKind: 'findings', summary };
+      }
       if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
       return doneWithCommits(facts.commits, limits.commitsSince, frontmatter);
     case 'needs_input':
