@@ -1,6 +1,6 @@
 # 0156. A claimed order is routed by its Brewery issue's recipe label
 
-Date: 2026-10-23 · Status: Accepted · Amends [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (where the label of a claimed batch is read, which repositories a pass lists for routing, who chooses a claimed issue's recipe) and [0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) (routing by the Brewery issue's label, listed there under "Not yet")
+Date: 2026-10-23 · Status: Accepted · Amends [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (where the label of a claimed batch is read, which repositories a pass lists for routing, who chooses a claimed issue's recipe), [0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) (routing by the Brewery issue's label, listed there under "Not yet") and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (a claimed issue ordered again is routed by its Brewery issue's label, not by reading the target issue)
 
 ## Context
 The intake routes an Ordered batch by its issue's one `recipe:<name>` label ([ADR 0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
