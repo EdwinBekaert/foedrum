@@ -44,7 +44,7 @@ export interface BreweryFiles extends FilesByKind {
 export interface Lens {
   /** Its folder and file name: `diff/<name>` or `plan/<name>` (ADR 0143). */
   name: string;
-  /** The file it was read from: `lenses/diff/<name>.md` or `defaults/lenses/diff/<name>.md`. */
+  /** The file it was read from: `lenses/<folder>/<name>.md` or `defaults/lenses/<folder>/<name>.md`. */
   path: string;
   text: string;
 }
@@ -437,7 +437,8 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
 export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const problems: string[] = [];
   const files = filesInUse(breweryFiles);
-  // A lens has no frontmatter: its file's name is its name, and its text is all of it.
+  // A lens has no frontmatter: its folder and file name are its name (ADR 0143), and its text is
+  // all of it.
   const lenses = new Map<string, Lens>();
   // A lens whose file has a problem of its own is reported once, as that file.
   const brokenLenses = new Set<string>();
