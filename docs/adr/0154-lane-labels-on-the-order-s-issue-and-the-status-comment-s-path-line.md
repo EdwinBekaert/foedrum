@@ -10,6 +10,7 @@ The first order Foedrum brewed on itself (#374, batch `1-1` for #401) went Stuck
 
 - **The red proof took an old test for a new one.** A name also counted as its last part after `.`, `::`, `#`, `/`, `\` or ` > ` (ADR 0078), so `grants git status, add and commit in Bash to a brewer with git.commit` counted as `commit`, which the Gauger's added line `{ commit: '', … }` held: the old, passing test was judged the step's, and the red proof refused.
 - **`foedrum brew` looked stuck.** For minutes it printed only `red #1 started` while `npm ci`, the tests and `claude` ran, and it never said where the status comment was.
+- **`foedrum status` failed on a fresh Brewery** with `no event store at …\.foedrum\index.db`: the store is made when `serve` or `brew` first starts, so a Brewery that never ran one has none.
 
 The folded state keeps each step's attempts by number, but not the order in which attempts of different steps ran; the comment is rendered from the folded state alone (ADR 0072).
 
@@ -37,7 +38,10 @@ A test's name counts as written, without a runner's parameters, as its part afte
 ### What `foedrum brew` prints
 Besides the lines ADR 0123 lists:
 - **The status comment's link**, once, as soon as its first revision is recorded: `status comment: https://<host>/<brewery>/issues/<n>#issuecomment-<id>`. A claimed target issue has no status comment, so no link.
-- **A progress line about every 30 s** while an attempt runs and the lane line has not changed: `batch <id> brewing: <step> #<n> running for 1m 30s`, for each running attempt. The time is counted from the tick at which this driver first saw the attempt run, from its own clock: the fold keeps no start time. Any other line it prints starts the 30 s again.
+- **A progress line about every 30 s** while an attempt runs and the lane line has not changed: `batch <id> brewing: <step> #<n> running for 1m 30s`, for each running attempt. The time is counted from the tick at which this driver first saw the attempt run, from its own clock: the fold keeps no start time. A new lane line starts the 30 s again; a notice or the link does not, so a progress line may follow one at once.
+
+### `foedrum status` without a store
+`foedrum status` in a folder without an event store prints `No batches yet.` and exits 0, and still makes no store (ADR 0030): a Brewery that never ran a driver has no batches. The other read commands (`stuck`, `replay`) still refuse in one line, since they ask about batches that would have to be there.
 
 ## Consequences
 - An issue list in the Brewery filters orders by lane, and a person reading the status comment sees the path the batch took before the step list.
