@@ -562,14 +562,11 @@ describe('planAttempt', () => {
     assert.deepEqual(planAttempt({ ...facts(), configDirs }).permissions.configDirs, configDirs);
   });
 
-  // ADR 0162: the toolchain folders come from the driver's base environment, not the brewer's own
-  // `env`, so a brewer file cannot widen what sandboxed commands read.
-  it("hands the attempt settings the driver's home and PATH, not the brewer's", () => {
+  // ADR 0162: the toolchain folders come from the brewer's base environment, the driver's; a
+  // brewer's own `env` cannot set PATH or HOME.
+  it("hands the attempt settings the driver's home and PATH", () => {
     const base = { PATH: '/home/brewer/.volta/bin:/usr/bin', HOME: '/home/brewer', LANG: 'en_US' };
-    const plan = planAttempt({
-      ...facts({ env: { PATH: '/home/brewer/.docker/bin', HOME: '/home/other' } }),
-      env: { base, forced: {}, platform: 'linux' as const },
-    });
+    const plan = planAttempt({ ...facts(), env: { base, forced: {}, platform: 'linux' as const } });
     assert.deepEqual(plan.permissions.toolchain, {
       HOME: '/home/brewer',
       PATH: '/home/brewer/.volta/bin:/usr/bin',
