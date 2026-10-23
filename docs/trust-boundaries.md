@@ -6,7 +6,7 @@ One row per risk, and one owner per row: the single place that handles it. A new
 
 | Risk | Owner | Recorded second layers |
 |---|---|---|
-| A brewer reaching outside its worktree: files, network, credentials, the clone's git settings | Claude Code's sandbox, with the attempt settings Foedrum writes (tool allow and deny rules, `--setting-sources ""`, the minimal environment) | ADR 0062 (no git without a fixed subcommand), ADR 0109 (a brewer's git holds no push credential; the `noPush` guard is gone, ADR 0133) |
+| A brewer reaching outside its worktree: files, network, credentials, the clone's git settings | Claude Code's sandbox, with the attempt settings Foedrum writes (tool allow and deny rules, `--setting-sources ""`, the minimal environment) | ADR 0062 (no git without a fixed subcommand), ADR 0109 (a brewer's git holds no push credential; the `noPush` guard is gone, ADR 0133), ADR 0160 (ADR 0087's credential entries kept under the read block, for the paths it re-opens or does not reach) |
 | A check step running code a brewer wrote | The check sandbox: no network for checks (#190), the network kept for a repository's setup (ADR 0158) | |
 | Bad code reaching `main` | The pull request: CI on three platforms, the review (`/brew-review`), the maintainer's merge, and the ruleset requiring `ci-ok` | |
 | A session skipping the procedure: merging, force-pushing, pushing without the check, marking ready without a review | The local gate (`scripts/precheck.ts`) | |

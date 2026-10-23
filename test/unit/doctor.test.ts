@@ -562,9 +562,13 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   const sandboxed = [macos, linux(), wsl2];
   const permissionsOnly = [windows, wsl1, linux({ bwrap: undefined }), freebsd];
 
-  // What ADR 0087 hides from a sandboxed command, from the docs.
+  // What ADR 0087 and ADR 0160 hide from a sandboxed command, from the docs.
   const hidesFileAndVariables = (line: string) => {
-    assert.match(line, /hides gh's hosts file at its default path and the token variables/);
+    assert.match(line, /hides your home folder and the other user folders/);
+    assert.match(
+      line,
+      /hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables/,
+    );
     assert.match(line, /keeps them from reaching GitHub/);
   };
   // The docs say nothing about the Keychain or the Secret Service, so neither does the line.
@@ -620,21 +624,23 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
       const [line = '', ...more] = keyring(facts);
       assert.deepEqual(more, []);
       assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
-      assert.match(line, /^The sandbox hides gh's hosts file/);
+      assert.match(line, /^The sandbox hides your home folder/);
       hidesFileAndVariables(line);
       leavesKeyringOpen(line);
     }
   });
 
-  // ADR 0087's credential entries are Linux `~/` paths, so on WSL2 the Windows user's copies of
-  // the same logins under /mnt stay readable (review of #250).
-  it("says wherever it advises or runs WSL2 that the sandbox leaves the Windows user's logins readable", () => {
+  // The read block denies sandboxed commands /mnt, where WSL2 mounts the Windows user's home
+  // (ADR 0160; ADR 0087 and the review of #250 had left it readable).
+  it("says wherever it advises or runs WSL2 that the sandbox hides the Windows user's logins too", () => {
     const wsl2WithoutBwrap = { ...linux({ bwrap: undefined }), kernelRelease: wsl2.kernelRelease };
     for (const facts of [windows, wsl1, wsl2, wsl2WithoutBwrap]) {
+      const [line = ''] = keyring(facts);
       assert.match(
-        keyring(facts)[0] ?? '',
-        /Under WSL, it doesn't hide the Windows user's logins under \/mnt \(ADR 0087\)\./,
+        line,
+        /Under WSL, the user folders include the Windows user's logins under \/mnt \(ADR 0160\)\./,
       );
+      assert.doesNotMatch(line, /doesn't hide the Windows user's logins/);
     }
     for (const facts of [macos, linux(), linux({ bwrap: undefined }), freebsd]) {
       assert.doesNotMatch(keyring(facts)[0] ?? '', /\/mnt/);

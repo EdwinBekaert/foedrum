@@ -232,6 +232,15 @@ describe('foedrum resume (ADR 0126)', () => {
   const nothingOpened = () =>
     assert.deepEqual([calls, started, settings, store.currentLeases(now)], [[], [], [], []]);
 
+  // ADR 0160: the settings written again hide the logins where serve's environment moved them.
+  it("writes the settings again with the logins serve's environment moved", async () => {
+    const configDirs = { CLAUDE_CONFIG_DIR: '/data/claude-work' };
+    const moved = { ...setup, configDirs };
+    await resume(undefined, { setup: async () => ({ kind: 'ready', setup: moved }) });
+    const files = settings[0]?.settings.sandbox?.credentials.files.map(({ path }) => path);
+    assert.ok(files?.includes('/data/claude-work/.credentials.json'), JSON.stringify(files));
+  });
+
   it('opens the latest finished attempt in its worktree, with its settings written again and the brewer environment', async () => {
     const result = await resume();
     assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });

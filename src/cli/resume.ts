@@ -25,7 +25,14 @@ import type { ServeRepository, ServeSetup } from './serve-config.ts';
 /** What resume needs of serve's setup: where the attempts ran and how their brewers are set up. */
 export type ResumeSetup = Pick<
   ServeSetup,
-  'workRoot' | 'repositories' | 'models' | 'brewers' | 'claude' | 'sandbox' | 'brewerEnv'
+  | 'workRoot'
+  | 'repositories'
+  | 'models'
+  | 'brewers'
+  | 'claude'
+  | 'sandbox'
+  | 'configDirs'
+  | 'brewerEnv'
 >;
 
 /** What resume needs from the machine. */
@@ -365,7 +372,12 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     try {
       const { recreate } = await shell.worktrees(repository, setup.workRoot);
       const { path: folder } = await recreate(ref, worktree.commit);
-      const permissions = attemptPermissions(found.brewer, repository.tools, setup.sandbox);
+      const permissions = attemptPermissions(
+        found.brewer,
+        repository.tools,
+        setup.sandbox,
+        setup.configDirs,
+      );
       const settingsFile = settingsFileOf(setup.workRoot, ref);
       shell.writeSettings(settingsFile, attemptSettings(permissions));
       const args = resumeArgs({
