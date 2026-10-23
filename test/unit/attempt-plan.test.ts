@@ -202,6 +202,27 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
     assert.equal(ended('approve', true).kind, 'succeeded');
   });
 
+  it('fails a verdict that disagrees with the findings: changes only for an introduced blocker or major', () => {
+    const invalid = (verdict: string, findings: readonly unknown[]) => {
+      const ending = ended(verdict, true, findings);
+      assert.equal(ending.kind, 'failed', `${verdict} ${JSON.stringify(findings)}`);
+      assert.match(
+        ending.kind === 'failed' ? ending.reason : '',
+        /the out doc taste\.md is invalid/,
+      );
+    };
+    const major = { ...finding, severity: 'major' };
+    const minor = { ...finding, severity: 'minor' };
+    const before = { ...finding, introduced: false };
+    invalid('approve', [finding]);
+    invalid('approve', [minor, major]);
+    invalid('changes', []);
+    invalid('changes', [minor]);
+    invalid('changes', [before]);
+    assert.equal(ended('approve', true, [minor, before]).kind, 'succeeded');
+    assert.equal(ended('changes', true, [major, minor]).kind, 'blocked');
+  });
+
   it('reads only approve and changes as a verdict', () => {
     const maybe = ended('maybe', false);
     assert.equal(maybe.kind, 'failed');
