@@ -47,12 +47,8 @@ export interface BrewerReport {
   gone: readonly (Tally & { recipe: string; stepId: string })[];
 }
 
-interface Counts {
-  attempts: number;
-  outcomes: Outcomes;
-  stuck: string[];
-  usage: Usage;
-}
+/** A `Tally` while the report fills it. */
+type Counts = Tally & { stuck: string[] };
 
 const counts = (): Counts => ({
   attempts: 0,
@@ -80,7 +76,7 @@ const add = (tally: Counts, attempt: Attempt): void => {
 
 /** The report over `state`, each step's brewer from `source`. */
 export const brewerReport = (state: State, source: BrewerSource): BrewerReport => {
-  const brewers = new Map(source.brewers.map(({ name }) => [name, counts()]));
+  const brewers = new Map(source.brewers.map(({ name, path }) => [name, { ...counts(), path }]));
   const gone = new Map<string, Counts & { recipe: string; stepId: string }>();
   // The counts of step `stepId` of `recipe`, or none for a step without a brewer.
   const tallyOf = (recipe: string, stepId: string): Counts | undefined => {
@@ -92,7 +88,7 @@ export const brewerReport = (state: State, source: BrewerSource): BrewerReport =
       return found;
     }
     if (step.brewer === undefined) return undefined;
-    const found = brewers.get(step.brewer) ?? counts();
+    const found = brewers.get(step.brewer) ?? { ...counts(), path: '' };
     brewers.set(step.brewer, found);
     return found;
   };
@@ -110,12 +106,11 @@ export const brewerReport = (state: State, source: BrewerSource): BrewerReport =
       tallyOf(recipe, lane.reason.stepId)?.stuck.push(batch.id);
     }
   }
-  const paths = new Map(source.brewers.map(({ name, path }) => [name, path]));
   const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   return {
     brewers: [...brewers]
       .sort(([a], [b]) => byName(a, b))
-      .map(([name, tally]) => ({ name, path: paths.get(name) ?? '', ...tally })),
+      .map(([name, tally]) => ({ name, ...tally })),
     gone: [...gone.values()].sort(
       (a, b) => byName(a.recipe, b.recipe) || byName(a.stepId, b.stepId),
     ),
