@@ -340,6 +340,20 @@ const recorded = (state: State, batchId: string, revision: number): StatusRevisi
   return parsed.data;
 };
 
+/**
+ * The id of the status comment of `batchId` the latest recorded revision made or edited, or
+ * undefined before its first: a comment deleted by hand is made again with a new id.
+ */
+export const statusCommentOf = (state: State, batchId: string): number | undefined => {
+  let latest: StatusRevision | undefined;
+  for (let n = 1, found = recorded(state, batchId, n); found !== undefined; ) {
+    latest = found;
+    n += 1;
+    found = recorded(state, batchId, n);
+  }
+  return latest?.comment;
+};
+
 /** A revision of a status comment that is due. */
 interface DueRevision {
   key: BatchEffectKey;
