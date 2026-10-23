@@ -19,6 +19,11 @@ export const GitHubPage = z.array(z.unknown());
 /** A REST error's body. */
 export const GitHubError = z.object({ message: z.string() });
 
+/** GitHub's 422 answer, with a code for each thing it refused (`already_exists`, `invalid`). */
+export const GitHubValidationError = z.object({
+  errors: z.array(z.object({ code: z.string() })),
+});
+
 /** The GraphQL answer to `repository(owner, name) { id }`. */
 export const RepositoryId = z.object({ repository: z.object({ id: z.string().min(1) }) });
 

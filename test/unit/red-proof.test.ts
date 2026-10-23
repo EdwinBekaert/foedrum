@@ -207,6 +207,66 @@ describe('judgeRed', () => {
     });
   });
 
+  it("does not take an old test for a new one when a sentence name ends in a dotted word the step's lines hold", () => {
+    const settings = [
+      {
+        newPath: 'test/unit/attempt-settings.test.ts',
+        added: [
+          "  it('writes no attribution', () => {",
+          "    const noAttribution = { commit: '', pr: '', sessionUrl: false };",
+          '  });',
+        ],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      'ok 1 - grants git status, add and commit in Bash to a brewer with git.commit',
+      ...failing(2, 'writes no attribution', 'not implemented'),
+    );
+    // "commit" is the last part after a dot of a sentence, not of a class or module.
+    assert.deepEqual(judgeRed(report, settings), {
+      proven: true,
+      tests: ['writes no attribution'],
+    });
+  });
+
+  it('finds a sentence test after suite titles that hold spaces, and after a class', () => {
+    const suites = [
+      {
+        newPath: 'test/calculator.test.ts',
+        // The suite was there before: its title alone is no declaration of these tests.
+        added: [
+          "  it('adds two numbers', () => {",
+          "  it('subtracts', () => {",
+          "  it('adds a negative number', () => {",
+        ],
+        removed: [],
+      },
+    ];
+    const names = [
+      'the calculator > adds two numbers',
+      'the calculator > AddTest.subtracts',
+      'AddTest.adds a negative number',
+    ];
+    const report = tap(...names.flatMap((name, n) => failing(n + 1, name, 'not implemented')));
+    // A suite title before " > " may hold spaces; only a class or module before a dot may not.
+    assert.deepEqual(judgeRed(report, suites), { proven: true, tests: names });
+  });
+
+  it('finds a sentence that ends in a dotted word after a suite title, as its part after the title', () => {
+    const name = 'the brewer settings > grants commit to a brewer with git.commit';
+    const settings = [
+      {
+        newPath: 'test/settings.test.ts',
+        added: ["  it('grants commit to a brewer with git.commit', () => {"],
+        removed: [],
+      },
+    ];
+    // Neither the whole name nor a last part after a dot stands in the line: only the title's.
+    const report = tap(...failing(1, name, 'not implemented'));
+    assert.deepEqual(judgeRed(report, settings), { proven: true, tests: [name] });
+  });
+
   it("does not take a test's name for a load error: node names each test in a comment", () => {
     const report = tap(
       '# Subtest: throws a SyntaxError on bad JSON',

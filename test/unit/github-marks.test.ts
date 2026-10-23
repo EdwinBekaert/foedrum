@@ -94,6 +94,40 @@ describe('githubIssueMarks', () => {
     ]);
   });
 
+  it('makes a label in the repository, and counts one that is there already as made (#406)', async () => {
+    const exists = {
+      message: 'Validation Failed',
+      errors: [{ resource: 'Label', code: 'already_exists', field: 'name' }],
+    };
+    const { marks, requests } = marksWith([
+      { status: 201, body: { name: 'foedrum:brewing' } },
+      { status: 422, body: exists },
+    ]);
+    await marks.createLabel(repo, 'foedrum:brewing');
+    await marks.createLabel(repo, 'foedrum:brewing');
+    assert.deepStrictEqual(asked(requests), [
+      {
+        method: 'POST',
+        url: `${api}/repos/acme/web/labels`,
+        body: { name: 'foedrum:brewing', color: 'ededed' },
+      },
+      {
+        method: 'POST',
+        url: `${api}/repos/acme/web/labels`,
+        body: { name: 'foedrum:brewing', color: 'ededed' },
+      },
+    ]);
+  });
+
+  it('fails to make a label GitHub refuses for another reason (#406)', async () => {
+    const invalid = {
+      message: 'Validation Failed',
+      errors: [{ resource: 'Label', code: 'invalid', field: 'name' }],
+    };
+    const { marks } = marksWith([{ status: 422, body: invalid }]);
+    await assert.rejects(marks.createLabel(repo, 'foedrum:brewing'), /422 .*Validation Failed/);
+  });
+
   it('removes a label by its encoded name, and counts one that is not there as removed', async () => {
     const { marks, requests } = marksWith([
       { status: 200, body: [] },

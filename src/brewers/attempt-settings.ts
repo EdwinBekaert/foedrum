@@ -36,6 +36,8 @@ export function attemptSettings({ allow, deny, sandbox }: AttemptPermissions): A
       allow: [...new Set(allow.map(scopedRule))],
       deny: [...new Set([...deny, ...alwaysDenied(allow)])],
     },
+    // ADR 0151: no Co-Authored-By trailer, pull request footer or session URL from the tool.
+    attribution: { commit: '', pr: '', sessionUrl: false },
     // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
     // default it runs every sandboxed command whatever the allow rules say, and lets it read the
     // machine's credentials.

@@ -4,7 +4,13 @@
 
 import type { IssueMarks } from '../engine/claim-effects.ts';
 import { claimRef, same } from '../engine/issue-claims.ts';
-import { GitHubComment, GitHubError, GitHubIssue } from '../schemas/github.ts';
+import type { LaneLabelHost } from '../engine/lane-labels.ts';
+import {
+  GitHubComment,
+  GitHubError,
+  GitHubIssue,
+  GitHubValidationError,
+} from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
@@ -28,7 +34,11 @@ const expect = (answer: GitHubAnswer, status: number, what: string): GitHubAnswe
   return answer;
 };
 
-export const githubIssueMarks = (options: GitHubIssueMarksOptions): IssueMarks => {
+const alreadyExists = ({ code }: { code: string }): boolean => code === 'already_exists';
+
+export const githubIssueMarks = (
+  options: GitHubIssueMarksOptions,
+): IssueMarks & Pick<LaneLabelHost, 'createLabel'> => {
   const { client, reads, login } = options;
   const read = async (repo: string, issue: number, signal?: AbortSignal) => {
     const what = `the issue ${repo}#${issue}`;
@@ -59,6 +69,14 @@ export const githubIssueMarks = (options: GitHubIssueMarksOptions): IssueMarks =
       const path = `${issuePath(repo, issue)}/labels`;
       const answer = await client.rest('POST', path, { labels: [label] }, signal);
       expect(answer, 200, `labelling ${repo}#${issue} ${label}`);
+    },
+    createLabel: async (repo, label, signal) => {
+      const path = `/repos/${repoPath(repo)}/labels`;
+      const answer = await client.rest('POST', path, { name: label, color: 'ededed' }, signal);
+      // There already: made by a run before, or by hand.
+      const error = GitHubValidationError.safeParse(answer.body);
+      if (answer.status === 422 && error.success && error.data.errors.some(alreadyExists)) return;
+      expect(answer, 201, `making the label ${label} in ${repo}`);
     },
     removeLabel: async (repo, issue, label, signal) => {
       const path = `${issuePath(repo, issue)}/labels/${encodeURIComponent(label)}`;

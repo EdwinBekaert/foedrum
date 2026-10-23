@@ -60,7 +60,9 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 
 /**
  * The forms of a test's name its declaration may have: the name, without the parameters a runner
- * adds (`(int, int)`, `[1]`), and its last part after a class or module (`AddTest.adds`).
+ * adds (`(int, int)`, `[1]`), its last part after suite titles (`the calculator > adds`), and that
+ * part's last part after a class or module (`AddTest.adds`). A class or module holds no space, so
+ * a sentence with a dot (`… with git.commit`) has no last part; a suite title may.
  */
 function namesOf(name: string): string[] {
   let bare = name.trim();
@@ -68,12 +70,10 @@ function namesOf(name: string): string[] {
     shorter = bare.replace(/\s*(?:\([^()]*\)|\[[^[\]]*\])$/, '');
     if (shorter === bare) break;
   }
-  const last =
-    bare
-      .split(/::|\s>\s|[.#/\\]/)
-      .at(-1)
-      ?.trim() ?? '';
-  const names = [name.trim(), bare, ...(last.length >= 3 ? [last] : [])];
+  const test = bare.split(/\s>\s/).at(-1)?.trim() ?? '';
+  const parts = test.split(/::|[.#/\\]/).map((part) => part.trim());
+  const last = parts.slice(0, -1).some((part) => /\s/.test(part)) ? '' : (parts.at(-1) ?? '');
+  const names = [name.trim(), bare, ...[test, last].filter((each) => each.length >= 3)];
   return [...new Set(names)].filter((each) => each !== '');
 }
 

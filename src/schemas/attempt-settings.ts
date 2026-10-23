@@ -94,6 +94,15 @@ export const AttemptSettings = z
         credentials: Credentials,
       })
       .optional(),
+    // ADR 0151: a brewer's commits and pull requests carry no attribution, and its session no URL.
+    // Not `attribution: false`: it needs Claude Code v2.1.281, and older ones skip the file.
+    attribution: z
+      .strictObject({
+        commit: z.literal(''),
+        pr: z.literal(''),
+        sessionUrl: z.literal(false),
+      })
+      .optional(),
   })
   .refine(
     ({ permissions: { allow, deny } }) => alwaysDenied(allow).every((rule) => deny.includes(rule)),

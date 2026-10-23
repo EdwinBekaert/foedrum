@@ -47,6 +47,8 @@ export interface FakeGitHubApi {
   readonly pulls: FakeApiPull[];
   /** The comments on each issue, by `<repo>#<n>` in lower case. */
   readonly comments: Map<string, { id: number; author: string; body: string }[]>;
+  /** The labels made in each repository, by `owner/name` in lower case. */
+  readonly labels: Map<string, Set<string>>;
   issue(repo: string, number: number): FakeApiIssue | undefined;
   /** The issues of each repository, those opened through the API included (ADR 0144). */
   readonly issues: Record<string, FakeApiIssue[]>;
@@ -68,6 +70,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   // The message of each commit made.
   const messages = new Map<string, string>();
   const comments = new Map<string, { id: number; author: string; body: string }[]>();
+  const labels = new Map<string, Set<string>>();
   let ids = 0;
   let commits = 0;
   const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
@@ -260,6 +263,16 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
     if (rest === 'pulls') return onPulls(method, repo, url, body);
+    if (method === 'POST' && rest === 'labels') {
+      const { name } = body as { name: string };
+      const made = labels.get(repo.toLowerCase()) ?? new Set();
+      labels.set(repo.toLowerCase(), made);
+      if (made.has(name)) {
+        return json(422, { message: 'Validation Failed', errors: [{ code: 'already_exists' }] });
+      }
+      made.add(name);
+      return json(201, { name });
+    }
     return notFound();
   };
 
@@ -285,6 +298,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     created,
     pulls,
     comments,
+    labels,
     issue,
     issues: options.issues,
   };

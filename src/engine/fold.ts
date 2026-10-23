@@ -155,6 +155,14 @@ export interface Batch {
   starts?: Readonly<Record<string, BatchStart>>;
   /** How each of its pull requests ended that has ended, by URL; absent while none has. */
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
+  /** Its attempts in the order they started, across its steps; absent while none has. */
+  path?: readonly PathAttempt[];
+}
+
+/** One attempt on a batch's path: its step and its number. */
+export interface PathAttempt {
+  stepId: string;
+  attempt: number;
 }
 
 /**
@@ -347,9 +355,11 @@ function apply(state: State, event: Event): State {
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
         };
       });
-      const { worktree } = event;
-      if (worktree === undefined) return next;
-      return updateBatch(next, event.batchId, (batch) => startAt(batch, worktree, false));
+      const { worktree, stepId, attempt } = event;
+      return updateBatch(next, event.batchId, (batch) => {
+        const onPath = { ...batch, path: [...(batch.path ?? []), { stepId, attempt }] };
+        return worktree === undefined ? onPath : startAt(onPath, worktree, false);
+      });
     }
     case 'step.finished': {
       // The worktree it ran in, and the attempt that made it: its own, or for a resumed attempt

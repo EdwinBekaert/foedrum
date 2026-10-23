@@ -10,6 +10,7 @@ import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
+import { statusCommentOf } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { githubOrderLabels } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
@@ -85,6 +86,23 @@ const oneLine = (text: string): string =>
       return BREAKS.has(code) ? `\\u${code.toString(16).padStart(4, '0')}` : char;
     })
     .join('');
+
+/** How often `foedrum brew` says which steps still run, when nothing else changed. */
+const PROGRESS_MS = 30_000;
+
+/** The attempts of `batch` that run now, as `<step> #<n>`. */
+const runningAttempts = (batch: Batch): string[] =>
+  [...batch.steps.values()].flatMap(({ id, attempts }) =>
+    [...attempts.values()]
+      .filter((attempt) => attempt.phase === 'started' && attempt.abandoned !== true)
+      .map(({ attempt }) => `${id} #${attempt}`),
+  );
+
+/** `ms` as whole seconds, and minutes from one: `30s`, `1m 0s`. */
+const elapsed = (ms: number): string => {
+  const seconds = Math.floor(ms / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+};
 
 /** Brews the batch of `request.target` until it stops; the exit code of ADR 0123. */
 export const runBrew = async (
@@ -219,6 +237,10 @@ export const runBrew = async (
     say(`brewing batch ${batchId} as ${owner}`);
 
     let shown = '';
+    // When the last line was said, and when this driver first saw each attempt run.
+    let saidAt = clock().getTime();
+    const seenAt = new Map<string, number>();
+    let linked = false;
     for (;;) {
       try {
         await driver.tick();
@@ -230,6 +252,15 @@ export const runBrew = async (
       if (other !== undefined) return refuse(drivenBy(other));
       const now = driver.state().batches.get(batchId) as Batch;
       const { lane, detail } = describeLane(now);
+      // A Brewery issue's status comment, once its first revision is recorded (ADR 0072).
+      const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
+      if (comment !== undefined && now.repo === undefined) {
+        linked = true;
+        const { hostname } = setup.github;
+        say(
+          `status comment: https://${hostname}/${setup.brewery}/issues/${now.issue}#issuecomment-${comment}`,
+        );
+      }
       // Let go: every effect of the ended batch is applied (ADR 0044).
       const released = !driver.held().includes(batchId);
       switch (now.lane.kind) {
@@ -260,9 +291,20 @@ export const runBrew = async (
         }
       }
       const line = `batch ${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
+      const at = clock().getTime();
+      const running = runningAttempts(now);
+      for (const each of running) if (!seenAt.has(each)) seenAt.set(each, at);
       if (line !== shown) {
         shown = line;
+        saidAt = at;
         say(line);
+      } else if (running.length > 0 && at - saidAt >= PROGRESS_MS) {
+        // A step can run for many minutes in silence: say it still runs (#406).
+        saidAt = at;
+        const runs = running.map(
+          (each) => `${each} running for ${elapsed(at - (seenAt.get(each) ?? at))}`,
+        );
+        say(`batch ${batchId} ${lane}: ${runs.join(', ')}`);
       }
       if (signal.aborted) break;
       await wait(intervalMs, signal);

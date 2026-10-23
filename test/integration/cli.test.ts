@@ -81,13 +81,20 @@ describe('foedrum status and replay on store files', () => {
   const foedrum = (...args: string[]) => foedrumIn(brewery.path, args);
 
   it('says there is no store, and creates none, in a folder without one', async () => {
-    for (const args of [['status'], ['replay', '12-1']]) {
-      const { exitCode, stdout, stderr } = await foedrum(...args);
-      assert.equal(exitCode, 1);
-      assert.equal(stdout, '');
-      assert.equal(stderr, `foedrum ${args[0]}: no event store at ${store}\n`);
-      assert.equal(existsSync(store), false);
-    }
+    const { exitCode, stdout, stderr } = await foedrum('replay', '12-1');
+    assert.equal(exitCode, 1);
+    assert.equal(stdout, '');
+    assert.equal(stderr, `foedrum replay: no event store at ${store}\n`);
+    assert.equal(existsSync(store), false);
+  });
+
+  it('says there are no batches yet, and creates no store, in a folder without one', async () => {
+    assert.deepEqual(await foedrum('status'), {
+      exitCode: 0,
+      stdout: 'No batches yet.\n',
+      stderr: '',
+    });
+    assert.equal(existsSync(store), false);
   });
 
   it('refuses a store at an older schema version in one line, and leaves it as it was', async () => {
