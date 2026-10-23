@@ -1,6 +1,6 @@
 # 0144. A claimed target-repository issue gets a Brewery issue that is its order
 
-Date: 2026-10-23 · Status: Accepted · Amends [0050](0050-the-intake-of-target-repository-issues.md) (what the order of a claimed issue is, its release, how `status` and `stuck` name it) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (ordering a claimed issue again, and its Brewery issue)
+Date: 2026-10-23 · Status: Accepted · Amends [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the order of a claimed issue is, the effects of its batch), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (which Brewery issues the intake orders), [0050](0050-the-intake-of-target-repository-issues.md) (what the order of a claimed issue is, its release, how `status` and `stuck` name it) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (ordering a claimed issue again, and its Brewery issue)
 
 ## Context
 Until now a claimed target-repository issue **was** the order: its batch is `<alias>-<n>`, kept apart from the Brewery's own orders ([ADR 0050](0050-the-intake-of-target-repository-issues.md)).
@@ -34,6 +34,7 @@ Its pull requests are opened in the target repository and close the target issue
 - When every pull request of the batch merged, the target issue is done, and the release closes the Brewery issue too: **`release.order`**, after the release comment and before the ref goes (ADR 0050 keeps the ref last).
 - A cancelled batch, or one whose pull request was closed, leaves the target issue open and assigned, and its Brewery issue open with it.
 - `claimStanding` counts `release.order` among the release's effects, so `foedrum order` waits for it as it waits for the rest ([ADR 0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md)).
+- A Brewery issue a person deleted is **gone** (GitHub answers 410, or 404 for one that is not there): closing or reopening it records `gone` instead of failing. The driver stops a batch's effects at the first that fails, so a deleted issue would otherwise hold off the rest of the release, and the claim ref would never go, as `release_ref` already counts a gone ref as released.
 
 ### Ordering again orders the same Brewery issue
 A batch of an issue that an earlier batch opened a Brewery issue for opens none: its order is that issue. When a merge closed it, the new batch reopens it (**`order.reopen`**, in the place of `order.issue`).
@@ -42,6 +43,7 @@ A batch of an issue that an earlier batch opened a Brewery issue for opens none:
 - Every claimed target issue that `serve` marks gets one Brewery issue, linked to it, which later work hangs the order's plan, questions and sub-issues on (#373).
 - A claimed batch makes one or two more requests to GitHub, and finding its Brewery issue lists the Brewery's issues by its own login, page by page. A Brewery with more than 5,000 such issues fails the find (the reads' page limit, ADR 0052); the effect then fails and is retried.
 - GitHub links the Brewery issue to the target issue it names; only people who can see the Brewery see that link.
+- A Brewery whose repository refuses new issues (issues turned off, a token that cannot write there) fails `order.issue` on every pass, reported each time, and the batch's later effects, its pull request's among them, wait behind it, as they wait behind a claim mark that fails.
 - Not yet: the status comment of a claimed batch (it still has none, and the Brewery issue is where it belongs), routing by the Brewery issue's label (routing still reads the target issue's), and sub-orders as sub-issues of the Brewery issue (#373).
 
 ## Alternatives considered
