@@ -471,6 +471,19 @@ describe('runBrew', () => {
       );
     });
 
+    it("prints the link to the status comment on the claimed issue's Brewery issue (#413)", async () => {
+      const host = github();
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      const brewing = targetSetup();
+      assert.equal(await runBrew(brewing, claimed, target), 0, lines.join('\n'));
+      const [order] = host.issues['acme/brewery'] ?? [];
+      const [comment] = host.comments.get(`acme/brewery#${order?.number}`) ?? [];
+      assert.ok(comment !== undefined, 'a status comment on the Brewery issue');
+      const link = `https://github.com/${brewing.brewery}/issues/${order?.number}#issuecomment-${comment.id}`;
+      const shown = lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
+      assert.equal(shown.length, 1, lines.join('\n'));
+    });
+
     it('refuses it, ordering nothing, when another holds its claim: exit 5', async () => {
       const host = github();
       // Another Brewery's claim: its record as a commit, and the ref at it (ADR 0043).

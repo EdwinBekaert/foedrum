@@ -1,6 +1,6 @@
 // Brewer frontmatter: a reusable agent role (brewers-and-recipes §1).
 
-import { PathSafeId } from './ids.ts';
+import { LensName, PathSafeId } from './ids.ts';
 import { ModelAlias } from './models.ts';
 import { BrewerAllowedTool, BrewerDeniedTool, Duration, RelativePath } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
@@ -19,14 +19,14 @@ const Input = z.strictObject({
     .string()
     .regex(
       source,
-      'Must be "order", "step:<step id>", "file:<path in the repository>" or "lens:<lens name>"',
+      'Must be "order", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
     )
     .refine((from) => {
       const [, step, file, lens] = source.exec(from) ?? [];
-      const id = step ?? lens;
-      if (id !== undefined) return PathSafeId.safeParse(id).success;
+      if (step !== undefined) return PathSafeId.safeParse(step).success;
+      if (lens !== undefined) return LensName.safeParse(lens).success;
       return file === undefined || RelativePath.safeParse(file).success;
-    }, 'Must name a path-safe step id or lens name, or a relative path'),
+    }, 'Must name a path-safe step id, a lens as diff/<name> or plan/<name> (ADR 0143), or a relative path'),
   // Untrusted input goes between per-prompt nonce tags, as data (ADR 0041). Every
   // source is untrusted for now; a trusted one needs an ADR (brewers-and-recipes §1.1).
   trusted: z

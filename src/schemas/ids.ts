@@ -18,6 +18,17 @@ export const PathSafeId = z
   );
 
 /**
+ * A lens by its folder and file name (ADR 0143): `diff/<name>` reviews a diff, `plan/<name>` a plan,
+ * as `lenses/diff/<name>.md` and `lenses/plan/<name>.md` hold them.
+ */
+export const LensName = z
+  .string()
+  .regex(
+    new RegExp(`^(?:diff|plan)/${segment.source.slice(1)}`),
+    'Must be diff/<name> or plan/<name>, with a name of 1 to 64 lower-case letters, digits, ".", "_" or "-" that starts and ends with a letter or digit and is not a Windows device name',
+  );
+
+/**
  * The short name of a target repository in the Brewery's config, the start of the batch ids of its
  * claimed issues (`<alias>-<issue>`, ADR 0050): a lower-case letter, then letters and digits, at
  * most 20 in all. It starts with a letter, so it never begins a Brewery issue's `<issue>-<n>`, and

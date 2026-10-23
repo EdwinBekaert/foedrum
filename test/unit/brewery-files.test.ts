@@ -32,17 +32,42 @@ describe('readBreweryFiles', () => {
   });
 
   it("reads the Brewery's lenses, and the defaults' recipes, brewers and lenses by their path in defaults/ (ADR 0098)", () => {
-    write('lenses/security.md', 'our security');
+    write('lenses/diff/security.md', 'our security');
     write('foedrum/defaults/recipes/nip.jsonc', 'nip');
     write('foedrum/defaults/brewers/gauger.md', 'gauger');
-    write('foedrum/defaults/lenses/correctness.md', 'correctness');
+    write('foedrum/defaults/lenses/diff/correctness.md', 'correctness');
     const files = readBreweryFiles(brewery.path, join(brewery.path, 'foedrum', 'defaults'));
-    assert.deepEqual(files.lenses, [{ path: 'lenses/security.md', text: 'our security' }]);
+    assert.deepEqual(files.lenses, [{ path: 'lenses/diff/security.md', text: 'our security' }]);
     assert.deepEqual(files.defaults, {
       recipes: [{ path: 'defaults/recipes/nip.jsonc', text: 'nip' }],
       brewers: [{ path: 'defaults/brewers/gauger.md', text: 'gauger' }],
-      lenses: [{ path: 'defaults/lenses/correctness.md', text: 'correctness' }],
+      lenses: [{ path: 'defaults/lenses/diff/correctness.md', text: 'correctness' }],
     });
+  });
+
+  it('reads the lenses of lenses/diff/ and lenses/plan/, and those directly in lenses/, which do not load (ADR 0143)', () => {
+    write('lenses/stray.md', 'stray');
+    write('lenses/diff/security.md', 'diff security');
+    write('lenses/plan/coverage.md', 'plan coverage');
+    write('lenses/plan/security.md', 'plan security');
+    // Not lens files: another folder, one folder further down, another extension.
+    write('lenses/code/style.md', 'style');
+    write('lenses/diff/old/security.md', 'old');
+    write('lenses/plan/notes.txt', 'notes');
+    assert.deepEqual(readBreweryFiles(brewery.path).lenses, [
+      { path: 'lenses/stray.md', text: 'stray' },
+      { path: 'lenses/diff/security.md', text: 'diff security' },
+      { path: 'lenses/plan/coverage.md', text: 'plan coverage' },
+      { path: 'lenses/plan/security.md', text: 'plan security' },
+    ]);
+  });
+
+  it('lists a lens folder it cannot read by its path (ADR 0143)', () => {
+    write('lenses/plan', 'a file where the folder should be');
+    const lenses = readBreweryFiles(brewery.path).lenses ?? [];
+    assert.equal(lenses.length, 1);
+    assert.equal(lenses[0]?.path, 'lenses/plan');
+    assert.match(lenses[0] && 'unreadable' in lenses[0] ? lenses[0].unreadable : '', /ENOTDIR/);
   });
 
   it('lists a defaults folder it cannot read by its path in defaults/ (ADR 0098)', () => {
@@ -56,24 +81,33 @@ describe('readBreweryFiles', () => {
 
   it("reads the defaults of Foedrum's own install, wherever the Brewery is (ADR 0098)", () => {
     const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
+    const found = lenses.find(({ path }) => path === 'defaults/lenses/diff/test-design.md');
+    assert.ok(found !== undefined, lenses.map(({ path }) => path).join(', '));
     const own = readFileSync(
-      join(import.meta.dirname, '..', '..', 'defaults', 'lenses', 'test-design.md'),
+      join(import.meta.dirname, '..', '..', 'defaults', 'lenses', 'diff', 'test-design.md'),
       'utf8',
     );
+    assert.deepEqual(found, { path: 'defaults/lenses/diff/test-design.md', text: own });
+  });
+
+  it("has the five default lenses in Foedrum's defaults/lenses/diff/ (ADR 0022, ADR 0143)", () => {
+    const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
     assert.deepEqual(
-      lenses.find(({ path }) => path === 'defaults/lenses/test-design.md'),
-      { path: 'defaults/lenses/test-design.md', text: own },
+      lenses.map(({ path }) => path),
+      ['correctness', 'cross-platform', 'design-conformance', 'security', 'test-design'].map(
+        (name) => `defaults/lenses/diff/${name}.md`,
+      ),
     );
   });
 
   it('reads the defaults of the install, not of the working directory (ADR 0098)', () => {
     // A working directory with defaults of its own, which must not be read.
-    write('defaults/lenses/test-design.md', "the working directory's lens");
+    write('defaults/lenses/diff/test-design.md', "the working directory's lens");
     const cwd = process.cwd();
     process.chdir(brewery.path);
     try {
       const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
-      const found = lenses.find(({ path }) => path === 'defaults/lenses/test-design.md');
+      const found = lenses.find(({ path }) => path === 'defaults/lenses/diff/test-design.md');
       assert.ok(found !== undefined && 'text' in found);
       assert.notEqual(found.text, "the working directory's lens");
     } finally {

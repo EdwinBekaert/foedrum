@@ -1,7 +1,8 @@
 // The Brewery's recipe files as the engine's Recipes (ADR 0053), the core (ADR 0021): every
 // recipe, brewer and lens file is read and checked, and either all of them load or none does.
 // Foedrum's defaults lie under the Brewery's files: a Brewery file replaces the default of its
-// name (ADR 0098). brewery-files.ts reads the files.
+// name (ADR 0098), a lens the default of its folder and name (ADR 0143). brewery-files.ts reads the
+// files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { durationMs } from '../schemas/primitives.ts';
@@ -32,7 +33,8 @@ interface FilesByKind {
 
 /**
  * The Brewery's recipe files (`recipes/*.jsonc`), brewer files (`brewers/*.md`) and lens files
- * (`lenses/*.md`), and Foedrum's own defaults (ADR 0098), each by its path in `defaults/`.
+ * (`lenses/diff/*.md`, `lenses/plan/*.md`, ADR 0143), and Foedrum's own defaults (ADR 0098), each
+ * by its path in `defaults/`.
  */
 export interface BreweryFiles extends FilesByKind {
   defaults?: Partial<FilesByKind>;
@@ -40,8 +42,9 @@ export interface BreweryFiles extends FilesByKind {
 
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
 export interface Lens {
+  /** Its folder and file name: `diff/<name>` or `plan/<name>` (ADR 0143). */
   name: string;
-  /** The file it was read from: `lenses/<name>.md` or `defaults/lenses/<name>.md`. */
+  /** The file it was read from: `lenses/<folder>/<name>.md` or `defaults/lenses/<folder>/<name>.md`. */
   path: string;
   text: string;
 }
@@ -123,6 +126,18 @@ const oneLine = (reason: string): string =>
 const nameOf = (path: string): string => (path.split('/').at(-1) ?? '').replace(/\.[^.]*$/, '');
 
 /**
+ * What a file replaces a default by: its path in its kind's folder, without the extension, so
+ * `nip` for `recipes/nip.jsonc` and `diff/security` for `lenses/diff/security.md` (ADR 0143).
+ */
+const keyOf = (path: string): string =>
+  path
+    .replace(/^defaults\//, '')
+    .split('/')
+    .slice(1)
+    .join('/')
+    .replace(/\.[^./]*$/, '');
+
+/**
  * Whether `file` is a folder the shell could not list: its path names the folder, without a file
  * name and its extension, so it is never matched by name like a file.
  */
@@ -136,8 +151,8 @@ function keptDefaults(
   own: readonly BreweryFile[],
   defaults: readonly BreweryFile[] = [],
 ): readonly BreweryFile[] {
-  const names = new Set(own.filter((file) => !isFolder(file)).map(({ path }) => nameOf(path)));
-  return defaults.filter((file) => isFolder(file) || !names.has(nameOf(file.path)));
+  const names = new Set(own.filter((file) => !isFolder(file)).map(({ path }) => keyOf(path)));
+  return defaults.filter((file) => isFolder(file) || !names.has(keyOf(file.path)));
 }
 
 /** The defaults the Brewery keeps, by kind: those it has no file of the same name for (ADR 0098). */
@@ -172,7 +187,7 @@ export function replacedDefaults(
     own.flatMap((file) => {
       const replaced = isFolder(file)
         ? undefined
-        : replaceable.find((found) => !isFolder(found) && nameOf(found.path) === nameOf(file.path));
+        : replaceable.find((found) => !isFolder(found) && keyOf(found.path) === keyOf(file.path));
       return replaced === undefined ? [] : [{ own: file, replaced }];
     });
   return [
@@ -188,7 +203,7 @@ function defaultsInUse(files: BreweryFiles): string[] {
   return [...recipes, ...brewers, ...lenses].map(({ path }) => path);
 }
 
-/** The lens a brewer input reads (`"from": "lens:<name>"`), when it reads one. */
+/** The lens a brewer input reads (`"from": "lens:<folder>/<name>"`), when it reads one. */
 const lensOf = (from: string): string | undefined =>
   from.startsWith('lens:') ? from.slice('lens:'.length) : undefined;
 
@@ -422,15 +437,22 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
 export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const problems: string[] = [];
   const files = filesInUse(breweryFiles);
-  // A lens has no frontmatter: its file's name is its name, and its text is all of it.
+  // A lens has no frontmatter: its folder and file name are its name (ADR 0143), and its text is
+  // all of it.
   const lenses = new Map<string, Lens>();
   // A lens whose file has a problem of its own is reported once, as that file.
   const brokenLenses = new Set<string>();
   // A lens folder that could not be read may hold any lens: no brewer is told it lacks one.
   const lensFolderUnread = files.lenses.some((file) => 'unreadable' in file && isFolder(file));
   for (const file of files.lenses) {
-    const name = nameOf(file.path);
-    if ('unreadable' in file) {
+    const name = keyOf(file.path);
+    if (!isFolder(file) && !name.includes('/')) {
+      // A lens directly in lenses/: its folder says what it reviews, and it has none (ADR 0143).
+      const folder = file.path.slice(0, file.path.lastIndexOf('/'));
+      problems.push(
+        `${file.path}: a lens belongs in ${folder}/diff/, to review a diff, or ${folder}/plan/, to review a plan (ADR 0143)`,
+      );
+    } else if ('unreadable' in file) {
       problems.push(`${file.path}: ${file.unreadable}`);
       brokenLenses.add(name);
     } else if (Buffer.byteLength(file.text, 'utf8') > MAX_INPUT_BYTES) {
@@ -585,6 +607,23 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       return name !== undefined && brewerOf(name)?.produces === 'commits';
     };
     const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
+    // A step with a lens reviews a diff once a step before it commits, else a plan; its lens's
+    // folder must say the same (ADR 0143).
+    const misfolded = order.flatMap((step, at) => {
+      if (!('lens' in step) || step.lens === undefined) return [];
+      const committed = order.slice(0, at).find(commits);
+      const reviews = committed === undefined ? 'plan' : 'diff';
+      if (step.lens.startsWith(`${reviews}/`)) return [];
+      const since =
+        committed === undefined
+          ? 'no step before it commits'
+          : `step "${stepId(committed)}" before it commits`;
+      const other = reviews === 'plan' ? 'diff' : 'plan';
+      return [
+        `${path}: step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${step.lens}", which reviews a ${other}: name a lens of lenses/${reviews}/ (ADR 0143)`,
+      ];
+    });
+    for (const line of misfolded) problems.push(line);
     // A red proof finds the tests in what its step committed (ADR 0078).
     const proofs = order.flatMap((step) =>
       'of' in step ? [{ id: stepId(step), of: step.of }] : [],
@@ -609,7 +648,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         `${path}: step "${stepId(step)}" has the brewer "${stepBrewerName(step)}", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
       );
     }
-    const refused = ofNothing.length + unprovenLines.length + unopened.length > 0;
+    const refused =
+      misfolded.length + ofNothing.length + unprovenLines.length + unopened.length > 0;
     if (steps.length < value.steps.length || refused) continue;
     const [proof] = proofs;
     if (proof !== undefined) redProofs.set(value.name, proof);

@@ -1,6 +1,6 @@
 // Recipes: brewers, checks and actions in order, with loops (brewers-and-recipes §3).
 
-import { PathSafeId } from './ids.ts';
+import { LensName, PathSafeId } from './ids.ts';
 import { CheckName, CommandObject, Duration } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
@@ -47,7 +47,9 @@ const BrewerStep = z.strictObject({
   id: StepId.optional().describe('Defaults to the brewer name'),
   brewer: PathSafeId,
   when,
-  lens: PathSafeId.optional().describe('Taster only: the lens file that sets the review focus'),
+  lens: LensName.optional().describe(
+    'Taster only: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143)',
+  ),
   blocking: z.boolean().optional().describe('Brett only: surviving mutants block the verdict'),
   // Only findings are routed: an environment or divergence blocker always makes the batch Stuck.
   onBlocked: z.strictObject({ findings: Route }).optional(),

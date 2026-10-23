@@ -251,14 +251,63 @@ describe('laneLabelEffects', () => {
     assert.equal(store.findEffect({ batchId: '7-2', effect: 'label.1' }), undefined);
   });
 
-  it('labels no claimed target issue, which keeps only foedrum:claimed', async () => {
-    issue({
-      kind: 'order',
-      batchId: 'web-3',
-      order: { issue: 3, repo: 'alice/web' },
+  describe('a claimed target issue (ADR 0144)', () => {
+    const order = { issue: 3, repo: 'alice/web' };
+    /** The ledger records that `batchId` opened the Brewery issue #20 as its order. */
+    const opened = (batchId: string): void =>
+      store.withTransaction((tx) => tx.recordEffect({ batchId, effect: 'order.issue' }, 20));
+    const untouched = (): void => {
+      // Neither the Brewery issue with the target issue's number nor the target issue itself.
+      assert.deepEqual(labels.of(brewery, 3), []);
+      assert.deepEqual(labels.of('alice/web', 3), []);
+    };
+
+    it('labels its Brewery issue with each lane once the batch records it, and nothing before', async () => {
+      issue({ kind: 'order', batchId: 'web-3', order });
+      const driver = await open();
+      await driver.tick();
+      assert.deepEqual(labels.calls, [], 'no Brewery issue yet');
+      opened('web-3');
+      await driver.tick();
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
+      issue({ kind: 'route', batchId: 'web-3', recipe: 'nip', reason: 'label', source: 'label' });
+      issue({
+        kind: 'record',
+        event: { type: 'step.started', batchId: 'web-3', stepId: 'plan', attempt: 1 },
+      });
+      await driver.tick();
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:brewing']);
+      issue({ kind: 'finish', batchId: 'web-3', stepId: 'plan', attempt: 1, ending: succeeded });
+      await driver.tick();
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:on-tap']);
+      untouched();
+      assert.deepEqual(notices, []);
     });
-    const driver = await open();
-    await driver.tick();
-    assert.deepEqual(labels.calls, []);
+
+    it('lets only the latest batch of the issue label the Brewery issue they share', async () => {
+      issue({ kind: 'order', batchId: 'web-3', order });
+      opened('web-3');
+      const driver = await open();
+      await driver.tick();
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
+      issue({ kind: 'cancel', batchId: 'web-3', by: 'alice', via: 'terminal' });
+      // Ordered again: web-3's release is the claim effects', which this driver does not apply.
+      store.withTransaction((tx) =>
+        tx.append({
+          type: 'batch.ordered',
+          batchId: 'web-3-2',
+          order,
+          routeBy: '2026-10-23T10:00:00.000Z',
+        }),
+      );
+      await driver.tick();
+      // web-3's revision that would take the label off is never due: web-3-2 brews there now.
+      assert.equal(store.findEffect({ batchId: 'web-3', effect: 'label.2' }), undefined);
+      assert.deepEqual(store.findEffect({ batchId: 'web-3-2', effect: 'label.1' }), {
+        result: { label: 'foedrum:ordered' },
+      });
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
+      untouched();
+    });
   });
 });

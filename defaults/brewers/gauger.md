@@ -7,7 +7,7 @@
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
-    { "name": "testDesign", "from": "lens:test-design" }
+    { "name": "testDesign", "from": "lens:diff/test-design" }
   ],
   "output": { "doc": "gauge.md", "schema": "outDoc" },
   "produces": "commits",

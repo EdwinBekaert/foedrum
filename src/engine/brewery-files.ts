@@ -1,6 +1,7 @@
 // The Brewery's recipe files as the engine's Recipes (ADR 0053), the shell: reads
-// `recipes/*.jsonc`, `brewers/*.md` and `lenses/*.md` from the Brewery's root, and the same
-// folders of Foedrum's own `defaults/` (ADR 0098). recipe-files.ts decides.
+// `recipes/*.jsonc`, `brewers/*.md` and the lenses of `lenses/diff/` and `lenses/plan/` (ADR 0143)
+// from the Brewery's root, and the same folders of Foedrum's own `defaults/` (ADR 0098).
+// recipe-files.ts decides.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,15 +47,29 @@ function readFolder(root: string, folder: string, extension: string, prefix = ''
   });
 }
 
+/**
+ * The lens files of `lenses/diff/` and `lenses/plan/`, and those directly in `lenses/`, which the
+ * load refuses for their place (ADR 0143). A `lenses/` that cannot be read is listed alone.
+ */
+function readLenses(root: string, prefix = ''): BreweryFile[] {
+  const stray = readFolder(root, 'lenses', '.md', prefix);
+  if (stray.some(({ path }) => path === `${prefix}lenses`)) return stray;
+  return [
+    ...stray,
+    ...readFolder(root, 'lenses/diff', '.md', prefix),
+    ...readFolder(root, 'lenses/plan', '.md', prefix),
+  ];
+}
+
 /** The recipe, brewer and lens files directly in their folders of `root`, by name. */
 const readKinds = (root: string, prefix?: string) => ({
   recipes: readFolder(root, 'recipes', '.jsonc', prefix),
   brewers: readFolder(root, 'brewers', '.md', prefix),
-  lenses: readFolder(root, 'lenses', '.md', prefix),
+  lenses: readLenses(root, prefix),
 });
 
 /**
- * The recipe, brewer and lens files directly in their folders, by name, and those of `defaults`
+ * The recipe, brewer and lens files in their folders, by name, and those of `defaults`
  * (Foedrum's own) by their path in `defaults/`; a missing folder has none. A file or folder that
  * cannot be read is listed with the reason, so it fails the load.
  */
