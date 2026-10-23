@@ -19,6 +19,7 @@ import { openAttemptWorktrees, worktreeClonePath } from '../workspace/attempt-wo
 import { runGit } from '../workspace/git.ts';
 import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
+import { foregroundGate } from './foreground-gate.ts';
 import { claudeConfigDir, runResume, sessionFoundIn, terminalEnv } from './resume.ts';
 import { runResumeRunning } from './resume-running.ts';
 import type { CliResult } from './run.ts';
@@ -52,19 +53,15 @@ const resumeRunning = async (
   if (ready.kind === 'refused') return ready.result;
   const { setup } = ready;
   const listening = listenWhileServing(process);
-  let foreground = false;
-  const waiting: string[] = [];
   const write = (line: string) => process.stdout.write(`${line}\n`);
+  // The driver's lines wait for claude, and Ctrl+C is claude's while it runs (ADR 0127).
+  const gate = foregroundGate(write, listening.listen);
   try {
     const shell = serveShell(setup, {
       root: cwd,
       git: runGit,
-      out: (line) => (foreground ? waiting.push(line) : write(line)),
-      // Ctrl+C reaches claude and foedrum alike: it is claude's while claude runs.
-      listen: (name, handler) =>
-        listening.listen(name, () => {
-          if (!foreground) handler();
-        }),
+      out: gate.out,
+      listen: gate.listen,
       command: 'resume',
     });
     const runner = (claude: string, plan: Parameters<typeof shell.runner>[1]) =>
@@ -74,15 +71,8 @@ const resumeRunning = async (
         terminalEnv: terminalEnv(process.env, process.platform),
         platform: process.platform,
         say: write,
-        foreground: async (program, args, folder, env) => {
-          foreground = true;
-          try {
-            return await foregroundProcess(program, args, folder, env);
-          } finally {
-            foreground = false;
-            for (const line of waiting.splice(0)) write(line);
-          }
-        },
+        foreground: (program, args, folder, env) =>
+          gate.foreground(() => foregroundProcess(program, args, folder, env)),
       });
     const owner = `resume-${process.pid}`;
     const exitCode = await runResumeRunning(

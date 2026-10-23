@@ -13,10 +13,33 @@ export interface ForegroundGate {
   foreground: <T>(program: () => Promise<T>) => Promise<T>;
 }
 
+/** What the console sends claude and foedrum alike: claude's while it has the terminal. */
+const CONSOLE_SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGBREAK'];
+
 /** The gate over `write`, the terminal, and `listen`, the process's signals. */
 export const foregroundGate = (
-  _write: (line: string) => void,
-  _listen: ListenForSignal,
+  write: (line: string) => void,
+  listen: ListenForSignal,
 ): ForegroundGate => {
-  throw new Error('not implemented');
+  let open = false;
+  const waiting: string[] = [];
+  return {
+    out: (line) => {
+      if (open) waiting.push(line);
+      else write(line);
+    },
+    listen: (name, handler) =>
+      listen(name, () => {
+        if (!open || !CONSOLE_SIGNALS.includes(name)) handler();
+      }),
+    foreground: async (program) => {
+      open = true;
+      try {
+        return await program();
+      } finally {
+        open = false;
+        for (const line of waiting.splice(0)) write(line);
+      }
+    },
+  };
 };

@@ -71,6 +71,9 @@ const ranOut = (
 ): { attempt: number; outcome: StepOutcome } | undefined => {
   const attempts = batch?.steps.get(stepId)?.attempts;
   if (attempts === undefined || attempts.size === 0) return undefined;
+  // Its end may have scheduled a retry, the next driver's to start.
+  const resumed = attempts.get(attempt);
+  if (resumed?.phase === 'finished') return { attempt, outcome: resumed.outcome };
   const latest = attempts.get(Math.max(...attempts.keys()));
   if (latest?.phase !== 'finished') return undefined;
   const { outcome } = latest;

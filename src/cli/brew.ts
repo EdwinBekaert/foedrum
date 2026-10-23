@@ -260,7 +260,12 @@ export const runBrew = async (
           );
       while (running() && clock().getTime() < until && !signal.aborted) {
         await wait(intervalMs, signal);
-        await driver.tick();
+        try {
+          await driver.tick();
+        } catch (error) {
+          if (error instanceof StateBranchStopError) throw error;
+          say(formatNotice({ kind: 'tick_failed', error }));
+        }
       }
     };
 
