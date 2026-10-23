@@ -384,8 +384,8 @@ export function attemptPermissions(
   brewer: BrewerFrontmatter,
   repoTools: readonly string[],
   sandbox: boolean,
-  configDirs?: ConfigDirs,
-  base: Env = {},
+  configDirs: ConfigDirs | undefined,
+  base: Env,
 ): AttemptPermissions {
   // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
   const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...repoTools])];
@@ -427,7 +427,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     facts.repoTools,
     facts.sandbox,
     facts.configDirs,
-    facts.env.base,
+    env.base,
   );
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
