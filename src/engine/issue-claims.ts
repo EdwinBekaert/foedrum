@@ -244,12 +244,12 @@ export const orderEffects = {
 } as const;
 
 /**
- * The Brewery issue that is the order of a claimed batch (ADR 0144): the one an earlier batch of the
- * same issue opened, and whether a release closed it since, and the batch's own once it is known.
+ * The Brewery issue that is the order of a claimed batch (ADR 0144): the one the earlier batches of
+ * the same issue left, and the batch's own once it is known.
  */
 export interface ClaimOrder {
   /** `gone`: the batch's reopen found that a person deleted it, so the batch opens its own. */
-  earlier?: { issue: number; closed?: boolean; gone?: true };
+  earlier?: { issue: number; gone?: true };
   issue?: number;
 }
 
@@ -353,9 +353,20 @@ export const claimEffectsDue = (
   const release = releaseOf(batch.lane, pullRequest);
   if (release === undefined) {
     // The Brewery issue comes after the marks, which keep other Breweries off the issue. A batch
-    // ordered again keeps the one an earlier batch opened, reopened if a release closed it.
+    // ordered again keeps the one an earlier batch opened, reopened however it was closed (found
+    // done while it is open), and opens its own when a person deleted it.
     const ordering: DueClaimEffect[] = [];
-    if (earlier === undefined) {
+    if (earlier !== undefined) {
+      ordering.push(
+        due(orderEffects.reopen, {
+          kind: 'issue_state',
+          repo: brewery,
+          issue: earlier.issue,
+          state: 'open',
+        }),
+      );
+    }
+    if (earlier === undefined || earlier.gone === true) {
       const target = `${repo}#${issue}`;
       ordering.push(
         due(orderEffects.open, {
@@ -364,15 +375,6 @@ export const claimEffectsDue = (
           issue,
           brewery,
           body: `The order of ${target}, which this Brewery claimed. Its batches brew here, and their pull requests close ${target}.`,
-        }),
-      );
-    } else if (earlier.closed) {
-      ordering.push(
-        due(orderEffects.reopen, {
-          kind: 'issue_state',
-          repo: brewery,
-          issue: earlier.issue,
-          state: 'open',
         }),
       );
     }

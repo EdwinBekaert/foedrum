@@ -8,9 +8,6 @@ import { effectKey } from './effect-key.ts';
 import type { Batch, State } from './fold.ts';
 import { type ClaimOrder, orderEffects, same } from './issue-claims.ts';
 
-const applied = (state: State, batchId: string, effect: string): boolean =>
-  state.effects.has(effectKey.encode({ batchId, effect }));
-
 // The Brewery issue the batch opened, as the ledger recorded it; a result that is no issue number
 // never names one.
 const openedBy = (state: State, batchId: string): number | undefined => {
@@ -21,24 +18,35 @@ const openedBy = (state: State, batchId: string): number | undefined => {
 };
 
 /** The Brewery issue of the claimed batch `batchId`; none for a batch of a Brewery issue. */
+// A person deleted the Brewery issue, as the batch's reopen or close found it.
+const foundGone = (state: State, batchId: string, effect: string): boolean =>
+  state.effects.get(effectKey.encode({ batchId, effect })) === 'gone';
+
+/** The batch's own Brewery issue, given the one the batches before it left (`earlier`). */
+const ownOrder = (state: State, batchId: string, earlier: number | undefined) =>
+  openedBy(state, batchId) ??
+  (foundGone(state, batchId, orderEffects.reopen) ? undefined : earlier);
+
+/** The Brewery issue the batch leaves for the next batch of its issue. */
+const leftBy = (state: State, batchId: string, earlier: number | undefined) =>
+  foundGone(state, batchId, orderEffects.close) ? undefined : ownOrder(state, batchId, earlier);
+
+/** The Brewery issue of the claimed batch `batchId`; none for a batch of a Brewery issue. */
 export const claimOrderOf = (state: State, batchId: string): ClaimOrder => {
   const batch = state.batches.get(batchId);
   if (batch?.repo === undefined) return {};
   const { repo, issue } = batch;
   // The batches of the issue before this one, in the order they were ordered.
-  let earlier: { issue: number; closed: boolean } | undefined;
+  let earlier: number | undefined;
   for (const other of state.batches.values()) {
     if (other.id === batchId) break;
     if (other.issue !== issue || other.repo === undefined || !same(other.repo, repo)) continue;
-    const opened = openedBy(state, other.id);
-    if (opened !== undefined) earlier = { issue: opened, closed: false };
-    if (earlier === undefined) continue;
-    if (applied(state, other.id, orderEffects.reopen)) earlier = { ...earlier, closed: false };
-    if (applied(state, other.id, orderEffects.close)) earlier = { ...earlier, closed: true };
+    earlier = leftBy(state, other.id, earlier);
   }
-  const own = openedBy(state, batchId) ?? earlier?.issue;
+  const own = ownOrder(state, batchId, earlier);
+  const gone = foundGone(state, batchId, orderEffects.reopen);
   return {
-    ...(earlier === undefined ? {} : { earlier }),
+    ...(earlier === undefined ? {} : { earlier: { issue: earlier, ...(gone ? { gone } : {}) } }),
     ...(own === undefined ? {} : { issue: own }),
   };
 };
@@ -46,15 +54,14 @@ export const claimOrderOf = (state: State, batchId: string): ClaimOrder => {
 /** The latest claimed batch whose order is the Brewery issue `issue`, or undefined. */
 export const claimOfOrder = (state: State, issue: number): Batch | undefined => {
   // The Brewery issue each claimed issue has so far, by `<repo in lower case>#<issue>`: one pass.
-  const orders = new Map<string, number>();
+  const orders = new Map<string, number | undefined>();
   let found: Batch | undefined;
   for (const batch of state.batches.values()) {
     if (batch.repo === undefined) continue;
     const key = `${batch.repo.toLowerCase()}#${batch.issue}`;
-    const own = openedBy(state, batch.id) ?? orders.get(key);
-    if (own === undefined) continue;
-    orders.set(key, own);
-    if (own === issue) found = batch;
+    const earlier = orders.get(key);
+    if (ownOrder(state, batch.id, earlier) === issue) found = batch;
+    orders.set(key, leftBy(state, batch.id, earlier));
   }
   return found;
 };
