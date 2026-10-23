@@ -15,6 +15,7 @@ import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
+import { inClone } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   answersOf,
@@ -149,22 +150,35 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
-   * The change a Taster that reviews a diff is given, read with git in its worktree (ADR 0161): the
-   * commits after `since` and their diff. A diff past git's output limit keeps its start, which the
+   * The change a Taster that reviews a diff is given (ADR 0161): the commits from `since` to `head`,
+   * the commit its worktree started at, and their diff. Read in the repository's clone, never by
+   * discovery in the worktree, with no hook, external diff or textconv a brewer could have planted
+   * there (ADR 0029, ADR 0096, ADR 0137). A diff past git's output limit keeps its start, which the
    * input cuts anyway.
    */
-  const changeFor = async (cwd: string, since: string): Promise<PromptInput> => {
+  const changeFor = async (repo: string, since: string, head: string): Promise<PromptInput> => {
     const why = `the change since commit ${since} was not read`;
-    const { git } = options;
-    if (git === undefined) throw new Error(`${why}: no git was given`);
+    if (options.git === undefined) throw new Error(`${why}: no git was given`);
+    const git = inClone(options.git);
+    const clone = options.clone(repo);
     const read = async (args: readonly string[]): Promise<string> => {
-      const result = await git(cwd, args, { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES });
+      const result = await git(clone, args, { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES });
       if (result.code === 0 || result.killed === 'too-much-output') return result.stdout;
       const [said = ''] = result.stderr.trim().split('\n');
       throw new Error(`${why}: git ${args.join(' ')} exited with code ${result.code}: ${said}`);
     };
-    const log = await read(['log', '--format=%h %s', `${since}..HEAD`]);
-    return changeInput(since, log, await read(['diff', since, 'HEAD']));
+    const log = await read(['log', '--no-show-signature', '--format=%h %s', `${since}..${head}`]);
+    const diff = await read([
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      '--no-color',
+      '--no-ext-diff',
+      '--no-textconv',
+      since,
+      head,
+    ]);
+    return changeInput(since, log, diff);
   };
 
   /**
@@ -186,7 +200,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
     const since = found.lens?.startsWith('diff/') ? changeStart(batch, worktree.repo) : undefined;
-    if (since !== undefined) inputs.push(await changeFor(worktree.path, since));
+    if (since !== undefined) inputs.push(await changeFor(worktree.repo, since, worktree.commit));
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);
     const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
