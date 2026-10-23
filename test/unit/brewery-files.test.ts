@@ -120,6 +120,14 @@ describe('readBreweryFiles', () => {
     assert.match(lenses?.[0] && 'unreadable' in lenses[0] ? lenses[0].unreadable : '', /ENOTDIR/);
   });
 
+  it("lists the defaults' models.jsonc it cannot read by its path in defaults/ (ADR 0153)", () => {
+    write('foedrum/defaults/models.jsonc/x', 'a folder where the file should be');
+    const models = readBreweryFiles(brewery.path, join(brewery.path, 'foedrum', 'defaults'))
+      .defaults?.models;
+    assert.equal(models?.path, 'defaults/models.jsonc');
+    assert.match(models && 'unreadable' in models ? models.unreadable : '', /EISDIR/);
+  });
+
   it("reads the defaults of Foedrum's own install, wherever the Brewery is (ADR 0098)", () => {
     const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
     const found = lenses.find(({ path }) => path === 'defaults/lenses/diff/test-design.md');
