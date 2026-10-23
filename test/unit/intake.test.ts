@@ -27,7 +27,11 @@ const pullRequest = 'https://github.com/acme/web/pull/12';
 const now = new Date('2026-10-16T09:00:00.000Z');
 const alice: Claimant = { brewery: 'alice/brewery', login: 'alice' };
 const bob: Claimant = { brewery: 'bob/brewery', login: 'bob' };
-const recipes = fakeRecipes({ half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }) });
+const recipes = fakeRecipes({
+  half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }),
+  nip: fakeRecipe({ steps: ['plan'] }),
+  other: fakeRecipe({ steps: ['plan'] }),
+});
 const succeeded: Ending = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Done', assumptions: [] },
@@ -481,14 +485,83 @@ describe('createIntake', () => {
       assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing']);
     });
 
-    it('routes a claimed target issue by its recipe label too', async () => {
+    /** Records that the driver opened the Brewery issue `order` for the claimed batch (ADR 0144). */
+    const opened = (batchId: string, order: number): void =>
+      accept({
+        kind: 'record',
+        event: { type: 'effect.applied', key: `["${batchId}","order.issue"]`, result: order },
+      });
+
+    it("routes a claimed batch by its Brewery issue's recipe label, never its target issue's (ADR 0156)", async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      opened('web-7', 12);
       const { tracker } = fakeTracker({
-        [brewery]: [],
-        [web]: [issue(7, { labels: ['foedrum', 'recipe:half'] })],
+        [brewery]: [issue(12, { labels: ['recipe:nip'] })],
+        [web]: [issue(7, { labels: ['foedrum', 'recipe:other'] })],
         [api]: [],
       });
       await breweryIntake(tracker).poll();
       assert.deepStrictEqual(lanes(), ['web-7 brewing']);
+      assert.deepStrictEqual(recipeOf('web-7'), {
+        name: 'nip',
+        reason: 'the label recipe:nip',
+        source: 'label',
+      });
+    });
+
+    it('leaves a claimed batch Ordered until its Brewery issue is recorded, whatever its target issue carries', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      const routeBy = log.state().batches.get('web-7')?.lane;
+      // Brewery issue #7 is no order of web-7, though it has the target issue's number.
+      const { tracker } = fakeTracker({
+        [brewery]: [issue(7, { labels: ['recipe:nip'], author: 'mallory' })],
+        [web]: [issue(7, { labels: ['foedrum', 'recipe:half'] })],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(log.state().batches.get('web-7')?.lane, routeBy);
+      assert.deepStrictEqual(notices, []);
+    });
+
+    it('reports a claimed batch whose Brewery issue carries two recipe labels, naming that issue', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      opened('web-7', 12);
+      const { tracker } = fakeTracker({
+        [brewery]: [issue(12, { labels: ['recipe:half', 'recipe:pint'] })],
+        [web]: [issue(7)],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(notices, [
+        {
+          kind: 'unrouted',
+          batchId: 'web-7',
+          reason: 'its issue #12 carries recipe:half and recipe:pint; give it one recipe label',
+        },
+      ]);
+    });
+
+    it('routes a claimed issue ordered again by the Brewery issue an earlier batch of it opened', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      opened('web-7', 12);
+      accept({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      // The cancel's release, applied by the driver, lets the issue be ordered again (ADR 0105).
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        accept({
+          kind: 'record',
+          event: { type: 'effect.applied', key: `["web-7","${effect}"]`, result: null },
+        });
+      }
+      accept({ kind: 'order', batchId: 'web-7-2', order: { issue: 7, repo: web } });
+      const { tracker } = fakeTracker({
+        [brewery]: [issue(12, { labels: ['recipe:nip'] })],
+        [web]: [],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.equal(recipeOf('web-7-2')?.name, 'nip');
     });
 
     it('orders the oldest Brewery issue first, whatever order the listing gives', async () => {
@@ -509,39 +582,58 @@ describe('createIntake', () => {
       const { tracker, asked } = fakeTracker({ [brewery]: [labelled(13)], [web]: [], [api]: [] });
       await breweryIntake(tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(asked, []);
-      // An Ordered batch of acme/web is listed for, and acme/api is not.
+      // A claimed batch is routed by its Brewery issue: nothing is listed for it until that is
+      // recorded, then only the Brewery is, never its target repository (ADR 0156).
       accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      const routing = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
-      await breweryIntake(routing.tracker, { capacity: 1 }).poll();
-      assert.deepStrictEqual(routing.asked, [`issues ${web}`]);
-    });
-
-    it("routes no target batch whose issue no longer passes its repository's filter", async () => {
-      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
-      accept({ kind: 'order', batchId: 'web-8', order: { issue: 8, repo: web } });
-      // The tracker may list what the filter leaves out: the labels went, or the milestone moved.
-      const { tracker } = fakeTracker({
-        [brewery]: [],
-        [web]: [
-          issue(7, { labels: ['recipe:half'] }),
-          issue(8, { labels: ['foedrum', 'recipe:half'], milestone: 'M2' }),
-        ],
+      const unopened = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
+      await breweryIntake(unopened.tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(unopened.asked, []);
+      opened('web-7', 14);
+      // Its Brewery issue #14 is not listed (a person closed it): it waits, and Brewery issue #7,
+      // with its target issue's number, never routes it.
+      const routing = fakeTracker({
+        [brewery]: [issue(7, { labels: ['recipe:half'], author: 'mallory' })],
+        [web]: [issue(7)],
         [api]: [],
       });
-      const filtered = [
-        { repo: web, alias: 'web', filter: { labels: ['foedrum'], milestone: 'M1' } },
-        { repo: api, alias: 'api', filter: { labels: ['foedrum'] } },
-      ];
-      await breweryIntake(tracker, { repositories: filtered }).poll();
-      assert.deepStrictEqual(lanes(), ['web-7 ordered', 'web-8 ordered']);
+      await breweryIntake(routing.tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(routing.asked, [`issues ${brewery}`]);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered']);
+      assert.deepStrictEqual(notices, [
+        { kind: 'ordered', repo: brewery, issue: 12, batchId: '12-1' },
+        { kind: 'routed', batchId: '12-1', recipe: 'half' },
+      ]);
+    });
+
+    it("lists the Brewery without free capacity for one of the Brewery's own Ordered batches alone", async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      const { tracker, asked } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
+      await breweryIntake(tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(asked, [`issues ${brewery}`]);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+    });
+
+    it("routes a claimed batch whose target issue no longer passes its repository's filter, or is gone from it", async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'order', batchId: 'web-8', order: { issue: 8, repo: web } });
+      opened('web-7', 12);
+      opened('web-8', 13);
+      const { tracker } = fakeTracker({
+        [brewery]: [issue(12, { labels: ['recipe:half'] }), issue(13, { labels: ['recipe:half'] })],
+        [web]: [issue(7, { labels: [] })],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 brewing', 'web-8 brewing']);
     });
 
     it('routes without free capacity: an Ordered batch already holds its place', async () => {
       accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
       accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      opened('web-7', 13);
       const { tracker } = fakeTracker({
-        [brewery]: [labelled(12), labelled(14)],
-        [web]: [issue(7, { labels: ['foedrum', 'recipe:half'] }), issue(8)],
+        [brewery]: [labelled(12), labelled(13), labelled(14)],
+        [web]: [issue(7), issue(8)],
         [api]: [issue(2)],
       });
       await breweryIntake(tracker, { capacity: 2 }).poll();

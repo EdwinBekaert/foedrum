@@ -1,16 +1,18 @@
 // The intake killed between an order and its route (#107, ADR 0068): a pass orders labelled Brewery
-// issues and claimed target issues, then routes them by label, and is killed after one of its
-// orders committed. What survives is the store and the fake GitHub. A restarted intake routes the
-// batches the dead pass left Ordered and never orders an issue twice; an intake that never comes
+// issues and claimed target issues, then routes them by label (a claimed one by its Brewery issue's,
+// ADR 0156), and is killed after one of its orders committed. What survives is the store and the
+// fake GitHub. A restarted intake routes the batches the dead pass left Ordered and never orders an
+// issue twice; an intake that never comes
 // back leaves them for the supervisor, which makes each Stuck on routing in its first tick after
 // the deadline (ADR 0032). The run count is FOEDRUM_RUNS (a few in npm run check, more in CI).
 
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { createIntake, type TargetTracker } from '../../src/engine/intake.ts';
-import type { TargetIssue } from '../../src/engine/issue-claims.ts';
+import { orderEffects, type TargetIssue } from '../../src/engine/issue-claims.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { createSupervisor } from '../../src/engine/supervisor-loop.ts';
 import { type Random, seededRandom } from '../helpers/event-sequences.ts';
@@ -88,34 +90,48 @@ const plan = (random: Random): Planned[] => {
   return planned;
 };
 
-const tracker = (planned: readonly Planned[]): TargetTracker => ({
-  issues: async (repo) =>
-    planned
-      .filter((each) => each.repo === repo)
-      .map(
-        ({ number, kind }): TargetIssue => ({
-          number,
-          state: 'open',
-          pullRequest: false,
-          labels: repo === web ? ['foedrum', ...labelsOf[kind]] : labelsOf[kind],
-          milestone: undefined,
-          assignees: [],
-          author: 'ann',
-        }),
-      ),
-  pullRequest: async () => 'open',
-});
+/** The Brewery issue the driver opens for the claimed target issue `number` (ADR 0144). */
+const orderOf = (number: number): number => 100 + number;
+
+/**
+ * The open issues of each repository. A claimed target issue is routed by its Brewery issue, which
+ * carries what the plan asks for; the target issue itself always carries `recipe:half`, which never
+ * counts (ADR 0156). `opened`: the target issues whose Brewery issue the driver opened.
+ */
+const tracker = (planned: readonly Planned[], opened: ReadonlySet<number>): TargetTracker => {
+  const listed = (number: number, labels: string[]): TargetIssue => ({
+    number,
+    state: 'open',
+    pullRequest: false,
+    labels,
+    milestone: undefined,
+    assignees: [],
+    author: 'ann',
+  });
+  return {
+    issues: async (repo) =>
+      repo === web
+        ? planned
+            .filter((each) => each.repo === web)
+            .map(({ number }) => listed(number, ['foedrum', 'recipe:half']))
+        : planned.flatMap(({ repo: from, number, kind }) => {
+            if (from === brewery) return [listed(number, labelsOf[kind])];
+            return opened.has(number) ? [listed(orderOf(number), labelsOf[kind])] : [];
+          }),
+    pullRequest: async () => 'open',
+  };
+};
 
 const run = async (seed: number): Promise<void> => {
   const random = seededRandom(seed);
   const planned = plan(random);
   const store: EventStore = openSqliteEventStore(':memory:');
   const github = fakeGitHub();
-  const intakeOf = (log: CommandLog, at: Date) =>
+  const intakeOf = (log: CommandLog, at: Date, opened: ReadonlySet<number> = new Set()) =>
     createIntake({
       log,
       brewery,
-      tracker: tracker(planned),
+      tracker: tracker(planned, opened),
       claims: github.host,
       claimant: { brewery, login: 'ann' },
       authors: ['ann'],
@@ -143,19 +159,34 @@ const run = async (seed: number): Promise<void> => {
 
     const restarted = random.int(2) === 1;
     if (restarted) {
-      // Back before the routing deadline: the next pass routes what the dead one left Ordered.
+      // Back before the routing deadline: the next pass routes what the dead one left Ordered. The
+      // driver opened the Brewery issue of each claimed batch the dead pass ordered, and of none
+      // the next pass orders (ADR 0144).
       const at = new Date(t0.getTime() + random.int(routingMs));
-      await intakeOf(fresh(), at).poll();
+      const opened = new Set<number>();
+      for (const batch of batches()) {
+        if (batch.repo === undefined) continue;
+        opened.add(batch.issue);
+        const key = effectKey.encode({ batchId: batch.id, effect: orderEffects.open });
+        const event = { type: 'effect.applied', key, result: orderOf(batch.issue) } as const;
+        assert.equal(fresh().issue({ kind: 'record', event }, at).kind, 'accepted');
+      }
+      await intakeOf(fresh(), at, opened).poll();
       for (const each of planned) {
         const found = batchOf(each);
         assert.equal(found.length, 1, `${each.repo}#${each.number} has one batch`);
         const lane = found[0]?.lane.kind;
+        // A claimed batch whose Brewery issue is not open yet waits for it, whatever its target
+        // issue carries.
+        const routable = each.repo === brewery || opened.has(each.number);
         assert.equal(
           lane,
-          each.kind === 'half' ? 'brewing' : 'ordered',
+          routable && each.kind === 'half' ? 'brewing' : 'ordered',
           `${each.repo}#${each.number}`,
         );
       }
+      // The Brewery issue of a claimed batch is never ordered as one of the Brewery's own.
+      assert.ok(batches().every((batch) => batch.issue < 100));
     }
 
     // The supervisor's first tick after the last routing deadline: no batch is left Ordered.
