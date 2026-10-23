@@ -197,7 +197,8 @@ describe('claimEffects', () => {
       assert.deepStrictEqual(ledger('order.issue'), { result: made });
     });
 
-    it('counts only an issue its own identity opened, not one someone else planted', async () => {
+    // Which issues count is the code host's findIssue (githubIssueMarks, test/unit/github-marks.test.ts).
+    it('opens its own when the code host finds no issue of its own identity with the key', async () => {
       order();
       const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
       await github.marks('mallory').openIssue(brewery, 'Issue 7', effectMarker(key));
@@ -217,6 +218,31 @@ describe('claimEffects', () => {
           (notice) => notice.kind === 'effect_failed' && notice.key.effect === 'order.issue',
         ),
       );
+    });
+
+    it('refuses an issue number the code host found that is no positive integer', async () => {
+      order();
+      const driver = await open({ marks: { ...github.marks('alice'), findIssue: async () => 0 } });
+      await driver.tick();
+      assert.equal(ledger('order.issue'), undefined);
+      assert.ok(
+        notices.some(
+          (notice) => notice.kind === 'effect_failed' && notice.key.effect === 'order.issue',
+        ),
+      );
+    });
+
+    it('records the close without closing again when a person closed it already', async () => {
+      onTap();
+      const driver = await open();
+      await driver.tick();
+      const [made] = opened();
+      github.issue(brewery, made?.number ?? 0).state = 'closed';
+      ended(merged, 'merged');
+      ended(other, 'merged');
+      await driver.tick();
+      assert.deepStrictEqual(ledger('release.order'), { result: null });
+      assert.equal(github.calls.get('setIssueState'), undefined);
     });
 
     it('closes it when every pull request merged, as the release of the claim', async () => {

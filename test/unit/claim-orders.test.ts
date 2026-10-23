@@ -77,9 +77,19 @@ describe('claimOrderOf', () => {
     assert.deepStrictEqual(claimOrderOf(state, 'web-7'), {});
   });
 
-  it('ignores a recorded result that is no positive integer', () => {
-    const state = stateOf(ordered('web-7', 7, 'acme/web'), applied('web-7', 'order.issue', '200'));
-    assert.deepStrictEqual(claimOrderOf(state, 'web-7'), {});
+  for (const result of ['200', 0, -1, 1.5, 2 ** 53, null]) {
+    it(`ignores a recorded result that is no positive integer: ${String(result)}`, () => {
+      const state = stateOf(
+        ordered('web-7', 7, 'acme/web'),
+        applied('web-7', 'order.issue', result),
+      );
+      assert.deepStrictEqual(claimOrderOf(state, 'web-7'), {});
+    });
+  }
+
+  it('takes the smallest issue number there is', () => {
+    const state = stateOf(ordered('web-7', 7, 'acme/web'), applied('web-7', 'order.issue', 1));
+    assert.deepStrictEqual(claimOrderOf(state, 'web-7'), { issue: 1 });
   });
 });
 
@@ -103,6 +113,9 @@ describe('orderName', () => {
     ordered('web-7', 7, 'acme/web'),
     applied('web-7', 'order.issue', 200),
     ordered('api-9', 9, 'acme/api'),
+    ordered('web-7-2', 7, 'acme/web'),
+    // An id targetBatchId never makes, as a test or an older log may hold.
+    ordered('claimed', 4, 'acme/app'),
   );
   const name = (batchId: string): string => {
     const batch = state.batches.get(batchId);
@@ -119,5 +132,13 @@ describe('orderName', () => {
 
   it('names a claimed issue <alias>#<n> until its Brewery issue is opened', () => {
     assert.equal(name('api-9'), 'api#9');
+  });
+
+  it('names a batch ordered again by the alias its id starts with', () => {
+    assert.equal(name('web-7-2'), '#200 (web#7)');
+  });
+
+  it('names a claimed issue owner/name#<n> when its batch id has no alias', () => {
+    assert.equal(name('claimed'), 'acme/app#4');
   });
 });

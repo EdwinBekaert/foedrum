@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
+import { aliasOf, nextBatchId, targetBatchId } from '../../src/engine/batch-id.ts';
 import { emptyState, fold } from '../../src/engine/fold.ts';
 import { PathSafeId } from '../../src/schemas/ids.ts';
 
@@ -81,6 +81,36 @@ describe('targetBatchId (ADR 0043)', () => {
         () => targetBatchId(emptyState, 'web', issue),
         /issue must be a positive integer/,
       );
+    });
+  }
+});
+
+describe('aliasOf (ADR 0144)', () => {
+  for (const [id, alias] of [
+    ['web-7', 'web'],
+    ['web-7-2', 'web'],
+    ['a1-123-10', 'a1'],
+    [`${'a'.repeat(20)}-7`, 'a'.repeat(20)],
+  ] as const) {
+    it(`reads the alias ${alias} from ${id}`, () => {
+      assert.equal(aliasOf(id), alias);
+    });
+  }
+  for (const id of [
+    '7-1',
+    'web',
+    'web-',
+    'web-07',
+    'web-7-0',
+    'web-7-07',
+    'Web-7',
+    'w_b-7',
+    'web-7-2-3',
+    'web-7x',
+    `${'a'.repeat(21)}-7`,
+  ]) {
+    it(`reads no alias from ${id}`, () => {
+      assert.equal(aliasOf(id), undefined);
     });
   }
 });

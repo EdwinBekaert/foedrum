@@ -1060,7 +1060,7 @@ describe('runServe', () => {
       assert.equal(lane('13-1'), undefined, 'the intake never orders the Brewery issue');
     });
 
-    it('opens the Brewery issue of a target issue ordered by hand, once (ADR 0105, ADR 0144)', async () => {
+    it('opens the Brewery issue of a target issue ordered by hand (ADR 0105, ADR 0144)', async () => {
       store = empty();
       setup = intakeSetup();
       const log = createCommandLog({ store, recipes: setup.recipes });
