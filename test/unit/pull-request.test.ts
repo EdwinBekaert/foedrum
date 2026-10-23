@@ -168,7 +168,7 @@ describe('pullRequestText', () => {
         'correctness: One blocker',
         '  verdict: changes',
         '  finding: blocker in src/wait.ts:13: The poll has no deadline',
-        '  finding, there before the change: minor: The module has no tests',
+        '  finding: minor, there before the change: The module has no tests',
       ].join('\n'),
     );
   });
