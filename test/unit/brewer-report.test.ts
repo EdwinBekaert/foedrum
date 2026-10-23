@@ -6,9 +6,12 @@ import { describe, it } from 'node:test';
 import {
   type BrewerSource,
   brewerReport,
+  brewerSource,
   formatBrewerReport,
+  type LoadedBrewers,
 } from '../../src/cli/brewer-report.ts';
 import { emptyState, fold } from '../../src/engine/fold.ts';
+import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 
 const deadlineAt = '2026-10-23T10:00:00.000Z';
@@ -296,5 +299,46 @@ describe('formatBrewerReport', () => {
       formatBrewerReport(brewerReport(emptyState, { ...source, brewers: [] })),
       'No brewers.\n',
     );
+  });
+});
+
+describe('brewerSource', () => {
+  // pint: plan (planner) and green (a check step), from loaded files.
+  const stepBrewer = (name: string) =>
+    ({ brewer: { name }, instructions: '' }) as unknown as StepBrewer;
+  const loaded: LoadedBrewers = {
+    brewers: {
+      find: (recipe, stepId) =>
+        recipe === 'pint' && stepId === 'plan' ? stepBrewer('planner') : undefined,
+    },
+    checks: {
+      find: (recipe, stepId) => (recipe === 'pint' && stepId === 'green' ? ['test'] : undefined),
+      any: () => true,
+      proves: () => undefined,
+      redProof: () => undefined,
+    },
+    catalog: {
+      brewers: [
+        { ...stepBrewer('planner'), name: 'planner', path: 'brewers/planner.md' },
+        { ...stepBrewer('coder'), name: 'coder', path: 'defaults/brewers/coder.md' },
+      ],
+      lenses: [],
+      named: { brewers: new Set(['planner']), lenses: new Set() },
+    },
+  };
+
+  it('lists every brewer of the catalog with its file', () => {
+    assert.deepStrictEqual(brewerSource(loaded).brewers, [
+      { name: 'planner', path: 'brewers/planner.md' },
+      { name: 'coder', path: 'defaults/brewers/coder.md' },
+    ]);
+  });
+
+  it("gives a brewer step's brewer, a check step, and nothing for a step no recipe has", () => {
+    const { step } = brewerSource(loaded);
+    assert.deepStrictEqual(step('pint', 'plan'), { brewer: 'planner' });
+    assert.deepStrictEqual(step('pint', 'green'), { check: true });
+    assert.equal(step('pint', 'review'), undefined);
+    assert.equal(step('stout', 'plan'), undefined);
   });
 });

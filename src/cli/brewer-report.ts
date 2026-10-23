@@ -4,6 +4,7 @@
 // apart, so none is dropped.
 
 import type { Attempt, State } from '../engine/fold.ts';
+import type { LoadedRecipes } from '../engine/recipe-files.ts';
 import type { Usage } from '../schemas/events.ts';
 
 /** The brewers in use and what each recipe's step is now, from the loaded files. */
@@ -163,4 +164,15 @@ export const formatBrewerReport = ({ brewers, gone }: BrewerReport): string => {
         ]),
   ];
   return `${lines.join('\n')}\n`;
+};
+
+/** What the report needs from the Brewery's loaded files. */
+export type LoadedBrewers = Pick<
+  Extract<LoadedRecipes, { valid: true }>,
+  'brewers' | 'checks' | 'catalog'
+>;
+
+/** The brewers in use and each recipe's steps, from the loaded files. */
+export const brewerSource = (_loaded: LoadedBrewers): BrewerSource => {
+  throw new Error('not implemented');
 };
