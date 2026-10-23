@@ -3,10 +3,16 @@
 // of its own, through the ledger, so the checks read the code the pull request will hold and a
 // kill on either side of the merge never merges twice (I4).
 
-import { type AttemptEffectKey, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
+import {
+  type AttemptEffectKey,
+  EffectKeyParts,
+  MAX_CONFLICTS,
+  MergeResult,
+} from '../schemas/store.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import type { EffectTarget } from './effects.ts';
+import type { State } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
 
 /** What a merge in a worktree came to: its commit, or the files it conflicts in, aborted. */
@@ -44,10 +50,9 @@ export interface BaseMerge {
 }
 
 /** The ledger's key of the merge before attempt `ref`. */
-export const baseMergeKey = (ref: AttemptRef): AttemptEffectKey => ({
-  ...ref,
-  effect: 'merge_base',
-});
+const MERGE_BASE = 'merge_base';
+
+export const baseMergeKey = (ref: AttemptRef): AttemptEffectKey => ({ ...ref, effect: MERGE_BASE });
 
 /**
  * The merge into the worktree at `path`, which the attempt of `stepId` started at `start`: found
@@ -107,4 +112,22 @@ export const mergeEnding = (result: unknown, base: string): Ending | undefined =
   if (conflicts === undefined) return undefined;
   const summary = `conflicts with ${base} in ${conflicts.join(', ')}`;
   return { kind: 'blocked', blockerKind: 'divergence', summary };
+};
+
+/**
+ * The base the latest merge of `batchId` brought in, when one made a commit: where the batch's own
+ * change starts once its task tree holds that merge, so a review of the change never reads what
+ * the base added while the batch brewed (ADR 0164). `undefined` when nothing was merged.
+ */
+export const mergedBase = (state: State, batchId: string): string | undefined => {
+  let base: string | undefined;
+  for (const [key, result] of state.effects) {
+    const parts = EffectKeyParts.safeParse(JSON.parse(key));
+    if (!parts.success || parts.data.length !== 4) continue;
+    const [batch, , , effect] = parts.data;
+    if (batch !== batchId || effect !== MERGE_BASE) continue;
+    const merge = MergeResult.safeParse(result);
+    if (merge.success && merge.data.merged !== undefined) base = merge.data.base;
+  }
+  return base;
 };
