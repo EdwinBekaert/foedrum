@@ -125,9 +125,10 @@ const toolchainReads = (
   logins: readonly string[],
 ): string[] => {
   const home = folderOf(HOME);
+  // In the PATH folders' form, so a moved login's trailing slash still matches.
   const hidden = logins.flatMap((path) => {
-    if (!path.startsWith('~/')) return [path];
-    return home === '' ? [] : [posix.join(home, path.slice(2))];
+    if (!path.startsWith('~/')) return [folderOf(path)];
+    return home === '' ? [] : [folderOf(posix.join(home, path.slice(2)))];
   });
   const reads = PATH.split(':').flatMap((entry) => {
     const folder = folderOf(entry);
@@ -142,6 +143,13 @@ const toolchainReads = (
       !hidden.some((login) => within(folder, login) || within(login, folder)),
   );
 };
+
+/**
+ * npm's configuration files anywhere in a re-opened folder: a prefix's global `etc/npmrc` and the
+ * npm package's builtin `npmrc` can hold the login ADR 0087 hides as `~/.npmrc` (review of #437).
+ * A deny holds inside a wider allow, a wildcard one too.
+ */
+const npmConfigsIn = (folder: string): string[] => [`${folder}/**/npmrc`, `${folder}/**/.npmrc`];
 
 /** The settings as the schema reads them; throws with every problem when it does not. */
 const valid = (settings: unknown): AttemptSettings => {
@@ -187,7 +195,9 @@ export function attemptSettings({
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: false,
             credentials,
-            ...(allowRead.length > 0 ? { filesystem: { allowRead } } : {}),
+            ...(allowRead.length > 0
+              ? { filesystem: { allowRead, denyRead: allowRead.flatMap(npmConfigsIn) } }
+              : {}),
           },
         }
       : {}),

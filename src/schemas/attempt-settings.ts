@@ -95,9 +95,13 @@ export const AttemptSettings = z
         allowUnsandboxedCommands: z.literal(false),
         autoAllowBashIfSandboxed: z.literal(false),
         credentials: Credentials,
-        // ADR 0162: the toolchain's folders under the home, re-opened to reads under the block.
+        // ADR 0162: the toolchain's folders under the home, re-opened to reads under the block,
+        // with the npm configuration files inside them still denied.
         filesystem: z
-          .strictObject({ allowRead: z.array(z.string().startsWith('/')).min(1) })
+          .strictObject({
+            allowRead: z.array(z.string().startsWith('/')).min(1),
+            denyRead: z.array(z.string().startsWith('/')),
+          })
           .optional(),
       })
       .optional(),
