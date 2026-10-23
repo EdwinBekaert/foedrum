@@ -6,7 +6,24 @@
 
 Foedrum is a GitHub-native orchestrator for Claude agents. You file an issue in a control repository (*the Brewery*); Foedrum runs it through a pipeline you define (*a Recipe*) made of specialised agents (*Brewers*), and delivers a pull request in the target repository — with quality gates, budgets, and a promise: **a batch is never silently stuck.**
 
-> 🚧 **Status: early development.** The foundations are being built (milestone M0): formats, schemas, CI on Windows, macOS and Linux, and the dependency guard. There is nothing to install or run yet. See [ROADMAP.md](ROADMAP.md).
+> 🚧 **Status: early development.** Milestone M1 (First pour) takes an issue in a Brewery to a pull request end to end: the Nip recipe, the `claude` CLI runner, `foedrum serve` and `foedrum brew`, and the Claude Code plugin. It is not on npm yet. See it in [M1's "See it"](docs/milestones/m1.md#see-it), and what comes next in [ROADMAP.md](ROADMAP.md).
+
+## Install the plugin
+
+In Claude Code:
+
+```sh
+claude plugin marketplace add EdwinBekaert/foedrum
+claude plugin install foedrum@foedrum
+```
+
+or, from a checkout of this repository, `claude --plugin-dir plugin`. Then, in a session started in a Brewery's root:
+
+```text
+/foedrum:brew <issue>
+```
+
+The plugin's skills run the `foedrum` command from your PATH; until the npm package is published, that is a checkout's `node src/cli/main.ts`.
 
 ## Why Foedrum
 
