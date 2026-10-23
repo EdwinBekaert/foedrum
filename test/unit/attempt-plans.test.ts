@@ -137,7 +137,7 @@ describe('createAttemptPlans: plan', () => {
     const { prompt } = await plans.plan(start);
     assert.match(
       prompt,
-      /source="lens test-design, file defaults\/lenses\/test-design\.md" name="focus">\n# Lens: test design\n\n<\//,
+      /source="lens diff\/test-design, file defaults\/lenses\/diff\/test-design\.md" name="focus">\n# Lens: test design\n\n<\//,
     );
     // The lens was read with the brewer: nothing more is read for it.
     assert.deepEqual(reads, []);

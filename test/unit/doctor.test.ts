@@ -834,7 +834,7 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     );
     assert.match(
       report,
-      /\nDefaults in use: defaults\/lenses\/security\.md \(a Brewery file of the same name replaces one\)\n/,
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md \(a Brewery file of the same name replaces one\)\n/,
     );
   });
 
