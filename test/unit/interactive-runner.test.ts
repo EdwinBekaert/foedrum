@@ -348,6 +348,31 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       ]);
     });
 
+    it('ends cancelled, without opening the session, when the attempt is stopped during the setup', async () => {
+      let signal: AbortSignal | undefined;
+      let finish = () => {};
+      const hanging: ExecProcess = (file, _args, options) => {
+        calls.push(`setup ${file}`);
+        signal = options.signal;
+        return new Promise((done) => {
+          const stopped = () =>
+            done({ exitCode: null, stdout: '', stderr: '', output: '', killed: 'stopped' });
+          finish = stopped;
+          options.signal?.addEventListener('abort', stopped);
+        });
+      };
+      const running = runner('resume', { plan: withSetup, setup: hanging }).start(attempt);
+      await new Promise((resolve) => setImmediate(resolve));
+      running.stop();
+      const reached = signal?.aborted === true;
+      // Else the process runner ends it at its timeout.
+      finish();
+      const end = await running.ended;
+      assert.equal(reached, true, 'the stop reaches the setup');
+      assert.ok(!calls.includes('claude'), calls.join('\n'));
+      assert.equal(end.ending.kind, 'cancelled');
+    });
+
     it('reports progress while the setup runs, so the lease of the session is renewed', async () => {
       let finish = () => {};
       const until = new Promise<void>((done) => {
