@@ -1,6 +1,6 @@
 # 0018. House yeast in three layers
 
-Date: 2026-10-14 · Status: Accepted · Amends [0015](0015-house-yeast.md) · Amended by [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)
+Date: 2026-10-14 · Status: Accepted · Amends [0015](0015-house-yeast.md) · Amended by [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) and [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)
 
 ## Context
 [ADR 0015](0015-house-yeast.md) keeps all learned rules in the Brewery's `house-yeast/`. Many lessons, however, are about one repository's code ("in `billing/`, amounts are integers in cents"). Stored in the Brewery, such a rule is separated from the code it describes: a refactoring in the repository does not touch it, the repository's owners never review it, and a second team running Foedrum on the same repository does not see it. Other lessons hold for every repository of an organisation, and a few hold everywhere.

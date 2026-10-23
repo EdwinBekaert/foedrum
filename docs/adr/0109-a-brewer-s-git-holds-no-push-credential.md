@@ -1,6 +1,6 @@
 # 0109. A brewer's git holds no push credential
 
-Date: 2026-10-21 · Status: Accepted · Amends [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) (where the credentials it left to #299 stand), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (the variables the runner forces) and [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) (what it left to #299)
+Date: 2026-10-21 · Status: Accepted · Amends [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) (where the credentials it left to #299 stand), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (the variables the runner forces) and [0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) (what it left to #299) · Amended by [0133](0133-the-nopush-guard-goes-a-brewer-s-git-holds-no-push-credential.md)
 
 ## Context
 Pushing is always the engine's job (brewers-and-recipes §1). [ADR 0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) closes git's own spellings of a push at the allowlist, and [ADR 0106](0106-the-nopush-guard-compares-the-remote-s-refs-around-each-attempt.md) finds a push after the attempt, however it was spelled. Neither stops the push from succeeding: a brewer, or a script an allowed command runs (`npm test` in a repository a writing brewer edits), that reaches `git push` pushes with the maintainer's login.

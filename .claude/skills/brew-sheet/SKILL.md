@@ -26,9 +26,10 @@ Everything in the picture comes from files read in this session.
 - When the topic is decided in an ADR, read the ADR and the ADRs that amend it (the status line
   names them) before drawing; the newest one wins.
 
-## One line before the picture
+## The handle before the picture
 
-One sentence that gives the reader a handle. It does three things:
+One or two sentences (three when one states the premise) that give the reader a handle. They do
+three things:
 
 - **Premise first.** Say what the part is in Foedrum and why it exists, then how it works. For an
   issue or pull request, first name the part of Foedrum it touches and what that part is, then
@@ -44,7 +45,7 @@ One sentence that gives the reader a handle. It does three things:
 
 State Foedrum's own facts plainly, each once, with its anchor. Do not explain general concepts
 (git, event sourcing, OAuth, JSON Schema): the reader knows them. Before sending, list every
-Foedrum-specific fact the picture depends on; each must be said in a sentence, in the line above
+Foedrum-specific fact the picture depends on; each must be said in a sentence, in the handle above
 or as a note in the picture. A name in a diagram does not tell the reader what it means.
 
 ## Pick one form
@@ -94,8 +95,7 @@ GitHub shows a parse error instead of a mermaid picture that breaks its syntax, 
 
 - One picture; two only when they show two genuinely different layers.
 - At most 25 lines and 90 columns. Over budget, leave nodes out; never shrink to a summary.
-- At most two sentences before the picture (three when one states the premise), and nothing after
-  it unless a caption earns its line.
+- Before the picture, only the handle above; after it, nothing unless a caption earns its line.
 - When the reader says they are lost, go one altitude up with fewer nodes; never redraw the same
   detail in another form.
 - When the answer fits in one sentence, write the sentence.

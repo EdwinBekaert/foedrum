@@ -1,6 +1,6 @@
 # 0057. Real-claude tests are opt-in, and proofs of claude leave the suite
 
-Date: 2026-10-17 · Status: Accepted · Amends [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md), [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) and [0049](0049-reviewers-read-only-inside-the-checkout.md) (where their `claude` tests run) · Amended by [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md) and [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md)
+Date: 2026-10-17 · Status: Accepted · Amends [0046](0046-only-the-runners-settings-the-init-check-and-a-line-by-line-stream.md), [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) and [0049](0049-reviewers-read-only-inside-the-checkout.md) (where their `claude` tests run) · Amended by [0062](0062-brewers-never-allow-git-with-no-fixed-subcommand.md), [0093](0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md) and [0121](0121-the-m1-end-to-end-test-runs-nip-through-serve-with-real-git-and-checks-and-faked-github-and-brewers.md)
 
 ## Context
 Since #127, `npm run test:integration` starts the installed `claude` on every machine that has it on PATH: ADR 0046, 0047 and 0049 have their tests against `claude` and the fake Messages API run wherever it is found, and skip elsewhere, CI included. Three files did that:

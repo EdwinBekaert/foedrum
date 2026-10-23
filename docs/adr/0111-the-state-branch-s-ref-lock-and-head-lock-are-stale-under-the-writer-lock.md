@@ -1,6 +1,6 @@
 # 0111. The state branch's ref lock and HEAD.lock are stale under the writer lock too
 
-Date: 2026-10-21 · Status: Accepted · Amends [0107](0107-one-writer-of-the-state-worktree-at-a-time-and-its-stale-index-lock.md) (which lock files a start and a flush remove)
+Date: 2026-10-21 · Status: Accepted · Amends [0107](0107-one-writer-of-the-state-worktree-at-a-time-and-its-stale-index-lock.md) (which lock files a start and a flush remove) · Amended by [0115](0115-no-git-of-the-state-branch-outlives-the-writer-lock-and-its-ref-locks-go-before-the-worktree.md)
 
 ## Context
 ADR 0107 made a start and a flush of the state branch hold the state worktree's writer lock, and from that concluded that an `index.lock` found in the worktree's git folder is stale at once. A `git commit` also takes two more locks: before it moves the branch it creates `<ref>.lock` beside the ref, and, since it moves the branch through `HEAD`, `HEAD.lock` for HEAD's reflog. git renames or deletes them when it is done, and removes them when it exits or is stopped by a signal it can catch; a git killed outright (SIGKILL, a Job Object closed on Windows, a kill at its deadline) leaves them behind (`lockfile.h` in git's source). The branch's ref, `refs/heads/foedrum/state`, lives in the clone's common git folder, shared by all its worktrees, while `HEAD` is the state worktree's own ([git-worktree](https://git-scm.com/docs/git-worktree), DETAILS and REFS; [gitrepository-layout](https://git-scm.com/docs/gitrepository-layout), `refs` and `worktrees`).

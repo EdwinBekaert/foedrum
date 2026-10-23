@@ -1,6 +1,6 @@
 # 0130. The cleanup removes the git directories of its own a stopped call left
 
-Date: 2026-10-22 · Status: Accepted · Amends [0029](0029-attempt-worktrees-layout-claims-and-repair.md) (the cleanup also looks in git-dirs/, beside the attempts root), [0090](0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md) and [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) (a killed call's git directory no longer stays for good)
+Date: 2026-10-22 · Status: Accepted · Amends [0029](0029-attempt-worktrees-layout-claims-and-repair.md) (the cleanup also looks in git-dirs/, beside the attempts root), [0090](0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md) and [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) (a killed call's git directory no longer stays for good) · Amended by [0137](0137-the-push-its-lookup-and-the-worktree-fetch-run-in-the-clone-again.md)
 
 ## Context
 Every push, `ls-remote` and fetch the engine makes for a clone runs in a git directory of its own, `<work root>/<owner>.<name>/git-dirs/<uuid>.git` (`withOwnGitDir`, `src/workspace/clone-git.ts`, ADR 0090, ADR 0096), and removes it in a `finally` block. When serve is killed mid-call (a SIGKILL, a closed terminal, a power cut), the `finally` never runs and the directory stays. ADR 0090 and ADR 0096 accepted that, since each one is a few kilobytes: its objects are the clone's. But nothing ever removed them, so they piled up over months of kills (#256).

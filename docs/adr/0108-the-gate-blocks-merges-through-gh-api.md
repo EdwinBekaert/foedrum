@@ -1,6 +1,6 @@
 # 0108. The local gate blocks merges through gh api
 
-Date: 2026-10-21 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) (the unreadable `gh api graphql` query)
+Date: 2026-10-21 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) (the unreadable `gh api graphql` query) · Partly superseded by [0135](0135-the-gate-drops-the-check-on-gh-pr-create-the-graphql-readers-and-the-alias-rule.md)
 
 ## Context
 The local gate always blocks `gh pr merge` ([ADR 0045](0045-the-local-gate-reads-commands-as-the-shells-would.md)): pull requests are merged by a maintainer, after CI and the review. `gh api` can merge as well, through the REST merge endpoint or GraphQL mutations, and the gate did not read those calls (#297). [ADR 0060](0060-the-gate-refuses-gh-pr-ready-without-the-review-summary.md) already blocks the `gh api` form of marking a pull request ready, and blocks a `gh api graphql` query the gate cannot read because it may be that mutation.

@@ -1,6 +1,6 @@
 # 0091. A run-out usage window blocks on the environment
 
-Date: 2026-10-20 · Status: Accepted · Amends [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)
+Date: 2026-10-20 · Status: Accepted · Amends [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) · Amended by [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) and [0129](0129-a-spend-limit-or-a-too-low-credit-balance-blocks-on-the-environment.md)
 
 ## Context
 When a usage window of a Claude subscription runs out, claude refuses every request until the window resets. Claude Code's error reference ([code.claude.com/docs/en/errors](https://code.claude.com/docs/en/errors), "Usage limits", read 2026-10-20) gives the messages:

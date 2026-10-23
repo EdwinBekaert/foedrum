@@ -1,6 +1,6 @@
 # 0055. A step waits for the lease of its abandoned attempt
 
-Date: 2026-10-17 · Status: Accepted · Amends [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (when a driver starts a scheduled attempt) and [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) (what the chaos check `nothingLeftWaiting` lets wait)
+Date: 2026-10-17 · Status: Accepted · Amends [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (when a driver starts a scheduled attempt) and [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) (what the chaos check `nothingLeftWaiting` lets wait) · Amended by [0124](0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md) and [0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)
 
 ## Context
 Invariant I2 allows one live lease per step. [ADR 0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) says an attempt's lease keeps the next holder of the batch from starting the step beside it. [ADR 0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) has the heartbeat stop renewing the lease of an attempt that the log shows finished or abandoned. Nothing stopped a driver from starting the next attempt of a step while such a lease was still live.

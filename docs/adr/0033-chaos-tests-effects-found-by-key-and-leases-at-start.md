@@ -1,6 +1,6 @@
 # 0033. Chaos tests: effects found by their key, and a driver's leases at its start
 
-Date: 2026-10-16 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (leases after a restart on the same database) · Amended by [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md), [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)
+Date: 2026-10-16 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (leases after a restart on the same database) · Amended by [0037](0037-attempt-worktrees-in-the-engine-and-driver-locks.md), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md), [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) and [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md)
 
 ## Context
 M0 ends with 1,000 chaos runs that kill the engine at random points and restart it: no lost or duplicated side effects, no silent stalls (#15). Three things were open.
