@@ -18,8 +18,7 @@ import type {
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
-import { aliasOf } from './batch-id.ts';
-import { claimOfOrder, claimOrderOf } from './claim-orders.ts';
+import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { claimStanding, same } from './issue-claims.ts';
@@ -348,8 +347,7 @@ export function orderRefusal(state: State, order: OrderRef): string | undefined 
   // Its batches are the claimed issue's, which a new claim orders again (ADR 0144).
   const claimed = repo === undefined ? claimOfOrder(state, issue) : undefined;
   if (claimed?.repo !== undefined) {
-    const alias = aliasOf(claimed.id) ?? claimed.repo;
-    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; order ${alias}#${claimed.issue} again`;
+    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; order ${claimedName(claimed)} again`;
   }
   return busy(state, order);
 }

@@ -366,12 +366,11 @@ export const claimEffectsDue = (
         }),
       );
     } else if (earlier.closed) {
-      const { issue: reopened } = earlier;
       ordering.push(
         due(orderEffects.reopen, {
           kind: 'issue_state',
           repo: brewery,
-          issue: reopened,
+          issue: earlier.issue,
           state: 'open',
         }),
       );

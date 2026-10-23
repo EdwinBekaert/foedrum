@@ -8,8 +8,6 @@ import { effectKey } from './effect-key.ts';
 import type { Batch, State } from './fold.ts';
 import { type ClaimOrder, orderEffects, same } from './issue-claims.ts';
 
-export type { ClaimOrder };
-
 const applied = (state: State, batchId: string, effect: string): boolean =>
   state.effects.has(effectKey.encode({ batchId, effect }));
 
@@ -61,13 +59,17 @@ export const claimOfOrder = (state: State, issue: number): Batch | undefined => 
   return found;
 };
 
+/** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
+export const claimedName = (batch: Batch): string =>
+  `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;
+
 /**
  * How `status` and `stuck` name a batch's issue: `#<n>` for a Brewery issue, `#<order> (<alias>#<n>)`
  * for a claimed one, and `<alias>#<n>` until its Brewery issue is opened.
  */
 export const orderName = (state: State, batch: Batch): string => {
   if (batch.repo === undefined) return `#${batch.issue}`;
-  const claimed = `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;
+  const claimed = claimedName(batch);
   const { issue } = claimOrderOf(state, batch.id);
   return issue === undefined ? claimed : `#${issue} (${claimed})`;
 };
