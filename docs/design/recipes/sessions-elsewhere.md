@@ -22,7 +22,6 @@ From Claude Code's docs (code.claude.com, "Manage sessions", "CLI reference" and
 - `--resume` also takes the absolute path of a `.jsonl` transcript.
 - There is no import: the docs name no way to bring a session in, and `--teleport` is for cloud sessions only.
 - "The entry format is internal to Claude Code and changes between versions"; the docs point scripts at `/export`, `claude -p --resume` and hooks' `transcript_path` instead.
-- Transcripts are kept 30 days (`cleanupPeriodDays`).
 
 ## What was tried
 
@@ -42,7 +41,7 @@ So a worktree at the same commit is not the worktree the session left: its uncom
 
 ## Version drift
 
-- The docs say the transcript format changes between versions, and name no rule for a transcript written by another version.
+- The docs name no rule for a transcript written by another version.
 - A transcript whose `version` fields were changed to `2.0.0` and to `9.9.999` resumed under 2.1.301 without a word.
   Only one version is installed here, so a real older or newer binary was not tried; the label is not checked, but a change in the format would be met only when it happens.
 - **Model:** a resumed session keeps the model its transcript names, unless `--model` or `ANTHROPIC_MODEL` is given, or the model was retired, or the provider uses its own deployment ids (docs).
