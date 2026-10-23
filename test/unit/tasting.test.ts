@@ -387,7 +387,14 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.deepEqual(calls, [
       {
         cwd: join('/clones', 'acme/api'),
-        args: ['log', '--no-show-signature', '--format=%h %s', `${base}..${head}`],
+        // The batch's own line: no commit a merge of the base brought in (ADR 0164).
+        args: [
+          'log',
+          '--no-show-signature',
+          '--first-parent',
+          '--format=%h %s',
+          `${base}..${head}`,
+        ],
         config: inClone,
       },
       {
