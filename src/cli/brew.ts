@@ -5,6 +5,7 @@
 // Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
 
 import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
+import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
@@ -252,13 +253,15 @@ export const runBrew = async (
       if (other !== undefined) return refuse(drivenBy(other));
       const now = driver.state().batches.get(batchId) as Batch;
       const { lane, detail } = describeLane(now);
-      // A Brewery issue's status comment, once its first revision is recorded (ADR 0072).
+      // The status comment, on the batch's Brewery issue, once its first revision is recorded
+      // (ADR 0072, ADR 0155).
       const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
-      if (comment !== undefined && now.repo === undefined) {
+      const shownOn = breweryIssueOf(driver.state(), now);
+      if (comment !== undefined && shownOn !== undefined) {
         linked = true;
         const { hostname } = setup.github;
         say(
-          `status comment: https://${hostname}/${setup.brewery}/issues/${now.issue}#issuecomment-${comment}`,
+          `status comment: https://${hostname}/${setup.brewery}/issues/${shownOn}#issuecomment-${comment}`,
         );
       }
       // Let go: every effect of the ended batch is applied (ADR 0044).

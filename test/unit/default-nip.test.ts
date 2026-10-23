@@ -291,7 +291,8 @@ describe('the default Gauger', () => {
   it("holds the test-design lens's checklist in its prompt, as an input, not a copy", async () => {
     const found = gauger();
     assert.ok(found !== undefined, 'nip has no gauge step');
-    const lens = readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'test-design.md'), 'utf8');
+    assert.ok(found.lenses?.has('diff/test-design'), 'the gauger names no lens diff/test-design');
+    const lens = readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff', 'test-design.md'), 'utf8');
     // Not repeated in the brewer file: the brewer and the Taster read the one checklist.
     const copied = lens
       .split('\n')
@@ -350,7 +351,7 @@ describe('the default Gauger', () => {
     });
     assert.ok(
       prompt.includes(
-        `source="lens test-design, file defaults/lenses/test-design.md" name="testDesign">\n${lens}\n</`,
+        `source="lens diff/test-design, file defaults/lenses/diff/test-design.md" name="testDesign">\n${lens}\n</`,
       ),
       'the prompt does not hold the lens as an input',
     );

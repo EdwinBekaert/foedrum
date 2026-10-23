@@ -753,6 +753,20 @@ describe("diagnose: the Brewery's recipes (ADR 0053)", () => {
     ]),
   };
 
+  it('is not ok on a lens directly in lenses/, with the line that says where it belongs (ADR 0143)', () => {
+    const diagnosis = diagnose({
+      ...linux(),
+      brewery: { recipes: [], brewers: [], lenses: [{ path: 'lenses/security.md', text: 'x' }] },
+    });
+    assert.deepEqual(diagnosis.problems, [
+      {
+        required: true,
+        what: INVALID_RECIPES,
+        fix: 'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan (ADR 0143)',
+      },
+    ]);
+  });
+
   it('is not ok when a recipe file is not valid, with the line a refused command gives, and ok when they are valid', () => {
     const diagnosis = diagnose({ ...linux(), brewery: { recipes: [pale], brewers: [brewer] } });
     assert.equal(diagnosis.ok, false);
@@ -803,8 +817,8 @@ describe("formatDiagnosis: the local gate's denylist (ADR 0114)", () => {
 });
 
 describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
-  const lens = { path: 'defaults/lenses/security.md', text: 'Look for secrets.' };
-  const replaced = { path: 'defaults/lenses/correctness.md', text: 'Look for bugs.' };
+  const lens = { path: 'defaults/lenses/diff/security.md', text: 'Look for secrets.' };
+  const replaced = { path: 'defaults/lenses/diff/correctness.md', text: 'Look for bugs.' };
 
   it('names the defaults the Brewery has no file of its own for', () => {
     const report = formatDiagnosis(
@@ -813,14 +827,14 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
         brewery: {
           recipes: [],
           brewers: [],
-          lenses: [{ path: 'lenses/correctness.md', text: 'Our bugs.' }],
+          lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
           defaults: { lenses: [replaced, lens] },
         },
       }),
     );
     assert.match(
       report,
-      /\nDefaults in use: defaults\/lenses\/security\.md \(a Brewery file of the same name replaces one\)\n/,
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md \(a Brewery file of the same name replaces one\)\n/,
     );
   });
 
@@ -831,7 +845,7 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
         brewery: {
           recipes: [],
           brewers: [],
-          lenses: [{ path: 'lenses/correctness.md', text: 'Our bugs.' }],
+          lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
           defaults: { lenses: [replaced] },
         },
       }),
@@ -864,13 +878,13 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
     return doc.body;
   };
   const brewerStep = (brewer: string) => ({ brewer });
-  const style = { path: 'lenses/style.md', text: '# Style\n\nLook at the names.\n' };
+  const style = { path: 'lenses/diff/style.md', text: '# Style\n\nLook at the names.\n' };
   const taster = {
     path: 'brewers/taster.md',
     text: brewerText('taster', {
       inputs: [
         { name: 'order', from: 'order' },
-        { name: 'styleLens', from: 'lens:style' },
+        { name: 'styleLens', from: 'lens:diff/style' },
       ],
     }),
   };
@@ -888,7 +902,7 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
     const assembled = assembleBrewerPrompt(bodyOf(taster.text), [
       {
         name: 'styleLens',
-        source: { kind: 'lens', lens: 'style', path: 'lenses/style.md' },
+        source: { kind: 'lens', lens: 'diff/style', path: 'lenses/diff/style.md' },
         text: style.text,
       },
     ]);
@@ -957,22 +971,22 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
       brewery: {
         recipes: [pale],
         brewers: [maltster, taster, { path: 'brewers/spare.md', text: brewerText('spare') }],
-        lenses: [style, { path: 'lenses/old.md', text: 'Old rules.' }],
+        lenses: [style, { path: 'lenses/diff/old.md', text: 'Old rules.' }],
         defaults: {
           brewers: [{ path: 'defaults/brewers/idle.md', text: brewerText('idle') }],
-          lenses: [{ path: 'defaults/lenses/security.md', text: 'Look for secrets.' }],
+          lenses: [{ path: 'defaults/lenses/diff/security.md', text: 'Look for secrets.' }],
         },
       },
     });
     assert.deepEqual(diagnosis.notices, [
       'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/old.md: no brewer\'s input names the lens "old" (ADR 0141)',
+      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old" (ADR 0141)',
     ]);
     assert.equal(diagnosis.ok, true);
     const report = formatDiagnosis(diagnosis);
     assert.match(
       report,
-      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/old\.md: no brewer's input names the lens "old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
+      /\nNotices:\n {2}brewers\/spare\.md: no recipe names the brewer "spare" \(ADR 0141\)\n {2}lenses\/diff\/old\.md: no brewer's input names the lens "diff\/old" \(ADR 0141\)\n\nFoedrum has everything it needs\.\n$/,
     );
   });
 
@@ -1013,13 +1027,13 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
       brewery: {
         recipes: [{ path: 'recipes/nip.jsonc', text: '{' }],
         brewers: [{ path: 'brewers/gauger.md', text: copy }],
-        lenses: [{ path: 'lenses/style.md', text: gauger }],
+        lenses: [{ path: 'lenses/diff/style.md', text: gauger }],
         defaults: {
           recipes: [{ path: 'defaults/recipes/nip.jsonc', text: '{}' }],
           brewers: [{ path: 'defaults/brewers/gauger.md', text: gauger }],
           lenses: [
-            { path: 'defaults/lenses/style.md', text: gauger },
-            { path: 'defaults/lenses/security.md', text: '## Look for' },
+            { path: 'defaults/lenses/diff/style.md', text: gauger },
+            { path: 'defaults/lenses/diff/security.md', text: '## Look for' },
           ],
         },
       },
@@ -1030,7 +1044,7 @@ describe("diagnose: notices about the Brewery's files (ADR 0141)", () => {
     assert.deepEqual(diagnosis.notices, [
       'recipes/nip.jsonc replaces defaults/recipes/nip.jsonc (ADR 0141)',
       'brewers/gauger.md replaces defaults/brewers/gauger.md and drops: heading "How to work", marked line "Red for the right reason." (ADR 0141)',
-      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
     ]);
   });
 
@@ -1046,20 +1060,20 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
   // The notice for a Brewery lens `copy` that replaces a default lens `original`.
   const replacing = (original: string, copy: string | BreweryFile) => {
     const own: BreweryFile =
-      typeof copy === 'string' ? { path: 'lenses/style.md', text: copy } : copy;
+      typeof copy === 'string' ? { path: 'lenses/diff/style.md', text: copy } : copy;
     const { notices = [] } = diagnose({
       ...linux(),
       brewery: {
         recipes: [],
         brewers: [],
         lenses: [own],
-        defaults: { lenses: [{ path: 'defaults/lenses/style.md', text: original }] },
+        defaults: { lenses: [{ path: 'defaults/lenses/diff/style.md', text: original }] },
       },
     });
     return notices.filter((notice) => notice.includes(' replaces '));
   };
   const drops = (what: string) =>
-    `lenses/style.md replaces defaults/lenses/style.md and drops: ${what} (ADR 0141)`;
+    `lenses/diff/style.md replaces defaults/lenses/diff/style.md and drops: ${what} (ADR 0141)`;
 
   it('closes a fence only with the same character, at least as long, and opens none on inline code', () => {
     const original = [
@@ -1082,17 +1096,22 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
     ]);
   });
 
+  it('gives no notice for a Brewery lens of another folder than the default of its file name (ADR 0143)', () => {
+    const own = { path: 'lenses/plan/style.md', text: '# Style\n' };
+    assert.deepEqual(replacing('# Style\n', own), []);
+  });
+
   it('names only the replacement when the Brewery file cannot be read', () => {
-    const unreadable = { path: 'lenses/style.md', unreadable: 'EACCES: permission denied' };
+    const unreadable = { path: 'lenses/diff/style.md', unreadable: 'EACCES: permission denied' };
     assert.deepEqual(replacing('# Style\n\n**Rule.** Keep it.\n', unreadable), [
-      'lenses/style.md replaces defaults/lenses/style.md (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md (ADR 0141)',
     ]);
   });
 
   it('reads a heading on the first line after a byte order mark', () => {
     const bom = String.fromCodePoint(0xfeff);
     assert.deepEqual(replacing('# Style\n', `${bom}# Style\n`), [
-      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
     ]);
   });
 
@@ -1102,15 +1121,15 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
     const notices = replacing(line, line);
     const used = process.cpuUsage(before);
     assert.deepEqual(notices, [
-      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
     ]);
     // About 900 ms of CPU with a regular expression that backtracks over the spaces.
     assert.ok((used.user + used.system) / 1000 < 100, `${used.user + used.system} µs`);
   });
 
-  const plain = 'lenses/style.md replaces defaults/lenses/style.md (ADR 0141)';
+  const plain = 'lenses/diff/style.md replaces defaults/lenses/diff/style.md (ADR 0141)';
   const keeps =
-    'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)';
+    'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)';
   // Each rule of ADR 0141's marks, and its near miss: the default's text, the copy's, the notice.
   const rows: [string, string, string, string][] = [
     ['six #s are a heading', '###### Six', '', drops('heading "Six"')],
@@ -1158,8 +1177,8 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
       brewery: {
         recipes: [],
         brewers: [],
-        lenses: [{ path: 'lenses/style.md', text: '# Style\n' }],
-        defaults: { lenses: [{ path: 'defaults/lenses/style.md', unreadable: 'EACCES' }] },
+        lenses: [{ path: 'lenses/diff/style.md', text: '# Style\n' }],
+        defaults: { lenses: [{ path: 'defaults/lenses/diff/style.md', unreadable: 'EACCES' }] },
       },
     });
     assert.ok(notices.includes(plain));
@@ -1173,22 +1192,22 @@ describe('diagnose: notices when the files load (ADR 0141)', () => {
       brewery: {
         recipes: [{ path: 'recipes/read.jsonc', text: recipeText('read', [{ brewer: 'reader' }]) }],
         brewers: [{ path: 'brewers/spare.md', text: brewerText('spare') }],
-        lenses: [{ path: 'lenses/style.md', text: '# Style\n' }],
+        lenses: [{ path: 'lenses/diff/style.md', text: '# Style\n' }],
         defaults: {
           brewers: [
             {
               path: 'defaults/brewers/reader.md',
-              text: brewerText('reader', { inputs: [{ name: 'style', from: 'lens:style' }] }),
+              text: brewerText('reader', { inputs: [{ name: 'style', from: 'lens:diff/style' }] }),
             },
           ],
-          lenses: [{ path: 'defaults/lenses/style.md', text: '# Style\n' }],
+          lenses: [{ path: 'defaults/lenses/diff/style.md', text: '# Style\n' }],
         },
       },
     });
     assert.equal(diagnosis.ok, true);
     assert.deepEqual(diagnosis.notices, [
       'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/style.md replaces defaults/lenses/style.md and keeps every heading and marked line of it (ADR 0141)',
+      'lenses/diff/style.md replaces defaults/lenses/diff/style.md and keeps every heading and marked line of it (ADR 0141)',
     ]);
   });
 });
@@ -1202,15 +1221,15 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
         brewers: [
           {
             path: 'brewers/spare.md',
-            text: brewerText('spare', { inputs: [{ name: 'old', from: 'lens:old' }] }),
+            text: brewerText('spare', { inputs: [{ name: 'old', from: 'lens:diff/old' }] }),
           },
         ],
-        lenses: [{ path: 'lenses/old.md', text: 'Old rules.' }],
+        lenses: [{ path: 'lenses/diff/old.md', text: 'Old rules.' }],
       },
     });
     assert.deepEqual(diagnosis.notices, [
       'brewers/spare.md: no recipe names the brewer "spare" (ADR 0141)',
-      'lenses/old.md: no brewer\'s input names the lens "old" (ADR 0141)',
+      'lenses/diff/old.md: no brewer\'s input names the lens "diff/old" (ADR 0141)',
     ]);
   });
 
@@ -1220,10 +1239,10 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
       brewery: {
         recipes: [],
         brewers: [],
-        lenses: [{ path: 'lenses/style.md', text: '**Same words**\n\n## Other words\n' }],
+        lenses: [{ path: 'lenses/diff/style.md', text: '**Same words**\n\n## Other words\n' }],
         defaults: {
           lenses: [
-            { path: 'defaults/lenses/style.md', text: '## Same words\n\n**Other words**\n' },
+            { path: 'defaults/lenses/diff/style.md', text: '## Same words\n\n**Other words**\n' },
           ],
         },
       },
@@ -1231,7 +1250,7 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
     assert.deepEqual(
       notices.filter((notice) => notice.includes(' replaces ')),
       [
-        'lenses/style.md replaces defaults/lenses/style.md and drops: heading "Same words", marked line "Other words" (ADR 0141)',
+        'lenses/diff/style.md replaces defaults/lenses/diff/style.md and drops: heading "Same words", marked line "Other words" (ADR 0141)',
       ],
     );
   });

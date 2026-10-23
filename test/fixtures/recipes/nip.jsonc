@@ -21,7 +21,7 @@
       "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
-    { "brewer": "taster", "lens": "correctness" },
+    { "brewer": "taster", "lens": "diff/correctness" },
     { "action": "openPullRequest" }
   ]
 }

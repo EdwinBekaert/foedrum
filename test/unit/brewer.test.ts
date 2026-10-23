@@ -90,11 +90,10 @@ describe('BrewerFrontmatter', () => {
     assert.equal(accepted({ ...taster, inputs }), true);
   });
 
-  it('accepts an input from a lens (ADR 0098)', () => {
-    assert.equal(
-      accepted({ ...taster, inputs: [{ name: 'focus', from: 'lens:test-design' }] }),
-      true,
-    );
+  it('accepts an input from a lens of lenses/diff/ or lenses/plan/ (ADR 0098, ADR 0143)', () => {
+    for (const from of ['lens:diff/test-design', 'lens:plan/coverage']) {
+      assert.equal(accepted({ ...taster, inputs: [{ name: 'focus', from }] }), true, from);
+    }
   });
 
   it('defaults an input to untrusted', () => {
@@ -167,11 +166,31 @@ describe('BrewerFrontmatter', () => {
     ],
     [
       'an input from a lens name that is not path-safe',
-      { ...taster, inputs: [{ name: 'x', from: 'lens:../security' }] },
+      { ...taster, inputs: [{ name: 'x', from: 'lens:diff/../security' }] },
     ],
     [
       'an input from a lens name in capitals',
-      { ...taster, inputs: [{ name: 'x', from: 'lens:Bad' }] },
+      { ...taster, inputs: [{ name: 'x', from: 'lens:diff/Bad' }] },
+    ],
+    [
+      'an input from a lens without its folder (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:test-design' }] },
+    ],
+    [
+      'an input from a lens with text before its folder (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:xdiff/security' }] },
+    ],
+    [
+      'an input from a lens named like a Windows device (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:diff/con' }] },
+    ],
+    [
+      'an input from a lens named like a Windows device with an extension (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:plan/nul.x' }] },
+    ],
+    [
+      'an input from a lens of another folder (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:code/security' }] },
     ],
     [
       'a trusted order, which is always untrusted',

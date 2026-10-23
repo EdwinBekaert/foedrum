@@ -988,6 +988,8 @@ describe('runServe', () => {
         login: 'ann',
         issues: {
           'acme/brewery': [
+            // The Brewery's own #7, with the target issue's number, which no batch orders.
+            { number: 7, labels: [], author: 'bob' },
             { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'Add a --json flag.' },
           ],
           'acme/web': [
@@ -1010,16 +1012,20 @@ describe('runServe', () => {
       // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
       const order = () => github.issue('acme/brewery', 13);
       const done = () => {
-        // A person labels the Brewery issue once the driver opened it, between two passes.
+        // A person labels the Brewery issue once the driver opened it, between two passes; the
+        // driver's lane label may already be on it (#413).
         const opened = order();
-        if (opened !== undefined && opened.labels.length === 0) opened.labels.push('recipe:stout');
+        if (opened !== undefined && !opened.labels.includes('recipe:stout')) {
+          opened.labels.push('recipe:stout');
+        }
         return (
           lane('12-1') === 'on_tap' &&
           lane('web-7') === 'on_tap' &&
           github.created.length === 1 &&
           github.refs.size === 0 &&
           github.comments.get('acme/web#7')?.length === 2 &&
-          order()?.state === 'closed'
+          order()?.state === 'closed' &&
+          order()?.labels.includes('foedrum:on-tap') === true
         );
       };
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
@@ -1049,12 +1055,26 @@ describe('runServe', () => {
         ['Add a --json flag', 'Add a dark theme'],
       );
       // One Brewery issue, the title copied and the target issue linked, closed with the release.
-      const opened = (github.issues['acme/brewery'] ?? []).filter((each) => each.number !== 12);
+      const opened = (github.issues['acme/brewery'] ?? []).filter((each) => each.number > 12);
       assert.deepStrictEqual(
         opened.map(({ number, title, author }) => ({ number, title, author })),
         [{ number: 13, title: 'Dark theme', author: 'ann' }],
       );
       assert.match(order()?.body ?? '', /acme\/web#7/);
+      // The Brewery issue shows the claimed batch's lane and its status comment (#413); the
+      // Brewery's #7 and the target issue get neither.
+      assert.deepStrictEqual(
+        order()?.labels.filter((label) => label.startsWith('foedrum:')),
+        ['foedrum:on-tap'],
+      );
+      const status = github.comments.get('acme/brewery#13') ?? [];
+      assert.equal(status.length, 1, JSON.stringify(status));
+      assert.match(status[0]?.body ?? '', /On tap/);
+      assert.deepStrictEqual(github.issue('acme/brewery', 7)?.labels, []);
+      assert.equal(github.comments.get('acme/brewery#7'), undefined);
+      assert.ok(
+        (github.comments.get('acme/web#7') ?? []).every(({ body }) => !/status\.\d/.test(body)),
+      );
       // The pull request is the target repository's: it closes the target issue and never names
       // the Brewery issue, which is private.
       const web7 = state().batches.get('web-7')?.lane;
