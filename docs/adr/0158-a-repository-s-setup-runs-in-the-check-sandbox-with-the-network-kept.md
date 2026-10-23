@@ -1,6 +1,6 @@
 # 0158. A repository's setup runs in the check sandbox, with the network kept
 
-Date: 2026-10-23 · Status: Accepted · Amends [0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md) (setup no longer runs outside every sandbox: it runs in the check sandbox with the network, its reading says `unsandboxed` on native Windows only, and `serveSetup`'s refusal of a sandboxed minimum with a setup goes) and [0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md) (the check sandbox has a variant that keeps the network, for setup only)
+Date: 2026-10-23 · Status: Accepted · Amends [0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md) (setup no longer runs outside every sandbox: it runs in the check sandbox with the network, its reading says `unsandboxed` on native Windows only, and `serveSetup`'s refusal of a sandboxed minimum with a setup goes on macOS and stays on Linux and WSL2 until #425) and [0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md) (the check sandbox has a variant that keeps the network, for setup only)
 
 ## Context
 Since [ADR 0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md) a repository's `setup` (`npm ci`, `dotnet restore`) runs in a check step's worktree before its checks, through plain `execProcess`: with the network, the Cellar user's home folder, `/run` and the Keychain. ADR 0140 recorded the path that makes that a risk. In a later step's worktree, setup runs build files a brewer may have committed (an MSBuild `Directory.Build.targets` that `dotnet restore` evaluates, a `setup.py` that `pip install` runs, a `Gemfile`, a worktree `.npmrc`). A brewer steered by an injected issue can write any of them (ADR 0076, Context), and they then run where gh's login is reachable ([ADR 0073](0073-github-only-through-gh-s-own-login.md)). That is #190's path again.
@@ -34,8 +34,11 @@ The home folder stays hidden, its caches too (`~/.npm`, `~/.nuget/packages`, `~/
 
 So each setup downloads what it installs, every time: ADR 0140's consequence that "npm's own cache under the home folder is used" no longer holds. A repository that needs a warm cache names one in its worktree in its own setup line (`npm ci --cache .npm-cache`). That cache is then a file of the worktree, which the next checks and the next steps can see and change.
 
-### serve no longer refuses a setup under a sandboxed minimum
-ADR 0140 had `serveSetup` refuse to start when the Brewery requires the sandboxed level, a recipe has a check step and a repository has `setup`, because setup ran outside the sandbox on every level. Now setup runs in the sandbox wherever a check does. On native Windows the checks' own refusal (ADR 0076) already stops `serve` for the same Brewery: setup only runs before check steps. So the setup line goes, and no case loses its refusal.
+### serve refuses a setup under a sandboxed minimum on Linux only, until #425
+ADR 0140 had `serveSetup` refuse to start when the Brewery requires the sandboxed level, a recipe has a check step and a repository has `setup`, because setup ran outside the sandbox on every level. Now setup runs in the sandbox wherever a check does:
+- **macOS:** the setup's sandbox keeps gh's login out of reach (below), so the refusal goes.
+- **Linux and WSL2:** the setup's sandbox still reaches the host's abstract Unix sockets, and through an abstract D-Bus bus gh's login (below, review of #422). A Brewery that asked for the sandboxed level must not run code a brewer touched where it can, so the refusal stays, one line per such repository: `foedrum.jsonc requires the sandboxed isolation level, and <repo>'s setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)`. It goes with #425.
+- **Native Windows:** the checks' own refusal (ADR 0076) already stops `serve` for the same Brewery, since setup only runs before check steps, so the setup's line is not given there.
 
 ### What a setup can still reach
 - Everything ADR 0076 says a check can still read: the system outside the home folder, the Windows drives under `/mnt` on WSL2, logins kept outside the home folder, and on macOS any Mach service but the Keychain's.
