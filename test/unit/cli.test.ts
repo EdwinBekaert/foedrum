@@ -383,16 +383,12 @@ describe('foedrum status', () => {
     assert.deepEqual(opened, [storePath]);
   });
 
-  it('says so in one line, and exits 1, when there is no event store', async () => {
-    const result = await run(['status']);
-    assert.deepEqual(
-      { ...result, stderr: normalise(result.stderr) },
-      {
-        exitCode: 1,
-        stdout: '',
-        stderr: 'foedrum status: no event store at <brewery>/.foedrum/index.db\n',
-      },
-    );
+  it('says there are no batches yet in a Brewery without an event store', async () => {
+    assert.deepEqual(await run(['status']), {
+      exitCode: 0,
+      stdout: 'No batches yet.\n',
+      stderr: '',
+    });
   });
 
   it('says there are no batches in an empty store', async () => {
