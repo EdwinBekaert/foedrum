@@ -19,7 +19,7 @@ This table says what each one records.
 
 | Event | Records |
 |---|---|
-| `batch.ordered` | An order became a batch: its order (a Brewery issue, or a claimed issue of a target repository), its parent batch, who routes it (`routeBy`); `by` and `via` together when a person ordered it ([ADR 0105](../../adr/0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md)) |
+| `batch.ordered` | An order became a batch: its issue (a Brewery issue, or a claimed issue of a target repository, whose order is a Brewery issue the driver opens, [ADR 0144](../../adr/0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md)), its parent batch, who routes it (`routeBy`); `by` and `via` together when a person ordered it ([ADR 0105](../../adr/0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md)) |
 | `batch.recipe_chosen` | The recipe and why, from a label, the router, or a person (with `by` and `via`) |
 | `step.scheduled` | An attempt of a step and its deadline; `route` when an `onFail` or `onBlocked` route scheduled it ([ADR 0064](../../adr/0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md)), `retry` because the attempt before it failed ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)), `answered` because a person answered the questions of the attempt before it ([ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)) |
 | `step.skipped` | The step's `when` was false when the batch reached it (ADR 0064) |

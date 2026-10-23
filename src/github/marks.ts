@@ -105,5 +105,46 @@ export const githubIssueMarks = (
       const answer = expect(await client.rest('POST', path, { body }, signal), 201, what);
       return checked(GitHubComment, answer.body, what).id;
     },
+    title: async (repo, issue, signal) => {
+      const { title } = await read(repo, issue, signal);
+      if (title === undefined) throw new Error(`GitHub answered ${repo}#${issue} without a title`);
+      return title;
+    },
+    // GitHub answers 410 for an issue a person deleted, and also for every issue of a repository
+    // that turned issues off; a 404 may be a token that lost access. Only the first is gone.
+    issueState: async (repo, issue, signal) => {
+      const what = `the issue ${repo}#${issue}`;
+      const answer = await reads.get(issuePath(repo, issue), signal);
+      const error = GitHubError.safeParse(answer.body);
+      if (answer.status === 410 && error.success && /\bdeleted\b/i.test(error.data.message)) {
+        return 'gone';
+      }
+      return checked(GitHubIssue, expect(answer, 200, what).body, what).state;
+    },
+    setIssueState: async (repo, issue, state, signal) => {
+      const what = `setting ${repo}#${issue} ${state}`;
+      expect(await client.rest('PATCH', issuePath(repo, issue), { state }, signal), 200, what);
+    },
+    // The issues its own login opened, closed ones too: a Brewery issue is found once a merge
+    // closed it (ADR 0144).
+    findIssue: async (repo, marker, signal) => {
+      const what = `the issues ${login} opened in ${repo}`;
+      const query = `state=all&creator=${encodeURIComponent(login)}&per_page=${pageSize}`;
+      const path = `/repos/${repoPath(repo)}/issues?${query}`;
+      for (const item of await reads.pages(path, what, signal)) {
+        const issue = checked(GitHubIssue, item, what);
+        const author = issue.user?.login;
+        if (issue.pull_request !== undefined || author === undefined || !same(author, login))
+          continue;
+        if (issue.body?.includes(marker) === true) return issue.number;
+      }
+      return undefined;
+    },
+    openIssue: async (repo, title, body, signal) => {
+      const what = `opening an issue in ${repo}`;
+      const path = `/repos/${repoPath(repo)}/issues`;
+      const answer = await client.rest('POST', path, { title, body }, signal);
+      return checked(GitHubIssue, expect(answer, 201, what).body, what).number;
+    },
   };
 };

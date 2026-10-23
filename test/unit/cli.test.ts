@@ -447,7 +447,14 @@ describe('foedrum status', () => {
     );
   });
 
-  it('names the repository of a claimed target-repository issue (ADR 0043)', async () => {
+  // The Brewery issue that is the order of a claimed issue (ADR 0144).
+  const opened: Event = {
+    type: 'effect.applied',
+    key: '["app-11","order.issue"]',
+    result: 200,
+  };
+
+  it('names a claimed target-repository issue by its alias until its Brewery issue is opened (ADR 0144)', async () => {
     const target: Event = {
       type: 'batch.ordered',
       batchId: 'app-11',
@@ -456,10 +463,14 @@ describe('foedrum status', () => {
     };
     const result = await run(['status'], { openStore: () => storeWith([ordered(11), target]) });
     assert.match(result.stdout, /^ +11-1 +#11 +ordered/m);
-    assert.match(result.stdout, /^ +app-11 +acme\/app#11 +ordered/m);
+    assert.match(result.stdout, /^ +app-11 +app#11 +ordered/m);
+    const after = await run(['status'], {
+      openStore: () => storeWith([ordered(11), target, opened]),
+    });
+    assert.match(after.stdout, /^ +app-11 +#200 \(app#11\) +ordered/m);
   });
 
-  it('names the repository of a target issue in stuck and replay too (ADR 0050)', async () => {
+  it('names both issues of a claimed issue in stuck, and its repository in replay (ADR 0144)', async () => {
     const events: Event[] = [
       {
         type: 'batch.ordered',
@@ -467,13 +478,14 @@ describe('foedrum status', () => {
         order: { issue: 11, repo: 'acme/app' },
         routeBy: '2026-12-31T00:00:00.000Z',
       },
+      opened,
       {
         ...stuck(11, { kind: 'routing', deadlineAt: '2026-12-31T00:00:00.000Z' }),
         batchId: 'app-11',
       } as Event,
     ];
     const listed = await run(['stuck'], { openStore: () => storeWith(events) });
-    assert.match(listed.stdout, /app-11 +acme\/app#11 /);
+    assert.match(listed.stdout, /app-11 +#200 \(app#11\) /);
     const replayed = await run(['replay', 'app-11'], { openStore: () => storeWith(events) });
     assert.match(replayed.stdout, /^Batch app-11, issue acme\/app#11$/m);
   });

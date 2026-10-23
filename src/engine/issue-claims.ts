@@ -236,12 +236,31 @@ export const releaseClaim = async (
 /** How a pull request of a batch stands. */
 export type PullRequestState = 'open' | 'merged' | 'closed';
 
+/** The effects of a claimed batch's Brewery issue, by the name its key carries (ADR 0144). */
+export const orderEffects = {
+  open: 'order.issue',
+  reopen: 'order.reopen',
+  close: 'release.order',
+} as const;
+
+/**
+ * The Brewery issue that is the order of a claimed batch (ADR 0144): the one the earlier batches of
+ * the same issue left, and the batch's own once it is known.
+ */
+export interface ClaimOrder {
+  /** `gone`: the batch's reopen found that a person deleted it, so the batch opens its own. */
+  earlier?: { issue: number; gone?: true };
+  issue?: number;
+}
+
 /** A batch of a claimed target-repository issue. */
 export interface ClaimedBatch {
   batchId: string;
   repo: string;
   issue: number;
   lane: Lane;
+  /** Its Brewery issue; absent as for a batch whose Brewery issue nothing opened yet. */
+  order?: ClaimOrder;
 }
 
 /** What an effect of a claim does on the code host. */
@@ -250,7 +269,11 @@ export type ClaimEffect =
   | { kind: 'add_label'; repo: string; issue: number; label: string }
   | { kind: 'remove_label'; repo: string; issue: number; label: string }
   | { kind: 'comment'; repo: string; issue: number; body: string }
-  | { kind: 'release_ref'; repo: string; issue: number; brewery: string };
+  | { kind: 'release_ref'; repo: string; issue: number; brewery: string }
+  /** Opens the Brewery issue of the claimed `repo#issue` in `brewery`, with its title (ADR 0144). */
+  | { kind: 'open_order'; repo: string; issue: number; brewery: string; body: string }
+  /** Closes or reopens the issue `repo#issue`: the Brewery issue of a claimed batch. */
+  | { kind: 'issue_state'; repo: string; issue: number; state: 'open' | 'closed' };
 
 export interface DueClaimEffect {
   key: BatchEffectKey;
@@ -326,8 +349,35 @@ export const claimEffectsDue = (
     key: { batchId, effect },
     effect: does,
   });
+  const { earlier, issue: order } = batch.order ?? {};
   const release = releaseOf(batch.lane, pullRequest);
   if (release === undefined) {
+    // The Brewery issue comes after the marks, which keep other Breweries off the issue. A batch
+    // ordered again keeps the one an earlier batch opened, reopened however it was closed (found
+    // done while it is open), and opens its own when a person deleted it.
+    const ordering: DueClaimEffect[] = [];
+    if (earlier !== undefined) {
+      ordering.push(
+        due(orderEffects.reopen, {
+          kind: 'issue_state',
+          repo: brewery,
+          issue: earlier.issue,
+          state: 'open',
+        }),
+      );
+    }
+    if (earlier === undefined || earlier.gone === true) {
+      const target = `${repo}#${issue}`;
+      ordering.push(
+        due(orderEffects.open, {
+          kind: 'open_order',
+          repo,
+          issue,
+          brewery,
+          body: `The order of ${target}, which this Brewery claimed. Its batches brew here, and their pull requests close ${target}.`,
+        }),
+      );
+    }
     return [
       due('claim.assignee', { kind: 'assign', repo, issue, login }),
       due('claim.label', { kind: 'add_label', repo, issue, label: claimLabel }),
@@ -337,8 +387,21 @@ export const claimEffectsDue = (
         issue,
         body: `The Brewery \`${brewery}\` is brewing this issue as batch \`${batchId}\`, and holds its claim until the batch ends. To release it by hand, delete the ref \`${claimRef(issue)}\` and unassign the issue.`,
       }),
+      ...ordering,
     ];
   }
+  // A merge closes the target issue, and its Brewery issue with it; otherwise both stay open.
+  const closing =
+    release === 'merged' && order !== undefined
+      ? [
+          due(orderEffects.close, {
+            kind: 'issue_state',
+            repo: brewery,
+            issue: order,
+            state: 'closed',
+          }),
+        ]
+      : [];
   // The assignee stays: removing it would hand the issue to the next Brewery that polls.
   // The ref goes last, so the issue is never claimable while the marks are still on it.
   return [
@@ -349,6 +412,7 @@ export const claimEffectsDue = (
       issue,
       body: `The Brewery \`${brewery}\` released its claim on this issue: batch \`${batchId}\` ${released[release]}`,
     }),
+    ...closing,
     due('release.ref', { kind: 'release_ref', repo, issue, brewery }),
   ];
 };

@@ -390,10 +390,15 @@ describe('claimEffectsDue', () => {
   for (const lane of live) {
     it(`marks the issue while the batch is ${lane.kind}`, () => {
       const due = claimEffectsDue(batch(lane), alice, states({}));
-      assert.deepEqual(names(due), ['claim.assignee', 'claim.label', 'claim.comment']);
+      assert.deepEqual(names(due), [
+        'claim.assignee',
+        'claim.label',
+        'claim.comment',
+        'order.issue',
+      ]);
       assert.deepEqual(
         due.map(({ key }) => key.batchId),
-        ['app-7-1', 'app-7-1', 'app-7-1'],
+        ['app-7-1', 'app-7-1', 'app-7-1', 'app-7-1'],
       );
       assert.deepEqual(due[0]?.effect, { kind: 'assign', repo, issue: 7, login: 'alice' });
       assert.deepEqual(due[1]?.effect, { kind: 'add_label', repo, issue: 7, label: claimLabel });
@@ -407,13 +412,92 @@ describe('claimEffectsDue', () => {
     const due = claimEffectsDue(batch({ kind: 'brewing' }), alice, states({}));
     assert.deepEqual(
       due.map(({ key }) => effectKey.encode(key)),
-      ['["app-7-1","claim.assignee"]', '["app-7-1","claim.label"]', '["app-7-1","claim.comment"]'],
+      [
+        '["app-7-1","claim.assignee"]',
+        '["app-7-1","claim.label"]',
+        '["app-7-1","claim.comment"]',
+        '["app-7-1","order.issue"]',
+      ],
     );
   });
 
   it('keeps the marks while a pull request of the batch is open', () => {
     const due = claimEffectsDue(batch(onTap), alice, states({ [pullRequest]: 'merged' }));
-    assert.deepEqual(names(due), ['claim.assignee', 'claim.label', 'claim.comment']);
+    assert.deepEqual(names(due), ['claim.assignee', 'claim.label', 'claim.comment', 'order.issue']);
+  });
+
+  it('opens the Brewery issue that is its order last, linking the target issue (ADR 0144)', () => {
+    const due = claimEffectsDue(batch({ kind: 'brewing' }), alice, states({}));
+    const open = due.at(-1)?.effect;
+    assert.equal(open?.kind, 'open_order');
+    if (open?.kind !== 'open_order') return;
+    assert.deepEqual(
+      { repo: open.repo, issue: open.issue, brewery: open.brewery },
+      { repo, issue: 7, brewery: 'alice/brewery' },
+    );
+    assert.match(open.body, /acme\/app#7/);
+  });
+
+  it('opens no second Brewery issue when an earlier batch opened one: it reopens that one, however it was closed', () => {
+    const order = { earlier: { issue: 200 }, issue: 200 };
+    const due = claimEffectsDue({ ...batch({ kind: 'brewing' }), order }, alice, states({}));
+    assert.deepEqual(names(due), [
+      'claim.assignee',
+      'claim.label',
+      'claim.comment',
+      'order.reopen',
+    ]);
+    assert.deepEqual(due.at(-1)?.effect, {
+      kind: 'issue_state',
+      repo: 'alice/brewery',
+      issue: 200,
+      state: 'open',
+    });
+  });
+
+  it('opens a Brewery issue of its own when its reopen found the earlier one gone', () => {
+    const order = { earlier: { issue: 200, gone: true as const } };
+    const due = claimEffectsDue({ ...batch({ kind: 'brewing' }), order }, alice, states({}));
+    assert.deepEqual(names(due), [
+      'claim.assignee',
+      'claim.label',
+      'claim.comment',
+      'order.reopen',
+      'order.issue',
+    ]);
+  });
+
+  it('closes its Brewery issue with the release only once every pull request merged, before the ref goes', () => {
+    // Cancelled or closed, the target issue stays open, and so does its Brewery issue.
+    const unmerged: [Lane, Record<string, PullRequestState>][] = [
+      [{ kind: 'cancelled', by: 'alice', via: 'terminal' }, {}],
+      [onTap, { [pullRequest]: 'merged', [other]: 'closed' }],
+    ];
+    for (const [lane, byUrl] of unmerged) {
+      const left = claimEffectsDue({ ...batch(lane), order: { issue: 200 } }, alice, states(byUrl));
+      assert.deepEqual(names(left), ['release.label', 'release.comment', 'release.ref']);
+    }
+    // Nothing to close when nothing opened one.
+    const merged = states({ [pullRequest]: 'merged', [other]: 'merged' });
+    const unopened = claimEffectsDue(batch(onTap), alice, merged);
+    assert.deepEqual(names(unopened), ['release.label', 'release.comment', 'release.ref']);
+    const due = claimEffectsDue(
+      { ...batch(onTap), order: { issue: 200 } },
+      alice,
+      states({ [pullRequest]: 'merged', [other]: 'merged' }),
+    );
+    assert.deepEqual(names(due), [
+      'release.label',
+      'release.comment',
+      'release.order',
+      'release.ref',
+    ]);
+    assert.deepEqual(due[2]?.effect, {
+      kind: 'issue_state',
+      repo: 'alice/brewery',
+      issue: 200,
+      state: 'closed',
+    });
   });
 
   const released: [string, Lane, Record<string, PullRequestState>, RegExp][] = [
@@ -494,12 +578,13 @@ describe('claimEffectsDue', () => {
     assert.deepEqual(github.issue(repo, 7).assignees, ['alice']);
     assert.deepEqual(github.issue(repo, 7).labels, [claimLabel]);
     assert.equal(github.issue(repo, 7).comments.length, 1);
+    assert.equal(github.opened('alice/brewery').length, 1, 'one Brewery issue');
     await run({ kind: 'cancelled', by: 'alice', via: 'terminal' });
     assert.deepEqual(github.issue(repo, 7).assignees, ['alice']);
     assert.deepEqual(github.issue(repo, 7).labels, []);
     assert.equal(github.issue(repo, 7).comments.length, 2);
     assert.equal(github.refs.has(`${repo}#7`), false);
-    assert.equal(kills, 6);
+    assert.equal(kills, 7);
   });
 });
 
@@ -557,6 +642,14 @@ describe('claimStanding: whether an issue may be claimed again (ADR 0105)', () =
       assert.equal(claimStanding(batch(lane), ends, applied(...releases)), 'released');
     });
   }
+
+  it('is releasing after a merge until its Brewery issue is closed too (ADR 0144)', () => {
+    const lane: Lane = { kind: 'on_tap', pullRequests: [pr] };
+    const ordered = { ...batch(lane), order: { issue: 200 } };
+    const merged = (): PullRequestState => 'merged';
+    assert.equal(claimStanding(ordered, merged, applied(...releases)), 'releasing');
+    assert.equal(claimStanding(ordered, merged, applied(...releases, 'release.order')), 'released');
+  });
 
   it("counts only this batch's release effects", () => {
     const other = (key: EffectKey): boolean =>

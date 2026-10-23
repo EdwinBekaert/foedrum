@@ -432,6 +432,24 @@ describe('createIntake', () => {
       assert.deepStrictEqual(lanes(), ['5-1 cancelled', '6-1 brewing']);
     });
 
+    it('never orders the Brewery issue that is the order of a claimed issue, labelled or not (ADR 0144)', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({
+        kind: 'record',
+        event: { type: 'effect.applied', key: '["web-7","order.issue"]', result: 12 },
+      });
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(12), labelled(13)],
+        [web]: [],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(
+        batches().map(({ id }) => id),
+        ['web-7', '13-1'],
+      );
+    });
+
     it('orders Brewery issues before target issues, both within the free capacity', async () => {
       const { tracker } = fakeTracker({
         [brewery]: [labelled(12), labelled(13)],

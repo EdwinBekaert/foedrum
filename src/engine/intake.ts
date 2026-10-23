@@ -12,6 +12,7 @@
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
+import { claimOfOrder } from './claim-orders.ts';
 import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
 import { emptyState, type State } from './fold.ts';
@@ -120,7 +121,8 @@ export const recipeLabels = (labels: readonly string[]): string[] =>
 /**
  * Whether the intake orders the Brewery's issue `issue` (ADR 0068): open, not a pull request, opened
  * by one of `authors`, with a `recipe:<name>` label, and with no batch here in any lane. A
- * sub-order is ordered by its decomposition, never by the intake.
+ * sub-order is ordered by its decomposition, and the order of a claimed issue by its claim, never by
+ * the intake (ADR 0144).
  */
 export const isBreweryOrder = (
   issue: TargetIssue,
@@ -132,7 +134,8 @@ export const isBreweryOrder = (
   recipeLabels(issue.labels).length > 0 &&
   authors.some((author) => same(author, issue.author)) &&
   (state.orders.get(issue.number)?.batchIds.length ?? 0) === 0 &&
-  !state.subOrders.has(issue.number);
+  !state.subOrders.has(issue.number) &&
+  claimOfOrder(state, issue.number) === undefined;
 
 /** The repositories of the config that name an intake filter, in the order it lists them. */
 export const intakeRepositories = (config: BreweryConfig): IntakeRepository[] =>

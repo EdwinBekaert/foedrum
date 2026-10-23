@@ -1444,6 +1444,33 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       ]);
     });
 
+    it('refuses its Brewery issue as a Brewery issue: the claimed issue is ordered by its alias (ADR 0144)', () => {
+      const opened: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: 'web-7', effect: 'order.issue' }),
+        result: 200,
+      };
+      const events = [...webCancelled, opened, ...released];
+      refuses(
+        events,
+        again('200-1', { issue: 200 }),
+        /^issue #200 is the order of acme\/web#7; order web#7 again$/,
+      );
+      accepts(events, again('201-1', { issue: 201 }), [orderedAgain('201-1', { issue: 201 })]);
+    });
+
+    it('orders a target issue whose number is that of a Brewery issue that is an order', () => {
+      const opened: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: 'web-7', effect: 'order.issue' }),
+        result: 200,
+      };
+      const api = { issue: 200, repo: 'acme/api' } as const;
+      accepts([...webCancelled, opened, ...released], again('api-200', api), [
+        orderedAgain('api-200', api),
+      ]);
+    });
+
     it('compares its repository ignoring case', () => {
       refuses(
         [webOrdered],
@@ -1530,6 +1557,41 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
         again('web-7-2', web),
         [orderedAgain('web-7-2', web)],
       );
+    });
+
+    it('refuses it after a merge until the release closed its Brewery issue too (ADR 0144)', () => {
+      const ref = { batchId: 'web-7', stepId: 'patch', attempt: 1 };
+      const merged: Event[] = [
+        webOrdered,
+        {
+          type: 'batch.recipe_chosen',
+          batchId: 'web-7',
+          recipe: 'nip',
+          reason: 'r',
+          source: 'label',
+        },
+        { type: 'step.scheduled', ...ref, deadlineAt: inAnHour },
+        { type: 'step.started', ...ref },
+        { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+        { type: 'batch.on_tap', batchId: 'web-7', pullRequests: [pullRequest] },
+        { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'merged' },
+        ...applied('order.issue'),
+        ...released,
+      ];
+      // The Brewery issue the batch opened, as the ledger recorded it.
+      const withOrder = merged.map((event) =>
+        event.type === 'effect.applied' && event.key === '["web-7","order.issue"]'
+          ? { ...event, result: 200 }
+          : event,
+      );
+      refuses(
+        withOrder,
+        again('web-7-2', web),
+        /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then order acme\/web#7 again$/,
+      );
+      accepts([...withOrder, ...applied('release.order')], again('web-7-2', web), [
+        orderedAgain('web-7-2', web),
+      ]);
     });
 
     it('never counts a Brewery issue of the same number', () => {

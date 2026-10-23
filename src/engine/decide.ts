@@ -18,6 +18,7 @@ import type {
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
+import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { claimStanding, same } from './issue-claims.ts';
@@ -343,6 +344,11 @@ export function orderRefusal(state: State, order: OrderRef): string | undefined 
   if (subOrder !== undefined) {
     return `issue #${issue} is a sub-order of #${subOrder.order}; its decomposition orders it`;
   }
+  // Its batches are the claimed issue's, which a new claim orders again (ADR 0144).
+  const claimed = repo === undefined ? claimOfOrder(state, issue) : undefined;
+  if (claimed?.repo !== undefined) {
+    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; order ${claimedName(claimed)} again`;
+  }
   return busy(state, order);
 }
 
@@ -364,7 +370,13 @@ function busy(state: State, order: OrderRef): string | undefined {
     if (ofRepo === undefined) continue;
     const ends = batch.pullRequestEnds ?? {};
     const standing = claimStanding(
-      { batchId: batch.id, repo: ofRepo, issue, lane: batch.lane },
+      {
+        batchId: batch.id,
+        repo: ofRepo,
+        issue,
+        lane: batch.lane,
+        order: claimOrderOf(state, batch.id),
+      },
       (url) => ends[url] ?? 'open',
       (key) => state.effects.has(effectKey.encode(key)),
     );

@@ -1,6 +1,7 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
 // or waiting for. The lane's words are shared with replay.
 
+import { orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { columns } from './columns.ts';
@@ -98,7 +99,7 @@ export const formatStatus = (
     const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
     return [
       batch.id,
-      issueOf(batch),
+      orderName(state, batch),
       lane,
       [detail, ...by].filter((part) => part !== '').join('; '),
     ];

@@ -38,3 +38,12 @@ export const targetBatchId = (state: State, alias: string, issue: number): strin
     if (!state.batches.has(id)) return id;
   }
 };
+
+/**
+ * The alias a claimed issue's batch id starts with, as `targetBatchId` makes it, or undefined for
+ * any other id: the alias has no hyphen, so it ends at the first one (ADR 0050).
+ */
+export const aliasOf = (batchId: string): string | undefined => {
+  const alias = /^([a-z][a-z0-9]*)-[1-9]\d*(?:-[1-9]\d*)?$/.exec(batchId)?.[1];
+  return alias !== undefined && RepositoryAlias.safeParse(alias).success ? alias : undefined;
+};

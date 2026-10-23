@@ -283,8 +283,9 @@ function apply(state: State, event: Event): State {
         steps: new Map(),
         rewinds: [],
       });
-      // A claimed target issue is an order, but `orders` and `subOrders` hold the Brewery's own
-      // issues by number, which its number would collide with (ADR 0050).
+      // A claimed target issue, whose order is a Brewery issue the driver opens (ADR 0144), stays
+      // out of `orders` and `subOrders`: they hold the Brewery's own issues by number, which its
+      // number would collide with (ADR 0050).
       if (repo !== undefined) return { ...state, batches };
       const subOrder = state.subOrders.get(order.issue);
       if (subOrder !== undefined) {
