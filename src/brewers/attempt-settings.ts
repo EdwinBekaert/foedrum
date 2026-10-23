@@ -17,7 +17,21 @@ export interface AttemptPermissions {
   deny: readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
+  configDirs?: ConfigDirs;
 }
+
+/** The variables that move a login out of the paths `sandboxCredentials` names (ADR 0160). */
+export interface ConfigDirs {
+  GH_CONFIG_DIR?: string;
+  XDG_CONFIG_HOME?: string;
+  CLAUDE_CONFIG_DIR?: string;
+}
+
+/** The variables of `env` that move a login. */
+export const configDirsOf = (_env: Readonly<Record<string, string | undefined>>): ConfigDirs => {
+  throw new Error('not implemented');
+};
 
 /** The settings as the schema reads them; throws with every problem when it does not. */
 const valid = (settings: unknown): AttemptSettings => {
