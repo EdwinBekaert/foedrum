@@ -310,6 +310,22 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     assert.ok(deadlineAt >= before + 30 * 60_000 && deadlineAt <= Date.now() + 30 * 60_000);
   });
 
+  it("reports the Brewery's brewer with the batch Stuck at its step, and appends nothing (ADR 0159)", async () => {
+    writeRecipe([{ brewer: 'maltster' }]);
+    const { exitCode, stdout, stderr } = await foedrum('brewers');
+    assert.equal(stderr, '');
+    assert.equal(exitCode, 0);
+    assert.ok(
+      stdout.includes('maltster  brewers/maltster.md\n  no attempts\n  Stuck: 12-1\n'),
+      stdout,
+    );
+    // Foedrum's default brewers are in use too (ADR 0098).
+    assert.ok(stdout.includes('gauger  defaults/brewers/gauger.md\n  no attempts\n'), stdout);
+    const reader = openSqliteEventStore(store, { readOnly: true });
+    assert.equal(reader.lastEventId(), 3);
+    reader.close();
+  });
+
   it("is refused with doctor's line when a recipe file is not valid, and changes nothing", async () => {
     writeRecipe([{ brewer: 'maltster' }, { id: 'approve', gate: 'human', deadline: '1d' }]);
     const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)`;

@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import type { BrewerSource } from '../../src/cli/brewer-report.ts';
 import { commands } from '../../src/cli/commands.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -96,6 +97,10 @@ describe('foedrum: commands that change state', () => {
       return kept();
     },
     recipes: () => recipes,
+    brewers: () => ({
+      brewers: [{ name: 'planner', path: 'brewers/planner.md' }],
+      step: () => undefined,
+    }),
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
@@ -125,7 +130,7 @@ describe('foedrum: commands that change state', () => {
 
   it('opens only the read-only store for a read-only command, and appends nothing', async () => {
     const before = lastId();
-    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor']]) {
+    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor'], ['brewers']]) {
       assert.equal((await run(argv)).exitCode, 0, argv.join(' '));
     }
     assert.deepStrictEqual(opened.writable, []);
@@ -136,7 +141,7 @@ describe('foedrum: commands that change state', () => {
     const recipes = () => {
       throw new Error('the recipes were loaded');
     };
-    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor']]) {
+    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor'], ['brewers']]) {
       assert.equal((await run(argv, { recipes })).exitCode, 0, argv.join(' '));
     }
   });
@@ -562,6 +567,7 @@ describe('foedrum stuck', () => {
       openStore: () => ({ ...store, close: () => {} }),
       openWritableStore: () => undefined,
       recipes: () => recipes,
+      brewers: () => assert.fail('no brewer files to read'),
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
@@ -631,6 +637,115 @@ describe('foedrum stuck', () => {
   });
 });
 
+describe('foedrum brewers', () => {
+  let store: EventStore;
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+  });
+  afterEach(() => store.close());
+
+  const source: BrewerSource = {
+    brewers: [
+      { name: 'planner', path: 'brewers/planner.md' },
+      { name: 'coder', path: 'defaults/brewers/coder.md' },
+    ],
+    step: (recipe, stepId) =>
+      recipe === 'pint' && stepId === 'plan' ? { brewer: 'planner' } : undefined,
+  };
+  const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
+    runCli(argv, {
+      cwd,
+      gatherDoctorFacts: async () => linux(),
+      openStore: () => ({ ...store, close: () => {} }),
+      openWritableStore: () => assert.fail('brewers only reads (ADR 0030)'),
+      recipes: () => assert.fail('brewers needs no Recipes'),
+      brewers: () => source,
+      user: () => 'ada',
+      surface: 'terminal',
+      now: () => t0,
+      readKeptBranches: async () => assert.fail('no kept branch to read'),
+      config: () => assert.fail('no foedrum.jsonc to read'),
+      claims: () => assert.fail('no claim host to reach'),
+      serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      brew: async () => assert.fail('no brew here'),
+      resume: async () => assert.fail('no session to resume'),
+      env: {},
+      ...overrides,
+    });
+
+  it("reports each brewer from the store's attempts, and appends nothing", async () => {
+    store.withTransaction((tx) => {
+      for (const event of [
+        { type: 'batch.ordered', batchId: '11-1', order: { issue: 11 }, routeBy: iso(60) },
+        {
+          type: 'batch.recipe_chosen',
+          batchId: '11-1',
+          recipe: 'pint',
+          reason: 'label',
+          source: 'label',
+        },
+        {
+          type: 'step.scheduled',
+          batchId: '11-1',
+          stepId: 'plan',
+          attempt: 1,
+          deadlineAt: iso(60),
+        },
+        { type: 'step.started', batchId: '11-1', stepId: 'plan', attempt: 1 },
+        {
+          type: 'step.finished',
+          batchId: '11-1',
+          stepId: 'plan',
+          attempt: 1,
+          outcome: { kind: 'succeeded', output: {} },
+          usage: { inputTokens: 40, outputTokens: 30, cacheReadTokens: 20, cacheWriteTokens: 10 },
+        },
+      ] satisfies Event[])
+        tx.append(event);
+    });
+    const before = store.eventsAfter(0).length;
+    assert.deepStrictEqual(await run(['brewers']), {
+      exitCode: 0,
+      stdout: [
+        'coder  defaults/brewers/coder.md',
+        '  no attempts',
+        'planner  brewers/planner.md',
+        '  1 attempt: 1 succeeded',
+        '  tokens: 40 input, 30 output, 20 cache read, 10 cache write',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+    assert.equal(store.eventsAfter(0).length, before);
+  });
+
+  it('lists the brewers with no attempts when there is no store yet', async () => {
+    assert.deepStrictEqual(await run(['brewers'], { openStore: () => undefined }), {
+      exitCode: 0,
+      stdout: [
+        'coder  defaults/brewers/coder.md',
+        '  no attempts',
+        'planner  brewers/planner.md',
+        '  no attempts',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+  });
+
+  it("refuses with doctor's line when the files do not load", async () => {
+    const line = invalidRecipes(['brewers/planner.md: EACCES']);
+    const brewers = () => {
+      throw new Error(line);
+    };
+    assert.deepStrictEqual(await run(['brewers'], { brewers }), {
+      exitCode: 1,
+      stdout: '',
+      stderr: `foedrum brewers: ${line}\n`,
+    });
+  });
+});
+
 describe('foedrum order: order an issue again (ADR 0105)', () => {
   let store: EventStore;
   let github: FakeGitHub;
@@ -685,6 +800,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     openStore: () => assert.fail('order opens the store for writing'),
     openWritableStore: () => ({ ...store, close: () => {} }),
     recipes: () => recipes,
+    brewers: () => assert.fail('no brewer files to read'),
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,

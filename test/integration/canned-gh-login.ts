@@ -92,6 +92,7 @@ export const doctorHere = async (
     openStore: notForDoctor('store'),
     openWritableStore: notForDoctor('store'),
     recipes: notForDoctor('recipes'),
+    brewers: notForDoctor('brewer files'),
     user: () => 'doctor-test',
     surface: 'terminal',
     now: () => new Date(),
