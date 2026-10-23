@@ -1,6 +1,6 @@
 # 0143. Lenses in two folders: lenses/diff/ for a diff, lenses/plan/ for a plan
 
-Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (where lenses are, how a lens is named, and what replaces a default lens) and [0022](0022-five-default-lenses.md) (where the five default lenses are)
+Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (where lenses are, how a lens is named, and what replaces a default lens), [0022](0022-five-default-lenses.md) and [0017](0017-test-first-recipes-and-tasting-lenses.md) (where the five default lenses are), and [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (the Gauger's lens input)
 
 ## Context
 Every lens so far reviews a diff: the five default lenses ([ADR 0022](0022-five-default-lenses.md)) read code and its tests.
@@ -23,6 +23,7 @@ Today `defaults/lenses/*.md` and a Brewery's `lenses/*.md` hold one flat list, a
 - The lens of a prompt's input is tagged with its folder and file: `lens diff/test-design, file defaults/lenses/diff/test-design.md`.
 - The review skill (`/brew-review`) reads its lenses from `defaults/lenses/diff/`, and from `defaults/lenses/` when the base is older than this record, so a pull request is still reviewed by its base's lenses. The plan lenses are not pull request lenses.
 - #391 adds the six plan lenses as files of `defaults/lenses/plan/`, with no change to the load.
+- A house-yeast rule's lens scope stays a bare lens name (`security`), as the review skill names its lenses: no rule is scoped to a plan lens yet, and how one names it is #391's to settle.
 
 ## Alternatives considered
 - **A `reviews: "diff" | "plan"` field on the step, or on the lens file.** One more field to keep in step with the folder, and a lens has no frontmatter (ADR 0098). The recipe already tells: there is no diff before a step commits.
