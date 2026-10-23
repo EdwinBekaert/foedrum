@@ -579,7 +579,7 @@ describe('runServe', () => {
     // it, outside a sandbox on native Windows (ADR 0163).
     it("says at its start, once, that a repository's setup runs outside an OS sandbox on native Windows, with or without a check step", async () => {
       const setupOutside =
-        "foedrum serve: acme/web's setup runs outside an OS sandbox on native Windows, before fresh brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access (ADR 0163)";
+        "foedrum serve: acme/web's setup runs outside an OS sandbox on native Windows, before brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access (ADR 0163)";
       const files = serveInputs().files;
       const withSetup = (recipes: typeof files.brewery.recipes) => {
         const ready = serveSetup(
