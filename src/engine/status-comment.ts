@@ -298,15 +298,16 @@ const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): 
 /** How many findings of one Taster's step the comment shows. */
 const mostFindings = 10;
 
-/** The findings of the latest out doc of each Taster's step that succeeded (ADR 0161). */
+/**
+ * The findings of each Taster's step whose latest finished attempt succeeded (ADR 0161): a blocking
+ * verdict ends its attempt blocked, and an earlier round's findings are no longer current.
+ */
 const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
   stepIds.flatMap((stepId) => {
-    const succeeded = latestFirst(batch, stepId).find(
-      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-    );
+    const finished = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
     const output =
-      succeeded?.phase === 'finished' && succeeded.outcome.kind === 'succeeded'
-        ? succeeded.outcome.output
+      finished?.phase === 'finished' && finished.outcome.kind === 'succeeded'
+        ? finished.outcome.output
         : undefined;
     return capped(
       stepId,
