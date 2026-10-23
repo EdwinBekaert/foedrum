@@ -11,8 +11,9 @@ import { attemptLimits, routeInput, routeOf } from '../../src/brewers/attempt-pl
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { type Batch, fold } from '../../src/engine/fold.ts';
-import { pullRequestText, stepReports } from '../../src/engine/pull-request.ts';
+import { pullRequestKey, pullRequestText, stepReports } from '../../src/engine/pull-request.ts';
 import {
   type BreweryFiles,
   type LoadedRecipes,
@@ -37,6 +38,8 @@ const valid = (result: LoadedRecipes) => {
   assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
   return result;
 };
+
+const PULL_REQUEST = 'https://github.com/acme/brewery/pull/2';
 
 const LENSES = ['correctness', 'security', 'cross-platform', 'design-conformance', 'test-design'];
 
@@ -118,6 +121,15 @@ const brew = async (
       clock: () => new Date('2026-10-23T12:00:00.000Z'),
     });
     assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+    // The fake runner plays the openPullRequest action; the ledger has the pull request it opened,
+    // as the driver records it, without which decide keeps the batch from going on tap (ADR 0071).
+    store.withTransaction((tx) => {
+      tx.append({
+        type: 'effect.applied',
+        key: effectKey.encode(pullRequestKey('b1')),
+        result: PULL_REQUEST,
+      });
+    });
     assert.ok(
       brewing.command({ kind: 'route', batchId: 'b1', recipe, reason: 'label', source: 'label' }),
     );
@@ -148,7 +160,7 @@ describe('the tasting room: one lens step per lens, one after another (#26)', ()
         : behave.succeed(),
     );
     assert.deepEqual(startedSteps(events), ['implement', ...LENSES, 'open-pull-request']);
-    assert.equal(batch.lane.kind, 'on_tap');
+    assert.deepEqual(batch.lane, { kind: 'on_tap', pullRequests: [PULL_REQUEST] });
 
     const reports = stepReports(batch);
     for (const lens of LENSES) {
@@ -234,7 +246,7 @@ describe('a blocking lens step (#26, ADR 0161)', () => {
       stepId === 'correctness' ? tasted('approve', []) : behave.succeed(),
     );
     assert.deepEqual(startedSteps(events), ['implement', 'correctness', 'open-pull-request']);
-    assert.equal(batch.lane.kind, 'on_tap');
+    assert.deepEqual(batch.lane, { kind: 'on_tap', pullRequests: [PULL_REQUEST] });
   });
 });
 
