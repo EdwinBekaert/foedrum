@@ -93,6 +93,9 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
       if (batch === undefined || batch.repo !== undefined) return [];
+      // An issue ordered again shows its latest batch: an older one never touches its labels.
+      const ofIssue = (state.orders.get(batch.issue) ?? state.subOrders.get(batch.issue))?.batchIds;
+      if (ofIssue?.at(-1) !== batchId) return [];
       let revision = 1;
       let previous: LaneLabelRevision | undefined;
       for (let found = recorded(state, batchId, revision); found !== undefined; ) {

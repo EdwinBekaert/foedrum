@@ -250,9 +250,17 @@ const markOf = (batch: Batch, stepId: string, n: number): string => {
  * Each is a code span: GitHub would link a bare `#1` to issue 1.
  */
 const pathLine = (batch: Batch): string[] => {
-  const { path } = batch;
-  if (path === undefined || path.length === 0) return [];
-  const shown = path.map(
+  const { path = [], lane } = batch;
+  // Stuck at an attempt that never started: the path ends there all the same.
+  const stuckAt = lane.kind === 'stuck' && 'stepId' in lane.reason ? lane.reason.stepId : undefined;
+  const latest = stuckAt === undefined ? undefined : latestFirst(batch, stuckAt)[0]?.attempt;
+  const onPath = path.some((each) => each.stepId === stuckAt && each.attempt === latest);
+  const all =
+    stuckAt === undefined || latest === undefined || onPath
+      ? path
+      : [...path, { stepId: stuckAt, attempt: latest }];
+  if (all.length === 0) return [];
+  const shown = all.map(
     ({ stepId, attempt }) => `${code(`${stepId} #${attempt}`)} ${markOf(batch, stepId, attempt)}`,
   );
   return [`Path: ${shown.join(' → ')}`];
