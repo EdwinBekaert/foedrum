@@ -82,6 +82,9 @@ export const AttemptSettings = z
     permissions: z.strictObject({
       allow: z.array(ScopedAllowedTool),
       deny: z.array(BrewerDeniedTool),
+      // ADR 0160: sandboxed commands lose the home directory and the other user roots. Needs
+      // Claude Code v2.1.257.
+      blockReadsOutsideWorkingDirectories: z.literal(true).optional(),
     }),
     // Only where the isolation level relies on Claude Code's sandbox: it must run, or nothing does,
     // and the allow rules decide for sandboxed commands too (ADR 0087).
@@ -107,5 +110,10 @@ export const AttemptSettings = z
   .refine(
     ({ permissions: { allow, deny } }) => alwaysDenied(allow).every((rule) => deny.includes(rule)),
     'Must deny AskUserQuestion, and git push in every shell it allows',
+  )
+  .refine(
+    ({ permissions, sandbox }) =>
+      sandbox === undefined || permissions.blockReadsOutsideWorkingDirectories === true,
+    'A sandbox must come with permissions.blockReadsOutsideWorkingDirectories (ADR 0160)',
   );
 export type AttemptSettings = z.infer<typeof AttemptSettings>;
