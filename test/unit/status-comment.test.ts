@@ -908,12 +908,31 @@ describe('statusEffects', () => {
     assert.ok(only().body.endsWith(marker(3)));
   });
 
-  it('has no status comment for a claimed target-repository issue', async () => {
+  it("comments on a claimed batch's Brewery issue once the batch records it, and nothing before (ADR 0144)", async () => {
     issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'alice/web' } });
     const driver = await open();
     await driver.tick();
-    assert.deepEqual(comments.comments, []);
-    assert.deepEqual(comments.calls, []);
+    assert.deepEqual(comments.calls, [], 'no Brewery issue yet');
+    store.withTransaction((tx) => tx.recordEffect({ batchId: 'web-7', effect: 'order.issue' }, 20));
+    await driver.tick();
+    issue({ kind: 'route', batchId: 'web-7', recipe: 'nip', reason: 'label', source: 'label' });
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', batchId: 'web-7', stepId: 'plan', attempt: 1 },
+    });
+    later(minute);
+    await driver.tick();
+    // One comment, on the Brewery issue #20: never on the Brewery's #7 or the target issue.
+    const comment = only();
+    assert.deepEqual([comment.repo, comment.issue], [brewery, 20]);
+    assert.match(comment.body, /Brewing/);
+    assert.ok(
+      comment.body.endsWith(
+        effectMarker(effectKey.encode({ batchId: 'web-7', effect: 'status.2' })),
+      ),
+      comment.body,
+    );
+    assert.deepEqual(notices, []);
   });
 
   it("shows a commit hash the batch's state records, and leaves out a token (#235)", async () => {
