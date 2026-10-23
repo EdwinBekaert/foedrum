@@ -163,11 +163,16 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
     why: 'The poll has no deadline',
     introduced: true,
   };
-  const ended = (verdict: string, blocking: boolean) =>
+  // A changes verdict with the blocker it is about; an approve without one.
+  const ended = (
+    verdict: string,
+    blocking: boolean,
+    findings: readonly unknown[] = verdict === 'changes' ? [finding] : [],
+  ) =>
     settleAttempt(
       {
         exit: { kind: 'exited', code: 0 },
-        outDoc: outDoc({ status: 'done', summary: 'Tasted', verdict, findings: [finding] }),
+        outDoc: outDoc({ status: 'done', summary: 'Tasted', verdict, findings }),
         denials: 0,
         deniedTools: [],
         turns: 3,
@@ -224,17 +229,17 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
         verdict: 'approve',
         findings: [{ ...finding, severity: undefined }],
       },
-      // Near misses of a finding's location: a file on two lines, and line 0.
+      // Near misses of a finding's location, each else valid: a file on two lines, and line 0.
       {
         status: 'done',
         summary: 'Tasted',
-        verdict: 'approve',
+        verdict: 'changes',
         findings: [{ ...finding, file: 'a.ts\nb' }],
       },
       {
         status: 'done',
         summary: 'Tasted',
-        verdict: 'approve',
+        verdict: 'changes',
         findings: [{ ...finding, line: 0 }],
       },
     ]) {
