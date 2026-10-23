@@ -617,6 +617,23 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
       [false, false, false],
     );
   });
+
+  it('merges before the last check the recipe runs, not one its settings skip (review of #438)', () => {
+    const steps = [
+      { id: 'brew', brewer: 'maltster' },
+      { id: 'green', check: 'test' },
+      { id: 'smoke', check: 'lint', when: "recipe.testFirst == 'true'" },
+    ];
+    const result = loadRecipes(
+      brewery({ recipes: [opened('stout', steps, { testFirst: false })] }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const stout = result.recipes.find('stout');
+    assert.deepEqual(
+      ['brew', 'green', 'smoke'].map((id) => stout?.mergesBase(id)),
+      [false, true, false],
+    );
+  });
 });
 
 describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {

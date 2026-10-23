@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
@@ -280,6 +280,21 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       assert.deepEqual(result, { base, merged: head });
       assert.deepEqual(await target(tree).find(key), { result: { base, merged: head } });
       assert.equal(git(tree.path, ['rev-parse', 'HEAD']).trim(), head);
+    });
+
+    it("merges through the worktree's record under the clone, never by its .git file (ADR 0029)", async () => {
+      const tree = worktree();
+      const base = mergeIntoMain('other.txt', 'other\n');
+      const elsewhere = git(other, ['rev-parse', 'HEAD']).trim();
+      // A brewer pointed the worktree's .git file at a repository of its own. Git hides that file
+      // on Windows, where writing over a hidden file is refused: it goes first.
+      unlinkSync(join(tree.path, '.git'));
+      writeFileSync(join(tree.path, '.git'), `gitdir: ${join(other, '.git')}\n`);
+      const result = await target(tree).apply(key);
+      const merged = git(user, ['rev-parse', `refs/heads/tree-${runs}`]).trim();
+      assert.deepEqual(result, { base, merged });
+      assert.deepEqual(git(user, ['rev-parse', `${merged}^1`]).trim(), tree.start);
+      assert.equal(git(other, ['rev-parse', 'HEAD']).trim(), elsewhere);
     });
 
     it('aborts a merge a killed run left in progress, and finds nothing', async () => {
