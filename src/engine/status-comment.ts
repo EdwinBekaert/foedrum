@@ -220,6 +220,44 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
   }
 };
 
+/** How attempt `n` of `stepId` stands, as the step list marks it. */
+const markOf = (batch: Batch, stepId: string, n: number): string => {
+  const attempt = batch.steps.get(stepId)?.attempts.get(n);
+  const { lane } = batch;
+  const latest = latestFirst(batch, stepId)[0]?.attempt;
+  if (lane.kind === 'stuck' && 'stepId' in lane.reason && lane.reason.stepId === stepId) {
+    if (latest === n) return '🔔';
+  }
+  if (attempt === undefined || attempt.phase !== 'finished') {
+    return attempt?.abandoned === true ? '⏹️' : '▶️';
+  }
+  switch (attempt.outcome.kind) {
+    case 'succeeded':
+      return '✅';
+    case 'failed':
+      return '❌';
+    case 'needs_input':
+      return '❓';
+    case 'cancelled':
+      return '⏹️';
+    default:
+      return attempt.outcome satisfies never;
+  }
+};
+
+/**
+ * The batch's attempts in the order they ran, each marked, on one line; none before its first.
+ * Each is a code span: GitHub would link a bare `#1` to issue 1.
+ */
+const pathLine = (batch: Batch): string[] => {
+  const { path } = batch;
+  if (path === undefined || path.length === 0) return [];
+  const shown = path.map(
+    ({ stepId, attempt }) => `${code(`${stepId} #${attempt}`)} ${markOf(batch, stepId, attempt)}`,
+  );
+  return [`Path: ${shown.join(' → ')}`];
+};
+
 /** The assumptions of the latest out doc of `stepId` that succeeded. */
 const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   for (const attempt of latestFirst(batch, stepId)) {
@@ -260,7 +298,11 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     laneText(batch.lane, told),
-    [recipeText(batch.recipe), ...stepIds.map((stepId) => stepLine(batch, stepId, told))],
+    [
+      recipeText(batch.recipe),
+      ...pathLine(batch),
+      ...stepIds.map((stepId) => stepLine(batch, stepId, told)),
+    ],
   ];
   const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
