@@ -589,9 +589,28 @@ describe('createIntake', () => {
       await breweryIntake(unopened.tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(unopened.asked, []);
       opened('web-7', 14);
-      const routing = fakeTracker({ [brewery]: [], [web]: [issue(7)], [api]: [] });
+      // Its Brewery issue #14 is not listed (a person closed it): it waits, and Brewery issue #7,
+      // with its target issue's number, never routes it.
+      const routing = fakeTracker({
+        [brewery]: [issue(7, { labels: ['recipe:half'], author: 'mallory' })],
+        [web]: [issue(7)],
+        [api]: [],
+      });
       await breweryIntake(routing.tracker, { capacity: 1 }).poll();
       assert.deepStrictEqual(routing.asked, [`issues ${brewery}`]);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered']);
+      assert.deepStrictEqual(notices, [
+        { kind: 'ordered', repo: brewery, issue: 12, batchId: '12-1' },
+        { kind: 'routed', batchId: '12-1', recipe: 'half' },
+      ]);
+    });
+
+    it("lists the Brewery without free capacity for one of the Brewery's own Ordered batches alone", async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      const { tracker, asked } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
+      await breweryIntake(tracker, { capacity: 1 }).poll();
+      assert.deepStrictEqual(asked, [`issues ${brewery}`]);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
     });
 
     it("routes a claimed batch whose target issue no longer passes its repository's filter, or is gone from it", async () => {
