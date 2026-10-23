@@ -9,13 +9,13 @@ import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import { durationMs } from '../schemas/primitives.ts';
-import { commandLine, readingOf } from './gravity.ts';
+import { commandLine, type PlannedCheck, readingOf } from './gravity.ts';
 
 /**
  * How long before the attempt's deadline a command line is killed: the process runner's grace
  * between SIGTERM and SIGKILL (2.5 s) and a supervisor tick (5 s, ADR 0027), with room to spare.
  */
-export const KILL_MARGIN_MS = 10_000;
+const KILL_MARGIN_MS = 10_000;
 
 /**
  * claude's login and settings, which the brewers' base keeps for claude: a check, which has the
@@ -92,6 +92,21 @@ export function setupRunOf(found: RepositorySetup, platform: NodeJS.Platform): S
 }
 
 /**
+ * What one run of `check` read; when no sandbox held it, it says so: a check or a setup on native
+ * Windows (ADR 0076, ADR 0158).
+ */
+export function readingOn(
+  check: Extract<PlannedCheck, { kind: 'run' }>,
+  result: ExecResult,
+  unsandboxed: boolean,
+): GravityReading {
+  const reading = readingOf(check, result);
+  return unsandboxed && reading.result !== 'skipped'
+    ? { ...reading, unsandboxed: true as const }
+    : reading;
+}
+
+/**
  * The reading of a repository's setup, run in the worktree with the network, in the check sandbox
  * where there is one (ADR 0158).
  */
@@ -102,8 +117,5 @@ export async function runSetup(
 ): Promise<GravityReading> {
   const check = { kind: 'run', setup: true, command: setup.command } as const;
   const result = await runLine(through, setup.command, { ...run, timeoutMs: setup.timeoutMs });
-  const reading = readingOf(check, result);
-  return setup.unsandboxed && reading.result !== 'skipped'
-    ? { ...reading, unsandboxed: true as const }
-    : reading;
+  return readingOn(check, result, setup.unsandboxed);
 }

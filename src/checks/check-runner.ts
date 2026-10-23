@@ -28,11 +28,10 @@ import {
   passed,
   planChecks,
   type RepositoryChecks,
-  readingOf,
   settleReadings,
 } from './gravity.ts';
 import { judgeRed, needsTestReport } from './red-proof.ts';
-import { checksEnv, runLine, runSetup, setupRunOf } from './setup.ts';
+import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
@@ -115,16 +114,9 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     ending: { kind: 'blocked', blockerKind, summary },
   });
 
-  /**
-   * What one run of `check` read; when no sandbox held it, it says so: a check or a setup on
-   * native Windows (ADR 0076, ADR 0158).
-   */
-  const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => {
-    const reading = readingOf(check, result);
-    return checksRunUnsandboxed(platform) && reading.result !== 'skipped'
-      ? { ...reading, unsandboxed: true as const }
-      : reading;
-  };
+  /** What one run of `check` read on this platform (ADR 0076). */
+  const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) =>
+    readingOn(check, result, checksRunUnsandboxed(platform));
 
   /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
   const runCheck = (
