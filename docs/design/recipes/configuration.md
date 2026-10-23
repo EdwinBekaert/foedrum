@@ -18,7 +18,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
         "test": "dotnet test --logger junit"
       },
       "testReport": { "format": "junit", "path": "tests/TestResults/results.xml" },
-      "setup": { "command": "dotnet restore", "timeout": "15m" },  // before a check step's checks (ADR 0140)
+      "setup": { "command": "dotnet restore", "timeout": "15m" },  // before a fresh brewer attempt and a check step's checks (ADR 0163)
       "tools": ["Bash(dotnet test*)", "Bash(dotnet build*)"],    // added to every brewer's allowlist
       "houseYeast": "repo",                                      // or "brewery" (ADR 0018)
       "alias": "billing",                                        // batches billing-<issue>
@@ -42,6 +42,26 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   A `tools` rule that reaches git with no fixed subcommand (`Bash(git *)`) is refused like a brewer's, but only when an attempt is planned, not when the file is loaded: each attempt for that repository then fails with `the brewer could not start` ([ADR 0062](../../adr/0062-brewers-never-allow-git-with-no-fixed-subcommand.md)).
   Neither the ceiling nor `tools` may name `gh` (`Bash(gh *)`, `Bash(gh*)`, `Bash(env gh *)`), which is refused when the file is loaded; a broad ceiling such as `Bash(*)` or `Bash(env *)` stays, and a `tools` rule that reaches `gh` in another spelling is refused when an attempt is planned ([ADR 0082](../../adr/0082-brewers-never-allow-gh.md)).
   So is a `tools` rule that is a `Write`, `MultiEdit`, `NotebookEdit` or `Glob` path rule ([ADR 0093](../../adr/0093-brewers-file-tool-rules-are-read-and-edit-rules-scoped-to-the-worktree.md)).
+- `setup` runs in the worktree of every brewer attempt that starts fresh, before the brewer, and of every check step, before its checks, in the check sandbox with the network kept ([ADR 0158](../../adr/0158-a-repository-s-setup-runs-in-the-check-sandbox-with-the-network-kept.md), [ADR 0163](../../adr/0163-a-repository-s-setup-runs-before-a-fresh-brewer-attempt.md)).
+  So a brewer can run the repository's format, lint, typecheck and tests itself, which the default Gauger and Cellarman do when `tools` allows the commands; the check step after them stays the gate.
+  Foedrum's own repository allows them within a ceiling that names them and nothing broader:
+
+  ```jsonc
+  "permissionCeiling": ["Bash(npm run *)", "Bash(npx biome format --write *)", "Bash(node --test *)"],
+  "repositories": {
+    "edwinbekaert/foedrum": {
+      "setup": { "command": "npm ci", "timeout": "10m" },
+      "tools": [
+        "Bash(npm run lint)",
+        "Bash(npm run typecheck)",
+        "Bash(npx biome format --write *)",                       // format the files it changed
+        "Bash(node --test *)"                                     // the test files it touched
+      ]
+    }
+  }
+  ```
+
+  A brewer's command runs in Claude Code's sandbox where the isolation level is sandboxed (ADR 0010); a command `tools` does not allow is denied and counts toward the brewer's denials.
 - Repository keys are `owner/name`, unique regardless of case.
 - `intake` (`labels`, at least one, and an optional `milestone`) makes the intake claim and brew the repository's open issues that pass it (ADR 0043).
   It needs an `alias`: a lower-case letter, then letters and digits, at most 20, unique in the Brewery; the batch of a claimed issue is `<alias>-<issue>` ([ADR 0050](../../adr/0050-the-intake-of-target-repository-issues.md)).

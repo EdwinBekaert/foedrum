@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -41,4 +41,8 @@ Follow the repository's conventions.
 
 ## Done when
 
-The Gauger's tests and the existing tests that cover the code you changed pass (run them when the repository's tools let you), and everything is committed. You don't need to run the whole test suite, the build, lint or format: the recipe's check step runs them after you, and a failure there sends the batch back to you. In your out doc, say what you changed and why, and list the assumptions you made in its `assumptions`.
+The Gauger's tests and the existing tests that cover the code you changed pass, the repository's format, lint and typecheck pass on what you changed, and everything is committed.
+
+The repository's setup, when it has one, has installed its dependencies in your worktree. Before you commit, run the repository's formatter on the files you changed, then its lint and typecheck, then the tests that cover the code you changed, each with the command the repository uses (its scripts, its README, its CI), and fix what they find. Run each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way. You don't need to run the whole test suite or the build: the recipe's check step runs every check after you and is the gate, and a failure there sends the batch back to you.
+
+In your out doc, say what you changed and why, which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`.

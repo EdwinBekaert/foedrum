@@ -2,7 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -39,9 +39,9 @@ Write the failing tests for the order in {order}. Your tests come first: another
 1. Read the order, then the code and the existing tests it concerns. Follow the repository's test conventions: framework, file layout, naming and helpers.
 2. List the behaviours the order asks for, with their error paths and edge cases, and write a test for each, through the public interface the order describes, not the details of an implementation.
 3. Hold every test to the checklist in {testDesign}. It is written for the reviewer who reads your tests later: apply it to your own tests as you write them.
-4. Run the new tests when the repository's tools let you, and check that each one fails for the reason above.
+4. The repository's setup, when it has one, has installed its dependencies in your worktree. Run the repository's formatter on the files you wrote, then its lint and typecheck, and fix what they find in those files; then run the new tests and check that each one fails for the reason above. Use the commands the repository uses (its scripts, its README, its CI), each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way. The red proof after you is the gate.
 5. Commit the tests and the stubs, with a message that says what the tests specify.
 
 ## Done when
 
-Every behaviour the order asks for has a test that fails for the reason above, every stub throws `not implemented`, nothing else changed, and everything is committed. In your out doc, list each new test by the name the runner reports and each stub, and list the assumptions you made in its `assumptions`. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.
+Every behaviour the order asks for has a test that fails for the reason above, every stub throws `not implemented`, nothing else changed, and everything is committed. In your out doc, list each new test by the name the runner reports and each stub, say which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.
