@@ -66,6 +66,8 @@ export const listenWhileServing = (
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
   const { root, git, out, listen, checks, command = 'serve' } = options;
   const { workRoot } = setup;
+  // A repository's setup installs, so its sandbox keeps the network (ADR 0158).
+  const setupExec = sandboxedChecks({ exec: execProcess, ...checks, network: true });
   // The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
   // it by this URL, never through the clone's configuration (ADR 0090, ADR 0096).
   const ownRemote = (repo: string): OwnRemote => ({
@@ -119,11 +121,11 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: worktreeClonePath(workRoot, repository),
         own: ownRemote(repository.repo),
       }),
-    runner: (claude, plan) => claudeBrewerRunner({ claude, plan }),
+    // A fresh attempt's setup runs before claude, in the setup's sandbox (ADR 0163).
+    runner: (claude, plan) => claudeBrewerRunner({ claude, plan, setup: setupExec }),
     // A check's command line runs in the OS sandbox (ADR 0076).
     exec: sandboxedChecks({ exec: execProcess, ...checks }),
-    // A repository's setup installs, so its sandbox keeps the network (ADR 0158).
-    setup: sandboxedChecks({ exec: execProcess, ...checks, network: true }),
+    setup: setupExec,
     gh: execProcess,
     git,
   };

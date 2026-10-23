@@ -5,6 +5,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
@@ -221,12 +222,26 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
-      if (found.brewer.produces !== 'commits') return plan;
+      // A fresh attempt's worktree gets its repository's dependencies before the brewer starts; a
+      // resumed one runs where its session's first attempt installed them (ADR 0163).
+      const setup = resumes === undefined ? options.repoSetup?.(worktree.repo) : undefined;
+      const prepared =
+        setup === undefined || started === undefined
+          ? plan
+          : {
+              ...plan,
+              setup: {
+                run: setupRunOf(setup, platform),
+                deadlineAt: started.deadlineAt,
+                env: checksEnv(options.env, platform),
+              },
+            };
+      if (found.brewer.produces !== 'commits') return prepared;
       // Its commits are counted on its branch in the clone, built from the attempt that made the
       // worktree as the worktree's is, never from the recorded branch or the worktree's own git
       // files (ADR 0037, ADR 0117).
       const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(madeBy) };
-      return { ...plan, commits };
+      return { ...prepared, commits };
     },
     limits: (ref) => {
       const found = brewerOf(ref);

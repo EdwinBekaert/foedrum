@@ -14,6 +14,7 @@ import {
   type ProcessExit,
   settleAttempt,
 } from '../engine/brewer-runner.ts';
+import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
@@ -198,11 +199,15 @@ export function interactiveBrewerRunner(
   options: Pick<
     InteractiveRunnerDeps,
     'claude' | 'plan' | 'foreground' | 'terminalEnv' | 'platform' | 'say'
-  >,
+  > & {
+    /** The process runner a fresh attempt's setup runs through (ADR 0158, ADR 0163). */
+    setup: ExecProcess;
+  },
 ): BrewerRunner {
+  const { setup, ...deps } = options;
   return interactiveBrewerRunnerWith({
-    ...options,
-    headless: (plan) => claudeBrewerRunner({ claude: options.claude, plan }),
+    ...deps,
+    headless: (plan) => claudeBrewerRunner({ claude: options.claude, plan, setup }),
     files: {
       writeSettings: writeAttemptSettings,
       readOutDoc: readOutDocFile,

@@ -68,6 +68,7 @@ const resumeRunning = async (
       interactiveBrewerRunner({
         claude,
         plan,
+        setup: shell.setup,
         terminalEnv: terminalEnv(process.env, process.platform),
         platform: process.platform,
         say: write,

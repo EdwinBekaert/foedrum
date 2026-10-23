@@ -163,6 +163,8 @@ export const wireDriver = async (
     brewers: setup.brewers,
     models: setup.models,
     repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
+    // A fresh attempt's worktree gets its repository's dependencies first (ADR 0163).
+    repoSetup: (repo) => repositoryNamed(repo)?.setup,
     // Where a commit-producing attempt's commits are counted (ADR 0074).
     clone,
     sandbox: setup.sandbox,

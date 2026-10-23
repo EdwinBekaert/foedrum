@@ -15,7 +15,8 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { SetupRun } from '../checks/setup.ts';
+import { passed, settleReadings } from '../checks/gravity.ts';
+import { runSetup, type SetupRun } from '../checks/setup.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import {
@@ -38,6 +39,7 @@ import {
   type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
+import type { GravityReading } from '../schemas/events.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import {
@@ -339,6 +341,21 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       stopping.signal.addEventListener('abort', () => settle(undefined), { once: true });
     });
 
+    /** The reading of the plan's setup, run in the worktree through the setup's runner. */
+    const setUp = async (
+      setup: NonNullable<ClaudeAttemptPlan['setup']>,
+      cwd: string,
+    ): Promise<GravityReading> => {
+      const { run, deadlineAt, env } = setup;
+      if (deps.setup === undefined) {
+        // As a setup that could not start: the reason is the runner's, not the repository's.
+        const tail = 'the brewer runner has no process runner for setups';
+        return { result: 'unstarted', setup: true, command: run.command, tail };
+      }
+      const signal = stopping.signal;
+      return runSetup(deps.setup, run, { cwd, env, deadlineAt, now: deps.now, signal });
+    };
+
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
       let args: string[];
@@ -357,6 +374,12 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         return unstartable(error);
       }
       if (stopping.signal.aborted) return cancelled();
+      // The repository's setup first, so the brewer finds its dependencies; one that does not
+      // pass ends the attempt before claude spends a token (ADR 0163).
+      const before = plan.setup === undefined ? [] : [await setUp(plan.setup, plan.cwd)];
+      if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+      const withReadings = (end: AttemptEnd): AttemptEnd =>
+        before.length === 0 ? end : { ...end, readings: before };
       const { session, tools } = plan.call;
       const { cwd, env, prompt } = plan;
       /** One start of claude, read by a reader of its own. */
@@ -394,11 +417,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         // claude once more, and call it the environment only when that fails too.
         if (passingPreStreamFailure(stream.facts(), result)) {
           await deps.wait(RETRY_MS, stopping.signal);
-          if (stopping.signal.aborted) return cancelled();
+          if (stopping.signal.aborted) return withReadings(cancelled());
           ({ stream, result } = await once());
         }
       } catch (error) {
-        return unstartable(error);
+        return withReadings(unstartable(error));
       }
       const seen = stream.facts();
       const exit = exitOf(result);
@@ -420,7 +443,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         ...(seen.session === undefined ? {} : { session: seen.session }),
       };
       // A stop while counting kills git: the attempt was stopped, git did not fail.
-      if (!stopped && stopping.signal.aborted) return { ...cancelled(), ...reported };
+      if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         unresumed: seen.unresumed,
@@ -438,7 +461,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       };
       // The text as read, valid or not, for the state branch (ADR 0103).
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return { ending: settleAttempt(facts, limits), ...reported, ...outDoc };
+      return withReadings({ ending: settleAttempt(facts, limits), ...reported, ...outDoc });
     };
 
     const ended = run().finally(() => running.delete(key));
