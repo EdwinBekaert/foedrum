@@ -38,7 +38,7 @@ claude --print --verbose --output-format stream-json
   What claude's init reports, its version and model, goes on `step.finished` as `claude` ([ADR 0047](../../adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md), [ADR 0116](../../adr/0116-the-driver-records-each-attempt-s-session-and-claude-s-report-goes-on-step-finished.md)).
 - Before claude starts, the attempt of a brewer whose allow list has a `Bash` or `PowerShell` rule (its own or its repository's `tools`) runs its repository's `setup` (`npm ci`) in its worktree, through the check sandbox with the network kept (native Windows: no sandbox, and the reading says `unsandboxed`), in the checks' environment, killed at its `timeout` or 10 s before the attempt's deadline; its reading goes on `step.finished` as a check step's does.
   A setup that does not pass ends the attempt `blocked` on its environment with that reading, and claude never starts; a stop during it cancels the attempt.
-  An attempt that resumes a session runs it too, since the driver may have added its worktree again; so does the foreground session `foedrum resume` continues, before claude opens.
+  An attempt that resumes a session runs it too, since the driver may have added its worktree again; so does the foreground session `foedrum resume` continues, before claude opens, and a stop reaches that setup.
   While it runs, the attempt reports progress, and claude's stall clock starts when it ends.
   A brewer without a shell, such as a read-only Taster, runs none: it could not use the install.
   So the brewer finds the repository's dependencies, and can run its format, lint, typecheck and tests when `tools` allows them ([ADR 0163](../../adr/0163-a-repository-s-setup-runs-before-a-brewer-attempt.md)).
