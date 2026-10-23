@@ -897,6 +897,26 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     assert.doesNotMatch(report, /Defaults in use: none/);
   });
 
+  it("says the Brewery's models.jsonc merges over defaults/models.jsonc rather than replacing it (ADR 0153)", () => {
+    const brewery = (defaults: NonNullable<BreweryFiles['defaults']>): BreweryFiles => ({
+      recipes: [],
+      brewers: [],
+      lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
+      defaults,
+    });
+    const models = { path: 'defaults/models.jsonc', text: '{ "models": { "builder": "sonnet" } }' };
+    assert.match(
+      formatDiagnosis(
+        diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens], models }) }),
+      ),
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md, defaults\/models\.jsonc \(a Brewery file of the same name replaces one; models\.jsonc merges over defaults\/models\.jsonc by alias\)\n/,
+    );
+    assert.match(
+      formatDiagnosis(diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens] }) })),
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md \(a Brewery file of the same name replaces one\)\n/,
+    );
+  });
+
   it("says nothing of the defaults when the Brewery's files do not load", () => {
     const diagnosis = diagnose({
       ...linux(),

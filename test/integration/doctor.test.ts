@@ -50,9 +50,9 @@ const defaultsInUse = (['recipes', 'brewers', 'lenses/diff', 'lenses/plan'] as c
     return names.sort().map((name) => `defaults/${folder}/${name}`);
   },
 );
-// Its models.jsonc is listed after the lenses (ADR 0153).
-if (existsSync(join(defaultsRoot, 'models.jsonc'))) defaultsInUse.push('defaults/models.jsonc');
-const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
+// Its models.jsonc is listed after the lenses, and the Brewery's merges over it (ADR 0153).
+defaultsInUse.push('defaults/models.jsonc');
+const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one; models.jsonc merges over defaults/models.jsonc by alias)`;
 // The default brewers' prompts (ADR 0141), measured here from the files in defaults/ themselves,
 // since their sizes change with every edit of a default brewer or lens: each brewer's body and its
 // lens inputs through the one prompt function (ADR 0041), in bytes and bytes / 4 tokens.
