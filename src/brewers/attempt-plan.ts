@@ -384,10 +384,16 @@ export function attemptPermissions(
   brewer: BrewerFrontmatter,
   repoTools: readonly string[],
   sandbox: boolean,
+  configDirs?: ConfigDirs,
 ): AttemptPermissions {
   // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
   const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...repoTools])];
-  return { allow, deny: brewer.tools.deny, sandbox };
+  return {
+    allow,
+    deny: brewer.tools.deny,
+    sandbox,
+    ...(configDirs === undefined ? {} : { configDirs }),
+  };
 }
 
 /** Why an attempt resumes the session before it: a retry (ADR 0117), or an answer (ADR 0118). */
@@ -413,7 +419,7 @@ export function goOn(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes } = facts;
-  const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox);
+  const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox, facts.configDirs);
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
   const instructions =

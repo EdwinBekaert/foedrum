@@ -159,6 +159,7 @@ export const wireDriver = async (
     // Where a commit-producing attempt's commits are counted (ADR 0074).
     clone,
     sandbox: setup.sandbox,
+    ...(setup.configDirs === undefined ? {} : { configDirs: setup.configDirs }),
     workRoot: setup.workRoot,
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),

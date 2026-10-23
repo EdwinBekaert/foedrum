@@ -4,7 +4,7 @@
 
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
-import type { ConfigDirs } from '../brewers/attempt-settings.ts';
+import { type ConfigDirs, configDirsOf } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
@@ -325,6 +325,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
+      configDirs: configDirsOf(env),
       unsandboxedChecks,
       brewerEnv: {
         base: brewerBaseEnv(env, platform),

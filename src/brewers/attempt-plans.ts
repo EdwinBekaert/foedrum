@@ -211,6 +211,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         models: options.models,
         repoTools: options.repoTools(worktree.repo),
         sandbox: options.sandbox,
+        ...(options.configDirs === undefined ? {} : { configDirs: options.configDirs }),
         settingsFile,
         sessionId: session.id,
         ...(resumes === undefined ? {} : { resumes }),

@@ -312,7 +312,12 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     try {
       const { recreate } = await shell.worktrees(repository, setup.workRoot);
       const { path: folder } = await recreate(ref, worktree.commit);
-      const permissions = attemptPermissions(found.brewer, repository.tools, setup.sandbox);
+      const permissions = attemptPermissions(
+        found.brewer,
+        repository.tools,
+        setup.sandbox,
+        setup.configDirs,
+      );
       const settingsFile = settingsFileOf(setup.workRoot, ref);
       shell.writeSettings(settingsFile, attemptSettings(permissions));
       const args = resumeArgs({
