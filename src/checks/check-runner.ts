@@ -8,7 +8,7 @@
 import { basename, dirname, join } from 'node:path';
 import { type OutDocRead, readOutDocFile } from '../brewers/claude-runner.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
+import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
@@ -16,17 +16,14 @@ import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
-import { envNameKey } from '../platform/env.ts';
 import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
-import { durationMs } from '../schemas/primitives.ts';
 import type { Git } from '../workspace/git.ts';
 import {
-  commandLine,
   type PlannedCheck,
   passed,
   planChecks,
@@ -35,6 +32,7 @@ import {
   settleReadings,
 } from './gravity.ts';
 import { judgeRed, needsTestReport } from './red-proof.ts';
+import { checksEnv, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
@@ -78,12 +76,6 @@ export interface CheckRunnerOptions {
   platform?: NodeJS.Platform;
 }
 
-/**
- * How long before the attempt's deadline a check is killed: the process runner's grace between
- * SIGTERM and SIGKILL (2.5 s) and a supervisor tick (5 s, ADR 0027), with room to spare.
- */
-const KILL_MARGIN_MS = 10_000;
-
 /** A test report file's largest size: a report of a large suite, read once per red proof. */
 const MAX_REPORT_BYTES = 16 * 1024 * 1024;
 
@@ -103,15 +95,6 @@ export const fileReports: ReportFiles = {
   read: (file, root) => readOutDocFile(file, MAX_REPORT_BYTES, root),
 };
 
-/**
- * claude's login and settings, which the brewers' base keeps for claude: a check, which has the
- * network on native Windows (ADR 0076), gets none of them (ADR 0069).
- */
-const forClaude = (key: string): boolean =>
-  key.startsWith('ANTHROPIC_') ||
-  key === 'CLAUDE_CONFIG_DIR' ||
-  key === 'CLAUDE_CODE_GIT_BASH_PATH';
-
 // None of a repository's checks: what a step of literal commands plans against.
 const NO_CHECKS: RepositoryChecks = {
   build: null,
@@ -124,13 +107,7 @@ const NO_CHECKS: RepositoryChecks = {
 export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
   const { state, checks, exec, git, clone, clock, platform = process.platform } = options;
   const reports = options.reports ?? fileReports;
-  // Nothing a brewer does not get, and not claude's login either: by key, so a forced PATH
-  // replaces Path on Windows (ADR 0063, ADR 0069).
-  const key = envNameKey(platform);
-  const base = Object.fromEntries(
-    Object.entries(options.env.base).filter(([name]) => !forClaude(key(name))),
-  );
-  const env = buildBrewerEnv({ base, brewer: {}, forced: options.env.forced, platform });
+  const env = checksEnv(options.env, platform);
   // The attempts it runs, by key, with when they started: their progress for the heartbeat.
   const running = new Map<string, AttemptProgress>();
 
@@ -149,36 +126,6 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       : reading;
   };
 
-  /**
-   * Runs one command line in the worktree, killed before the attempt's deadline, at `timeoutMs`
-   * when that is sooner, or at the stop.
-   */
-  const runLine = (
-    through: ExecProcess,
-    command: string,
-    worktree: WorktreeRef,
-    deadlineAt: string,
-    signal: AbortSignal,
-    {
-      maxOutputBytes,
-      timeoutMs = Infinity,
-    }: { maxOutputBytes?: number | undefined; timeoutMs?: number } = {},
-  ): Promise<ExecResult> => {
-    // The process runner kills the tree before the step's deadline, also when no tick comes:
-    // early enough that the kill's grace ends and the reading is recorded before a tick expires
-    // the attempt and loses it.
-    const left = Date.parse(deadlineAt) - clock().getTime();
-    return through(command, [], {
-      cwd: worktree.path,
-      env,
-      timeoutMs: Math.max(1, Math.min(timeoutMs, left - KILL_MARGIN_MS)),
-      signal,
-      shell: true,
-      jobObject: true,
-      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
-    });
-  };
-
   /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
   const runCheck = (
     check: Extract<PlannedCheck, { kind: 'run' }>,
@@ -187,29 +134,14 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     signal: AbortSignal,
     maxOutputBytes?: number,
   ): Promise<ExecResult> =>
-    runLine(exec, check.command, worktree, deadlineAt, signal, { maxOutputBytes });
-
-  /**
-   * The reading of the repository's setup, run in the worktree once the step needs nothing else
-   * before its checks, with the network, in the check sandbox where there is one (ADR 0158).
-   */
-  const runSetup = async (
-    found: RepositorySetup,
-    through: ExecProcess,
-    worktree: WorktreeRef,
-    deadlineAt: string,
-    signal: AbortSignal,
-  ): Promise<GravityReading[]> => {
-    const setup = {
-      kind: 'run',
-      setup: true,
-      command: commandLine(found.command, platform),
-    } as const;
-    const result = await runLine(through, setup.command, worktree, deadlineAt, signal, {
-      timeoutMs: durationMs(found.timeout),
+    runLine(exec, check.command, {
+      cwd: worktree.path,
+      env,
+      deadlineAt,
+      now: clock,
+      signal,
+      maxOutputBytes,
     });
-    return [readingIn(setup, result)];
-  };
 
   /**
    * The repository's setup running, or undefined when it has none: then nothing is awaited, so
@@ -222,7 +154,9 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
   ): Promise<GravityReading[]> | undefined => {
     const found = options.setup?.of(worktree.repo);
     if (options.setup === undefined || found === undefined) return undefined;
-    return runSetup(found, options.setup.exec, worktree, deadlineAt, signal);
+    const run = { cwd: worktree.path, env, deadlineAt, now: clock, signal };
+    // Once the step needs nothing else before its checks (ADR 0140).
+    return runSetup(options.setup.exec, setupRunOf(found, platform), run).then((read) => [read]);
   };
 
   /**
