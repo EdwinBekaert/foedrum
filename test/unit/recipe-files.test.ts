@@ -274,7 +274,7 @@ describe('invalidRecipes', () => {
 describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)', () => {
   it('refuses a lens or a blocking flag, which the engine does not follow yet', () => {
     const steps = [
-      { id: 'taste', brewer: 'brewmaster', lens: 'security' },
+      { id: 'taste', brewer: 'brewmaster', lens: 'plan/security' },
       { id: 'mutants', brewer: 'maltster', blocking: true },
     ];
     assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
@@ -1026,7 +1026,7 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     ...file,
     path: `defaults/${file.path}`,
   });
-  const lens = (name: string, text: string, folder = 'lenses'): BreweryFile => ({
+  const lens = (name: string, text: string, folder = 'lenses/diff'): BreweryFile => ({
     path: `${folder}/${name}.md`,
     text,
   });
@@ -1093,23 +1093,23 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     const tasting = recipe('tasting', [{ id: 'taste', brewer: 'taster' }]);
     const files = (lenses: BreweryFile[]): BreweryFiles => ({
       recipes: [tasting],
-      brewers: [taster('lens:test-design')],
+      brewers: [taster('lens:diff/test-design')],
       lenses,
-      defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses')] },
+      defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses/diff')] },
     });
     const lensOf = (result: Extract<LoadedRecipes, { valid: true }>) =>
-      result.brewers.find('tasting', 'taste')?.lenses?.get('test-design');
+      result.brewers.find('tasting', 'taste')?.lenses?.get('diff/test-design');
     const fromDefault = valid(files([]));
     assert.deepEqual(lensOf(fromDefault), {
-      name: 'test-design',
-      path: 'defaults/lenses/test-design.md',
+      name: 'diff/test-design',
+      path: 'defaults/lenses/diff/test-design.md',
       text: 'Look at the tests.',
     });
-    assert.deepEqual(fromDefault.defaults, ['defaults/lenses/test-design.md']);
+    assert.deepEqual(fromDefault.defaults, ['defaults/lenses/diff/test-design.md']);
     const own = valid(files([lens('test-design', 'Look at our tests.')]));
     assert.deepEqual(lensOf(own), {
-      name: 'test-design',
-      path: 'lenses/test-design.md',
+      name: 'diff/test-design',
+      path: 'lenses/diff/test-design.md',
       text: 'Look at our tests.',
     });
     assert.deepEqual(own.defaults, []);
@@ -1119,11 +1119,11 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     assert.deepEqual(
       problemsOf({
         recipes: [],
-        brewers: [taster('lens:sparkle')],
-        defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses')] },
+        brewers: [taster('lens:diff/sparkle')],
+        defaults: { lenses: [lens('test-design', 'Look at the tests.', 'defaults/lenses/diff')] },
       }),
       [
-        'brewers/taster.md: the brewer "taster" has the input "focus" from the lens "sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0098)',
+        'brewers/taster.md: the brewer "taster" has the input "focus" from the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0098)',
       ],
     );
   });
@@ -1133,9 +1133,9 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
       problemsOf({
         recipes: [],
         brewers: [],
-        lenses: [{ path: 'lenses/security.md', unreadable: 'EACCES: permission denied' }],
+        lenses: [{ path: 'lenses/diff/security.md', unreadable: 'EACCES: permission denied' }],
       }),
-      ['lenses/security.md: EACCES: permission denied'],
+      ['lenses/diff/security.md: EACCES: permission denied'],
     );
   });
 
@@ -1143,11 +1143,11 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     assert.deepEqual(
       problemsOf({
         recipes: [],
-        brewers: [taster('lens:security')],
-        lenses: [{ path: 'lenses/security.md', unreadable: 'EACCES: permission denied' }],
-        defaults: { lenses: [lens('security', 'Look for secrets.', 'defaults/lenses')] },
+        brewers: [taster('lens:diff/security')],
+        lenses: [{ path: 'lenses/diff/security.md', unreadable: 'EACCES: permission denied' }],
+        defaults: { lenses: [lens('security', 'Look for secrets.', 'defaults/lenses/diff')] },
       }),
-      ['lenses/security.md: EACCES: permission denied'],
+      ['lenses/diff/security.md: EACCES: permission denied'],
     );
   });
 
@@ -1156,7 +1156,7 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     assert.deepEqual(
       problemsOf({ recipes: [], brewers: [], lenses: [lens('security', `${atLimit}x`)] }),
       [
-        "lenses/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
+        "lenses/diff/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
       ],
     );
     valid({ recipes: [], brewers: [], lenses: [lens('security', atLimit)] });
@@ -1176,7 +1176,7 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
     assert.deepEqual(
       problemsOf({
         recipes: [],
-        brewers: [taster('lens:mine')],
+        brewers: [taster('lens:diff/mine')],
         lenses: [{ path: 'lenses', unreadable: 'EACCES: permission denied' }],
       }),
       ['lenses: EACCES: permission denied'],
@@ -1186,10 +1186,122 @@ describe("loadRecipes: Foedrum's defaults under the Brewery's files (ADR 0098)",
   it('names a lens too large once, not also as a lens its brewer lacks', () => {
     const tooLarge = lens('security', 'x'.repeat(1024 * 1024 + 1));
     assert.deepEqual(
-      problemsOf({ recipes: [], brewers: [taster('lens:security')], lenses: [tooLarge] }),
+      problemsOf({ recipes: [], brewers: [taster('lens:diff/security')], lenses: [tooLarge] }),
       [
-        "lenses/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
+        "lenses/diff/security.md: it is larger than 1048576 bytes, the limit of a brewer's input (ADR 0098)",
       ],
+    );
+  });
+});
+
+describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR 0143)', () => {
+  const lensFile = (path: string, text = '# Lens\n'): BreweryFile => ({ path, text });
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const reviewing = (steps: readonly unknown[]): BreweryFiles => ({
+    recipes: [recipe('amber', steps, { testFirst: false })],
+    brewers: [maltster, committer],
+  });
+
+  it('fails a step that reviews a plan, since no step before it commits, and names a diff/ lens', () => {
+    const problems = problemsOf(
+      reviewing([
+        { brewer: 'maltster' },
+        { id: 'taste', brewer: 'maltster', lens: 'diff/security' },
+      ]),
+    );
+    assert.ok(
+      problems.includes(
+        'recipes/amber.jsonc: step "taste" reviews a plan, since no step before it commits, and names the lens "diff/security", which reviews a diff: name a lens of lenses/plan/ (ADR 0143)',
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('fails a step that reviews a diff, since a step before it commits, and names a plan/ lens', () => {
+    const problems = problemsOf(
+      reviewing([
+        { brewer: 'cellarman' },
+        { id: 'taste', brewer: 'maltster', lens: 'plan/coverage' },
+        { action: 'openPullRequest' },
+      ]),
+    );
+    assert.ok(
+      problems.includes(
+        'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('gives no folder line for a lens of the folder its step reviews', () => {
+    const plan = problemsOf(
+      reviewing([{ id: 'taste', brewer: 'maltster', lens: 'plan/coverage' }]),
+    );
+    const diff = problemsOf(
+      reviewing([
+        { brewer: 'cellarman' },
+        { id: 'taste', parallel: [{ brewer: 'maltster', lens: 'diff/security' }] },
+        { action: 'openPullRequest' },
+      ]),
+    );
+    for (const line of [...plan, ...diff]) assert.ok(!line.includes('ADR 0143'), line);
+  });
+
+  it('fails a lens file directly in lenses/, saying where it belongs, in the Brewery and in the defaults', () => {
+    assert.deepEqual(
+      problemsOf({
+        recipes: [],
+        brewers: [],
+        lenses: [lensFile('lenses/security.md')],
+        defaults: { lenses: [lensFile('defaults/lenses/style.md')] },
+      }),
+      [
+        'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan (ADR 0143)',
+        'defaults/lenses/style.md: a lens belongs in defaults/lenses/diff/, to review a diff, or defaults/lenses/plan/, to review a plan (ADR 0143)',
+      ],
+    );
+  });
+
+  it('replaces only the default of the same folder and name', () => {
+    const result = loadRecipes({
+      recipes: [],
+      brewers: [],
+      lenses: [lensFile('lenses/plan/security.md')],
+      defaults: {
+        lenses: [
+          lensFile('defaults/lenses/diff/security.md'),
+          lensFile('defaults/lenses/plan/security.md'),
+        ],
+      },
+    });
+    assert.equal(result.valid, true, result.valid ? '' : result.problems.join('\n'));
+    assert.deepEqual(result.valid && result.defaults, ['defaults/lenses/diff/security.md']);
+  });
+
+  it('gives a brewer input the lens of the folder it names', () => {
+    const result = loadRecipes({
+      recipes: [recipe('amber', [{ id: 'taste', brewer: 'taster' }])],
+      brewers: [brewer('taster', { inputs: [{ name: 'focus', from: 'lens:plan/security' }] })],
+      defaults: {
+        lenses: [
+          lensFile('defaults/lenses/diff/security.md', 'the diff'),
+          lensFile('defaults/lenses/plan/security.md', 'the plan'),
+        ],
+      },
+    });
+    assert.equal(result.valid, true, result.valid ? '' : result.problems.join('\n'));
+    assert.deepEqual(
+      result.valid && result.brewers.find('amber', 'taste')?.lenses,
+      new Map([
+        [
+          'plan/security',
+          { name: 'plan/security', path: 'defaults/lenses/plan/security.md', text: 'the plan' },
+        ],
+      ]),
     );
   });
 });

@@ -124,12 +124,12 @@ describe('createAttemptPlans: plan', () => {
           path: 'brewers/brewmaster.md',
           text: brewerText('brewmaster', {
             output: { doc: 'brew.md', schema: 'outDoc' },
-            inputs: [{ name: 'focus', from: 'lens:test-design' }],
+            inputs: [{ name: 'focus', from: 'lens:diff/test-design' }],
           }),
         },
       ],
       defaults: {
-        lenses: [{ path: 'defaults/lenses/test-design.md', text: '# Lens: test design\n' }],
+        lenses: [{ path: 'defaults/lenses/diff/test-design.md', text: '# Lens: test design\n' }],
       },
     });
     assert.ok(withLens.valid, withLens.valid ? '' : withLens.problems.join('\n'));

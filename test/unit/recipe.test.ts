@@ -25,7 +25,7 @@ const plan = { id: 'plan', brewer: 'brewmaster' };
 const gauge = { id: 'gauge', brewer: 'gauger' };
 const tasting = {
   id: 'tasting',
-  parallel: [{ id: 'correctness', brewer: 'taster', lens: 'correctness' }],
+  parallel: [{ id: 'correctness', brewer: 'taster', lens: 'diff/correctness' }],
 };
 
 const accepted = (value: unknown): boolean => Recipe.safeParse(value).success;
@@ -85,7 +85,7 @@ describe('Recipe', () => {
 describe('step kinds', () => {
   // Typed as a record so that adding a step kind fails the typecheck until this list follows.
   const examples: Record<StepKind, unknown[]> = {
-    brewer: [{ brewer: 'cellarman' }, { id: 'review', brewer: 'taster', lens: 'security' }],
+    brewer: [{ brewer: 'cellarman' }, { id: 'review', brewer: 'taster', lens: 'diff/security' }],
     session: [{ id: 'refine', session: 'refine', deadline: '2d', fallback: 'brewmaster' }],
     check: [
       { id: 'green', check: ['typecheck', 'lint', 'test'] },
@@ -124,7 +124,9 @@ describe('step kinds', () => {
     ['a step of two kinds', { id: 'both', brewer: 'cellarman', check: 'test' }],
     ['an unknown field', { brewer: 'cellarman', retries: 2 }],
     ['a brewer name that is not path-safe', { brewer: 'Cellar Man' }],
-    ['a lens name that is not path-safe', { brewer: 'taster', lens: '../secrets' }],
+    ['a lens name that is not path-safe', { brewer: 'taster', lens: 'diff/../secrets' }],
+    ['a lens without its folder (ADR 0143)', { brewer: 'taster', lens: 'security' }],
+    ['a lens of another folder (ADR 0143)', { brewer: 'taster', lens: 'code/security' }],
     ['a blocking flag that is not a boolean', { brewer: 'brett', blocking: 'yes' }],
     ['onFail on a brewer step', { brewer: 'cellarman', onFail: { goto: 'plan', maxRounds: 1 } }],
     ['an invalid deadline', { brewer: 'cellarman', deadline: '30 minutes' }],
