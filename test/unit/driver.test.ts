@@ -1368,6 +1368,51 @@ describe('openDriver', () => {
           assert.deepStrictEqual(cellar.stopped, []);
         });
       }
+
+      it('stops none of its own later runs of the step once it holds the batch again', async () => {
+        const { cellar, driver } = await takenOver('plan');
+        // resume let the batch go; the Cellar takes it at its next pass and starts plan#2.
+        store.withTransaction((tx) => tx.releaseBatchLease('b1'));
+        await driver.drive();
+        assert.deepStrictEqual(cellar.started, [plan('b1'), plan('b1', 2)]);
+        await driver.tick();
+        assert.deepStrictEqual(cellar.stopped, [attemptKey.encode(plan('b1'))]);
+      });
+
+      it('stops nothing on a takeover from another owner', async () => {
+        const cellar = handRunner(inSession(first));
+        order('b1');
+        const driver = await openResuming(fakeWorktrees(), cellar.runner);
+        await driver.drive();
+        const handover = {
+          kind: 'take_over',
+          batchId: 'b1',
+          by: 'ann',
+          via: 'terminal',
+          from: 'session-7',
+          to: 'resume-1',
+          until: at(5).toISOString(),
+          resumes: 'plan',
+        } as const;
+        assert.equal(intake.issue(handover, now).kind, 'accepted');
+        holdFor('resume-1', 'b1');
+        await driver.tick();
+        assert.deepStrictEqual(cellar.stopped, []);
+      });
+
+      it('stops nothing once the owner the takeover gave the batch to no longer holds it', async () => {
+        const cellar = handRunner(inSession(first));
+        order('b1');
+        const driver = await openResuming(fakeWorktrees(), cellar.runner);
+        await driver.drive();
+        const request = { batchId: 'b1', owner: 'resume-1', by: 'ann', via: 'terminal' } as const;
+        const handover = { ...request, now, leaseMs: 5 * minute, resumes: 'plan' };
+        assert.equal(takeOver(intake, handover).kind, 'accepted');
+        // resume-1 let the batch go, and another driver holds it: nobody resumes plan now.
+        holdFor('session-7', 'b1');
+        await driver.tick();
+        assert.deepStrictEqual(cellar.stopped, []);
+      });
     });
 
     it('starts fresh, saying why, when the attempt before it has no session claude started', async () => {

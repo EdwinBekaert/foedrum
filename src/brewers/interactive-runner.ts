@@ -41,6 +41,8 @@ export interface InteractiveRunnerDeps {
   ) => Promise<number>;
   /** The variables a terminal program reads to draw itself, which claude gets besides the brewer's. */
   terminalEnv: Readonly<Record<string, string>>;
+  /** How the platform reads a variable's name: in any case on Windows. */
+  platform: NodeJS.Platform;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Reads the out doc only inside `root`, the worktree. */
@@ -186,7 +188,10 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
 
 /** The runner on the real machine: files, git and the headless runner of a fresh attempt. */
 export function interactiveBrewerRunner(
-  options: Pick<InteractiveRunnerDeps, 'claude' | 'plan' | 'foreground' | 'terminalEnv' | 'say'>,
+  options: Pick<
+    InteractiveRunnerDeps,
+    'claude' | 'plan' | 'foreground' | 'terminalEnv' | 'platform' | 'say'
+  >,
 ): BrewerRunner {
   return interactiveBrewerRunnerWith({
     ...options,

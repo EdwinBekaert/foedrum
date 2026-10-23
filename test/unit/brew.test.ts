@@ -707,6 +707,45 @@ describe('runBrew', () => {
     assert.equal(lines.at(-1)?.startsWith('foedrum brew: batch 12-1 is driven by bob until'), true);
   });
 
+  /**
+   * brew with a run its stop never ends, taken over to bob in its first wait (resuming brew when
+   * `resumes` says so), on a clock a minute further on each wait; the waits it took.
+   */
+  const takenWithEndlessRun = async (resumes: boolean): Promise<number> => {
+    let now = t0;
+    let waits = 0;
+    const endless = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+    const runner = fakeBrewerRunner(() => endless);
+    const taken = shell(behave.succeed(), {
+      runner: () => ({
+        ...runner,
+        start: (attempt) => ({ ...runner.start(attempt), stop: () => {} }),
+      }),
+      clock: () => now,
+      wait: async () => {
+        waits++;
+        if (waits === 1) {
+          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          const request = { ...handover, now, leaseMs: 300_000 };
+          takeOver(log(), resumes ? { ...request, resumes: 'brew' } : request);
+        }
+        now = new Date(now.getTime() + 60_000);
+        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+      },
+    });
+    assert.equal(await runBrew(setup, taken, request), 5);
+    return waits;
+  };
+
+  it('waits at most a lease for the runs it stopped to end before it refuses the batch (ADR 0127)', async () => {
+    const waits = await takenWithEndlessRun(true);
+    assert.ok(waits >= 5 && waits <= 7, `${waits} waits`);
+  });
+
+  it('refuses at once a batch taken over to resume no step, waiting for no run (ADR 0124)', async () => {
+    assert.equal(await takenWithEndlessRun(false), 1);
+  });
+
   describe('--take (ADR 0124)', () => {
     const takes: BrewRequest = { ...request, take: true };
     const cellarUntil = new Date(t0.getTime() + 60_000);

@@ -12,6 +12,7 @@ import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
+import type { Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
@@ -70,13 +71,13 @@ describe('runResumeRunning (ADR 0127)', () => {
   });
   afterEach(() => dir.remove());
 
-  /** Batch 12-1 brews with stout, and the Cellar runs brew#1 in `session`. */
-  const cellarRuns = (setup: ServeSetup): void => {
+  /** Batch 12-1 brews with `recipe`, and the Cellar runs brew#1 in `session`. */
+  const cellarRuns = (setup: ServeSetup, recipe = 'stout'): void => {
     const log = createCommandLog({ store, recipes: setup.recipes });
     const issue = (command: Parameters<typeof log.issue>[0]) =>
       assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
     issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
-    issue({ kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label', source: 'label' });
+    issue({ kind: 'route', batchId: '12-1', recipe, reason: 'label', source: 'label' });
     const path = folder();
     issue({
       kind: 'record',
@@ -96,21 +97,27 @@ describe('runResumeRunning (ADR 0127)', () => {
 
   /**
    * The Cellar at its next tick, once the batch was taken over to resume brew: it stops its run of
-   * brew#1, which ends cancelled after claude's init, and lets its lease go (ADR 0127).
+   * brew#1, which ends cancelled after claude's init, and lets its lease go (ADR 0127). With
+   * `ending`, the run ended by itself that way first.
    */
-  const cellarStops = (setup: ServeSetup) => (): void => {
-    const handed = store
-      .eventsAfter(0)
-      .some(({ event }) => event.type === 'batch.taken_over' && event.resumes === 'brew');
-    const log = createCommandLog({ store, recipes: setup.recipes });
-    const state = log.state().batches.get('12-1')?.steps.get('brew')?.attempts.get(1);
-    if (!handed || state?.phase !== 'started') return;
-    const ending = { kind: 'cancelled' } as const;
-    assert.equal(log.issue({ kind: 'finish', ...brew1, ending, claude }, t0).kind, 'accepted');
-    store.withTransaction((tx) => tx.releaseLease(attemptKey.encode(brew1)));
-  };
+  const cellarStops =
+    (setup: ServeSetup, ending: Ending = { kind: 'cancelled' }) =>
+    (): void => {
+      const handed = store
+        .eventsAfter(0)
+        .some(({ event }) => event.type === 'batch.taken_over' && event.resumes === 'brew');
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      const state = log.state().batches.get('12-1')?.steps.get('brew')?.attempts.get(1);
+      if (!handed || state?.phase !== 'started') return;
+      assert.equal(log.issue({ kind: 'finish', ...brew1, ending, claude }, t0).kind, 'accepted');
+      store.withTransaction((tx) => tx.releaseLease(attemptKey.encode(brew1)));
+    };
 
-  const shell = (brew: Behaviour, meanwhile: () => void): ServeShell => {
+  const shell = (
+    brew: Behaviour,
+    meanwhile: () => void,
+    overrides: Partial<ServeShell> = {},
+  ): ServeShell => {
     let ticks = 0;
     const runner = fakeBrewerRunner((attempt) => {
       started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
@@ -145,8 +152,13 @@ describe('runResumeRunning (ADR 0127)', () => {
       setup: () => Promise.reject(new Error('no repository setup runs here')),
       gh: ghOver(api.fetch).exec,
       git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
+      ...overrides,
     };
   };
+  const resumeLease = (at: Date) =>
+    store
+      .batchLeases(at)
+      .find(({ batchId, owner }) => batchId === '12-1' && owner === 'resume-4242');
 
   const request: RunningResume = {
     batchId: '12-1',
@@ -231,6 +243,136 @@ describe('runResumeRunning (ADR 0127)', () => {
       lines.at(-1) ?? '',
       /^foedrum resume: batch 12-1 is stuck: .*; nothing was resumed$/,
     );
+  });
+
+  it('continues a retry that waits to resume the session, with no driver to take the batch from: exit 0', async () => {
+    const setup = setupWith(1);
+    cellarRuns(setup);
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    const ending = { kind: 'failed', retryable: true, reason: 'claude crashed' } as const;
+    assert.equal(log.issue({ kind: 'finish', ...brew1, ending, claude }, t0).kind, 'accepted');
+    const retry = { kind: 'retry', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+    assert.equal(log.issue(retry, t0).kind, 'accepted');
+    store.withTransaction((tx) => {
+      tx.releaseBatchLease('12-1');
+      tx.releaseLease(attemptKey.encode(brew1));
+    });
+    const result = await runResumeRunning(
+      setup,
+      shell(behave.succeed(), () => {}),
+      request,
+    );
+    assert.equal(result, 0, lines.join('\n'));
+    assert.deepStrictEqual(started, ['brew#2']);
+    const resumed = events().find((event) => event.type === 'step.started' && event.attempt === 2);
+    assert.equal(resumed?.type === 'step.started' ? resumed.session?.resumes : undefined, session);
+    assert.ok(!events().some((event) => event.type === 'batch.taken_over'));
+  });
+
+  it('says so and lets its lease go when another driver takes the batch while it waits: exit 1', async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup);
+    const until = new Date(t0.getTime() + 120_000);
+    const taken = () =>
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '12-1', owner: 'session-7', expiresAt: until }),
+      );
+    const result = await runResumeRunning(setup, shell(behave.succeed(), taken), request);
+    assert.equal(result, 1);
+    assert.equal(
+      lines.at(-1),
+      `foedrum resume: batch 12-1 is driven by session-7 until ${until.toISOString()}`,
+    );
+    assert.equal(resumeLease(t0), undefined);
+  });
+
+  it('lets the batch go on a stop while it waits: exit 1', async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup);
+    const stop = new AbortController();
+    const stopping = shell(behave.succeed(), () => {}, {
+      signal: stop.signal,
+      wait: async () => {
+        stop.abort();
+      },
+    });
+    assert.equal(await runResumeRunning(setup, stopping, request), 1);
+    assert.equal(
+      lines.at(-1),
+      'foedrum resume: stopped; batch 12-1 is left for the driver that takes it',
+    );
+    assert.equal(resumeLease(t0), undefined);
+  });
+
+  it('starts nothing after the resumed attempt ended, though the next step is due: the driver that takes the batch starts it', async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup, 'porter');
+    const result = await runResumeRunning(
+      setup,
+      shell(behave.succeed(), cellarStops(setup)),
+      request,
+    );
+    assert.equal(result, 0, lines.join('\n'));
+    assert.ok(
+      events().some((event) => event.type === 'step.scheduled' && event.stepId === 'green'),
+      'the check after brew is due',
+    );
+    assert.ok(
+      !events().some((event) => event.type === 'step.started' && event.stepId === 'green'),
+      'and resume did not start it',
+    );
+  });
+
+  it('resumes nothing, says so and lets go when the run ended by itself before it was stopped: exit 1', async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup);
+    const done: Ending = {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Brewed', assumptions: [] },
+    };
+    const result = await runResumeRunning(
+      setup,
+      shell(behave.succeed(), cellarStops(setup, done)),
+      request,
+    );
+    assert.equal(result, 1);
+    assert.deepStrictEqual(started, []);
+    assert.equal(
+      lines.at(-1),
+      'foedrum resume: brew#1 succeeded before it was stopped; nothing was resumed',
+    );
+    assert.equal(resumeLease(t0), undefined);
+  });
+
+  it('keeps its lease of the batch while it waits for the stopped run to end, with no effect due', async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup);
+    // The Cellar applied every effect before the takeover, which makes none due.
+    store = { ...store, findEffect: () => ({ result: null }) };
+    // Two minutes a wait: the takeover's lease of five would lapse by the third.
+    let now = t0;
+    let waits = 0;
+    const held: boolean[] = [];
+    const stops = cellarStops(setup);
+    const slow = shell(behave.succeed(), () => {}, {
+      clock: () => now,
+      wait: async () => {
+        waits++;
+        now = new Date(now.getTime() + 2 * 60_000);
+        held.push(resumeLease(now) !== undefined);
+        // The Cellar's heartbeat renews brew#1's lease until its run ends.
+        if (waits < 4) {
+          const expiresAt = new Date(now.getTime() + 5 * 60_000);
+          store.withTransaction((tx) =>
+            tx.putLease({ attemptKey: attemptKey.encode(brew1), owner: 'cellar', expiresAt }),
+          );
+        }
+        if (waits === 4) stops();
+        if (waits > 20) assert.fail(`resume did not stop:\n${lines.join('\n')}`);
+      },
+    });
+    assert.equal(await runResumeRunning(setup, slow, request), 0, lines.join('\n'));
+    assert.deepStrictEqual(held.slice(0, 3), [true, true, true]);
   });
 
   it('refuses when its owner holds the batch already, taking nothing over: exit 1', async () => {

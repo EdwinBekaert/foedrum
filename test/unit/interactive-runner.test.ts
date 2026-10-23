@@ -48,12 +48,17 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
   let foreground: { program: string; args: readonly string[]; cwd: string; env: object }[];
   let written: OutDocRead;
   let headlessPlans: ClaudeAttemptPlan[];
+  /** The headless runs that were stopped; with `hangs`, a headless run ends only when stopped. */
+  let headlessStops: number;
+  let hangs: boolean;
 
   beforeEach(() => {
     calls = [];
     foreground = [];
     written = { kind: 'text', text: outDoc({ status: 'done', summary: 'Brewed by hand' }) };
     headlessPlans = [];
+    headlessStops = 0;
+    hangs = false;
   });
 
   const runner = (
@@ -64,14 +69,24 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       claude: '/bin/claude',
       plan: async () => plan(kind),
       headless: (planOf) => ({
-        start: (started) => ({
-          ended: planOf(started).then((planned) => {
-            headlessPlans.push(planned);
-            return { ending: { kind: 'failed', retryable: true, reason: 'headless' } };
-          }),
-          stop: () => {},
-        }),
-        progress: () => undefined,
+        start: (started) => {
+          const end = { ending: { kind: 'failed', retryable: true, reason: 'headless' } } as const;
+          let settle: () => void = () => {};
+          const stopped = new Promise<typeof end>((resolve) => {
+            settle = () => resolve(end);
+          });
+          return {
+            ended: planOf(started).then((planned) => {
+              headlessPlans.push(planned);
+              return hangs ? stopped : end;
+            }),
+            stop: () => {
+              headlessStops++;
+              settle();
+            },
+          };
+        },
+        progress: () => ({ lastProgressAt: t0, turnsWithoutProgress: 7 }),
       }),
       foreground: async (program, args, cwd, env) => {
         calls.push('claude');
@@ -79,6 +94,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         return 0;
       },
       terminalEnv: { TERM: 'xterm-256color' },
+      platform: 'linux',
       files: {
         writeSettings: (file, settings) => {
           calls.push(`settings ${file} ${JSON.stringify(settings)}`);
@@ -184,6 +200,93 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     const { ending } = await run.ended;
     assert.equal(ending.kind, 'succeeded', "the session is the engineer's: a stop does not end it");
     assert.equal(open.progress(attempt.ref), undefined);
+  });
+
+  it("gives the brewer's own variables before the terminal's, by name as the platform reads them", async () => {
+    const brewerLang = (name: string): ClaudeAttemptPlan => ({
+      ...plan('resume'),
+      env: { PATH: '/usr/bin', [name]: 'C.UTF-8' },
+    });
+    await runner('resume', {
+      plan: async () => brewerLang('LANG'),
+      terminalEnv: { TERM: 'xterm-256color', LANG: 'de_DE.UTF-8' },
+    }).start(attempt).ended;
+    // On Windows a name is one variable in any case: the brewer's spelling and value stay.
+    await runner('resume', {
+      plan: async () => brewerLang('Lang'),
+      terminalEnv: { TERM: 'xterm-256color', LANG: 'de_DE.UTF-8' },
+      platform: 'win32',
+    }).start(attempt).ended;
+    assert.deepEqual(
+      foreground.map(({ env }) => env),
+      [
+        { TERM: 'xterm-256color', LANG: 'C.UTF-8', PATH: '/usr/bin' },
+        { TERM: 'xterm-256color', Lang: 'C.UTF-8', PATH: '/usr/bin' },
+      ],
+    );
+  });
+
+  it('says the commits were not counted when the plan names no clone, or git fails', async () => {
+    const { commits: _, ...cloneless } = plan('resume');
+    const none = await runner('resume', { plan: async () => cloneless }).start(attempt).ended;
+    const failing = runner('resume', { commits: () => Promise.reject(new Error('git broke')) });
+    const broke = await failing.start(attempt).ended;
+    const start = 'a'.repeat(7);
+    assert.deepEqual(
+      [none.ending, broke.ending],
+      [
+        {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: `the commits since ${start} were not counted: the plan names no clone to count them in`,
+        },
+        {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: `the commits since ${start} were not counted: git broke`,
+        },
+      ],
+    );
+  });
+
+  it('ends an attempt whose claude cannot start as unstartable, and reads no out doc', async () => {
+    const broken = runner('resume', {
+      foreground: () => Promise.reject(new Error('spawn ENOENT')),
+    });
+    const { ending } = await broken.start(attempt).ended;
+    assert.deepEqual(ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the brewer could not start: spawn ENOENT',
+    });
+    assert.ok(!calls.some((call) => call.startsWith('read ')));
+  });
+
+  it('passes a stop and the progress of an attempt that starts fresh on to its headless run', async () => {
+    hangs = true;
+    const fresh = runner('new');
+    const run = fresh.start(attempt);
+    await new Promise((settle) => setImmediate(settle));
+    assert.deepEqual(fresh.progress(attempt.ref), { lastProgressAt: t0, turnsWithoutProgress: 7 });
+    run.stop();
+    await run.ended;
+    assert.equal(headlessStops, 1);
+  });
+
+  it('stops a fresh attempt stopped before its plan came, once its headless run starts', async () => {
+    hangs = true;
+    let planned: (value: ClaudeAttemptPlan) => void = () => {};
+    const slow = runner('new', {
+      plan: () =>
+        new Promise((settle) => {
+          planned = settle;
+        }),
+    });
+    const run = slow.start(attempt);
+    run.stop();
+    planned(plan('new'));
+    await run.ended;
+    assert.equal(headlessStops, 1);
   });
 
   it('runs an attempt that starts fresh headless, with its plan, and opens nothing', async () => {

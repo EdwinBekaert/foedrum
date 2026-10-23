@@ -72,6 +72,7 @@ const resumeRunning = async (
         claude,
         plan,
         terminalEnv: terminalEnv(process.env, process.platform),
+        platform: process.platform,
         say: write,
         foreground: async (program, args, folder, env) => {
           foreground = true;
