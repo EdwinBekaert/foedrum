@@ -2,8 +2,10 @@
 // (ADR 0043, #103). What is due comes from the recorded events alone: the batch's lane, and the end
 // of each of its pull requests that the intake recorded (`pull_request.ended`). Nothing here asks
 // the code host whether a pull request merged. Each effect is found by its key before it is
-// applied (ADR 0033), and the driver holds it to its deadline (#130).
+// applied (ADR 0033), and the driver holds it to its deadline (#130). The Brewery issue that is the
+// claimed issue's order is opened, and closed with a merge, the same way (ADR 0144).
 
+import { claimOrderOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
@@ -71,13 +73,17 @@ export interface ClaimEffectsOptions {
   deadlineMs?: number;
 }
 
-// The id the code host answered for a comment, which the ledger keeps for good.
-const commentId = (id: number): number => {
-  if (!Number.isSafeInteger(id) || id < 1) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${id}`);
-  }
-  return id;
-};
+// The id the code host answered for a comment or an issue, which the ledger keeps for good.
+const positive =
+  (what: string) =>
+  (id: number): number => {
+    if (!Number.isSafeInteger(id) || id < 1) {
+      throw new Error(`The code host answered ${what} that is no positive integer: ${id}`);
+    }
+    return id;
+  };
+const commentId = positive('a comment id');
+const issueNumber = positive('an issue number');
 
 /** Where `effect` lands: found by being there, by its key in our own comment, or by a gone ref. */
 export const claimEffectTarget = (
@@ -140,8 +146,30 @@ export const claimEffectTarget = (
           releaseClaim(claims, { repo, issue, brewery: effect.brewery, signal }),
       };
     case 'open_order':
+      return {
+        // Found by its key in an issue of the Brewery its own identity opened.
+        find: async (key, signal) => {
+          const number = await marks.findIssue(effect.brewery, effectMarker(key), signal);
+          return number === undefined ? undefined : { result: issueNumber(number) };
+        },
+        // Only the title is copied: the target issue's text stays where it is (ADR 0144).
+        apply: async (key, signal) => {
+          const title = await marks.title(repo, issue, signal);
+          const body = `${effect.body}\n\n${effectMarker(key)}`;
+          return issueNumber(await marks.openIssue(effect.brewery, title, body, signal));
+        },
+      };
     case 'issue_state':
-      throw new Error('not implemented');
+      return {
+        find: async (_key, signal) =>
+          (await marks.issueState(repo, issue, signal)) === effect.state
+            ? { result: null }
+            : undefined,
+        apply: async (_key, signal) => {
+          await marks.setIssueState(repo, issue, effect.state, signal);
+          return null;
+        },
+      };
     default:
       return effect satisfies never;
   }
@@ -166,8 +194,9 @@ export const claimEffects = (options: ClaimEffectsOptions): DriverEffects => {
       const batch = state.batches.get(batchId);
       if (batch?.repo === undefined) return [];
       const ends = batch.pullRequestEnds ?? {};
+      const order = claimOrderOf(state, batchId);
       const due = claimEffectsDue(
-        { batchId, repo: batch.repo, issue: batch.issue, lane: batch.lane },
+        { batchId, repo: batch.repo, issue: batch.issue, lane: batch.lane, order },
         claimant,
         (url) => ends[url] ?? 'open',
       );
