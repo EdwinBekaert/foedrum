@@ -82,7 +82,7 @@ const add = (tally: Counts, attempt: Attempt): void => {
 export const brewerReport = (state: State, source: BrewerSource): BrewerReport => {
   const brewers = new Map(source.brewers.map(({ name }) => [name, counts()]));
   const gone = new Map<string, Counts & { recipe: string; stepId: string }>();
-  // The counts of step `stepId` of `recipe`, or none for a check step.
+  // The counts of step `stepId` of `recipe`, or none for a step without a brewer.
   const tallyOf = (recipe: string, stepId: string): Counts | undefined => {
     const step = source.step(recipe, stepId);
     if (step === undefined) {
@@ -91,7 +91,7 @@ export const brewerReport = (state: State, source: BrewerSource): BrewerReport =
       gone.set(key, found);
       return found;
     }
-    if ('check' in step) return undefined;
+    if (step.brewer === undefined) return undefined;
     const found = brewers.get(step.brewer) ?? counts();
     brewers.set(step.brewer, found);
     return found;
@@ -174,11 +174,10 @@ export type LoadedBrewers = Pick<
 >;
 
 /** The brewers in use and each recipe's steps, from the loaded files. */
-export const brewerSource = ({ brewers, checks, catalog }: LoadedBrewers): BrewerSource => ({
+export const brewerSource = ({ recipes, brewers, catalog }: LoadedBrewers): BrewerSource => ({
   brewers: catalog.brewers.map(({ name, path }) => ({ name, path })),
-  step: (recipe, stepId) => {
-    const found = brewers.find(recipe, stepId);
-    if (found !== undefined) return { brewer: found.brewer.name };
-    return checks.find(recipe, stepId) === undefined ? undefined : { check: true };
-  },
+  step: (recipe, stepId) =>
+    recipes.find(recipe)?.has(stepId) === true
+      ? { brewer: brewers.find(recipe, stepId)?.brewer.name }
+      : undefined,
 });
