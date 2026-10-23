@@ -25,6 +25,8 @@ or, from a checkout of this repository, start the session in the Brewery's root 
 
 The plugin's skills run the `foedrum` command from your PATH. The npm package is not published yet, so put a command named `foedrum` on your PATH that runs `node <checkout>/src/cli/main.ts` with its arguments, where `<checkout>` is the folder of your clone of this repository after `npm ci`.
 
+From a terminal outside a Claude Code session, `foedrum brew` needs a name for its driver: run `foedrum brew <issue> --as <name>`, or it refuses with "give --as <name>".
+
 ## Why Foedrum
 
 | Principle | What it means |
