@@ -583,6 +583,40 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
     assert.equal(result.checks.redProof('stout'), undefined);
   });
+
+  it('merges the base before the last check that expects to pass, never before a red proof (ADR 0164)', () => {
+    const result = loadRecipes(withWriters(opened('pale', testFirst)));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.deepEqual(
+      ['plan', 'gauge', 'red', 'implement', 'green', 'open-pull-request'].map((id) =>
+        pale?.mergesBase(id),
+      ),
+      [false, false, false, false, true, false],
+    );
+  });
+
+  it('merges before the last of two checks only, and in a recipe without a pull request never', () => {
+    const steps = [
+      { id: 'brew', brewer: 'maltster' },
+      { id: 'lint', check: 'lint' },
+      { id: 'green', check: 'test' },
+    ];
+    const result = loadRecipes(
+      brewery({ recipes: [opened('stout', steps), recipe('porter', steps)] }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const stout = result.recipes.find('stout');
+    assert.deepEqual(
+      ['brew', 'lint', 'green'].map((id) => stout?.mergesBase(id)),
+      [false, false, true],
+    );
+    const porter = result.recipes.find('porter');
+    assert.deepEqual(
+      ['brew', 'lint', 'green'].map((id) => porter?.mergesBase(id)),
+      [false, false, false],
+    );
+  });
 });
 
 describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {

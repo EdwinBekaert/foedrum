@@ -405,6 +405,9 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
     steps: steps.map(({ id }) => id),
     has: (id) => byId.has(id),
     action: (id) => at(id).action,
+    mergesBase: () => {
+      throw new Error('not implemented');
+    },
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
     skip: (_batch, id) => {

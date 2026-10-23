@@ -12,6 +12,7 @@ import type {
   CleanReport,
 } from '../workspace/attempt-worktrees-git.ts';
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
+import type { BaseMerge } from './base-merge.ts';
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
@@ -65,6 +66,11 @@ export interface RepositoryWorktrees {
   base: string;
   manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'> &
     Partial<Pick<AttemptWorktrees, 'recreate'>>;
+  /**
+   * How an attempt of a step that merges the base merges it before it runs (ADR 0164); without
+   * it, nothing is merged.
+   */
+  merge?: BaseMerge;
 }
 
 /** What the driver reports instead of failing: it keeps driving. */

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
+import { type BaseMerge, baseMergeKey, type WorktreeMerged } from '../../src/engine/base-merge.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import type {
   AttemptEnd,
@@ -25,6 +26,7 @@ import {
   openDriver,
 } from '../../src/engine/driver.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
 import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
@@ -44,6 +46,13 @@ const recipes = fakeRecipes({
   ale: fakeRecipe({
     steps: ['plan', 'open'],
     actions: { open: 'openPullRequest' },
+    pullRequests: [],
+  }),
+  // Its green check merges the base first (ADR 0164).
+  nip: fakeRecipe({
+    steps: ['implement', 'green', 'open'],
+    actions: { open: 'openPullRequest' },
+    merges: ['green'],
     pullRequests: [],
   }),
 });
@@ -1010,6 +1019,138 @@ describe('openDriver', () => {
         [[], [plan('b1')], []],
         'the second cleanup claims the worktree no more',
       );
+    });
+  });
+
+  describe('the merge of the base before the last check (ADR 0164)', () => {
+    const BASE = 'b'.repeat(40);
+    const MERGED = 'c'.repeat(40);
+    const implement = { batchId: 'b1', stepId: 'implement', attempt: 1 };
+    const green = { batchId: 'b1', stepId: 'green', attempt: 1 };
+    /** A merge whose base is at BASE, and whose worktree merges as `merges` says. */
+    const fakeMerge = (
+      merges: () => WorktreeMerged = () => ({ kind: 'merged', commit: MERGED }),
+    ) => {
+      const calls: string[] = [];
+      let head = FAKE_COMMIT;
+      let fetches: () => string = () => BASE;
+      const merge: BaseMerge = {
+        base: 'main',
+        push: {
+          baseTip: async (base) => {
+            calls.push(`fetch ${base}`);
+            return fetches();
+          },
+          isAncestor: async (commit, of) => commit === of,
+        },
+        worktree: {
+          head: async () => head,
+          parents: async (_path, commit) => (commit === MERGED ? [FAKE_COMMIT, BASE] : []),
+          abort: async () => {
+            calls.push('abort');
+          },
+          merge: async (path, commit, message) => {
+            calls.push(`merge ${commit} into ${path}: ${message}`);
+            const merged = merges();
+            if (merged.kind === 'merged') head = merged.commit;
+            return merged;
+          },
+        },
+      };
+      return {
+        merge,
+        calls,
+        failFetch: (message: string) => {
+          fetches = () => {
+            throw new Error(message);
+          };
+        },
+      };
+    };
+    const orderNip = (): void => {
+      intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, now);
+      const route = { kind: 'route', batchId: 'b1', recipe: 'nip', reason: 'label' } as const;
+      intake.issue({ ...route, source: 'label' }, now);
+    };
+    const brewToGreen = async (merge: BaseMerge) => {
+      const hand = handRunner();
+      const manager = fakeWorktrees();
+      orderNip();
+      const driver = await open({
+        runner: hand.runner,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager, merge }],
+      });
+      await driver.drive();
+      assert.deepStrictEqual(hand.started, [implement]);
+      hand.end(implement);
+      await driver.drive();
+      return { driver, hand, manager };
+    };
+    const greenPath = join('work', 'acme.app', 'attempts', 'b1', 'green', '1');
+    const ledgerOf = (driver: Driver) =>
+      driver.state().effects.get(effectKey.encode(baseMergeKey(green)));
+
+    it('merges the base into the worktree of the last check before it runs, through the ledger', async () => {
+      const { merge, calls } = fakeMerge();
+      const { driver, hand } = await brewToGreen(merge);
+      assert.deepStrictEqual(hand.started, [implement, green]);
+      assert.deepStrictEqual(calls, [
+        'abort',
+        'fetch main',
+        `merge ${BASE} into ${greenPath}: Merge main before green`,
+      ]);
+      assert.deepStrictEqual(ledgerOf(driver), { base: BASE, merged: MERGED });
+      // A step that does not merge the base never fetched it.
+      assert.equal(calls.filter((call) => call === 'fetch main').length, 1);
+    });
+
+    it('merges nothing when the base holds nothing new, and runs the check', async () => {
+      const { merge, calls } = fakeMerge();
+      merge.push.isAncestor = async () => true;
+      const { driver, hand } = await brewToGreen(merge);
+      assert.deepStrictEqual(hand.started, [implement, green]);
+      assert.deepStrictEqual(calls, ['abort', 'fetch main']);
+      assert.deepStrictEqual(ledgerOf(driver), { base: BASE });
+    });
+
+    it('leaves the batch Stuck on a divergence, naming the files, when the merge conflicts', async () => {
+      const { merge } = fakeMerge(() => ({ kind: 'conflicts', files: ['a.ts', 'b.ts'] }));
+      const { driver, hand } = await brewToGreen(merge);
+      assert.deepStrictEqual(hand.started, [implement]);
+      assert.deepStrictEqual(ledgerOf(driver), { base: BASE, conflicts: ['a.ts', 'b.ts'] });
+      const lane = driver.state().batches.get('b1')?.lane;
+      assert.ok(lane?.kind === 'stuck');
+      assert.deepStrictEqual(lane.reason, {
+        kind: 'blocked',
+        stepId: 'green',
+        blockerKind: 'divergence',
+        summary: 'conflicts with main in a.ts, b.ts',
+      });
+      assert.deepStrictEqual(store.currentLeases(now), []);
+    });
+
+    it('fails the attempt retryably, recording nothing, when the base cannot be fetched', async () => {
+      const { merge, failFetch } = fakeMerge();
+      failFetch('git fetch failed: no route');
+      const { driver, hand } = await brewToGreen(merge);
+      assert.deepStrictEqual(hand.started, [implement]);
+      assert.equal(ledgerOf(driver), undefined);
+      const attempt = driver.state().batches.get('b1')?.steps.get('green')?.attempts.get(1);
+      assert.deepStrictEqual(attempt?.phase === 'finished' && attempt.outcome, {
+        kind: 'failed',
+        retryable: true,
+        reason: 'the base could not be merged: git fetch failed: no route',
+      });
+      assert.deepStrictEqual(store.currentLeases(now), []);
+    });
+
+    it('finds a merge a killed run made, and merges no second time', async () => {
+      const { merge, calls } = fakeMerge();
+      merge.worktree.head = async () => MERGED;
+      const { driver, hand } = await brewToGreen(merge);
+      assert.deepStrictEqual(hand.started, [implement, green]);
+      assert.deepStrictEqual(calls, []);
+      assert.deepStrictEqual(ledgerOf(driver), { base: BASE, merged: MERGED });
     });
   });
 

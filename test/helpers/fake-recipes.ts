@@ -15,6 +15,8 @@ export interface FakeRecipe {
   /** The steps that are actions the engine runs itself, by step id; default none (ADR 0071). */
   actions?: Readonly<Record<string, RecipeAction>>;
   pullRequests?: readonly string[];
+  /** The steps whose attempts merge the base before they run (ADR 0164); default none. */
+  merges?: readonly string[];
 }
 
 export const hour = 3_600_000;
@@ -27,6 +29,7 @@ export const fakeRecipe = ({
   routes = {},
   actions = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
+  merges = [],
 }: FakeRecipe): Recipe => {
   const [firstStep] = steps;
   if (firstStep === undefined) throw new Error('A recipe needs a step');
@@ -37,6 +40,7 @@ export const fakeRecipe = ({
     steps,
     has: (stepId) => steps.includes(stepId),
     action: (stepId) => actions[stepId],
+    mergesBase: (stepId) => merges.includes(stepId),
     deadlineMs: () => hour,
     stall: () => stall,
     skip: (_batch, stepId) => skips[stepId],

@@ -108,6 +108,25 @@ export const PushResult = z.strictObject({
 });
 export type PushResult = z.infer<typeof PushResult>;
 
+/** The most files the ledger names of one merge of the base that conflicts (ADR 0164). */
+export const MAX_CONFLICTS = 50;
+
+/**
+ * The result the ledger keeps for the merge of the base into a batch's last check attempt before
+ * its pull request (ADR 0164): the base's commit as fetched, and the merge commit made, or the
+ * files the merge conflicts in, so it was aborted; neither when the base had nothing new.
+ */
+export const MergeResult = z
+  .strictObject({
+    base: CommitSha,
+    merged: CommitSha.optional(),
+    conflicts: z.array(Filled).min(1).max(MAX_CONFLICTS).optional(),
+  })
+  .refine((result) => result.merged === undefined || result.conflicts === undefined, {
+    message: 'A merge either made a commit or conflicts, never both',
+  });
+export type MergeResult = z.infer<typeof MergeResult>;
+
 /**
  * How far the state branch has the log (ADR 0024): every event up to `eventId` is on the remote
  * branch, in `commit`. Kept in the store, never in the log, so it has no JSON Schema file.
