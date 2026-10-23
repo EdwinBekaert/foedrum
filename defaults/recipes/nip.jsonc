@@ -26,7 +26,7 @@
     },
     {
       "id": "green",
-      "check": ["build", "lint", "format", "test"],
+      "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
     { "action": "openPullRequest" }
