@@ -248,7 +248,8 @@ export const orderEffects = {
  * same issue opened, and whether a release closed it since, and the batch's own once it is known.
  */
 export interface ClaimOrder {
-  earlier?: { issue: number; closed: boolean };
+  /** `gone`: the batch's reopen found that a person deleted it, so the batch opens its own. */
+  earlier?: { issue: number; closed?: boolean; gone?: true };
   issue?: number;
 }
 

@@ -438,15 +438,8 @@ describe('claimEffectsDue', () => {
     assert.match(open.body, /acme\/app#7/);
   });
 
-  it('opens no second Brewery issue when an earlier batch opened one, and reopens one a release closed', () => {
-    const open = { earlier: { issue: 200, closed: false }, issue: 200 };
-    const reused = claimEffectsDue(
-      { ...batch({ kind: 'brewing' }), order: open },
-      alice,
-      states({}),
-    );
-    assert.deepEqual(names(reused), ['claim.assignee', 'claim.label', 'claim.comment']);
-    const order = { earlier: { issue: 200, closed: true }, issue: 200 };
+  it('opens no second Brewery issue when an earlier batch opened one: it reopens that one, however it was closed', () => {
+    const order = { earlier: { issue: 200 }, issue: 200 };
     const due = claimEffectsDue({ ...batch({ kind: 'brewing' }), order }, alice, states({}));
     assert.deepEqual(names(due), [
       'claim.assignee',
@@ -460,6 +453,18 @@ describe('claimEffectsDue', () => {
       issue: 200,
       state: 'open',
     });
+  });
+
+  it('opens a Brewery issue of its own when its reopen found the earlier one gone', () => {
+    const order = { earlier: { issue: 200, gone: true as const } };
+    const due = claimEffectsDue({ ...batch({ kind: 'brewing' }), order }, alice, states({}));
+    assert.deepEqual(names(due), [
+      'claim.assignee',
+      'claim.label',
+      'claim.comment',
+      'order.reopen',
+      'order.issue',
+    ]);
   });
 
   it('closes its Brewery issue with the release only once every pull request merged, before the ref goes', () => {

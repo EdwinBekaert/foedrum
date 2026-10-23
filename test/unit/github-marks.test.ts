@@ -209,6 +209,8 @@ describe('githubIssueMarks', () => {
       ]);
       assert.equal(await marks.title(repo, 7), 'Add a dark theme');
       assert.equal(await marks.issueState(repo, 7), 'closed');
+      const open = marksWith([{ status: 200, body: fixture('issue') }]);
+      assert.equal(await open.marks.issueState(repo, 7), 'open');
     });
 
     it('answers gone for an issue a person deleted, or one that never was, and fails on other answers', async () => {

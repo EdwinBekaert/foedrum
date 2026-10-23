@@ -42,28 +42,57 @@ describe('claimOrderOf', () => {
       applied('web-7', 'order.issue', 200),
       ordered('web-7-2', 7, 'Acme/Web'),
     );
-    assert.deepStrictEqual(claimOrderOf(state, 'web-7-2'), {
-      earlier: { issue: 200, closed: false },
-      issue: 200,
-    });
+    assert.deepStrictEqual(claimOrderOf(state, 'web-7-2'), { earlier: { issue: 200 }, issue: 200 });
   });
 
-  it('says when a release closed it, and when a later batch reopened it', () => {
-    const closed = stateOf(
+  it('keeps it through the releases that closed it and the batches that reopened it', () => {
+    const state = stateOf(
       ordered('web-7', 7, 'acme/web'),
       applied('web-7', 'order.issue', 200),
       applied('web-7', 'release.order'),
       ordered('web-7-2', 7, 'acme/web'),
+      applied('web-7-2', 'order.reopen'),
+      applied('web-7-2', 'release.order'),
+      ordered('web-7-3', 7, 'acme/web'),
     );
-    assert.deepStrictEqual(claimOrderOf(closed, 'web-7-2').earlier, { issue: 200, closed: true });
-    const reopened = fold(
-      [applied('web-7-2', 'order.reopen'), ordered('web-7-3', 7, 'acme/web')],
-      closed,
+    assert.deepStrictEqual(claimOrderOf(state, 'web-7-3'), { earlier: { issue: 200 }, issue: 200 });
+  });
+
+  it('forgets one whose close found it gone, so the next batch opens its own', () => {
+    const state = stateOf(
+      ordered('web-7', 7, 'acme/web'),
+      applied('web-7', 'order.issue', 200),
+      applied('web-7', 'release.order', 'gone'),
+      ordered('web-7-2', 7, 'acme/web'),
     );
-    assert.deepStrictEqual(claimOrderOf(reopened, 'web-7-3').earlier, {
-      issue: 200,
-      closed: false,
+    assert.deepStrictEqual(claimOrderOf(state, 'web-7'), { issue: 200 });
+    assert.deepStrictEqual(claimOrderOf(state, 'web-7-2'), {});
+  });
+
+  it('says when the batch found the earlier one gone, and takes the one it opened instead', () => {
+    const found = stateOf(
+      ordered('web-7', 7, 'acme/web'),
+      applied('web-7', 'order.issue', 200),
+      ordered('web-7-2', 7, 'acme/web'),
+      applied('web-7-2', 'order.reopen', 'gone'),
+    );
+    assert.deepStrictEqual(claimOrderOf(found, 'web-7-2'), {
+      earlier: { issue: 200, gone: true },
     });
+    const replaced = fold(
+      [applied('web-7-2', 'order.issue', 201), ordered('web-7-3', 7, 'acme/web')],
+      found,
+    );
+    assert.deepStrictEqual(claimOrderOf(replaced, 'web-7-2'), {
+      earlier: { issue: 200, gone: true },
+      issue: 201,
+    });
+    assert.deepStrictEqual(claimOrderOf(replaced, 'web-7-3'), {
+      earlier: { issue: 201 },
+      issue: 201,
+    });
+    assert.equal(claimOfOrder(replaced, 201)?.id, 'web-7-3');
+    assert.equal(claimOfOrder(replaced, 200)?.id, 'web-7');
   });
 
   it('counts only the batches of the same issue in the same repository', () => {
@@ -98,7 +127,7 @@ describe('claimOfOrder', () => {
     const state = stateOf(
       ordered('web-7', 7, 'acme/web'),
       applied('web-7', 'order.issue', 200),
-      ordered('web-7-2', 7, 'acme/web'),
+      ordered('web-7-2', 7, 'Acme/Web'),
       ordered('12-1', 12),
     );
     assert.equal(claimOfOrder(state, 200)?.id, 'web-7-2');

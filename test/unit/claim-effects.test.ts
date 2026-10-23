@@ -273,7 +273,44 @@ describe('claimEffects', () => {
       assert.deepStrictEqual(store.findEffect({ batchId: 'web-7-2', effect: 'order.reopen' }), {
         result: 'gone',
       });
+      // Its order is a Brewery issue that is there: it opens its own.
+      assert.equal(opened().length, 2);
+      const fresh = opened()[1];
+      assert.deepStrictEqual(store.findEffect({ batchId: 'web-7-2', effect: 'order.issue' }), {
+        result: fresh?.number,
+      });
+      assert.equal(fresh?.state, 'open');
       assert.deepStrictEqual(notices, []);
+    });
+
+    it('opens its own when the issue is ordered again after the release found the Brewery issue gone', async () => {
+      onTap();
+      const driver = await open();
+      await driver.tick();
+      const [made] = opened();
+      github.issue(brewery, made?.number ?? 0).state = 'gone';
+      ended(merged, 'merged');
+      ended(other, 'merged');
+      await driver.tick();
+      orderAgain('web-7-2');
+      await driver.tick();
+      assert.equal(opened().length, 2);
+      assert.equal(store.findEffect({ batchId: 'web-7-2', effect: 'order.reopen' }), undefined);
+      assert.ok(store.findEffect({ batchId: 'web-7-2', effect: 'order.issue' }) !== undefined);
+    });
+
+    it('reopens it when the issue is ordered again after a person closed it by hand', async () => {
+      order();
+      const driver = await open();
+      await driver.tick();
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      await driver.tick();
+      const [made] = opened();
+      github.issue(brewery, made?.number ?? 0).state = 'closed';
+      orderAgain('web-7-2');
+      await driver.tick();
+      assert.equal(opened().length, 1);
+      assert.equal(opened()[0]?.state, 'open');
     });
 
     it('closes it when every pull request merged, as the release of the claim', async () => {
@@ -308,6 +345,11 @@ describe('claimEffects', () => {
       await driver.tick();
       assert.equal(opened().length, 1);
       assert.equal(store.findEffect({ batchId: 'web-7-2', effect: 'order.issue' }), undefined);
+      // Open already: its reopen is found done, and nothing is set on the code host.
+      assert.deepStrictEqual(store.findEffect({ batchId: 'web-7-2', effect: 'order.reopen' }), {
+        result: null,
+      });
+      assert.equal(github.calls.get('setIssueState'), undefined);
     });
 
     it('reopens it when the issue is ordered again after a merge closed it', async () => {
