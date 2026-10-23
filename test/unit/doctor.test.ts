@@ -1096,6 +1096,11 @@ describe('diagnose: the headings and marked lines a Brewery file drops from its 
     ]);
   });
 
+  it('gives no notice for a Brewery lens of another folder than the default of its file name (ADR 0143)', () => {
+    const own = { path: 'lenses/plan/style.md', text: '# Style\n' };
+    assert.deepEqual(replacing('# Style\n', own), []);
+  });
+
   it('names only the replacement when the Brewery file cannot be read', () => {
     const unreadable = { path: 'lenses/diff/style.md', unreadable: 'EACCES: permission denied' };
     assert.deepEqual(replacing('# Style\n\n**Rule.** Keep it.\n', unreadable), [

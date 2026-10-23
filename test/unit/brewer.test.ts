@@ -177,6 +177,14 @@ describe('BrewerFrontmatter', () => {
       { ...taster, inputs: [{ name: 'x', from: 'lens:test-design' }] },
     ],
     [
+      'an input from a lens named like a Windows device (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:diff/con' }] },
+    ],
+    [
+      'an input from a lens named like a Windows device with an extension (ADR 0143)',
+      { ...taster, inputs: [{ name: 'x', from: 'lens:plan/nul.x' }] },
+    ],
+    [
       'an input from a lens of another folder (ADR 0143)',
       { ...taster, inputs: [{ name: 'x', from: 'lens:code/security' }] },
     ],

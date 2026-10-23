@@ -1251,6 +1251,34 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
     for (const line of [...plan, ...diff]) assert.ok(!line.includes('ADR 0143'), line);
   });
 
+  it('counts only a step before the lens step as the one that commits, not the step itself or one after it', () => {
+    const after = problemsOf(
+      reviewing([
+        { id: 'taste', brewer: 'maltster', lens: 'plan/coverage' },
+        { brewer: 'cellarman' },
+        { action: 'openPullRequest' },
+      ]),
+    );
+    const itself = problemsOf(
+      reviewing([
+        { id: 'taste', brewer: 'cellarman', lens: 'plan/coverage' },
+        { action: 'openPullRequest' },
+      ]),
+    );
+    for (const line of [...after, ...itself]) assert.ok(!line.includes('ADR 0143'), line);
+  });
+
+  it('says where a lens directly in lenses/ belongs even when it cannot be read or is too large', () => {
+    const misplaced =
+      'lenses/security.md: a lens belongs in lenses/diff/, to review a diff, or lenses/plan/, to review a plan (ADR 0143)';
+    for (const file of [
+      { path: 'lenses/security.md', unreadable: 'EACCES: permission denied' },
+      lensFile('lenses/security.md', 'x'.repeat(1024 * 1024 + 1)),
+    ]) {
+      assert.deepEqual(problemsOf({ recipes: [], brewers: [], lenses: [file] }), [misplaced]);
+    }
+  });
+
   it('fails a lens file directly in lenses/, saying where it belongs, in the Brewery and in the defaults', () => {
     assert.deepEqual(
       problemsOf({

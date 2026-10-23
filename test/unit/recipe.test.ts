@@ -127,6 +127,7 @@ describe('step kinds', () => {
     ['a lens name that is not path-safe', { brewer: 'taster', lens: 'diff/../secrets' }],
     ['a lens without its folder (ADR 0143)', { brewer: 'taster', lens: 'security' }],
     ['a lens of another folder (ADR 0143)', { brewer: 'taster', lens: 'code/security' }],
+    ['a lens named like a Windows device (ADR 0143)', { brewer: 'taster', lens: 'plan/aux' }],
     ['a blocking flag that is not a boolean', { brewer: 'brett', blocking: 'yes' }],
     ['onFail on a brewer step', { brewer: 'cellarman', onFail: { goto: 'plan', maxRounds: 1 } }],
     ['an invalid deadline', { brewer: 'cellarman', deadline: '30 minutes' }],
