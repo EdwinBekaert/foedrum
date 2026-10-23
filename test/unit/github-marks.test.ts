@@ -248,10 +248,14 @@ describe('githubIssueMarks', () => {
     });
 
     it('answers gone only for an issue a person deleted, and fails when issues are off or out of reach', async () => {
-      const deleted = marksWith([{ status: 410, body: { message: 'This issue was deleted' } }]);
-      assert.equal(await deleted.marks.issueState(brewery, 200), 'gone');
+      for (const message of ['This issue was deleted', 'This issue was Deleted']) {
+        const deleted = marksWith([{ status: 410, body: { message } }]);
+        assert.equal(await deleted.marks.issueState(brewery, 200), 'gone', message);
+      }
       const refusals = [
         { status: 410, body: { message: 'Issues are disabled for this repo' } },
+        { status: 410, body: { message: 'This issue was undeleted' } },
+        { status: 404, body: { message: 'This issue was deleted' } },
         { status: 404, body: { message: 'Not Found' } },
         { status: 403, body: { message: 'Resource not accessible' } },
       ];
