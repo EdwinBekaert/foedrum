@@ -4,7 +4,7 @@ How orders reach a Brewery, how they are broken down and routed, and what Foedru
 
 | Page | What it covers |
 |---|---|
-| [Trackers and code hosts](trackers.md) | The roles GitHub plays, and the rule that a tracker is intake and projection only |
+| [Trackers and code hosts](trackers.md) | The roles GitHub plays, the rule that a tracker is intake and projection only, and how GitHub's sub-issues and "blocked by" links behave (spike #18) |
 | [Polling](polling.md) | Conditional requests, rate limits |
 | [Work breakdown](work-breakdown.md) | Orders, sub-orders, bottles, dependency kinds, release signals |
 | [Target-repository issues](target-issues.md) | The work queue, claims, marks and release |

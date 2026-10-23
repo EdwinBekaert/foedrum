@@ -23,11 +23,11 @@ It is a spike: no code and no ADR follow from it here.
 
 ### Identifiers and the version header
 
-Every write takes an issue's numeric REST `id` (such as `6002945040`), never its number or its GraphQL `node_id`; the path takes the number.
+Every write names the other issue by its numeric REST `id` (such as `6002945040`), never by its number or its GraphQL `node_id`: in the body, or in the path when a dependency is removed; the issue the call acts on is the number in the path.
 Giving the number where the `id` belongs answers `404 Not Found` with `{"message":"Not Found"}`, for sub-issues and dependencies alike.
 The REST docs list every call below with `Accept: application/vnd.github+json` and `X-GitHub-Api-Version: 2026-03-10`.
 github.com supports two versions: a request with `X-GitHub-Api-Version: 2021-01-01` answers `400 Bad Request` with `The following versions are currently supported: "2026-03-10" (most recent) and "2022-11-28".`
-A request without the header gets `X-Github-Api-Version-Selected: 2022-11-28`, and the list of sub-issues answered the same under both; the other calls were tried under `2026-03-10` only, so the adapter sends it explicitly.
+A request without the header gets `X-Github-Api-Version-Selected: 2022-11-28`, and the list of sub-issues answered the same under both; the other calls were tried under `2026-03-10` only, so an adapter that relies on these notes sends that version explicitly.
 An issue's REST object carries `parent_issue_url`, `sub_issues_summary` (`total`, `completed`, `percent_completed`) and `issue_dependencies_summary` (`blocked_by`, `total_blocked_by`, `blocking`, `total_blocking`), so one `GET /repos/{owner}/{repo}/issues/{issue_number}` reads both relations' counts.
 
 ### Sub-issues (REST)
@@ -68,7 +68,7 @@ GraphQL needs no version header; its mutations take `node_id`s, and `addSubIssue
 The `Issue` fields `parent`, `subIssues`, `subIssuesSummary`, `blockedBy`, `blocking` and `issueDependenciesSummary` read both relations in one query, which cost 1 point.
 Mutations: `addSubIssue(issueId, subIssueId | subIssueUrl, replaceParent)`, `removeSubIssue(issueId, subIssueId)`, `reprioritizeSubIssue(issueId, subIssueId, afterId | beforeId)`, `addBlockedBy(issueId, blockingIssueId)` and `removeBlockedBy(issueId, blockingIssueId)`.
 `addBlockedBy`, `removeBlockedBy` and `reprioritizeSubIssue` were tried and behave as their REST calls.
-A failed mutation answers HTTP `200` with `"data":{"addBlockedBy":null}` and the REST message in `errors[0].message` (`type` `VALIDATION`), so the adapter reads `errors`, not the status.
+A failed mutation answers HTTP `200` with `"data":{"addBlockedBy":null}` and the REST message in `errors[0].message` (`type` `VALIDATION`), so the HTTP status alone does not tell a GraphQL write's success from its failure.
 
 ### What a person sees
 
@@ -84,6 +84,7 @@ GraphQL has 5,000 points per hour (`X-Ratelimit-Resource: graphql`, the `rateLim
 The secondary limits from the docs: at most 100 concurrent requests, 900 points per minute for REST and 2,000 for GraphQL (a mutation counts 5), and "no more than 80 content-generating requests per minute" and "no more than 500 content-generating requests per hour", with some endpoints lower.
 Each sub-issue and dependency write is documented as one that "may result in secondary rate limiting" when done too quickly.
 No response header counts the content-creation limit; it shows only as a `403` or `429` with a message, and `retry-after` when present.
-GitHub asks for writes one at a time, at least one second apart; waiting `retry-after`, else until `x-ratelimit-reset` when `x-ratelimit-remaining` is 0, else at least a minute, and then backing off.
+GitHub's guidance is writes one at a time, at least one second apart, and after a limit waiting `retry-after`, else until `x-ratelimit-reset` when `x-ratelimit-remaining` is 0, else at least a minute, and then backing off.
+That is GitHub's advice, not what Foedrum's client does: how it handles a rate limit today is in [polling](polling.md) ([ADR 0052](../../adr/0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)).
 Applying a plan of n sub-orders with d links costs n creates, n sub-issue adds and d dependency adds: at one per second, a plan of 20 sub-orders with 20 links takes about a minute and stays under 80 per minute.
-In a first run of these tries, one add gave no answer before the batch passed 120 s; repeated alone it answered `422` in 0.7 s, so every call gets a deadline (gh has none of its own).
+In a first run of these tries, one add gave no answer before the batch passed 120 s; repeated alone it answered `422` in 0.7 s (gh has no deadline of its own).
