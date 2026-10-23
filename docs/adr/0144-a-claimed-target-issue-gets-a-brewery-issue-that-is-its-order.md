@@ -1,6 +1,6 @@
 # 0144. A claimed target-repository issue gets a Brewery issue that is its order
 
-Date: 2026-10-23 · Status: Accepted · Amends [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the order of a claimed issue is, the effects of its batch), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (which Brewery issues the intake orders), [0050](0050-the-intake-of-target-repository-issues.md) (what the order of a claimed issue is, its release, how `status` and `stuck` name it) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (ordering a claimed issue again, and its Brewery issue)
+Date: 2026-10-23 · Status: Accepted · Amends [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the order of a claimed issue is, the effects of its batch), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (no status comment on the Brewery issue of a claimed issue yet), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (which Brewery issues the intake orders), [0050](0050-the-intake-of-target-repository-issues.md) (what the order of a claimed issue is, its release, how `status` and `stuck` name it) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (ordering a claimed issue again, and its Brewery issue)
 
 ## Context
 Until now a claimed target-repository issue **was** the order: its batch is `<alias>-<n>`, kept apart from the Brewery's own orders ([ADR 0050](0050-the-intake-of-target-repository-issues.md)).
@@ -37,7 +37,11 @@ Its pull requests are opened in the target repository and close the target issue
 - A Brewery issue a person deleted is **gone** (GitHub answers 410, or 404 for one that is not there): closing or reopening it records `gone` instead of failing. The driver stops a batch's effects at the first that fails, so a deleted issue would otherwise hold off the rest of the release, and the claim ref would never go, as `release_ref` already counts a gone ref as released.
 
 ### Ordering again orders the same Brewery issue
-A batch of an issue that an earlier batch opened a Brewery issue for opens none: its order is that issue. When a merge closed it, the new batch reopens it (**`order.reopen`**, in the place of `order.issue`).
+A batch of an issue that an earlier batch opened a Brewery issue for opens none: its order is that issue, and it reopens it (**`order.reopen`**, in the place of `order.issue`). The reopen is found done while the issue is open, so it changes nothing then, and it also reopens an issue a person closed by hand.
+When the reopen finds the issue gone, or a release found it gone, the new batch opens a Brewery issue of its own (`order.issue`), so a batch ordered again always has a Brewery issue that is there.
+
+### No status comment on it yet
+The Brewery issue of a claimed batch gets no status comment yet, as the claimed target issue got none ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)); the status comment of every other Brewery issue's batch is unchanged.
 
 ## Consequences
 - Every claimed target issue that `serve` marks gets one Brewery issue, linked to it, which later work hangs the order's plan, questions and sub-issues on (#373).

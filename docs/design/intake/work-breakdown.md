@@ -3,7 +3,7 @@
 Enterprise changes usually span several repositories.
 Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/0013-single-repo-sub-orders-bottles-and-releases.md)).
 
-- **Work items live in the Brewery, or are claimed from a target repository.** Orders and sub-orders are Brewery issues, private to the Brewery; an order may also be an issue of a target repository that this Brewery claimed ([target-repository issues](../intake/target-issues.md), [ADR 0043](../../adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md)).
+- **Work items live in the Brewery, or are claimed from a target repository.** Orders and sub-orders are Brewery issues, private to the Brewery; an issue of a target repository that this Brewery claimed gets a Brewery issue that is its order ([target-repository issues](../intake/target-issues.md), [ADR 0043](../../adr/0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md), [ADR 0144](../../adr/0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md)).
   Foedrum never creates issues in target repositories, and edits only the issues it claimed.
 - **Decomposition.** A decomposition step (Maltster + Brewmaster) splits an order into **sub-orders** — GitHub sub-issues of the order — and records dependencies between them as native "blocked by" links.
   The breakdown is posted as **READY / NOT READY** and brewing starts after `/foedrum approve` — **approval is on by default**; recipes can switch it off.
