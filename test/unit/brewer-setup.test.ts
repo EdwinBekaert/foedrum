@@ -1,5 +1,5 @@
-// A repository's setup before a brewer (ADR 0163): the plan of an attempt that starts fresh carries
-// its repository's setup, and the brewer runner runs it in the attempt's worktree before claude
+// A repository's setup before a brewer (ADR 0163): the plan of every attempt of a brewer with a
+// shell carries its repository's setup, and the brewer runner runs it in the attempt's worktree before claude
 // starts, through the setup's process runner; a setup that does not pass ends the attempt blocked
 // on its environment, before any model tokens (ADR 0021: fake process runners and files).
 
@@ -26,7 +26,7 @@ const sessionId = '0f8fad5b-d9cb-469f-a165-70867728950e';
 const ref = { batchId: '12-1', stepId: 'brew', attempt: 1 };
 const deadlineAt = '2026-10-17T13:00:00.000Z';
 
-describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
+describe('createAttemptPlans: the setup of a brewer attempt (ADR 0163)', () => {
   const loaded = loadRecipes({
     recipes: [
       {
