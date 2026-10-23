@@ -908,12 +908,70 @@ describe('statusEffects', () => {
     assert.ok(only().body.endsWith(marker(3)));
   });
 
-  it('has no status comment for a claimed target-repository issue', async () => {
+  it("comments on a claimed batch's Brewery issue once the batch records it, and nothing before (ADR 0144)", async () => {
     issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'alice/web' } });
     const driver = await open();
     await driver.tick();
-    assert.deepEqual(comments.comments, []);
-    assert.deepEqual(comments.calls, []);
+    assert.deepEqual(comments.calls, [], 'no Brewery issue yet');
+    store.withTransaction((tx) => tx.recordEffect({ batchId: 'web-7', effect: 'order.issue' }, 20));
+    await driver.tick();
+    issue({ kind: 'route', batchId: 'web-7', recipe: 'nip', reason: 'label', source: 'label' });
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', batchId: 'web-7', stepId: 'plan', attempt: 1 },
+    });
+    later(minute);
+    await driver.tick();
+    // One comment, on the Brewery issue #20: never on the Brewery's #7 or the target issue.
+    const comment = only();
+    assert.deepEqual([comment.repo, comment.issue], [brewery, 20]);
+    assert.match(comment.body, /Brewing/);
+    assert.ok(
+      comment.body.endsWith(
+        effectMarker(effectKey.encode({ batchId: 'web-7', effect: 'status.2' })),
+      ),
+      comment.body,
+    );
+    assert.deepEqual(notices, []);
+  });
+
+  describe('a claimed issue ordered again (ADR 0144)', () => {
+    const order = { issue: 7, repo: 'alice/web' };
+    const routeBy = '2026-10-23T10:00:00.000Z';
+    const applied = (batchId: string, effect: string, result: unknown): void =>
+      store.withTransaction((tx) => tx.recordEffect({ batchId, effect }, result));
+    /** web-7 opened the Brewery issue #20 and was cancelled; web-7-2 orders the issue again. */
+    const again = (): void => {
+      issue({ kind: 'order', batchId: 'web-7', order });
+      applied('web-7', 'order.issue', 20);
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      store.withTransaction((tx) =>
+        tx.append({ type: 'batch.ordered', batchId: 'web-7-2', order, routeBy }),
+      );
+    };
+    const onIssue = (n: number) => comments.comments.filter((comment) => comment.issue === n);
+    const firstOf = (batchId: string) =>
+      effectMarker(effectKey.encode({ batchId, effect: 'status.1' }));
+
+    it('gives the new batch a status comment of its own on the Brewery issue it shares', async () => {
+      again();
+      const driver = await open();
+      await driver.tick();
+      assert.ok(onIssue(20).some(({ body }) => body.endsWith(firstOf('web-7-2'))));
+      assert.deepEqual(onIssue(7), []);
+    });
+
+    it('comments nothing for the new batch whose reopen found the Brewery issue gone, until it opens its own', async () => {
+      again();
+      applied('web-7-2', 'order.reopen', 'gone');
+      const driver = await open();
+      await driver.tick();
+      assert.equal(store.findEffect({ batchId: 'web-7-2', effect: 'status.1' }), undefined);
+      applied('web-7-2', 'order.issue', 21);
+      await driver.tick();
+      assert.ok(onIssue(21).some(({ body }) => body.endsWith(firstOf('web-7-2'))));
+      assert.ok(onIssue(20).every(({ body }) => !body.endsWith(firstOf('web-7-2'))));
+    });
   });
 
   it("shows a commit hash the batch's state records, and leaves out a token (#235)", async () => {

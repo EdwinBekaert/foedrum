@@ -1,11 +1,13 @@
 // The lane label of a batch of a Brewery issue (#406, ADR 0154): one `foedrum:<lane>` label at a
-// time on its issue, set through the ledger as the driver's effects, `[batchId, "label.<n>"]`, as
-// the status comment's revisions are (ADR 0072): due when the lane's label is not the one the
-// latest revision left, found on the issue before it is applied (ADR 0033).
+// time on its issue, or on the Brewery issue that is a claimed batch's order (ADR 0155), set
+// through the ledger as the driver's effects, `[batchId, "label.<n>"]`, as the status comment's
+// revisions are (ADR 0072): due when the lane's label is not the one the latest revision left,
+// found on the issue before it is applied (ADR 0033).
 
 import { LaneLabelName, LaneLabelRevision } from '../schemas/lane-label.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { IssueMarks } from './claim-effects.ts';
+import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { Lane, State } from './fold.ts';
@@ -72,7 +74,8 @@ export interface LaneLabelEffectsOptions {
 
 /**
  * The lane label of every batch of a Brewery issue, for the driver: a revision whenever its lane's
- * label changes. A batch of a claimed target issue has none: it keeps only `foedrum:claimed`.
+ * label changes. A claimed batch's label is on the Brewery issue that is its order, once that is
+ * recorded (ADR 0155); its target issue keeps only `foedrum:claimed`.
  */
 export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffects => {
   const { brewery, host } = options;
@@ -92,10 +95,10 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
-      if (batch === undefined || batch.repo !== undefined) return [];
+      if (batch === undefined) return [];
+      const issue = breweryIssueOf(state, batch);
       // An issue ordered again shows its latest batch: an older one never touches its labels.
-      const ofIssue = (state.orders.get(batch.issue) ?? state.subOrders.get(batch.issue))?.batchIds;
-      if (ofIssue?.at(-1) !== batchId) return [];
+      if (issue === undefined || !latestOf(state, batch, issue)) return [];
       let revision = 1;
       let previous: LaneLabelRevision | undefined;
       for (let found = recorded(state, batchId, revision); found !== undefined; ) {
@@ -107,7 +110,7 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
       // Nothing to show, or shown already; a batch cancelled before its first label has none.
       if (previous === undefined ? label === null : previous.label === label) return [];
       const key = revisionKey(batchId, revision);
-      dues.set(effectKey.encode(key), { issue: batch.issue, label });
+      dues.set(effectKey.encode(key), { issue, label });
       return [key];
     },
     target: {

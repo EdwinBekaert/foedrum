@@ -13,10 +13,10 @@
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
-import { claimOfOrder, claimOrderOf } from './claim-orders.ts';
+import { breweryIssueOf, claimOfOrder } from './claim-orders.ts';
 import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
-import { type Batch, emptyState, type State } from './fold.ts';
+import { emptyState, type State } from './fold.ts';
 import {
   type Claimant,
   type ClaimHost,
@@ -266,20 +266,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
   };
 
   /**
-   * The Brewery issue that routes the Ordered batch `batch`: its own issue, or a claimed batch's
-   * order once the driver opened it (ADR 0156); undefined while a claimed batch has none.
-   */
-  const routedBy = (state: State, batch: Batch): number | undefined =>
-    batch.repo === undefined ? batch.issue : claimOrderOf(state, batch.id).issue;
-
-  /**
    * Routes every Ordered batch whose Brewery issue `listed` has, by its one `recipe:<name>` label,
    * whoever ordered it (ADR 0068). `listed`: the Brewery's issues read in this pass.
    */
   const route = (listed: readonly TargetIssue[]): void => {
     for (const batch of log.state().batches.values()) {
       if (batch.lane.kind !== 'ordered') continue;
-      const number = routedBy(log.state(), batch);
+      const number = breweryIssueOf(log.state(), batch);
       const read = listed.find((each) => each.number === number);
       const names = recipeLabels(read?.labels ?? []);
       // No recipe label: it waits for its deadline, then a person chooses (ADR 0032).
@@ -307,7 +300,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
   const awaitsRouting = (): boolean => {
     const state = log.state();
     return [...state.batches.values()].some(
-      (batch) => batch.lane.kind === 'ordered' && routedBy(state, batch) !== undefined,
+      (batch) => batch.lane.kind === 'ordered' && breweryIssueOf(state, batch) !== undefined,
     );
   };
 
