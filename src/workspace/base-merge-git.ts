@@ -27,13 +27,10 @@ export const openWorktreeMerge = (git: Git): WorktreeMerge => {
     if (!SHA.test(sha)) throw new Error(`The HEAD of ${path} names no commit: ${sha}`);
     return sha;
   };
-  // MERGE_HEAD is there while a merge is in progress.
-  const merging = async (path: string, signal?: AbortSignal): Promise<boolean> => {
-    const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', 'MERGE_HEAD'];
-    return (await local(path, args, aborts(signal))).code === 0;
-  };
   const abort = async (path: string, signal?: AbortSignal): Promise<void> => {
-    if (await merging(path, signal)) {
+    // MERGE_HEAD is there while a merge is in progress.
+    const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', 'MERGE_HEAD'];
+    if ((await local(path, args, aborts(signal))).code === 0) {
       await gitOutput(local, path, ['merge', '--abort'], aborts(signal));
     }
   };
