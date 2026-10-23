@@ -6,6 +6,7 @@ paths:
   - "scripts/check-test-layers/**"
   - "scripts/test-*.ts"
   - "scripts/spec-reporter.ts"
+  - "scripts/refuse-process-starts.ts"
   - "scripts/with-checkout-tmp.ts"
   - "test/**/check*.test.ts"
   - "test/**/test-*.test.ts"
