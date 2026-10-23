@@ -227,14 +227,30 @@ export function answersOf(
 }
 
 /**
- * What a Taster's step that reviews a diff is told to review (ADR 0161): the commits after the one
- * `batch` started at in `repo`, up to the worktree's HEAD; none before any attempt recorded one.
+ * Where the change a Taster's step that reviews a diff is given starts (ADR 0161): the commit
+ * `batch` started at in `repo`; none before any attempt recorded one.
  */
-export function changeOf(batch: Batch, repo: string): PromptInput | undefined {
-  const since = batch.starts?.[repo.toLowerCase()]?.commit;
-  if (since === undefined) return undefined;
-  const text = `The change to review is every commit after ${since} up to HEAD in your worktree: git diff ${since} HEAD shows it, and git log ${since}..HEAD lists its commits.`;
-  return { name: 'change', source: { kind: 'change', since }, text };
+export const changeStart = (batch: Batch, repo: string): string | undefined =>
+  batch.starts?.[repo.toLowerCase()]?.commit;
+
+/** The most of a change input a prompt holds, in UTF-8 bytes (ADR 0161). */
+export const MAX_CHANGE_INPUT_BYTES = 256 * 1024;
+
+/**
+ * The change input of a Taster that reviews a diff (ADR 0161): the commits after `since` and their
+ * diff, as git printed them, held to its limit. The engine reads them, so the Taster runs no git.
+ */
+export function changeInput(since: string, log: string, diff: string): PromptInput {
+  const text = `The commits after ${since}, up to HEAD:
+${log.trimEnd()}
+
+Their diff:
+${diff}`;
+  return {
+    name: 'change',
+    source: { kind: 'change', since },
+    text: bounded(text, MAX_CHANGE_INPUT_BYTES, 'change input'),
+  };
 }
 
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
@@ -303,12 +319,12 @@ function failedReading(reading: GravityReading): string[] {
   return [`${checkName(reading)} ${ended}. The end of its output:\n${reading.tail}`];
 }
 
-/** `text` held to the route input's limit: its start, never half a character, then a note. */
-function bounded(text: string): string {
+/** `text` held to `limit` bytes: its start, never half a character, then a note naming `what`. */
+function bounded(text: string, limit: number, what: string): string {
   const bytes = Buffer.from(text, 'utf8');
-  if (bytes.length <= MAX_ROUTE_INPUT_BYTES) return text;
-  const note = `\n[cut: the rest is past the route input's limit of ${MAX_ROUTE_INPUT_BYTES} bytes]`;
-  let end = MAX_ROUTE_INPUT_BYTES - Buffer.byteLength(note, 'utf8');
+  if (bytes.length <= limit) return text;
+  const note = `\n[cut: the rest is past the ${what}'s limit of ${limit} bytes]`;
+  let end = limit - Buffer.byteLength(note, 'utf8');
   // Back to the first byte of a character.
   while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
   return `${bytes.subarray(0, end).toString('utf8')}${note}`;
@@ -332,7 +348,11 @@ export function routeInput(planned: PlannedRoute, outDoc?: OutDocRead): PromptIn
       }
     }
   })();
-  return { name: 'route', source: planned.source, text: bounded(`${planned.text}${doc}`) };
+  return {
+    name: 'route',
+    source: planned.source,
+    text: bounded(`${planned.text}${doc}`, MAX_ROUTE_INPUT_BYTES, 'route input'),
+  };
 }
 
 /** One example out doc of the contract: the keys every status shares, then the status's own key. */

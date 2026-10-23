@@ -19,9 +19,11 @@ import type { Git } from '../workspace/git.ts';
 import {
   answersOf,
   attemptLimits,
-  changeOf,
+  changeInput,
+  changeStart,
   type InputRead,
   inputsOf,
+  MAX_CHANGE_INPUT_BYTES,
   type PlannedInput,
   planAttempt,
   type Resumed,
@@ -147,6 +149,25 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
+   * The change a Taster that reviews a diff is given, read with git in its worktree (ADR 0161): the
+   * commits after `since` and their diff. A diff past git's output limit keeps its start, which the
+   * input cuts anyway.
+   */
+  const changeFor = async (cwd: string, since: string): Promise<PromptInput> => {
+    const why = `the change since commit ${since} was not read`;
+    const { git } = options;
+    if (git === undefined) throw new Error(`${why}: no git was given`);
+    const read = async (args: readonly string[]): Promise<string> => {
+      const result = await git(cwd, args, { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES });
+      if (result.code === 0 || result.killed === 'too-much-output') return result.stdout;
+      const [said = ''] = result.stderr.trim().split('\n');
+      throw new Error(`${why}: git ${args.join(' ')} exited with code ${result.code}: ${said}`);
+    };
+    const log = await read(['log', '--format=%h %s', `${since}..HEAD`]);
+    return changeInput(since, log, await read(['diff', since, 'HEAD']));
+  };
+
+  /**
    * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then for a Taster
    * that reviews a diff where the change starts (ADR 0161), then the answers to its step's
    * questions, then what sent it back when a route scheduled it (ADR 0128).
@@ -164,8 +185,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
-    const change = found.lens?.startsWith('diff/') ? changeOf(batch, worktree.repo) : undefined;
-    if (change !== undefined) inputs.push(change);
+    const since = found.lens?.startsWith('diff/') ? changeStart(batch, worktree.repo) : undefined;
+    if (since !== undefined) inputs.push(await changeFor(worktree.path, since));
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);
     const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
