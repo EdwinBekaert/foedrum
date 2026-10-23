@@ -11,6 +11,7 @@ import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import type { BrewCommand, ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
+import type { BrewerSource } from './brewer-report.ts';
 import { columns } from './columns.ts';
 import { commands } from './commands.ts';
 import type { DoctorFacts } from './doctor.ts';
@@ -33,6 +34,11 @@ export interface CliContext {
    * changes state calls it.
    */
   recipes: () => Recipes;
+  /**
+   * The brewers in use and each recipe's steps, from the Brewery's files, for `foedrum brewers`
+   * (ADR 0159); throws doctor's line when the files do not load.
+   */
+  brewers: () => BrewerSource;
   /** Who issues the command: the name its events record (ADR 0019). */
   user: () => string;
   /** Where the command comes from: the surface its events record. */
