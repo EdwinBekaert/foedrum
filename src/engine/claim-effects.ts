@@ -44,7 +44,10 @@ export interface IssueMarks {
   comment(repo: string, issue: number, body: string, signal?: AbortSignal): Promise<number>;
   /** The issue's title. */
   title(repo: string, issue: number, signal?: AbortSignal): Promise<string>;
-  /** Whether the issue is open or closed, or gone: deleted, or never there. */
+  /**
+   * Whether the issue is open or closed, or gone: a person deleted it (ADR 0144). An issue that
+   * cannot be read for any other reason fails.
+   */
   issueState(
     repo: string,
     issue: number,

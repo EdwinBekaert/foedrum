@@ -70,8 +70,8 @@ export const WorktreeRef = z.strictObject({
 export type WorktreeRef = z.infer<typeof WorktreeRef>;
 
 /**
- * An order or sub-order: an issue in the Brewery, or a claimed issue of the target repository
- * `repo` (ADR 0043).
+ * The issue of an order or sub-order: an issue in the Brewery, or a claimed issue of the target
+ * repository `repo`, whose order is a Brewery issue (ADR 0043, ADR 0144).
  */
 export const OrderRef = z.strictObject({ issue: IssueNumber, repo: Repo.optional() });
 export type OrderRef = z.infer<typeof OrderRef>;
