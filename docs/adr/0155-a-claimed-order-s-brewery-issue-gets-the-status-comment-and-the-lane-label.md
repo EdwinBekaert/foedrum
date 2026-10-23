@@ -1,6 +1,6 @@
 # 0155. A claimed order's Brewery issue gets the status comment and the lane label
 
-Date: 2026-10-23 · Status: Accepted · Amends [0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) (the Brewery issue of a claimed batch now gets a status comment and a lane label) and [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (which issue a claimed batch labels, which batch labels it, and the link `foedrum brew` prints)
+Date: 2026-10-23 · Status: Accepted · Amends [0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) (the Brewery issue of a claimed batch now gets a status comment and a lane label), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (a claimed batch's first revision is due once its Brewery issue is recorded, not when the batch is ordered) and [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (which issue a claimed batch labels, which batch labels it, and the link `foedrum brew` prints)
 
 ## Context
 A claimed target-repository issue gets neither a status comment ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)) nor a lane label ([ADR 0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md)): it keeps its claim comment and `foedrum:claimed`, since its lane is the private Brewery's business.
