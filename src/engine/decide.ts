@@ -51,7 +51,7 @@ export type HumanCommand =
    * Hands the batch from the driver `from`, whose live lease runs `until`, to the driver `to`
    * (ADR 0124); the caller reads that lease in the transaction that appends.
    */
-  | ({ kind: 'take_over'; from: string; to: string; until: string } & Issuer);
+  | ({ kind: 'take_over'; from: string; to: string; until: string; resumes?: string } & Issuer);
 
 /** How an attempt ended: a step outcome, or a brewer's `blocked` out doc with its blocker kind. */
 export type Ending = StepOutcome | { kind: 'blocked'; blockerKind: BlockerKind; summary: string };
@@ -321,9 +321,10 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     }
     case 'take_over': {
-      const { batchId, by, via, from, to, until } = command;
+      const { batchId, by, via, from, to, until, resumes } = command;
       requireLane(draft.batch(batchId), 'take over', nonTerminal);
-      draft.push({ type: 'batch.taken_over', batchId, by, via, from, to, until });
+      const event = { type: 'batch.taken_over', batchId, by, via, from, to, until } as const;
+      draft.push(resumes === undefined ? event : { ...event, resumes });
       break;
     }
     default: {

@@ -126,6 +126,12 @@ export interface DriverOptions {
    * instead of being driven beside the one it brews (ADR 0123); it holds that one through `takes`.
    */
   drivesOn?: (batchId: string) => boolean;
+  /**
+   * Whether it goes on with a batch it may hold: claims it, starts its attempts and applies its
+   * effects. Every batch by default; `foedrum resume` of a running batch lets its batch be once
+   * the attempt that continues the session has ended, for the driver that takes it next (ADR 0127).
+   */
+  holds?: (batchId: string) => boolean;
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
   alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;
@@ -277,6 +283,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     resumes = () => false,
     sessionId = randomUUID,
     drivesOn = () => true,
+    holds = () => true,
     alsoCleans = [],
     effects,
     actions,
@@ -360,6 +367,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   /** Whether the driver holds `batchId` now: it renews the lease it holds, or takes a free one. */
   const claim = (batchId: string): boolean => {
+    if (!holds(batchId)) return false;
     if (!held.has(batchId) && !takes(batchId)) return false;
     const hold = store.withTransaction((tx) =>
       holdBatch(tx, { batchId, owner, now: clock(), leaseMs }),
@@ -819,6 +827,19 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return next;
   };
 
+  /**
+   * Whether `ref`'s batch was taken from this driver to resume `ref`'s step, by an owner that holds
+   * it still (ADR 0127): the fold keeps the latest takeover after that owner let the batch go.
+   */
+  const resumedElsewhere = (state: State, ref: AttemptRef): boolean => {
+    const takeover = state.batches.get(ref.batchId)?.takeover;
+    if (held.has(ref.batchId) || takeover?.from !== owner || takeover.resumes !== ref.stepId) {
+      return false;
+    }
+    const holder = store.batchLeases(clock()).find((lease) => lease.batchId === ref.batchId);
+    return holder?.owner === takeover.to;
+  };
+
   const tick = async (): Promise<void> => {
     const now = clock();
     heartbeat();
@@ -830,12 +851,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     );
     await supervisor.tick();
     // Stops the processes of attempts that Stuck abandoned (ADR 0027), whose batch ended, or that
-    // the log shows finished while this runner still runs them: another driver lost them.
+    // the log shows finished while this runner still runs them: another driver lost them. Also
+    // the run of a step whose batch was taken from this driver to resume that step's session: it
+    // ends at the step boundary, and the new holder continues the session (ADR 0127).
     const current = log.state();
     for (const { ref, run } of runs.values()) {
       const attempt = attemptOf(current, ref);
       if (attempt === undefined) continue;
-      if (isOver(attempt) || batchIsOver(current, ref.batchId)) run.stop();
+      if (isOver(attempt) || batchIsOver(current, ref.batchId) || resumedElsewhere(current, ref)) {
+        run.stop();
+      }
     }
     await drive();
     await applyEffects();

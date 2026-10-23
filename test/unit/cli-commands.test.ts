@@ -168,9 +168,10 @@ describe('foedrum: commands that change state', () => {
       order: ['order', '#99'],
       takeover: ['takeover', '22-1', '--as', 'ann'],
     };
-    // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123).
+    // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123); so
+    // is resume on a running batch (ADR 0127), and on a finished attempt it appends nothing.
     const names = commands
-      .filter((command) => command.changesState && command.name !== 'brew')
+      .filter((command) => command.changesState && !['brew', 'resume'].includes(command.name))
       .map(({ name }) => name);
     assert.deepStrictEqual(names, Object.keys(lines));
     for (const name of names) {

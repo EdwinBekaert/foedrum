@@ -380,6 +380,8 @@ export const Event = z.discriminatedUnion('type', [
     from: NonEmpty,
     to: NonEmpty,
     until: Timestamp,
+    // The step whose session `to` resumes: `from` stops its run of that step (ADR 0127).
+    resumes: StepId.optional(),
   }),
   // A pull request of the batch was merged or closed, as the intake saw it; recorded once (#103).
   z.strictObject({

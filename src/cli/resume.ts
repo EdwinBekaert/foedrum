@@ -11,7 +11,8 @@ import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
-import { fold, type State } from '../engine/fold.ts';
+import { type Batch, fold, type State } from '../engine/fold.ts';
+import { resumeOf } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
@@ -71,6 +72,11 @@ export interface ResumeShell {
   say: (line: string) => void;
   /** This process's id, which names the lease's owner. */
   pid: number;
+  /**
+   * Takes a running batch over and continues the session of step `stepId` in it, as the batch's
+   * driver until that attempt ended (ADR 0127); serve's setup and wiring, so the real machine's.
+   */
+  running: (request: { batchId: string; stepId: string }) => Promise<CliResult>;
 }
 
 /**
@@ -110,7 +116,7 @@ const TERMINAL_NAMES = [
   'LC_CTYPE',
 ];
 
-const terminalEnv = (
+export const terminalEnv = (
   env: Readonly<Record<string, string | undefined>>,
   platform: NodeJS.Platform,
 ): Record<string, string> => {
@@ -148,29 +154,75 @@ const finishedTarget = (state: State, ref: AttemptRef): Target | Refused => {
   return { ref, session, worktree };
 };
 
-/** Why a batch that a driver brews now is refused: taking one over is #338. */
-const runningRefusal = (state: State, batchId: string): string | undefined => {
+/** The step of a running batch whose session resume continues as the batch's driver (ADR 0127). */
+interface Running {
+  running: true;
+  /** The attempt whose session it continues: the one that runs, or the one before a retry. */
+  ref: AttemptRef;
+  session: string;
+}
+
+/** Whether a driver brews `batchId` now: resume then takes it over (ADR 0127). */
+const isRunning = (state: State, batchId: string): boolean => {
   const lane = state.batches.get(batchId)?.lane.kind;
-  return lane === 'ordered' || lane === 'brewing'
-    ? `batch ${batchId} is ${lane}; resuming a running batch is not supported yet (#338)`
-    : undefined;
+  return lane === 'ordered' || lane === 'brewing';
+};
+
+/**
+ * The step of the running `batch` whose session resume continues (ADR 0127): of `stepId`, or the
+ * first step of the batch that has one, whose latest attempt runs a brewer's session, or waits
+ * to resume the session of the attempt before it (a retry or an answer, `resumeOf`).
+ */
+const runningTarget = (
+  batch: Batch,
+  stepId: string | undefined,
+  attempt: string | undefined,
+): Running | Refused => {
+  const batchId = batch.id;
+  if (batch.lane.kind === 'ordered') {
+    return { refused: `batch ${batchId} is ordered: no step of it has run yet` };
+  }
+  if (attempt !== undefined) {
+    const latest = 'name the step alone, and foedrum resume continues its latest attempt';
+    return { refused: `batch ${batchId} is ${batch.lane.kind}: ${latest}` };
+  }
+  let why: string | undefined;
+  for (const step of stepId === undefined ? batch.steps.values() : [batch.steps.get(stepId)]) {
+    if (step === undefined) continue;
+    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
+    if (latest === undefined || (latest.phase !== 'finished' && latest.abandoned === true)) {
+      continue;
+    }
+    const ref = { batchId, stepId: step.id, attempt: latest.attempt };
+    if (latest.phase === 'started' && latest.session !== undefined) {
+      return { running: true, ref, session: latest.session.id };
+    }
+    if (latest.phase !== 'scheduled') continue;
+    const resumption = resumeOf(batch, ref);
+    if (resumption?.kind === 'resume') {
+      return { running: true, ref: resumption.from, session: resumption.session };
+    }
+    const fresh = resumption?.why ?? 'it is no retry or answer';
+    why ??= `${labelOf(ref)} of batch ${batchId} would start a fresh session: ${fresh}`;
+  }
+  const none = 'no attempt running or waiting to continue a session';
+  const of = stepId === undefined ? `batch ${batchId}` : `step ${stepId} of batch ${batchId}`;
+  return { refused: why ?? `${of} has ${none}` };
 };
 
 /**
  * The attempt `foedrum resume` opens (ADR 0126): the one `step` names as `<step>#<n>`, else the
  * latest that started with a session and finished, in the order of the log, of the step or of
- * the batch. A running batch is refused: taking one over is #338.
+ * the batch. On a running batch, the step whose session it continues as its driver (ADR 0127).
  */
 const targetOf = (
   events: readonly StoredEvent[],
   state: State,
   batchId: string,
   step: string | undefined,
-): Target | Refused => {
+): Target | Running | Refused => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return { refused: `no batch ${batchId} in the event store` };
-  const running = runningRefusal(state, batchId);
-  if (running !== undefined) return { refused: running };
   const at = step?.lastIndexOf('#') ?? -1;
   const stepId = at < 0 ? step : step?.slice(0, at);
   const attempt = at < 0 ? undefined : step?.slice(at + 1);
@@ -180,6 +232,7 @@ const targetOf = (
   if (stepId !== undefined && !batch.steps.has(stepId)) {
     return { refused: `batch ${batchId} has no attempt of step ${stepId}` };
   }
+  if (isRunning(state, batchId)) return runningTarget(batch, stepId, attempt);
   if (stepId !== undefined && attempt !== undefined) {
     return finishedTarget(state, { batchId, stepId, attempt: Number(attempt) });
   }
@@ -214,19 +267,22 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const state = fold(events.map(({ event }) => event));
     const target = targetOf(events, state, input.batch, input.step);
     if ('refused' in target) return failed(target.refused);
-    const { ref, session, worktree } = target;
+    const { ref } = target;
+    const session = 'running' in target ? target.session : target.session.id;
     const { batchId } = ref;
     const label = `${batchId} ${labelOf(ref)}`;
     // From the log, so checked before it names a file or reaches claude's command line.
-    if (!isSessionId(session.id)) {
-      const id = JSON.stringify(session.id);
+    if (!isSessionId(session)) {
+      const id = JSON.stringify(session);
       return failed(
         `attempt ${labelOf(ref)} of batch ${batchId} records the session id ${id}, which is no session id`,
       );
     }
     // A Claude Code session cannot hand its terminal to claude: the engineer runs it in one.
     if (shell.terminal.claudeCode) {
-      const run = `run this in a terminal in ${shell.cwd}:\n  foedrum resume ${label}\n`;
+      // A running batch's step alone: its latest attempt changes as the batch goes on.
+      const line = 'running' in target ? `${batchId} ${ref.stepId}` : label;
+      const run = `run this in a terminal in ${shell.cwd}:\n  foedrum resume ${line}\n`;
       const why =
         'foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over';
       return { exitCode: 0, stdout: `${why}; ${run}`, stderr: '' };
@@ -237,10 +293,12 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
         `stdin is not a terminal, and claude needs one: run foedrum resume in a terminal (${where})`,
       );
     }
-    if (!shell.sessionFound(session.id)) {
+    if (!shell.sessionFound(session)) {
       const kept = 'Claude Code keeps a session where it ran, for 30 days by default';
-      return failed(`the session ${session.id} of ${label} is not on this machine: ${kept}`);
+      return failed(`the session ${session} of ${label} is not on this machine: ${kept}`);
     }
+    if ('running' in target) return await shell.running({ batchId, stepId: ref.stepId });
+    const { worktree } = target;
     const ready = await shell.setup();
     if (ready.kind === 'refused') {
       const stderr = ready.problems.map((problem) => `foedrum resume: ${problem}\n`).join('');
@@ -269,8 +327,10 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
         const now = shell.now();
         if (first) {
           const latest = fold(store.eventsAfter(0).map(({ event }) => event));
-          const running = runningRefusal(latest, batchId);
-          if (running !== undefined) return running;
+          if (isRunning(latest, batchId)) {
+            const { kind } = latest.batches.get(batchId)?.lane ?? {};
+            return `batch ${batchId} is ${kind} now: run foedrum resume again to take it over`;
+          }
         }
         const other = store
           .currentLeases(now)
@@ -313,7 +373,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
         effort: found.brewer.effort,
         settingsFile,
         tools: toolsOf(permissions.allow),
-        sessionId: session.id,
+        sessionId: session,
       });
       // The attempt's environment (ADR 0109's forced variables included) with the terminal's own.
       const env = buildBrewerEnv({
