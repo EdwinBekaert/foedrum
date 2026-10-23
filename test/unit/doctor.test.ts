@@ -631,6 +631,16 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     }
   });
 
+  // ADR 0162: the attempt settings re-open the toolchain folders of serve's PATH (review of #437).
+  it('says on the sandboxed level that the toolchain folders of the PATH stay readable', () => {
+    for (const facts of sandboxed) {
+      assert.match(
+        keyring(facts)[0] ?? '',
+        /apart from the worktree, git's global configuration, parts of ~\/\.claude and the toolchain folders of serve's PATH \(ADR 0162\),/,
+      );
+    }
+  });
+
   // The read block denies sandboxed commands /mnt, where WSL2 mounts the Windows user's home
   // (ADR 0160; ADR 0087 and the review of #250 had left it readable).
   it("says wherever it advises or runs WSL2 that the sandbox hides the Windows user's logins too", () => {
