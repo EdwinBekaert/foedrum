@@ -67,10 +67,11 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
     events: Event[],
     platform: NodeJS.Platform = 'linux',
     setup: RepositorySetup | null = npmCi,
+    brewers = loaded.brewers,
   ) =>
     createAttemptPlans({
       state: () => fold(events),
-      brewers: loaded.brewers,
+      brewers,
       models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
       repoTools: () => [],
       repoSetup: (repo) => (repo === 'acme/api' && setup !== null ? setup : undefined),
@@ -112,6 +113,41 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
       command: 'npm.cmd ci',
       timeoutMs: 600_000,
       unsandboxed: true,
+    });
+  });
+
+  it('carries it for a brewer that produces commits, beside where its commits are counted', async () => {
+    const committing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText(
+            'pale',
+            [{ id: 'brew', brewer: 'brewmaster' }, { action: 'openPullRequest' }],
+            {
+              testFirst: false,
+            },
+          ),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            produces: 'commits',
+            access: 'write',
+            git: { commit: true },
+          }),
+        },
+      ],
+    });
+    assert.ok(committing.valid, committing.valid ? '' : committing.problems.join('\n'));
+    const plan = await plansOf(fresh, 'linux', npmCi, committing.brewers).plan(start);
+    assert.equal(plan.setup?.run.command, 'npm ci');
+    assert.deepEqual(plan.commits, {
+      clone: join('/clones', 'acme/api'),
+      branch: 'foedrum/12-1/brew/1',
     });
   });
 
@@ -170,12 +206,23 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
     },
     permissions: { allow: ['Read'], deny: [], sandbox: false },
     settingsFile: '/work/attempt/settings.json',
+    commits: { clone: '/work/clone', branch: 'foedrum/21-1/plan/1' },
     ...(setup === undefined ? {} : { setup: { run: setup, deadlineAt, env: setupEnv } }),
   });
 
   type Script = Partial<ExecResult> | 'hang';
+  /** How the fake claude ends: it succeeds, runs until stopped, throws, or fails before its stream. */
+  type Claude = 'success' | 'hang' | 'throws' | 'pre-stream';
   /** A runner whose setup answers as scripted; `order` records the setup and claude's starts. */
-  const runnerOf = (setup: SetupRun | undefined, script: Script = {}, withExec = true) => {
+  const runnerOf = (
+    setup: SetupRun | undefined,
+    script: Script = {},
+    {
+      withExec = true,
+      claude = 'success',
+      whileCounting,
+    }: { withExec?: boolean; claude?: Claude; whileCounting?: () => void } = {},
+  ) => {
     const order: string[] = [];
     const setups: { file: string; options: ExecOptions }[] = [];
     const exec: ExecProcess = (file, _args, options) => {
@@ -196,6 +243,15 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
       plan: async () => planWith(setup),
       stream: async (_file, _args, options) => {
         order.push('claude');
+        if (claude === 'throws') throw new Error('spawn claude ENOENT');
+        if (claude === 'pre-stream') return { exitCode: 1, stderr: 'boom' };
+        if (claude === 'hang') {
+          return new Promise((done) =>
+            options.signal?.addEventListener('abort', () =>
+              done({ exitCode: null, stderr: '', killed: 'stopped' }),
+            ),
+          );
+        }
         for (const line of success) options.onLine(line);
         return { exitCode: 0, stderr: '' };
       },
@@ -207,11 +263,21 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
       },
       // Ten minutes before the attempt's deadline.
       now: () => new Date('2026-10-17T12:50:00.000Z'),
-      wait: async () => {},
-      commits: async () => ({ kind: 'counted', count: 1 }),
+      // The wait before a second start of claude lasts until the attempt is stopped.
+      wait: (_ms, signal) =>
+        claude === 'pre-stream'
+          ? new Promise<void>((done) => signal.addEventListener('abort', () => done()))
+          : Promise.resolve(),
+      commits: async () => {
+        whileCounting?.();
+        return { kind: 'counted', count: 1 };
+      },
     });
     return { runner, order, setups };
   };
+  const passed = [
+    { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
+  ];
 
   it("runs the setup in the worktree before claude starts, through the setup's runner, and records its reading", async () => {
     const { runner, order, setups } = runnerOf(run);
@@ -291,9 +357,59 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
   });
 
   it('is blocked on its environment when the plan has a setup and the runner none to run it through', async () => {
-    const { runner, order } = runnerOf(run, {}, false);
+    const { runner, order } = runnerOf(run, {}, { withExec: false });
     const end = await runner.start(attempt).ended;
     assert.deepEqual(order, []);
-    assert.equal(end.ending.kind, 'blocked');
+    const why = 'the brewer runner has no process runner for setups';
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the setup "npm ci" could not start: ${why}`,
+    });
+    assert.deepEqual(end.readings, [
+      { result: 'unstarted', setup: true, command: 'npm ci', tail: why },
+    ]);
+  });
+
+  it("keeps the setup's reading when claude cannot start after it", async () => {
+    const { runner, order } = runnerOf(run, {}, { claude: 'throws' });
+    const end = await runner.start(attempt).ended;
+    assert.deepEqual(order, ['setup', 'claude']);
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(end.readings, passed);
+  });
+
+  it("keeps the setup's reading when the attempt is stopped while claude runs", async () => {
+    const { runner } = runnerOf(run, {}, { claude: 'hang' });
+    const running = runner.start(attempt);
+    await new Promise((resolve) => setImmediate(resolve));
+    running.stop();
+    const end = await running.ended;
+    assert.equal(end.ending.kind, 'cancelled');
+    assert.deepEqual(end.readings, passed);
+  });
+
+  it("keeps the setup's reading when the attempt is stopped while it waits to start claude again", async () => {
+    const { runner, order } = runnerOf(run, {}, { claude: 'pre-stream' });
+    const running = runner.start(attempt);
+    await new Promise((resolve) => setImmediate(resolve));
+    running.stop();
+    const end = await running.ended;
+    assert.deepEqual(order, ['setup', 'claude']);
+    assert.equal(end.ending.kind, 'cancelled');
+    assert.deepEqual(end.readings, passed);
+  });
+
+  it("keeps the setup's reading when the attempt is stopped while its commits are counted", async () => {
+    let stop = () => {};
+    const { runner } = runnerOf(run, {}, { whileCounting: () => stop() });
+    const running = runner.start({
+      ...attempt,
+      limits: { ...limits, commitsSince: 'c'.repeat(40) },
+    });
+    stop = running.stop;
+    const end = await running.ended;
+    assert.equal(end.ending.kind, 'cancelled');
+    assert.deepEqual(end.readings, passed);
   });
 });

@@ -459,6 +459,15 @@ describe('runServe', () => {
     assert.ok(plans[0]?.permissions.allow.includes('Bash(npm test*)'));
   });
 
+  // ADR 0163: the brewer finds the repository's dependencies in its worktree.
+  it("gives each fresh brewer attempt its repository's setup to run before claude", async () => {
+    const npmCi = { command: 'npm ci', timeout: '10m' };
+    const repositories = setup.repositories.map((repository) => ({ ...repository, setup: npmCi }));
+    assert.equal(await runServe({ ...setup, repositories }, shell()), 0);
+    assert.equal(plans[0]?.setup?.run.command, 'npm ci');
+    assert.equal(plans[0]?.setup?.run.timeoutMs, 600_000);
+  });
+
   // ADR 0160: the sandbox hides the logins where serve's environment moved them.
   it('gives each brewer the sandbox and where the environment moves the logins', async () => {
     const configDirs = { GH_CONFIG_DIR: '/srv/gh' };
