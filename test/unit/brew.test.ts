@@ -242,7 +242,7 @@ describe('runBrew', () => {
   it('prints the link to the status comment once it is made (#406)', async () => {
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     const [comment] = api.comments.get('acme/brewery#12') ?? [];
-    const link = `https://github.com/acme/brewery/issues/12#issuecomment-${comment?.id}`;
+    const link = `https://github.com/${setup.brewery}/issues/12#issuecomment-${comment?.id}`;
     const shown = lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
     assert.equal(shown.length, 1, lines.join('\n'));
   });
