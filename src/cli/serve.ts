@@ -4,6 +4,7 @@
 // `ServeShell`; serve-main.ts gives it the real one.
 
 import type { ClaudeAttemptPlan } from '../brewers/claude-runner.ts';
+import type { WorktreeMerge } from '../engine/base-merge.ts';
 import type { AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { EngineCommand } from '../engine/decide.ts';
@@ -50,6 +51,11 @@ export interface ServeShell {
    * worktrees are added to: the user's, or the managed one.
    */
   push: (repository: ServeRepository) => BranchPush;
+  /**
+   * The merge of the base into the worktree of a batch's last check (ADR 0164), in the clone the
+   * repository's worktrees are added to.
+   */
+  merge: (repository: ServeRepository) => WorktreeMerge;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,

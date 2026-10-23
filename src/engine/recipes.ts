@@ -35,6 +35,11 @@ export interface Recipe {
   has(stepId: string): boolean;
   /** The action `stepId` is, which the engine runs itself; `undefined` for any other step. */
   action(stepId: string): RecipeAction | undefined;
+  /**
+   * Whether an attempt at `stepId` merges the base into its worktree before it runs: the recipe's
+   * last check step that expects to pass, when an openPullRequest step follows it (ADR 0164).
+   */
+  mergesBase(stepId: string): boolean;
   /** How long an attempt at `stepId` may take, in milliseconds. */
   deadlineMs(stepId: string): number;
   /** When an attempt at `stepId` stalls, or `undefined` when it has no stall limit. */

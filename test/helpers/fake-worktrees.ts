@@ -2,6 +2,7 @@
 // makes no folder and runs no git (ADR 0021). The real one is tested in attempt-worktrees*.test.ts.
 
 import { join } from 'node:path';
+import type { WorktreeMerge } from '../../src/engine/base-merge.ts';
 import type { AttemptRef, Claims } from '../../src/workspace/attempt-worktrees.ts';
 import { attemptBranch, attemptFolder } from '../../src/workspace/attempt-worktrees.ts';
 import type {
@@ -37,6 +38,24 @@ export interface FakeWorktrees extends AttemptWorktrees {
 }
 
 export const FAKE_COMMIT = 'a'.repeat(40);
+
+/**
+ * A merge of the base into a worktree at FAKE_COMMIT that always merges cleanly, into a commit of
+ * its own (ADR 0164).
+ */
+export const fakeWorktreeMerge = (merged = 'c'.repeat(40)): WorktreeMerge => {
+  const heads = new Map<string, string>();
+  return {
+    head: async (path) => heads.get(path) ?? FAKE_COMMIT,
+    parents: async (path, commit) =>
+      commit === heads.get(path) ? [FAKE_COMMIT, 'b'.repeat(40)] : [],
+    abort: async () => {},
+    merge: async (path) => {
+      heads.set(path, merged);
+      return { kind: 'merged', commit: merged };
+    },
+  };
+};
 
 export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees => {
   const { root = join('work', 'acme.app', 'attempts'), commit = FAKE_COMMIT } = options;

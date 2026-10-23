@@ -81,12 +81,8 @@ const HEADERS = [
 ];
 /** When the headers read shows other commits than the messages read, something bent its output. */
 const UNREAD_HEADERS = 'headers git did not show as stored';
-const PATCHES = [
-  'log',
-  ...SHOWN,
-  '--format=%x00%H',
-  '--patch',
-  '--diff-merges=first-parent',
+// How a patch prints, whatever the clone's configuration says.
+const DIFF = [
   '--unified=0',
   '--inter-hunk-context=0',
   '--no-ext-diff',
@@ -99,6 +95,10 @@ const PATCHES = [
   '--src-prefix=a/',
   '--dst-prefix=b/',
 ];
+// Every commit but a merge, by its own change.
+const PATCHES = ['log', ...SHOWN, '--format=%x00%H', '--patch', '--no-merges', ...DIFF];
+// The merges, each with its parents: the engine's merge of the base (ADR 0164).
+const MERGES = ['rev-list', '--merges', '--parents'];
 /** Past the runner's output limit (ADR 0035), the scan reads no further and refuses. */
 const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan reads';
 
@@ -110,6 +110,32 @@ const SHA = /^[0-9a-f]{40}$/;
 const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 // A branch Foedrum pushes, so that nothing from outside reaches git as an option or a refspec.
 const FOEDRUM_BRANCH = /^foedrum\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$/;
+
+/**
+ * The patches of the commits in `range`, each commit after a NUL and its sha: every commit but a
+ * merge by its own change, and each merge against its last parent, the base it brought in
+ * (ADR 0164), so what the base added is never read as the batch's, and what the merge itself
+ * adds is. The first parents' lines are read in their own commits. `undefined` past the output
+ * limit.
+ */
+const mergedPatches = async (
+  read: (args: string[]) => Promise<string | undefined>,
+  range: readonly string[],
+): Promise<string | undefined> => {
+  const own = await read([...PATCHES, ...range]);
+  const merges = own === undefined ? undefined : await read([...MERGES, ...range]);
+  if (own === undefined || merges === undefined) return undefined;
+  const parts = [own];
+  for (const line of merges.split(/\r?\n/)) {
+    const [merge, ...parents] = line.trim().split(' ');
+    const last = parents.at(-1);
+    if (merge === undefined || last === undefined || !SHA.test(merge) || !SHA.test(last)) continue;
+    const patch = await read(['diff', '--patch', ...DIFF, '--end-of-options', last, merge]);
+    if (patch === undefined) return undefined;
+    parts.push(`\0${merge}\n${patch}`);
+  }
+  return parts.join('\n');
+};
 
 // The signal as git's options take it.
 const aborts = (signal: AbortSignal | undefined): GitOptions =>
@@ -225,7 +251,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       };
       const messages = await read([...MESSAGES, ...range]);
       const headers = messages === undefined ? undefined : await read([...HEADERS, ...range]);
-      const patches = headers === undefined ? undefined : await read([...PATCHES, ...range]);
+      const patches = headers === undefined ? undefined : await mergedPatches(read, range);
       if (messages === undefined || headers === undefined || patches === undefined) {
         return [{ commit, place: `the commits from ${base}`, kind: TOO_LARGE }];
       }
