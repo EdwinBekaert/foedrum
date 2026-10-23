@@ -1,6 +1,4 @@
 ---
-// Cellarman makes the Gauger's failing tests pass without changing them (ADR 0017); the
-// testsUnchanged guard holds it to that (ADR 0078).
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",

@@ -3,6 +3,7 @@
 A brewer is a Markdown file (`brewers/<name>.md`) with JSON frontmatter.
 The body is the prompt.
 The frontmatter is read as JSONC (comments and trailing commas allowed); strictness comes from schema validation ([ADR 0020](../../adr/0020-jsonc-frontmatter.md)).
+GitHub reads frontmatter as YAML and shows an error for a comment, so Foedrum's own `defaults/` brewers keep theirs strict JSON, which is also YAML, and GitHub shows it as a table (#402).
 Schema: `src/schemas/brewer.ts` (`schemas/brewer.json`); unknown fields are rejected.
 The setup command is not a brewer field: it depends on the repository, so it is in `foedrum.jsonc` ([configuration files](../recipes/configuration.md)).
 
