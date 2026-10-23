@@ -16,7 +16,7 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
-import type { AttemptPermissions } from './attempt-settings.ts';
+import type { AttemptPermissions, ConfigDirs } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
@@ -55,6 +55,8 @@ export interface PlanFacts {
   repoTools: readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
+  configDirs?: ConfigDirs;
   settingsFile: string;
   /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;

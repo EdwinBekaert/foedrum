@@ -27,6 +27,7 @@ import {
   routeOf,
   settingsFileOf,
 } from './attempt-plan.ts';
+import type { ConfigDirs } from './attempt-settings.ts';
 import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claude-runner.ts';
 import type { PromptInput, RandomBytes } from './prompt.ts';
 
@@ -40,6 +41,8 @@ export interface AttemptPlansOptions {
   repoTools: (repo: string) => readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
+  configDirs?: ConfigDirs;
   /** The clone a repository's attempt worktrees are added to: the user's, or the managed one. */
   clone: (repo: string) => string;
   /** The Brewery's work root (ADR 0037). */

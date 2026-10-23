@@ -4,6 +4,7 @@
 
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
+import type { ConfigDirs } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
@@ -103,6 +104,8 @@ export interface ServeSetup {
   claude: string;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
+  configDirs?: ConfigDirs;
   /** Whether check steps run without an OS sandbox: on native Windows only (ADR 0076). */
   unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */

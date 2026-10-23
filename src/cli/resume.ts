@@ -24,7 +24,14 @@ import type { ServeRepository, ServeSetup } from './serve-config.ts';
 /** What resume needs of serve's setup: where the attempts ran and how their brewers are set up. */
 export type ResumeSetup = Pick<
   ServeSetup,
-  'workRoot' | 'repositories' | 'models' | 'brewers' | 'claude' | 'sandbox' | 'brewerEnv'
+  | 'workRoot'
+  | 'repositories'
+  | 'models'
+  | 'brewers'
+  | 'claude'
+  | 'sandbox'
+  | 'configDirs'
+  | 'brewerEnv'
 >;
 
 /** What resume needs from the machine. */
