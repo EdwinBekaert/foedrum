@@ -1,8 +1,9 @@
 ---
 paths:
-  - "scripts/worktrees-clean.ts"
-  - "scripts/worktrees-clean/**"
-  - "test/**/worktrees-clean*.test.ts"
+  - "**/scripts/worktrees-clean.ts"
+  - "**/scripts/worktrees-clean/**"
+  - "**/test/**/worktrees-clean*.test.ts"
+  - "**/.claude/settings.json"
 ---
 
 # Worktree cleanup

@@ -1,9 +1,9 @@
 ---
 paths:
-  - "scripts/demo.ts"
-  - "scripts/demo/**"
-  - "test/**/demo*.test.ts"
-  - "test/helpers/nip-fixture.ts"
+  - "**/scripts/demo.ts"
+  - "**/scripts/demo/**"
+  - "**/test/**/demo*.test.ts"
+  - "**/test/helpers/nip-fixture.ts"
 ---
 
 # npm run demo

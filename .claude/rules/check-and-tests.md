@@ -1,17 +1,17 @@
 ---
 paths:
-  - "scripts/check.ts"
-  - "scripts/check/**"
-  - "scripts/check-test-layers.ts"
-  - "scripts/check-test-layers/**"
-  - "scripts/test-*.ts"
-  - "scripts/spec-reporter.ts"
-  - "scripts/refuse-process-starts.ts"
-  - "scripts/with-checkout-tmp.ts"
-  - "test/**/check*.test.ts"
-  - "test/**/test-*.test.ts"
-  - "test/**/spec-reporter*.test.ts"
-  - "test/**/refuse-process-starts*.test.ts"
+  - "**/scripts/check.ts"
+  - "**/scripts/check/**"
+  - "**/scripts/check-test-layers.ts"
+  - "**/scripts/check-test-layers/**"
+  - "**/scripts/test-*.ts"
+  - "**/scripts/spec-reporter.ts"
+  - "**/scripts/refuse-process-starts.ts"
+  - "**/scripts/with-checkout-tmp.ts"
+  - "**/test/**/check*.test.ts"
+  - "**/test/**/test-*.test.ts"
+  - "**/test/**/spec-reporter*.test.ts"
+  - "**/test/**/refuse-process-starts*.test.ts"
 ---
 
 # npm run check and npm test

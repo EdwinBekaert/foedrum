@@ -1,8 +1,9 @@
 ---
 paths:
-  - "scripts/deps-sync.ts"
-  - "scripts/deps-sync/**"
-  - "test/**/deps-sync*.test.ts"
+  - "**/scripts/deps-sync.ts"
+  - "**/scripts/deps-sync/**"
+  - "**/test/**/deps-sync*.test.ts"
+  - "**/.claude/settings.json"
 ---
 
 # Node modules at session start
