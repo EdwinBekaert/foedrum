@@ -247,13 +247,22 @@ describe('githubIssueMarks', () => {
       assert.equal(await open.marks.issueState(repo, 7), 'open');
     });
 
-    it('answers gone for an issue a person deleted, or one that never was, and fails on other answers', async () => {
-      for (const status of [410, 404]) {
-        const { marks } = marksWith([{ status, body: { message: 'This issue was deleted' } }]);
-        assert.equal(await marks.issueState(brewery, 200), 'gone', String(status));
+    it('answers gone only for an issue a person deleted, and fails when issues are off or out of reach', async () => {
+      const deleted = marksWith([{ status: 410, body: { message: 'This issue was deleted' } }]);
+      assert.equal(await deleted.marks.issueState(brewery, 200), 'gone');
+      const refusals = [
+        { status: 410, body: { message: 'Issues are disabled for this repo' } },
+        { status: 404, body: { message: 'Not Found' } },
+        { status: 403, body: { message: 'Resource not accessible' } },
+      ];
+      for (const refusal of refusals) {
+        const { marks } = marksWith([refusal]);
+        await assert.rejects(
+          marks.issueState(brewery, 200),
+          new RegExp(`${refusal.status} .*acme/brewery#200`),
+          String(refusal.status),
+        );
       }
-      const { marks } = marksWith([{ status: 403, body: { message: 'Resource not accessible' } }]);
-      await assert.rejects(marks.issueState(brewery, 200), /403 .*acme\/brewery#200/);
     });
 
     it('fails on an issue without a title', async () => {
