@@ -1,6 +1,6 @@
 # 0143. Lenses in two folders: lenses/diff/ for a diff, lenses/plan/ for a plan
 
-Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (where lenses are, how a lens is named, and what replaces a default lens), [0022](0022-five-default-lenses.md) and [0017](0017-test-first-recipes-and-tasting-lenses.md) (where the five default lenses are), and [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (the Gauger's lens input)
+Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (where lenses are, how a lens is named, and what replaces a default lens), [0022](0022-five-default-lenses.md), [0017](0017-test-first-recipes-and-tasting-lenses.md) and [0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md) (where the five default lenses are), and [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (the Gauger's lens input)
 
 ## Context
 Every lens so far reviews a diff: the five default lenses ([ADR 0022](0022-five-default-lenses.md)) read code and its tests.
