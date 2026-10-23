@@ -78,7 +78,7 @@ The read-only agents (`taster`, `brett`) read only inside the checkout ([ADR 004
 Two `SessionStart` hooks in `.claude/settings.json` run when a session starts or resumes; how they work is in `.claude/rules/deps-sync.md` and `.claude/rules/worktrees-clean.md`.
 
 - First, synchronously, `npm run deps:sync` in `${CLAUDE_PROJECT_DIR}`: it runs `npm ci` when `node_modules` no longer matches `package-lock.json`, so no gate runs against a half-installed tree after a `git pull`. It never fails the session, never runs `npm install` and never changes the lock file.
-- In the main checkout only, in the background, `npm run worktrees:clean`: it removes worktrees directly under `.claude/worktrees/` and local branches whose pull request was merged (tip merged into `origin/main`, own upstream gone), and stale worktree records. It keeps worktrees with uncommitted or untracked changes and worktrees locked by a live session, so lock a worktree on a removable or network drive that may be absent at session start. It never deletes remote branches, never prompts and never fails the session.
+- In the main checkout only, in the background, `npm run worktrees:clean`: it removes worktrees directly under `.claude/worktrees/` and local branches whose pull request was merged (tip merged into `origin/main`, own upstream gone), and stale worktree records. It keeps worktrees with uncommitted or untracked changes, worktrees locked by a live session, and locked records whose folder is gone, so lock a worktree on a removable or network drive that may be absent at session start. It never deletes remote branches, never prompts and never fails the session.
 - Run either by hand from any checkout.
 
 ## Temporary files
