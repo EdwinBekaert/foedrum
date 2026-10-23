@@ -17,6 +17,10 @@ export type StatusCommand = z.infer<typeof StatusCommand>;
 export const StuckCommand = z.strictObject({ command: z.literal('stuck') });
 export type StuckCommand = z.infer<typeof StuckCommand>;
 
+/** `foedrum brewers` (ADR 0159): each brewer's attempts, outcomes, Stuck batches and tokens. */
+export const BrewersCommand = z.strictObject({ command: z.literal('brewers') });
+export type BrewersCommand = z.infer<typeof BrewersCommand>;
+
 export const ReplayCommand = z.strictObject({ command: z.literal('replay'), batch: PathSafeId });
 export type ReplayCommand = z.infer<typeof ReplayCommand>;
 
