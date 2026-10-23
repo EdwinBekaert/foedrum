@@ -9,12 +9,12 @@ It was a spike: nothing in Foedrum changed, and Foedrum still promises no resume
 
 - Claude Code can resume a transcript carried to another checkout: `claude --resume <absolute path of the .jsonl>` continues the conversation there, with the model, tools and settings of the new command line.
   This was tried from one Windows checkout to another on one machine; a carry between operating systems, whose paths differ in form, was not tried.
-- The spike finds that Foedrum should not carry transcripts, on the state branch or anywhere else: a transcript holds the target repository's files, the order's text, the maintainer's account email and home path, and about half a megabyte per attempt, in a format Claude Code says is internal.
+- Foedrum carries no transcripts today, and the spike found reasons against putting them on the state branch: a transcript holds the target repository's files, the order's text, the maintainer's account email and home path, and about half a megabyte per attempt, in a format Claude Code says is internal.
 - On another machine, an attempt is **inspect only**: its events and its out doc are on the state branch, and the commits each step recorded are there by their SHA only.
   The commits themselves are on the attempt's branch in the clone where it ran, until a pull request pushes the batch's branch.
 - To go on, a fresh attempt with the same in-docs is ADR 0019's fallback, and what a resume that finds no session does already ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).
   It starts at the batch's task tree, a branch in the first machine's clone, so it runs there, or elsewhere once that branch is pushed.
-  A `retry` or an `answer` of a brewer with `retryMode: resume` first tries the session, and on a machine without it fails once and uses an attempt before the fresh one (ADR 0117, [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)); a `rewind` starts fresh at once.
+  A `retry` or an `answer` of a brewer with `retryMode: resume` first recreates the session's worktree: when its commit is not in that machine's clone, the attempt starts fresh at once; when it is but the session is not, the run fails once and uses an attempt before the fresh one, or the batch is Stuck as `attempts_exhausted` when none is left (ADR 0117, [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)); a `rewind` starts fresh at once.
 
 ## Where Claude Code keeps a session
 
