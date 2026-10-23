@@ -2,7 +2,7 @@
 // end through `foedrum serve`'s own runServe and serveShell, with Nip from `defaults/`. Real: git,
 // the attempt worktrees, the target's own `node --test` in the check steps, the red proof, the
 // testsUnchanged guard, the recipe loader and serve's shell. Faked: GitHub, the tests' fake code
-// host behind the fake gh (ADR 0073), and the brewers, the scripted Gauger and Cellarman of the
+// host behind the fake gh (ADR 0073), and the brewers, the scripted Gauger, Cellarman and Taster of the
 // Nip fixture, so no model runs. The Gauger's test is proved red, the Cellarman's first fix fails
 // the check, its second attempt gets that reading (ADR 0128) and passes, and openPullRequest pushes
 // the bottle branch and opens the pull request. Opt-in with FOEDRUM_REAL_CLAUDE=1 (ADR 0057), the

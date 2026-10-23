@@ -1,5 +1,5 @@
 // npm run demo (ADR 0097, ADR 0139): a scratch Brewery and target repository in .foedrum/tmp/demo,
-// an order on an in-process fake code host, brewed with Nip by the scripted Gauger and Cellarman of
+// an order on an in-process fake code host, brewed with Nip by the scripted Gauger, Cellarman and Taster of
 // the Nip fixture through `foedrum serve`'s own Cellar (scripts/demo/cellar.ts), which is killed
 // mid-attempt and started again, until the batch is on tap with one pull request and one status
 // comment; then a second order brewed by `foedrum brew` instead of the Cellar, and `foedrum
