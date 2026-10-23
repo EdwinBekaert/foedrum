@@ -3,14 +3,18 @@
 [ADR 0019](../../adr/0019-interactive-sessions-and-one-command-layer.md) lets anyone step into any brewer's session.
 On the machine where the attempt ran, that is `foedrum resume` ([ADR 0126](../../adr/0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)).
 This page holds the result of the spike of #38, which checked whether a session can be carried to another machine and resumed there.
-It was a spike: nothing in Foedrum changed, and no decision was recorded.
+It was a spike: nothing in Foedrum changed, and Foedrum still promises no resume on another machine, as ADR 0019 says until a spike verifies it.
 
 ## The result
 
 - Claude Code can resume a transcript carried to another checkout: `claude --resume <absolute path of the .jsonl>` continues the conversation there, with the model, tools and settings of the new command line.
-- Foedrum does not carry transcripts, on the state branch or anywhere else: a transcript holds the target repository's files, the order's text, the maintainer's account email and home path, and about half a megabyte per attempt, in a format Claude Code says is internal.
-- On another machine, an attempt is **inspect only** through what the state branch already holds: its events, its out doc and its commits.
-- To go on from there, a human starts a fresh attempt with the same in-docs (`foedrum retry`, `foedrum rewind`), which is ADR 0019's fallback and what a resume that finds no session does already ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).
+  This was tried from one Windows checkout to another on one machine; a carry between operating systems, whose paths differ in form, was not tried.
+- The spike finds that Foedrum should not carry transcripts, on the state branch or anywhere else: a transcript holds the target repository's files, the order's text, the maintainer's account email and home path, and about half a megabyte per attempt, in a format Claude Code says is internal.
+- On another machine, an attempt is **inspect only**: its events and its out doc are on the state branch, and the commits each step recorded are there by their SHA only.
+  The commits themselves are on the attempt's branch in the clone where it ran, until a pull request pushes the batch's branch.
+- To go on, a fresh attempt with the same in-docs is ADR 0019's fallback, and what a resume that finds no session does already ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).
+  It starts at the batch's task tree, a branch in the first machine's clone, so it runs there, or elsewhere once that branch is pushed.
+  A `retry` or an `answer` of a brewer with `retryMode: resume` first tries the session, and on a machine without it fails once and uses an attempt before the fresh one (ADR 0117, [ADR 0118](../../adr/0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)); a `rewind` starts fresh at once.
 
 ## Where Claude Code keeps a session
 
@@ -31,7 +35,7 @@ Claude Code 2.1.301 on Windows, `claude -p` with a brewer's flags (`--setting-so
   So `b` is a clone, the transcript was moved out of Claude Code's store, and `a` was renamed away, so its paths no longer exist.
 - The first run in `a` read a committed file and wrote an uncommitted one, `made.txt`, with `--session-id <id>`.
 - `claude -p --resume <id>` in `b`: `No conversation found with session ID: <id>`, exit code 1.
-- `claude -p --resume <carried path>\<id>.jsonl` in `b`: the session resumed with its id, in `b` (claude's init reports `b` as its working directory), and remembered what it had read.
+- `claude -p --resume` with the absolute path of the carried `<id>.jsonl`, in `b`: the session resumed with its id, in `b` (claude's init reports `b` as its working directory), and remembered what it had read.
   Asked for `made.txt`, it found none in `b`, since the file was never committed, then reached for its path in `a`, outside the working directory, which was not allowed.
 - The resumed turns were written beside the carried file, as `<folder>/<id>.jsonl`, not in the store: a transcript given by a path of another name gets a new file of the id's name in that folder.
   With `--fork-session` the new session went to `b`'s project folder in the store instead.
@@ -77,5 +81,5 @@ A redactor would also parse a format Claude Code changes between releases, which
 
 ## If carrying is wanted later
 
-A resume by path works, so carrying needs only a store for the file, outside the state branch, private, with a retention, and placed as `<id>.jsonl` because claude writes on beside it.
+A resume by path worked between two Windows checkouts, so carrying would need at least a store for the file, outside the state branch, private, with a retention, and placed as `<id>.jsonl` because claude writes on beside it.
 That store, and who may read it, would be a decision of its own, with its row in [trust boundaries](../../trust-boundaries.md).
