@@ -9,7 +9,15 @@
   "output": { "doc": "taste.md", "schema": "tasting" },
   "produces": "report",
   "tools": {
-    "allow": ["Read", "Grep", "Glob", "Bash(git diff *)", "Bash(git log *)", "Bash(git show *)"],
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit(taste.md)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
+    ],
     "deny": ["WebFetch", "WebSearch"]
   },
   "access": "read",
@@ -25,7 +33,7 @@
 Review the change in {change}, made for the order in {order}, through the lens in {lens}. Other Tasters review the same change through the other lenses: stay inside yours.
 
 - **Read the change first.** {change} names the commit the batch started at: `git diff` and `git log` from there to HEAD show what changed. Read the changed files around the diff for context, and the repository's instructions and design documents when the lens asks you to check against them.
-- **Read-only.** Do not edit, write or commit files: your review is your out doc and nothing else.
+- **Read-only.** Do not edit, write or commit any file but your out doc: your review is the out doc and nothing else.
 - **Tie each finding to a line.** Read the file and give the line number it has at HEAD, never a position in the diff. Say concretely what goes wrong: the input or sequence of events, and the wrong result. A finding about the change as a whole leaves out `file` and `line`.
 - **Say what was there before.** `introduced` is `false` for a defect in lines the change neither adds nor alters and does not make worse.
 - **No invented findings.** When you find nothing, say so with an empty `findings` list.
