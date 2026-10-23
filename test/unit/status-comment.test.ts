@@ -115,6 +115,29 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
+  it('shows the attempts in the order they ran on one line before the steps (#406)', () => {
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'blocked', stepId: 'gauge', blockerKind: 'environment', summary: 'x' }),
+        steps: new Map([
+          step('gauge', done(1), failed(2, 'blocked')),
+          step('red', failed(1, 'passes')),
+        ]),
+        path: [
+          { stepId: 'gauge', attempt: 1 },
+          { stepId: 'red', attempt: 1 },
+          { stepId: 'gauge', attempt: 2 },
+        ],
+      }),
+      ['gauge', 'red', 'implement'],
+    );
+    const lines = text.split('\n');
+    const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ → `gauge #2` 🔔');
+    assert.ok(path >= 0, text);
+    assert.ok(path < lines.indexOf(lineOf(text, 'gauge')), 'the path comes before the steps');
+    assert.doesNotMatch(renderStatus(batch(), steps), /Path:/);
+  });
+
   it('lists the steps the batch has when its recipe is unknown', () => {
     const text = renderStatus(batch({ steps: new Map([step('mash', done(1))]) }), undefined);
     assert.match(lineOf(text, 'mash'), /✅/);

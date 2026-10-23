@@ -928,6 +928,20 @@ describe('fold', () => {
     });
   });
 
+  it('keeps the attempts of a batch in the order they started, across its steps (#406)', () => {
+    const run = (stepId: string, attempt: number): Event[] => [
+      { type: 'step.scheduled', batchId: 'b1', stepId, attempt, deadlineAt },
+      { type: 'step.started', batchId: 'b1', stepId, attempt },
+    ];
+    assert.equal(batch(fold([ordered, scheduled])).path, undefined);
+    const state = fold([ordered, ...run('gauge', 1), ...run('red', 1), ...run('gauge', 2)]);
+    assert.deepStrictEqual(batch(state).path, [
+      { stepId: 'gauge', attempt: 1 },
+      { stepId: 'red', attempt: 1 },
+      { stepId: 'gauge', attempt: 2 },
+    ]);
+  });
+
   it('continues from a given state', () => {
     const state = fold([scheduled], fold([ordered]));
     assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });

@@ -155,6 +155,14 @@ export interface Batch {
   starts?: Readonly<Record<string, BatchStart>>;
   /** How each of its pull requests ended that has ended, by URL; absent while none has. */
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
+  /** Its attempts in the order they started, across its steps; absent while none has. */
+  path?: readonly PathAttempt[];
+}
+
+/** One attempt on a batch's path: its step and its number. */
+export interface PathAttempt {
+  stepId: string;
+  attempt: number;
 }
 
 /**
