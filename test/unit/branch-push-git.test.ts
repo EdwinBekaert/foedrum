@@ -516,6 +516,20 @@ describe('openBranchPush: signals and time', () => {
 
 describe('openBranchPush: secretScan (ADR 0079)', () => {
   const BASE = 'b'.repeat(40);
+  // How every patch prints, whatever the clone's configuration says.
+  const DIFF = [
+    '--unified=0',
+    '--inter-hunk-context=0',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--no-color',
+    '--no-renames',
+    '--no-relative',
+    '--ignore-submodules=none',
+    '--submodule=short',
+    '--src-prefix=a/',
+    '--dst-prefix=b/',
+  ];
   // Built at run time, so no scanner takes this file for one that holds a token.
   const token = ['ghp', 'A1b2'.repeat(9)].join('_');
   const known = 'a'.repeat(40);
@@ -552,6 +566,8 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     if (args.includes('--format=raw')) return ok(headers);
     if (args[0] === 'log') return ok(messages);
     if (args[0] === 'cat-file') return ok(`${known} commit\n`);
+    // No merge in the range.
+    if (args[0] === 'rev-list') return ok('');
     return failed('unexpected');
   };
   const range = ['--end-of-options', TIP, `^${BASE}`];
@@ -597,25 +613,44 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
           '--no-show-signature',
           '--format=%x00%H',
           '--patch',
-          '--diff-merges=first-parent',
-          '--unified=0',
-          '--inter-hunk-context=0',
-          '--no-ext-diff',
-          '--no-textconv',
-          '--no-color',
-          '--no-renames',
-          '--no-relative',
-          '--ignore-submodules=none',
-          '--submodule=short',
-          '--src-prefix=a/',
-          '--dst-prefix=b/',
+          '--no-merges',
+          ...DIFF,
           ...range,
         ],
+        // The merges, each with its parents (ADR 0164): none here.
+        [clone, 'rev-list', '--merges', '--parents', ...range],
         // Only the hexadecimal words, asked of the clone's objects as committed.
         [clone, 'cat-file', '--batch-check=%(objectname) %(objecttype)'],
       ],
     );
-    assert.equal(calls[3]?.options?.stdin, `${known}\n`);
+    assert.equal(calls[4]?.options?.stdin, `${known}\n`);
+  });
+
+  const MERGE = 'c'.repeat(40);
+  /** A range whose one merge, MERGE, adds `added` to its last parent, the base. */
+  const merging = (added: string) =>
+    recordingGit((args) => {
+      if (args.includes('--format=raw')) return ok(plainHeaders);
+      if (args[0] === 'rev-list') return ok(`${MERGE} ${'d'.repeat(40)} ${BASE}\n`);
+      if (args[0] === 'diff') return ok(`diff --git a/m.txt b/m.txt\n@@ -0,0 +1 @@\n+${added}\n`);
+      if (args.includes('--patch')) return ok('');
+      return args[0] === 'log' ? ok(`\0${TIP}\nClean\n`) : failed('unexpected');
+    });
+
+  it('reads each merge against its last parent, the base it brought in, never by what the base added (ADR 0164)', async () => {
+    const { git, calls } = merging('merged');
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), []);
+    assert.deepEqual(
+      calls.filter(({ args }) => args[0] === 'diff').map(({ args }) => args),
+      [['diff', '--patch', ...DIFF, '--end-of-options', BASE, MERGE]],
+    );
+  });
+
+  it('finds what a merge itself adds to its last parent', async () => {
+    const { git } = merging(token);
+    assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), [
+      { commit: MERGE, place: 'm.txt', kind: 'GitHub token' },
+    ]);
   });
 
   it('reads history as committed: no replace ref, graft or shallow file, attribute file or log setting of the clone changes it', async () => {
@@ -670,12 +705,13 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
   it('asks nothing of the objects when no word may be a commit', async () => {
     const { git, calls } = recordingGit((args) => {
       if (args.includes('--format=raw')) return ok(plainHeaders);
+      if (args[0] === 'rev-list') return ok('');
       return args[0] === 'log' ? ok(`\0${TIP}\nClean\n`) : failed('unexpected');
     });
     assert.deepEqual(await openBranchPush({ git, clone }).secretScan(BASE, TIP), []);
     assert.deepEqual(
       calls.map(({ args }) => args[0]),
-      ['log', 'log', 'log'],
+      ['log', 'log', 'log', 'rev-list'],
     );
   });
 
@@ -758,7 +794,7 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     await openBranchPush({ git, clone }).secretScan(BASE, TIP, signal);
     assert.deepEqual(
       calls.map(({ options }) => options?.signal === signal),
-      [true, true, true, true],
+      [true, true, true, true, true],
     );
   });
 });
