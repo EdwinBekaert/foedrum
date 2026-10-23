@@ -66,14 +66,14 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
   const plansOf = (
     events: Event[],
     platform: NodeJS.Platform = 'linux',
-    setup: RepositorySetup | undefined = npmCi,
+    setup: RepositorySetup | null = npmCi,
   ) =>
     createAttemptPlans({
       state: () => fold(events),
       brewers: loaded.brewers,
       models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
       repoTools: () => [],
-      repoSetup: (repo) => (repo === 'acme/api' ? setup : undefined),
+      repoSetup: (repo) => (repo === 'acme/api' && setup !== null ? setup : undefined),
       clone: (repo) => join('/clones', repo),
       sandbox: false,
       workRoot: join('/root'),
@@ -116,7 +116,7 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
   });
 
   it('carries none for a repository without a setup', async () => {
-    const plan = await plansOf(fresh, 'linux', undefined).plan(start);
+    const plan = await plansOf(fresh, 'linux', null).plan(start);
     assert.equal(plan.setup, undefined);
   });
 
