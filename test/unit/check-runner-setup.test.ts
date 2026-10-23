@@ -166,8 +166,12 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
     );
     for (const platform of ['linux', 'darwin'] as const) {
       const end = await run({ platform }).started.ended;
-      assert.ok(
-        end.readings?.every((reading) => !('unsandboxed' in reading)),
+      assert.deepEqual(
+        end.readings?.map((reading) => [reading.result, 'unsandboxed' in reading]),
+        [
+          ['exited', false],
+          ['exited', false],
+        ],
         platform,
       );
     }

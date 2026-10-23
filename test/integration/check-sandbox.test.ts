@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -146,6 +146,16 @@ describe('a check in the real sandbox', { skip: skip ?? false }, () => {
   });
 });
 
+/** The first folder under /run that /etc/resolv.conf's real path is in, as the sandbox binds it. */
+const resolverFolder = (): string | undefined => {
+  try {
+    const real = realpathSync('/etc/resolv.conf');
+    return real.startsWith('/run/') ? real.split('/')[2] : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 // A repository's setup in the same sandbox with the network kept (ADR 0158): it reaches a server,
 // as an install reaches its registry, and still cannot read the home folder or write outside.
 describe('a setup in the real sandbox, the network kept', { skip: skip ?? false }, () => {
@@ -209,7 +219,8 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
   }, async () => {
     const result = await setup('ls -A /run');
     assert.equal(result.exitCode, 0, result.output);
-    // At most the resolver's folder, bound back for the network (ADR 0158).
-    assert.match(result.output.trim(), /^(systemd)?$/);
+    // Only the resolver's folder, bound back for the network where /etc/resolv.conf links into
+    // /run (ADR 0158): systemd-resolved, resolvconf or NetworkManager, as the machine has it.
+    assert.equal(result.output.trim(), resolverFolder() ?? '');
   });
 });
