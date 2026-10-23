@@ -165,10 +165,13 @@ export const claimEffectTarget = (
       };
     case 'issue_state':
       return {
-        find: async (_key, signal) =>
-          (await marks.issueState(repo, issue, signal)) === effect.state
-            ? { result: null }
-            : undefined,
+        // Gone: a person deleted the Brewery issue; nothing is left to close or reopen, and a
+        // failing effect would hold off the rest of the release (ADR 0144).
+        find: async (_key, signal) => {
+          const state = await marks.issueState(repo, issue, signal);
+          if (state === 'gone') return { result: 'gone' };
+          return state === effect.state ? { result: null } : undefined;
+        },
         apply: async (_key, signal) => {
           await marks.setIssueState(repo, issue, effect.state, signal);
           return null;

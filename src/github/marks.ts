@@ -92,7 +92,13 @@ export const githubIssueMarks = (options: GitHubIssueMarksOptions): IssueMarks =
       if (title === undefined) throw new Error(`GitHub answered ${repo}#${issue} without a title`);
       return title;
     },
-    issueState: async (repo, issue, signal) => (await read(repo, issue, signal)).state,
+    // GitHub answers 410 for an issue a person deleted, and 404 for one that is not there.
+    issueState: async (repo, issue, signal) => {
+      const what = `the issue ${repo}#${issue}`;
+      const answer = await reads.get(issuePath(repo, issue), signal);
+      if (answer.status === 410 || answer.status === 404) return 'gone';
+      return checked(GitHubIssue, expect(answer, 200, what).body, what).state;
+    },
     setIssueState: async (repo, issue, state, signal) => {
       const what = `setting ${repo}#${issue} ${state}`;
       expect(await client.rest('PATCH', issuePath(repo, issue), { state }, signal), 200, what);
