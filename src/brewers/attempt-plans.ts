@@ -41,7 +41,7 @@ export interface AttemptPlansOptions {
   models: ModelsConfig;
   /** The toolchain rules of a repository (`foedrum.jsonc`, ADR 0023). */
   repoTools: (repo: string) => readonly string[];
-  /** A repository's setup (`foedrum.jsonc`), run before a fresh attempt's brewer (ADR 0163). */
+  /** A repository's setup (`foedrum.jsonc`), run before every attempt's brewer (ADR 0163). */
   repoSetup?: (repo: string) => RepositorySetup | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
@@ -222,9 +222,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
-      // A fresh attempt's worktree gets its repository's dependencies before the brewer starts; a
-      // resumed one runs where its session's first attempt installed them (ADR 0163).
-      const setup = resumes === undefined ? options.repoSetup?.(worktree.repo) : undefined;
+      // Every attempt's worktree gets its repository's dependencies before the brewer starts: a
+      // resumed one too, since the driver may have added its worktree again (ADR 0163).
+      const setup = options.repoSetup?.(worktree.repo);
       const prepared =
         setup === undefined || started === undefined
           ? plan

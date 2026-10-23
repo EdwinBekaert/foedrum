@@ -69,9 +69,8 @@ export interface ClaudeAttemptPlan {
    */
   commits?: { clone: string; branch: string };
   /**
-   * The repository's setup, for an attempt that starts fresh in a worktree of its own: the runner
-   * runs it there before claude starts, in the checks' environment, killed before the attempt's
-   * deadline (ADR 0163).
+   * The repository's setup: the runner runs it in the worktree before claude starts, in the checks'
+   * environment, killed before the attempt's deadline (ADR 0163).
    */
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
 }
@@ -299,6 +298,25 @@ const noFacts = (exit: ProcessExit): AttemptFacts => ({
   turns: 0,
 });
 
+/**
+ * The reading of a plan's setup, run in its worktree `cwd` through `through`; read as unstarted when
+ * the runner has no process runner for it (ADR 0163).
+ */
+export function setUpFor(
+  setup: NonNullable<ClaudeAttemptPlan['setup']>,
+  cwd: string,
+  through: ExecProcess | undefined,
+  { now, signal }: { now: () => Date; signal: AbortSignal },
+): Promise<GravityReading> {
+  const { run, deadlineAt, env } = setup;
+  if (through === undefined) {
+    // As a setup that could not start: the reason is the runner's, not the repository's.
+    const tail = 'the brewer runner has no process runner for setups';
+    return Promise.resolve({ result: 'unstarted', setup: true, command: run.command, tail });
+  }
+  return runSetup(through, run, { cwd, env, deadlineAt, now, signal });
+}
+
 /** A brewer runner over the given stream process and files; unit tests pass fakes. */
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
@@ -325,10 +343,14 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     const startedAt = deps.now();
     const stopping = new AbortController();
     let reader: StreamReader | undefined;
-    running.set(
-      key,
-      () => reader?.progress() ?? { lastProgressAt: startedAt, turnsWithoutProgress: 0 },
-    );
+    // The stall limit judges claude, so the repository's setup is progress while it runs, and
+    // claude's clock starts when it ends (ADR 0027, ADR 0163).
+    let settingUp = false;
+    let claudeFrom = startedAt;
+    running.set(key, () => {
+      if (reader !== undefined) return reader.progress();
+      return { lastProgressAt: settingUp ? deps.now() : claudeFrom, turnsWithoutProgress: 0 };
+    });
     const unstartable = (error: unknown): AttemptEnd => ({
       ending: settleAttempt(noFacts({ kind: 'unstartable', reason: messageOf(error) }), limits),
     });
@@ -340,21 +362,6 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     const aborted = new Promise<undefined>((settle) => {
       stopping.signal.addEventListener('abort', () => settle(undefined), { once: true });
     });
-
-    /** The reading of the plan's setup, run in the worktree through the setup's runner. */
-    const setUp = async (
-      setup: NonNullable<ClaudeAttemptPlan['setup']>,
-      cwd: string,
-    ): Promise<GravityReading> => {
-      const { run, deadlineAt, env } = setup;
-      if (deps.setup === undefined) {
-        // As a setup that could not start: the reason is the runner's, not the repository's.
-        const tail = 'the brewer runner has no process runner for setups';
-        return { result: 'unstarted', setup: true, command: run.command, tail };
-      }
-      const signal = stopping.signal;
-      return runSetup(deps.setup, run, { cwd, env, deadlineAt, now: deps.now, signal });
-    };
 
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
@@ -376,8 +383,19 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       if (stopping.signal.aborted) return cancelled();
       // The repository's setup first, so the brewer finds its dependencies; one that does not
       // pass ends the attempt before claude spends a token (ADR 0163).
-      const before = plan.setup === undefined ? [] : [await setUp(plan.setup, plan.cwd)];
+      settingUp = true;
+      const before =
+        plan.setup === undefined
+          ? []
+          : [
+              await setUpFor(plan.setup, plan.cwd, deps.setup, {
+                now: deps.now,
+                signal: stopping.signal,
+              }),
+            ];
+      settingUp = false;
       if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+      if (before.length > 0) claudeFrom = deps.now();
       const withReadings = (end: AttemptEnd): AttemptEnd =>
         before.length === 0 ? end : { ...end, readings: before };
       const { session, tools } = plan.call;
@@ -391,7 +409,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
             maxDenials: limits.maxDenials,
             resumes: session.kind === 'resume',
           },
-          startedAt,
+          claudeFrom,
         );
         reader = stream;
         const result = await deps.stream(deps.claude, args, {

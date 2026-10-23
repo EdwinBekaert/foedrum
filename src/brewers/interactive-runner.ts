@@ -4,6 +4,7 @@
 // settleAttempt as every run does. An attempt that starts fresh runs headless, as its driver would.
 
 import { resolve } from 'node:path';
+import { passed, settleReadings } from '../checks/gravity.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import {
@@ -16,6 +17,7 @@ import {
 } from '../engine/brewer-runner.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
+import type { GravityReading } from '../schemas/events.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { attemptSettings, writeAttemptSettings } from './attempt-settings.ts';
@@ -26,6 +28,7 @@ import {
   clearOutDocFile,
   type OutDocRead,
   readOutDocFile,
+  setUpFor,
 } from './claude-runner.ts';
 
 export interface InteractiveRunnerDeps {
@@ -124,6 +127,20 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       } catch (error) {
         return unstartable(error);
       }
+      // The repository's setup first: the driver may have added the worktree again, without its
+      // install (ADR 0163). The session is open meanwhile, so its lease is renewed.
+      const before: GravityReading[] = [];
+      if (plan.setup !== undefined) {
+        open.add(key);
+        try {
+          const signal = new AbortController().signal;
+          before.push(await setUpFor(plan.setup, plan.cwd, deps.setup, { now: deps.now, signal }));
+        } finally {
+          open.delete(key);
+        }
+        if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+      }
+      const readings = before.length === 0 ? {} : { readings: before };
       const label = `${ref.batchId} ${ref.stepId}#${ref.attempt}`;
       const what = `finish the step, have the session write ${limits.outDoc.file} as the brewer's instructions say, then exit claude; the batch goes on from its next step`;
       deps.say(
@@ -146,7 +163,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       try {
         code = await deps.foreground(deps.claude, args, plan.cwd, env);
       } catch (error) {
-        return unstartable(error);
+        return { ...unstartable(error), ...readings };
       } finally {
         open.delete(key);
       }
@@ -174,7 +191,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
                 );
       }
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return { ending: settleAttempt(facts, limits), ...outDoc };
+      return { ending: settleAttempt(facts, limits), ...outDoc, ...readings };
     };
 
     const ended = run().finally(() => headless.delete(key));
@@ -205,13 +222,13 @@ export function interactiveBrewerRunner(
     InteractiveRunnerDeps,
     'claude' | 'plan' | 'foreground' | 'terminalEnv' | 'platform' | 'say'
   > & {
-    /** The process runner a fresh attempt's setup runs through (ADR 0158, ADR 0163). */
+    /** The process runner every attempt's setup runs through (ADR 0158, ADR 0163). */
     setup: ExecProcess;
   },
 ): BrewerRunner {
-  const { setup, ...deps } = options;
+  const { setup } = options;
   return interactiveBrewerRunnerWith({
-    ...deps,
+    ...options,
     headless: (plan) => claudeBrewerRunner({ claude: options.claude, plan, setup }),
     files: {
       writeSettings: writeAttemptSettings,
