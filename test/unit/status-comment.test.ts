@@ -494,7 +494,10 @@ describe('renderStatus', () => {
           status: 'done',
           summary: 'Tasted',
           assumptions: [],
-          verdict: 'changes',
+          // The verdict follows from the findings (ADR 0161).
+          verdict: findings.some(({ severity, introduced }) => introduced && severity !== 'minor')
+            ? 'changes'
+            : 'approve',
           findings,
         },
       },
