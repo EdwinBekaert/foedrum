@@ -1202,6 +1202,31 @@ describe('openDriver', () => {
       });
     });
 
+    it('renews its leases before the merge, as before every effect (review of #438)', async () => {
+      const { merge } = fakeMerge();
+      const other = attemptKey.encode(plan('b2'));
+      // When the merge starts: when the lease of b2's running plan expires.
+      let expires: Date | undefined;
+      merge.push.baseTip = async () => {
+        expires = store.currentLeases(now).find((lease) => lease.attemptKey === other)?.expiresAt;
+        return BASE;
+      };
+      const hand = handRunner();
+      orderNip();
+      order('b2');
+      const driver = await open({
+        runner: hand.runner,
+        worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: fakeWorktrees(), merge }],
+      });
+      await driver.drive();
+      assert.deepStrictEqual(hand.started, [implement, plan('b2')]);
+      now = at(4);
+      hand.end(implement);
+      await driver.drive();
+      assert.deepStrictEqual(hand.started, [implement, plan('b2'), green]);
+      assert.deepStrictEqual(expires, at(9));
+    });
+
     it('names at most 50 of the files a merge conflicts in', async () => {
       const files = Array.from({ length: 51 }, (_, n) => `f${n}.ts`);
       const { merge } = fakeMerge(() => ({ kind: 'conflicts', files }));

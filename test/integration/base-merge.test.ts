@@ -256,6 +256,20 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     assert.equal(git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]), '');
   });
 
+  it('pushes past what looks like a secret that the merge brought in from the base (review of #438)', async () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const { state, seen } = await brew((path) => {
+      commit(path, 'plan.txt', 'plan\n');
+      // Main merged a fixture that looks like a secret: the base's, not the batch's.
+      mergeIntoMain('fixture.txt', `${token}\n`);
+    });
+    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    const [check] = seen;
+    assert.ok(check !== undefined);
+    assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), check.head);
+  });
+
   it('merges nothing when the base did not move', async () => {
     const { state, seen } = await brew((path) => commit(path, 'plan.txt', 'plan\n'));
     const tip = implementTip(state);
