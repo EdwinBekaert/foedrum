@@ -196,6 +196,13 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
     assert.equal(ended('approve', true).kind, 'succeeded');
   });
 
+  it('reads only approve and changes as a verdict', () => {
+    const maybe = ended('maybe', false);
+    assert.equal(maybe.kind, 'failed');
+    assert.match(maybe.kind === 'failed' ? maybe.reason : '', /the out doc taste\.md is invalid/);
+    assert.equal(ended('approve', false).kind, 'succeeded');
+  });
+
   it('fails a done out doc without a verdict, or with a finding without its severity', () => {
     const without = (frontmatter: Record<string, unknown>) =>
       settleAttempt(
