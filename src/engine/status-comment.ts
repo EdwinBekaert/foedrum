@@ -278,13 +278,22 @@ const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   return [];
 };
 
+/** The first `most` of `all` as lines of `stepId`, and a line that counts the rest. */
+const capped = <T>(
+  stepId: string,
+  all: readonly T[],
+  most: number,
+  text: (item: T) => string,
+): string[] => {
+  const shown = all.slice(0, most).map((item) => `- ${code(stepId)}: ${text(item)}`);
+  const more = all.length - shown.length;
+  return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+};
+
 const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
-  stepIds.flatMap((stepId) => {
-    const all = assumptionsOf(batch, stepId, told);
-    const shown = all.slice(0, mostAssumptions).map((text) => `- ${code(stepId)}: ${text}`);
-    const more = all.length - shown.length;
-    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
-  });
+  stepIds.flatMap((stepId) =>
+    capped(stepId, assumptionsOf(batch, stepId, told), mostAssumptions, (text) => text),
+  );
 
 /** How many findings of one Taster's step the comment shows. */
 const mostFindings = 10;
@@ -299,15 +308,12 @@ const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): str
       succeeded?.phase === 'finished' && succeeded.outcome.kind === 'succeeded'
         ? succeeded.outcome.output
         : undefined;
-    const all = tastingOf(output)?.findings ?? [];
-    const shown = all
-      .slice(0, mostFindings)
-      .map(
-        (finding) =>
-          `- ${code(stepId)}: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
-      );
-    const more = all.length - shown.length;
-    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+    return capped(
+      stepId,
+      tastingOf(output)?.findings ?? [],
+      mostFindings,
+      (finding) => `${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+    );
   });
 
 /**
