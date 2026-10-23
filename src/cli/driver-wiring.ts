@@ -101,10 +101,14 @@ export const wireDriver = async (
   const pushes: PullRequestRepository[] = [];
   for (const repository of setup.repositories) {
     const { repo, base } = repository;
-    worktrees.push({ repo, base, manager: await shell.worktrees(repository) });
+    const manager = await shell.worktrees(repository);
     // The pull request goes into the branch the attempts start from (ADR 0071).
     const into = base.slice(base.indexOf('/') + 1);
-    pushes.push({ repo, base: into, push: shell.push(repository) });
+    const push = shell.push(repository);
+    // The last check before the pull request merges that branch as the push fetches it (ADR 0164).
+    const merge = { base: into, push, worktree: shell.merge };
+    worktrees.push({ repo, base, manager, merge });
+    pushes.push({ repo, base: into, push });
   }
   const client = createGitHubClient({
     exec: shell.gh,
