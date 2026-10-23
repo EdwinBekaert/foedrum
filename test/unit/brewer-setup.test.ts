@@ -68,12 +68,14 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
     platform: NodeJS.Platform = 'linux',
     setup: RepositorySetup | null = npmCi,
     brewers = loaded.brewers,
+    // A shell rule, so the brewer can run what the setup installs (ADR 0163).
+    tools: readonly string[] = ['Bash(npm test)'],
   ) =>
     createAttemptPlans({
       state: () => fold(events),
       brewers,
       models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
-      repoTools: () => [],
+      repoTools: () => tools,
       repoSetup: (repo) => (repo === 'acme/api' && setup !== null ? setup : undefined),
       clone: (repo) => join('/clones', repo),
       sandbox: false,
@@ -149,6 +151,13 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
       clone: join('/clones', 'acme/api'),
       branch: 'foedrum/12-1/brew/1',
     });
+  });
+
+  // A brewer that cannot run a command cannot use an install, such as a read-only Taster.
+  it("carries none for a brewer whose rules and its repository's tools allow no shell (review of #440)", async () => {
+    const plan = await plansOf(fresh, 'linux', npmCi, loaded.brewers, []).plan(start);
+    assert.deepEqual(plan.permissions.allow, ['Read', 'Grep']);
+    assert.equal(plan.setup, undefined);
   });
 
   it('carries none for a repository without a setup', async () => {
