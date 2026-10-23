@@ -5,7 +5,7 @@
 
 import type { Attempt, State } from '../engine/fold.ts';
 import type { LoadedRecipes } from '../engine/recipe-files.ts';
-import type { Usage } from '../schemas/events.ts';
+import type { Event, Usage } from '../schemas/events.ts';
 
 /** The brewers in use and what each recipe's step is now, from the loaded files. */
 export interface BrewerSource {
@@ -74,8 +74,23 @@ const add = (tally: Counts, attempt: Attempt): void => {
   tally.usage.cacheWriteTokens += usage.cacheWriteTokens;
 };
 
-/** The report over `state`, each step's brewer from `source`. */
-export const brewerReport = (state: State, source: BrewerSource): BrewerReport => {
+/**
+ * The recipe each attempt was scheduled under, by its `attemptKey`: a batch's steps keep the
+ * attempts of the recipe it brewed before a person chose another (ADR 0159).
+ */
+export const recipesRun = (_events: readonly Event[]): ReadonlyMap<string, string> => {
+  throw new Error('not implemented');
+};
+
+/**
+ * The report over `state`, each attempt under its recipe in `ran` (`recipesRun` of the events
+ * `state` folds) and each step's brewer from `source`.
+ */
+export const brewerReport = (
+  state: State,
+  source: BrewerSource,
+  _ran: ReadonlyMap<string, string>,
+): BrewerReport => {
   const brewers = new Map(source.brewers.map(({ name, path }) => [name, { ...counts(), path }]));
   const gone = new Map<string, Counts & { recipe: string; stepId: string }>();
   // The counts of step `stepId` of `recipe`, or none for a step without a brewer.

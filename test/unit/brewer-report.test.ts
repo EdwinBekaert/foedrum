@@ -9,6 +9,7 @@ import {
   brewerSource,
   formatBrewerReport,
   type LoadedBrewers,
+  recipesRun,
 } from '../../src/cli/brewer-report.ts';
 import { emptyState, fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
@@ -24,6 +25,9 @@ const usage = (input: number, output: number, read: number, write: number): Usag
   cacheReadTokens: read,
   cacheWriteTokens: write,
 });
+// The report over `events`, each attempt under the recipe its batch ran it in.
+const report = (events: readonly Event[], from = source) =>
+  brewerReport(fold(events), from, recipesRun(events));
 const none = { succeeded: 0, failed: 0, needs_input: 0, cancelled: 0, unfinished: 0 };
 
 // pint: plan (planner), test (a step without a brewer: a check or an action), implement (coder). The recipe `old` is gone, and
@@ -92,7 +96,7 @@ const question = {
   whyBlocking: 'Removing it breaks the mobile app',
 };
 
-const state = fold([
+const events: Event[] = [
   // b1: plan failed then succeeded, the check step passed, implement asks a question.
   ...ordered('b1', 1, 'pint'),
   ...finished(
@@ -162,11 +166,11 @@ const state = fold([
     options: ['retry', 'recipe', 'cancel'],
     remindAt,
   },
-]);
+];
 
 describe('brewerReport', () => {
   it('counts each brewer’s started attempts, their outcomes, its Stuck batches and its tokens', () => {
-    const { brewers } = brewerReport(state, source);
+    const { brewers } = report(events);
     assert.deepStrictEqual(brewers, [
       {
         name: 'coder',
@@ -196,7 +200,7 @@ describe('brewerReport', () => {
   });
 
   it('lists the attempts of steps the recipe files no longer have apart, by recipe and step', () => {
-    assert.deepStrictEqual(brewerReport(state, source).gone, [
+    assert.deepStrictEqual(report(events).gone, [
       {
         recipe: 'old',
         stepId: 'plan',
@@ -217,7 +221,7 @@ describe('brewerReport', () => {
   });
 
   it('lists every brewer in use with nothing beside it when no batch ran', () => {
-    assert.deepStrictEqual(brewerReport(emptyState, source), {
+    assert.deepStrictEqual(report([]), {
       brewers: ['coder', 'planner', 'reviewer'].map((name) => ({
         name,
         path: source.brewers.find((brewer) => brewer.name === name)?.path,
@@ -230,8 +234,67 @@ describe('brewerReport', () => {
     });
   });
 
+  it('credits each attempt to the brewer of the recipe its batch ran it under', () => {
+    // stout's plan is the brewmaster's, and stout has no implement.
+    const both: BrewerSource = {
+      brewers: [...source.brewers, { name: 'brewmaster', path: 'brewers/brewmaster.md' }],
+      step: (recipe, stepId) =>
+        recipe === 'stout'
+          ? stepId === 'plan'
+            ? { brewer: 'brewmaster' }
+            : undefined
+          : source.step(recipe, stepId),
+    };
+    // b8 brewed pint until implement used up its attempts, then a person chose stout.
+    const changed = report(
+      [
+        ...ordered('b8', 8, 'pint'),
+        ...finished('b8', 'plan', 1, { kind: 'succeeded', output: {} }, usage(1, 0, 0, 0)),
+        ...finished(
+          'b8',
+          'implement',
+          1,
+          { kind: 'failed', retryable: true, reason: 'tests' },
+          usage(0, 1, 0, 0),
+        ),
+        {
+          type: 'batch.stuck',
+          batchId: 'b8',
+          reason: {
+            kind: 'attempts_exhausted',
+            stepId: 'implement',
+            attempts: 1,
+            lastReason: 'tests',
+          },
+          options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+          remindAt,
+        },
+        {
+          type: 'batch.recipe_chosen',
+          batchId: 'b8',
+          recipe: 'stout',
+          reason: 'start over',
+          source: 'human',
+          by: 'ada',
+          via: 'terminal',
+        },
+        ...finished('b8', 'plan', 2, { kind: 'succeeded', output: {} }, usage(0, 0, 1, 0)),
+      ],
+      both,
+    );
+    const tally = (name: string) => {
+      const { attempts, usage: spent } =
+        changed.brewers.find((brewer) => brewer.name === name) ?? {};
+      return { attempts, usage: spent };
+    };
+    assert.deepStrictEqual(tally('planner'), { attempts: 1, usage: usage(1, 0, 0, 0) });
+    assert.deepStrictEqual(tally('coder'), { attempts: 1, usage: usage(0, 1, 0, 0) });
+    assert.deepStrictEqual(tally('brewmaster'), { attempts: 1, usage: usage(0, 0, 1, 0) });
+    assert.deepStrictEqual(changed.gone, []);
+  });
+
   it('counts an attempt abandoned when its batch went Stuck as unfinished', () => {
-    const abandoned = fold([
+    const abandoned = report([
       ...ordered('b7', 7, 'pint'),
       ...started('b7', 'plan', 1),
       {
@@ -242,7 +305,7 @@ describe('brewerReport', () => {
         remindAt,
       },
     ]);
-    const planner = brewerReport(abandoned, source).brewers.find(({ name }) => name === 'planner');
+    const planner = abandoned.brewers.find(({ name }) => name === 'planner');
     assert.deepStrictEqual(planner?.outcomes, { ...none, unfinished: 1 });
     assert.deepStrictEqual(planner?.stuck, ['b7']);
   });
@@ -251,7 +314,7 @@ describe('brewerReport', () => {
 describe('formatBrewerReport', () => {
   it('prints each brewer with its file, its outcomes, its tokens and its Stuck batches, then the steps that are gone', () => {
     assert.equal(
-      formatBrewerReport(brewerReport(state, source)),
+      formatBrewerReport(report(events)),
       [
         'coder  brewers/coder.md',
         '  1 attempt: 1 needs input',
@@ -277,15 +340,15 @@ describe('formatBrewerReport', () => {
   });
 
   it('groups the digits of large token counts', () => {
-    const report = brewerReport(
-      fold([
+    const large = report(
+      [
         ...ordered('b1', 1, 'pint'),
         ...finished('b1', 'plan', 1, { kind: 'succeeded', output: {} }, usage(1234567, 0, 0, 0)),
-      ]),
+      ],
       { ...source, brewers: [{ name: 'planner', path: 'brewers/planner.md' }] },
     );
     assert.equal(
-      formatBrewerReport(report),
+      formatBrewerReport(large),
       [
         'planner  brewers/planner.md',
         '  1 attempt: 1 succeeded',
@@ -296,10 +359,7 @@ describe('formatBrewerReport', () => {
   });
 
   it('says so when the Brewery has no brewer', () => {
-    assert.equal(
-      formatBrewerReport(brewerReport(emptyState, { ...source, brewers: [] })),
-      'No brewers.\n',
-    );
+    assert.equal(formatBrewerReport(report([], { ...source, brewers: [] })), 'No brewers.\n');
   });
 });
 
