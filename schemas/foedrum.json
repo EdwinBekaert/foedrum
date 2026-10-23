@@ -501,7 +501,7 @@
             ]
           },
           "setup": {
-            "description": "Runs in a check step's worktree before its checks, with the network (ADR 0140)",
+            "description": "Runs in a check step's worktree before its checks, in the check sandbox with the network kept (ADR 0158)",
             "type": "object",
             "properties": {
               "command": {
