@@ -23,7 +23,7 @@ It is a spike: no code and no ADR follow from it here.
 
 ### Identifiers and the version header
 
-Every write names the other issue by its numeric REST `id` (such as `6002945040`), never by its number or its GraphQL `node_id`: in the body, or in the path when a dependency is removed; the issue the call acts on is the number in the path.
+Every REST write names the other issue by its numeric REST `id` (such as `6002945040`), never by its number or its GraphQL `node_id`: in the body, or in the path when a dependency is removed; the issue the call acts on is the number in the path.
 Giving the number where the `id` belongs answers `404 Not Found` with `{"message":"Not Found"}`, for sub-issues and dependencies alike.
 The REST docs list every call below with `Accept: application/vnd.github+json` and `X-GitHub-Api-Version: 2026-03-10`.
 github.com supports two versions: a request with `X-GitHub-Api-Version: 2021-01-01` answers `400 Bad Request` with `The following versions are currently supported: "2026-03-10" (most recent) and "2022-11-28".`
@@ -81,10 +81,11 @@ According to GitHub's docs, the sidebar's **Relationships** item shows and edits
 
 The REST primary limit is 5,000 requests per hour for a user; each create answered `X-Ratelimit-Resource: core` with `X-Ratelimit-Remaining` down by one.
 GraphQL has 5,000 points per hour (`X-Ratelimit-Resource: graphql`, the `rateLimit` field gives `cost`, `remaining` and `resetAt`).
-The secondary limits from the docs: at most 100 concurrent requests, 900 points per minute for REST and 2,000 for GraphQL (a mutation counts 5), and "no more than 80 content-generating requests per minute" and "no more than 500 content-generating requests per hour", with some endpoints lower.
+The secondary limits from the docs: at most 100 concurrent requests, 900 points per minute for REST and 2,000 for GraphQL (most REST `POST`, `PATCH`, `PUT` and `DELETE` requests and a GraphQL mutation count 5 points, a read 1), and "no more than 80 content-generating requests per minute" and "no more than 500 content-generating requests per hour", with some endpoints lower.
 Each sub-issue and dependency write is documented as one that "may result in secondary rate limiting" when done too quickly.
 No response header counts the content-creation limit; it shows only as a `403` or `429` with a message, and `retry-after` when present.
 GitHub's guidance is writes one at a time, at least one second apart, and after a limit waiting `retry-after`, else until `x-ratelimit-reset` when `x-ratelimit-remaining` is 0, else at least a minute, and then backing off.
 That is GitHub's advice, not what Foedrum's client does: how it handles a rate limit today is in [polling](polling.md) ([ADR 0052](../../adr/0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)).
 Applying a plan of n sub-orders with d links costs n creates, n sub-issue adds and d dependency adds: at one per second, a plan of 20 sub-orders with 20 links takes about a minute and stays under 80 per minute.
-In a first run of these tries, one add gave no answer before the batch passed 120 s; repeated alone it answered `422` in 0.7 s (gh has no deadline of its own).
+In a first run of these tries, one add (#6, then under #3, to #4) gave no answer before the batch passed 120 s; repeated alone it answered `422` with `… Sub issue may only have one parent` in 0.7 s, and #6's parent was still #3, so that add had not landed (gh has no deadline of its own).
+Whether a write that times out can land later was not seen; the list or the parent tells afterwards.
