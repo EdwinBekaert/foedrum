@@ -1,10 +1,13 @@
 // The merge of the base before a batch's last check (ADR 0164), the shell: git in the check
-// attempt's worktree, with no hook or fsmonitor (ADR 0137). Git runs only through the injected
-// `Git`, so unit tests pass a fake one (ADR 0021).
+// attempt's worktree, pointed at its record under the clone, never by discovery (ADR 0029), with
+// no hook or fsmonitor (ADR 0137). Git runs only through the injected `Git`, so unit tests pass a
+// fake one (ADR 0021).
 
 import type { WorktreeMerge } from '../engine/base-merge.ts';
+import { samePath } from '../platform/paths.ts';
 import { firstLine, gitOutput, inClone } from './clone-git.ts';
 import type { Git, GitOptions } from './git.ts';
+import { readRecords } from './worktree-records.ts';
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
@@ -25,8 +28,22 @@ export interface WorktreeMergeOptions {
   clone: string;
 }
 
-export const openWorktreeMerge = ({ git }: WorktreeMergeOptions): WorktreeMerge => {
-  const local = inClone(git);
+export const openWorktreeMerge = ({ git, clone }: WorktreeMergeOptions): WorktreeMerge => {
+  const engine = inClone(git);
+  // The worktree's record under the clone: its folder's .git file, which a brewer can point at a
+  // repository of its own, is never read (ADR 0029, ADR 0095).
+  const recordOf = async (path: string, signal?: AbortSignal): Promise<string> => {
+    const args = ['rev-parse', '--path-format=absolute', '--git-common-dir'];
+    const common = (await gitOutput(engine, clone, args, aborts(signal))).trim();
+    const records = await readRecords(common);
+    const found = records.find(({ folder }) => folder !== undefined && samePath(folder, path));
+    if (found === undefined) throw new Error(`${clone} has no record of the worktree ${path}`);
+    return found.dir;
+  };
+  const local: Git = async (path, args, options = {}) => {
+    const record = await recordOf(path, options.signal);
+    return engine(path, [`--git-dir=${record}`, `--work-tree=${path}`, ...args], options);
+  };
   const head = async (path: string, signal?: AbortSignal): Promise<string> => {
     const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', 'HEAD^{commit}'];
     const sha = (await gitOutput(local, path, args, aborts(signal))).trim();

@@ -405,8 +405,13 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
 function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
   const opens = steps.find((entry) => entry.action === 'openPullRequest')?.id;
-  // The checks before the pull request read the code it will hold (ADR 0164).
-  const merges = opens === undefined ? undefined : steps.findLast((entry) => entry.passes)?.id;
+  // The last checks before the pull request read the code it will hold (ADR 0164): of those the
+  // recipe runs, since a `when` reads only the recipe's settings (ADR 0064).
+  const runs = ({ when }: LineStep) => when === undefined || holds(when, settings);
+  const merges =
+    opens === undefined
+      ? undefined
+      : steps.findLast((entry) => entry.passes === true && runs(entry))?.id;
   const at = (id: string) => {
     const found = byId.get(id);
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
