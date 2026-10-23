@@ -59,7 +59,6 @@ A longer cycle is accepted: with A blocked by B and C blocked by A, B blocked by
 A blocking issue in another repository of the same owner is accepted (Brewery #6 blocked by `EdwinBekaert/foedrum#18` answered `201`, and was removed again).
 List: `GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by` and `GET …/dependencies/blocking` answer `200` with issue objects, `per_page` at most 100, default 30.
 Remove: `DELETE /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by/{issue_id}` answers `200` with the blocked issue, and answered `200` again when the link was already gone, so a remove is idempotent, unlike a sub-issue's.
-The same remove with the blocking issue's number instead of its `id` answers `404` with `{"message":"Not Found"}`.
 `issue_dependencies_summary` counts only open blockers in `blocked_by` and all of them in `total_blocked_by`: with its one blocker closed, #3 read `{"blocked_by":0,"total_blocked_by":1, …}`.
 The docs state no limit on the number of dependencies.
 
