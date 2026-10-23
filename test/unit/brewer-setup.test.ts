@@ -54,11 +54,43 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
     },
   };
   const fresh: Event[] = [
-    { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: deadlineAt },
+    // A routing deadline apart from the attempt's, so the plan's can only be the attempt's.
+    {
+      type: 'batch.ordered',
+      batchId: '12-1',
+      order: { issue: 12 },
+      routeBy: '2026-10-17T15:00:00.000Z',
+    },
     { type: 'batch.recipe_chosen', batchId: '12-1', recipe: 'pale', reason: 'l', source: 'label' },
     { type: 'step.scheduled', ...ref, deadlineAt },
     started,
   ];
+  // A brewer that commits, whose git.commit grants it shell rules of its own (ADR 0074).
+  const committingLoaded = loadRecipes({
+    recipes: [
+      {
+        path: 'recipes/pale.jsonc',
+        text: recipeText(
+          'pale',
+          [{ id: 'brew', brewer: 'brewmaster' }, { action: 'openPullRequest' }],
+          { testFirst: false },
+        ),
+      },
+    ],
+    brewers: [
+      {
+        path: 'brewers/brewmaster.md',
+        text: brewerText('brewmaster', {
+          output: { doc: 'brew.md', schema: 'outDoc' },
+          produces: 'commits',
+          access: 'write',
+          git: { commit: true },
+        }),
+      },
+    ],
+  });
+  assert.ok(committingLoaded.valid);
+  const committingBrewers = committingLoaded.brewers;
   const npmCi: RepositorySetup = {
     command: { run: 'npm ci', windows: 'npm.cmd ci' },
     timeout: '10m',
@@ -158,6 +190,18 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
     const plan = await plansOf(fresh, 'linux', npmCi, loaded.brewers, []).plan(start);
     assert.deepEqual(plan.permissions.allow, ['Read', 'Grep']);
     assert.equal(plan.setup, undefined);
+  });
+
+  it('carries it for a brewer whose repository gives it a PowerShell rule', async () => {
+    const tools = ['PowerShell(npm test)'];
+    const plan = await plansOf(fresh, 'win32', npmCi, loaded.brewers, tools).plan(start);
+    assert.equal(plan.setup?.run.command, 'npm.cmd ci');
+  });
+
+  it('carries it for a brewer that commits, through the git rules it is granted, with no repository tools', async () => {
+    const plan = await plansOf(fresh, 'linux', npmCi, committingBrewers, []).plan(start);
+    assert.ok(plan.permissions.allow.includes('Bash(git commit *)'));
+    assert.equal(plan.setup?.run.command, 'npm ci');
   });
 
   it('carries none for a repository without a setup', async () => {

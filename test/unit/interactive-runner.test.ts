@@ -4,12 +4,13 @@
 // one runs headless. No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-import { beforeEach, describe, it } from 'node:test';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { resumeArgs } from '../../src/brewers/claude-command.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from '../../src/brewers/claude-runner.ts';
 import {
+  headlessRunner,
   type InteractiveRunnerDeps,
   interactiveBrewerRunnerWith,
 } from '../../src/brewers/interactive-runner.ts';
@@ -18,6 +19,7 @@ import type { AttemptLimits, AttemptStart, BrewerRunner } from '../../src/engine
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-23T12:00:00.000Z');
 const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
@@ -330,6 +332,85 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       const end = await runner('resume', { plan: withSetup, setup: setupExec(1) }).start(attempt)
         .ended;
       assert.ok(!calls.includes('claude'), calls.join('\n'));
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the setup "npm ci" failed with exit code 1',
+      });
+      assert.deepEqual(end.readings, [
+        {
+          result: 'exited',
+          setup: true,
+          command: 'npm ci',
+          exitCode: 1,
+          tail: 'npm ERR! missing lock file',
+        },
+      ]);
+    });
+
+    it('reports progress while the setup runs, so the lease of the session is renewed', async () => {
+      let finish = () => {};
+      const until = new Promise<void>((done) => {
+        finish = done;
+      });
+      const slow: ExecProcess = async (file) => {
+        calls.push(`setup ${file}`);
+        await until;
+        return { exitCode: 0, stdout: '', stderr: '', output: 'added 7 packages' };
+      };
+      const resumed = runner('resume', { plan: withSetup, setup: slow });
+      const running = resumed.start(attempt);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(calls.includes('setup npm ci'), calls.join('\n'));
+      assert.deepEqual(resumed.progress(attempt.ref), {
+        lastProgressAt: t0,
+        turnsWithoutProgress: 0,
+      });
+      finish();
+      await running.ended;
+    });
+
+    it("keeps the setup's reading when claude cannot open after it", async () => {
+      const end = await runner('resume', {
+        plan: withSetup,
+        setup: setupExec(0),
+        foreground: async () => {
+          throw new Error('spawn claude ENOENT');
+        },
+      }).start(attempt).ended;
+      assert.equal(end.ending.kind, 'failed');
+      assert.deepEqual(end.readings, [
+        { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
+      ]);
+    });
+  });
+
+  describe('headlessRunner: a fresh attempt of a resume (ADR 0163)', () => {
+    let dir: TempDir;
+    beforeEach(() => {
+      dir = makeTempDir('headless-setup');
+    });
+    afterEach(() => dir.remove());
+
+    it("runs the fresh attempt's setup through the given process runner, before claude", async () => {
+      const started: string[] = [];
+      const failing: ExecProcess = async (file) => {
+        started.push(file);
+        // A setup that fails, so claude never starts.
+        return { exitCode: 1, stdout: '', stderr: '', output: 'npm ERR!' };
+      };
+      const fresh = async (): Promise<ClaudeAttemptPlan> => ({
+        ...plan('new'),
+        settingsFile: join(dir.path, 'settings.json'),
+        setup: {
+          run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+          deadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
+          env: { PATH: '/usr/bin' },
+        },
+      });
+      const end = await headlessRunner('/opt/claude/bin/claude', failing)(fresh).start(attempt)
+        .ended;
+      assert.deepEqual(started, ['npm ci']);
       assert.deepEqual(end.ending, {
         kind: 'blocked',
         blockerKind: 'environment',
