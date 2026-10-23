@@ -230,6 +230,29 @@ describe('judgeRed', () => {
     });
   });
 
+  it('finds a sentence test after suite titles that hold spaces, and after a class', () => {
+    const suites = [
+      {
+        newPath: 'test/calculator.test.ts',
+        added: [
+          "describe('the calculator', () => {",
+          "  it('adds two numbers', () => {",
+          "  it('subtracts', () => {",
+          "  it('adds a negative number', () => {",
+        ],
+        removed: [],
+      },
+    ];
+    const names = [
+      'the calculator > adds two numbers',
+      'the calculator > AddTest.subtracts',
+      'AddTest.adds a negative number',
+    ];
+    const report = tap(...names.flatMap((name, n) => failing(n + 1, name, 'not implemented')));
+    // A suite title before " > " may hold spaces; only a class or module before a dot may not.
+    assert.deepEqual(judgeRed(report, suites), { proven: true, tests: names });
+  });
+
   it("does not take a test's name for a load error: node names each test in a comment", () => {
     const report = tap(
       '# Subtest: throws a SyntaxError on bad JSON',
