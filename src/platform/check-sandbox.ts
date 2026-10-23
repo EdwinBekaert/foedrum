@@ -1,7 +1,8 @@
 // The OS sandbox a check step's command line runs in (ADR 0076): bwrap on Linux and WSL2,
 // sandbox-exec on macOS, with no network, the home folder hidden and writes only in the worktree
-// and a temporary folder. Native Windows has none (ADR 0010). A process runner that wraps another,
-// so the deadline, the stop and the output limit stay the process runner's (ADR 0035).
+// and a temporary folder. A repository's setup runs in the same sandbox with the network kept
+// (ADR 0158). Native Windows has none (ADR 0010). A process runner that wraps another, so the
+// deadline, the stop and the output limit stay the process runner's (ADR 0035).
 
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -22,17 +23,33 @@ export interface CheckSandboxPaths {
   gitDir: string | undefined;
 }
 
+/** What a sandbox keeps of the machine beyond a check's: the network, for a setup (ADR 0158). */
+interface SandboxKeeps {
+  network?: boolean;
+}
+
 /**
  * The profile every check runs under on macOS, its paths given as parameters (`-D`): `parents`
  * folders above the worktree and its repository in the home folder, as `PARENT_<n>`, whose
  * metadata a check may read, since node stats each folder above a file it loads (ADR 0142).
+ * Without its denial of the network for a setup (ADR 0158).
  */
-export const seatbeltProfile = (parents: number): string => {
+export const seatbeltProfile = (
+  parents: number,
+  { network = false }: SandboxKeeps = {},
+): string => {
   const literals = Array.from({ length: parents }, (_, n) => `(literal (param "PARENT_${n}"))`);
   return [
     '(version 1)',
     '(allow default)',
-    '(deny network*)',
+    // network* covers Unix sockets too, such as launchd's ssh-agent under /private/tmp: a setup
+    // keeps IP and the resolver's socket only (review of #422).
+    ...(network
+      ? [
+          '(deny network-outbound (remote unix-socket))',
+          '(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))',
+        ]
+      : ['(deny network*)']),
     // The Keychain's service, where gh keeps its login on macOS (ADR 0073).
     '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
     // launchd and LaunchServices start what they are asked to outside the sandbox (review of #357).
@@ -77,19 +94,31 @@ export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
 const throughSh = (line: string) => ['/bin/sh', '-c', line];
 
-/** bwrap's arguments that run `line` through `/bin/sh` in the sandbox. */
-export function bwrapArgs({ home, worktree, gitDir }: CheckSandboxPaths, line: string): string[] {
+/** Where Linux keeps the resolver's address list, often a link into /run. */
+const RESOLV_CONF = '/etc/resolv.conf';
+
+/**
+ * bwrap's arguments that run `line` through `/bin/sh` in the sandbox. With the network kept, no
+ * namespace of its own, and `resolver`, the real path of /etc/resolv.conf when it is under the
+ * hidden /run (systemd-resolved's stub), bound back read-only, the one file (ADR 0158).
+ */
+export function bwrapArgs(
+  { home, worktree, gitDir }: CheckSandboxPaths,
+  line: string,
+  { network = false, resolver }: SandboxKeeps & { resolver?: string | undefined } = {},
+): string[] {
   // In this order: bwrap applies its filesystem options as given, so the worktree goes over the
   // hidden home it may sit in.
   return [
     '--die-with-parent',
     '--unshare-pid',
     '--new-session',
-    '--unshare-net',
+    ...(network ? [] : ['--unshare-net']),
     ...['--ro-bind', '/', '/'],
     ...['--dev', '/dev', '--proc', '/proc'],
     // /run holds the user's D-Bus socket, through which the Secret Service hands out logins.
     ...['--tmpfs', '/tmp', '--tmpfs', '/run', '--tmpfs', home],
+    ...(network && resolver !== undefined ? ['--ro-bind', resolver, resolver] : []),
     ...(gitDir === undefined ? [] : ['--ro-bind', gitDir, gitDir]),
     ...['--bind', worktree, worktree, '--chdir', worktree],
     ...['--setenv', 'TMPDIR', '/tmp'],
@@ -101,6 +130,7 @@ export function bwrapArgs({ home, worktree, gitDir }: CheckSandboxPaths, line: s
 export function seatbeltArgs(
   { home, worktree, gitDir, temp }: CheckSandboxPaths & { temp: string },
   line: string,
+  keeps: SandboxKeeps = {},
 ): string[] {
   // Parameters, never written into the profile, so no character in a path can change it.
   const parameters = { HOME: home, WORKTREE: worktree, GIT_DIR: gitDir ?? worktree, TEMP: temp };
@@ -108,7 +138,7 @@ export function seatbeltArgs(
   return [
     ...Object.entries(parameters).flatMap(([key, value]) => ['-D', `${key}=${value}`]),
     ...parents.flatMap((folder, n) => ['-D', `PARENT_${n}=${folder}`]),
-    ...['-p', seatbeltProfile(parents.length)],
+    ...['-p', seatbeltProfile(parents.length, keeps)],
     ...throughSh(line),
   ];
 }
@@ -166,7 +196,20 @@ export interface SandboxedChecksOptions {
   gitDirOf?: (worktree: string) => string | undefined;
   /** Default folders under `os.tmpdir()`. */
   temp?: TempFolders;
+  /** Whether the sandbox keeps the network, as a repository's setup needs (ADR 0158). */
+  network?: boolean;
 }
+
+/** The real path of /etc/resolv.conf when it lies under /run, which the sandbox hides. */
+const resolverIn = (realPath: (path: string) => string): string | undefined => {
+  try {
+    const real = realPath(RESOLV_CONF);
+    return real.startsWith('/run/') ? real : undefined;
+  } catch {
+    // No resolver's file: the install finds no address, and says so.
+    return undefined;
+  }
+};
 
 /** What a check that could not start reads: no exit code, and why (ADR 0069's `unstarted`). */
 const unstarted = (why: string): ExecResult => {
@@ -194,7 +237,7 @@ const sandboxRun = (tool: string, result: ExecResult): ExecResult =>
  */
 export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const { exec, platform = process.platform, realPath = realPathOf } = options;
-  const { gitDirOf = worktreeGitDir, temp = systemTemp } = options;
+  const { gitDirOf = worktreeGitDir, temp = systemTemp, network = false } = options;
   const findBwrap = options.findBwrap ?? (() => resolveExecutable('bwrap', { platform }));
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
@@ -219,9 +262,10 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
           'bubblewrap (bwrap) is not on PATH: check steps run only in its sandbox here; install bubblewrap',
         );
       }
+      const resolver = network ? resolverIn(realPath) : undefined;
       return sandboxRun(
         'bwrap',
-        await exec(bwrap, bwrapArgs(paths, file), { ...call, shell: false }),
+        await exec(bwrap, bwrapArgs(paths, file, { network, resolver }), { ...call, shell: false }),
       );
     }
     if (!hasSandboxExec()) {
@@ -253,7 +297,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
     const env = { ...(call.env ?? process.env), TMPDIR: real, HOME: real };
     let result: ExecResult;
     try {
-      const args = seatbeltArgs({ ...paths, temp: real }, file);
+      const args = seatbeltArgs({ ...paths, temp: real }, file, { network });
       result = await exec(SANDBOX_EXEC, args, { ...call, env, shell: false });
     } catch (error) {
       await removed({ exitCode: null, stdout: '', stderr: '', output: '' });

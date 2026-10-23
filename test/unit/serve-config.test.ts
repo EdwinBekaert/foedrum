@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { diagnose } from '../../src/cli/doctor.ts';
 import { attemptClone, type ServeInputs, serveSetup } from '../../src/cli/serve-config.ts';
 import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
-import { linux, loggedIn, ran, windows } from '../helpers/doctor-facts.ts';
+import { linux, loggedIn, macos, ran, windows } from '../helpers/doctor-facts.ts';
 import { clone, config, home, local, models, root, serveInputs } from '../helpers/serve-brewery.ts';
 
 const inputs = serveInputs;
@@ -367,30 +367,43 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
     );
   });
 
-  it("refuses a Brewery that requires the sandboxed level when a repository's setup would run before its check steps (ADR 0140)", () => {
+  // A setup runs in the check sandbox, network kept, wherever a check does; on Linux that sandbox
+  // still reaches the host's abstract Unix sockets until #425 (ADR 0158).
+  it("meets a sandboxed minimum with a repository's setup on macOS, refuses it on Linux until #425, and with the checks' line on Windows", () => {
     const files = inputs().files;
-    const setup = { setup: { command: 'npm ci', timeout: '10m' } };
+    const sandboxed = config(
+      { isolation: { minimum: 'sandboxed' } },
+      {
+        setup: { command: 'npm ci', timeout: '10m' },
+      },
+    );
+    ready(
+      inputs({
+        platform: 'darwin',
+        files: { ...files, config: sandboxed },
+        diagnosis: diagnose(macos),
+      }),
+    );
+    assert.deepStrictEqual(refused(inputs({ files: { ...files, config: sandboxed } })), [
+      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)",
+    ]);
+    // Without a setup, or without the minimum, Linux starts.
+    ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
+    ready(
+      inputs({
+        files: { ...files, config: config({}, { setup: { command: 'npm ci', timeout: '10m' } }) },
+      }),
+    );
     const problems = refused(
       inputs({
-        files: { ...files, config: config({ isolation: { minimum: 'sandboxed' } }, setup) },
+        platform: 'win32',
+        files: { ...files, config: sandboxed },
+        diagnosis: diagnose(windows),
       }),
     );
     assert.deepStrictEqual(problems, [
-      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup runs outside the sandbox before its check steps (ADR 0140)",
+      'foedrum.jsonc requires the sandboxed isolation level, and check steps would run at permissions only (native Windows has no sandbox for shell commands) (ADR 0076)',
     ]);
-    // Where the Brewery requires no more, where no recipe has a check step, or without a setup.
-    ready(inputs({ files: { ...files, config: config({}, setup) } }));
-    const stoutOnly = { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) };
-    ready(
-      inputs({
-        files: {
-          ...files,
-          config: config({ isolation: { minimum: 'sandboxed' } }, setup),
-          brewery: stoutOnly,
-        },
-      }),
-    );
-    ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
   });
 
   it('says that check steps run unsandboxed on native Windows only', () => {

@@ -59,7 +59,7 @@ export interface CheckRunnerOptions {
   exec: ExecProcess;
   /**
    * A repository's setup, run before a check step's checks, and the process runner it runs
-   * through: with the network, never the checks' sandbox (ADR 0140).
+   * through: the checks' sandbox with the network kept (ADR 0158).
    */
   setup?: { of: (repo: string) => RepositorySetup | undefined; exec: ExecProcess };
   /** git, for the commits of the step a red proof proves (ADR 0078). */
@@ -139,16 +139,12 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
   });
 
   /**
-   * What one run of `check` read; when no sandbox held it, it says so: a check on native Windows
-   * (ADR 0076), a setup everywhere (ADR 0140).
+   * What one run of `check` read; when no sandbox held it, it says so: a check or a setup on
+   * native Windows (ADR 0076, ADR 0158).
    */
-  const readingIn = (
-    check: Extract<PlannedCheck, { kind: 'run' }>,
-    result: ExecResult,
-    unsandboxed = checksRunUnsandboxed(platform),
-  ) => {
+  const readingIn = (check: Extract<PlannedCheck, { kind: 'run' }>, result: ExecResult) => {
     const reading = readingOf(check, result);
-    return unsandboxed && reading.result !== 'skipped'
+    return checksRunUnsandboxed(platform) && reading.result !== 'skipped'
       ? { ...reading, unsandboxed: true as const }
       : reading;
   };
@@ -195,7 +191,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
 
   /**
    * The reading of the repository's setup, run in the worktree once the step needs nothing else
-   * before its checks, with the network, outside every sandbox (ADR 0140).
+   * before its checks, with the network, in the check sandbox where there is one (ADR 0158).
    */
   const runSetup = async (
     found: RepositorySetup,
@@ -212,7 +208,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     const result = await runLine(through, setup.command, worktree, deadlineAt, signal, {
       timeoutMs: durationMs(found.timeout),
     });
-    return [readingIn(setup, result, true)];
+    return [readingIn(setup, result)];
   };
 
   /**
