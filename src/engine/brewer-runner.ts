@@ -33,7 +33,10 @@ export interface AttemptStart {
 export interface AttemptEnd {
   ending: Ending;
   usage?: Usage;
-  /** What a check step read, one per check (ADR 0069); a brewer's attempt has none. */
+  /**
+   * What a check step read, one per check (ADR 0069); a brewer's attempt, its repository's setup's
+   * when it has one (ADR 0163).
+   */
   readings?: readonly GravityReading[];
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };

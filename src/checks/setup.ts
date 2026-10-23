@@ -1,6 +1,7 @@
 // A repository's setup (ADR 0140, ADR 0158) and the command lines of check steps: how one line runs
 // in a worktree through a process runner, killed before the attempt's deadline, in the brewers'
-// environment without claude's login. The check runner runs the setup before a check step's checks.
+// environment without claude's login. The check runner runs the setup before a check step's checks,
+// and the brewer runners before claude (ADR 0163).
 
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
