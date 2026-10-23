@@ -265,7 +265,8 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.equal(brewer.produces, 'report');
     assert.equal(brewer.output.schema, 'tasting');
     const writes = brewer.tools.allow.filter((tool) => /^(Edit|Write|NotebookEdit)\(/.test(tool));
-    assert.deepEqual(writes, [`Edit(${brewer.output.doc})`]);
+    // Write makes the out doc, Edit amends it: --tools takes the tool names of these rules.
+    assert.deepEqual(writes.sort(), [`Edit(${brewer.output.doc})`, `Write(${brewer.output.doc})`]);
   });
 
   it("holds its step's lens and the change to review in its prompt, as inputs", async () => {
