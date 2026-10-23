@@ -238,6 +238,19 @@ describe('laneLabelEffects', () => {
     assert.deepEqual(labels.of(brewery, 7), ['foedrum:brewing']);
   });
 
+  it('labels an issue by its latest batch only, never by one it was ordered as before', async () => {
+    // 7-1 went on tap before any driver labelled it; the issue was ordered again and cancelled.
+    order();
+    brew();
+    finish();
+    issue({ kind: 'order', batchId: '7-2', order: { issue: 7 } });
+    issue({ kind: 'cancel', batchId: '7-2', by: 'alice', via: 'terminal' });
+    const driver = await open();
+    await driver.tick();
+    assert.deepEqual(labels.of(brewery, 7), []);
+    assert.equal(revision(1), undefined);
+  });
+
   it('labels no claimed target issue, which keeps only foedrum:claimed', async () => {
     issue({
       kind: 'order',

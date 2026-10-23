@@ -139,6 +139,19 @@ describe('renderStatus', () => {
     assert.doesNotMatch(renderStatus(batch(), steps), /Path:/);
   });
 
+  it('ends the path where the batch is Stuck, though that attempt never started (#406)', () => {
+    const scheduled: Attempt = { phase: 'scheduled', attempt: 2, deadlineAt: at };
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'waiting_for_session', stepId: 'gauge' }),
+        steps: new Map([step('gauge', done(1), scheduled)]),
+        path: [{ stepId: 'gauge', attempt: 1 }],
+      }),
+      ['gauge'],
+    );
+    assert.ok(text.split('\n').includes('Path: `gauge #1` ✅ → `gauge #2` 🔔'), text);
+  });
+
   it('lists the steps the batch has when its recipe is unknown', () => {
     const text = renderStatus(batch({ steps: new Map([step('mash', done(1))]) }), undefined);
     assert.match(lineOf(text, 'mash'), /✅/);
