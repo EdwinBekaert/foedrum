@@ -102,7 +102,7 @@ const RepositoryConfig = z
     checks: Checks,
     testReport: TestReport.optional(),
     setup: RepositorySetup.optional().describe(
-      "Runs in a check step's worktree before its checks, with the network (ADR 0140)",
+      "Runs in a check step's worktree before its checks, in the check sandbox with the network kept (ADR 0158)",
     ),
     tools: z
       .array(CeilingTool)

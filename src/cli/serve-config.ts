@@ -279,15 +279,6 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
     );
   }
-  // A repository's setup runs outside every sandbox, so it cannot meet a sandboxed minimum (ADR 0140).
-  if (config?.isolation?.minimum === 'sandboxed' && loaded.valid && loaded.checks.any()) {
-    for (const { repo, setup } of repositories) {
-      if (setup === undefined) continue;
-      problems.push(
-        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside the sandbox before its check steps (ADR 0140)`,
-      );
-    }
-  }
   const claude = diagnosis.tools.find(({ name }) => name === 'claude')?.path;
 
   if (
