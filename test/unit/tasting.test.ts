@@ -257,14 +257,15 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     { action: 'openPullRequest' },
   ]);
 
-  it('is read-only: it reports, commits nothing and has no tool that writes a file', () => {
+  it('is read-only: it reports, commits nothing and writes only its out doc', () => {
     const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
     assert.ok(found !== undefined);
     const { brewer } = found;
     assert.equal(brewer.access, 'read');
     assert.equal(brewer.produces, 'report');
     assert.equal(brewer.output.schema, 'tasting');
-    for (const tool of brewer.tools.allow) assert.doesNotMatch(tool, /^(Edit|Write|NotebookEdit)/);
+    const writes = brewer.tools.allow.filter((tool) => /^(Edit|Write|NotebookEdit)\(/.test(tool));
+    assert.deepEqual(writes, [`Edit(${brewer.output.doc})`]);
   });
 
   it("holds its step's lens and the change to review in its prompt, as inputs", async () => {
