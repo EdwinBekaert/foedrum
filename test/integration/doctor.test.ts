@@ -50,7 +50,9 @@ const defaultsInUse = (['recipes', 'brewers', 'lenses/diff', 'lenses/plan'] as c
     return names.sort().map((name) => `defaults/${folder}/${name}`);
   },
 );
-const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one)`;
+// Its models.jsonc is listed after the lenses, and the Brewery's merges over it (ADR 0153).
+defaultsInUse.push('defaults/models.jsonc');
+const DEFAULTS_LINE = `Defaults in use: ${defaultsInUse.join(', ')} (a Brewery file of the same name replaces one; models.jsonc merges over defaults/models.jsonc by alias)`;
 // The default brewers' prompts (ADR 0141), measured here from the files in defaults/ themselves,
 // since their sizes change with every edit of a default brewer or lens: each brewer's body and its
 // lens inputs through the one prompt function (ADR 0041), in bytes and bytes / 4 tokens.
@@ -160,16 +162,16 @@ const doctorWithStubs = async (
   };
 };
 
-// What each level keeps from gh's login (ADR 0082, #229): the sandbox docs settle the hosts file
-// and the token variables, not the OS keyring.
+// What each level keeps from gh's login (ADR 0082, #229): the sandbox docs settle the user
+// folders, the hosts file and the token variables, not the OS keyring (ADR 0087, ADR 0160).
 const sandboxHides =
-  "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const writtenDown =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 // Where check steps run (ADR 0076): outside any sandbox only on native Windows.
 const onWindows = process.platform === 'win32';
 const keyring = (sandboxedLevel: string) =>
-  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
+  `  ${onWindows ? 'A brewer or a check step runs' : 'A brewer runs'} as you here, so it can still read gh's login from the OS keyring or its hosts file. ${sandboxedLevel} ${sandboxHides}${sandboxedLevel.startsWith('In WSL2') ? " Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160)." : ''} For brewers, the container level mounts only the worktree, which closes both. ${writtenDown} ${onWindows ? "On native Windows, check steps run outside any sandbox, so they can still read gh's login (ADR 0076)." : "Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076)."}`;
 const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its

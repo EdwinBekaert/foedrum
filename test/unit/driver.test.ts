@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
+import { takeOver } from '../../src/engine/batch-leases.ts';
 import type {
   AttemptEnd,
   AttemptLimits,
@@ -26,7 +27,7 @@ import {
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EffectTarget } from '../../src/engine/effects.ts';
 import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
-import type { State } from '../../src/engine/fold.ts';
+import { fold, type State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
@@ -51,8 +52,11 @@ const succeeded: Ending = {
   output: { status: 'done', summary: 'Done', assumptions: [] },
 };
 
-/** A runner whose attempts run until the test ends them. */
-const handRunner = () => {
+/**
+ * A runner whose attempts run until the test ends them; a stopped one ends cancelled, with
+ * `stopped`'s report.
+ */
+const handRunner = (onStop: Partial<AttemptEnd> = {}) => {
   const running = new Map<string, (end: AttemptEnd) => void>();
   const failing = new Map<string, (error: Error) => void>();
   // The attempts whose end rejected: a broken runner may report them on, also after their stop.
@@ -71,7 +75,7 @@ const handRunner = () => {
         ended,
         stop: () => {
           stopped.push(key);
-          running.get(key)?.({ ending: { kind: 'cancelled' } });
+          running.get(key)?.({ ...onStop, ending: { kind: 'cancelled' } });
           running.delete(key);
         },
       };
@@ -1296,6 +1300,119 @@ describe('openDriver', () => {
       await driver.drive();
       assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
       assert.equal(started().at(-1)?.session?.resumes, first);
+    });
+
+    describe('a takeover that resumes a step (ADR 0127)', () => {
+      /** plan#1 runs in the Cellar's session `first`, and `resume-1` takes the batch over. */
+      const takenOver = async (resumes?: string) => {
+        const cellar = handRunner(inSession(first));
+        const manager = fakeWorktrees();
+        order('b1');
+        const driver = await openResuming(manager, cellar.runner);
+        await driver.drive();
+        const request = { batchId: 'b1', owner: 'resume-1', by: 'ann', via: 'terminal' } as const;
+        const handover = { ...request, now, leaseMs: 5 * minute };
+        const decision = takeOver(
+          intake,
+          resumes === undefined ? handover : { ...handover, resumes },
+        );
+        assert.equal(decision.kind, 'accepted');
+        await driver.tick();
+        return { cellar, manager, driver };
+      };
+
+      it('records the step it resumes on the handover', async () => {
+        await takenOver('plan');
+        const [handed] = store
+          .eventsAfter(0)
+          .flatMap(({ event }) => (event.type === 'batch.taken_over' ? [event] : []));
+        assert.equal(handed?.resumes, 'plan');
+        const state = fold(store.eventsAfter(0).map(({ event }) => event));
+        assert.equal(state.batches.get('b1')?.takeover?.resumes, 'plan');
+      });
+
+      it('stops the run the driver that lost the batch has of that step, which records it cancelled and schedules a retry', async () => {
+        const { cellar } = await takenOver('plan');
+        assert.deepStrictEqual(cellar.stopped, [attemptKey.encode(plan('b1'))]);
+        assert.deepStrictEqual(types(store, 'b1').slice(-3), [
+          'batch.taken_over',
+          'step.finished plan#1',
+          'step.scheduled plan#2',
+        ]);
+        assert.deepStrictEqual(store.currentLeases(now), [], 'plan#1 let its lease go');
+      });
+
+      it('lets the new holder resume the session of the stopped run in the worktree it made', async () => {
+        const { manager } = await takenOver('plan');
+        const resumer = handRunner();
+        await open({
+          owner: 'resume-1',
+          runner: resumer.runner,
+          recipes: thrice,
+          worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+          sessionId: ids(),
+          takes: (batchId) => batchId === 'b1',
+          resumes: () => true,
+        }).then((driver) => driver.drive());
+        assert.deepStrictEqual(resumer.started, [plan('b1', 2)]);
+        assert.deepStrictEqual(started().at(-1)?.session, {
+          id: first,
+          resumes: first,
+          worktree: folder('plan', 1),
+        });
+      });
+
+      for (const resumes of [undefined, 'implement']) {
+        it(`stops nothing on a takeover that resumes ${resumes ?? 'no step'}`, async () => {
+          const { cellar } = await takenOver(resumes);
+          assert.deepStrictEqual(cellar.stopped, []);
+        });
+      }
+
+      it('stops none of its own later runs of the step once it holds the batch again', async () => {
+        const { cellar, driver } = await takenOver('plan');
+        // resume let the batch go; the Cellar takes it at its next pass and starts plan#2.
+        store.withTransaction((tx) => tx.releaseBatchLease('b1'));
+        await driver.drive();
+        assert.deepStrictEqual(cellar.started, [plan('b1'), plan('b1', 2)]);
+        await driver.tick();
+        assert.deepStrictEqual(cellar.stopped, [attemptKey.encode(plan('b1'))]);
+      });
+
+      it('stops nothing on a takeover from another owner', async () => {
+        const cellar = handRunner(inSession(first));
+        order('b1');
+        const driver = await openResuming(fakeWorktrees(), cellar.runner);
+        await driver.drive();
+        const handover = {
+          kind: 'take_over',
+          batchId: 'b1',
+          by: 'ann',
+          via: 'terminal',
+          from: 'session-7',
+          to: 'resume-1',
+          until: at(5).toISOString(),
+          resumes: 'plan',
+        } as const;
+        assert.equal(intake.issue(handover, now).kind, 'accepted');
+        holdFor('resume-1', 'b1');
+        await driver.tick();
+        assert.deepStrictEqual(cellar.stopped, []);
+      });
+
+      it('stops nothing once the owner the takeover gave the batch to no longer holds it', async () => {
+        const cellar = handRunner(inSession(first));
+        order('b1');
+        const driver = await openResuming(fakeWorktrees(), cellar.runner);
+        await driver.drive();
+        const request = { batchId: 'b1', owner: 'resume-1', by: 'ann', via: 'terminal' } as const;
+        const handover = { ...request, now, leaseMs: 5 * minute, resumes: 'plan' };
+        assert.equal(takeOver(intake, handover).kind, 'accepted');
+        // resume-1 let the batch go, and another driver holds it: nobody resumes plan now.
+        holdFor('session-7', 'b1');
+        await driver.tick();
+        assert.deepStrictEqual(cellar.stopped, []);
+      });
     });
 
     it('starts fresh, saying why, when the attempt before it has no session claude started', async () => {

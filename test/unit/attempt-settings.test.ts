@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
+import {
+  attemptSettings,
+  type ConfigDirs,
+  configDirsOf,
+  writeAttemptSettings,
+} from '../../src/brewers/attempt-settings.ts';
 import { type AttemptSettings, sandboxCredentials } from '../../src/schemas/attempt-settings.ts';
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -10,6 +15,11 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 // The key the schema does not know yet (ADR 0151), read without a type that has it.
 const attributionOf = (settings: AttemptSettings): unknown =>
   (settings as { attribution?: unknown }).attribution;
+
+// The read block (ADR 0160), read the same way.
+const readBlockOf = (settings: AttemptSettings): unknown =>
+  (settings.permissions as { blockReadsOutsideWorkingDirectories?: unknown })
+    .blockReadsOutsideWorkingDirectories;
 
 describe('attemptSettings', () => {
   it("keeps the brewer's rules and always denies AskUserQuestion and git push in each shell", () => {
@@ -106,6 +116,68 @@ describe('attemptSettings', () => {
     });
   });
 
+  // #247: a sandboxed command reads most of the machine, and a list of credential paths can't be
+  // complete. The block denies it the home directory and the other user roots, `/mnt` with the
+  // Windows home on WSL2 among them, and re-opens the working directories (ADR 0160).
+  it('blocks sandboxed commands from reading outside the working directories', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: true });
+    assert.equal(readBlockOf(settings), true);
+  });
+
+  // Without a sandbox the file tools' rules are already scoped to the worktree (ADR 0093), and the
+  // block would make a shell command the parser can't trace prompt, so be denied.
+  it('leaves the read block out without a sandbox', () => {
+    const settings = attemptSettings({ allow: ['Read'], deny: [], sandbox: false });
+    assert.equal(Object.hasOwn(settings.permissions, 'blockReadsOutsideWorkingDirectories'), false);
+  });
+
+  // #247: a variable that moves a login moves it out of ADR 0087's `~/` paths, and out of the
+  // block too when it points outside the user roots.
+  const hiddenFiles = (configDirs: ConfigDirs, sandbox = true): string[] =>
+    (
+      attemptSettings({ allow: ['Read'], deny: [], sandbox, configDirs }).sandbox?.credentials
+        .files ?? []
+    ).map(({ path }) => path);
+  const defaultFiles = sandboxCredentials.files.map(({ path }) => path);
+
+  it('hides the gh configuration directory GH_CONFIG_DIR names', () => {
+    assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }), [...defaultFiles, '/srv/gh']);
+  });
+
+  it("hides gh's directory and git's credential store under XDG_CONFIG_HOME", () => {
+    assert.deepEqual(hiddenFiles({ XDG_CONFIG_HOME: '/data/config' }), [
+      ...defaultFiles,
+      '/data/config/gh',
+      '/data/config/git/credentials',
+    ]);
+  });
+
+  it("hides Claude Code's login under CLAUDE_CONFIG_DIR", () => {
+    assert.deepEqual(hiddenFiles({ CLAUDE_CONFIG_DIR: '/data/claude-work' }), [
+      ...defaultFiles,
+      '/data/claude-work/.credentials.json',
+    ]);
+  });
+
+  it('hides each moved login once, when the variables name the same place', () => {
+    assert.deepEqual(
+      hiddenFiles({ GH_CONFIG_DIR: '/data/config/gh', XDG_CONFIG_HOME: '/data/config' }),
+      [...defaultFiles, '/data/config/gh', '/data/config/git/credentials'],
+    );
+  });
+
+  // A relative value resolves against whichever process reads it, so it names no one place; an
+  // empty one counts as unset, as gh reads it.
+  it('adds nothing for an empty or relative variable', () => {
+    assert.deepEqual(
+      hiddenFiles({ GH_CONFIG_DIR: '', XDG_CONFIG_HOME: 'config', CLAUDE_CONFIG_DIR: './c' }),
+      defaultFiles,
+    );
+  });
+
+  it('writes no credentials without a sandbox, whatever the variables say', () => {
+    assert.deepEqual(hiddenFiles({ GH_CONFIG_DIR: '/srv/gh' }, false), []);
+  });
   it('refuses a rule claude could not read', () => {
     assert.throws(
       () => attemptSettings({ allow: ['Bash(npm test'], deny: [], sandbox: false }),
@@ -398,8 +470,11 @@ const sandboxBlock = {
   autoAllowBashIfSandboxed: false,
   credentials: sandboxCredentials,
 };
-const sandboxed = (sandbox: object) => ({
-  permissions: { allow: [], deny: ['AskUserQuestion'] },
+const sandboxed = (
+  sandbox: object,
+  block: object = { blockReadsOutsideWorkingDirectories: true },
+) => ({
+  permissions: { allow: [], deny: ['AskUserQuestion'], ...block },
   sandbox,
 });
 const withoutKey = (block: object, key: string) =>
@@ -514,6 +589,16 @@ describe('writeAttemptSettings', () => {
       /Must hide every credential/,
     ],
     [
+      'a sandbox without the read block',
+      sandboxed(sandboxBlock, {}),
+      /blockReadsOutsideWorkingDirectories/,
+    ],
+    [
+      'a read block that is off',
+      sandboxed(sandboxBlock, { blockReadsOutsideWorkingDirectories: false }),
+      /blockReadsOutsideWorkingDirectories/,
+    ],
+    [
       'a sandbox that hides no credentials',
       sandboxed(withoutKey(sandboxBlock, 'credentials')),
       /credentials/,
@@ -561,4 +646,29 @@ describe('writeAttemptSettings', () => {
       assert.equal(existsSync(file), false);
     });
   }
+});
+
+describe('configDirsOf', () => {
+  it('keeps only the variables that move a login', () => {
+    assert.deepEqual(
+      configDirsOf({
+        GH_CONFIG_DIR: '/srv/gh',
+        XDG_CONFIG_HOME: '/data/config',
+        CLAUDE_CONFIG_DIR: '/data/claude',
+        HOME: '/home/brewer',
+        GH_TOKEN: 'not-a-token',
+      }),
+      {
+        GH_CONFIG_DIR: '/srv/gh',
+        XDG_CONFIG_HOME: '/data/config',
+        CLAUDE_CONFIG_DIR: '/data/claude',
+      },
+    );
+  });
+
+  it('leaves out the variables that are not set', () => {
+    assert.deepEqual(configDirsOf({ XDG_CONFIG_HOME: '/data/config', GH_CONFIG_DIR: undefined }), {
+      XDG_CONFIG_HOME: '/data/config',
+    });
+  });
 });

@@ -89,4 +89,16 @@ describe('serveFromCheckout', () => {
       ),
     );
   });
+
+  it("does not ask for a models.jsonc, nor for a model of a default brewer: Foedrum's defaults map them (ADR 0153)", async () => {
+    const { exec } = fakeRunner();
+    const result = await serveFromCheckout(dir.path, {
+      exec,
+      resolve: (name) => `/usr/bin/${name}`,
+    });
+    assert.equal(result.exitCode, 1);
+    // The Brewery of this folder has no files at all, so it is refused, but not for its models.
+    assert.match(result.stderr, /^foedrum serve: foedrum\.jsonc: not found in /m);
+    assert.doesNotMatch(result.stderr, /models\.jsonc/);
+  });
 });

@@ -13,6 +13,7 @@ import {
 } from '../../src/cli/doctor.ts';
 import {
   type BreweryFile,
+  type BreweryFiles,
   INVALID_RECIPES,
   invalidRecipes,
 } from '../../src/engine/recipe-files.ts';
@@ -562,9 +563,13 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
   const sandboxed = [macos, linux(), wsl2];
   const permissionsOnly = [windows, wsl1, linux({ bwrap: undefined }), freebsd];
 
-  // What ADR 0087 hides from a sandboxed command, from the docs.
+  // What ADR 0087 and ADR 0160 hide from a sandboxed command, from the docs.
   const hidesFileAndVariables = (line: string) => {
-    assert.match(line, /hides gh's hosts file at its default path and the token variables/);
+    assert.match(line, /hides your home folder and the other user folders/);
+    assert.match(
+      line,
+      /hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables/,
+    );
     assert.match(line, /keeps them from reaching GitHub/);
   };
   // The docs say nothing about the Keychain or the Secret Service, so neither does the line.
@@ -620,21 +625,23 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
       const [line = '', ...more] = keyring(facts);
       assert.deepEqual(more, []);
       assert.deepEqual(diagnose(facts).advice, [line], 'no other advice on the sandboxed level');
-      assert.match(line, /^The sandbox hides gh's hosts file/);
+      assert.match(line, /^The sandbox hides your home folder/);
       hidesFileAndVariables(line);
       leavesKeyringOpen(line);
     }
   });
 
-  // ADR 0087's credential entries are Linux `~/` paths, so on WSL2 the Windows user's copies of
-  // the same logins under /mnt stay readable (review of #250).
-  it("says wherever it advises or runs WSL2 that the sandbox leaves the Windows user's logins readable", () => {
+  // The read block denies sandboxed commands /mnt, where WSL2 mounts the Windows user's home
+  // (ADR 0160; ADR 0087 and the review of #250 had left it readable).
+  it("says wherever it advises or runs WSL2 that the sandbox hides the Windows user's logins too", () => {
     const wsl2WithoutBwrap = { ...linux({ bwrap: undefined }), kernelRelease: wsl2.kernelRelease };
     for (const facts of [windows, wsl1, wsl2, wsl2WithoutBwrap]) {
+      const [line = ''] = keyring(facts);
       assert.match(
-        keyring(facts)[0] ?? '',
-        /Under WSL, it doesn't hide the Windows user's logins under \/mnt \(ADR 0087\)\./,
+        line,
+        /Under WSL, the user folders include the Windows user's logins under \/mnt \(ADR 0160\)\./,
       );
+      assert.doesNotMatch(line, /doesn't hide the Windows user's logins/);
     }
     for (const facts of [macos, linux(), linux({ bwrap: undefined }), freebsd]) {
       assert.doesNotMatch(keyring(facts)[0] ?? '', /\/mnt/);
@@ -852,6 +859,68 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     );
     assert.match(replacing, /\nDefaults in use: none\n/);
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /Defaults in use/);
+  });
+
+  // Its models always apply under the Brewery's (ADR 0153), so a Brewery file never replaces it.
+  it('lists defaults/models.jsonc after the lenses, without loading it (ADR 0153, ADR 0063)', () => {
+    const models = { path: 'defaults/models.jsonc', text: '{ this is not even json' };
+    const brewery = (defaults: NonNullable<BreweryFiles['defaults']>): BreweryFiles => ({
+      recipes: [],
+      brewers: [],
+      lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
+      defaults,
+    });
+    const listed = diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens], models }) });
+    assert.match(
+      formatDiagnosis(listed),
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md, defaults\/models\.jsonc \(/,
+    );
+    // It is listed, not checked: no problem, and the same ones as without it.
+    const without = diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens] }) });
+    assert.deepEqual(listed.problems, without.problems);
+    assert.doesNotMatch(formatDiagnosis(without), /defaults\/models\.jsonc/);
+  });
+
+  it('lists defaults/models.jsonc even when the Brewery replaces every other default', () => {
+    const report = formatDiagnosis(
+      diagnose({
+        ...linux(),
+        brewery: {
+          recipes: [],
+          brewers: [],
+          lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
+          defaults: {
+            lenses: [replaced],
+            models: {
+              path: 'defaults/models.jsonc',
+              text: '{ "models": { "builder": "sonnet" } }',
+            },
+          },
+        },
+      }),
+    );
+    assert.match(report, /\nDefaults in use: defaults\/models\.jsonc \(/);
+    assert.doesNotMatch(report, /Defaults in use: none/);
+  });
+
+  it("says the Brewery's models.jsonc merges over defaults/models.jsonc rather than replacing it (ADR 0153)", () => {
+    const brewery = (defaults: NonNullable<BreweryFiles['defaults']>): BreweryFiles => ({
+      recipes: [],
+      brewers: [],
+      lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
+      defaults,
+    });
+    const models = { path: 'defaults/models.jsonc', text: '{ "models": { "builder": "sonnet" } }' };
+    assert.match(
+      formatDiagnosis(
+        diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens], models }) }),
+      ),
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md, defaults\/models\.jsonc \(a Brewery file of the same name replaces one; models\.jsonc merges over defaults\/models\.jsonc by alias\)\n/,
+    );
+    assert.match(
+      formatDiagnosis(diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens] }) })),
+      /\nDefaults in use: defaults\/lenses\/diff\/security\.md \(a Brewery file of the same name replaces one\)\n/,
+    );
   });
 
   it("says nothing of the defaults when the Brewery's files do not load", () => {

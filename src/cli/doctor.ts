@@ -158,15 +158,15 @@ const WSL2_ADVICE =
   'For untrusted repositories, run Foedrum inside WSL2, where shell commands are sandboxed.';
 /**
  * What each level keeps from gh's login (ADR 0082, #229). Claude Code's sandbox docs settle the
- * hosts file and the token variables (ADR 0087), not the OS keyring, so the sandbox never "closes"
- * it, and on WSL2 its `~/` entries leave the Windows user's logins under /mnt readable; the
- * container mounts only the worktree (ADR 0010). Check steps run in an OS sandbox of Foedrum's own
- * with no network, outside one only on native Windows (ADR 0076).
+ * user folders (ADR 0160), the hosts file and the token variables (ADR 0087), not the OS keyring,
+ * so the sandbox never "closes" it; on WSL2 the user folders include /mnt, with the Windows user's
+ * home. The container mounts only the worktree (ADR 0010). Check steps run in an OS sandbox of
+ * Foedrum's own with no network, outside one only on native Windows (ADR 0076).
  */
 const SANDBOX_HIDES =
-  "hides gh's hosts file at its default path and the token variables from a brewer's shell commands and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const WSL2_WINDOWS_HOME =
-  "Under WSL, it doesn't hide the Windows user's logins under /mnt (ADR 0087).";
+  "Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160).";
 const sandboxHides = (wsl: boolean) =>
   wsl ? `${SANDBOX_HIDES} ${WSL2_WINDOWS_HOME}` : SANDBOX_HIDES;
 const CONTAINER_CLOSES = 'container level mounts only the worktree, which closes both.';
@@ -739,7 +739,12 @@ export const formatDiagnosis = ({
       : [
           defaults.length === 0
             ? 'Defaults in use: none'
-            : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one)`,
+            : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one${
+                // The Brewery's models.jsonc merges over Foedrum's by alias (ADR 0153).
+                defaults.includes('defaults/models.jsonc')
+                  ? '; models.jsonc merges over defaults/models.jsonc by alias'
+                  : ''
+              })`,
         ]),
     ...(denylist === undefined ? [] : [denylistLine(denylist)]),
     '',

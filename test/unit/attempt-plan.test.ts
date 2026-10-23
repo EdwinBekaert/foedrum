@@ -742,6 +742,12 @@ describe('planAttempt', () => {
     assert.equal(plan.settingsFile, join('/root', 'attempt-settings', '12-1', 'brew', '1.json'));
   });
 
+  // ADR 0160: the settings hide the logins where the driver's environment moved them.
+  it('hands the attempt settings where the environment moves the logins', () => {
+    const configDirs = { XDG_CONFIG_HOME: '/data/config' };
+    assert.deepEqual(planAttempt({ ...facts(), configDirs }).permissions.configDirs, configDirs);
+  });
+
   describe('a brewer with git.commit (ADR 0074)', () => {
     const committing = (allow: string[]) =>
       facts({

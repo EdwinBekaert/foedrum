@@ -16,7 +16,7 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter, TASTING, TastingOutDoc } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
-import type { AttemptPermissions } from './attempt-settings.ts';
+import type { AttemptPermissions, ConfigDirs } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
@@ -55,6 +55,8 @@ export interface PlanFacts {
   repoTools: readonly string[];
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
+  configDirs?: ConfigDirs;
   settingsFile: string;
   /** The id of the new session, which the driver chose and recorded (ADR 0047, ADR 0116). */
   sessionId: string;
@@ -421,10 +423,16 @@ export function attemptPermissions(
   brewer: BrewerFrontmatter,
   repoTools: readonly string[],
   sandbox: boolean,
+  configDirs?: ConfigDirs,
 ): AttemptPermissions {
   // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
   const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...repoTools])];
-  return { allow, deny: brewer.tools.deny, sandbox };
+  return {
+    allow,
+    deny: brewer.tools.deny,
+    sandbox,
+    ...(configDirs === undefined ? {} : { configDirs }),
+  };
 }
 
 /** Why an attempt resumes the session before it: a retry (ADR 0117), or an answer (ADR 0118). */
@@ -450,7 +458,7 @@ export function goOn(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes } = facts;
-  const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox);
+  const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox, facts.configDirs);
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
   const instructions =

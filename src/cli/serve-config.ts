@@ -4,11 +4,13 @@
 
 import { join } from 'node:path';
 import { modelOf } from '../brewers/attempt-plan.ts';
+import { type ConfigDirs, configDirsOf } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
 import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
 import {
+  type BreweryFile,
   type BreweryFiles,
   filesInUse,
   invalidRecipes,
@@ -26,7 +28,7 @@ import {
   type TestReportConfig,
 } from '../schemas/brewery-config.ts';
 import { LocalConfig } from '../schemas/local-config.ts';
-import { ModelsConfig } from '../schemas/models.ts';
+import { ModelsConfig, ModelsFile } from '../schemas/models.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
@@ -46,7 +48,7 @@ export interface ServeInputs {
     config: string | undefined;
     /** .foedrum/local.jsonc */
     local: string | undefined;
-    /** models.jsonc */
+    /** models.jsonc, which merges over Foedrum's own (ADR 0153) */
     models: string | undefined;
     brewery: BreweryFiles;
   };
@@ -103,6 +105,8 @@ export interface ServeSetup {
   claude: string;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
+  /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
+  configDirs?: ConfigDirs;
   /** Whether check steps run without an OS sandbox: on native Windows only (ADR 0076). */
   unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */
@@ -144,6 +148,43 @@ const read = <T>(
   if (result.valid) return result.value;
   problems.push(`${file}: ${oneLine(result.reason)}`);
   return undefined;
+};
+
+/**
+ * The models a brewer can resolve (ADR 0153): Foedrum's default `models` with the Brewery's over
+ * them, by alias, and the `brewers` of the Brewery's file only. Every `brewers` alias must have a
+ * model among the merged ones. Undefined, with the problems added, when a file does not pass.
+ */
+const mergedModels = (
+  own: string | undefined,
+  defaults: BreweryFile | undefined,
+  problems: string[],
+): ModelsConfig | undefined => {
+  const none: ModelsConfig = { models: {}, brewers: {} };
+  // A default that does not load is Foedrum's defect, named by its defaults/ path (ADR 0098).
+  const readDefaults = (): ModelsConfig | undefined => {
+    if (defaults === undefined) return none;
+    if ('text' in defaults) {
+      return read(defaults.path, defaults.text, ModelsConfig, undefined, problems);
+    }
+    problems.push(`${defaults.path}: ${defaults.unreadable}`);
+    return undefined;
+  };
+  const fromDefaults = readDefaults();
+  const fromBrewery =
+    own === undefined ? none : read('models.jsonc', own, ModelsFile, undefined, problems);
+  if (fromDefaults === undefined || fromBrewery === undefined) return undefined;
+  const merged = {
+    models: { ...fromDefaults.models, ...fromBrewery.models },
+    brewers: fromBrewery.brewers,
+  };
+  const unmapped = Object.entries(merged.brewers).filter(
+    ([, alias]) => !Object.hasOwn(merged.models, alias),
+  );
+  for (const [brewer, alias] of unmapped) {
+    problems.push(`models.jsonc: brewers.${brewer}: No model has the alias "${alias}"`);
+  }
+  return unmapped.length === 0 ? merged : undefined;
 };
 
 /** What a command that needs the Brewery's name says when foedrum.jsonc has none. */
@@ -210,7 +251,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
   );
   // Without the file, every default applies.
   const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
-  const models = read('models.jsonc', files.models, ModelsConfig, notFound, problems);
+  const models = mergedModels(files.models, files.brewery.defaults?.models, problems);
 
   if (config !== undefined && Object.keys(config.repositories).length === 0) {
     problems.push(
@@ -329,6 +370,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       github: { hostname: githubHostname(config) },
       claude,
       sandbox: diagnosis.isolation.level === 'sandboxed',
+      configDirs: configDirsOf(env),
       unsandboxedChecks,
       brewerEnv: {
         base: brewerBaseEnv(env, platform),

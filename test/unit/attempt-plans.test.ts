@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
+import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
@@ -77,6 +77,7 @@ const setup = (
   files: Record<string, OutDocRead> = {},
   orderBody = 'Add a --json flag.',
   brewers = loaded.brewers,
+  options: Partial<AttemptPlansOptions> = {},
 ) => {
   const folders: string[] = [];
   const reads: { file: string; root: string }[] = [];
@@ -105,6 +106,7 @@ const setup = (
       makeFolder: (path) => folders.push(path),
     },
     random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
+    ...options,
   });
   return { plans, folders, reads, sizes, orders };
 };
@@ -511,6 +513,13 @@ describe('createAttemptPlans: plan', () => {
   it('asks for no sandbox when the isolation level does not rely on it (review of #165)', async () => {
     const { plans } = setup();
     assert.equal((await plans.plan(start)).permissions.sandbox, false);
+  });
+
+  // ADR 0160: the settings hide the logins where the driver's environment moved them.
+  it('hands each plan where the environment moves the logins', async () => {
+    const configDirs = { GH_CONFIG_DIR: '/srv/gh' };
+    const { plans } = setup(undefined, {}, undefined, undefined, { sandbox: true, configDirs });
+    assert.deepEqual((await plans.plan(start)).permissions.configDirs, configDirs);
   });
 
   it('makes the folder of the settings file under the work root', async () => {

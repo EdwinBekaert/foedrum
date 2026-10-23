@@ -12,6 +12,7 @@ Brewers are defined first; recipes compose them.
 | [Tasting](tasting.md) | Lenses, parallel groups, Brett |
 | [The openPullRequest action](open-pull-request.md) | The push and the pull request |
 | [How a brewer runs](how-a-brewer-runs.md) | The `claude` command line, the stream, how an attempt ends |
+| [A session on another machine](sessions-elsewhere.md) | Why a brewer's session is not carried, and what to do instead |
 | [Defaults](defaults.md) | Default recipes and brewers |
 | [Configuration files](configuration.md) | `foedrum.jsonc`, `models.jsonc`, house-yeast rules |
 
