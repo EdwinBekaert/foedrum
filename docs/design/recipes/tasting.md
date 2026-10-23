@@ -1,6 +1,12 @@
 # Tasting
 
-**Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](../../adr/0022-five-default-lenses.md)) in a parallel group.
+**Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](../../adr/0022-five-default-lenses.md)), one lens step after another until parallel groups land (#428).
+A lens step is a Taster's step with a `lens`: a Taster is a brewer whose out doc schema is `tasting`, and the default one is `defaults/brewers/taster.md`, read-only ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)).
+The step's lens reaches the Taster as its input `lens`, and a Taster that reviews a diff also gets the input `change`: the commit its batch started at, to read the change with `git diff` and `git log`.
+Its out doc adds `findings`, each with `severity` (`blocker`, `major`, `minor`), `why`, `introduced`, and `file` and `line` unless it is about the change as a whole, and a `verdict`, `approve` or `changes`.
+Findings are advisory: the pull request's body and the status comment list them, and the batch goes on.
+With `"blocking": true` on the step, the runner settles a `changes` verdict as blocked by findings, so the step's `onBlocked` route sends the batch back with the Taster's out doc, and after its rounds the batch is Stuck.
+A `lens` on a brewer that is no Taster, a Taster's step without one, and a lens no folder has fail the load with a line each.
 Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
 
 Lenses live in two folders, by what they review ([ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md)): `lenses/diff/` for a diff (code) and `lenses/plan/` for a plan (an order's breakdown, #391), in the Brewery and in `defaults/lenses/`.
