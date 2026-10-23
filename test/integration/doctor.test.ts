@@ -165,7 +165,7 @@ const doctorWithStubs = async (
 // What each level keeps from gh's login (ADR 0082, #229): the sandbox docs settle the user
 // folders, the hosts file and the token variables, not the OS keyring (ADR 0087, ADR 0160).
 const sandboxHides =
-  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const writtenDown =
   'A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one.';
 // Where check steps run (ADR 0076): outside any sandbox only on native Windows.

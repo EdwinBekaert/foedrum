@@ -738,6 +738,7 @@ describe('planAttempt', () => {
       allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)', 'Bash(npm test)'],
       deny: ['Read(.env)'],
       sandbox: true,
+      toolchain: { PATH: '/usr/bin' },
     });
     assert.equal(plan.settingsFile, join('/root', 'attempt-settings', '12-1', 'brew', '1.json'));
   });
@@ -746,6 +747,17 @@ describe('planAttempt', () => {
   it('hands the attempt settings where the environment moves the logins', () => {
     const configDirs = { XDG_CONFIG_HOME: '/data/config' };
     assert.deepEqual(planAttempt({ ...facts(), configDirs }).permissions.configDirs, configDirs);
+  });
+
+  // ADR 0162: the toolchain folders come from the brewer's base environment, the driver's; a
+  // brewer's own `env` cannot set PATH or HOME.
+  it("hands the attempt settings the driver's home and PATH", () => {
+    const base = { PATH: '/home/brewer/.volta/bin:/usr/bin', HOME: '/home/brewer', LANG: 'en_US' };
+    const plan = planAttempt({ ...facts(), env: { base, forced: {}, platform: 'linux' as const } });
+    assert.deepEqual(plan.permissions.toolchain, {
+      HOME: '/home/brewer',
+      PATH: '/home/brewer/.volta/bin:/usr/bin',
+    });
   });
 
   describe('a brewer with git.commit (ADR 0074)', () => {
