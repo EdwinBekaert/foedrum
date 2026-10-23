@@ -22,14 +22,10 @@ export interface AttemptPermissions {
   configDirs?: ConfigDirs;
 }
 
-/** The variables that move a login out of the paths `sandboxCredentials` names (ADR 0160). */
-export interface ConfigDirs {
-  GH_CONFIG_DIR?: string;
-  XDG_CONFIG_HOME?: string;
-  CLAUDE_CONFIG_DIR?: string;
-}
-
 const CONFIG_DIRS = ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR'] as const;
+
+/** The variables that move a login out of the paths `sandboxCredentials` names (ADR 0160). */
+export type ConfigDirs = Partial<Record<(typeof CONFIG_DIRS)[number], string>>;
 
 /** The variables of `env` that move a login. */
 export const configDirsOf = (env: Readonly<Record<string, string | undefined>>): ConfigDirs =>
@@ -60,8 +56,7 @@ const movedLogins = ({
 
 /** ADR 0087's credentials, with the logins the variables move, each path once. */
 const credentialsOf = (configDirs: ConfigDirs) => {
-  const known = sandboxCredentials.files.map(({ path }) => path);
-  const moved = [...new Set(movedLogins(configDirs))].filter((path) => !known.includes(path));
+  const moved = [...new Set(movedLogins(configDirs))];
   return {
     ...sandboxCredentials,
     files: [...sandboxCredentials.files, ...moved.map((path) => ({ path, mode: 'deny' as const }))],
