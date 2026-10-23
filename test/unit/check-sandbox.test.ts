@@ -464,10 +464,15 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     }
   });
 
-  it('starts the line under the profile without its denial of the network, everything else as a check', async () => {
+  // Seatbelt's network* also covers Unix sockets, such as launchd's ssh-agent under /private/tmp
+  // (review of #422): only IP is let through, and the resolver's socket for name lookups.
+  it('starts the line under the profile with IP kept and Unix sockets denied but the resolver, everything else as a check', async () => {
     assert.equal(
       seatbeltProfile(2, { network: true }),
-      seatbeltProfile(2).replace('(deny network*)\n', ''),
+      seatbeltProfile(2).replace(
+        '(deny network*)\n',
+        '(deny network-outbound (remote unix-socket))\n(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))\n',
+      ),
     );
     const { calls, exec } = fake();
     const temp = { make: () => '/private/var/folders/x/T/foedrum-check-3', remove: async () => {} };
