@@ -94,6 +94,9 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
     // A stop before a fresh attempt's run exists reaches it once it does.
     let stopped = false;
     let fresh: { stop(): void } | undefined;
+    // A stop reaches the setup before a resumed session, which is the attempt's, not the
+    // engineer's (ADR 0163).
+    const settingUp = new AbortController();
     const unstartable = (error: unknown): AttemptEnd => {
       const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
       return { ending: settleAttempt(factsOf(exit, undefined), limits) };
@@ -133,7 +136,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       if (plan.setup !== undefined) {
         open.add(key);
         try {
-          const signal = new AbortController().signal;
+          const signal = settingUp.signal;
           before.push(await setUpFor(plan.setup, plan.cwd, deps.setup, { now: deps.now, signal }));
         } finally {
           open.delete(key);
@@ -197,10 +200,12 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
     const ended = run().finally(() => headless.delete(key));
     return {
       ended,
-      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127).
+      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127)
+      // and the setup before a resumed session (ADR 0163).
       stop: () => {
         stopped = true;
         fresh?.stop();
+        settingUp.abort();
       },
     };
   };
