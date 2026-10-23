@@ -17,7 +17,7 @@ claude plugin marketplace add EdwinBekaert/foedrum
 claude plugin install foedrum@foedrum
 ```
 
-or, from a checkout of this repository, `claude --plugin-dir plugin`. Then, in a session started in a Brewery's root:
+or, from a checkout of this repository, start the session in the Brewery's root with `claude --plugin-dir <checkout>/plugin`. Then, in that session:
 
 ```text
 /foedrum:brew <issue>
