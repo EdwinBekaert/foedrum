@@ -581,7 +581,14 @@ describe('runServe', () => {
         serving = setup,
         prepare,
         merge,
-      }: { serving?: ServeSetup; prepare?: ExecProcess; merge?: WorktreeMerge } = {},
+        steps = [],
+      }: {
+        serving?: ServeSetup;
+        prepare?: ExecProcess;
+        merge?: WorktreeMerge;
+        /** What ran, in order: each check's command and its folder, after whatever else wrote here. */
+        steps?: string[];
+      } = {},
     ) => {
       const log = createCommandLog({ store, recipes: setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
@@ -590,6 +597,7 @@ describe('runServe', () => {
       const checks: Call[] = [];
       const exec: ExecProcess = async (file, args, options) => {
         checks.push({ file, args, options });
+        steps.push(`${file} in ${options.cwd}`);
         const output = code === 0 ? 'ok 1\n' : 'not ok 1\n';
         return { exitCode: code, stdout: output, stderr: '', output };
       };
@@ -627,19 +635,20 @@ describe('runServe', () => {
       join(dir.path, 'acme.web', 'attempts', '13-1', 'green', String(attempt));
 
     it("merges the base into the check's worktree before its test command runs (ADR 0164)", async () => {
-      const merges: string[] = [];
+      const steps: string[] = [];
       const clean = fakeWorktreeMerge();
       const merge: WorktreeMerge = {
         ...clean,
         merge: async (path, commit, message) => {
-          merges.push(`${path} ${commit}: ${message}`);
+          steps.push(`${path} ${commit}: ${message}`);
           return clean.merge(path, commit, message);
         },
       };
-      const { batch } = await brewWithChecks(0, { merge });
+      const { batch } = await brewWithChecks(0, { merge, steps });
       assert.equal(batch?.lane.kind, 'on_tap');
-      assert.deepStrictEqual(merges, [
+      assert.deepStrictEqual(steps, [
         `${worktreeOf(1)} ${'b'.repeat(40)}: Merge main before green`,
+        `npm test in ${worktreeOf(1)}`,
       ]);
       assert.ok(
         store
