@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { diagnose } from '../../src/cli/doctor.ts';
 import { attemptClone, type ServeInputs, serveSetup } from '../../src/cli/serve-config.ts';
 import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
-import { linux, loggedIn, ran, windows } from '../helpers/doctor-facts.ts';
+import { linux, loggedIn, macos, ran, windows } from '../helpers/doctor-facts.ts';
 import { clone, config, home, local, models, root, serveInputs } from '../helpers/serve-brewery.ts';
 
 const inputs = serveInputs;
@@ -354,8 +354,9 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
     );
   });
 
-  // A setup runs in the check sandbox, network kept, wherever a check does (ADR 0158).
-  it("meets a sandboxed minimum with a repository's setup where check steps are sandboxed, and refuses it with the checks' line elsewhere", () => {
+  // A setup runs in the check sandbox, network kept, wherever a check does; on Linux that sandbox
+  // still reaches the host's abstract Unix sockets until #425 (ADR 0158).
+  it("meets a sandboxed minimum with a repository's setup on macOS, refuses it on Linux until #425, and with the checks' line on Windows", () => {
     const files = inputs().files;
     const sandboxed = config(
       { isolation: { minimum: 'sandboxed' } },
@@ -363,7 +364,23 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
         setup: { command: 'npm ci', timeout: '10m' },
       },
     );
-    ready(inputs({ files: { ...files, config: sandboxed } }));
+    ready(
+      inputs({
+        platform: 'darwin',
+        files: { ...files, config: sandboxed },
+        diagnosis: diagnose(macos),
+      }),
+    );
+    assert.deepStrictEqual(refused(inputs({ files: { ...files, config: sandboxed } })), [
+      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)",
+    ]);
+    // Without a setup, or without the minimum, Linux starts.
+    ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
+    ready(
+      inputs({
+        files: { ...files, config: config({}, { setup: { command: 'npm ci', timeout: '10m' } }) },
+      }),
+    );
     const problems = refused(
       inputs({
         platform: 'win32',
