@@ -72,8 +72,23 @@ export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
 }).superRefine((doc, ctx) => {
-  if (doc.status === 'done' && doc.verdict === undefined) {
+  if (doc.status !== 'done') return;
+  if (doc.verdict === undefined) {
     ctx.addIssue({ code: 'custom', message: 'A done Taster gives a verdict', path: ['verdict'] });
+    return;
+  }
+  // The verdict follows from the findings, so the engine, not the model, decides what holds a
+  // blocking step up (ADR 0161).
+  const holds = doc.findings.some(
+    ({ severity, introduced }) => introduced && (severity === 'blocker' || severity === 'major'),
+  );
+  if ((doc.verdict === 'changes') !== holds) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'Must be "changes" exactly when a finding the change introduced is a blocker or major',
+      path: ['verdict'],
+    });
   }
 });
 
