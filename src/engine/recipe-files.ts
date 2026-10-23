@@ -268,6 +268,8 @@ interface LineStep {
   route: { why: 'failed' | 'findings'; goto: string; maxRounds: number } | undefined;
   /** The action it is, which the engine runs itself (ADR 0071); none for a brewer or a check. */
   action?: RecipeAction;
+  /** A check step that expects its checks to pass: not a red proof (ADR 0164). */
+  passes?: true;
 }
 
 /**
@@ -437,6 +439,13 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
 function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
   const opens = steps.find((entry) => entry.action === 'openPullRequest')?.id;
+  // The last checks before the pull request read the code it will hold (ADR 0164): of those the
+  // recipe runs, since a `when` reads only the recipe's settings (ADR 0064).
+  const runs = ({ when }: LineStep) => when === undefined || holds(when, settings);
+  const merges =
+    opens === undefined
+      ? undefined
+      : steps.findLast((entry) => entry.passes === true && runs(entry))?.id;
   const at = (id: string) => {
     const found = byId.get(id);
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
@@ -448,6 +457,7 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
     steps: steps.map(({ id }) => id),
     has: (id) => byId.has(id),
     action: (id) => at(id).action,
+    mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
     skip: (_batch, id) => {
@@ -601,6 +611,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
             stall: undefined,
             mayRetry: (attempts) => attempts.filter(readNothing).length < CHECK_RETRIES,
             route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
+            ...(runnable.expect === 'fail' ? {} : { passes: true as const }),
           };
           const checks = Array.isArray(runnable.check) ? runnable.check : [runnable.check];
           return [{ line, check: { checks, ...('of' in runnable ? { of: runnable.of } : {}) } }];

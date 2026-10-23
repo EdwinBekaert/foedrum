@@ -7,6 +7,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
+import { mergedBase } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
@@ -178,7 +179,14 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const [said = ''] = result.stderr.trim().split('\n');
       throw new Error(`${why}: git ${args.join(' ')} exited with code ${result.code}: ${said}`);
     };
-    const log = await read(['log', '--no-show-signature', '--format=%h %s', `${since}..${head}`]);
+    // The first parents only: never the commits a merge of the base brought in (ADR 0164).
+    const log = await read([
+      'log',
+      '--no-show-signature',
+      '--first-parent',
+      '--format=%h %s',
+      `${since}..${head}`,
+    ]);
     const diff = await read([
       '-c',
       'core.quotePath=false',
@@ -210,7 +218,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
-    const since = found.lens?.startsWith('diff/') ? changeStart(batch, worktree.repo) : undefined;
+    // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
+    const since = found.lens?.startsWith('diff/')
+      ? (mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo))
+      : undefined;
     if (since !== undefined) inputs.push(await changeFor(worktree.repo, since, worktree.commit));
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);

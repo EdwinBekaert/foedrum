@@ -12,6 +12,7 @@ import type {
   CleanReport,
 } from '../workspace/attempt-worktrees-git.ts';
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
+import { type BaseMerge, baseMergeKey, baseMergeTarget, mergeEnding } from './base-merge.ts';
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
@@ -65,6 +66,11 @@ export interface RepositoryWorktrees {
   base: string;
   manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'> &
     Partial<Pick<AttemptWorktrees, 'recreate'>>;
+  /**
+   * How an attempt of a step that merges the base merges it before it runs (ADR 0164); without
+   * it, nothing is merged.
+   */
+  merge?: BaseMerge;
 }
 
 /** What the driver reports instead of failing: it keeps driving. */
@@ -525,8 +531,46 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           },
         }
       : {};
-    if (recordStart({ ...started, ...session, worktree })) return true;
-    releaseAttempt(key);
+    if (!recordStart({ ...started, ...session, worktree })) {
+      releaseAttempt(key);
+      return false;
+    }
+    return mergeBase(ref, key, repository, made);
+  };
+
+  /**
+   * Merges the base into the worktree of `ref` before it runs, when its step is the recipe's last
+   * check before the pull request (ADR 0164): through the ledger, under an effect's deadline, so a
+   * kill on either side of it never merges twice. True when the attempt runs; otherwise it is
+   * finished, Stuck on the files a merge conflicts in or failed retryably, and lets its lease go.
+   */
+  const mergeBase = async (
+    ref: AttemptRef,
+    key: string,
+    { merge }: RepositoryWorktrees,
+    made: AttemptWorktree,
+  ): Promise<boolean> => {
+    if (merge === undefined) return true;
+    const name = log.state().batches.get(ref.batchId)?.recipe?.name;
+    if (name === undefined || recipes.find(name)?.mergesBase(ref.stepId) !== true) return true;
+    let ending: Ending | undefined;
+    // Renewed before it, as before every effect: none is renewed during one (ADR 0044).
+    heartbeat();
+    try {
+      const target = baseMergeTarget(merge, { path: made.path, start: made.commit }, ref.stepId);
+      const merging = baseMergeKey(ref);
+      const { result } = await withinDeadline(merging, (signal) =>
+        applyEffect(ledger, merging, target, signal),
+      );
+      ending = mergeEnding(result, merge.base);
+    } catch (error) {
+      const reason = `the base could not be merged: ${(error as Error).message}`;
+      ending = { kind: 'failed', retryable: true, reason };
+    }
+    if (ending === undefined) return true;
+    if (!issue({ kind: 'finish', ...ref, ending }, (tx) => tx.releaseLease(key))) {
+      releaseAttempt(key);
+    }
     return false;
   };
 
