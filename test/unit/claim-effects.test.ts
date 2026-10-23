@@ -245,6 +245,37 @@ describe('claimEffects', () => {
       assert.equal(github.calls.get('setIssueState'), undefined);
     });
 
+    it('releases the claim after a merge when a person deleted the Brewery issue', async () => {
+      onTap();
+      const driver = await open();
+      await driver.tick();
+      const [made] = opened();
+      github.issue(brewery, made?.number ?? 0).state = 'gone';
+      ended(merged, 'merged');
+      ended(other, 'merged');
+      await driver.tick();
+      assert.deepStrictEqual(ledger('release.order'), { result: 'gone' });
+      assert.equal(github.refs.has(`${repo}#7`), false, 'the ref goes all the same');
+      assert.deepStrictEqual(notices, []);
+    });
+
+    it('orders the issue again when a person deleted the Brewery issue a merge closed', async () => {
+      onTap();
+      const driver = await open();
+      await driver.tick();
+      ended(merged, 'merged');
+      ended(other, 'merged');
+      await driver.tick();
+      const [made] = opened();
+      github.issue(brewery, made?.number ?? 0).state = 'gone';
+      orderAgain('web-7-2');
+      await driver.tick();
+      assert.deepStrictEqual(store.findEffect({ batchId: 'web-7-2', effect: 'order.reopen' }), {
+        result: 'gone',
+      });
+      assert.deepStrictEqual(notices, []);
+    });
+
     it('closes it when every pull request merged, as the release of the claim', async () => {
       onTap();
       const driver = await open();

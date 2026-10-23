@@ -44,8 +44,12 @@ export interface IssueMarks {
   comment(repo: string, issue: number, body: string, signal?: AbortSignal): Promise<number>;
   /** The issue's title. */
   title(repo: string, issue: number, signal?: AbortSignal): Promise<string>;
-  /** Whether the issue is open or closed. */
-  issueState(repo: string, issue: number, signal?: AbortSignal): Promise<'open' | 'closed'>;
+  /** Whether the issue is open or closed, or gone: deleted, or never there. */
+  issueState(
+    repo: string,
+    issue: number,
+    signal?: AbortSignal,
+  ): Promise<'open' | 'closed' | 'gone'>;
   /** Closes or reopens the issue. */
   setIssueState(
     repo: string,

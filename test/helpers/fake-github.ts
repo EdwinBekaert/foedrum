@@ -12,8 +12,8 @@ export interface FakeIssue {
   comments: { author: string; body: string }[];
   /** Absent: a title the fake makes up from the number. */
   title?: string;
-  /** Absent: open. */
-  state?: 'open' | 'closed';
+  /** Absent: open. `gone`: a person deleted it, and GitHub answers 410 for it. */
+  state?: 'open' | 'closed' | 'gone';
   /** Set on an issue `openIssue` opened, with the login that opened it. */
   body?: string;
   author?: string;
@@ -25,7 +25,7 @@ export interface OpenedIssue {
   title: string;
   body: string;
   author: string;
-  state: 'open' | 'closed';
+  state: 'open' | 'closed' | 'gone';
 }
 
 export interface FakeGitHub {
@@ -218,9 +218,13 @@ ${marker(key)}`,
         };
       case 'issue_state':
         return {
-          find: async () =>
-            (marks.state ?? 'open') === effect.state ? { result: null } : undefined,
+          find: async () => {
+            const state = marks.state ?? 'open';
+            if (state === 'gone') return { result: 'gone' };
+            return state === effect.state ? { result: null } : undefined;
+          },
           apply: async () => {
+            if (marks.state === 'gone') throw new Error('410 Gone');
             marks.state = effect.state;
             return null;
           },
@@ -284,7 +288,10 @@ ${marker(key)}`,
     },
     setIssueState: async (repo, number, state) => {
       count('setIssueState');
-      issue(repo, number).state = state;
+      const found = issue(repo, number);
+      // As GitHub does: a deleted issue answers 410 Gone.
+      if (found.state === 'gone') throw new Error(`410 Gone: ${repo}#${number} was deleted`);
+      found.state = state;
     },
     findIssue: async (repo, marker) => {
       count('findIssue');

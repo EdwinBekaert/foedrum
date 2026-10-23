@@ -177,7 +177,6 @@ describe('githubIssueMarks', () => {
       ['findComment', (marks) => marks.findComment(repo, 7, marker)],
       ['comment', (marks) => marks.comment(repo, 7, 'Hello')],
       ['title', (marks) => marks.title(repo, 7)],
-      ['issueState', (marks) => marks.issueState(repo, 7)],
       ['setIssueState', (marks) => marks.setIssueState(repo, 7, 'closed')],
     ];
     for (const [name, call] of refusals) {
@@ -210,6 +209,15 @@ describe('githubIssueMarks', () => {
       ]);
       assert.equal(await marks.title(repo, 7), 'Add a dark theme');
       assert.equal(await marks.issueState(repo, 7), 'closed');
+    });
+
+    it('answers gone for an issue a person deleted, or one that never was, and fails on other answers', async () => {
+      for (const status of [410, 404]) {
+        const { marks } = marksWith([{ status, body: { message: 'This issue was deleted' } }]);
+        assert.equal(await marks.issueState(brewery, 200), 'gone', String(status));
+      }
+      const { marks } = marksWith([{ status: 403, body: { message: 'Resource not accessible' } }]);
+      await assert.rejects(marks.issueState(brewery, 200), /403 .*acme\/brewery#200/);
     });
 
     it('fails on an issue without a title', async () => {
