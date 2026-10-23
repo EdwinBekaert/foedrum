@@ -309,8 +309,6 @@ export const commands: readonly RegisteredCommand[] = [
     summary: "Report each brewer's attempts, outcomes, Stuck batches and tokens",
     changesState: false,
     positionals: [],
-    terminalOnly:
-      "A maintainer's report on the Brewery's brewer files, read where they are edited (ADR 0159)",
     schema: BrewersCommand,
     handler: async (_input, context) => {
       // Files that do not load refuse it with doctor's line, before the store is opened.

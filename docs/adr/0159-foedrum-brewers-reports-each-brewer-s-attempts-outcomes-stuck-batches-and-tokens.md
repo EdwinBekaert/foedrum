@@ -1,6 +1,6 @@
 # 0159. foedrum brewers reports each brewer's attempts, outcomes, Stuck batches and tokens
 
-Date: 2026-10-23 · Status: Accepted · Amends [0030](0030-only-commands-that-change-state-are-recorded.md) (one more read-only command) and [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (a read command without a store)
+Date: 2026-10-23 · Status: Accepted · Amends [0030](0030-only-commands-that-change-state-are-recorded.md) (one more read-only command), [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (a read command without a store) and [0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md) (one more command the plugin carries)
 
 ## Context
 The ledger records every attempt of a step: when it started, how it ended (`step.finished`'s `outcome`) and, for a brewer step, the tokens it used (`usage`: input, output, cache read, cache write). Nothing reads those back per brewer. A team that writes its own brewers needs to see which ones earn their place: how often each runs, how it ends, which batches it left Stuck, and what it costs (#283). `foedrum doctor` already says what a brewer's own files put into every prompt and which Brewery files nothing uses ([ADR 0141](0141-doctor-reports-prompt-sizes-unused-files-and-what-a-brewery-file-drops-from-its-default.md)); this is the other half, what the runs actually spent.
@@ -10,7 +10,7 @@ Two things had to be settled. The events name a batch's step, never its brewer: 
 ## Decision
 - **A read-only command of its own: `foedrum brewers`.** It reads the store as `status` and `stuck` do, without a lease, appends nothing and pushes nothing (ADR 0030), and loads the Brewery's recipe, brewer and lens files with the loader the engine uses (`loadRecipes`, ADR 0053); files that do not load refuse it with doctor's line. Doctor stays about the machine and the files: a section of doctor would make it open the store, which it does not need and may not have.
 - **Without an event store** it lists every brewer in use with no attempts and exits 0, as `status` says `No batches yet.` ([ADR 0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md)), and makes no store: the brewers are in the files, and a fresh Brewery's answer is that none has run.
-- **Terminal only.** It is a maintainer's report on the Brewery's brewer files, read where they are edited, so the registry marks it `terminalOnly` with that reason (ADR 0125); `/foedrum:status` and `/foedrum:stuck` stay the plugin's reads of the batches.
+- **In the terminal and the plugin.** The registry gives it a plugin skill, `/foedrum:brewers`, which runs `foedrum brewers --via plugin` as the other read skills run theirs, so the plugin-parity test covers it and every surface carries it (#405); it is no longer a command the plugin leaves to the terminal ([ADR 0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md)).
 - **A step's brewer, through the recipe the attempt ran in, as its file is now.** The report folds the events and, for each attempt of each batch, takes the recipe the batch had chosen when the attempt was scheduled (`recipesRun`: the latest `batch.recipe_chosen` before its `step.scheduled`), since a batch's steps keep the attempts of the recipe it brewed before a person chose another (`foedrum recipe`). It asks that loaded recipe whether it has the step (`Recipe.has`) and for its brewer (`StepBrewers.find`). A check step or an action step (`openPullRequest`) has no brewer and is left out. An attempt whose recipe no file has now, or whose recipe has no such step any more, is not given to any brewer: the report lists it under `Steps the recipe files no longer have`, by recipe and step, with the same counts, so no attempt is dropped silently. A step whose file now names another brewer than the one that ran is counted for the one it names now: the events do not record the brewer, and recording it would be a new field on `step.started` for a report.
 - **A pure function over the folded state** (`brewerReport`, `src/cli/brewer-report.ts`), given the brewers in use and a step lookup, gives per brewer:
   - **attempts**: the attempts of its steps that started (one scheduled and never started did not run);
@@ -22,11 +22,11 @@ Two things had to be settled. The events name a batch's step, never its brewer: 
 ## Consequences
 - A maintainer sees, from the terminal, which brewers run, how they end, which batches they hold Stuck and what they cost, at no cost: no model call, no lease, no event.
 - A recipe file edited between batches changes which brewer an old attempt counts for when a step keeps its id and names another brewer; a step that left its file shows on a line of its own.
-- The registry has one more read-only command, and the command list of the design page with it.
+- The registry has one more read-only command, the plugin one more skill, and the command lists of the design pages with them.
 - Token counts are what claude reported; an attempt that ended before claude's report has none and adds nothing to the sums.
 
 ## Alternatives considered
 - **A section of `foedrum doctor`.** One place for a maintainer, but doctor would open the store, and its checks of the machine run before there is one.
 - **Record the brewer on `step.started`.** It would name the brewer that really ran, also after the file changed, but adds a field to the event schema for a report, and old events would still need the recipe.
 - **Read the events instead of the folded state.** It would also count batches that were Stuck and moved on, but repeats the fold's work in a second place; the outcomes already show how each attempt ended.
-- **A plugin skill.** The command reads only, so the plugin could carry it, but the report is for whoever edits the brewer files, which happens in the terminal; a skill can come when someone asks for it in a session.
+- **Terminal only.** The report is for whoever edits the brewer files, mostly in the terminal, but a surface without it is incomplete, and a read skill costs one Markdown file.
