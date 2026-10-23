@@ -15,6 +15,7 @@ import {
 } from '../../src/brewers/interactive-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptLimits, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 
@@ -294,5 +295,46 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     assert.deepEqual(ending, { kind: 'failed', retryable: true, reason: 'headless' });
     assert.deepEqual(headlessPlans, [plan('new')]);
     assert.deepEqual(foreground, []);
+  });
+
+  // The worktree of a resumed session may have been re-added without its install (review of #440).
+  describe("a resumed session's setup (ADR 0163)", () => {
+    const withSetup = async (): Promise<ClaudeAttemptPlan> => ({
+      ...plan('resume'),
+      setup: {
+        run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+        deadlineAt: '2026-10-23T13:00:00.000Z',
+        env: { PATH: '/usr/bin' },
+      },
+    });
+    const setupExec =
+      (exitCode: number): ExecProcess =>
+      async (file, _args, options) => {
+        calls.push(`setup ${file} in ${options.cwd}`);
+        const output = exitCode === 0 ? 'added 7 packages' : 'npm ERR! missing lock file';
+        return { exitCode, stdout: output, stderr: '', output };
+      };
+
+    it('runs the setup in the worktree before it opens the session, and records its reading', async () => {
+      const end = await runner('resume', { plan: withSetup, setup: setupExec(0) }).start(attempt)
+        .ended;
+      const ran = calls.indexOf(`setup npm ci in ${plan('resume').cwd}`);
+      assert.ok(ran !== -1 && ran < calls.indexOf('claude'), calls.join('\n'));
+      assert.equal(end.ending.kind, 'succeeded');
+      assert.deepEqual(end.readings, [
+        { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
+      ]);
+    });
+
+    it('ends blocked on its environment, without opening the session, when the setup fails', async () => {
+      const end = await runner('resume', { plan: withSetup, setup: setupExec(1) }).start(attempt)
+        .ended;
+      assert.ok(!calls.includes('claude'), calls.join('\n'));
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the setup "npm ci" failed with exit code 1',
+      });
+    });
   });
 });

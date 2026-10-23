@@ -575,6 +575,35 @@ describe('runServe', () => {
       assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
     });
 
+    // A setup runs before every fresh brewer attempt too, so a recipe without a check step runs
+    // it, outside a sandbox on native Windows (ADR 0163).
+    it("says at its start, once, that a repository's setup runs outside an OS sandbox on native Windows, with or without a check step", async () => {
+      const setupOutside =
+        "foedrum serve: acme/web's setup runs outside an OS sandbox on native Windows, before fresh brewer attempts and check steps: it can run code a brewer wrote, with network and home-folder access (ADR 0163)";
+      const files = serveInputs().files;
+      const withSetup = (recipes: typeof files.brewery.recipes) => {
+        const ready = serveSetup(
+          serveInputs({
+            files: {
+              ...files,
+              config: config({}, { setup: { command: 'npm ci', timeout: '10m' } }),
+              local: local({ workRoot: dir.path }),
+              brewery: { ...files.brewery, recipes },
+            },
+          }),
+        );
+        assert.ok(ready.kind === 'ready');
+        return ready.setup;
+      };
+      const stoutOnly = withSetup(files.brewery.recipes.slice(0, 1));
+      assert.equal(await runServe({ ...stoutOnly, unsandboxedChecks: true }, shell()), 0);
+      assert.equal(lines.filter((line) => line === setupOutside).length, 1, lines.join('\n'));
+      assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
+      lines.length = 0;
+      assert.equal(await runServe(withSetup(files.brewery.recipes), shell()), 0);
+      assert.ok(!lines.includes(setupOutside), 'in a sandbox it says nothing of it');
+    });
+
     type Call = { file: string; args: readonly string[]; options: ExecOptions };
     /** Serve with a brewer that succeeds and a process runner that answers each check with `code`. */
     const brewWithChecks = async (

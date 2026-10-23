@@ -156,7 +156,7 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
     assert.equal(plan.setup, undefined);
   });
 
-  it('carries none for an attempt that resumes a session: its worktree was set up when the session started', async () => {
+  it('carries it for an attempt that resumes a session too: the driver may have re-added its worktree (review of #440)', async () => {
     const second = { ...ref, attempt: 2 };
     const events: Event[] = [
       ...fresh,
@@ -175,7 +175,7 @@ describe('createAttemptPlans: the setup of a fresh attempt (ADR 0163)', () => {
     ];
     const plan = await plansOf(events).plan({ ...start, ref: second });
     assert.equal(plan.call.session.kind, 'resume');
-    assert.equal(plan.setup, undefined);
+    assert.equal(plan.setup?.run.command, 'npm ci');
   });
 });
 
@@ -210,7 +210,7 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
     ...(setup === undefined ? {} : { setup: { run: setup, deadlineAt, env: setupEnv } }),
   });
 
-  type Script = Partial<ExecResult> | 'hang';
+  type Script = Partial<ExecResult> | 'hang' | { until: Promise<void> };
   /** How the fake claude ends: it succeeds, runs until stopped, throws, or fails before its stream. */
   type Claude = 'success' | 'hang' | 'throws' | 'pre-stream';
   /** A runner whose setup answers as scripted; `order` records the setup and claude's starts. */
@@ -221,7 +221,13 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
       withExec = true,
       claude = 'success',
       whileCounting,
-    }: { withExec?: boolean; claude?: Claude; whileCounting?: () => void } = {},
+      now = () => new Date('2026-10-17T12:50:00.000Z'),
+    }: {
+      withExec?: boolean;
+      claude?: Claude;
+      whileCounting?: () => void;
+      now?: () => Date;
+    } = {},
   ) => {
     const order: string[] = [];
     const setups: { file: string; options: ExecOptions }[] = [];
@@ -235,8 +241,10 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
           ),
         );
       }
-      const output = script.output ?? 'added 7 packages';
-      return Promise.resolve({ exitCode: 0, stdout: output, stderr: '', output, ...script });
+      const output = 'until' in script ? 'added 7 packages' : (script.output ?? 'added 7 packages');
+      const result = { exitCode: 0, stdout: output, stderr: '', output };
+      if ('until' in script) return script.until.then(() => result);
+      return Promise.resolve({ ...result, ...script });
     };
     const runner = claudeBrewerRunnerWith({
       claude: '/opt/claude/bin/claude',
@@ -261,8 +269,8 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
         readOutDoc: () => ({ kind: 'text', text: outDoc({ status: 'done', summary: 'Planned' }) }),
         clearOutDoc: () => {},
       },
-      // Ten minutes before the attempt's deadline.
-      now: () => new Date('2026-10-17T12:50:00.000Z'),
+      // By default ten minutes before the attempt's deadline.
+      now,
       // The wait before a second start of claude lasts until the attempt is stopped.
       wait: (_ms, signal) =>
         claude === 'pre-stream'
@@ -411,5 +419,29 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
     const end = await running.ended;
     assert.equal(end.ending.kind, 'cancelled');
     assert.deepEqual(end.readings, passed);
+  });
+
+  // The stall limit judges the brewer, not its repository's install (ADR 0027, review of #440).
+  it("does not count the setup's time against the brewer's stall limit", async () => {
+    let time = Date.parse('2026-10-17T12:00:00.000Z');
+    let finish = () => {};
+    const until = new Promise<void>((done) => {
+      finish = done;
+    });
+    const { runner } = runnerOf(run, { until }, { claude: 'hang', now: () => new Date(time) });
+    const running = runner.start(attempt);
+    await new Promise((resolve) => setImmediate(resolve));
+    // Twenty minutes into the setup, the attempt still progresses.
+    time += 20 * 60_000;
+    assert.deepEqual(runner.progress(attempt.ref)?.lastProgressAt, new Date(time));
+    finish();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    // claude started when the setup ended: its stall clock starts there, not at the attempt's start.
+    const ready = new Date(time);
+    time += 60_000;
+    assert.deepEqual(runner.progress(attempt.ref)?.lastProgressAt, ready);
+    running.stop();
+    await running.ended;
   });
 });

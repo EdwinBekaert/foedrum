@@ -32,6 +32,11 @@ export interface InteractiveRunnerDeps {
   /** The `claude` program to start. */
   claude: string;
   plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>;
+  /**
+   * The process runner a resumed session's setup runs through before claude opens: the check
+   * sandbox, network kept (ADR 0158, ADR 0163).
+   */
+  setup?: ExecProcess;
   /** The headless runner of an attempt that starts fresh, given its plan. */
   headless: (plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>) => BrewerRunner;
   /** Runs `program` in the foreground with the terminal's stdio; its exit code. */
