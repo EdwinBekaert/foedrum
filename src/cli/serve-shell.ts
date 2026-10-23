@@ -121,7 +121,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
         clone: worktreeClonePath(workRoot, repository),
         own: ownRemote(repository.repo),
       }),
-    // A fresh attempt's setup runs before claude, in the setup's sandbox (ADR 0163).
+    // A brewer attempt's setup runs before claude, in the setup's sandbox (ADR 0163).
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan, setup: setupExec }),
     // A check's command line runs in the OS sandbox (ADR 0076).
     exec: sandboxedChecks({ exec: execProcess, ...checks }),
