@@ -512,8 +512,9 @@ describe('createIntake', () => {
     it('leaves a claimed batch Ordered until its Brewery issue is recorded, whatever its target issue carries', async () => {
       accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
       const routeBy = log.state().batches.get('web-7')?.lane;
+      // Brewery issue #7 is no order of web-7, though it has the target issue's number.
       const { tracker } = fakeTracker({
-        [brewery]: [],
+        [brewery]: [issue(7, { labels: ['recipe:nip'], author: 'mallory' })],
         [web]: [issue(7, { labels: ['foedrum', 'recipe:half'] })],
         [api]: [],
       });
@@ -521,6 +522,46 @@ describe('createIntake', () => {
       assert.deepStrictEqual(lanes(), ['web-7 ordered']);
       assert.deepStrictEqual(log.state().batches.get('web-7')?.lane, routeBy);
       assert.deepStrictEqual(notices, []);
+    });
+
+    it('reports a claimed batch whose Brewery issue carries two recipe labels, naming that issue', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      opened('web-7', 12);
+      const { tracker } = fakeTracker({
+        [brewery]: [issue(12, { labels: ['recipe:half', 'recipe:pint'] })],
+        [web]: [issue(7)],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual(notices, [
+        {
+          kind: 'unrouted',
+          batchId: 'web-7',
+          reason: 'its issue #12 carries recipe:half and recipe:pint; give it one recipe label',
+        },
+      ]);
+    });
+
+    it('routes a claimed issue ordered again by the Brewery issue an earlier batch of it opened', async () => {
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      opened('web-7', 12);
+      accept({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      // The cancel's release, applied by the driver, lets the issue be ordered again (ADR 0105).
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        accept({
+          kind: 'record',
+          event: { type: 'effect.applied', key: `["web-7","${effect}"]`, result: null },
+        });
+      }
+      accept({ kind: 'order', batchId: 'web-7-2', order: { issue: 7, repo: web } });
+      const { tracker } = fakeTracker({
+        [brewery]: [issue(12, { labels: ['recipe:nip'] })],
+        [web]: [],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.equal(recipeOf('web-7-2')?.name, 'nip');
     });
 
     it('orders the oldest Brewery issue first, whatever order the listing gives', async () => {
