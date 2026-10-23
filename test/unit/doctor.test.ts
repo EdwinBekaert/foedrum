@@ -858,7 +858,7 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
   // Its models always apply under the Brewery's (ADR 0153), so a Brewery file never replaces it.
   it('lists defaults/models.jsonc after the lenses, without loading it (ADR 0153, ADR 0063)', () => {
     const models = { path: 'defaults/models.jsonc', text: '{ this is not even json' };
-    const brewery = (defaults: BreweryFiles['defaults']): BreweryFiles => ({
+    const brewery = (defaults: NonNullable<BreweryFiles['defaults']>): BreweryFiles => ({
       recipes: [],
       brewers: [],
       lenses: [{ path: 'lenses/diff/correctness.md', text: 'Our bugs.' }],
