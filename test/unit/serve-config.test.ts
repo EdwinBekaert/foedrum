@@ -559,4 +559,18 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
       }
     }
   });
+
+  it('refuses a broken default and a broken Brewery models.jsonc with a line each, at once', () => {
+    const problems = refused(
+      withGauger('{', { models: { path: 'defaults/models.jsonc', text: '{' } }),
+    );
+    assert.ok(
+      problems.some((problem) => problem.startsWith('defaults/models.jsonc: ')),
+      problems.join('\n'),
+    );
+    assert.ok(
+      problems.some((problem) => problem.startsWith('models.jsonc: ')),
+      problems.join('\n'),
+    );
+  });
 });
