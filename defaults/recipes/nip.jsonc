@@ -1,7 +1,7 @@
 // Nip, the quick fix in one repository, test-first (ADR 0017): the Gauger commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the checks
-// read the result, and the pull request opens. Its Taster step joins once lens steps load
-// (ADR 0053, #26).
+// read the result, the Taster reviews the change through the correctness lens, and the pull
+// request opens with its findings (ADR 0161).
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
@@ -29,6 +29,8 @@
       "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
+    // Advisory: the findings are listed in the pull request and the status comment.
+    { "id": "taste", "brewer": "taster", "lens": "diff/correctness" },
     { "action": "openPullRequest" }
   ]
 }

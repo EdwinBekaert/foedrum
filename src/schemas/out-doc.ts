@@ -48,6 +48,68 @@ export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> 
   return readDoc(text, schema);
 }
 
+/** The name of a Taster's out doc schema (`output.schema`): what makes a brewer a Taster (ADR 0161). */
+export const TASTING = 'tasting';
+
+/** A Taster's verdict: `changes` holds a blocking step up (ADR 0161). */
+export const Verdict = z.enum(['approve', 'changes']);
+
+/**
+ * One finding of a Taster (ADR 0161): where, how bad, and why; `introduced` is false for a defect
+ * that was there before the change (ADR 0094). A finding about the change as a whole has no file.
+ */
+export const TastingFinding = z.strictObject({
+  file: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line').optional(),
+  line: z.int().positive().optional(),
+  severity: z.enum(['blocker', 'major', 'minor']),
+  why: NonEmpty,
+  introduced: z.boolean(),
+});
+export type TastingFinding = z.infer<typeof TastingFinding>;
+
+/** A Taster's out doc: the contract's, with its findings, and a verdict when it is done. */
+export const TastingOutDoc = outDocFrontmatter({
+  verdict: Verdict.optional(),
+  findings: z.array(TastingFinding).default([]),
+}).superRefine((doc, ctx) => {
+  if (doc.status !== 'done') return;
+  if (doc.verdict === undefined) {
+    ctx.addIssue({ code: 'custom', message: 'A done Taster gives a verdict', path: ['verdict'] });
+    return;
+  }
+  // The verdict follows from the findings, so the engine, not the model, decides what holds a
+  // blocking step up (ADR 0161).
+  const holds = doc.findings.some(
+    ({ severity, introduced }) => introduced && (severity === 'blocker' || severity === 'major'),
+  );
+  if ((doc.verdict === 'changes') !== holds) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'Must be "changes" exactly when a finding the change introduced is a blocker or major',
+      path: ['verdict'],
+    });
+  }
+});
+
+/** What a Taster reported in the out doc of an attempt that succeeded. */
+export interface TastingReport {
+  verdict: z.infer<typeof Verdict>;
+  findings: readonly TastingFinding[];
+}
+
+/**
+ * The verdict and findings of an attempt's `output` when a Taster wrote it (ADR 0161); undefined
+ * for any other brewer's out doc, and for a check's success, which has none.
+ */
+export const tastingOf = (output: unknown): TastingReport | undefined => {
+  const read = TastingOutDoc.safeParse(output);
+  if (!read.success || read.data.status !== 'done' || read.data.verdict === undefined) {
+    return undefined;
+  }
+  return { verdict: read.data.verdict, findings: read.data.findings };
+};
+
 /**
  * The assumptions of an out doc that succeeded, beside whatever else it holds (a brewer's own
  * fields): what the status comment shows (ADR 0072).

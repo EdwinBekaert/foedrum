@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
-import { OutDocAssumptions } from '../schemas/out-doc.ts';
+import { OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
@@ -15,7 +15,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { knownCommits } from './pull-request.ts';
+import { findingText, knownCommits } from './pull-request.ts';
 import type { Recipes } from './recipes.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
@@ -278,12 +278,43 @@ const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   return [];
 };
 
+/** The first `most` of `all` as lines of `stepId`, and a line that counts the rest. */
+const capped = <T>(
+  stepId: string,
+  all: readonly T[],
+  most: number,
+  text: (item: T) => string,
+): string[] => {
+  const shown = all.slice(0, most).map((item) => `- ${code(stepId)}: ${text(item)}`);
+  const more = all.length - shown.length;
+  return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+};
+
 const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) =>
+    capped(stepId, assumptionsOf(batch, stepId, told), mostAssumptions, (text) => text),
+  );
+
+/** How many findings of one Taster's step the comment shows. */
+const mostFindings = 10;
+
+/**
+ * The findings of each Taster's step whose latest finished attempt succeeded (ADR 0161): a blocking
+ * verdict ends its attempt blocked, and an earlier round's findings are no longer current.
+ */
+const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
   stepIds.flatMap((stepId) => {
-    const all = assumptionsOf(batch, stepId, told);
-    const shown = all.slice(0, mostAssumptions).map((text) => `- ${code(stepId)}: ${text}`);
-    const more = all.length - shown.length;
-    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+    const finished = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
+    const output =
+      finished?.phase === 'finished' && finished.outcome.kind === 'succeeded'
+        ? finished.outcome.output
+        : undefined;
+    return capped(
+      stepId,
+      tastingOf(output)?.findings ?? [],
+      mostFindings,
+      (finding) => `${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+    );
   });
 
 /**
@@ -315,6 +346,8 @@ export const renderStatus = (
   ];
   const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
+  const findings = findingLines(batch, stepIds, told);
+  if (findings.length > 0) sections.push(['**Findings**', ...findings]);
   if (batch.lane.kind === 'on_tap') {
     const { pullRequests } = batch.lane;
     sections.push(

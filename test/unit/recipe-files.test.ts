@@ -272,15 +272,23 @@ describe('invalidRecipes', () => {
 });
 
 describe('loadRecipes: fails closed on what a brewer step cannot do yet (#151)', () => {
-  it('refuses a lens or a blocking flag, which the engine does not follow yet', () => {
+  it("refuses a lens on a brewer that is no Taster, and a blocking flag on one, which is Brett's", () => {
     const steps = [
       { id: 'taste', brewer: 'brewmaster', lens: 'plan/security' },
       { id: 'mutants', brewer: 'maltster', blocking: true },
     ];
-    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
-      'recipes/pale.jsonc: step "taste" has a "lens", which the engine does not follow yet (ADR 0053)',
-      'recipes/pale.jsonc: step "mutants" has "blocking", which the engine does not follow yet (ADR 0053)',
-    ]);
+    assert.deepEqual(
+      problemsOf(
+        brewery({
+          recipes: [recipe('pale', steps)],
+          lenses: [{ path: 'lenses/plan/security.md', text: '# Lens\n' }],
+        }),
+      ),
+      [
+        'recipes/pale.jsonc: step "taste" has a "lens", but its brewer "brewmaster" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting" (ADR 0161)',
+        'recipes/pale.jsonc: step "mutants" has "blocking", which the engine does not follow yet (ADR 0053)',
+      ],
+    );
   });
 
   it('refuses a deadline longer than 365 days, which a step could not be scheduled with', () => {
@@ -1430,6 +1438,101 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
           { name: 'plan/security', path: 'defaults/lenses/plan/security.md', text: 'the plan' },
         ],
       ]),
+    );
+  });
+});
+
+describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
+  const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const security = { path: 'defaults/lenses/diff/security.md', text: 'Look for secrets.' };
+  const tasting = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
+    recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
+    brewers,
+    defaults: { lenses: [security] },
+  });
+  const valid = (files: BreweryFiles) => {
+    const result = loadRecipes(files);
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    return result;
+  };
+
+  it("gives a Taster's step its lens as the input lens, with the lens's text and path", () => {
+    const result = valid(tasting([{ id: 'taste', brewer: 'taster', lens: 'diff/security' }]));
+    const found = result.brewers.find('amber', 'taste');
+    assert.deepEqual(found?.brewer.inputs, [
+      { name: 'lens', from: 'lens:diff/security', trusted: false },
+    ]);
+    assert.deepEqual(found?.lenses?.get('diff/security'), {
+      name: 'diff/security',
+      path: 'defaults/lenses/diff/security.md',
+      text: 'Look for secrets.',
+    });
+    assert.equal(found?.blocking, false);
+    // The lens is in use, so doctor does not report it as unused (ADR 0141).
+    assert.ok(result.catalog.named.lenses.has('diff/security'));
+  });
+
+  it('gives each lens step of one Taster its own lens', () => {
+    const correctness = { path: 'defaults/lenses/diff/correctness.md', text: 'Look at logic.' };
+    const result = valid({
+      ...tasting([
+        { id: 'security', brewer: 'taster', lens: 'diff/security' },
+        { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+      ]),
+      defaults: { lenses: [security, correctness] },
+    });
+    const lensesOf = (id: string) => [...(result.brewers.find('amber', id)?.lenses?.keys() ?? [])];
+    assert.deepEqual(lensesOf('security'), ['diff/security']);
+    assert.deepEqual(lensesOf('correctness'), ['diff/correctness']);
+  });
+
+  it("follows blocking on a Taster's step", () => {
+    const result = valid(
+      tasting([
+        {
+          id: 'taste',
+          brewer: 'taster',
+          lens: 'diff/security',
+          blocking: true,
+          onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
+        },
+      ]),
+    );
+    assert.equal(result.brewers.find('amber', 'taste')?.blocking, true);
+  });
+
+  it('refuses a Taster without a lens', () => {
+    assert.deepEqual(problemsOf(tasting([{ id: 'taste', brewer: 'taster' }])), [
+      'recipes/amber.jsonc: step "taste" has the Taster "taster" and no "lens": name the lens it reviews through (ADR 0161)',
+    ]);
+  });
+
+  it('refuses a lens step whose lens neither the Brewery nor the defaults have', () => {
+    assert.deepEqual(
+      problemsOf(tasting([{ id: 'taste', brewer: 'taster', lens: 'diff/sparkle' }])),
+      [
+        'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
+      ],
+    );
+  });
+
+  it('refuses a lens step whose Taster has an input named lens already', () => {
+    const own = brewer('taster', {
+      output: { doc: 'taste.md', schema: 'tasting' },
+      inputs: [{ name: 'lens', from: 'order' }],
+    });
+    assert.deepEqual(
+      problemsOf(
+        tasting([{ id: 'taste', brewer: 'taster', lens: 'diff/security' }], [committer, own]),
+      ),
+      [
+        'recipes/amber.jsonc: step "taste" gives the Taster "taster" its lens as the input "lens", which the brewer has already (ADR 0161)',
+      ],
     );
   });
 });

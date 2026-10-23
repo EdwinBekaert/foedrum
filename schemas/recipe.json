@@ -84,12 +84,12 @@
               "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
             },
             "lens": {
-              "description": "Taster only: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143)",
+              "description": "Taster only (out doc schema tasting), and required there: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)",
               "type": "string",
               "pattern": "^(?:diff|plan)\\/(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
             },
             "blocking": {
-              "description": "Brett only: surviving mutants block the verdict",
+              "description": "Taster: a changes verdict blocks the step (ADR 0161); Brett: surviving mutants block the verdict",
               "type": "boolean"
             },
             "onBlocked": {
@@ -445,12 +445,12 @@
                     "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
                   },
                   "lens": {
-                    "description": "Taster only: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143)",
+                    "description": "Taster only (out doc schema tasting), and required there: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)",
                     "type": "string",
                     "pattern": "^(?:diff|plan)\\/(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
                   },
                   "blocking": {
-                    "description": "Brett only: surviving mutants block the verdict",
+                    "description": "Taster: a changes verdict blocks the step (ADR 0161); Brett: surviving mutants block the verdict",
                     "type": "boolean"
                   },
                   "onBlocked": {

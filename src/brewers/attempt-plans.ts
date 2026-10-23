@@ -15,11 +15,16 @@ import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
+import { inClone } from '../workspace/clone-git.ts';
+import type { Git } from '../workspace/git.ts';
 import {
   answersOf,
   attemptLimits,
+  changeInput,
+  changeStart,
   type InputRead,
   inputsOf,
+  MAX_CHANGE_INPUT_BYTES,
   type PlannedInput,
   planAttempt,
   type Resumed,
@@ -53,6 +58,11 @@ export interface AttemptPlansOptions {
   platform?: NodeJS.Platform;
   /** The text of an order's issue, untrusted. */
   orderText: (order: Extract<InputRead, { kind: 'order' }>) => Promise<string>;
+  /**
+   * Reads the change a Taster that reviews a diff is given, in its worktree (ADR 0161); a plan
+   * that needs it fails without it.
+   */
+  git?: Git;
   /** Default the file system's: `readOutDocFile` and a recursive `mkdir`. */
   files?: {
     read: (file: string, maxBytes: number, root: string) => OutDocRead;
@@ -143,22 +153,57 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
-   * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then the answers to
-   * its step's questions, then what sent it back when a route scheduled it (ADR 0128).
+   * The change a Taster that reviews a diff is given (ADR 0161): the commits from `since` to `head`,
+   * the commit its worktree started at, and their diff. Read in the repository's clone, never by
+   * discovery in the worktree, with no hook, external diff or textconv a brewer could have planted
+   * there (ADR 0029, ADR 0096, ADR 0137). A diff past git's output limit keeps its start, which the
+   * input cuts anyway.
+   */
+  const changeFor = async (repo: string, since: string, head: string): Promise<PromptInput> => {
+    const why = `the change since commit ${since} was not read`;
+    if (options.git === undefined) throw new Error(`${why}: no git was given`);
+    const git = inClone(options.git);
+    const clone = options.clone(repo);
+    const read = async (args: readonly string[]): Promise<string> => {
+      const result = await git(clone, args, { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES });
+      if (result.code === 0 || result.killed === 'too-much-output') return result.stdout;
+      const [said = ''] = result.stderr.trim().split('\n');
+      throw new Error(`${why}: git ${args.join(' ')} exited with code ${result.code}: ${said}`);
+    };
+    const log = await read(['log', '--no-show-signature', '--format=%h %s', `${since}..${head}`]);
+    const diff = await read([
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      '--no-color',
+      '--no-ext-diff',
+      '--no-textconv',
+      since,
+      head,
+    ]);
+    return changeInput(since, log, diff);
+  };
+
+  /**
+   * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then for a Taster
+   * that reviews a diff where the change starts (ADR 0161), then the answers to its step's
+   * questions, then what sent it back when a route scheduled it (ADR 0128).
    */
   const inputsFor = async (
     batch: Batch,
     ref: AttemptRef,
     found: StepBrewer,
-    worktree: string,
+    worktree: WorktreeRef,
   ): Promise<PromptInput[]> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree, found.lenses);
+    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
     const inputs: PromptInput[] = [];
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
+    const since = found.lens?.startsWith('diff/') ? changeStart(batch, worktree.repo) : undefined;
+    if (since !== undefined) inputs.push(await changeFor(worktree.repo, since, worktree.commit));
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);
     const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
@@ -197,7 +242,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
       const inputs =
         resumes === undefined
-          ? await inputsFor(batch, ref, found, worktree.path)
+          ? await inputsFor(batch, ref, found, worktree)
           : latest === undefined
             ? []
             : [latest];
@@ -230,7 +275,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (found === undefined) return noBrewer;
       // The commit its worktree started at, which a done of a brewer that commits needs one after.
       const batch = state().batches.get(ref.batchId);
-      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.worktree.commit);
+      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.worktree.commit, found.blocking);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

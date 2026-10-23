@@ -5,6 +5,7 @@
 // files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
+import { TASTING } from '../schemas/out-doc.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
@@ -58,13 +59,17 @@ export interface StepBrewer {
   instructions: string;
   /** The lenses its inputs name, by name. */
   lenses?: ReadonlyMap<string, Lens>;
+  /** On a Taster's step: the lens it reviews through, `diff/<name>` or `plan/<name>` (ADR 0161). */
+  lens?: string;
+  /** On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161). */
+  blocking?: boolean;
 }
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
 export interface Catalog {
   brewers: readonly (StepBrewer & { name: string; path: string })[];
   lenses: readonly Lens[];
-  /** The brewers the recipes' steps name, and the lenses those brewers' inputs name. */
+  /** The brewers the recipes' steps name, and the lenses those brewers' inputs and steps name. */
   named: { brewers: ReadonlySet<string>; lenses: ReadonlySet<string> };
 }
 
@@ -338,16 +343,45 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
   }
   const when = step.when === undefined ? undefined : unfollowedWhen(id, step.when);
   if (when !== undefined) return when;
-  if ('action' in step || 'check' in step) return step;
-  // A Taster's lens and Brett's blocking flag would load and change nothing.
-  if (step.lens !== undefined) {
-    return `step "${id}" has a "lens", which the engine does not follow yet (ADR 0053)`;
-  }
-  if (step.blocking !== undefined) {
-    return `step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`;
-  }
   return step;
 }
+
+/** Whether `brewer` is a Taster: it answers with findings and a verdict (ADR 0161). */
+const isTaster = (brewer: BrewerFrontmatter): boolean => brewer.output.schema === TASTING;
+
+/**
+ * Why the lens and blocking flag of `step` cannot load with `brewer` (ADR 0161): a lens only on a
+ * Taster's step, which needs one, and blocking only there, since Brett's would change nothing yet.
+ */
+function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
+  const id = stepId(step);
+  if (!isTaster(brewer)) {
+    return [
+      ...(step.lens === undefined
+        ? []
+        : [
+            `step "${id}" has a "lens", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}" (ADR 0161)`,
+          ]),
+      ...(step.blocking === undefined
+        ? []
+        : [`step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`]),
+    ];
+  }
+  if (step.lens === undefined) {
+    return [
+      `step "${id}" has the Taster "${brewer.name}" and no "lens": name the lens it reviews through (ADR 0161)`,
+    ];
+  }
+  if (brewer.inputs.some(({ name }) => name === LENS_INPUT)) {
+    return [
+      `step "${id}" gives the Taster "${brewer.name}" its lens as the input "${LENS_INPUT}", which the brewer has already (ADR 0161)`,
+    ];
+  }
+  return [];
+}
+
+/** The input a lens step's Taster reads its lens from (ADR 0161). */
+const LENS_INPUT = 'lens';
 
 /**
  * The guards the engine follows: the out doc, which the runner requires of every attempt anyway; a
@@ -518,6 +552,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const brewerNames = new Set(files.brewers.map(({ path }) => nameOf(path)));
   // The brewers the recipes' steps name, for doctor (ADR 0141).
   const namedBrewers = new Set<string>();
+  // The lenses the recipes' lens steps name (ADR 0161).
+  const stepLenses = new Set<string>();
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
@@ -599,6 +635,20 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           }
           return [];
         }
+        const refusedLens = untasted(runnable, brewer);
+        const lens = runnable.lens === undefined ? undefined : lenses.get(runnable.lens);
+        // A lens whose file or folder has a problem of its own is reported once, as that.
+        const unreported =
+          runnable.lens !== undefined && !lensFolderUnread && !brokenLenses.has(runnable.lens);
+        if (refusedLens.length === 0 && lens === undefined && unreported) {
+          refusedLens.push(
+            `step "${id}" names the lens "${runnable.lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
+          );
+        }
+        for (const line of refusedLens) problems.push(`${path}: ${line}`);
+        if (refusedLens.length > 0 || (runnable.lens !== undefined && lens === undefined)) {
+          return [];
+        }
         const deadline = runnable.deadline ?? brewer.deadline;
         if (tooLong(id, deadline)) return [];
         const findings = runnable.onBlocked?.findings;
@@ -611,7 +661,18 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
           route: findings === undefined ? undefined : { why: 'findings', ...findings },
         };
-        return [{ line, brewer: found }];
+        if (lens === undefined) return [{ line, brewer: found }];
+        // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161).
+        stepLenses.add(lens.name);
+        const input = { name: LENS_INPUT, from: `lens:${lens.name}`, trusted: false } as const;
+        const tasting: StepBrewer = {
+          ...found,
+          brewer: { ...brewer, inputs: [...brewer.inputs, input] },
+          lenses: new Map([...(found.lenses ?? []), [lens.name, lens]]),
+          lens: lens.name,
+          blocking: runnable.blocking ?? false,
+        };
+        return [{ line, brewer: tasting }];
       },
     );
     // resolveRecipe (ADR 0028) needs every brewer the recipe names; a missing one is reported
@@ -701,11 +762,12 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       lenses: [...lenses.values()],
       named: {
         brewers: namedBrewers,
-        lenses: new Set(
-          [...brewers]
+        lenses: new Set([
+          ...[...brewers]
             .filter(([name]) => namedBrewers.has(name))
             .flatMap(([, { lenses: named }]) => [...(named?.keys() ?? [])]),
-        ),
+          ...stepLenses,
+        ]),
       },
     },
     recipes: { find: (name) => recipes.get(name) },
