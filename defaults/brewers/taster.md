@@ -13,7 +13,6 @@
       "Read",
       "Grep",
       "Glob",
-      "Write(taste.md)",
       "Edit(taste.md)",
       "Bash(git diff *)",
       "Bash(git log *)",
