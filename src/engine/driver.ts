@@ -554,6 +554,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     const name = log.state().batches.get(ref.batchId)?.recipe?.name;
     if (name === undefined || recipes.find(name)?.mergesBase(ref.stepId) !== true) return true;
     let ending: Ending | undefined;
+    // Renewed before it, as before every effect: none is renewed during one (ADR 0044).
+    heartbeat();
     try {
       const target = baseMergeTarget(merge, { path: made.path, start: made.commit }, ref.stepId);
       const merging = baseMergeKey(ref);
