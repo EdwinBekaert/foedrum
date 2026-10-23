@@ -1,6 +1,6 @@
 # 0153. Foedrum's defaults map their own model aliases
 
-Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (the defaults gain a `models.jsonc`, merged by alias) and [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (who maps the `builder` alias)
+Date: 2026-10-23 · Status: Accepted · Amends [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (the defaults gain a `models.jsonc`, merged by alias), [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (who maps the `builder` alias), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (`models.jsonc` is optional, and the alias check runs on the merged models) and [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (the plan's model comes from the merged models)
 
 ## Context
 A brewer names a model alias (`builder`), and a Brewery's `models.jsonc` maps each alias to a model id or family (`src/schemas/models.ts`), so blind tasting can swap the model behind a role.
@@ -15,6 +15,7 @@ So a new Brewery does not start until someone writes a line that only repeats wh
 - **The Brewery's `models.jsonc` becomes optional.** Without it, the default's models apply. A file that is there and does not pass the schema still refuses the start with its line, as today.
 - **The alias check runs on the merged models.** `serveSetup` checks every brewer in use against them, and so does the `brewers` part of the Brewery's file (`No model has the alias "<alias>"`), so a Brewery's `brewers` may name a default alias.
 - **The same merge everywhere a brewer's model is resolved**: `foedrum serve`, `foedrum brew` and `foedrum resume` (`src/cli/serve-main.ts`, `src/cli/resume-main.ts`), through one function of the pure load, so the three cannot disagree.
+- **`foedrum doctor` lists `defaults/models.jsonc` in `Defaults in use`** (ADR 0098), since its models always apply under the Brewery's. A Brewery's `models.jsonc` merges over it rather than replacing it, so it gets no notice of what it drops ([ADR 0141](0141-doctor-reports-prompt-sizes-unused-files-and-what-a-brewery-file-drops-from-its-default.md)).
 - **A default that does not load is Foedrum's defect** (ADR 0098): a broken `defaults/models.jsonc` refuses every start with a line naming its `defaults/` path; Foedrum's own tests load it.
 
 ## Consequences
