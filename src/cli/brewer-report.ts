@@ -3,6 +3,7 @@
 // recipe its batch chose, as the files are now; an attempt of a step they no longer have is listed
 // apart, so none is dropped.
 
+import { attemptKey } from '../engine/attempt-key.ts';
 import type { Attempt, State } from '../engine/fold.ts';
 import type { LoadedRecipes } from '../engine/recipe-files.ts';
 import type { Event, Usage } from '../schemas/events.ts';
@@ -78,8 +79,16 @@ const add = (tally: Counts, attempt: Attempt): void => {
  * The recipe each attempt was scheduled under, by its `attemptKey`: a batch's steps keep the
  * attempts of the recipe it brewed before a person chose another (ADR 0159).
  */
-export const recipesRun = (_events: readonly Event[]): ReadonlyMap<string, string> => {
-  throw new Error('not implemented');
+export const recipesRun = (events: readonly Event[]): ReadonlyMap<string, string> => {
+  const chosen = new Map<string, string>();
+  const ran = new Map<string, string>();
+  for (const event of events) {
+    if (event.type === 'batch.recipe_chosen') chosen.set(event.batchId, event.recipe);
+    if (event.type !== 'step.scheduled') continue;
+    const recipe = chosen.get(event.batchId);
+    if (recipe !== undefined) ran.set(attemptKey.encode(event), recipe);
+  }
+  return ran;
 };
 
 /**
@@ -89,7 +98,7 @@ export const recipesRun = (_events: readonly Event[]): ReadonlyMap<string, strin
 export const brewerReport = (
   state: State,
   source: BrewerSource,
-  _ran: ReadonlyMap<string, string>,
+  ran: ReadonlyMap<string, string>,
 ): BrewerReport => {
   const brewers = new Map(source.brewers.map(({ name, path }) => [name, { ...counts(), path }]));
   const gone = new Map<string, Counts & { recipe: string; stepId: string }>();
@@ -112,10 +121,18 @@ export const brewerReport = (
     const recipe = batch.recipe?.name;
     if (recipe === undefined) continue;
     for (const step of batch.steps.values()) {
-      const tally = tallyOf(recipe, step.id);
-      if (tally === undefined) continue;
-      for (const attempt of step.attempts.values()) add(tally, attempt);
+      for (const attempt of step.attempts.values()) {
+        // `ran` has every attempt of the events `state` folds; the batch's recipe is the latest.
+        const key = attemptKey.encode({
+          batchId: batch.id,
+          stepId: step.id,
+          attempt: attempt.attempt,
+        });
+        const tally = tallyOf(ran.get(key) ?? recipe, step.id);
+        if (tally !== undefined) add(tally, attempt);
+      }
     }
+    // A batch is Stuck at a step of the recipe it brews now.
     const { lane } = batch;
     if (lane.kind === 'stuck' && 'stepId' in lane.reason) {
       tallyOf(recipe, lane.reason.stepId)?.stuck.push(batch.id);

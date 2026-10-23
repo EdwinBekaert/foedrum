@@ -35,7 +35,7 @@ import {
 } from '../schemas/commands.ts';
 import type { OrderRef, Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
-import { brewerReport, formatBrewerReport } from './brewer-report.ts';
+import { brewerReport, formatBrewerReport, recipesRun } from './brewer-report.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import { brewOwner } from './driver-owner.ts';
 import { keptBranchLines } from './kept-branches.ts';
@@ -315,9 +315,19 @@ export const commands: readonly RegisteredCommand[] = [
     handler: async (_input, context) => {
       // Files that do not load refuse it with doctor's line, before the store is opened.
       const source = context.brewers();
-      const show = (state: State) => done(formatBrewerReport(brewerReport(state, source)));
+      const show = (state: State, events: readonly StoredEvent[]) =>
+        done(
+          formatBrewerReport(
+            brewerReport(state, source, recipesRun(events.map(({ event }) => event))),
+          ),
+        );
       // A fresh Brewery: every brewer, none with an attempt yet.
-      return readBrewery('brewers', context, (_events, state) => show(state), show(emptyState));
+      return readBrewery(
+        'brewers',
+        context,
+        (events, state) => show(state, events),
+        show(emptyState, []),
+      );
     },
   }),
   define({

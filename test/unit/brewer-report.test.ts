@@ -11,7 +11,7 @@ import {
   type LoadedBrewers,
   recipesRun,
 } from '../../src/cli/brewer-report.ts';
-import { emptyState, fold } from '../../src/engine/fold.ts';
+import { fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
