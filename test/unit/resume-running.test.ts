@@ -304,6 +304,30 @@ describe('runResumeRunning (ADR 0127)', () => {
     assert.equal(resumeLease(t0), undefined);
   });
 
+  it("says how the resumed attempt failed, and leaves its retry to the batch's next driver: exit 0", async () => {
+    const setup = setupWith(3);
+    cellarRuns(setup);
+    const result = await runResumeRunning(
+      setup,
+      shell(behave.fail(true), cellarStops(setup)),
+      request,
+    );
+    assert.equal(result, 0, lines.join('\n'));
+    assert.deepStrictEqual(started, ['brew#2']);
+    assert.ok(
+      events().some((event) => event.type === 'step.scheduled' && event.attempt === 3),
+      'brew#3 is due',
+    );
+    assert.ok(
+      !events().some((event) => event.type === 'step.started' && event.attempt === 3),
+      'and resume did not start it',
+    );
+    assert.match(
+      lines.at(-1) ?? '',
+      /^foedrum resume: brew#2 failed: the brewer failed: The migration does not apply; batch 12-1 goes on from its next step/,
+    );
+  });
+
   it('starts nothing after the resumed attempt ended, though the next step is due: the driver that takes the batch starts it', async () => {
     const setup = setupWith(2);
     cellarRuns(setup, 'porter');

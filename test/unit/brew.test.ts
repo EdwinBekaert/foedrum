@@ -711,7 +711,10 @@ describe('runBrew', () => {
    * brew with a run its stop never ends, taken over to bob in its first wait (resuming brew when
    * `resumes` says so), on a clock a minute further on each wait; the waits it took.
    */
-  const takenWithEndlessRun = async (resumes: boolean): Promise<number> => {
+  const takenWithEndlessRun = async (
+    resumes: boolean,
+    after: () => void = () => {},
+  ): Promise<number> => {
     let now = t0;
     let waits = 0;
     const endless = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
@@ -728,6 +731,7 @@ describe('runBrew', () => {
           const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
           const request = { ...handover, now, leaseMs: 300_000 };
           takeOver(log(), resumes ? { ...request, resumes: 'brew' } : request);
+          after();
         }
         now = new Date(now.getTime() + 60_000);
         if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
@@ -744,6 +748,51 @@ describe('runBrew', () => {
 
   it('refuses at once a batch taken over to resume no step, waiting for no run (ADR 0124)', async () => {
     assert.equal(await takenWithEndlessRun(false), 1);
+  });
+
+  it('refuses at once a batch whose resuming owner let it go to another driver (ADR 0127)', async () => {
+    const until = new Date(t0.getTime() + 600_000);
+    const third = () =>
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '12-1', owner: 'session-7', expiresAt: until }),
+      );
+    assert.equal(await takenWithEndlessRun(true, third), 1);
+  });
+
+  it('goes on recording the end of the run it stopped when a tick fails while it waits (ADR 0127)', async () => {
+    // The two ticks after the takeover fail: the main loop's, then the first of the wait's.
+    let failing = 0;
+    const inner = store;
+    store = {
+      ...inner,
+      withTransaction: (fn) => {
+        if (failing > 0) {
+          failing--;
+          throw new Error('the store is busy');
+        }
+        return inner.withTransaction(fn);
+      },
+    };
+    let waits = 0;
+    const running = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+    const taken = shell(running, {
+      wait: async () => {
+        waits++;
+        if (waits === 1) {
+          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          takeOver(log(), { ...handover, now: t0, leaseMs: 300_000, resumes: 'brew' });
+          failing = 2;
+        }
+        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+      },
+    });
+    assert.equal(await runBrew(setup, taken, request), 5, lines.join('\n'));
+    assert.ok(
+      inner
+        .eventsAfter(0)
+        .some(({ event }) => event.type === 'step.finished' && event.stepId === 'brew'),
+      'the stopped brew#1 is recorded',
+    );
   });
 
   describe('--take (ADR 0124)', () => {

@@ -410,6 +410,23 @@ describe('foedrum resume (ADR 0126)', () => {
       assert.deepEqual(handed, []);
     });
 
+    it('refuses a step whose running attempt has no session, which a check step or a run before claude started has', async () => {
+      const log = createCommandLog({ store, recipes });
+      const issue = (command: Parameters<typeof log.issue>[0]) =>
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      issue({ kind: 'order', batchId: '29-1', order: { issue: 29 } });
+      issue({ kind: 'route', batchId: '29-1', recipe: 'pint', reason: 'label', source: 'label' });
+      issue({
+        kind: 'record',
+        event: { type: 'step.started', batchId: '29-1', stepId: 'plan', attempt: 1 },
+      });
+      assert.deepEqual(
+        await resumeOf('29-1', undefined, takes),
+        refused('batch 29-1 has no attempt running or waiting to continue a session'),
+      );
+      assert.deepEqual(handed, []);
+    });
+
     it('refuses an Ordered batch, of which no step has run', async () => {
       assert.deepEqual(
         await resumeOf('27-1', undefined, takes),
