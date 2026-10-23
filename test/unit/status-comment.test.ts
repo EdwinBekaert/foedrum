@@ -134,7 +134,8 @@ describe('renderStatus', () => {
     const lines = text.split('\n');
     const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ → `gauge #2` 🔔');
     assert.ok(path >= 0, text);
-    assert.ok(path < lines.indexOf(lineOf(text, 'gauge')), 'the path comes before the steps');
+    const firstStep = lines.findIndex((line) => line.startsWith('- ') && line.includes('`gauge`'));
+    assert.ok(path < firstStep, 'the path comes before the steps');
     assert.doesNotMatch(renderStatus(batch(), steps), /Path:/);
   });
 
