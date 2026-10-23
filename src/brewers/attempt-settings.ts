@@ -24,13 +24,21 @@ export interface AttemptPermissions {
   toolchain?: Toolchain;
 }
 
+type Variables = Readonly<Record<string, string | undefined>>;
+
+/** The variables of `env` among `names` that are set. */
+const setOf = <Name extends string>(names: readonly Name[], env: Variables) =>
+  Object.fromEntries(
+    names.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])),
+  ) as Partial<Record<Name, string>>;
+
+const TOOLCHAIN = ['HOME', 'PATH'] as const;
+
 /** The variables of the driver's environment the toolchain's folders are found from (ADR 0162). */
-export type Toolchain = Partial<Record<'HOME' | 'PATH', string>>;
+export type Toolchain = Partial<Record<(typeof TOOLCHAIN)[number], string>>;
 
 /** The variables of `env` the toolchain's folders are found from. */
-export const toolchainOf = (_env: Readonly<Record<string, string | undefined>>): Toolchain => {
-  throw new Error('not implemented');
-};
+export const toolchainOf = (env: Variables): Toolchain => setOf(TOOLCHAIN, env);
 
 const CONFIG_DIRS = ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR'] as const;
 
@@ -38,10 +46,7 @@ const CONFIG_DIRS = ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR'] as
 export type ConfigDirs = Partial<Record<(typeof CONFIG_DIRS)[number], string>>;
 
 /** The variables of `env` that move a login. */
-export const configDirsOf = (env: Readonly<Record<string, string | undefined>>): ConfigDirs =>
-  Object.fromEntries(
-    CONFIG_DIRS.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])),
-  );
+export const configDirsOf = (env: Variables): ConfigDirs => setOf(CONFIG_DIRS, env);
 
 /**
  * The logins the variables move, on the sandboxed level's POSIX paths: gh's directory (gh's
@@ -73,6 +78,71 @@ const credentialsOf = (configDirs: ConfigDirs) => {
   };
 };
 
+/** Homebrew's prefix on Linux: under `/home`, a user root the block denies, whoever's home it is. */
+const LINUXBREW = '/home/linuxbrew/.linuxbrew';
+
+/**
+ * The layouts whose PATH folder under the home links into an install prefix around it: the folder,
+ * `*` for any one name, and how many of its names the prefix keeps (ADR 0162).
+ */
+const LAYOUTS: readonly (readonly [string, number])[] = [
+  // nvm: node, npm and npx, which link into the version's lib/node_modules, and global packages.
+  ['.nvm/versions/node/*/bin', 4],
+  // Volta: its shims, and the tools they run from ~/.volta/tools.
+  ['.volta/bin', 1],
+  // asdf: its shims, asdf itself, and the versions under ~/.asdf/installs the shims run.
+  ['.asdf/shims', 1],
+  ['.asdf/bin', 1],
+];
+
+/** How many names of a folder under the home the folder to re-open keeps: all but a layout's. */
+const keptOf = (names: readonly string[]): number => {
+  const layout = LAYOUTS.find(([folder]) => {
+    const pattern = folder.split('/');
+    return (
+      pattern.length === names.length &&
+      pattern.every((name, at) => name === '*' || name === names[at])
+    );
+  });
+  return layout?.[1] ?? names.length;
+};
+
+/** `path` as one absolute folder: normalized, no trailing slash; '' for the root or a relative one. */
+const folderOf = (path: string): string =>
+  posix.isAbsolute(path) ? posix.normalize(path).replace(/\/+$/, '') : '';
+
+/** Whether `path` is `dir` or lies inside it. */
+const within = (path: string, dir: string): boolean => path === dir || path.startsWith(`${dir}/`);
+
+/**
+ * The folders of the driver's toolchain that sandboxed commands may read under the block (ADR 0162):
+ * Homebrew's prefix on Linux, and each PATH folder under the home, as a layout's prefix or as it is,
+ * never its parent. Not a folder with a glob character, which a sandbox path reads as a wildcard,
+ * nor one at, inside or around a hidden login, since the narrower read rule wins.
+ */
+const toolchainReads = (
+  { HOME = '', PATH = '' }: Toolchain,
+  logins: readonly string[],
+): string[] => {
+  const home = folderOf(HOME);
+  const hidden = logins.flatMap((path) => {
+    if (!path.startsWith('~/')) return [path];
+    return home === '' ? [] : [posix.join(home, path.slice(2))];
+  });
+  const reads = PATH.split(':').flatMap((entry) => {
+    const folder = folderOf(entry);
+    if (folder === `${LINUXBREW}/bin` || folder === `${LINUXBREW}/sbin`) return [LINUXBREW];
+    if (home === '' || !folder.startsWith(`${home}/`)) return [];
+    const names = folder.slice(home.length + 1).split('/');
+    return [posix.join(home, ...names.slice(0, keptOf(names)))];
+  });
+  return [...new Set(reads)].filter(
+    (folder) =>
+      !/[*?[]/.test(folder) &&
+      !hidden.some((login) => within(folder, login) || within(login, folder)),
+  );
+};
+
 /** The settings as the schema reads them; throws with every problem when it does not. */
 const valid = (settings: unknown): AttemptSettings => {
   const result = AttemptSettings.safeParse(settings);
@@ -89,7 +159,13 @@ export function attemptSettings({
   deny,
   sandbox,
   configDirs = {},
+  toolchain = {},
 }: AttemptPermissions): AttemptSettings {
+  const credentials = credentialsOf(configDirs);
+  const allowRead = toolchainReads(
+    toolchain,
+    credentials.files.map(({ path }) => path),
+  );
   return valid({
     permissions: {
       allow: [...new Set(allow.map(scopedRule))],
@@ -101,7 +177,8 @@ export function attemptSettings({
     attribution: { commit: '', pr: '', sessionUrl: false },
     // ADR 0042: by default a sandbox that cannot start lets commands run unsandboxed. ADR 0087: by
     // default it runs every sandboxed command whatever the allow rules say, and lets it read the
-    // machine's credentials, wherever a variable moved them (ADR 0160).
+    // machine's credentials, wherever a variable moved them (ADR 0160). ADR 0162: the block's
+    // command part takes a toolchain under the home, whose folders `allowRead` re-opens.
     ...(sandbox
       ? {
           sandbox: {
@@ -109,7 +186,8 @@ export function attemptSettings({
             failIfUnavailable: true,
             allowUnsandboxedCommands: false,
             autoAllowBashIfSandboxed: false,
-            credentials: credentialsOf(configDirs),
+            credentials,
+            ...(allowRead.length > 0 ? { filesystem: { allowRead } } : {}),
           },
         }
       : {}),

@@ -16,7 +16,7 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
-import type { AttemptPermissions, ConfigDirs } from './attempt-settings.ts';
+import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   assembleBrewerPrompt,
@@ -385,6 +385,7 @@ export function attemptPermissions(
   repoTools: readonly string[],
   sandbox: boolean,
   configDirs?: ConfigDirs,
+  base: Env = {},
 ): AttemptPermissions {
   // The brewer's own rules, then what git.commit grants (ADR 0074), then the repository's, once each.
   const allow = [...new Set([...brewer.tools.allow, ...gitRulesOf(brewer), ...repoTools])];
@@ -393,6 +394,8 @@ export function attemptPermissions(
     deny: brewer.tools.deny,
     sandbox,
     ...(configDirs === undefined ? {} : { configDirs }),
+    // ADR 0162: from the driver's base environment, never the brewer's own `env`.
+    toolchain: toolchainOf(base),
   };
 }
 
@@ -419,7 +422,13 @@ export function goOn(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes } = facts;
-  const permissions = attemptPermissions(brewer, facts.repoTools, facts.sandbox, facts.configDirs);
+  const permissions = attemptPermissions(
+    brewer,
+    facts.repoTools,
+    facts.sandbox,
+    facts.configDirs,
+    facts.env.base,
+  );
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer), shellCommandsOf(allow));
   const instructions =

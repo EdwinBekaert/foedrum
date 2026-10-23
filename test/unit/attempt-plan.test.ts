@@ -552,6 +552,7 @@ describe('planAttempt', () => {
       allow: ['Read', 'Edit(brew.md)', 'Bash(git diff*)', 'Bash(npm test)'],
       deny: ['Read(.env)'],
       sandbox: true,
+      toolchain: { PATH: '/usr/bin' },
     });
     assert.equal(plan.settingsFile, join('/root', 'attempt-settings', '12-1', 'brew', '1.json'));
   });

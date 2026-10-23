@@ -377,6 +377,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
         repository.tools,
         setup.sandbox,
         setup.configDirs,
+        setup.brewerEnv.base,
       );
       const settingsFile = settingsFileOf(setup.workRoot, ref);
       shell.writeSettings(settingsFile, attemptSettings(permissions));
