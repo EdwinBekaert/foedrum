@@ -94,12 +94,12 @@ describe('serveShell', () => {
     assert.deepStrictEqual(started, ['/usr/bin/bwrap']);
   });
 
-  it("starts a repository's setup as it is, outside the OS sandbox, with the network (ADR 0140)", async () => {
+  it("starts a repository's setup in the OS sandbox with the network kept, never as it is (ADR 0158)", async () => {
     const { git } = fakeGit();
-    const started: string[] = [];
+    const started: string[][] = [];
     const checks = {
-      exec: async (file: string) => {
-        started.push(file);
+      exec: async (file: string, args: readonly string[]) => {
+        started.push([file, ...args]);
         return { exitCode: 0, stdout: '', stderr: '', output: '' };
       },
       platform: 'linux' as const,
@@ -116,7 +116,11 @@ describe('serveShell', () => {
       checks,
     });
     await shell.setup('npm ci', [], { cwd: '/work/wt', shell: true });
-    assert.deepStrictEqual(started, ['npm ci']);
+    assert.equal(started.length, 1);
+    assert.equal(started[0]?.[0], '/usr/bin/bwrap');
+    assert.ok(started[0]?.includes('/home/brewer'));
+    assert.ok(!started[0]?.includes('--unshare-net'));
+    assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
   });
 
   const managed = () => join(workRoot, 'acme.web', 'clone.git');

@@ -279,12 +279,19 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
     );
   }
-  // A repository's setup runs outside every sandbox, so it cannot meet a sandboxed minimum (ADR 0140).
-  if (config?.isolation?.minimum === 'sandboxed' && loaded.valid && loaded.checks.any()) {
+  // A setup keeps the host's network namespace on Linux and WSL2, and with it the host's abstract
+  // Unix sockets, until #425 (ADR 0158); native Windows is refused above.
+  const setupReachesHost = !unsandboxedChecks && platform !== 'darwin';
+  if (
+    setupReachesHost &&
+    config?.isolation?.minimum === 'sandboxed' &&
+    loaded.valid &&
+    loaded.checks.any()
+  ) {
     for (const { repo, setup } of repositories) {
       if (setup === undefined) continue;
       problems.push(
-        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside the sandbox before its check steps (ADR 0140)`,
+        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)`,
       );
     }
   }

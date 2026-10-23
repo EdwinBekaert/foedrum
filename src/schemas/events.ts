@@ -108,7 +108,7 @@ export const MAX_TAIL_LENGTH = 4000;
 const Tail = z.string().max(MAX_TAIL_LENGTH);
 // A named check, or none for a Brewery's literal command or the repository's setup, which says so
 // (ADR 0140); the command line as it ran; and where no sandbox held it, that it ran unsandboxed:
-// a check on native Windows (ADR 0076), a setup everywhere.
+// a check or a setup on native Windows (ADR 0076, ADR 0158).
 const ran = {
   check: CheckName.optional(),
   setup: z.literal(true).optional(),
