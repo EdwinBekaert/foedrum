@@ -111,8 +111,11 @@ const keptOf = (names: readonly string[]): number => {
 const folderOf = (path: string): string =>
   posix.isAbsolute(path) ? posix.normalize(path).replace(/\/+$/, '') : '';
 
-/** Whether `path` is `dir` or lies inside it. */
-const within = (path: string, dir: string): boolean => path === dir || path.startsWith(`${dir}/`);
+/** Whether `path` is `dir` or lies inside it, in any case: macOS's default file system ignores it. */
+const within = (path: string, dir: string): boolean => {
+  const [inner, outer] = [path.toLowerCase(), dir.toLowerCase()];
+  return inner === outer || inner.startsWith(`${outer}/`);
+};
 
 /**
  * The folders of the driver's toolchain that sandboxed commands may read under the block (ADR 0162):
