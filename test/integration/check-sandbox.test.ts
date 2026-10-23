@@ -238,6 +238,16 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
     }
   });
 
+  // macOS's resolver answers through mDNSResponder's socket, the one Unix socket a setup keeps
+  // (review of #422); localhost needs no network.
+  it('looks a name up on macOS', {
+    skip: process.platform !== 'darwin' && 'the resolver socket is a macOS path',
+  }, async () => {
+    const lookup = `require('dns').lookup('localhost',(e)=>process.exit(e?3:0))`;
+    const result = await setup(`"${process.execPath}" -e "${lookup}"`);
+    assert.equal(result.exitCode, 0, result.output);
+  });
+
   // An install looks its registry up by name: the resolver's list must be there to read.
   it('reads /etc/resolv.conf on Linux, also where it links into the hidden /run', {
     skip:
