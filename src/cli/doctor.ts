@@ -164,7 +164,7 @@ const WSL2_ADVICE =
  * Foedrum's own with no network, outside one only on native Windows (ADR 0076).
  */
 const SANDBOX_HIDES =
-  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration and parts of ~/.claude, hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
+  "hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring.";
 const WSL2_WINDOWS_HOME =
   "Under WSL, the user folders include the Windows user's logins under /mnt (ADR 0160).";
 const sandboxHides = (wsl: boolean) =>
