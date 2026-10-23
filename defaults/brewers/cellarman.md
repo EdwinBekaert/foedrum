@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 1,
+  "version": 2,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -33,9 +33,12 @@ Implement the order in {order}. The Gauger's failing tests, listed in its out do
 - **Replace the stubs.** Every stub that throws `not implemented` becomes the real behaviour.
 - **A wrong test is a finding.** If you believe one of the Gauger's tests is wrong, do not edit it: end blocked with findings that name the test and say why.
 - **Without tests.** When there is no {tests} input, the recipe ran without the Gauger: implement the order and add tests for it yourself.
+- **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`). Decide anything smaller yourself and list it as an assumption.
+- **The least code.** Write the least code that makes the tests pass and does what the order asks: no option, layer or abstraction the order does not ask for.
+- **Only what the order needs.** Do not refactor or reformat code you do not have to change, however much it needs it: name it in your out doc instead.
 
-Follow the repository's conventions, and change only what the order needs.
+Follow the repository's conventions.
 
 ## Done when
 
-The Gauger's tests and the existing tests that cover the code you changed pass (run them when the repository's tools let you), and everything is committed. You don't need to run the whole test suite, the build, lint or format: the recipe's check step runs them after you, and a failure there sends the batch back to you. In your out doc, say what you changed and why.
+The Gauger's tests and the existing tests that cover the code you changed pass (run them when the repository's tools let you), and everything is committed. You don't need to run the whole test suite, the build, lint or format: the recipe's check step runs them after you, and a failure there sends the batch back to you. In your out doc, say what you changed and why, and list the assumptions you made in its `assumptions`.

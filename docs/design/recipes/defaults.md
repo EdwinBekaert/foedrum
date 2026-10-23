@@ -4,7 +4,7 @@
 
 | Recipe | Use |
 |---|---|
-| Nip | quick fix, test-first: the Gauger, a red proof, Cellarman, the checks, then the pull request; shipped in `defaults/recipes/nip.jsonc` with the default Gauger and Cellarman, which name the `builder` alias ([ADR 0100](../../adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)) |
+| Nip | quick fix, test-first: the Gauger, a red proof, Cellarman, the green checks (`build`, `typecheck`, `lint`, `format`, `test`; [ADR 0157](../../adr/0157-nip-s-green-step-runs-the-typecheck.md)), then the pull request; shipped in `defaults/recipes/nip.jsonc` with the default Gauger and Cellarman, which name the `builder` alias ([ADR 0100](../../adr/0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md)) |
 | Half-pint | small feature |
 | Pint | medium feature, with plan approval |
 | Growler | large feature: decomposed into single-repository sub-orders, bottled per repository |

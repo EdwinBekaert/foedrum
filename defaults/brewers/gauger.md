@@ -2,7 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 1,
+  "version": 2,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -44,4 +44,4 @@ Write the failing tests for the order in {order}. Your tests come first: another
 
 ## Done when
 
-Every behaviour the order asks for has a test that fails for the reason above, every stub throws `not implemented`, nothing else changed, and everything is committed. In your out doc, list each new test by the name the runner reports, and each stub. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.
+Every behaviour the order asks for has a test that fails for the reason above, every stub throws `not implemented`, nothing else changed, and everything is committed. In your out doc, list each new test by the name the runner reports and each stub, and list the assumptions you made in its `assumptions`. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.

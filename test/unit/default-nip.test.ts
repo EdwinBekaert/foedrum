@@ -219,7 +219,6 @@ describe('the default Nip', () => {
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
     assert.deepEqual(loaded.checks.redProof('nip'), { id: 'red', of: 'gauge' });
-    assert.deepEqual(loaded.checks.find('nip', 'green'), ['build', 'lint', 'format', 'test']);
     for (const path of [
       'defaults/recipes/nip.jsonc',
       'defaults/brewers/gauger.md',
@@ -227,6 +226,17 @@ describe('the default Nip', () => {
     ]) {
       assert.ok(loaded.defaults.includes(path), `${path} is not in ${loaded.defaults.join(', ')}`);
     }
+  });
+
+  it("reads the typecheck in Nip's green step, after the build and before lint (#411)", () => {
+    const loaded = valid(loadRecipes(noFiles));
+    assert.deepEqual(loaded.checks.find('nip', 'green'), [
+      'build',
+      'typecheck',
+      'lint',
+      'format',
+      'test',
+    ]);
   });
 
   it('brews an order through each of its steps, in order, with the fake brewer runner', async () => {
