@@ -17,7 +17,6 @@ const openedBy = (state: State, batchId: string): number | undefined => {
     : undefined;
 };
 
-/** The Brewery issue of the claimed batch `batchId`; none for a batch of a Brewery issue. */
 // A person deleted the Brewery issue, as the batch's reopen or close found it.
 const foundGone = (state: State, batchId: string, effect: string): boolean =>
   state.effects.get(effectKey.encode({ batchId, effect })) === 'gone';
