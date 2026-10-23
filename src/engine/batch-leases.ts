@@ -62,7 +62,7 @@ export interface TakeoverRequest {
  * (ADR 0124): the lease is read, and given, in the transaction that appends.
  */
 export const takeOver = (log: CommandLog, request: TakeoverRequest): Decision => {
-  const { batchId, owner, by, via, now, leaseMs } = request;
+  const { batchId, owner, by, via, now, leaseMs, resumes } = request;
   return log.issue(
     (tx) => {
       const current = tx.batchLease(batchId);
@@ -71,7 +71,9 @@ export const takeOver = (log: CommandLog, request: TakeoverRequest): Decision =>
       }
       if (current.owner === owner) return { refused: `${owner} holds batch ${batchId} already` };
       const until = current.expiresAt.toISOString();
-      return { kind: 'take_over', batchId, by, via, from: current.owner, to: owner, until };
+      const from = current.owner;
+      const handover = { kind: 'take_over', batchId, by, via, from, to: owner, until } as const;
+      return resumes === undefined ? handover : { ...handover, resumes };
     },
     now,
     (tx) => tx.putBatchLease({ batchId, owner, expiresAt: new Date(now.getTime() + leaseMs) }),

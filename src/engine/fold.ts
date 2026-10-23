@@ -497,10 +497,10 @@ function apply(state: State, event: Event): State {
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.taken_over': {
-      const { by, via, from, to, until } = event;
+      const { by, via, from, to, until, resumes } = event;
       return updateBatch(state, event.batchId, (batch) => ({
         ...batch,
-        takeover: { by, via, from, to, until },
+        takeover: { by, via, from, to, until, ...(resumes === undefined ? {} : { resumes }) },
       }));
     }
     case 'batch.cancelled':

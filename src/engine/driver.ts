@@ -819,6 +819,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     return next;
   };
 
+  /** Whether `ref`'s batch was taken from this driver to resume `ref`'s step (ADR 0127). */
+  const resumedElsewhere = (state: State, ref: AttemptRef): boolean => {
+    const takeover = state.batches.get(ref.batchId)?.takeover;
+    return !held.has(ref.batchId) && takeover?.from === owner && takeover.resumes === ref.stepId;
+  };
+
   const tick = async (): Promise<void> => {
     const now = clock();
     heartbeat();
@@ -830,12 +836,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     );
     await supervisor.tick();
     // Stops the processes of attempts that Stuck abandoned (ADR 0027), whose batch ended, or that
-    // the log shows finished while this runner still runs them: another driver lost them.
+    // the log shows finished while this runner still runs them: another driver lost them. Also
+    // the run of a step whose batch was taken from this driver to resume that step's session: it
+    // ends at the step boundary, and the new holder continues the session (ADR 0127).
     const current = log.state();
     for (const { ref, run } of runs.values()) {
       const attempt = attemptOf(current, ref);
       if (attempt === undefined) continue;
-      if (isOver(attempt) || batchIsOver(current, ref.batchId)) run.stop();
+      if (isOver(attempt) || batchIsOver(current, ref.batchId) || resumedElsewhere(current, ref)) {
+        run.stop();
+      }
     }
     await drive();
     await applyEffects();

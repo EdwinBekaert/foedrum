@@ -7,19 +7,24 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { dirname, join } from 'node:path';
 import { writeAttemptSettings } from '../brewers/attempt-settings.ts';
+import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import { readBreweryFiles } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
 import { execProcess, foregroundProcess } from '../platform/processes.ts';
 import type { ResumeCommand } from '../schemas/commands.ts';
+import type { Surface } from '../schemas/events.ts';
 import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import { openAttemptWorktrees, worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
-import { claudeConfigDir, runResume, sessionFoundIn } from './resume.ts';
+import { claudeConfigDir, runResume, sessionFoundIn, terminalEnv } from './resume.ts';
+import { runResumeRunning } from './resume-running.ts';
 import type { CliResult } from './run.ts';
 import { serveSetup } from './serve-config.ts';
+import { readServeSetup, type StartOptions } from './serve-main.ts';
+import { listenWhileServing, serveShell } from './serve-shell.ts';
 
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
@@ -32,10 +37,69 @@ const folders = (path: string): string[] =>
       )
     : [];
 
+/**
+ * Takes the running `batchId` over and continues the session of `stepId` in this terminal (ADR
+ * 0127): serve's setup and shell, as brew's, with the runner that opens a resumed session in the
+ * foreground. While claude has the terminal, the driver's lines wait and a stop signal is claude's.
+ */
+const resumeRunning = async (
+  cwd: string,
+  target: { batchId: string; stepId: string },
+  issued: { by: string; via: Surface },
+  options?: StartOptions,
+): Promise<CliResult> => {
+  const ready = await readServeSetup(cwd, 'resume', options);
+  if (ready.kind === 'refused') return ready.result;
+  const { setup } = ready;
+  const listening = listenWhileServing(process);
+  let foreground = false;
+  const waiting: string[] = [];
+  const write = (line: string) => process.stdout.write(`${line}\n`);
+  try {
+    const shell = serveShell(setup, {
+      root: cwd,
+      git: runGit,
+      out: (line) => (foreground ? waiting.push(line) : write(line)),
+      // Ctrl+C reaches claude and foedrum alike: it is claude's while claude runs.
+      listen: (name, handler) =>
+        listening.listen(name, () => {
+          if (!foreground) handler();
+        }),
+      command: 'resume',
+    });
+    const runner = (claude: string, plan: Parameters<typeof shell.runner>[1]) =>
+      interactiveBrewerRunner({
+        claude,
+        plan,
+        terminalEnv: terminalEnv(process.env, process.platform),
+        say: write,
+        foreground: async (program, args, folder, env) => {
+          foreground = true;
+          try {
+            return await foregroundProcess(program, args, folder, env);
+          } finally {
+            foreground = false;
+            for (const line of waiting.splice(0)) write(line);
+          }
+        },
+      });
+    const owner = `resume-${process.pid}`;
+    const exitCode = await runResumeRunning(
+      setup,
+      { ...shell, runner },
+      { ...target, owner, ...issued },
+    );
+    return { exitCode, stdout: '', stderr: '' };
+  } finally {
+    listening.stop();
+  }
+};
+
 /** Runs `foedrum resume` in the Brewery checkout `cwd`; doctor's facts come through `options`. */
 export const resumeFromCheckout = async (
   cwd: string,
   input: ResumeCommand,
+  issued: { by: string; via: Surface },
   options?: Partial<Pick<DoctorShell, 'exec' | 'resolve'>>,
 ): Promise<CliResult> => {
   const { exec = execProcess, resolve = resolveExecutable } = options ?? {};
@@ -116,6 +180,6 @@ export const resumeFromCheckout = async (
       process.stderr.write(`${line}
 `),
     pid: process.pid,
-    running: () => Promise.reject(new Error('not implemented')),
+    running: (target) => resumeRunning(cwd, target, issued, options),
   });
 };

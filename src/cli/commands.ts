@@ -323,12 +323,15 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'resume',
-    summary: "Open a finished brewer attempt's Claude Code session in its worktree",
-    changesState: false,
+    summary:
+      "Open a brewer attempt's Claude Code session in its worktree; take a running batch over",
+    // On a running batch it drives the batch, through serve's wiring as brew (ADR 0127).
+    changesState: true,
     positionals: ['batch'],
     optional: ['step'],
     schema: ResumeCommand,
-    handler: async (input, context) => context.resume(input),
+    handler: async (input, context) =>
+      context.resume(input, { by: context.user(), via: context.surface }),
   }),
   define({
     name: 'retry',

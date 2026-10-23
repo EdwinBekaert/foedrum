@@ -67,6 +67,11 @@ export interface WiringOptions {
   takes: (batchId: string) => boolean;
   /** Which batches its owner held at its start it drives on; every one by default (ADR 0123). */
   drivesOn?: (batchId: string) => boolean;
+  /**
+   * Whether an attempt's retry or answer resumes its session: by default when its brewer's
+   * `retryMode` is `resume` (ADR 0118); `foedrum resume` of a running batch, always (ADR 0127).
+   */
+  resumes?: (attempt: AttemptRef) => boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
   /** Reports a driver's notice. */
@@ -81,7 +86,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -245,8 +250,10 @@ export const wireDriver = async (
     // A check step runs no claude, so it has no session (ADR 0116).
     brews: (ref) => !isCheck(ref),
     // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
-    resumes: ({ batchId, stepId }) =>
-      setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.retryMode === 'resume',
+    resumes:
+      resumes ??
+      (({ batchId, stepId }) =>
+        setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.retryMode === 'resume'),
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,

@@ -4,6 +4,7 @@
 // routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
 // Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
 
+import { attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
@@ -79,7 +80,7 @@ const questionLines = (batchId: string, stepId: string, batch: Batch): string[] 
 const BREAKS = new Set([0x0a, 0x2028, 0x2029]);
 
 /** `text` with each line break shown as a `\uXXXX` escape, as `printable` shows the rest. */
-const oneLine = (text: string): string =>
+export const oneLine = (text: string): string =>
   [...text]
     .map((char) => {
       const code = char.codePointAt(0) ?? 0;
@@ -236,6 +237,28 @@ export const runBrew = async (
     }
     say(`brewing batch ${batchId} as ${owner}`);
 
+    /**
+     * After a takeover from this driver that resumes a step, the ends of the runs it stopped there,
+     * recorded at the step boundary before brew lets its driver go, within a lease: the new holder
+     * waits for their leases before it continues the session (ADR 0127). A closed driver records
+     * no end, and its runs' leases would hold the step for a whole lease.
+     */
+    const endStoppedRuns = async (id: string): Promise<void> => {
+      const takeover = driver.state().batches.get(id)?.takeover;
+      if (takeover?.from !== owner || takeover.resumes === undefined) return;
+      const until = clock().getTime() + leaseMs;
+      const running = () =>
+        store
+          .currentLeases(clock())
+          .some(
+            (lease) => lease.owner === owner && attemptKey.decode(lease.attemptKey)?.batchId === id,
+          );
+      while (running() && clock().getTime() < until && !signal.aborted) {
+        await wait(intervalMs, signal);
+        await driver.tick();
+      }
+    };
+
     let shown = '';
     // When the last line was said, and when this driver first saw each attempt run.
     let saidAt = clock().getTime();
@@ -249,7 +272,10 @@ export const runBrew = async (
         say(formatNotice({ kind: 'tick_failed', error }));
       }
       const other = holder ?? heldElsewhere(batchId);
-      if (other !== undefined) return refuse(drivenBy(other));
+      if (other !== undefined) {
+        await endStoppedRuns(batchId);
+        return refuse(drivenBy(other));
+      }
       const now = driver.state().batches.get(batchId) as Batch;
       const { lane, detail } = describeLane(now);
       // A Brewery issue's status comment, once its first revision is recorded (ADR 0072).
