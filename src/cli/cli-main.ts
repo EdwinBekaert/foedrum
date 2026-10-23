@@ -3,12 +3,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
-import { breweryRecipes } from '../engine/brewery-files.ts';
+import { breweryRecipes, loadBrewery } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient } from '../github/client.ts';
 import { userName } from '../platform/env.ts';
 import { runGit } from '../workspace/git.ts';
+import { brewerSource } from './brewer-report.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { readKeptBranches } from './kept-branches-git.ts';
@@ -42,6 +43,7 @@ export const cliFromCheckout = async (
       openWritableStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
       // Files that do not load refuse the command with doctor's line (ADR 0053).
       recipes: () => breweryRecipes(cwd),
+      brewers: () => brewerSource(loadBrewery(cwd)),
       user: () => userName(() => userInfo().username, process.env),
       surface: 'terminal',
       now: () => new Date(),
