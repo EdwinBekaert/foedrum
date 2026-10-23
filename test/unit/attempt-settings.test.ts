@@ -351,6 +351,32 @@ describe('attemptSettings', () => {
       ]);
     });
 
+    // Review of #437: macOS's default file system ignores case, so `~/.SSH` is `~/.ssh` there.
+    it('re-opens no folder at, inside or around a hidden login in any case', () => {
+      const entries = [`${HOME}/.SSH`, `${HOME}/.Config/gh/bin`, `${HOME}/.CONFIG`];
+      assert.equal(allowReadOf(settingsFor(entries.join(':'))), undefined);
+    });
+
+    // Review of #437: the home goes through the same normalisation as the PATH folders.
+    it('re-opens the folders under a home spelled with a trailing slash', () => {
+      const settings = attemptSettings({
+        allow: ['Read'],
+        deny: [],
+        sandbox: true,
+        toolchain: { HOME: `${HOME}/`, PATH: `${HOME}/.volta/bin` },
+      });
+      assert.deepEqual(allowReadOf(settings), [`${HOME}/.volta`]);
+    });
+
+    // Review of #437: only nvm's own bin goes up to the version's folder.
+    it("re-opens a folder beside nvm's bin as it is", () => {
+      const entries = [
+        `${HOME}/.nvm/versions/node/v24.15.0/lib`,
+        `${HOME}/.nvm/versions/iojs/v1/bin`,
+      ];
+      assert.deepEqual(reopened(entries.join(':')), entries);
+    });
+
     // Review of #437: a moved login spelled with a trailing slash is the same folder.
     it('re-opens no folder inside a moved login spelled with a trailing slash', () => {
       const settings = settingsFor(`${HOME}/ghc/bin:${HOME}/ghd/bin`, {
@@ -834,6 +860,33 @@ describe('writeAttemptSettings', () => {
         },
       }),
       /envVars/,
+    ],
+    // Review of #437: what toolchainReads writes, an absolute folder each, at least one.
+    [
+      'a filesystem block that re-opens no folder',
+      sandboxed({ ...sandboxBlock, filesystem: { allowRead: [], denyRead: [] } }),
+      /allowRead/,
+    ],
+    [
+      'a re-opened folder that is not absolute',
+      sandboxed({ ...sandboxBlock, filesystem: { allowRead: ['~/.volta'], denyRead: [] } }),
+      /allowRead/,
+    ],
+    [
+      'a denied npm configuration that is not absolute',
+      sandboxed({
+        ...sandboxBlock,
+        filesystem: { allowRead: ['/home/brewer/.volta'], denyRead: ['.volta/**/npmrc'] },
+      }),
+      /denyRead/,
+    ],
+    [
+      'a filesystem block with a key the runner does not write',
+      sandboxed({
+        ...sandboxBlock,
+        filesystem: { allowRead: ['/home/brewer/.volta'], denyRead: [], allowWrite: ['/'] },
+      }),
+      /allowWrite/,
     ],
   ] as const) {
     it(`refuses ${what}, and writes nothing`, () => {
