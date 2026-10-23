@@ -206,6 +206,38 @@ describe('laneLabelEffects', () => {
     );
   });
 
+  it('takes off a lane label a run before left when it was killed between adding and removing', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    // The killed run added brewing and never took ordered off, nor recorded the revision.
+    labels.of(brewery, 7).push('foedrum:brewing');
+    brew();
+    labels.calls.length = 0;
+    await driver.tick();
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:brewing']);
+    assert.deepEqual(
+      labels.calls.filter((call) => call !== 'labels'),
+      ['remove foedrum:ordered'],
+    );
+    assert.deepEqual(revision(2), { result: { label: 'foedrum:brewing' } });
+  });
+
+  it('reads lane labels without case, as GitHub does', async () => {
+    order();
+    labels.of(brewery, 7).push('Foedrum:Ordered');
+    const driver = await open();
+    await driver.tick();
+    assert.deepEqual(revision(1), { result: { label: 'foedrum:ordered' } });
+    assert.deepEqual(
+      labels.calls.filter((call) => call !== 'labels'),
+      [],
+    );
+    brew();
+    await driver.tick();
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:brewing']);
+  });
+
   it('labels no claimed target issue, which keeps only foedrum:claimed', async () => {
     issue({
       kind: 'order',

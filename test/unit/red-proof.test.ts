@@ -253,6 +253,20 @@ describe('judgeRed', () => {
     assert.deepEqual(judgeRed(report, suites), { proven: true, tests: names });
   });
 
+  it('finds a sentence that ends in a dotted word after a suite title, as its part after the title', () => {
+    const name = 'the brewer settings > grants commit to a brewer with git.commit';
+    const settings = [
+      {
+        newPath: 'test/settings.test.ts',
+        added: ["  it('grants commit to a brewer with git.commit', () => {"],
+        removed: [],
+      },
+    ];
+    // Neither the whole name nor a last part after a dot stands in the line: only the title's.
+    const report = tap(...failing(1, name, 'not implemented'));
+    assert.deepEqual(judgeRed(report, settings), { proven: true, tests: [name] });
+  });
+
   it("does not take a test's name for a load error: node names each test in a comment", () => {
     const report = tap(
       '# Subtest: throws a SyntaxError on bad JSON',
