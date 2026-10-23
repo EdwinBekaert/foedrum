@@ -102,7 +102,7 @@ const RepositoryConfig = z
     checks: Checks,
     testReport: TestReport.optional(),
     setup: RepositorySetup.optional().describe(
-      "Runs in a fresh brewer attempt's worktree before the brewer and in a check step's before its checks, in the check sandbox with the network kept (ADR 0158, ADR 0163)",
+      "Runs in the worktree of a brewer attempt with a shell before the brewer and in a check step's before its checks, in the check sandbox with the network kept (ADR 0158, ADR 0163)",
     ),
     tools: z
       .array(CeilingTool)
