@@ -24,7 +24,7 @@ export interface CheckSandboxPaths {
 }
 
 /** What a sandbox keeps of the machine beyond a check's: the network, for a setup (ADR 0158). */
-export interface SandboxKeeps {
+interface SandboxKeeps {
   network?: boolean;
 }
 
@@ -88,7 +88,7 @@ export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 const throughSh = (line: string) => ['/bin/sh', '-c', line];
 
 /** Where Linux keeps the resolver's address list, often a link into /run. */
-export const RESOLV_CONF = '/etc/resolv.conf';
+const RESOLV_CONF = '/etc/resolv.conf';
 
 /**
  * bwrap's arguments that run `line` through `/bin/sh` in the sandbox. With the network kept, no
@@ -234,7 +234,6 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const findBwrap = options.findBwrap ?? (() => resolveExecutable('bwrap', { platform }));
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
-  const keepsOnLinux = () => (network ? { network, resolver: resolverIn(realPath) } : {});
   return async (file, args, call) => {
     if (call.shell !== true || checksRunUnsandboxed(platform)) return exec(file, args, call);
     // Never unsandboxed outside Windows: a check that cannot have its sandbox does not run.
@@ -256,9 +255,10 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
           'bubblewrap (bwrap) is not on PATH: check steps run only in its sandbox here; install bubblewrap',
         );
       }
+      const resolver = network ? resolverIn(realPath) : undefined;
       return sandboxRun(
         'bwrap',
-        await exec(bwrap, bwrapArgs(paths, file, keepsOnLinux()), { ...call, shell: false }),
+        await exec(bwrap, bwrapArgs(paths, file, { network, resolver }), { ...call, shell: false }),
       );
     }
     if (!hasSandboxExec()) {
