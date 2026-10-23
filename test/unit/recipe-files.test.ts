@@ -1251,6 +1251,38 @@ describe('loadRecipes: lenses in two folders, lenses/diff/ and lenses/plan/ (ADR
     for (const line of [...plan, ...diff]) assert.ok(!line.includes('ADR 0143'), line);
   });
 
+  it('reads nested steps too: a lens step in a parallel group, and a step in a loop that commits', () => {
+    const nestedLens = problemsOf(
+      reviewing([
+        { brewer: 'cellarman' },
+        { id: 'tasting', parallel: [{ id: 'taste', brewer: 'maltster', lens: 'plan/coverage' }] },
+        { action: 'openPullRequest' },
+      ]),
+    );
+    assert.ok(
+      nestedLens.includes(
+        'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+      ),
+      nestedLens.join('\n'),
+    );
+    const nestedCommit = problemsOf(
+      reviewing([
+        {
+          id: 'fixing',
+          loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'cellarman' }] },
+        },
+        { id: 'taste', brewer: 'maltster', lens: 'plan/coverage' },
+        { action: 'openPullRequest' },
+      ]),
+    );
+    assert.ok(
+      nestedCommit.includes(
+        'recipes/amber.jsonc: step "taste" reviews a diff, since step "fix" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+      ),
+      nestedCommit.join('\n'),
+    );
+  });
+
   it('counts only a step before the lens step as the one that commits, not the step itself or one after it', () => {
     const after = problemsOf(
       reviewing([
