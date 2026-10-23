@@ -344,14 +344,22 @@ const recorded = (state: State, batchId: string, revision: number): StatusRevisi
  * The id of the status comment of `batchId` the latest recorded revision made or edited, or
  * undefined before its first: a comment deleted by hand is made again with a new id.
  */
-export const statusCommentOf = (state: State, batchId: string): number | undefined => {
+export const statusCommentOf = (state: State, batchId: string): number | undefined =>
+  latestRevision(state, batchId).latest?.comment;
+
+/** The latest revision of `batchId` recorded, if any, and the number of the next. */
+const latestRevision = (
+  state: State,
+  batchId: string,
+): { next: number; latest: StatusRevision | undefined } => {
+  let next = 1;
   let latest: StatusRevision | undefined;
-  for (let n = 1, found = recorded(state, batchId, n); found !== undefined; ) {
+  for (let found = recorded(state, batchId, next); found !== undefined; ) {
     latest = found;
-    n += 1;
-    found = recorded(state, batchId, n);
+    next += 1;
+    found = recorded(state, batchId, next);
   }
-  return latest?.comment;
+  return { next, latest };
 };
 
 /** A revision of a status comment that is due. */
@@ -376,13 +384,7 @@ const statusDue = (
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined || batch.repo !== undefined) return undefined;
-  let revision = 1;
-  let previous: StatusRevision | undefined;
-  for (let found = recorded(state, batchId, revision); found !== undefined; ) {
-    previous = found;
-    revision += 1;
-    found = recorded(state, batchId, revision);
-  }
+  const { next: revision, latest: previous } = latestRevision(state, batchId);
   const text = renderStatus(batch, steps, knownCommits(state, batchId));
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

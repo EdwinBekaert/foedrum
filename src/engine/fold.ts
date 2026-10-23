@@ -356,12 +356,10 @@ function apply(state: State, event: Event): State {
         };
       });
       const { worktree, stepId, attempt } = event;
-      const onPath = updateBatch(next, event.batchId, (batch) => ({
-        ...batch,
-        path: [...(batch.path ?? []), { stepId, attempt }],
-      }));
-      if (worktree === undefined) return onPath;
-      return updateBatch(onPath, event.batchId, (batch) => startAt(batch, worktree, false));
+      return updateBatch(next, event.batchId, (batch) => {
+        const onPath = { ...batch, path: [...(batch.path ?? []), { stepId, attempt }] };
+        return worktree === undefined ? onPath : startAt(onPath, worktree, false);
+      });
     }
     case 'step.finished': {
       // The worktree it ran in, and the attempt that made it: its own, or for a resumed attempt
