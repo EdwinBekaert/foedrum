@@ -935,6 +935,45 @@ describe('statusEffects', () => {
     assert.deepEqual(notices, []);
   });
 
+  describe('a claimed issue ordered again (ADR 0144)', () => {
+    const order = { issue: 7, repo: 'alice/web' };
+    const routeBy = '2026-10-23T10:00:00.000Z';
+    const applied = (batchId: string, effect: string, result: unknown): void =>
+      store.withTransaction((tx) => tx.recordEffect({ batchId, effect }, result));
+    /** web-7 opened the Brewery issue #20 and was cancelled; web-7-2 orders the issue again. */
+    const again = (): void => {
+      issue({ kind: 'order', batchId: 'web-7', order });
+      applied('web-7', 'order.issue', 20);
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'alice', via: 'terminal' });
+      store.withTransaction((tx) =>
+        tx.append({ type: 'batch.ordered', batchId: 'web-7-2', order, routeBy }),
+      );
+    };
+    const onIssue = (n: number) => comments.comments.filter((comment) => comment.issue === n);
+    const firstOf = (batchId: string) =>
+      effectMarker(effectKey.encode({ batchId, effect: 'status.1' }));
+
+    it('gives the new batch a status comment of its own on the Brewery issue it shares', async () => {
+      again();
+      const driver = await open();
+      await driver.tick();
+      assert.ok(onIssue(20).some(({ body }) => body.endsWith(firstOf('web-7-2'))));
+      assert.deepEqual(onIssue(7), []);
+    });
+
+    it('comments nothing for the new batch whose reopen found the Brewery issue gone, until it opens its own', async () => {
+      again();
+      applied('web-7-2', 'order.reopen', 'gone');
+      const driver = await open();
+      await driver.tick();
+      assert.equal(store.findEffect({ batchId: 'web-7-2', effect: 'status.1' }), undefined);
+      applied('web-7-2', 'order.issue', 21);
+      await driver.tick();
+      assert.ok(onIssue(21).some(({ body }) => body.endsWith(firstOf('web-7-2'))));
+      assert.ok(onIssue(20).every(({ body }) => !body.endsWith(firstOf('web-7-2'))));
+    });
+  });
+
   it("shows a commit hash the batch's state records, and leaves out a token (#235)", async () => {
     const sha = 'a'.repeat(40);
     order();
