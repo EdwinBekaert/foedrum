@@ -993,7 +993,8 @@ describe('runServe', () => {
           'acme/web': [
             {
               number: 7,
-              labels: ['foedrum', 'recipe:stout'],
+              // Never read for routing: a claimed order is routed by its Brewery issue (ADR 0156).
+              labels: ['foedrum', 'recipe:other'],
               author: 'ann',
               title: 'Dark theme',
               body: 'Add a dark theme.',
@@ -1008,13 +1009,19 @@ describe('runServe', () => {
       });
       // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
       const order = () => github.issue('acme/brewery', 13);
-      const done = () =>
-        lane('12-1') === 'on_tap' &&
-        lane('web-7') === 'on_tap' &&
-        github.created.length === 1 &&
-        github.refs.size === 0 &&
-        github.comments.get('acme/web#7')?.length === 2 &&
-        order()?.state === 'closed';
+      const done = () => {
+        // A person labels the Brewery issue once the driver opened it, between two passes.
+        const opened = order();
+        if (opened !== undefined && opened.labels.length === 0) opened.labels.push('recipe:stout');
+        return (
+          lane('12-1') === 'on_tap' &&
+          lane('web-7') === 'on_tap' &&
+          github.created.length === 1 &&
+          github.refs.size === 0 &&
+          github.comments.get('acme/web#7')?.length === 2 &&
+          order()?.state === 'closed'
+        );
+      };
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
       assert.ok(done(), lines.join('\n'));
       for (const batchId of ['12-1', 'web-7']) {
@@ -1027,7 +1034,7 @@ describe('runServe', () => {
       const claimed = github.issue('acme/web', 7);
       assert.deepStrictEqual(claimed?.assignees, ['ann']);
       // foedrum:claimed was added with the claim and removed with its release.
-      assert.deepStrictEqual(claimed?.labels, ['foedrum', 'recipe:stout']);
+      assert.deepStrictEqual(claimed?.labels, ['foedrum', 'recipe:other']);
       assert.ok(github.requests.includes('GET /user'));
       for (const line of [
         `ordered ${brewerySpelled}#12 as batch 12-1`,
