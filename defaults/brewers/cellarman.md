@@ -33,7 +33,7 @@ Implement the order in {order}. The Gauger's failing tests, listed in its out do
 - **Replace the stubs.** Every stub that throws `not implemented` becomes the real behaviour.
 - **A wrong test is a finding.** If you believe one of the Gauger's tests is wrong, do not edit it: end blocked with findings that name the test and say why.
 - **Without tests.** When there is no {tests} input, the recipe ran without the Gauger: implement the order and add tests for it yourself.
-- **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`) instead of guessing. Decide anything smaller yourself and list it as an assumption.
+- **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`). Decide anything smaller yourself and list it as an assumption.
 - **The least code.** Write the least code that makes the tests pass and does what the order asks: no option, layer or abstraction the order does not ask for.
 - **Only what the order needs.** Do not refactor or reformat code you do not have to change, however much it needs it: name it in your out doc instead.
 
