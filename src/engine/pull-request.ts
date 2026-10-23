@@ -3,7 +3,13 @@
 // order and the brewers' out docs.
 
 import type { IsCommit } from '../formats/secrets.ts';
-import { OutDocFrontmatter, type TastingReport } from '../schemas/out-doc.ts';
+import {
+  OutDocFrontmatter,
+  type TastingFinding,
+  TastingOutDoc,
+  type TastingReport,
+  tastingOf,
+} from '../schemas/out-doc.ts';
 import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey } from './effect-key.ts';
@@ -72,11 +78,22 @@ export const stepReports = (batch: Batch): StepReport[] =>
       .filter((attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded')
       .at(-1);
     if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
-    // A check's success has no out doc.
-    const doc = OutDocFrontmatter.safeParse(latest.outcome.output);
+    // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161).
+    const { output } = latest.outcome;
+    const doc = OutDocFrontmatter.or(TastingOutDoc).safeParse(output);
     if (!doc.success) return [];
-    return [{ stepId: step.id, summary: doc.data.summary, assumptions: doc.data.assumptions }];
+    const { summary, assumptions } = doc.data;
+    const tasting = tastingOf(output);
+    return [
+      { stepId: step.id, summary, assumptions, ...(tasting === undefined ? {} : { tasting }) },
+    ];
   });
+
+/** Where a finding is, how bad, and whether it was there before the change, on one line. */
+export const findingText = ({ file, line, severity, introduced }: TastingFinding): string => {
+  const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
+  return `${severity}${where}${introduced ? '' : ', there before the change'}`;
+};
 
 export interface PullRequestTextInput {
   /** The title of the order's issue: untrusted. */
@@ -124,11 +141,20 @@ export const pullRequestText = ({
     if (read.length < text.length) cut = true;
     return withoutSecrets(read, stepId, isCommit);
   };
-  const lines = reports.flatMap(({ stepId, summary, assumptions }) => [
+  const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
+  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting }) => [
     `${stepId}: ${shown(summary, stepId)}`,
-    ...assumptions.map(
-      (assumption) => `  assumed: ${shown(assumption, stepId).replace(/\s+/g, ' ')}`,
-    ),
+    ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
+    // A Taster's findings are listed, never acted on, unless its step is blocking (ADR 0161).
+    ...(tasting === undefined
+      ? []
+      : [
+          `  verdict: ${tasting.verdict}`,
+          ...tasting.findings.map(
+            (finding) =>
+              `  finding: ${flat(findingText(finding), stepId)}: ${flat(finding.why, stepId)}`,
+          ),
+        ]),
   ]);
   // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
   // output could otherwise make the fence, which comes twice, as long as the reports.

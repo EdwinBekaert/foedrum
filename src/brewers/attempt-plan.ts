@@ -13,7 +13,7 @@ import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { OutDocFrontmatter, TASTING, TastingOutDoc } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import type { AttemptPermissions } from './attempt-settings.ts';
@@ -70,17 +70,21 @@ export interface PlanFacts {
 
 /**
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
- * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074).
+ * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074). A Taster's
+ * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
+ * blocks it by findings (ADR 0161).
  */
 export function attemptLimits(
   brewer: BrewerFrontmatter,
   start?: string,
-  _blocking = false,
+  blocking = false,
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
-  // Brewer-specific schemas are not built yet: every out doc is read against the contract's.
+  // Every other out doc is read against the contract's schema.
+  const schema = brewer.output.schema === TASTING ? TastingOutDoc : OutDocFrontmatter;
   return {
-    outDoc: { file: brewer.output.doc, schema: OutDocFrontmatter },
+    outDoc: { file: brewer.output.doc, schema },
+    ...(blocking ? { blocking } : {}),
     ...(maxTurns === undefined ? {} : { maxTurns }),
     ...(maxDenials === undefined ? {} : { maxDenials }),
     ...(brewer.produces === 'commits' && start !== undefined ? { commitsSince: start } : {}),
@@ -220,6 +224,17 @@ export function answersOf(
   if (answers.length === 0) return undefined;
   const text = answers.map(({ q, answer }) => `Q: ${q}\nA: ${answer}`).join('\n\n');
   return { name: 'answers', source: { kind: 'answers', step: stepId }, text };
+}
+
+/**
+ * What a Taster's step that reviews a diff is told to review (ADR 0161): the commits after the one
+ * `batch` started at in `repo`, up to the worktree's HEAD; none before any attempt recorded one.
+ */
+export function changeOf(batch: Batch, repo: string): PromptInput | undefined {
+  const since = batch.starts?.[repo.toLowerCase()]?.commit;
+  if (since === undefined) return undefined;
+  const text = `The change to review is every commit after ${since} up to HEAD in your worktree: git diff ${since} HEAD shows it, and git log ${since}..HEAD lists its commits.`;
+  return { name: 'change', source: { kind: 'change', since }, text };
 }
 
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */

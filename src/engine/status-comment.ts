@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
-import { OutDocAssumptions } from '../schemas/out-doc.ts';
+import { OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
@@ -15,7 +15,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { knownCommits } from './pull-request.ts';
+import { findingText, knownCommits } from './pull-request.ts';
 import type { Recipes } from './recipes.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
@@ -286,6 +286,30 @@ const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): 
     return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
   });
 
+/** How many findings of one Taster's step the comment shows. */
+const mostFindings = 10;
+
+/** The findings of the latest out doc of each Taster's step that succeeded (ADR 0161). */
+const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) => {
+    const succeeded = latestFirst(batch, stepId).find(
+      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+    );
+    const output =
+      succeeded?.phase === 'finished' && succeeded.outcome.kind === 'succeeded'
+        ? succeeded.outcome.output
+        : undefined;
+    const all = tastingOf(output)?.findings ?? [];
+    const shown = all
+      .slice(0, mostFindings)
+      .map(
+        (finding) =>
+          `- ${code(stepId)}: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+      );
+    const more = all.length - shown.length;
+    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+  });
+
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the assumptions of
@@ -315,6 +339,8 @@ export const renderStatus = (
   ];
   const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
+  const findings = findingLines(batch, stepIds, told);
+  if (findings.length > 0) sections.push(['**Findings**', ...findings]);
   if (batch.lane.kind === 'on_tap') {
     const { pullRequests } = batch.lane;
     sections.push(

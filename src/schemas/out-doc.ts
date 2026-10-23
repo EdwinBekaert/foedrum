@@ -77,12 +77,23 @@ export const TastingOutDoc = outDocFrontmatter({
   }
 });
 
-/** What a Taster reported in the out doc of an attempt that succeeded, beside the rest. */
-export const TastingReport = z.object({
-  verdict: Verdict,
-  findings: z.array(TastingFinding),
-});
-export type TastingReport = z.infer<typeof TastingReport>;
+/** What a Taster reported in the out doc of an attempt that succeeded. */
+export interface TastingReport {
+  verdict: z.infer<typeof Verdict>;
+  findings: readonly TastingFinding[];
+}
+
+/**
+ * The verdict and findings of an attempt's `output` when a Taster wrote it (ADR 0161); undefined
+ * for any other brewer's out doc, and for a check's success, which has none.
+ */
+export const tastingOf = (output: unknown): TastingReport | undefined => {
+  const read = TastingOutDoc.safeParse(output);
+  if (!read.success || read.data.status !== 'done' || read.data.verdict === undefined) {
+    return undefined;
+  }
+  return { verdict: read.data.verdict, findings: read.data.findings };
+};
 
 /**
  * The assumptions of an out doc that succeeded, beside whatever else it holds (a brewer's own

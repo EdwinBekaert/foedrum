@@ -18,6 +18,7 @@ import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import {
   answersOf,
   attemptLimits,
+  changeOf,
   type InputRead,
   inputsOf,
   type PlannedInput,
@@ -140,22 +141,25 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
-   * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then the answers to
-   * its step's questions, then what sent it back when a route scheduled it (ADR 0128).
+   * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then for a Taster
+   * that reviews a diff where the change starts (ADR 0161), then the answers to its step's
+   * questions, then what sent it back when a route scheduled it (ADR 0128).
    */
   const inputsFor = async (
     batch: Batch,
     ref: AttemptRef,
     found: StepBrewer,
-    worktree: string,
+    worktree: WorktreeRef,
   ): Promise<PromptInput[]> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree, found.lenses);
+    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
     const inputs: PromptInput[] = [];
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
+    const change = found.lens?.startsWith('diff/') ? changeOf(batch, worktree.repo) : undefined;
+    if (change !== undefined) inputs.push(change);
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);
     const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
@@ -194,7 +198,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
       const inputs =
         resumes === undefined
-          ? await inputsFor(batch, ref, found, worktree.path)
+          ? await inputsFor(batch, ref, found, worktree)
           : latest === undefined
             ? []
             : [latest];
@@ -226,7 +230,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (found === undefined) return noBrewer;
       // The commit its worktree started at, which a done of a brewer that commits needs one after.
       const batch = state().batches.get(ref.batchId);
-      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.worktree.commit);
+      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.worktree.commit, found.blocking);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };
