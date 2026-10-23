@@ -3,7 +3,7 @@
 // of its own, through the ledger, so the checks read the code the pull request will hold and a
 // kill on either side of the merge never merges twice (I4).
 
-import type { AttemptEffectKey } from '../schemas/store.ts';
+import { type AttemptEffectKey, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import type { EffectTarget } from './effects.ts';
@@ -49,16 +49,62 @@ export const baseMergeKey = (ref: AttemptRef): AttemptEffectKey => ({
   effect: 'merge_base',
 });
 
-/** The merge into the worktree at `path`, which the attempt started at `start`. */
+/**
+ * The merge into the worktree at `path`, which the attempt of `stepId` started at `start`: found
+ * when HEAD is a merge of `start` and a commit of the base, which a run killed before it recorded
+ * the merge made; a merge such a run left in progress is aborted, and found as nothing.
+ */
 export const baseMergeTarget = (
-  _merge: BaseMerge,
-  _worktree: { path: string; start: string },
-  _stepId: string,
-): EffectTarget => {
-  throw new Error('not implemented');
-};
+  { base, push, worktree }: BaseMerge,
+  { path, start }: { path: string; start: string },
+  stepId: string,
+): EffectTarget => ({
+  find: async (_key, signal) => {
+    const head = await worktree.head(path, signal);
+    // A merge in progress has not moved HEAD.
+    if (head === start) {
+      await worktree.abort(path, signal);
+      return undefined;
+    }
+    const [first, second, ...more] = await worktree.parents(path, head, signal);
+    if (first !== start || second === undefined || more.length > 0) {
+      throw new Error(
+        `The worktree ${path} moved from ${start} to ${head}, which is no merge of it`,
+      );
+    }
+    return { result: { base: second, merged: head } satisfies MergeResult };
+  },
+  apply: async (_key, signal): Promise<MergeResult> => {
+    const tip = await push.baseTip(base, signal);
+    // Every commit of the base is in the attempt's start already: nothing to merge.
+    if (await push.isAncestor(tip, start, signal)) return { base: tip };
+    const merged = await worktree.merge(path, tip, `Merge ${base} before ${stepId}`, signal);
+    switch (merged.kind) {
+      case 'merged':
+        return { base: tip, merged: merged.commit };
+      case 'conflicts':
+        return { base: tip, conflicts: merged.files.slice(0, MAX_CONFLICTS) };
+      default:
+        return merged satisfies never;
+    }
+  },
+});
 
-/** How the attempt ends when its merge `result` stops it: a conflict; `undefined` when it runs. */
-export const mergeEnding = (_result: unknown, _base: string): Ending | undefined => {
-  throw new Error('not implemented');
+/**
+ * How the attempt ends when its merge's `result` stops it: blocked on a divergence when it
+ * conflicts, since another round would hit the same conflict; `undefined` when the attempt runs.
+ */
+export const mergeEnding = (result: unknown, base: string): Ending | undefined => {
+  const parsed = MergeResult.safeParse(result);
+  if (!parsed.success) {
+    return {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the ledger holds a merge of the base that is not one the engine records',
+    };
+  }
+  const { conflicts } = parsed.data;
+  if (conflicts === undefined) return undefined;
+  const summary = `conflicts with ${base} in ${conflicts.join(', ')}`;
+  return { kind: 'blocked', blockerKind: 'divergence', summary };
 };
