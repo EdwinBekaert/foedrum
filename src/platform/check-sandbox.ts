@@ -42,7 +42,14 @@ export const seatbeltProfile = (
   return [
     '(version 1)',
     '(allow default)',
-    ...(network ? [] : ['(deny network*)']),
+    // network* covers Unix sockets too, such as launchd's ssh-agent under /private/tmp: a setup
+    // keeps IP and the resolver's socket only (review of #422).
+    ...(network
+      ? [
+          '(deny network-outbound (remote unix-socket))',
+          '(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))',
+        ]
+      : ['(deny network*)']),
     // The Keychain's service, where gh keeps its login on macOS (ADR 0073).
     '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
     // launchd and LaunchServices start what they are asked to outside the sandbox (review of #357).
