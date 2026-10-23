@@ -7,9 +7,9 @@ import { DefaultRecipe } from '../../src/schemas/recipe.ts';
 
 const root = join(import.meta.dirname, '..', '..', 'defaults');
 // Default brewers and lenses are Markdown, so every JSONC file under defaults/ is a recipe
-// (architecture §14), wherever it is.
-const recipes = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((name) =>
-  name.endsWith('.jsonc'),
+// (architecture §14), wherever it is, except the defaults' models.jsonc (ADR 0153).
+const recipes = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter(
+  (name) => name.endsWith('.jsonc') && name !== 'models.jsonc',
 );
 
 // Default recipes are language-independent (ADR 0023): their check steps name one of the five

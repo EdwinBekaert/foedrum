@@ -37,7 +37,10 @@ interface FilesByKind {
  * by its path in `defaults/`.
  */
 export interface BreweryFiles extends FilesByKind {
-  defaults?: Partial<FilesByKind>;
+  defaults?: Partial<FilesByKind> & {
+    /** Foedrum's `defaults/models.jsonc`, merged under the Brewery's models.jsonc (ADR 0153). */
+    models?: BreweryFile;
+  };
 }
 
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
@@ -197,10 +200,16 @@ export function replacedDefaults(
   ];
 }
 
-/** The paths of the defaults the Brewery has no file of the same name for (ADR 0098). */
+/**
+ * The paths of the defaults the Brewery has no file of the same name for (ADR 0098), then Foedrum's
+ * models.jsonc, which always applies under the Brewery's and is listed, not loaded (ADR 0153).
+ */
 function defaultsInUse(files: BreweryFiles): string[] {
   const { recipes, brewers, lenses } = defaultsKept(files);
-  return [...recipes, ...brewers, ...lenses].map(({ path }) => path);
+  const { models } = files.defaults ?? {};
+  return [...recipes, ...brewers, ...lenses, ...(models === undefined ? [] : [models])].map(
+    ({ path }) => path,
+  );
 }
 
 /** The lens a brewer input reads (`"from": "lens:<folder>/<name>"`), when it reads one. */

@@ -49,7 +49,8 @@ describe('foedrum serve', () => {
     });
     assert.equal(result.exitCode, 1, result.stderr);
     assert.match(result.stderr, /^foedrum serve: foedrum\.jsonc: not found in /m);
-    assert.match(result.stderr, /^foedrum serve: models\.jsonc: not found in /m);
+    // The Brewery's models.jsonc is optional: Foedrum's defaults map their aliases (ADR 0153).
+    assert.doesNotMatch(result.stderr, /models\.jsonc/);
   });
 });
 

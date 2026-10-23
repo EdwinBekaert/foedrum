@@ -739,7 +739,12 @@ export const formatDiagnosis = ({
       : [
           defaults.length === 0
             ? 'Defaults in use: none'
-            : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one)`,
+            : `Defaults in use: ${defaults.join(', ')} (a Brewery file of the same name replaces one${
+                // The Brewery's models.jsonc merges over Foedrum's by alias (ADR 0153).
+                defaults.includes('defaults/models.jsonc')
+                  ? '; models.jsonc merges over defaults/models.jsonc by alias'
+                  : ''
+              })`,
         ]),
     ...(denylist === undefined ? [] : [denylistLine(denylist)]),
     '',
