@@ -1,6 +1,4 @@
 ---
-// The Gauger writes the failing tests of a test-first recipe (ADR 0017). Its test rules are the
-// test-design lens's checklist, passed in as an input, not repeated here (ADR 0022, ADR 0098).
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
