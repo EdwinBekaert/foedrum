@@ -68,13 +68,28 @@ const readKinds = (root: string, prefix?: string) => ({
   lenses: readLenses(root, prefix),
 });
 
+/** Foedrum's `models.jsonc` in `defaults`, by its path in `defaults/`; none where it is missing. */
+function readDefaultModels(defaults: string): { models?: BreweryFile } {
+  const path = 'defaults/models.jsonc';
+  try {
+    return { models: { path, text: readFileSync(join(defaults, 'models.jsonc'), 'utf8') } };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    return { models: { path, unreadable: messageOf(error) } };
+  }
+}
+
 /**
  * The recipe, brewer and lens files in their folders, by name, and those of `defaults`
- * (Foedrum's own) by their path in `defaults/`; a missing folder has none. A file or folder that
- * cannot be read is listed with the reason, so it fails the load.
+ * (Foedrum's own) by their path in `defaults/`, with its `models.jsonc` (ADR 0153); a missing
+ * folder or file has none. A file or folder that cannot be read is listed with the reason, so it
+ * fails the load.
  */
 export function readBreweryFiles(root: string, defaults = FOEDRUM_DEFAULTS): BreweryFiles {
-  return { ...readKinds(root), defaults: readKinds(defaults, 'defaults/') };
+  return {
+    ...readKinds(root),
+    defaults: { ...readKinds(defaults, 'defaults/'), ...readDefaultModels(defaults) },
+  };
 }
 
 /** The Brewery's recipes; throws doctor's message when its files are not valid. */

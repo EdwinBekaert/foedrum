@@ -8,7 +8,7 @@ Foedrum is a GitHub-native orchestrator that runs Claude agents (brewers) throug
 - Decisions: `docs/adr/` — read the relevant ADR before changing a design decision; a change of mind is a new ADR
 - Plan: `ROADMAP.md` and the GitHub milestones/issues
 - Dependencies: `DEPENDENCIES.md`, `.npmrc`
-- Defaults: `defaults/` (brewers, recipes, lenses) loads under every Brewery's own files, found from the install, never the working directory; a Brewery file of the same name replaces the default (`loadRecipes`, [ADR 0098](docs/adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md))
+- Defaults: `defaults/` (brewers, recipes, lenses) loads under every Brewery's own files, found from the install, never the working directory; a Brewery file of the same name replaces the default, except `defaults/models.jsonc`, which the Brewery's `models.jsonc` merges over by alias ([ADR 0153](docs/adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)) (`loadRecipes`, [ADR 0098](docs/adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md))
 
 - Plugin: `plugin/` (one Markdown skill per `/foedrum:<command>`, each running `foedrum <command> … --via plugin`) with this repository as its marketplace (`.claude-plugin/marketplace.json`); a command of the registry has a skill or a `terminalOnly` reason, which `test/unit/plugin-parity.test.ts` checks ([ADR 0125](docs/adr/0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md))
 

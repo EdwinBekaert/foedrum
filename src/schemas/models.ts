@@ -20,26 +20,31 @@ export const ModelId = z
     'Must be a model id or family such as "claude-sonnet-5-5" or "sonnet"',
   );
 
-export const ModelsConfig = z
-  .strictObject({
-    $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
-    models: z
-      .record(ModelAlias, ModelId)
-      .describe('The model id or family behind each alias that brewers name'),
-    brewers: z
-      .record(PathSafeId, ModelAlias)
-      .default({})
-      .describe("An alias per brewer, replacing the brewer's own (blind tasting)"),
-  })
-  .superRefine((config, ctx) => {
-    for (const [brewer, alias] of Object.entries(config.brewers)) {
-      if (!Object.hasOwn(config.models, alias)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `No model has the alias "${alias}"`,
-          path: ['brewers', brewer],
-        });
-      }
+/**
+ * The fields of a models.jsonc, without the check that its `brewers` name an alias of its own
+ * `models`: a Brewery's file may name an alias of Foedrum's defaults, so serve checks it on the
+ * merged models (ADR 0153).
+ */
+export const ModelsFile = z.strictObject({
+  $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
+  models: z
+    .record(ModelAlias, ModelId)
+    .describe('The model id or family behind each alias that brewers name'),
+  brewers: z
+    .record(PathSafeId, ModelAlias)
+    .default({})
+    .describe("An alias per brewer, replacing the brewer's own (blind tasting)"),
+});
+
+export const ModelsConfig = ModelsFile.superRefine((config, ctx) => {
+  for (const [brewer, alias] of Object.entries(config.brewers)) {
+    if (!Object.hasOwn(config.models, alias)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `No model has the alias "${alias}"`,
+        path: ['brewers', brewer],
+      });
     }
-  });
+  }
+});
 export type ModelsConfig = z.infer<typeof ModelsConfig>;
