@@ -48,6 +48,42 @@ export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> 
   return readDoc(text, schema);
 }
 
+/** The name of a Taster's out doc schema (`output.schema`): what makes a brewer a Taster (ADR 0161). */
+export const TASTING = 'tasting';
+
+/** A Taster's verdict: `changes` holds a blocking step up (ADR 0161). */
+export const Verdict = z.enum(['approve', 'changes']);
+
+/**
+ * One finding of a Taster (ADR 0161): where, how bad, and why; `introduced` is false for a defect
+ * that was there before the change (ADR 0094). A finding about the change as a whole has no file.
+ */
+export const TastingFinding = z.strictObject({
+  file: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line').optional(),
+  line: z.int().positive().optional(),
+  severity: z.enum(['blocker', 'major', 'minor']),
+  why: NonEmpty,
+  introduced: z.boolean(),
+});
+export type TastingFinding = z.infer<typeof TastingFinding>;
+
+/** A Taster's out doc: the contract's, with its findings, and a verdict when it is done. */
+export const TastingOutDoc = outDocFrontmatter({
+  verdict: Verdict.optional(),
+  findings: z.array(TastingFinding).default([]),
+}).superRefine((doc, ctx) => {
+  if (doc.status === 'done' && doc.verdict === undefined) {
+    ctx.addIssue({ code: 'custom', message: 'A done Taster gives a verdict', path: ['verdict'] });
+  }
+});
+
+/** What a Taster reported in the out doc of an attempt that succeeded, beside the rest. */
+export const TastingReport = z.object({
+  verdict: Verdict,
+  findings: z.array(TastingFinding),
+});
+export type TastingReport = z.infer<typeof TastingReport>;
+
 /**
  * The assumptions of an out doc that succeeded, beside whatever else it holds (a brewer's own
  * fields): what the status comment shows (ADR 0072).

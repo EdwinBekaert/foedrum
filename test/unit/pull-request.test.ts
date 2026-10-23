@@ -123,8 +123,55 @@ describe('stepReports', () => {
   });
 });
 
+const blocker = {
+  file: 'src/wait.ts',
+  line: 13,
+  severity: 'blocker' as const,
+  why: 'The poll has no deadline',
+  introduced: true,
+};
+const before = { severity: 'minor' as const, why: 'The module has no tests', introduced: false };
+
+describe("stepReports: a Taster's findings (ADR 0161)", () => {
+  it("gives a Taster's verdict and findings with its summary", () => {
+    const tasted = { ...outDoc('Tasted'), verdict: 'changes', findings: [blocker, before] };
+    const state = fold([ordered, chosen, ...ran('correctness', 1, tasted)]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      {
+        stepId: 'correctness',
+        summary: 'Tasted',
+        assumptions: [],
+        tasting: { verdict: 'changes', findings: [blocker, before] },
+      },
+    ]);
+  });
+});
+
 describe('pullRequestText', () => {
   const closes = { repo: 'acme/brewery', issue: 12 };
+
+  it("lists a Taster's verdict and each finding under its step, saying which were there before", () => {
+    const reports = [
+      {
+        stepId: 'correctness',
+        summary: 'One blocker',
+        assumptions: [],
+        tasting: { verdict: 'changes' as const, findings: [blocker, before] },
+      },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.equal(
+      body.split('\n').slice(3, 7).join('\n'),
+      [
+        'correctness: One blocker',
+        '  verdict: changes',
+        '  finding: blocker in src/wait.ts:13: The poll has no deadline',
+        '  finding, there before the change: minor: The module has no tests',
+      ].join('\n'),
+    );
+  });
 
   it("takes the order's title, and closes the order's issue", () => {
     const text = pullRequestText({ title: 'Add a --json flag', closes, reports: [] });

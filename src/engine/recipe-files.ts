@@ -55,6 +55,8 @@ export interface StepBrewer {
   instructions: string;
   /** The lenses its inputs name, by name. */
   lenses?: ReadonlyMap<string, Lens>;
+  /** On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161). */
+  blocking?: boolean;
 }
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */

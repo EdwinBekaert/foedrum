@@ -476,6 +476,56 @@ describe('renderStatus', () => {
     assert.doesNotMatch(text, /old guess/);
   });
 
+  it("lists a Taster's findings under Findings, by step, saying which were there before (ADR 0161)", () => {
+    const finding = (n: number, introduced = true) => ({
+      file: 'src/wait.ts',
+      line: n,
+      severity: 'major',
+      why: `finding ${n}`,
+      introduced,
+    });
+    const tasted = (findings: ReturnType<typeof finding>[]): Attempt => ({
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'changes',
+          findings,
+        },
+      },
+    });
+    const many = Array.from({ length: 12 }, (_, i) => finding(i + 1));
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('taste', tasted([{ ...finding(1, false), severity: 'minor' }])),
+          step('security', tasted(many)),
+        ]),
+      }),
+      ['taste', 'security'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Findings**');
+    assert.ok(at_ >= 0, text);
+    assert.equal(
+      lines[at_ + 1],
+      '- `taste`: minor in src/wait.ts:1, there before the change: finding 1',
+    );
+    assert.equal(lines[at_ + 2], '- `security`: major in src/wait.ts:1: finding 1');
+    assert.match(text, /finding 10\b/);
+    assert.doesNotMatch(text, /finding 11\b/);
+    assert.equal(lines[at_ + 12], '- `security`: and 2 more');
+    assert.doesNotMatch(
+      renderStatus(batch({ steps: new Map([step('plan', done(1))]) }), steps),
+      /Findings/,
+    );
+  });
+
   it('shows at most 10 assumptions a step and counts the rest', () => {
     const many = Array.from({ length: 12 }, (_, i) => `guess ${i + 1}`);
     const text = renderStatus(batch({ steps: new Map([step('plan', done(1, many))]) }), steps);

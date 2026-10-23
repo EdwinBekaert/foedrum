@@ -3,7 +3,7 @@
 // order and the brewers' out docs.
 
 import type { IsCommit } from '../formats/secrets.ts';
-import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { OutDocFrontmatter, type TastingReport } from '../schemas/out-doc.ts';
 import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey } from './effect-key.ts';
@@ -61,6 +61,8 @@ export interface StepReport {
   stepId: string;
   summary: string;
   assumptions: readonly string[];
+  /** A Taster's verdict and findings (ADR 0161). */
+  tasting?: TastingReport;
 }
 
 /** The reports of `batch`'s steps, in the order they were first scheduled. */

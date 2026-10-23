@@ -72,7 +72,11 @@ export interface PlanFacts {
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
  * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074).
  */
-export function attemptLimits(brewer: BrewerFrontmatter, start?: string): AttemptLimits {
+export function attemptLimits(
+  brewer: BrewerFrontmatter,
+  start?: string,
+  _blocking = false,
+): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // Brewer-specific schemas are not built yet: every out doc is read against the contract's.
   return {
