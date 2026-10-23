@@ -368,9 +368,9 @@ describe('the Nip recipe end to end with the real claude', {
         const [scripted] = NIP_SCRIPT.taste ?? [];
         assert.ok(scripted !== undefined);
         const content = scriptedOutDoc(scripted);
-        return [
-          { name: 'Write', input: { file_path: join(worktree('taste', 1), 'taste.md'), content } },
-        ];
+        // The Taster's only rule that writes is Edit on its out doc, so Edit makes the file.
+        const file_path = join(worktree('taste', 1), 'taste.md');
+        return [{ name: 'Edit', input: { file_path, old_string: '', new_string: content } }];
       }
       return brew('implement', ROUTE.test(body) ? 2 : 1, 'brew.md');
     });
