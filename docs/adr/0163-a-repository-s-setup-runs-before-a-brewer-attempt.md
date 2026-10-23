@@ -1,6 +1,6 @@
-# 0163. A repository's setup runs before a fresh brewer attempt
+# 0163. A repository's setup runs before a brewer attempt
 
-Date: 2026-10-23 · Status: Accepted · Amends [0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md) (setup runs before a fresh brewer attempt too, not only before check steps) and [0158](0158-a-repository-s-setup-runs-in-the-check-sandbox-with-the-network-kept.md) (`serveSetup` refuses a sandboxed minimum with a setup without a check step too, and on native Windows with its own line)
+Date: 2026-10-23 · Status: Accepted · Amends [0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md) (setup runs before the attempt of a brewer with a shell too, not only before check steps), [0158](0158-a-repository-s-setup-runs-in-the-check-sandbox-with-the-network-kept.md) (`serveSetup` refuses a sandboxed minimum with a setup without a check step too, and on native Windows with its own line; `serve` says on native Windows that a setup runs outside a sandbox) and [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (a setup that does not pass ends a brewer attempt before claude starts, and the setup is progress, not part of claude's stall clock)
 
 ## Context
 A brewer works in an attempt worktree of its own, at the task tree, with the tool rules of its brewer file plus its repository's `tools` within the Brewery's `permissionCeiling` ([ADR 0026](0026-how-a-permission-ceiling-covers-a-rule.md)). Since [ADR 0140](0140-a-repository-s-setup-runs-before-a-check-step-s-checks-with-the-network.md) a repository's `setup` (`npm ci`, `dotnet restore`) runs only in a check step's worktree. A brewer's worktree has no installed dependencies, so even a `tools` rule that allows `npm run lint` could not run it, and the default Cellarman's prompt said it need not run lint or format.
@@ -9,10 +9,12 @@ ADR 0140 expected a brewer to install what it needs itself. None did: every tria
 
 ## Decision
 
-### Setup runs before a fresh brewer attempt
-- **Where.** The plan of a brewer attempt that starts fresh (`createAttemptPlans`, `src/brewers/attempt-plans.ts`) carries its repository's `setup`: the command line for the platform and its timeout (`setupRunOf`, `src/checks/setup.ts`), the attempt's deadline, and the checks' environment (`checksEnv`: the brewers' minimal base without claude's login, with the runner's forced variables, so `npm_config_ignore_scripts=true`, ADR 0069). The brewer runner (`claudeBrewerRunner`) runs it in the attempt's worktree after the plan and before claude starts.
+### Setup runs before the attempt of a brewer with a shell
+- **Where.** The plan of a brewer attempt (`createAttemptPlans`, `src/brewers/attempt-plans.ts`) carries its repository's `setup`: the command line for the platform and its timeout (`setupRunOf`, `src/checks/setup.ts`), the attempt's deadline, and the checks' environment (`checksEnv`: the brewers' minimal base without claude's login, with the runner's forced variables, so `npm_config_ignore_scripts=true`, ADR 0069). The brewer runner (`claudeBrewerRunner`) runs it in the attempt's worktree after the plan and before claude starts; so does the runner of a foreground session `foedrum resume` continues ([ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)), before claude opens, through the same function (`setUpFor`).
 - **How.** Exactly as before a check step (ADR 0140, ADR 0158), through the same function (`runSetup`): the platform shell, a Job Object on Windows, the setup's process runner, which is the check sandbox with the network kept (`ServeShell.setup`); on native Windows no sandbox, and the reading says `unsandboxed`. It is killed at its `timeout`, or 10 seconds before the attempt's deadline when that is sooner, or at the attempt's stop.
-- **Not for a resumed attempt.** An attempt that resumes a session (a retry or an answered attempt, [ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)) runs in the worktree of the attempt that started that session, whose setup already ran, so its plan carries none. That attempt's claude started, so its setup passed. A foreground session `foedrum resume` continues (ADR 0127) is such an attempt too; a fresh attempt it runs goes through the headless runner and gets its setup.
+- **A resumed attempt too.** An attempt that resumes a session (a retry or an answered attempt, [ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)) runs in the worktree of the attempt that started that session. The driver adds that worktree again when its folder is gone, and always on another machine (`docs/design/recipes/sessions-elsewhere.md`, #433), and a worktree added again has no install, since what setup writes is ignored by git. Rather than track which worktree was kept, every attempt runs the setup (review of #440): one rule, at the cost of an install per retry or answered round.
+- **Only for a brewer with a shell.** A brewer whose allow list, its own rules plus its repository's `tools` (ADR 0023), has no `Bash` or `PowerShell` rule cannot run a command, so it cannot use an install: its plan carries no setup. That is a read-only lens brewer such as the Taster, unless the repository's `tools` give it a shell. A brewer that commits always has one, through the git rules its `git.commit` grants (ADR 0074).
+- **Not on the stall clock.** The stall limit judges claude ([ADR 0027](0027-supervisor-lost-and-stalled-attempts.md)): while the setup runs, the runner reports progress, and claude's stall clock starts when the setup ends, not when the attempt started (review of #440).
 - **Its reading.** The setup's reading goes on the attempt's `step.finished` as `readings`, as a check step's does, with `"setup": true`. A setup that passed is recorded too, beside claude's report.
 
 ### A setup that does not pass ends the attempt before any model tokens
@@ -29,7 +31,7 @@ ADR 0158 refuses `serve` when a Brewery requires the sandboxed level, a recipe h
 
 ### What it costs, and why each worktree installs its own
 - **Per attempt, measured on Foedrum's own repository** (Windows 11, `npm ci` from `package-lock.json`): 8 s with an empty cache, downloading 37 MB, and 5 s with a warm one; `node_modules` takes 116 MB of disk. In the sandbox the cache is the sandbox's empty home (ADR 0158), so every setup outside native Windows pays the empty-cache cost. The disk stays until the batch's worktrees are cleaned when it ends.
-- So a Nip batch of one round pays two more setups than before (gauge and implement), each about 10 s, against a brewer attempt of minutes and a round back through green that costs a whole Cellarman attempt.
+- So a Nip batch of one round pays two more setups than before (gauge and implement, and the taste step only when the repository's `tools` give the Taster a shell), each about 10 s, against a brewer attempt of minutes and a round back through green that costs a whole Cellarman attempt.
 - **No reuse between steps.** A later step's worktree does not reuse an earlier one's install, and a check step does not reuse a brewer's:
   - The earlier install is a folder a brewer could write: a check that ran on it would read what that brewer left there, not what the manifest installs, and the gate would no longer be the repository's own (#190's path).
   - A later step's manifest may differ: the brewer before it may have changed `package.json`.
@@ -43,15 +45,18 @@ Setup ran unsandboxed code a brewer may have influenced before check steps; it n
 
 ## Consequences
 - A brewer finds the repository's dependencies in its worktree, and with the tools allowed runs format, lint, typecheck and the tests it touches before it commits; a formatting nit no longer costs a round back through green.
-- Every fresh brewer attempt of a repository with `setup` pays one install, retries and `onFail` rounds included; a resumed attempt pays none.
+- Every attempt of a brewer with a shell, in a repository with `setup`, pays one install: retries, answered rounds and `onFail` rounds included. A brewer without a shell pays none.
 - A brewer attempt's `step.finished` may carry `readings`, the setup's; existing logs and state branches still fold.
 - A broken install (a registry outage, a bad lock file) now ends the first brewer attempt, not the first check step, so the batch is Stuck before any tokens are spent.
 - `foedrum serve` refuses a Brewery that requires the sandboxed level and has a repository with `setup` on Linux, WSL2 and native Windows, with or without a check step.
-- `ServeShell.runner` passes its setup's process runner to the claude runner, and `interactiveBrewerRunner` takes one for its headless attempts.
+- `ServeShell.runner` passes its setup's process runner to the claude runner, and `interactiveBrewerRunner` takes one for its foreground and headless attempts.
+- On native Windows `foedrum serve` says at its start, for each repository with `setup`, that it runs outside an OS sandbox before brewer attempts and check steps, as it says for check steps (ADR 0076).
 
 ## Alternatives considered
 - **The brewer installs its dependencies itself (ADR 0140).** None did in any trial, and an install needs the registry and a `tools` rule for it, under which it runs in the brewer's shell, outside the check sandbox ADR 0158 gave setup.
 - **Setup in the driver, when it makes the worktree.** One place for all steps, but a process start in the driver, and a check step and a brewer each need its reading on their own `step.finished`.
-- **Setup before every attempt, resumed ones too.** Correct, but a resumed attempt's worktree already has its install, and it would cost an install per retry for nothing.
+- **Setup only before a fresh attempt.** A resumed attempt's worktree usually has its install, but not when the driver added it again, and the plan does not know which: a resumed brewer would then be told it has dependencies it does not have.
+- **Setup only when the driver added the worktree again.** Saves an install per retry, but needs that fact carried from the driver to the plan for a few seconds.
+- **Setup before every brewer attempt, a shell or not.** Simpler by one condition, but a read-only Taster would pay an install per attempt that it can never use.
 - **Reuse an earlier step's install** (a link or copy of `node_modules`). Faster, but see above: the gate would read a folder a brewer could write.
 - **A failed setup as a failed attempt that is retried.** A registry or lock-file failure meets the next attempt again; ADR 0140's environment block lets a human look.
