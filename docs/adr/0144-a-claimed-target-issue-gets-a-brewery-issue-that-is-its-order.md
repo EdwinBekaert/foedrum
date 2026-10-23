@@ -1,6 +1,6 @@
 # 0144. A claimed target-repository issue gets a Brewery issue that is its order
 
-Date: 2026-10-23 · Status: Accepted · Amends [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the order of a claimed issue is, the effects of its batch), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (no status comment on the Brewery issue of a claimed issue yet), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (which Brewery issues the intake orders), [0050](0050-the-intake-of-target-repository-issues.md) (what the order of a claimed issue is, its release, how `status` and `stuck` name it) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (ordering a claimed issue again, and its Brewery issue)
+Date: 2026-10-23 · Status: Accepted · Amends [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the order of a claimed issue is, the effects of its batch), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (no status comment on the Brewery issue of a claimed issue yet), [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (no lane label on it yet), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (which Brewery issues the intake orders), [0050](0050-the-intake-of-target-repository-issues.md) (what the order of a claimed issue is, its release, how `status` and `stuck` name it) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (ordering a claimed issue again, and its Brewery issue)
 
 ## Context
 Until now a claimed target-repository issue **was** the order: its batch is `<alias>-<n>`, kept apart from the Brewery's own orders ([ADR 0050](0050-the-intake-of-target-repository-issues.md)).
@@ -40,15 +40,16 @@ Its pull requests are opened in the target repository and close the target issue
 A batch of an issue that an earlier batch opened a Brewery issue for opens none: its order is that issue, and it reopens it (**`order.reopen`**, in the place of `order.issue`). The reopen is found done while the issue is open, so it changes nothing then, and it also reopens an issue a person closed by hand.
 When the reopen finds the issue gone, or a release found it gone, the new batch opens a Brewery issue of its own (`order.issue`), so a batch ordered again always has a Brewery issue that is there.
 
-### No status comment on it yet
-The Brewery issue of a claimed batch gets no status comment yet, as the claimed target issue got none ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)); the status comment of every other Brewery issue's batch is unchanged.
+### No status comment or lane label on it yet
+The Brewery issue of a claimed batch gets neither a status comment nor a lane label yet, as the claimed target issue gets neither ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md), [ADR 0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md)); the status comment and lane label of every other Brewery issue's batch are unchanged.
+Both skip a claimed batch, whose issue number is the target issue's; #413 gives them the Brewery issue once it is open.
 
 ## Consequences
 - Every claimed target issue that `serve` marks gets one Brewery issue, linked to it, which later work hangs the order's plan, questions and sub-issues on (#373).
 - A claimed batch makes one or two more requests to GitHub, and finding its Brewery issue lists the Brewery's issues by its own login, page by page. A Brewery with more than 5,000 such issues fails the find (the reads' page limit, ADR 0052); the effect then fails and is retried.
 - GitHub links the Brewery issue to the target issue it names; only people who can see the Brewery see that link.
 - A Brewery whose repository refuses new issues (issues turned off, a token that cannot write there) fails `order.issue` on every pass, reported each time, and the batch's later effects, its pull request's among them, wait behind it, as they wait behind a claim mark that fails.
-- Not yet: the status comment of a claimed batch (it still has none, and the Brewery issue is where it belongs), routing by the Brewery issue's label (routing still reads the target issue's), and sub-orders as sub-issues of the Brewery issue (#373).
+- Not yet: the status comment and lane label of a claimed batch (it still has neither, and the Brewery issue is where they belong, #413), routing by the Brewery issue's label (routing still reads the target issue's), and sub-orders as sub-issues of the Brewery issue (#373).
 
 ## Alternatives considered
 - **Name the batch after the Brewery issue (`<order>-<k>`):** the issue would have to exist before the order, made by the intake or the terminal outside the driver's lease, or the batch renamed once it does.
