@@ -89,6 +89,10 @@ export const oneLine = (text: string): string =>
     })
     .join('');
 
+/** Who drives a batch another driver holds, and until when. */
+export const drivenBy = (lease: BatchLease): string =>
+  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
+
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
 
@@ -145,8 +149,6 @@ export const runBrew = async (
   let batchId: string | undefined;
   // Another driver's lease of the batch, once this driver lost it or never got it.
   let holder: BatchLease | undefined;
-  const drivenBy = (lease: BatchLease): string =>
-    `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
   try {
     const { store, driver, reads, claims } = await wireDriver(setup, shell, opened, {
       // This batch alone, once it is known (ADR 0044).

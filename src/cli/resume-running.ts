@@ -11,7 +11,7 @@ import type { Batch } from '../engine/fold.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
-import { oneLine } from './brew.ts';
+import { drivenBy, oneLine } from './brew.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
@@ -130,9 +130,7 @@ export const runResumeRunning = async (
         }
         const other = heldElsewhere();
         if (other !== undefined) {
-          say(
-            `batch ${batchId} is driven by ${other.owner} until ${other.expiresAt.toISOString()}`,
-          );
+          say(drivenBy(other));
           return 1;
         }
         if (signal.aborted) break;

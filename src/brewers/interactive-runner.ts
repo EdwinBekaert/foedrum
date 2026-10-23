@@ -82,6 +82,10 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
     // A stop before a fresh attempt's run exists reaches it once it does.
     let stopped = false;
     let fresh: { stop(): void } | undefined;
+    const unstartable = (error: unknown): AttemptEnd => {
+      const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
+      return { ending: settleAttempt(factsOf(exit, undefined), limits) };
+    };
 
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
@@ -109,8 +113,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           sessionId: session.id,
         });
       } catch (error) {
-        const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
-        return { ending: settleAttempt(factsOf(exit, undefined), limits) };
+        return unstartable(error);
       }
       const label = `${ref.batchId} ${ref.stepId}#${ref.attempt}`;
       const what = `finish the step, have the session write ${limits.outDoc.file} as the brewer's instructions say, then exit claude; the batch goes on from its next step`;
@@ -128,8 +131,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       try {
         code = await deps.foreground(deps.claude, args, plan.cwd, env);
       } catch (error) {
-        const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
-        return { ending: settleAttempt(factsOf(exit, undefined), limits) };
+        return unstartable(error);
       } finally {
         open.delete(key);
       }
