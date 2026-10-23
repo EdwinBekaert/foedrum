@@ -136,7 +136,7 @@ Commands:
   stuck                                List the Stuck batches with their options and questions
   brewers                              Report each brewer's attempts, outcomes, Stuck batches and tokens
   replay <batch>                       Show a batch's events and its folded state
-  resume <batch> [<step>]              Open a finished brewer attempt's Claude Code session in its worktree
+  resume <batch> [<step>]              Open a brewer attempt's Claude Code session in its worktree; take a running batch over
   retry <batch>                        Give the step a Stuck batch stopped at another attempt
   skip <batch>                         Go on after the step a Stuck batch stopped at
   answer <batch> <answers>...          Answer a Stuck batch's questions, one answer each, in order

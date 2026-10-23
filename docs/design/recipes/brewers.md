@@ -76,7 +76,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | `maxTurns` | Turn limit |
 | `stall` | No file write or commit for N turns or M minutes → abort; the batch becomes Stuck (`stalled`, [ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)). The runner sees a `Write`, `Edit`, `MultiEdit` or `NotebookEdit` call, or a shell command whose subcommand of `git` is `commit` (ADR 0048), that succeeded; files changed by other shell commands count only once committed ([ADR 0047](../../adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)) |
 | `maxAttempts` | Attempts before the batch becomes Stuck |
-| `retryMode` | `resume` (same session) or `fresh` (new session with the same in-docs) |
+| `retryMode` | `resume` (same session) or `fresh` (new session with the same in-docs); while `foedrum resume` drives a running batch, every retry or answer of it continues its session whatever this says ([ADR 0127](../../adr/0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)) |
 | `maxDenials` | Permission denials per attempt before aborting with `blocker_kind: environment` |
 
 **Guards** — deterministic post-conditions checked by the engine
