@@ -1,6 +1,6 @@
 # 0012. Worktrees from local clones
 
-Date: 2026-10-13 · Status: Accepted · Amended by [0029](0029-attempt-worktrees-layout-claims-and-repair.md), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) and [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) (the fetch reaches the URL Foedrum names, outside the clone's configuration)
+Date: 2026-10-13 · Status: Accepted · Amended by [0029](0029-attempt-worktrees-layout-claims-and-repair.md), [0063](0063-foedrum-serve-its-configuration-and-wiring.md), [0096](0096-the-engine-s-git-reaches-the-remote-outside-the-clone-s-configuration.md) (the fetch reaches the URL Foedrum names, outside the clone's configuration) and [0137](0137-the-push-its-lookup-and-the-worktree-fetch-run-in-the-clone-again.md)
 
 ## Context
 Enterprise repositories can be very large; cloning them per batch, or even once per tool, costs minutes and gigabytes. Developers usually already have the repositories cloned locally. Each attempt still needs an isolated working tree.

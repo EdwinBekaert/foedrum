@@ -1,6 +1,6 @@
 # 0107. One writer of the state worktree at a time, so an index.lock there is stale at once
 
-Date: 2026-10-21 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (how a start and a flush use the state worktree) and [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) (two drivers flushing one state worktree is no longer open)
+Date: 2026-10-21 · Status: Accepted · Amends [0024](0024-state-branch-layout-outbox-and-divergence.md) (how a start and a flush use the state worktree) and [0061](0061-chaos-faults-at-sites-shrinking-worktrees-and-the-state-branch.md) (two drivers flushing one state worktree is no longer open) · Amended by [0111](0111-the-state-branch-s-ref-lock-and-head-lock-are-stale-under-the-writer-lock.md)
 
 ## Context
 The state worktree (`<workRoot>/state`) is where a driver writes the Brewery's state branch: its start checks that a commit can be made (`checkSigning`: `write-tree`, `commit-tree`) and every flush stages, commits and pushes there (`src/engine/state-branch-git.ts`, ADR 0024). git creates `index.lock` in the worktree's git folder while it writes the index, and a git that is killed leaves it behind; every later git that writes the index then fails with `Unable to create '…/index.lock': File exists`. A Cellar killed during a flush therefore could not start again: its signing check stopped on the lock (#300). CI's Windows legs saw it in the demo, which kills the Cellar mid-attempt (runs 39579197252 and 39588597434).

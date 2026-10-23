@@ -1,6 +1,6 @@
 # 0121. The M1 end-to-end test runs Nip through serve, with real git and checks, and GitHub and the brewers faked
 
-Date: 2026-10-22 · Status: Accepted · Amends [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) (one more opt-in test against the real `claude`)
+Date: 2026-10-22 · Status: Accepted · Amends [0057](0057-real-claude-tests-are-opt-in-and-claude-proofs-leave-the-suite.md) (one more opt-in test against the real `claude`) · Amended by [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md)
 
 ## Context
 M1's exit criterion (ROADMAP, #180) is that a real issue in a test Brewery becomes a pull request end to end, covered by an automated end-to-end test on all three platforms. The default recipe is Nip (`defaults/recipes/nip.jsonc`): the Gauger commits failing tests, a red proof reads them red, the Cellarman makes them pass under the testsUnchanged guard ([ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)), a check step reads the result and sends a failure back to the Cellarman with its reading ([ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)), and openPullRequest pushes the bottle branch and opens the pull request ([ADR 0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md)).

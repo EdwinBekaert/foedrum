@@ -1,6 +1,6 @@
 # 0114. The local gate blocks words on a personal denylist in what leaves the machine
 
-Date: 2026-10-22 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads before a push and before the texts gh sends) and [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (what runs in the tree a push comes from)
+Date: 2026-10-22 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads before a push and before the texts gh sends) and [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (what runs in the tree a push comes from) · Amended by [0132](0132-the-gate-reads-what-gh-posts-against-the-personal-denylist.md)
 
 ## Context
 Since #48, sessions push branches, open pull requests and post comments without a person reading each one first, and the repository is public. Some words must never appear there: a client's name, an employer's internal project, a colleague's handle. A rule in a prompt is not enough, and the list cannot be in the repository either: even a hash of a short name is confirmed by a guess (#131). The local gate ([ADR 0045](0045-the-local-gate-reads-commands-as-the-shells-would.md)) already reads every `git push` and `gh` call a session makes, so it is where such a list can hold.

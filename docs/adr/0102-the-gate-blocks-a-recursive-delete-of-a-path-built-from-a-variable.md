@@ -1,6 +1,6 @@
 # 0102. The local gate blocks a recursive delete of a path built from a variable
 
-Date: 2026-10-21 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words)
+Date: 2026-10-21 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate reads) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (the pre-filter's words) · Amended by [0138](0138-the-gate-reads-four-more-forms-of-a-recursive-delete-of-a-computed-path.md)
 
 ## Context
 CLAUDE.md says never to `rm -rf` or `Remove-Item -Recurse` a path built from a variable or a substitution (#279): an empty or wrong value removes the wrong tree. Sessions broke that rule three times on 2026-10-20 while it was written only in prompts. A rule that must never break belongs in the gate (#281). The gate already reads every Bash and PowerShell command the way the shells would ([ADR 0045](0045-the-local-gate-reads-commands-as-the-shells-would.md)), but its pre-filter ([ADR 0056](0056-the-gate-pre-filter-reads-the-command.md)) lets a command that mentions none of git, gh and the other words through unread, and `rm -rf "$dir"` mentions none of them.

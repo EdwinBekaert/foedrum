@@ -1,6 +1,6 @@
 # 0134. The red proof runs once, the review drops its coverage delta, and property and chaos run on one leg per pull request
 
-Date: 2026-10-22 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (what the review of Foedrum's own pull requests runs), [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) and [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) (chaos runs on one leg per pull request) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the coverage delta and the red-proof check before a push)
+Date: 2026-10-22 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (what the review of Foedrum's own pull requests runs), [0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md) and [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) (chaos runs on one leg per pull request) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the coverage delta and the red-proof check before a push) · Amended by [0150](0150-mutant-tests-drops-its-coverage-option.md)
 
 ## Context
 On 2026-10-22 one issue session's close ran the same work several times (#361):

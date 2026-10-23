@@ -1,6 +1,6 @@
 # 0089. A file over the test budget is measured again alone
 
-Date: 2026-10-20 · Status: Accepted · Amends [0036](0036-test-budget-in-cpu-time.md) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md)
+Date: 2026-10-20 · Status: Accepted · Amends [0036](0036-test-budget-in-cpu-time.md) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) · Amended by [0136](0136-the-test-budget-fails-only-in-ci.md)
 
 ## Context
 ADR 0036 made the per-file test budget CPU time because it expected CPU time not to grow with load, apart from a small effect of simultaneous multithreading. It grows a lot. `test/unit/serve.test.ts` uses 1.3–1.9 s of CPU time alone and went over its 5 s budget in the check of #236 (5.06 s) and twice in the gate of #250 (5.03 s and 5.11 s), each time with nothing wrong in the file (#248).

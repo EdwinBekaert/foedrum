@@ -1,6 +1,6 @@
 # 0031. `.cmd` and `.bat` files start through cmd.exe
 
-Date: 2026-10-15 · Status: Accepted, amended by [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (a check's command line starts through the platform shell)
+Date: 2026-10-15 · Status: Accepted, amended by [0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md) (a check's command line starts through the platform shell) and [0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md)
 
 ## Context
 The process runner (`src/platform/processes.ts`) starts every program without a shell, from the file `resolveExecutable` finds, so a repository cannot plant its own `git.exe` (#12). On Windows that cannot start a `.cmd` or `.bat` file: since Node's fix for CVE-2024-27980, `spawn` refuses them without a shell (`EINVAL`). Two tools Foedrum needs often are such files: `npm.cmd`, always, and `claude.cmd` when Claude Code was installed with npm. Architecture §13 already allowed one shell spawn, `claude` on Windows, with every part checked by `windowsCommandLine`; `foedrum doctor` (#13) is the first code that has to start one, and it must also start `npm.cmd`.
