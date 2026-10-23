@@ -392,8 +392,9 @@ const statusDue = (
   steps?: readonly string[],
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
-  const issue = batch === undefined ? undefined : breweryIssueOf(state, batch);
-  if (batch === undefined || issue === undefined) return undefined;
+  if (batch === undefined) return undefined;
+  const issue = breweryIssueOf(state, batch);
+  if (issue === undefined) return undefined;
   const { next: revision, latest: previous } = latestRevision(state, batchId);
   const text = renderStatus(batch, steps, knownCommits(state, batchId));
   const digest = digestOf(text);

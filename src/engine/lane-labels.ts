@@ -95,9 +95,10 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
-      const issue = batch === undefined ? undefined : breweryIssueOf(state, batch);
+      if (batch === undefined) return [];
+      const issue = breweryIssueOf(state, batch);
       // An issue ordered again shows its latest batch: an older one never touches its labels.
-      if (batch === undefined || issue === undefined || !latestOf(state, batch, issue)) return [];
+      if (issue === undefined || !latestOf(state, batch, issue)) return [];
       let revision = 1;
       let previous: LaneLabelRevision | undefined;
       for (let found = recorded(state, batchId, revision); found !== undefined; ) {
