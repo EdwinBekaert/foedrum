@@ -116,5 +116,6 @@ export const resumeFromCheckout = async (
       process.stderr.write(`${line}
 `),
     pid: process.pid,
+    running: () => Promise.reject(new Error('not implemented')),
   });
 };

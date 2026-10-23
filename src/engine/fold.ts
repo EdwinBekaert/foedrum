@@ -106,6 +106,8 @@ export interface Takeover {
   to: string;
   /** When `from`'s lease would have expired: no effect of the batch is applied before it. */
   until: string;
+  /** The step whose session `to` resumes, whose run `from` stops (ADR 0127). */
+  resumes?: string;
 }
 
 /**

@@ -11,6 +11,7 @@ import { brewFromCheckout } from '../../src/cli/brew-main.ts';
 import { brewOwner } from '../../src/cli/driver-owner.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { takeOver } from '../../src/engine/batch-leases.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -648,6 +649,49 @@ describe('runBrew', () => {
       lines.at(-1),
       `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
     );
+  });
+
+  it('records the end of the run it stops when the batch is taken over to resume its step, before it refuses the batch (ADR 0127)', async () => {
+    // A run whose stop ends it a wait later, as a process tree takes a moment to go.
+    let ending: (() => void) | undefined;
+    const runner = {
+      start: ({ ref }: { ref: { stepId: string; attempt: number } }) => {
+        started.push(`${ref.stepId}#${ref.attempt}`);
+        let settle: (end: { ending: { kind: 'cancelled' } }) => void = () => {};
+        const ended = new Promise<{ ending: { kind: 'cancelled' } }>((resolve) => {
+          settle = resolve;
+        });
+        return {
+          ended,
+          stop: () => {
+            ending = () => settle({ ending: { kind: 'cancelled' } });
+          },
+        };
+      },
+      progress: () => ({ lastProgressAt: t0, turnsWithoutProgress: 0 }),
+    };
+    let waits = 0;
+    const taken = shell(behave.succeed(), {
+      runner: () => runner,
+      wait: async () => {
+        waits++;
+        if (waits === 1) {
+          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          takeOver(log(), { ...handover, now: t0, leaseMs: 300_000, resumes: 'brew' });
+        }
+        ending?.();
+        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+      },
+    });
+    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.ok(
+      store
+        .eventsAfter(0)
+        .some(({ event }) => event.type === 'step.finished' && event.stepId === 'brew'),
+      'the stopped brew#1 is recorded',
+    );
+    assert.deepStrictEqual(store.currentLeases(t0), [], 'and its lease let go');
+    assert.equal(lines.at(-1)?.startsWith('foedrum brew: batch 12-1 is driven by bob until'), true);
   });
 
   describe('--take (ADR 0124)', () => {

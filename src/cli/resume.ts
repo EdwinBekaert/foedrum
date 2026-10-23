@@ -71,6 +71,11 @@ export interface ResumeShell {
   say: (line: string) => void;
   /** This process's id, which names the lease's owner. */
   pid: number;
+  /**
+   * Takes a running batch over and continues the session of step `stepId` in it, as the batch's
+   * driver until that attempt ended (ADR 0127); serve's setup and wiring, so the real machine's.
+   */
+  running: (request: { batchId: string; stepId: string }) => Promise<CliResult>;
 }
 
 /**

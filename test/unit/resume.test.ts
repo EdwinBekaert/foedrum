@@ -171,6 +171,7 @@ describe('foedrum resume (ADR 0126)', () => {
     store.currentLeases(now).map(({ attemptKey: key, owner }) => [key, owner]);
   const shell = (overrides: Partial<ResumeShell> = {}): ResumeShell => ({
     cwd,
+    running: () => assert.fail('no running batch is taken over'),
     openStore: (path) => {
       assert.equal(path, join(cwd, '.foedrum', 'index.db'));
       return { ...store, close: () => {} };
@@ -335,17 +336,111 @@ describe('foedrum resume (ADR 0126)', () => {
     nothingOpened();
   });
 
-  it('refuses a running batch, Ordered or Brewing, which is #338', async () => {
-    for (const [batch, lane] of [
-      ['23-1', 'brewing'],
-      ['27-1', 'ordered'],
-    ]) {
-      assert.deepEqual(
-        await resumeOf(batch ?? ''),
-        refused(`batch ${batch} is ${lane}; resuming a running batch is not supported yet (#338)`),
+  describe('a running batch (ADR 0127)', () => {
+    let handed: { batchId: string; stepId: string }[];
+    beforeEach(() => {
+      handed = [];
+    });
+    const takes = {
+      running: async (request: { batchId: string; stepId: string }) => {
+        handed.push(request);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+
+    it('hands the step whose attempt runs to the takeover, which drives it, and opens nothing itself', async () => {
+      assert.deepEqual(await resumeOf('23-1', undefined, takes), {
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+      assert.deepEqual(await resumeOf('23-1', 'plan', takes), {
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+      assert.deepEqual(handed, [
+        { batchId: '23-1', stepId: 'plan' },
+        { batchId: '23-1', stepId: 'plan' },
+      ]);
+      nothingOpened();
+    });
+
+    it('hands over a retry waiting to continue the session of the attempt before it', async () => {
+      const log = createCommandLog({ store, recipes });
+      const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
+      const ending = { kind: 'failed', retryable: true, reason: 'claude crashed' } as const;
+      const finish = { kind: 'finish', batchId: '23-1', stepId: 'plan', attempt: 1 } as const;
+      assert.equal(log.issue({ ...finish, ending, claude }, t0).kind, 'accepted');
+      // pint's maxAttempts is 1: Stuck, until a person retries it.
+      const retry = { kind: 'retry', batchId: '23-1', by: 'ada', via: 'terminal' } as const;
+      assert.equal(log.issue(retry, t0).kind, 'accepted');
+      assert.deepEqual((await resumeOf('23-1', undefined, takes)).exitCode, 0);
+      assert.deepEqual(handed, [{ batchId: '23-1', stepId: 'plan' }]);
+      nothingOpened();
+    });
+
+    it('refuses a step with no attempt running or waiting to continue a session, saying why', async () => {
+      const log = createCommandLog({ store, recipes });
+      assert.equal(
+        log.issue({ kind: 'retry', batchId: '21-1', by: 'ada', via: 'terminal' }, t0).kind,
+        'accepted',
       );
-    }
-    nothingOpened();
+      assert.deepEqual(
+        await resume(undefined, takes),
+        refused(
+          'implement#2 of batch 21-1 would start a fresh session: implement#1 has no session claude started',
+        ),
+      );
+      assert.deepEqual(
+        await resume('plan', takes),
+        refused('step plan of batch 21-1 has no attempt running or waiting to continue a session'),
+      );
+      assert.deepEqual(handed, []);
+      nothingOpened();
+    });
+
+    it('refuses an attempt named by its number: the takeover continues the latest attempt of the step', async () => {
+      assert.deepEqual(
+        await resumeOf('23-1', 'plan#1', takes),
+        refused(
+          'batch 23-1 is brewing: name the step alone, and foedrum resume continues its latest attempt',
+        ),
+      );
+      assert.deepEqual(handed, []);
+    });
+
+    it('refuses an Ordered batch, of which no step has run', async () => {
+      assert.deepEqual(
+        await resumeOf('27-1', undefined, takes),
+        refused('batch 27-1 is ordered: no step of it has run yet'),
+      );
+    });
+
+    it('inside a Claude Code session, prints the line to run in a terminal and takes nothing over', async () => {
+      const result = await resumeOf('23-1', undefined, {
+        ...takes,
+        terminal: { claudeCode: true, tty: false },
+      });
+      assert.deepEqual(result, {
+        exitCode: 0,
+        stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:
+  foedrum resume 23-1 plan
+`,
+        stderr: '',
+      });
+      assert.deepEqual(handed, []);
+    });
+
+    it('says plainly when the session is not on this machine, and takes nothing over', async () => {
+      assert.deepEqual(
+        await resumeOf('23-1', undefined, { ...takes, sessionFound: () => false }),
+        refused(
+          `the session ${S3} of 23-1 plan#1 is not on this machine: Claude Code keeps a session where it ran, for 30 days by default`,
+        ),
+      );
+      assert.deepEqual(handed, []);
+    });
   });
 
   it('refuses with one line when there is no store, setup, repository or brewer, and opens nothing', async () => {
@@ -486,7 +581,7 @@ describe('foedrum resume (ADR 0126)', () => {
     };
     assert.deepEqual(
       await resume(undefined, { setup: setupWhileRetried }),
-      refused('batch 21-1 is brewing; resuming a running batch is not supported yet (#338)'),
+      refused('batch 21-1 is brewing now: run foedrum resume again to take it over'),
     );
     nothingOpened();
   });

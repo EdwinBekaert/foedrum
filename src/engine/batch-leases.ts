@@ -53,6 +53,8 @@ export interface TakeoverRequest {
   now: Date;
   /** How long the new owner's lease lasts from `now`. */
   leaseMs: number;
+  /** The step whose session the new owner resumes: the old one stops its run (ADR 0127). */
+  resumes?: string;
 }
 
 /**
