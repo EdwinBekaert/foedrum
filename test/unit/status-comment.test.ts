@@ -526,6 +526,29 @@ describe('renderStatus', () => {
     );
   });
 
+  it("shows no Taster's findings from an earlier round when its latest attempt did not succeed (ADR 0161)", () => {
+    const approved: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [{ severity: 'minor', why: 'an old round', introduced: true }],
+        },
+      },
+    };
+    const blocked = failed(2, 'blocked (findings): the Taster asks for changes: x');
+    const text = renderStatus(batch({ steps: new Map([step('taste', approved, blocked)]) }), [
+      'taste',
+    ]);
+    assert.doesNotMatch(text, /Findings|an old round/);
+  });
+
   it('shows at most 10 assumptions a step and counts the rest', () => {
     const many = Array.from({ length: 12 }, (_, i) => `guess ${i + 1}`);
     const text = renderStatus(batch({ steps: new Map([step('plan', done(1, many))]) }), steps);
