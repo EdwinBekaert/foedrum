@@ -35,7 +35,7 @@ This table says what each one records.
 | `batch.rewound` | A rewind to a step, with each repository's sha, `by` and `via` |
 | `batch.on_tap` | A batch done, with its pull requests |
 | `batch.cancelled` | A cancel, with `by` and `via` |
-| `batch.taken_over` | A person handed the batch from driver `from` to `to`; no effect before `until` ([ADR 0124](../../adr/0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md)) |
+| `batch.taken_over` | A person handed the batch from driver `from` to `to`; no effect before `until`; `resumes` names the step whose session `to` continues, whose run `from` stops ([ADR 0127](../../adr/0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md), [ADR 0124](../../adr/0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md)) |
 | `pull_request.ended` | A pull request merged or closed, recorded once, by the intake |
 | `effect.applied` | The idempotency ledger for external side effects ([the event store](event-store.md)) |
 

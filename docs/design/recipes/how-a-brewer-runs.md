@@ -44,7 +44,7 @@ claude --print --verbose --output-format stream-json
   Either way, prompts and settings travel via stdin and files only, never arguments.
 - `--safe-mode` implements `context: lean`: without it, `claude -p` loads the target repository's `CLAUDE.md`, hooks and MCP servers.
   How `context: repo` gives a brewer the repository's instructions without its hooks is open (ADR 0042).
-- Claude Code keeps an attempt's session where it ran (30 days by default), so anyone on that machine can step into a finished attempt's session with `foedrum resume <batch> [<step>[#<n>]]` from a terminal (ADR 0126); `/foedrum:resume` prints that line.
+- Claude Code keeps an attempt's session where it ran (30 days by default), so anyone on that machine can step into a finished attempt's session with `foedrum resume <batch> [<step>[#<n>]]` from a terminal (ADR 0126), or into a running step's session, which then ends by the out doc it writes as an attempt of its own (ADR 0127); `/foedrum:resume` prints that line.
 
 ## The runner in the engine
 
