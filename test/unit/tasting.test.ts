@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { attemptLimits, routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
@@ -328,7 +329,7 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
   ];
   /** The Taster's prompt, planned with `git` answering the change, and the git calls it made. */
   const planTaster = async (git: Git, files: BreweryFiles = room) => {
-    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const calls: { cwd: string; args: readonly string[]; config: unknown }[] = [];
     const plans = createAttemptPlans({
       state: () => fold(events),
       brewers: valid(loadRecipes(files)).brewers,
@@ -341,7 +342,7 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       platform: 'linux',
       orderText: async () => 'Wait for a bottle to be merged.',
       git: (cwd, args, options) => {
-        calls.push({ cwd, args });
+        calls.push({ cwd, args, config: options?.config });
         return git(cwd, args, options);
       },
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
@@ -373,10 +374,31 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     );
     const change = prompt.slice(prompt.indexOf('name="change">'));
     assert.ok(change.includes(LOG) && change.includes(DIFF), change.slice(0, 400));
-    // In the Taster's worktree, from the commit the batch started at to HEAD.
+    // In the clone, never by discovery in the worktree, with no hook, external diff or textconv a
+    // brewer could have planted (ADR 0029, ADR 0096): from the commit the batch started at to the
+    // commit the Taster's worktree started at.
+    const head = 'b'.repeat(40);
+    const inClone = { 'core.hooksPath': devNull, 'core.fsmonitor': 'false' };
     assert.deepEqual(calls, [
-      { cwd: join('/work', 'correctness-1'), args: ['log', '--format=%h %s', `${base}..HEAD`] },
-      { cwd: join('/work', 'correctness-1'), args: ['diff', base, 'HEAD'] },
+      {
+        cwd: join('/clones', 'acme/api'),
+        args: ['log', '--no-show-signature', '--format=%h %s', `${base}..${head}`],
+        config: inClone,
+      },
+      {
+        cwd: join('/clones', 'acme/api'),
+        args: [
+          '-c',
+          'core.quotePath=false',
+          'diff',
+          '--no-color',
+          '--no-ext-diff',
+          '--no-textconv',
+          base,
+          head,
+        ],
+        config: inClone,
+      },
     ]);
   });
 
