@@ -26,7 +26,7 @@ import {
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -182,6 +182,7 @@ describe('runBrew', () => {
         flush: async () => ({ kind: 'unchanged' }),
       }),
       worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
+      merge: fakeWorktreeMerge(),
       push: () => ({
         commit: async () => FAKE_COMMIT,
         baseTip: async () => 'b'.repeat(40),

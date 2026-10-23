@@ -15,6 +15,7 @@ import {
   type ServeShell,
 } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import type { WorktreeMerge } from '../../src/engine/base-merge.ts';
 import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -26,7 +27,12 @@ import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, type FakeWorktrees, fakeWorktrees } from '../helpers/fake-worktrees.ts';
+import {
+  FAKE_COMMIT,
+  type FakeWorktrees,
+  fakeWorktreeMerge,
+  fakeWorktrees,
+} from '../helpers/fake-worktrees.ts';
 import {
   brewer,
   clone,
@@ -162,6 +168,7 @@ describe('runServe', () => {
       calls.push(`worktrees ${repository.repo} ${repository.base}`);
       return fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
     },
+    merge: fakeWorktreeMerge(),
     push: (repository) => ({
       // The task tree is at FAKE_COMMIT, the base elsewhere.
       commit: async () => FAKE_COMMIT,
@@ -570,7 +577,11 @@ describe('runServe', () => {
     /** Serve with a brewer that succeeds and a process runner that answers each check with `code`. */
     const brewWithChecks = async (
       code: number,
-      { serving = setup, prepare }: { serving?: ServeSetup; prepare?: ExecProcess } = {},
+      {
+        serving = setup,
+        prepare,
+        merge,
+      }: { serving?: ServeSetup; prepare?: ExecProcess; merge?: WorktreeMerge } = {},
     ) => {
       const log = createCommandLog({ store, recipes: setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
@@ -597,6 +608,7 @@ describe('runServe', () => {
           runner: () => succeeding,
           exec,
           ...(prepare === undefined ? {} : { setup: prepare }),
+          ...(merge === undefined ? {} : { merge }),
           wait: async () => {
             calls.push('wait');
             const lane = log.state().batches.get('13-1')?.lane.kind;
@@ -613,6 +625,31 @@ describe('runServe', () => {
     };
     const worktreeOf = (attempt: number) =>
       join(dir.path, 'acme.web', 'attempts', '13-1', 'green', String(attempt));
+
+    it("merges the base into the check's worktree before its test command runs (ADR 0164)", async () => {
+      const merges: string[] = [];
+      const clean = fakeWorktreeMerge();
+      const merge: WorktreeMerge = {
+        ...clean,
+        merge: async (path, commit, message) => {
+          merges.push(`${path} ${commit}: ${message}`);
+          return clean.merge(path, commit, message);
+        },
+      };
+      const { batch } = await brewWithChecks(0, { merge });
+      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.deepStrictEqual(merges, [
+        `${worktreeOf(1)} ${'b'.repeat(40)}: Merge main before green`,
+      ]);
+      assert.ok(
+        store
+          .eventsAfter(0)
+          .some(
+            ({ event }) =>
+              event.type === 'effect.applied' && event.key === '["13-1","green",1,"merge_base"]',
+          ),
+      );
+    });
 
     it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {
       const { checks, events, batch } = await brewWithChecks(0);
