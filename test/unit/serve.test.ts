@@ -1050,7 +1050,11 @@ describe('runServe', () => {
       assert.match(order()?.body ?? '', /acme\/web#7/);
       // The pull request is the target repository's: it closes the target issue and never names
       // the Brewery issue, which is private.
-      const pull = github.pulls.find((each) => each.repo === 'acme/web');
+      const web7 = state().batches.get('web-7')?.lane;
+      const url = web7?.kind === 'on_tap' ? web7.pullRequests[0] : undefined;
+      const pull = github.pulls.find(
+        (each) => `https://github.com/${each.repo}/pull/${each.number}` === url,
+      );
       assert.match(pull?.body ?? '', /Closes acme\/web#7/);
       assert.doesNotMatch(`${pull?.title}\n${pull?.body}`, /acme\/brewery|#13\b/i);
       assert.equal(lane('13-1'), undefined, 'the intake never orders the Brewery issue');
