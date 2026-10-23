@@ -567,7 +567,7 @@ describe("diagnose: what each isolation level keeps from gh's login (ADR 0082, #
     assert.match(line, /hides your home folder and the other user folders/);
     assert.match(
       line,
-      /hides gh's hosts file and the token variables wherever the environment puts them/,
+      /hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables/,
     );
     assert.match(line, /keeps them from reaching GitHub/);
   };
