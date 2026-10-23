@@ -207,6 +207,29 @@ describe('judgeRed', () => {
     });
   });
 
+  it("does not take an old test for a new one when a sentence name ends in a dotted word the step's lines hold", () => {
+    const settings = [
+      {
+        newPath: 'test/unit/attempt-settings.test.ts',
+        added: [
+          "  it('writes no attribution', () => {",
+          "    const noAttribution = { commit: '', pr: '', sessionUrl: false };",
+          '  });',
+        ],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      'ok 1 - grants git status, add and commit in Bash to a brewer with git.commit',
+      ...failing(2, 'writes no attribution', 'not implemented'),
+    );
+    // "commit" is the last part after a dot of a sentence, not of a class or module.
+    assert.deepEqual(judgeRed(report, settings), {
+      proven: true,
+      tests: ['writes no attribution'],
+    });
+  });
+
   it("does not take a test's name for a load error: node names each test in a comment", () => {
     const report = tap(
       '# Subtest: throws a SyntaxError on bad JSON',
