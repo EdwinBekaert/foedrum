@@ -1,6 +1,6 @@
 # 0160. Sandboxed commands read only inside the working directories
 
-Date: 2026-10-23 · Status: Accepted · Amends [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) (what a sandboxed command can still read)
+Date: 2026-10-23 · Status: Accepted · Amends [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) (what a sandboxed command can still read), [0082](0082-brewers-never-allow-gh.md) (doctor's advice on the sandboxed level and on WSL2) and [0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md) (its "as for brewers" on the Windows drives under `/mnt`)
 
 ## Context
 On the sandboxed level ([ADR 0010](0010-cross-platform-and-isolation-levels.md)), a command an allow rule lets run (`npm test`, which runs code a brewer can edit) reads "most of the machine". [ADR 0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) hides the logins Foedrum's own setup relies on, at their default paths, and lists what stays open (#247): the Windows user's logins on WSL2 under `/mnt/c/Users/<user>/`; a `GH_CONFIG_DIR`, `XDG_CONFIG_HOME` or `CLAUDE_CONFIG_DIR` that moves a login; and other tools' credentials (`~/.docker/config.json`, `~/.kube`, `~/.netrc`, cloud CLIs). A list of paths can't be complete. It left `permissions.blockReadsOutsideWorkingDirectories` for a decision of its own.
@@ -45,6 +45,7 @@ So 2.1.301 reads the key from a `--settings` file, refuses a file-tool read outs
 - **Outside the user roots.** A credential in `/etc`, `/opt`, `/var` or another root the docs do not list stays readable, unless a variable above names it.
 - **Re-opened files that hold a secret.** `~/.gitconfig`, the files under `$XDG_CONFIG_HOME/git` and the files they include are readable to sandboxed commands; a token kept there (an `http.extraHeader`, a URL with a token in `url.<base>.insteadOf`) is too. The docs' answer is a `denyRead` entry for that file, which would also take git's identity and settings from every brewer's commit; Foedrum does not know which file a machine keeps a token in. A Brewery whose global git configuration holds a token must not run untrusted repositories on this level. The brewer's git asks no credential helper ([ADR 0109](0109-a-brewer-s-git-holds-no-push-credential.md)), so a helper's stored login is not reached through git.
 - **The cases the docs list.** Foedrum never writes `sandbox.filesystem.disabled` or `allowManagedReadPathsOnly`, and `--setting-sources ""` loads no other file but managed settings (ADR 0046), which Foedrum does not get around. A work root whose path holds `*`, `?` or `[` turns the block off for sandboxed commands while the file tools keep it; ADR 0087's credentials still apply there.
+- **A WSL mount root elsewhere.** WSL mounts the Windows drives under `/mnt` by default; a `/etc/wsl.conf` whose `[automount] root` lies outside the user roots the docs list (`root = /`, so `/c/Users/<user>/`) leaves the Windows user's logins readable, and doctor's line about `/mnt` does not cover it.
 - **The OS keyring** and **the network** are as ADR 0087 says.
 - **Before Claude Code 2.1.257.** The docs do not say whether an older version skips the key or the whole file; 2.1.301 keeps a file with a `permissions` key it does not know (above). The sandboxed level has not run yet (ADR 0087, "Unverified against `claude`"); its first run checks the version it needs.
 
@@ -56,6 +57,7 @@ Unit only: `test/unit/attempt-settings.test.ts` (the block with a sandbox and no
 - `foedrum doctor` says the sandbox hides the home folder and the other user folders, and on WSL2 that they include the Windows user's logins under `/mnt`; its line that the sandbox left them readable (ADR 0087, review of #250) is gone.
 - **A toolchain installed under the home is unreadable to sandboxed commands**: node from nvm (`~/.nvm`), Volta, asdf or fnm, tools in `~/.local/bin`, a user-level npm cache. An `npm test` that needs one fails on this level; one installed under `/usr`, `/opt` or Homebrew's prefix does not. The docs give no setting for a brewer to re-open one, and Foedrum writes no `allowRead`. A Brewery on this level installs its toolchain outside the home until #427 decides how to re-open one.
 - A worktree under `/mnt` on WSL2 stays readable as the working directory; the rest of `/mnt` does not.
+- Check steps run in Foedrum's own sandbox (ADR 0076), which this ADR does not change: on WSL2 they still read the Windows drives under `/mnt`, so ADR 0076's "as for brewers" no longer holds; brewers' sandboxed commands no longer read them.
 - The settings file of every sandboxed attempt grows by one key, and by up to four paths when the variables are set.
 
 ## Alternatives considered
