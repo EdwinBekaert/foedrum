@@ -995,7 +995,8 @@ describe('runServe', () => {
           'acme/web': [
             {
               number: 7,
-              labels: ['foedrum', 'recipe:stout'],
+              // Never read for routing: a claimed order is routed by its Brewery issue (ADR 0156).
+              labels: ['foedrum', 'recipe:other'],
               author: 'ann',
               title: 'Dark theme',
               body: 'Add a dark theme.',
@@ -1010,14 +1011,23 @@ describe('runServe', () => {
       });
       // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
       const order = () => github.issue('acme/brewery', 13);
-      const done = () =>
-        lane('12-1') === 'on_tap' &&
-        lane('web-7') === 'on_tap' &&
-        github.created.length === 1 &&
-        github.refs.size === 0 &&
-        github.comments.get('acme/web#7')?.length === 2 &&
-        order()?.state === 'closed' &&
-        order()?.labels.includes('foedrum:on-tap') === true;
+      const done = () => {
+        // A person labels the Brewery issue once the driver opened it, between two passes; the
+        // driver's lane label may already be on it (#413).
+        const opened = order();
+        if (opened !== undefined && !opened.labels.includes('recipe:stout')) {
+          opened.labels.push('recipe:stout');
+        }
+        return (
+          lane('12-1') === 'on_tap' &&
+          lane('web-7') === 'on_tap' &&
+          github.created.length === 1 &&
+          github.refs.size === 0 &&
+          github.comments.get('acme/web#7')?.length === 2 &&
+          order()?.state === 'closed' &&
+          order()?.labels.includes('foedrum:on-tap') === true
+        );
+      };
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
       assert.ok(done(), lines.join('\n'));
       for (const batchId of ['12-1', 'web-7']) {
@@ -1030,7 +1040,7 @@ describe('runServe', () => {
       const claimed = github.issue('acme/web', 7);
       assert.deepStrictEqual(claimed?.assignees, ['ann']);
       // foedrum:claimed was added with the claim and removed with its release.
-      assert.deepStrictEqual(claimed?.labels, ['foedrum', 'recipe:stout']);
+      assert.deepStrictEqual(claimed?.labels, ['foedrum', 'recipe:other']);
       assert.ok(github.requests.includes('GET /user'));
       for (const line of [
         `ordered ${brewerySpelled}#12 as batch 12-1`,
@@ -1053,7 +1063,10 @@ describe('runServe', () => {
       assert.match(order()?.body ?? '', /acme\/web#7/);
       // The Brewery issue shows the claimed batch's lane and its status comment (#413); the
       // Brewery's #7 and the target issue get neither.
-      assert.deepStrictEqual(order()?.labels, ['foedrum:on-tap']);
+      assert.deepStrictEqual(
+        order()?.labels.filter((label) => label.startsWith('foedrum:')),
+        ['foedrum:on-tap'],
+      );
       const status = github.comments.get('acme/brewery#13') ?? [];
       assert.equal(status.length, 1, JSON.stringify(status));
       assert.match(status[0]?.body ?? '', /On tap/);

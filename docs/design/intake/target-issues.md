@@ -37,6 +37,8 @@ sequenceDiagram
   The batch keeps its id `<alias>-<issue>`, and `batch.ordered` keeps the target issue.
   Its pull requests are opened in the target repository and close the target issue (`Closes owner/name#<n>`); they never name the Brewery issue.
   The intake never orders that Brewery issue as one of the Brewery's own, and `foedrum order #<n>` of it is refused with the claimed issue to order instead.
+- **A claimed order's recipe label goes on its Brewery issue**, never on the target issue: the intake routes a claimed batch by the one `recipe:<name>` label of its Brewery issue, read from the Brewery's listing, and ignores the target issue's labels and whether it still passes its filter ([ADR 0156](../../adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
+  Until the Brewery issue is open the batch waits unrouted, its routing deadline running, and only people who can label issues in the Brewery choose its recipe.
 - **Release** when the batch is cancelled or every pull request it opened is merged or closed: the label goes, a release comment says why, and the ref is deleted if it still names this Brewery, only while it points at the commit that was read (GraphQL `updateRefs` with `beforeOid`, proven against GitHub in an opt-in integration test, [ADR 0050](../../adr/0050-the-intake-of-target-repository-issues.md)).
   The end of each pull request is a recorded event, `pull_request.ended`, which the intake appends when its poll sees a merge or a close; what is due follows from it, never from asking the code host.
   A merge closes the target issue, and the release closes its Brewery issue too (`release.order`, before the ref goes); a cancel or a closed pull request leaves both open.
