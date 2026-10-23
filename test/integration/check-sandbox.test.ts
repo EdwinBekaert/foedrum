@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { bwrapArgs, SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
 import { resolveExecutable } from '../../src/platform/executables.ts';
@@ -219,11 +219,14 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
   it('cannot connect to a Unix socket outside its worktree on macOS', {
     skip: process.platform !== 'darwin' && 'the profile is macOS only',
   }, async () => {
-    const path = join(outside, 'a.sock');
+    // By relative paths: macOS caps a socket's path at 104 bytes, and a checkout can be deep.
     const server = createServer((socket) => socket.destroy());
-    await new Promise<void>((done) => server.listen(path, done));
+    await new Promise<void>((done, fail) => {
+      server.once('error', fail);
+      server.listen(relative(process.cwd(), join(outside, 'a.sock')), done);
+    });
     try {
-      const connect = `require('net').connect('${path}').on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))`;
+      const connect = `require('net').connect('../outside/a.sock').on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))`;
       const line = `"${process.execPath}" -e "${connect}"`;
       // The same line outside the sandbox reaches the socket: the refusal is the sandbox's.
       const open = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
