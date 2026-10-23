@@ -10,7 +10,7 @@ Foedrum is a GitHub-native orchestrator for Claude agents. You file an issue in 
 
 ## Install the plugin
 
-In Claude Code:
+In a terminal:
 
 ```sh
 claude plugin marketplace add EdwinBekaert/foedrum
