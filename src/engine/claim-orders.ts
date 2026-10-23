@@ -66,8 +66,9 @@ export const claimOfOrder = (state: State, issue: number): Batch | undefined => 
 };
 
 /**
- * The Brewery issue that shows a batch's status comment and lane label: a Brewery issue's batch's
- * own, and a claimed batch's order once the ledger records it, never the target issue's number.
+ * The Brewery issue that routes a batch and shows its status comment and lane label: a Brewery
+ * issue's batch's own, and a claimed batch's order once the ledger records it, never the target
+ * issue's number (ADR 0155, ADR 0156).
  */
 export const breweryIssueOf = (state: State, batch: Batch): number | undefined =>
   batch.repo === undefined ? batch.issue : claimOrderOf(state, batch.id).issue;
