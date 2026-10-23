@@ -134,6 +134,7 @@ Commands:
   doctor                               Check the tools Foedrum needs and the isolation level
   status                               List the batches and their lanes
   stuck                                List the Stuck batches with their options and questions
+  brewers                              Report each brewer's attempts, outcomes, Stuck batches and tokens
   replay <batch>                       Show a batch's events and its folded state
   resume <batch> [<step>]              Open a finished brewer attempt's Claude Code session in its worktree
   retry <batch>                        Give the step a Stuck batch stopped at another attempt
