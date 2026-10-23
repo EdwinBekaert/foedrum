@@ -6,9 +6,11 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
+import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { fakeGit, suiteFolders } from '../helpers/attempt-worktrees.ts';
 import { clone, local, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -121,6 +123,65 @@ describe('serveShell', () => {
     assert.ok(started[0]?.includes('/home/brewer'));
     assert.ok(!started[0]?.includes('--unshare-net'));
     assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
+  });
+
+  // ADR 0163: a fresh brewer attempt's setup goes through the same sandbox, before claude starts.
+  it("runs a brewer attempt's setup in the OS sandbox with the network kept, before claude", async () => {
+    const { git } = fakeGit();
+    const started: string[][] = [];
+    const checks = {
+      exec: async (file: string, args: readonly string[]) => {
+        started.push([file, ...args]);
+        // A setup that fails, so the runner never starts claude.
+        return { exitCode: 1, stdout: '', stderr: '', output: 'npm ERR!' };
+      },
+      platform: 'linux' as const,
+      findBwrap: () => '/usr/bin/bwrap',
+      realPath: (path: string) => path,
+      gitDirOf: () => undefined,
+      home: '/home/brewer',
+    };
+    const shell = serveShell(setup, {
+      root: 'brewery',
+      git,
+      out: () => {},
+      listen: () => {},
+      checks,
+    });
+    const assembled = assembleBrewerPrompt('Plan the change.', []);
+    if (assembled.kind !== 'assembled') throw new Error('the test prompt was refused');
+    const settingsFile = join(workRoot, 'attempt-settings', 'plan.json');
+    mkdirSync(dirname(settingsFile), { recursive: true });
+    const runner = shell.runner('/opt/claude/bin/claude', async () => ({
+      cwd: '/work/wt',
+      env: { PATH: '/usr/bin' },
+      prompt: assembled.prompt,
+      call: {
+        model: 'claude-haiku-5-5',
+        effort: 'low',
+        tools: ['Read'],
+        session: { kind: 'new', id: '00000000-0000-4000-8000-000000000001' },
+      },
+      permissions: { allow: ['Read'], deny: [], sandbox: false },
+      settingsFile,
+      setup: {
+        run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+        deadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
+        env: { PATH: '/usr/bin' },
+      },
+    }));
+    const limits = { outDoc: { file: 'plan.md', schema: OutDocFrontmatter } };
+    const end = await runner.start({ ref: { batchId: '1-1', stepId: 'plan', attempt: 1 }, limits })
+      .ended;
+    assert.equal(started.length, 1);
+    assert.equal(started[0]?.[0], '/usr/bin/bwrap');
+    assert.ok(!started[0]?.includes('--unshare-net'));
+    assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
+    assert.deepStrictEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the setup "npm ci" failed with exit code 1',
+    });
   });
 
   const managed = () => join(workRoot, 'acme.web', 'clone.git');

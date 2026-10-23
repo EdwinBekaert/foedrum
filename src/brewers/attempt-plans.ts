@@ -5,6 +5,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -12,9 +13,11 @@ import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { parseRule } from '../schemas/primitives.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
@@ -45,6 +48,8 @@ export interface AttemptPlansOptions {
   models: ModelsConfig;
   /** The toolchain rules of a repository (`foedrum.jsonc`, ADR 0023). */
   repoTools: (repo: string) => readonly string[];
+  /** A repository's setup (`foedrum.jsonc`), run before every attempt's brewer (ADR 0163). */
+  repoSetup?: (repo: string) => RepositorySetup | undefined;
   /** Whether the isolation level relies on Claude Code's sandbox (ADR 0010). */
   sandbox: boolean;
   /** Where the driver's environment moves the logins the sandbox hides (ADR 0160). */
@@ -80,6 +85,9 @@ export interface AttemptPlans {
   /** The out doc of the brewer of a step in its batch's recipe; undefined without one (ADR 0081). */
   outDoc(step: { batchId: string; stepId: string }): string | undefined;
 }
+
+/** The tools that run a command: a brewer without one cannot use an install (ADR 0163). */
+const shellTools = new Set(['Bash', 'PowerShell']);
 
 const realFiles = {
   read: readOutDocFile,
@@ -274,12 +282,28 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
-      if (found.brewer.produces !== 'commits') return plan;
+      // Every attempt's worktree gets its repository's dependencies before the brewer starts: a
+      // resumed one too, since the driver may have added its worktree again. Not for a brewer
+      // that cannot run a command, such as a read-only Taster: it could not use them (ADR 0163).
+      const shell = plan.permissions.allow.some((rule) => shellTools.has(parseRule(rule).tool));
+      const setup = shell ? options.repoSetup?.(worktree.repo) : undefined;
+      const prepared =
+        setup === undefined || started === undefined
+          ? plan
+          : {
+              ...plan,
+              setup: {
+                run: setupRunOf(setup, platform),
+                deadlineAt: started.deadlineAt,
+                env: checksEnv(options.env, platform),
+              },
+            };
+      if (found.brewer.produces !== 'commits') return prepared;
       // Its commits are counted on its branch in the clone, built from the attempt that made the
       // worktree as the worktree's is, never from the recorded branch or the worktree's own git
       // files (ADR 0037, ADR 0117).
       const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(madeBy) };
-      return { ...plan, commits };
+      return { ...prepared, commits };
     },
     limits: (ref) => {
       const found = brewerOf(ref);

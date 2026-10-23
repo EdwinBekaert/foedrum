@@ -4,6 +4,7 @@
 // settleAttempt as every run does. An attempt that starts fresh runs headless, as its driver would.
 
 import { resolve } from 'node:path';
+import { passed, settleReadings } from '../checks/gravity.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import {
@@ -14,7 +15,9 @@ import {
   type ProcessExit,
   settleAttempt,
 } from '../engine/brewer-runner.ts';
+import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
+import type { GravityReading } from '../schemas/events.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { attemptSettings, writeAttemptSettings } from './attempt-settings.ts';
@@ -25,12 +28,18 @@ import {
   clearOutDocFile,
   type OutDocRead,
   readOutDocFile,
+  setUpFor,
 } from './claude-runner.ts';
 
 export interface InteractiveRunnerDeps {
   /** The `claude` program to start. */
   claude: string;
   plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>;
+  /**
+   * The process runner a resumed session's setup runs through before claude opens: the check
+   * sandbox, network kept (ADR 0158, ADR 0163).
+   */
+  setup?: ExecProcess;
   /** The headless runner of an attempt that starts fresh, given its plan. */
   headless: (plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>) => BrewerRunner;
   /** Runs `program` in the foreground with the terminal's stdio; its exit code. */
@@ -85,6 +94,9 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
     // A stop before a fresh attempt's run exists reaches it once it does.
     let stopped = false;
     let fresh: { stop(): void } | undefined;
+    // A stop reaches the setup before a resumed session, which is the attempt's, not the
+    // engineer's (ADR 0163).
+    const settingUp = new AbortController();
     const unstartable = (error: unknown): AttemptEnd => {
       const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
       return { ending: settleAttempt(factsOf(exit, undefined), limits) };
@@ -118,6 +130,20 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       } catch (error) {
         return unstartable(error);
       }
+      // The repository's setup first: the driver may have added the worktree again, without its
+      // install (ADR 0163). The session is open meanwhile, so its lease is renewed.
+      const before: GravityReading[] = [];
+      if (plan.setup !== undefined) {
+        open.add(key);
+        try {
+          const signal = settingUp.signal;
+          before.push(await setUpFor(plan.setup, plan.cwd, deps.setup, { now: deps.now, signal }));
+        } finally {
+          open.delete(key);
+        }
+        if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+      }
+      const readings = before.length === 0 ? {} : { readings: before };
       const label = `${ref.batchId} ${ref.stepId}#${ref.attempt}`;
       const what = `finish the step, have the session write ${limits.outDoc.file} as the brewer's instructions say, then exit claude; the batch goes on from its next step`;
       deps.say(
@@ -140,7 +166,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       try {
         code = await deps.foreground(deps.claude, args, plan.cwd, env);
       } catch (error) {
-        return unstartable(error);
+        return { ...unstartable(error), ...readings };
       } finally {
         open.delete(key);
       }
@@ -168,16 +194,18 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
                 );
       }
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return { ending: settleAttempt(facts, limits), ...outDoc };
+      return { ending: settleAttempt(facts, limits), ...outDoc, ...readings };
     };
 
     const ended = run().finally(() => headless.delete(key));
     return {
       ended,
-      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127).
+      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127)
+      // and the setup before a resumed session (ADR 0163).
       stop: () => {
         stopped = true;
         fresh?.stop();
+        settingUp.abort();
       },
     };
   };
@@ -193,16 +221,28 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
   };
 }
 
+/**
+ * The headless runner of a fresh attempt on the real machine, which runs the attempt's setup
+ * through `setup` (ADR 0163).
+ */
+export const headlessRunner =
+  (claude: string, setup: ExecProcess) =>
+  (plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>): BrewerRunner =>
+    claudeBrewerRunner({ claude, plan, setup });
+
 /** The runner on the real machine: files, git and the headless runner of a fresh attempt. */
 export function interactiveBrewerRunner(
   options: Pick<
     InteractiveRunnerDeps,
     'claude' | 'plan' | 'foreground' | 'terminalEnv' | 'platform' | 'say'
-  >,
+  > & {
+    /** The process runner every attempt's setup runs through (ADR 0158, ADR 0163). */
+    setup: ExecProcess;
+  },
 ): BrewerRunner {
   return interactiveBrewerRunnerWith({
     ...options,
-    headless: (plan) => claudeBrewerRunner({ claude: options.claude, plan }),
+    headless: headlessRunner(options.claude, options.setup),
     files: {
       writeSettings: writeAttemptSettings,
       readOutDoc: readOutDocFile,

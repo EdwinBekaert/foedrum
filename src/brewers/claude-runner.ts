@@ -15,7 +15,10 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { passed, settleReadings } from '../checks/gravity.ts';
+import { runSetup, type SetupRun } from '../checks/setup.ts';
 import { attemptKey } from '../engine/attempt-key.ts';
+import type { Env } from '../engine/brewer-env.ts';
 import {
   type AttemptEnd,
   type AttemptFacts,
@@ -29,12 +32,14 @@ import type { AttemptProgress } from '../engine/supervisor.ts';
 import { pathInside } from '../platform/paths.ts';
 import {
   DEFAULT_MAX_OUTPUT_BYTES,
+  type ExecProcess,
   type StreamProcess,
   type StreamResult,
   streamProcess,
   type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
+import type { GravityReading } from '../schemas/events.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import {
@@ -63,6 +68,11 @@ export interface ClaudeAttemptPlan {
    * branch, where its commits are counted, never what its worktree says (ADR 0074).
    */
   commits?: { clone: string; branch: string };
+  /**
+   * The repository's setup: the runner runs it in the worktree before claude starts, in the checks'
+   * environment, killed before the attempt's deadline (ADR 0163).
+   */
+  setup?: { run: SetupRun; deadlineAt: string; env: Env };
 }
 
 /** An out doc as the runner found it. */
@@ -76,6 +86,11 @@ export interface ClaudeRunnerDeps {
   claude: string;
   plan: (attempt: AttemptStart) => Promise<ClaudeAttemptPlan>;
   stream: StreamProcess;
+  /**
+   * The process runner a repository's setup runs through: the check sandbox, network kept (ADR
+   * 0158). A plan with a setup and no runner for it is blocked on its environment.
+   */
+  setup?: ExecProcess;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
     /** Reads the out doc only inside `root`, the worktree. */
@@ -283,6 +298,25 @@ const noFacts = (exit: ProcessExit): AttemptFacts => ({
   turns: 0,
 });
 
+/**
+ * The reading of a plan's setup, run in its worktree `cwd` through `through`; read as unstarted when
+ * the runner has no process runner for it (ADR 0163).
+ */
+export function setUpFor(
+  setup: NonNullable<ClaudeAttemptPlan['setup']>,
+  cwd: string,
+  through: ExecProcess | undefined,
+  { now, signal }: { now: () => Date; signal: AbortSignal },
+): Promise<GravityReading> {
+  const { run, deadlineAt, env } = setup;
+  if (through === undefined) {
+    // As a setup that could not start: the reason is the runner's, not the repository's.
+    const tail = 'the brewer runner has no process runner for setups';
+    return Promise.resolve({ result: 'unstarted', setup: true, command: run.command, tail });
+  }
+  return runSetup(through, run, { cwd, env, deadlineAt, now, signal });
+}
+
 /** A brewer runner over the given stream process and files; unit tests pass fakes. */
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
@@ -309,10 +343,14 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     const startedAt = deps.now();
     const stopping = new AbortController();
     let reader: StreamReader | undefined;
-    running.set(
-      key,
-      () => reader?.progress() ?? { lastProgressAt: startedAt, turnsWithoutProgress: 0 },
-    );
+    // The stall limit judges claude, so the repository's setup is progress while it runs, and
+    // claude's clock starts when it ends (ADR 0027, ADR 0163).
+    let settingUp = false;
+    let claudeFrom = startedAt;
+    running.set(key, () => {
+      if (reader !== undefined) return reader.progress();
+      return { lastProgressAt: settingUp ? deps.now() : claudeFrom, turnsWithoutProgress: 0 };
+    });
     const unstartable = (error: unknown): AttemptEnd => ({
       ending: settleAttempt(noFacts({ kind: 'unstartable', reason: messageOf(error) }), limits),
     });
@@ -343,6 +381,23 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         return unstartable(error);
       }
       if (stopping.signal.aborted) return cancelled();
+      // The repository's setup first, so the brewer finds its dependencies; one that does not
+      // pass ends the attempt before claude spends a token (ADR 0163).
+      settingUp = true;
+      const before =
+        plan.setup === undefined
+          ? []
+          : [
+              await setUpFor(plan.setup, plan.cwd, deps.setup, {
+                now: deps.now,
+                signal: stopping.signal,
+              }),
+            ];
+      settingUp = false;
+      if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+      if (before.length > 0) claudeFrom = deps.now();
+      const withReadings = (end: AttemptEnd): AttemptEnd =>
+        before.length === 0 ? end : { ...end, readings: before };
       const { session, tools } = plan.call;
       const { cwd, env, prompt } = plan;
       /** One start of claude, read by a reader of its own. */
@@ -354,7 +409,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
             maxDenials: limits.maxDenials,
             resumes: session.kind === 'resume',
           },
-          startedAt,
+          claudeFrom,
         );
         reader = stream;
         const result = await deps.stream(deps.claude, args, {
@@ -380,11 +435,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         // claude once more, and call it the environment only when that fails too.
         if (passingPreStreamFailure(stream.facts(), result)) {
           await deps.wait(RETRY_MS, stopping.signal);
-          if (stopping.signal.aborted) return cancelled();
+          if (stopping.signal.aborted) return withReadings(cancelled());
           ({ stream, result } = await once());
         }
       } catch (error) {
-        return unstartable(error);
+        return withReadings(unstartable(error));
       }
       const seen = stream.facts();
       const exit = exitOf(result);
@@ -406,7 +461,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         ...(seen.session === undefined ? {} : { session: seen.session }),
       };
       // A stop while counting kills git: the attempt was stopped, git did not fail.
-      if (!stopped && stopping.signal.aborted) return { ...cancelled(), ...reported };
+      if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
       const facts: AttemptFacts = {
         environment: environmentOf(seen, exit, result.stderr),
         unresumed: seen.unresumed,
@@ -424,7 +479,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       };
       // The text as read, valid or not, for the state branch (ADR 0103).
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return { ending: settleAttempt(facts, limits), ...reported, ...outDoc };
+      return withReadings({ ending: settleAttempt(facts, limits), ...reported, ...outDoc });
     };
 
     const ended = run().finally(() => running.delete(key));
@@ -439,7 +494,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
 
 /** The runner with the real process runner, files and clock. */
 export function claudeBrewerRunner(
-  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan'>,
+  options: Pick<ClaudeRunnerDeps, 'claude' | 'plan' | 'setup'>,
 ): BrewerRunner {
   return claudeBrewerRunnerWith({
     ...options,

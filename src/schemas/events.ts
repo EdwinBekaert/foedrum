@@ -292,8 +292,8 @@ export const Event = z.discriminatedUnion('type', [
     session: SessionRef.optional(),
     worktree: WorktreeRef.optional(),
   }),
-  // `readings`: a check step's, one per check it read, in order (ADR 0069). `claude`: a brewer's,
-  // once claude's init came (ADR 0116).
+  // `readings`: a check step's, one per check it read, in order (ADR 0069), or a brewer's, its
+  // repository's setup's (ADR 0163). `claude`: a brewer's, once claude's init came (ADR 0116).
   z.strictObject({
     type: z.literal('step.finished'),
     ...step,

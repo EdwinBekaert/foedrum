@@ -69,7 +69,7 @@ export interface ServeRepository {
   checks: RepositoryChecks;
   /** Where its test check writes the structured report red proofs read (ADR 0078). */
   testReport?: TestReportConfig;
-  /** What runs before a check step's checks, with the network (ADR 0140). */
+  /** What runs before a brewer attempt and a check step's checks, with the network (ADR 0163). */
   setup?: RepositorySetup;
 }
 
@@ -320,19 +320,18 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
     );
   }
-  // A setup keeps the host's network namespace on Linux and WSL2, and with it the host's abstract
-  // Unix sockets, until #425 (ADR 0158); native Windows is refused above.
-  const setupReachesHost = !unsandboxedChecks && platform !== 'darwin';
-  if (
-    setupReachesHost &&
-    config?.isolation?.minimum === 'sandboxed' &&
-    loaded.valid &&
-    loaded.checks.any()
-  ) {
+  // A setup runs before brewer attempts as well as before check steps (ADR 0163). It
+  // keeps the host's network namespace on Linux and WSL2, and with it the host's abstract Unix
+  // sockets, until #425 (ADR 0158); on native Windows it has no sandbox, which the checks' line
+  // above already says when a recipe has a check step.
+  const checksRefused = unsandboxedChecks && loaded.valid && loaded.checks.any();
+  if (config?.isolation?.minimum === 'sandboxed' && platform !== 'darwin' && !checksRefused) {
     for (const { repo, setup } of repositories) {
       if (setup === undefined) continue;
       problems.push(
-        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)`,
+        unsandboxedChecks
+          ? `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside a sandbox on native Windows (ADR 0163)`
+          : `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)`,
       );
     }
   }

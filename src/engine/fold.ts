@@ -72,7 +72,7 @@ export type Attempt =
       worktree?: WorktreeRef;
       outcome: StepOutcome;
       usage?: Usage;
-      /** A check step's gravity readings (ADR 0069). */
+      /** A check step's gravity readings (ADR 0069), or a brewer's setup's (ADR 0163). */
       readings?: readonly GravityReading[];
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;

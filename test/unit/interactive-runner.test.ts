@@ -4,19 +4,22 @@
 // one runs headless. No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-import { beforeEach, describe, it } from 'node:test';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { resumeArgs } from '../../src/brewers/claude-command.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from '../../src/brewers/claude-runner.ts';
 import {
+  headlessRunner,
   type InteractiveRunnerDeps,
   interactiveBrewerRunnerWith,
 } from '../../src/brewers/interactive-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptLimits, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-23T12:00:00.000Z');
 const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
@@ -294,5 +297,150 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     assert.deepEqual(ending, { kind: 'failed', retryable: true, reason: 'headless' });
     assert.deepEqual(headlessPlans, [plan('new')]);
     assert.deepEqual(foreground, []);
+  });
+
+  // The worktree of a resumed session may have been re-added without its install (review of #440).
+  describe("a resumed session's setup (ADR 0163)", () => {
+    const withSetup = async (): Promise<ClaudeAttemptPlan> => ({
+      ...plan('resume'),
+      setup: {
+        run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+        deadlineAt: '2026-10-23T13:00:00.000Z',
+        env: { PATH: '/usr/bin' },
+      },
+    });
+    const setupExec =
+      (exitCode: number): ExecProcess =>
+      async (file, _args, options) => {
+        calls.push(`setup ${file} in ${options.cwd}`);
+        const output = exitCode === 0 ? 'added 7 packages' : 'npm ERR! missing lock file';
+        return { exitCode, stdout: output, stderr: '', output };
+      };
+
+    it('runs the setup in the worktree before it opens the session, and records its reading', async () => {
+      const end = await runner('resume', { plan: withSetup, setup: setupExec(0) }).start(attempt)
+        .ended;
+      const ran = calls.indexOf(`setup npm ci in ${plan('resume').cwd}`);
+      assert.ok(ran !== -1 && ran < calls.indexOf('claude'), calls.join('\n'));
+      assert.equal(end.ending.kind, 'succeeded');
+      assert.deepEqual(end.readings, [
+        { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
+      ]);
+    });
+
+    it('ends blocked on its environment, without opening the session, when the setup fails', async () => {
+      const end = await runner('resume', { plan: withSetup, setup: setupExec(1) }).start(attempt)
+        .ended;
+      assert.ok(!calls.includes('claude'), calls.join('\n'));
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the setup "npm ci" failed with exit code 1',
+      });
+      assert.deepEqual(end.readings, [
+        {
+          result: 'exited',
+          setup: true,
+          command: 'npm ci',
+          exitCode: 1,
+          tail: 'npm ERR! missing lock file',
+        },
+      ]);
+    });
+
+    it('ends cancelled, without opening the session, when the attempt is stopped during the setup', async () => {
+      let signal: AbortSignal | undefined;
+      let finish = () => {};
+      const hanging: ExecProcess = (file, _args, options) => {
+        calls.push(`setup ${file}`);
+        signal = options.signal;
+        return new Promise((done) => {
+          const stopped = () =>
+            done({ exitCode: null, stdout: '', stderr: '', output: '', killed: 'stopped' });
+          finish = stopped;
+          options.signal?.addEventListener('abort', stopped);
+        });
+      };
+      const running = runner('resume', { plan: withSetup, setup: hanging }).start(attempt);
+      await new Promise((resolve) => setImmediate(resolve));
+      running.stop();
+      const reached = signal?.aborted === true;
+      // Else the process runner ends it at its timeout.
+      finish();
+      const end = await running.ended;
+      assert.equal(reached, true, 'the stop reaches the setup');
+      assert.ok(!calls.includes('claude'), calls.join('\n'));
+      assert.equal(end.ending.kind, 'cancelled');
+    });
+
+    it('reports progress while the setup runs, so the lease of the session is renewed', async () => {
+      let finish = () => {};
+      const until = new Promise<void>((done) => {
+        finish = done;
+      });
+      const slow: ExecProcess = async (file) => {
+        calls.push(`setup ${file}`);
+        await until;
+        return { exitCode: 0, stdout: '', stderr: '', output: 'added 7 packages' };
+      };
+      const resumed = runner('resume', { plan: withSetup, setup: slow });
+      const running = resumed.start(attempt);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(calls.includes('setup npm ci'), calls.join('\n'));
+      assert.deepEqual(resumed.progress(attempt.ref), {
+        lastProgressAt: t0,
+        turnsWithoutProgress: 0,
+      });
+      finish();
+      await running.ended;
+    });
+
+    it("keeps the setup's reading when claude cannot open after it", async () => {
+      const end = await runner('resume', {
+        plan: withSetup,
+        setup: setupExec(0),
+        foreground: async () => {
+          throw new Error('spawn claude ENOENT');
+        },
+      }).start(attempt).ended;
+      assert.equal(end.ending.kind, 'failed');
+      assert.deepEqual(end.readings, [
+        { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
+      ]);
+    });
+  });
+
+  describe('headlessRunner: a fresh attempt of a resume (ADR 0163)', () => {
+    let dir: TempDir;
+    beforeEach(() => {
+      dir = makeTempDir('headless-setup');
+    });
+    afterEach(() => dir.remove());
+
+    it("runs the fresh attempt's setup through the given process runner, before claude", async () => {
+      const started: string[] = [];
+      const failing: ExecProcess = async (file) => {
+        started.push(file);
+        // A setup that fails, so claude never starts.
+        return { exitCode: 1, stdout: '', stderr: '', output: 'npm ERR!' };
+      };
+      const fresh = async (): Promise<ClaudeAttemptPlan> => ({
+        ...plan('new'),
+        settingsFile: join(dir.path, 'settings.json'),
+        setup: {
+          run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+          deadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
+          env: { PATH: '/usr/bin' },
+        },
+      });
+      const end = await headlessRunner('/opt/claude/bin/claude', failing)(fresh).start(attempt)
+        .ended;
+      assert.deepEqual(started, ['npm ci']);
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'the setup "npm ci" failed with exit code 1',
+      });
+    });
   });
 });
