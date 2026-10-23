@@ -28,7 +28,8 @@ Everything in the picture comes from files read in this session.
 
 ## One line before the picture
 
-One sentence that gives the reader a handle. It does three things:
+One or two sentences (three when one states the premise) that give the reader a handle. They do
+three things:
 
 - **Premise first.** Say what the part is in Foedrum and why it exists, then how it works. For an
   issue or pull request, first name the part of Foedrum it touches and what that part is, then
@@ -94,8 +95,7 @@ GitHub shows a parse error instead of a mermaid picture that breaks its syntax, 
 
 - One picture; two only when they show two genuinely different layers.
 - At most 25 lines and 90 columns. Over budget, leave nodes out; never shrink to a summary.
-- At most two sentences before the picture (three when one states the premise), and nothing after
-  it unless a caption earns its line.
+- Before the picture, only the line above; after it, nothing unless a caption earns its line.
 - When the reader says they are lost, go one altitude up with fewer nodes; never redraw the same
   detail in another form.
 - When the answer fits in one sentence, write the sentence.
