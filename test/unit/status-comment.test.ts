@@ -575,6 +575,48 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
     `\\[left out: a text of step ${stepId} that looks like a secret\\]`;
   const noToken = (text: string) => assert.doesNotMatch(text, /ghp|A1b2/);
 
+  it("keeps a Taster's finding on one line and leaves out one that looks like a secret (ADR 0161)", () => {
+    const findings = [
+      {
+        // A file is one line (the schema), so only `why` can try to start a line of its own.
+        file: 'src/a_b.ts',
+        severity: 'major',
+        why: 'x\n# heading\n**Pull requests**',
+        introduced: true,
+      },
+      { severity: 'major', why: `Token ${token}`, introduced: true },
+    ];
+    const tasted: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'changes',
+          findings,
+        },
+      },
+    };
+    const text = renderStatus(batch({ steps: new Map([step('taste', tasted)]) }), ['taste']);
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Findings**');
+    assert.ok(at_ >= 0, text);
+    assert.match(
+      lines[at_ + 1] ?? '',
+      /^- `taste`: major in src\/a\\_b\.ts: x \\# heading \\\*\\\*Pull requests\\\*\\\*$/,
+    );
+    assert.match(
+      lines[at_ + 2] ?? '',
+      new RegExp(`^- \`taste\`: major: ${escaped(leftOut('taste'))}$`),
+    );
+    assert.doesNotMatch(text, /^# heading|^\*\*Pull requests\*\*/m);
+    noToken(text);
+  });
+
   it('leaves out an assumption, naming the step, and keeps the others', () => {
     const text = renderStatus(
       batch({ steps: new Map([step('plan', done(1, [`Token ${token}`, 'Port 8080 is free']))]) }),

@@ -327,11 +327,11 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     },
   ];
   /** The Taster's prompt, planned with `git` answering the change, and the git calls it made. */
-  const planTaster = async (git: Git) => {
+  const planTaster = async (git: Git, files: BreweryFiles = room) => {
     const calls: { cwd: string; args: readonly string[] }[] = [];
     const plans = createAttemptPlans({
       state: () => fold(events),
-      brewers: valid(loadRecipes(room)).brewers,
+      brewers: valid(loadRecipes(files)).brewers,
       models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
       repoTools: () => [],
       clone: (repo) => join('/clones', repo),
@@ -392,6 +392,25 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     const change = prompt.slice(start, prompt.indexOf('\n</untrusted-input', start));
     assert.ok(Buffer.byteLength(change, 'utf8') <= 256 * 1024, `${change.length} characters`);
     assert.match(change, /\[cut: the rest is past the change input's limit of 262144 bytes\]$/);
+  });
+
+  it('gives a Taster that reviews a plan no change, and reads none', async () => {
+    const planned: BreweryFiles = {
+      ...withRecipe('amber', [
+        { id: 'correctness', brewer: 'taster', lens: 'plan/coverage' },
+        { id: 'implement', brewer: 'cellarman' },
+        { action: 'openPullRequest' },
+      ]),
+      lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
+    };
+    const { plan, calls } = await planTaster(answers, planned);
+    const { prompt } = await plan;
+    assert.match(
+      prompt,
+      /source="lens plan\/coverage, file lenses\/plan\/coverage\.md" name="lens">/,
+    );
+    assert.doesNotMatch(prompt, /name="change"/);
+    assert.deepEqual(calls, []);
   });
 
   it('fails the plan, naming the git call, when git cannot read the change', async () => {

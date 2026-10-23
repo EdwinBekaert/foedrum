@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import {
   answersOf,
   attemptLimits,
+  changeStart,
   gitRulesOf,
   inputsOf,
   modelOf,
@@ -223,6 +224,19 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
         verdict: 'approve',
         findings: [{ ...finding, severity: undefined }],
       },
+      // Near misses of a finding's location: a file on two lines, and line 0.
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'approve',
+        findings: [{ ...finding, file: 'a.ts\nb' }],
+      },
+      {
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'approve',
+        findings: [{ ...finding, line: 0 }],
+      },
     ]) {
       const ending = without(frontmatter);
       assert.equal(ending.kind, 'failed', JSON.stringify(frontmatter));
@@ -231,6 +245,62 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
         /the out doc taste\.md is invalid/,
       );
     }
+  });
+
+  it('blocks a blocking changes verdict by findings before it counts commits', () => {
+    const ending = settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc({
+          status: 'done',
+          summary: 'Tasted',
+          verdict: 'changes',
+          findings: [finding],
+        }),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+        commits: { kind: 'counted', count: 0 },
+      },
+      { ...attemptLimits(taster, undefined, true), commitsSince: sha },
+    );
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: Tasted',
+    });
+  });
+});
+
+describe("changeStart: where a Taster's change starts (ADR 0161)", () => {
+  it('is the commit the batch started at in the repository, in any case of its name', () => {
+    const started = fold([
+      ...events.slice(0, 2),
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 1,
+        deadlineAt: '2026-10-17T13:00:00.000Z',
+      },
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'malt',
+        attempt: 1,
+        worktree: { ...worktreeOf('malt-1'), repo: 'Acme/API' },
+      },
+    ]).batches.get('12-1');
+    assert.ok(started !== undefined);
+    assert.equal(changeStart(started, 'acme/api'), sha);
+    assert.equal(changeStart(started, 'ACME/Api'), sha);
+    assert.equal(changeStart(started, 'acme/web'), undefined);
+  });
+
+  it('is none before an attempt recorded where the batch started', () => {
+    const ordered = fold(events.slice(0, 2)).batches.get('12-1');
+    assert.ok(ordered !== undefined);
+    assert.equal(changeStart(ordered, 'acme/api'), undefined);
   });
 });
 
