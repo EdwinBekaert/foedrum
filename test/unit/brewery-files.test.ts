@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { breweryRecipes, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { INVALID_RECIPES, loadRecipes } from '../../src/engine/recipe-files.ts';
+import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
+import { ModelsConfig } from '../../src/schemas/models.ts';
+import { readDoc, readJsonc } from '../../src/schemas/read.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -43,6 +46,44 @@ describe('readBreweryFiles', () => {
       brewers: [{ path: 'defaults/brewers/gauger.md', text: 'gauger' }],
       lenses: [{ path: 'defaults/lenses/diff/correctness.md', text: 'correctness' }],
     });
+  });
+
+  it("reads the defaults' models.jsonc by its path in defaults/, and has none where it is missing (ADR 0153)", () => {
+    const defaults = join(brewery.path, 'foedrum', 'defaults');
+    write('models.jsonc', "the Brewery's own, which is not read here");
+    assert.equal(readBreweryFiles(brewery.path, defaults).defaults?.models, undefined);
+    write('foedrum/defaults/models.jsonc', '{ "models": { "builder": "sonnet" } }');
+    assert.deepEqual(readBreweryFiles(brewery.path, defaults).defaults?.models, {
+      path: 'defaults/models.jsonc',
+      text: '{ "models": { "builder": "sonnet" } }',
+    });
+  });
+
+  it("has a defaults/models.jsonc in Foedrum's install that maps builder to the family sonnet (ADR 0153)", () => {
+    const found = readBreweryFiles(brewery.path).defaults?.models;
+    assert.ok(found !== undefined && 'text' in found, 'no defaults/models.jsonc was read');
+    assert.equal(found.path, 'defaults/models.jsonc');
+    const read = readJsonc(found.text, ModelsConfig);
+    assert.ok(read.valid, read.valid ? '' : read.reason);
+    assert.deepEqual(read.value.models, { builder: 'sonnet' });
+    assert.deepEqual(read.value.brewers, {});
+  });
+
+  it('maps every alias that a default brewer names in its defaults/models.jsonc (ADR 0153)', () => {
+    const { brewers = [], models } = readBreweryFiles(brewery.path).defaults ?? {};
+    assert.ok(models !== undefined && 'text' in models, 'no defaults/models.jsonc was read');
+    const mapped = readJsonc(models.text, ModelsConfig);
+    assert.ok(mapped.valid, mapped.valid ? '' : mapped.reason);
+    assert.ok(brewers.length > 0, 'no default brewers were read');
+    for (const file of brewers) {
+      assert.ok('text' in file, file.path);
+      const doc = readDoc(file.text, BrewerFrontmatter);
+      assert.ok(doc.valid, file.path);
+      assert.ok(
+        Object.hasOwn(mapped.value.models, doc.frontmatter.model),
+        `${file.path} names the alias "${doc.frontmatter.model}", which defaults/models.jsonc does not map`,
+      );
+    }
   });
 
   it('reads the lenses of lenses/diff/ and lenses/plan/, and those directly in lenses/, which do not load (ADR 0143)', () => {

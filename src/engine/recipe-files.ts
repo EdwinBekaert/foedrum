@@ -37,7 +37,10 @@ interface FilesByKind {
  * by its path in `defaults/`.
  */
 export interface BreweryFiles extends FilesByKind {
-  defaults?: Partial<FilesByKind>;
+  defaults?: Partial<FilesByKind> & {
+    /** Foedrum's `defaults/models.jsonc`, merged under the Brewery's models.jsonc (ADR 0153). */
+    models?: BreweryFile;
+  };
 }
 
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
