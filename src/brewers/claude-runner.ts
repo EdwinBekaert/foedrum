@@ -40,6 +40,7 @@ import {
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
+import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import {
@@ -73,6 +74,8 @@ export interface ClaudeAttemptPlan {
    * environment, killed before the attempt's deadline (ADR 0163).
    */
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
+  /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
+  houseYeast?: HouseYeastSelection;
 }
 
 /** An out doc as the runner found it. */
@@ -363,6 +366,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       stopping.signal.addEventListener('abort', () => settle(undefined), { once: true });
     });
 
+    let given: HouseYeastSelection | undefined;
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
       let args: string[];
@@ -370,6 +374,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         const prepared = await Promise.race([deps.plan(attempt), aborted]);
         if (prepared === undefined) return cancelled();
         plan = prepared;
+        given = plan.houseYeast;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         // A resumed run is read by the out doc it writes, never the one the run before left,
         // such as its needs_input (ADR 0118).
@@ -482,7 +487,10 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       return withReadings({ ending: settleAttempt(facts, limits), ...reported, ...outDoc });
     };
 
-    const ended = run().finally(() => running.delete(key));
+    // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169).
+    const ended = run()
+      .then((end) => (given === undefined ? end : { ...end, houseYeast: given }))
+      .finally(() => running.delete(key));
     return { ended, stop: () => stopping.abort() };
   };
 

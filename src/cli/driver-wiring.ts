@@ -178,6 +178,11 @@ export const wireDriver = async (
     orderText: githubOrderText(reads, setup.brewery),
     // A Taster's change is read by the engine, so the Taster runs no git (ADR 0161).
     git: shell.git,
+    // A brewer that asks for house yeast gets the rules that match its change (ADR 0169).
+    houseYeast: {
+      files: setup.houseYeast ?? [],
+      keptIn: (repo) => repositoryNamed(repo)?.houseYeast ?? 'repo',
+    },
   });
   // A check step's commands run in the brewers' environment, without a token variable (ADR 0069);
   // as the same OS user they can still start gh, which answers from its login (ADR 0073, #204).

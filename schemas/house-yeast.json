@@ -22,8 +22,16 @@
           "pattern": "^[a-z0-9][a-z0-9+#.-]*$"
         },
         "lens": {
-          "type": "string",
-          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?:diff|plan)\\/(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            }
+          ]
         }
       },
       "additionalProperties": false

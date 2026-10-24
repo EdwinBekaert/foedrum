@@ -67,6 +67,22 @@ describe('assembleBrewerPrompt (#106, ADR 0041)', () => {
     assert.equal(count(prompt, `</untrusted-input-${nonce}>`), inputs.length);
   });
 
+  it('names the file a house-yeast rule was read from (ADR 0169)', () => {
+    const rule: PromptInput = {
+      name: 'houseYeast',
+      source: { kind: 'house-yeast', rule: 'cents', path: '.foedrum/house-yeast/cents.md' },
+      text: 'Amounts are integers in cents.',
+    };
+    const { prompt } = assembled(assembleBrewerPrompt(instructions, [rule], fixed));
+    assert.deepStrictEqual(blocks(prompt, nonce), [
+      {
+        attributes:
+          'source="house-yeast rule cents, file .foedrum/house-yeast/cents.md" name="houseYeast"',
+        text: 'Amounts are integers in cents.',
+      },
+    ]);
+  });
+
   it('tags what sent a step back with why it runs again, as data (#341, ADR 0128)', () => {
     const routed: PromptInput[] = [
       {
