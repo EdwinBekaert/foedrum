@@ -110,6 +110,26 @@ describe('brewerForcedEnv (ADR 0109)', () => {
     assert.equal(brewerForcedEnv().GIT_TERMINAL_PROMPT, '0');
   });
 
+  it("turns off claude's auto-updater and nonessential traffic (ADR 0177)", () => {
+    assert.equal(brewerForcedEnv().DISABLE_AUTOUPDATER, '1');
+    assert.equal(brewerForcedEnv().CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
+  });
+
+  for (const platform of ['linux', 'darwin', 'win32'] as const) {
+    it(`keeps the updater off over a user's value in the base on ${platform} (ADR 0177)`, () => {
+      for (const value of ['0', '']) {
+        const env = buildBrewerEnv({
+          base: { DISABLE_AUTOUPDATER: value, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: value },
+          brewer: { DISABLE_AUTOUPDATER: value },
+          forced: brewerForcedEnv(),
+          platform,
+        });
+        assert.equal(env.DISABLE_AUTOUPDATER, '1', `DISABLE_AUTOUPDATER=${value}`);
+        assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1', `traffic=${value}`);
+      }
+    });
+  }
+
   it("empties git's list of credential helpers and its askpass program, over every config file", () => {
     const config = gitConfig(brewerForcedEnv());
     assert.deepEqual(

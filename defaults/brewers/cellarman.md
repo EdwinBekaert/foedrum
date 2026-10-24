@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 4,
+  "version": 5,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -31,7 +31,7 @@ Implement the order in {order}. The Gauger's failing tests, listed in its out do
 
 - **Keep the Gauger's tests.** Do not change or remove a test declaration or an assertion the Gauger committed: the attempt then fails. Helpers, fixtures, imports and new tests of your own may change.
 - **Replace the stubs.** Every stub that throws `not implemented` becomes the real behaviour.
-- **A wrong test is a finding.** If you believe one of the Gauger's tests is wrong, do not edit it: end blocked with findings that name the test and say why.
+- **A wrong test is a finding.** If you believe one of the Gauger's tests is wrong, do not edit it: end blocked with `"blockerKind": "findings"` in the frontmatter, and in the out doc's text name each wrong test, by the name the test runner reports, and say why. The frontmatter has no key for them: the Gauger reads your out doc's text and writes the tests again.
 - **Without tests.** When there is no {tests} input, the recipe ran without the Gauger: implement the order and add tests for it yourself.
 - **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`). Decide anything smaller yourself and list it as an assumption.
 - **The least code.** Write the least code that makes the tests pass and does what the order asks: no option, layer or abstraction the order does not ask for.

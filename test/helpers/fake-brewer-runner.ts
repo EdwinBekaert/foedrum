@@ -82,6 +82,8 @@ export const behave = {
   /** The stream is not stream-json, whatever the out doc says. */
   garbage: (): Behaviour =>
     settle(outDoc({ status: 'done', summary: 'Done' }), { garbage: '\u0000\u0007 Abort trap' }),
+  /** A clean exit with this out doc, written as it is. */
+  writes: (doc: string): Behaviour => settle(doc),
   missingOutDoc: (): Behaviour => settle(undefined),
   invalidOutDoc: (): Behaviour => settle(outDoc({ status: 'finished', summary: 'Done' })),
   /** The runner stopped the brewer when it went past `maxTurns`. */
