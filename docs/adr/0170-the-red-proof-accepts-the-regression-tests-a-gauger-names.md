@@ -1,6 +1,6 @@
 # 0170. The red proof accepts the regression tests a Gauger names
 
-Date: 2026-10-24 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (the Gauger's tests may include regression tests) [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (what counts as missing behaviour), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the change input and the status comment) and [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (the step reports)
+Date: 2026-10-24 · Status: Accepted · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (the Gauger's tests may include regression tests), [0022](0022-five-default-lenses.md) (what the test-design lens looks for), [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (what counts as missing behaviour), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the change input and the status comment) and [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (the step reports)
 
 ## Context
 The red proof passes only when every test the proven step added fails because the behaviour is missing ([ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).
@@ -36,7 +36,8 @@ A regression test the red proof accepts is one the step added, so `testsUnchange
 ## Consequences
 - A regression test can stand alone: the "stays allowed" case of #443 is a test of its own, named as a regression test, and `red` passes on its first attempt.
 - A Gauger could name a new-behaviour test a regression test that passes against a stub returning a value; the red proof cannot tell, since both pass. The test-design lens is the check on that, and the green check still runs it.
-- An existing test the Gauger names is refused, also when a comment the step added mentions it: the guard keeps the declarations and assertions the step added in its test files, so a regression test the proof accepts is one whose declaring line the guard keeps, where the guard's declaration patterns read it (a name on a line of its own, as a Java method's after `@Test`, is matched by the proof but kept only through its `@Test` and assertions).
+- An existing test the Gauger names is refused when no line the step added in a test file declares its name, a comment included: the guard keeps the declarations and assertions the step added there.
+- A regression name is matched to those lines in the forms ADR 0078 reads the step's tests in, so an older test whose last name part a new test of the step shares (`parser > rejects empty` beside a new `lexer > rejects empty`), or whose name a comment after code holds, can still pass as one; a runner that reports suite titles in the name needs the short forms, and the test-design lens checks each named test.
 - `tests` is shown, not judged: the red proof still finds the new tests by their declarations.
 
 ## Alternatives considered
