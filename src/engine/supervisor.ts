@@ -63,18 +63,19 @@ export const planTick = (input: TickInput): TickPlan => {
     const ref = attemptKey.decode(key);
     const batch = ref && state.batches.get(ref.batchId);
     const lost = batch && running(batch).find((attempt) => isSame(attempt, ref));
-    if (lost?.phase === 'started' && commands.get(lost.batchId)?.kind === 'lose') {
+    if (lost?.phase !== 'started') continue;
+    if (commands.get(lost.batchId)?.kind === 'lose') {
       kept.add(key);
-    } else if (lost?.phase === 'started') {
-      const reason = `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
-      issue({
-        kind: 'lose',
-        batchId: lost.batchId,
-        stepId: lost.stepId,
-        attempt: lost.attempt,
-        reason,
-      });
+      continue;
     }
+    const reason = `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
+    issue({
+      kind: 'lose',
+      batchId: lost.batchId,
+      stepId: lost.stepId,
+      attempt: lost.attempt,
+      reason,
+    });
   }
   for (const batch of state.batches.values()) {
     if (commands.has(batch.id)) continue;

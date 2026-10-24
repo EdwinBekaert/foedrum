@@ -791,15 +791,24 @@ const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
 };
 
 /**
+ * The step the child `stepId` of a parallel group goes back to once its group ended: its latest
+ * attempt was blocked by findings with its route's rounds not used up (ADR 0168).
+ */
+function sentBack(batch: Batch, recipe: Recipe, stepId: string): string | undefined {
+  const latest = latestOf(batch, stepId);
+  if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return undefined;
+  return recipe.loopBack(batch, stepId, 'findings');
+}
+
+/**
  * Whether the child `stepId` of a parallel group has ended (ADR 0168): its latest attempt
  * succeeded, or it was blocked by findings with its route's rounds not used up. Every other ending
  * retries the child or makes the batch Stuck.
  */
 function ended(batch: Batch, recipe: Recipe, stepId: string): boolean {
   const latest = latestOf(batch, stepId);
-  if (latest?.phase !== 'finished') return false;
-  if (latest.outcome.kind === 'succeeded') return true;
-  return onFindings(latest.outcome) && recipe.loopBack(batch, stepId, 'findings') !== undefined;
+  if (latest?.phase === 'finished' && latest.outcome.kind === 'succeeded') return true;
+  return sentBack(batch, recipe, stepId) !== undefined;
 }
 
 /**
@@ -812,9 +821,8 @@ function settle(draft: Draft, batchId: string, group: string): void {
   const children = recipe.children(group) ?? [];
   if (!children.every((child) => ended(batch, recipe, child))) return;
   for (const child of children) {
-    const latest = latestOf(batch, child);
-    const back = recipe.loopBack(batch, child, 'findings');
-    if (latest?.phase === 'finished' && onFindings(latest.outcome) && back !== undefined) {
+    const back = sentBack(batch, recipe, child);
+    if (back !== undefined) {
       goBack(draft, batchId, back, { from: child, why: 'findings' });
       return;
     }

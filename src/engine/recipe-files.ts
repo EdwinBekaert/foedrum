@@ -596,14 +596,14 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     };
     // A parallel group's children load as steps of their own, in its place (ADR 0168).
     const groups = new Map<string, string | undefined>();
-    let unfollowedGroups = 0;
+    let unfollowedGroup = false;
     const listed = value.steps.flatMap(
       (step, index): { step: Step; index: number; group?: string }[] => {
         if (!('parallel' in step)) return [{ step, index }];
         const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
         if (unfollowed !== undefined) {
           problems.push(`${path}: ${unfollowed}`);
-          unfollowedGroups++;
+          unfollowedGroup = true;
         }
         groups.set(step.id, step.when);
         return step.parallel.map((child) => ({ step: child, index, group: step.id }));
@@ -788,7 +788,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     }
     const refused =
       misfolded.length + ofNothing.length + unprovenLines.length + unopened.length > 0;
-    if (steps.length < listed.length || unfollowedGroups > 0 || refused) continue;
+    if (steps.length < listed.length || unfollowedGroup || refused) continue;
     const [proof] = proofs;
     if (proof !== undefined) redProofs.set(value.name, proof);
     recipes.set(
