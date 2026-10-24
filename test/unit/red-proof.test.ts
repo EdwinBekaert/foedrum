@@ -423,3 +423,23 @@ describe('judgeRed with regression tests (ADR 0170)', () => {
     );
   });
 });
+
+describe('judgeRed: a regression test the step declared (ADR 0170)', () => {
+  it('refuses a regression name that a line the step added only mentions, not declares', () => {
+    // An older passing test, named in a comment the step added: testsUnchanged would not keep it.
+    const mentioned: DiffFile[] = [
+      ...gauged,
+      { newPath: 'test/sub.test.mjs', added: ['// keeps subtracting'], removed: [] },
+    ];
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - keeps subtracting',
+    );
+    const verdict = judgeRed(report, mentioned, ['keeps subtracting']);
+    assert.deepEqual(verdict, {
+      proven: false,
+      why: 'regression test "keeps subtracting" is not a test the step added in the report',
+    });
+  });
+});
