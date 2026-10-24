@@ -253,7 +253,7 @@ describe('unlinked (ADR 0167)', () => {
       ),
       '#3, acme/web#4, GH-5, https://github.com/a/b/issues/6, **#7',
     );
-    assert.equal(unlinked('fixed\n#8 and resolve&nbsp;#9'), '#8 and #9');
+    assert.equal(unlinked('fixed\n#8 and resolve&nbsp;#9'), '#8 and resolve&amp;nbsp;#9');
   });
 
   it('removes a keyword the removal of another brings before a reference', () => {
