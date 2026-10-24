@@ -379,6 +379,35 @@ describe('judgeRed', () => {
     );
   });
 
+  it('finds a name GoogleTest, Ruby and a generic Rust test write as a bare identifier', () => {
+    const bare = [
+      { newPath: 'test/calc_test.cc', added: ['TEST(CalcTest, Adds) {'], removed: [] },
+      { newPath: 'test/add_test.rb', added: ['  def test_subtracts'], removed: [] },
+      { newPath: 'tests/add.rs', added: ['#[test]', 'fn divides<T>() {'], removed: [] },
+    ];
+    const names = ['CalcTest.Adds', 'AddTest.test_subtracts', 'divides'];
+    const report = tap(...names.flatMap((name, n) => failing(n + 1, name, 'not implemented')));
+    assert.deepEqual(judgeRed(report, bare), { proven: true, tests: names });
+  });
+
+  it('does not take a capitalised key in a fixture line for a Gherkin scenario', () => {
+    const fixture = [
+      {
+        newPath: 'test/stream.test.ts',
+        added: ["  it('reads a result line', () => {", '  Status: null', '  Scenario: null'],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      'ok 1 - malformed input > null',
+      ...failing(2, 'reads a result line', 'not implemented'),
+    );
+    // "Scenario: null" names the older test: a feature file's scenario declares it.
+    assert.match(why(report, fixture), /^test "malformed input > null" passes/);
+    fixture[0]?.added.pop();
+    assert.deepEqual(judgeRed(report, fixture), { proven: true, tests: ['reads a result line'] });
+  });
+
   it('finds a name written in double quotes or backticks, as Go, C# and Kotlin declare a test', () => {
     const quoted = [
       {
