@@ -283,13 +283,24 @@ describe('BreweryConfig', () => {
     ]);
   });
 
-  // Rules that load today and must keep loading: regression tests for the reading.
-  it('accepts Bash(npm *) and Bash(pnpm *) in the ceiling, which is no allowlist', () => {
+  // Rules that load today and must keep loading: regression tests for the reading. Each is paired
+  // with a neighbouring rule the reading refuses, so the test fails until the reading exists.
+  it('accepts Bash(npm *) and Bash(pnpm *) in the ceiling, which is no allowlist, but not Bash(npm exec gh *)', () => {
     assert.equal(accepted(config({}, { permissionCeiling: ['Bash(npm *)'] })), true);
     assert.equal(accepted(config({}, { permissionCeiling: ['Bash(pnpm *)'] })), true);
+    assert.equal(accepted(config({}, { permissionCeiling: ['Bash(npm exec gh *)'] })), false);
   });
 
-  it('accepts npm and pnpm scripts in the repository tools, under their ceiling', () => {
+  it('accepts npm and pnpm scripts in the repository tools, under their ceiling, but not Bash(pnpm gh pr list)', () => {
+    assert.equal(
+      accepted(
+        config(
+          { tools: ['Bash(pnpm gh pr list)'] },
+          { permissionCeiling: ['Bash(npm *)', 'Bash(pnpm *)'] },
+        ),
+      ),
+      false,
+    );
     assert.equal(
       accepted(
         config(
