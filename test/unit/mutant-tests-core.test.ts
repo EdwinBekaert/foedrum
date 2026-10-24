@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { importsOf, testsFor } from '../../scripts/mutant-tests/core.ts';
+import { importsOf, testRounds, testsFor } from '../../scripts/mutant-tests/core.ts';
 
 describe('importsOf', () => {
   it('finds static, type, side-effect and dynamic imports and re-exports', () => {
@@ -94,5 +94,71 @@ describe('testsFor', () => {
       'test/unit/ab.test.ts',
       'test/unit/b.test.ts',
     ]);
+  });
+});
+
+describe('testRounds', () => {
+  it('splits the direct importers from the test files one module away', () => {
+    const tree = sources({
+      'src/engine/fold.ts': '',
+      'src/engine/decide.ts': imports('./fold.ts'),
+      'src/engine/driver.ts': imports('./decide.ts'),
+      'test/helpers/simulation.ts': imports('../../src/engine/fold.ts'),
+      'test/unit/fold.test.ts': imports('../../src/engine/fold.ts'),
+      'test/chaos/fold.test.ts': imports('../../src/engine/fold.ts'),
+      'test/unit/decide.test.ts': imports('../../src/engine/decide.ts'),
+      'test/property/i1.test.ts': imports('../helpers/simulation.ts'),
+      'test/unit/driver.test.ts': imports('../../src/engine/driver.ts'),
+      'test/integration/fold.test.ts': imports('../../src/engine/fold.ts'),
+    });
+    assert.deepEqual(testRounds(tree, ['src/engine/fold.ts']), {
+      direct: ['test/chaos/fold.test.ts', 'test/unit/fold.test.ts'],
+      oneAway: ['test/property/i1.test.ts', 'test/unit/decide.test.ts'],
+    });
+  });
+
+  it('lists a test file that imports a target directly and through a module as direct only', () => {
+    const tree = sources({
+      'src/a.ts': '',
+      'src/b.ts': imports('./a.ts'),
+      'test/unit/ab.test.ts': imports('../../src/b.ts', '../../src/a.ts'),
+    });
+    assert.deepEqual(testRounds(tree, ['src/a.ts']), {
+      direct: ['test/unit/ab.test.ts'],
+      oneAway: [],
+    });
+  });
+
+  it('counts a test file as direct when it imports any of several targets directly', () => {
+    const tree = sources({
+      'src/a.ts': '',
+      'src/b.ts': imports('./a.ts'),
+      'test/unit/a.test.ts': imports('../../src/a.ts'),
+      'test/unit/b.test.ts': imports('../../src/b.ts'),
+    });
+    assert.deepEqual(testRounds(tree, ['src/a.ts', 'src/b.ts']), {
+      direct: ['test/unit/a.test.ts', 'test/unit/b.test.ts'],
+      oneAway: [],
+    });
+  });
+
+  it('has no direct round for a file that only a module imports', () => {
+    const tree = sources({
+      'src/engine/fold.ts': '',
+      'src/engine/decide.ts': imports('./fold.ts'),
+      'test/unit/decide.test.ts': imports('../../src/engine/decide.ts'),
+    });
+    assert.deepEqual(testRounds(tree, ['src/engine/fold.ts']), {
+      direct: [],
+      oneAway: ['test/unit/decide.test.ts'],
+    });
+  });
+
+  it('has neither round for a file no test reaches within one module', () => {
+    const tree = sources({
+      'src/lonely.ts': '',
+      'test/unit/other.test.ts': imports('../../src/other.ts'),
+    });
+    assert.deepEqual(testRounds(tree, ['src/lonely.ts']), { direct: [], oneAway: [] });
   });
 });

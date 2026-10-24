@@ -1,13 +1,14 @@
-// `node scripts/mutant-tests.ts <tree> <file>...`: prints, one per line, the test files of the
-// tree that the mutation check of /brew-review runs for mutants of the given files (#140):
+// `node scripts/mutant-tests.ts <tree> <file>... [--direct]`: prints, one per line, the test files
+// of the tree that the mutation check of /brew-review runs for mutants of the given files (#140):
 // those in test/unit/, test/property/ and test/chaos/ that import one of them directly or
-// through one module. mutant-tests/core.ts decides. Prints nothing when no test file does.
+// through one module, or with --direct only those that import one directly, the first round
+// (ADR 0171). mutant-tests/core.ts decides. Prints nothing when no test file does.
 
 import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { parseArgs } from 'node:util';
-import { testsFor } from './mutant-tests/core.ts';
+import { testRounds, testsFor } from './mutant-tests/core.ts';
 
 export type Result = { ok: boolean; lines: string[] };
 
@@ -35,8 +36,13 @@ const readSources = async (tree: string): Promise<Map<string, string>> => {
   return sources;
 };
 
-// The tests the mutation check runs for mutants of `files`.
-export const mutantTests = async (tree: string, files: readonly string[]): Promise<Result> => {
+// The tests the mutation check runs for mutants of `files`: the wide list, or with `direct` the
+// direct importers only.
+export const mutantTests = async (
+  tree: string,
+  files: readonly string[],
+  options: { direct?: boolean } = {},
+): Promise<Result> => {
   let sources: Map<string, string>;
   try {
     if (!(await stat(tree)).isDirectory()) {
@@ -46,7 +52,8 @@ export const mutantTests = async (tree: string, files: readonly string[]): Promi
   } catch (error) {
     return { ok: false, lines: [`cannot read ${tree}: ${(error as Error).message}`] };
   }
-  return { ok: true, lines: testsFor(sources, files) };
+  const lines = options.direct ? testRounds(sources, files).direct : testsFor(sources, files);
+  return { ok: true, lines };
 };
 
 export interface MainResult {
@@ -57,13 +64,17 @@ export interface MainResult {
 
 // The command line: its arguments, and what it prints and exits with.
 export const main = async (argv: readonly string[]): Promise<MainResult> => {
-  const { positionals } = parseArgs({ args: [...argv], allowPositionals: true });
+  const { values, positionals } = parseArgs({
+    args: [...argv],
+    allowPositionals: true,
+    options: { direct: { type: 'boolean' } },
+  });
   const [tree, ...files] = positionals;
   if (tree === undefined || files.length === 0) {
-    const usage = 'usage: node scripts/mutant-tests.ts <tree> <file>...';
+    const usage = 'usage: node scripts/mutant-tests.ts <tree> <file>... [--direct]';
     return { exitCode: 2, stdout: [], stderr: [usage] };
   }
-  const { ok, lines } = await mutantTests(tree, files);
+  const { ok, lines } = await mutantTests(tree, files, { direct: values.direct === true });
   return ok
     ? { exitCode: 0, stdout: lines, stderr: [] }
     : { exitCode: 1, stdout: [], stderr: lines.map((line) => `mutant-tests: ${line}`) };
