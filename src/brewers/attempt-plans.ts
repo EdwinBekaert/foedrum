@@ -42,10 +42,9 @@ import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claud
 import {
   blobTexts,
   breweryRules,
-  changedFiles,
+  changedFilesZ,
   type PickedRules,
   pickRules,
-  type RuleFile,
   type RuleSource,
   ruleBlobs,
 } from './house-yeast.ts';
@@ -261,6 +260,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       'core.quotePath=false',
       'diff',
       '--name-status',
+      '-z',
       '--no-color',
       '--no-ext-diff',
       since,
@@ -268,7 +268,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     ]);
     const repository =
       keptIn === 'brewery' ? fromBrewery.repository : await rulesAt(read, why, since);
-    const change = { files: changedFiles(changed), ...lens };
+    const change = { files: changedFilesZ(changed), ...lens };
     return pickRules({ brewery: fromBrewery.brewery, repository }, change);
   };
 
@@ -277,7 +277,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     read: ReturnType<typeof gitIn>,
     why: string,
     at: string,
-  ): Promise<RuleFile[]> => {
+  ): Promise<RuleSource[]> => {
     const blobs = ruleBlobs(await read(['ls-tree', '-z', at, '--', '.foedrum/house-yeast/']));
     if (blobs.length === 0) return [];
     const batch = await read(['cat-file', '--batch'], {

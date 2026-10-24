@@ -78,8 +78,18 @@ export const changedFiles = (nameStatus: string): string[] =>
  * The files of `git diff --name-status -z` the change adds, alters or renames (new path), as git
  * wrote them, never quoted; not deleted ones (ADR 0169).
  */
-export const changedFilesZ = (_nameStatus: string): string[] => {
-  throw new Error('not implemented');
+export const changedFilesZ = (nameStatus: string): string[] => {
+  // Each entry is its status, then its path, or for a rename or a copy its old and new paths.
+  const fields = nameStatus.split('\0');
+  const files: string[] = [];
+  for (let at = 0; at < fields.length - 1; ) {
+    const status = fields[at] ?? '';
+    const paths = /^[RC]/.test(status) ? 2 : 1;
+    const path = fields[at + paths];
+    if (path !== undefined && !status.startsWith('D')) files.push(path);
+    at += 1 + paths;
+  }
+  return files;
 };
 
 const languages: Record<string, string> = {
@@ -193,26 +203,36 @@ export const ruleBlobs = (lsTree: string): { path: string; blob: string }[] =>
   });
 
 /**
- * The text of each of `blobs`, from what `git cat-file --batch` printed for their ids, in order;
- * throws when the output does not hold them.
+ * The text of each of `blobs`, from what `git cat-file --batch` printed for their ids, in order,
+ * or why it is not a rule's (ADR 0169); throws when the output does not hold them.
  */
 export const blobTexts = (
   blobs: readonly { path: string; blob: string }[],
   batch: string,
-): RuleFile[] => {
+): RuleSource[] => {
   // Each blob is `<id> blob <size>`, a line feed, its bytes and a line feed: sizes count bytes.
-  const bytes = Buffer.from(batch, 'utf8');
+  // The runner decoded them as UTF-8, and a byte that is not became U+FFFD, three bytes, so a
+  // blob ends where the next one's header starts, and its size only checks it.
   let at = 0;
-  return blobs.map(({ path, blob }) => {
-    const lineEnd = bytes.indexOf(0x0a, at);
-    const header = lineEnd < 0 ? '' : bytes.subarray(at, lineEnd).toString('utf8');
+  return blobs.map(({ path, blob }, index) => {
+    const lineEnd = batch.indexOf('\n', at);
+    const header = lineEnd < 0 ? '' : batch.slice(at, lineEnd);
     const [, id, size = ''] = /^([0-9a-f]+) blob (\d+)$/.exec(header) ?? [];
-    const end = lineEnd + 1 + Number(size);
-    if (id !== blob || end >= bytes.length) {
+    const next = blobs[index + 1];
+    const end =
+      next === undefined ? batch.length - 1 : batch.indexOf(`\n${next.blob} blob `, lineEnd);
+    const text = batch.slice(lineEnd + 1, end);
+    const unreadable = text.includes('�');
+    if (
+      id !== blob ||
+      end <= lineEnd ||
+      batch[end] !== '\n' ||
+      (!unreadable && Buffer.byteLength(text) !== Number(size))
+    ) {
       throw new Error(`git cat-file did not print the blob ${blob} of ${path}`);
     }
     at = end + 1;
-    return { path, text: bytes.subarray(lineEnd + 1, end).toString('utf8') };
+    return unreadable ? { path, unreadable: 'it is not UTF-8 text' } : { path, text };
   });
 };
 
@@ -227,11 +247,18 @@ export const breweryRules = (
   keptIn: 'repo' | 'brewery',
 ): { brewery: RuleSource[]; repository: RuleSource[] } => {
   // GitHub's names are not case-sensitive, so neither is the folder of one.
-  const folder = `house-yeast/${repo.toLowerCase()}/`;
-  const inFolder = ({ path }: { path: string }): boolean =>
-    path.toLowerCase().startsWith(folder) && !path.slice(folder.length).includes('/');
+  const folder = `house-yeast/${repo.toLowerCase()}`;
+  // A folder that could not be listed is named by its own path, in the layer it holds.
+  const unlisted = (file: RuleSource, name: string): boolean =>
+    'unreadable' in file && file.path.toLowerCase() === name;
+  const inFolder = (file: RuleSource): boolean =>
+    unlisted(file, folder) ||
+    (file.path.toLowerCase().startsWith(`${folder}/`) &&
+      !file.path.slice(folder.length + 1).includes('/'));
   return {
-    brewery: files.filter(({ path }) => /^house-yeast\/[^/]+$/.test(path)),
+    brewery: files.filter(
+      (file) => unlisted(file, 'house-yeast') || /^house-yeast\/[^/]+$/.test(file.path),
+    ),
     repository: keptIn === 'brewery' ? files.filter(inFolder) : [],
   };
 };
