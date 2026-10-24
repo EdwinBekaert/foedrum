@@ -963,51 +963,41 @@ describe('attemptSettings and the runners of a package manager (ADR 0165)', () =
     refuses('Bash(env --split-string=gh auth token)', ghReason);
   });
 
-  // Rules that load today and must keep loading: regression tests for the reading. Each is paired
-  // with a neighbouring rule the reading refuses, so the test fails until the reading exists.
-  it('keeps Bash(npm run lint) and refuses Bash(npm *), plain npm subcommands against any', () => {
+  // Rules that load today and must keep loading: regression tests for the reading.
+  it('keeps Bash(npm run lint), a plain npm subcommand', () => {
     keeps('Bash(npm run lint)');
-    refusesUnreadable('Bash(npm *)');
   });
 
-  it('keeps Bash(npm run *) and refuses Bash(npm exec *), a plain npm subcommand against a runner', () => {
+  it('keeps Bash(npm run *), a plain npm subcommand with a star', () => {
     keeps('Bash(npm run *)');
-    refuses('Bash(npm exec *)', gitReason, ghReason);
   });
 
-  it('keeps Bash(npm ci) and refuses Bash(npm x *), a plain npm subcommand against a runner', () => {
+  it('keeps Bash(npm ci), a plain npm subcommand', () => {
     keeps('Bash(npm ci)');
-    refuses('Bash(npm x *)', gitReason, ghReason);
   });
 
-  it('keeps Bash(npm exec biome format --write) and refuses Bash(npm exec gh auth token)', () => {
+  it('keeps Bash(npm exec biome format --write), a runner with no star, git or gh after it', () => {
     keeps('Bash(npm exec biome format --write)');
-    refuses('Bash(npm exec gh auth token)', ghReason);
   });
 
-  it('keeps Bash(npx -y tsc) and refuses Bash(npx --call=gh auth token), an option after a runner', () => {
+  it('keeps Bash(npx -y tsc), an option after a runner', () => {
     keeps('Bash(npx -y tsc)');
-    refuses('Bash(npx --call=gh auth token)', ghReason);
   });
 
-  it('keeps Bash(pnpm run *) and refuses Bash(pnpm npm exec *), a program named run against a runner', () => {
+  it('keeps Bash(pnpm run *), read as a program named run', () => {
     keeps('Bash(pnpm run *)');
-    refuses('Bash(pnpm npm exec *)', gitReason, ghReason);
   });
 
-  it('keeps Bash(yarn run lint) and refuses Bash(yarn exec *), a program named run against a runner', () => {
+  it('keeps Bash(yarn run lint), read as a program named run', () => {
     keeps('Bash(yarn run lint)');
-    refuses('Bash(yarn exec *)', gitReason, ghReason);
   });
 
-  it('keeps Bash(bun run lint) and refuses Bash(bun run *), a bun script against the PATH fallback', () => {
+  it('keeps Bash(bun run lint), a bun script with no star', () => {
     keeps('Bash(bun run lint)');
-    refuses('Bash(bun run *)', gitReason, ghReason);
   });
 
-  it('keeps Bash(corepack enable) and refuses Bash(corepack pnpm exec *), a program named enable', () => {
+  it('keeps Bash(corepack enable), read as a program named enable', () => {
     keeps('Bash(corepack enable)');
-    refuses('Bash(corepack pnpm exec *)', gitReason, ghReason);
   });
 });
 

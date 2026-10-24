@@ -269,6 +269,10 @@ describe('BrewerFrontmatter shell rules and the runners of a package manager (AD
     assert.equal(accepted(allowing('Bash(npm exec gh pr list)')), false);
   });
 
+  it('rejects a brewer file that allows Bash(npm exec gh auth token)', () => {
+    assert.equal(accepted(allowing('Bash(npm exec gh auth token)')), false);
+  });
+
   it('rejects a brewer file that allows Bash(pnpm dlx *)', () => {
     assert.equal(accepted(allowing('Bash(pnpm dlx *)')), false);
   });
@@ -305,34 +309,28 @@ describe('BrewerFrontmatter shell rules and the runners of a package manager (AD
     assert.equal(accepted(allowing('Bash(env --split-string=gh auth token)')), false);
   });
 
-  // Rules that load today and must keep loading: regression tests for the reading. Each is paired
-  // with a neighbouring rule the reading refuses, so the test fails until the reading exists.
-  it('accepts Bash(npm run *) and Bash(npm ci) in a brewer file, but not Bash(npm exec *)', () => {
+  // Rules that load today and must keep loading: regression tests for the reading.
+  it('accepts a brewer file that allows Bash(npm run *) and Bash(npm ci)', () => {
     assert.equal(accepted(allowing('Bash(npm run *)')), true);
     assert.equal(accepted(allowing('Bash(npm ci)')), true);
-    assert.equal(accepted(allowing('Bash(npm exec *)')), false);
   });
 
-  it('accepts Bash(npm exec biome format --write) in a brewer file, but not Bash(npm exec gh auth token)', () => {
+  it('accepts a brewer file that allows Bash(npm exec biome format --write)', () => {
     assert.equal(accepted(allowing('Bash(npm exec biome format --write)')), true);
-    assert.equal(accepted(allowing('Bash(npm exec gh auth token)')), false);
   });
 
-  it('accepts Bash(npx -y tsc) in a brewer file, but not Bash(npx --call=gh auth token)', () => {
+  it('accepts a brewer file that allows Bash(npx -y tsc)', () => {
     assert.equal(accepted(allowing('Bash(npx -y tsc)')), true);
-    assert.equal(accepted(allowing('Bash(npx --call=gh auth token)')), false);
   });
 
-  it('accepts Bash(pnpm run *) and Bash(yarn run lint) in a brewer file, but not Bash(pnpm dlx *)', () => {
+  it('accepts a brewer file that allows Bash(pnpm run *) and Bash(yarn run lint)', () => {
     assert.equal(accepted(allowing('Bash(pnpm run *)')), true);
     assert.equal(accepted(allowing('Bash(yarn run lint)')), true);
-    assert.equal(accepted(allowing('Bash(pnpm dlx *)')), false);
   });
 
-  it('accepts Bash(bun run lint) and Bash(corepack enable) in a brewer file, but not Bash(bun run *)', () => {
+  it('accepts a brewer file that allows Bash(bun run lint) and Bash(corepack enable)', () => {
     assert.equal(accepted(allowing('Bash(bun run lint)')), true);
     assert.equal(accepted(allowing('Bash(corepack enable)')), true);
-    assert.equal(accepted(allowing('Bash(bun run *)')), false);
   });
 });
 
