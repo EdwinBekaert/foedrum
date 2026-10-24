@@ -29,7 +29,7 @@ import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
 
-// A Brewery with no files of its own but one recipe: the Taster, Cellarman and the five lenses
+// A Brewery with no files of its own but one recipe: the Taster, Cellarman and the six lenses
 // come from Foedrum's defaults.
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
 const withRecipe = (name: string, steps: readonly unknown[]): BreweryFiles => ({
@@ -250,6 +250,25 @@ describe('a blocking lens step (#26, ADR 0161)', () => {
     );
     assert.deepEqual(startedSteps(events), ['implement', 'correctness', 'open-pull-request']);
     assert.deepEqual(batch.lane, { kind: 'on_tap', pullRequests: [PULL_REQUEST] });
+  });
+});
+
+describe('the default simplify lens (ADR 0166)', () => {
+  it("loads on a Taster's step as diff/simplify, from Foedrum's defaults", () => {
+    const loaded = valid(
+      loadRecipes(
+        withRecipe('lager', [
+          { id: 'implement', brewer: 'cellarman' },
+          { id: 'simplify', brewer: 'taster', lens: 'diff/simplify' },
+          { action: 'openPullRequest' },
+        ]),
+      ),
+    );
+    assert.deepEqual(loaded.brewers.find('lager', 'simplify')?.lenses?.get('diff/simplify'), {
+      name: 'diff/simplify',
+      path: 'defaults/lenses/diff/simplify.md',
+      text: readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff', 'simplify.md'), 'utf8'),
+    });
   });
 });
 

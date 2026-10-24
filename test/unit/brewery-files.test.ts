@@ -139,13 +139,18 @@ describe('readBreweryFiles', () => {
     assert.deepEqual(found, { path: 'defaults/lenses/diff/test-design.md', text: own });
   });
 
-  it("has the five default lenses in Foedrum's defaults/lenses/diff/ (ADR 0022, ADR 0143)", () => {
+  it("has the six default lenses in Foedrum's defaults/lenses/diff/ (ADR 0022, ADR 0143, ADR 0166)", () => {
     const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
     assert.deepEqual(
       lenses.map(({ path }) => path),
-      ['correctness', 'cross-platform', 'design-conformance', 'security', 'test-design'].map(
-        (name) => `defaults/lenses/diff/${name}.md`,
-      ),
+      [
+        'correctness',
+        'cross-platform',
+        'design-conformance',
+        'security',
+        'simplify',
+        'test-design',
+      ].map((name) => `defaults/lenses/diff/${name}.md`),
     );
   });
 

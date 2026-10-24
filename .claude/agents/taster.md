@@ -1,6 +1,6 @@
 ---
 name: taster
-description: Read-only reviewer for Foedrum pull requests. Reviews a prepared diff through one lens (simplify is a lens of the review skill) and answers in JSON. Started by the brew-review skill; never runs commands.
+description: Read-only reviewer for Foedrum pull requests. Reviews a prepared diff through one lens (simplify included: the review skill's own lens proposes patches, the shipped diff/simplify reports findings) and answers in JSON. Started by the brew-review skill; never runs commands.
 tools: Read, Grep, Glob
 model: opus
 effort: medium
