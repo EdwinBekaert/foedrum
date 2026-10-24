@@ -80,8 +80,7 @@ function namesOf(name: string): string[] {
 /**
  * Whether a line the step added declares the test `name`, as a declaration writes a test's name
  * (ADR 0176): as the whole of a string literal (`test('adds two numbers'`, `` fun `adds`() ``); as
- * an identifier right before `(` after something that is no letter, digit, underscore or dot
- * (`void adds(`); after `def`, `fn` or `func` (`def test_adds`, `fn adds<T>()`); as a GoogleTest
+ * an identifier right before `(` where no call can stand (`void adds(`, ADR 0178); after `def`, `fn` or `func` (`def test_adds`, `fn adds<T>()`); as a GoogleTest
  * macro's test (`TEST(CalcTest, Adds)`); or as the rest of a Gherkin scenario's line (`Scenario:
  * adds two numbers`). A bare word in code (`key: null,`, `f(null)`) is none (#466), nor a method
  * call (`calc.add(`), nor a line that only asserts (`assert.equal(add(1, 2), 3)`). Each form is a
@@ -89,11 +88,11 @@ function namesOf(name: string): string[] {
  * return of a CRLF file.
  */
 function declares(name: string, lines: readonly string[]): boolean {
-  const patterns = namesOf(name).map((each) => {
+  const names = namesOf(name);
+  const patterns = names.map((each) => {
     const escaped = escapeRegExp(each);
     const forms = [
       `(['"\`])${escaped}\\1`,
-      `(?<![\\p{L}\\p{N}_.])${escaped}\\(`,
       `(?<=\\b(?:def|fn|func) )${escaped}(?![\\p{L}\\p{N}_])`,
       `\\bTEST(?:_F|_P)?\\(\\s*[\\p{L}\\p{N}_]+,\\s*${escaped}\\s*\\)`,
       `^\\s*(?:Scenario(?: Outline| Template)?|Example)\\s*:\\s*${escaped}\\s*$`,
@@ -102,8 +101,34 @@ function declares(name: string, lines: readonly string[]): boolean {
   });
   return lines.some((line) => {
     const text = line.replace(/\r$/, '');
-    return !assertsOnly(text) && patterns.some((pattern) => pattern.test(text));
+    return (
+      !assertsOnly(text) &&
+      (patterns.some((pattern) => pattern.test(text)) || names.some((each) => before(each, text)))
+    );
   });
+}
+
+/** What ends a line's text before a called name: a pair, a character or a word that opens an expression. */
+const EXPRESSION_END =
+  /(?:=>|->|::|&&|\|\||[=(,[{!:+\-/%|^~;]|(?:^|\s)\?|(?<![\p{L}\p{N}_])(?:return|await|yield|throw|raise|new|typeof|in|of|case|else|do|then|if|elif|while|unless|until|when|match|with|defer|go|not|and|or|assert))$/u;
+
+/** The longest word of EXPRESSION_END, plus the character before it and the one before `?`. */
+const TAIL = 8;
+
+/**
+ * Whether `name(` stands in `text` where a declaration can (ADR 0178): after no letter, digit,
+ * underscore or dot, with something before it on the line that does not end in an expression's
+ * opening. Each place the name stands is checked, backwards from there only.
+ */
+function before(name: string, text: string): boolean {
+  const call = `${name}(`;
+  for (let at = text.indexOf(call); at !== -1; at = text.indexOf(call, at + 1)) {
+    if (at > 0 && /[\p{L}\p{N}_.]/u.test(text.charAt(at - 1))) continue;
+    let end = at;
+    while (end > 0 && /\s/.test(text.charAt(end - 1))) end--;
+    if (end > 0 && !EXPRESSION_END.test(text.slice(Math.max(0, end - TAIL), end))) return true;
+  }
+  return false;
 }
 
 /** A line that is a comment, in the languages a Brewery is likely to use; `#[` is a Rust attribute. */
