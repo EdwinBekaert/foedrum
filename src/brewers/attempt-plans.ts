@@ -6,6 +6,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
+import { stepTests } from '../checks/step-commits.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -32,6 +33,7 @@ import {
   MAX_CHANGE_INPUT_BYTES,
   type PlannedInput,
   planAttempt,
+  type RegressionTests,
   type Resumed,
   routeInput,
   routeOf,
@@ -210,7 +212,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * there (ADR 0029, ADR 0096, ADR 0137). A diff past git's output limit keeps its start, which the
    * input cuts anyway.
    */
-  const changeFor = async (repo: string, since: string, head: string): Promise<PromptInput> => {
+  const changeFor = async (
+    repo: string,
+    since: string,
+    head: string,
+    regression: readonly RegressionTests[],
+  ): Promise<PromptInput> => {
     const read = gitIn(repo, `the change since commit ${since} was not read`);
     const cut = { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES, keepCut: true };
     // The first parents only: never the commits a merge of the base brought in (ADR 0164).
@@ -231,7 +238,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       ],
       cut,
     );
-    return changeInput(since, log, diff);
+    return changeInput(since, log, diff, regression);
   };
 
   /**
@@ -321,7 +328,14 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const start = mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo);
     const since =
       found.lens?.startsWith('diff/') || found.brewer.output.schema === FINING ? start : undefined;
-    if (since !== undefined) inputs.push(await changeFor(worktree.repo, since, worktree.commit));
+    if (since !== undefined) {
+      // The regression tests the batch's steps named, for the test-design lens (ADR 0170).
+      const regression = [...batch.steps.keys()].flatMap((step) => {
+        const names = stepTests(batch, step)?.regressionTests ?? [];
+        return names.length === 0 ? [] : [{ step, names }];
+      });
+      inputs.push(await changeFor(worktree.repo, since, worktree.commit, regression));
+    }
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;
     const rules =

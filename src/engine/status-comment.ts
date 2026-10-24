@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
-import { finingOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
+import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
@@ -279,16 +279,17 @@ const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   return [];
 };
 
-/** The first `most` of `all` as lines of `stepId`, and a line that counts the rest. */
+/** The first `most` of `all` as lines of `stepId`, and a line that counts the rest, as `rest`. */
 const capped = <T>(
   stepId: string,
   all: readonly T[],
   most: number,
   text: (item: T) => string,
+  rest = '',
 ): string[] => {
   const shown = all.slice(0, most).map((item) => `- ${code(stepId)}: ${text(item)}`);
   const more = all.length - shown.length;
-  return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+  return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more${rest}`] : shown;
 };
 
 const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
@@ -303,6 +304,28 @@ const latestOutput = (batch: Batch, stepId: string): unknown => {
     ? finished.outcome.output
     : undefined;
 };
+
+/** How many of a step's new tests, and of its regression tests, the comment shows. */
+const mostTests = 10;
+
+/**
+ * The new tests and the regression tests the latest out doc of each step that succeeded named
+ * (ADR 0170), the new ones first, at most `mostTests` of each kind with a count of the rest.
+ */
+const testLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) => {
+    const done = latestFirst(batch, stepId).find(
+      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+    );
+    const named =
+      done?.phase === 'finished' && done.outcome.kind === 'succeeded'
+        ? gaugeOf(done.outcome.output)
+        : undefined;
+    if (named === undefined) return [];
+    const kind = (names: readonly string[], what: string): string[] =>
+      capped(stepId, names, mostTests, (name) => `${what}: ${told(name, stepId)}`, ` ${what}s`);
+    return [...kind(named.tests, 'new test'), ...kind(named.regressionTests, 'regression test')];
+  });
 
 /** How many findings of one Taster's step the comment shows. */
 const mostFindings = 10;
@@ -392,6 +415,8 @@ export const renderStatus = (
   ];
   const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
+  const tests = testLines(batch, stepIds, told);
+  if (tests.length > 0) sections.push(['**Tests**', ...tests]);
   const findings = findingLines(batch, stepIds, told);
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
   const simplifications = simplificationLines(batch, stepIds, told);

@@ -163,3 +163,21 @@ describe('changedTests', () => {
     assert.deepEqual(changedTests([], [changed(test, ['  assert.equal(1, 1);'])]), []);
   });
 });
+
+describe('changedTests: regression tests (ADR 0170)', () => {
+  it('keeps a regression test the step added as it keeps a new one', () => {
+    const regression = 'test/sub.test.mjs';
+    const both = [
+      ...gauged,
+      added(regression, [
+        "test('keeps subtracting', () => {",
+        '  assert.equal(sub(2, 1), 1);',
+        '});',
+      ]),
+    ];
+    const weakened = changed(regression, ['  assert.equal(sub(2, 1), 1);'], ['  assert.ok(sub);']);
+    assert.deepEqual(changedTests(both, [weakened]), [
+      { path: regression, line: 'assert.equal(sub(2, 1), 1);' },
+    ]);
+  });
+});

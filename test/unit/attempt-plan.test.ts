@@ -195,6 +195,34 @@ describe("attemptLimits: a pullRequest brewer's sections (ADR 0167)", () => {
   });
 });
 
+describe("attemptLimits: a Gauger's tests (ADR 0170)", () => {
+  const { schema } = attemptLimits(
+    brewer({ name: 'gauger', output: { doc: 'gauge.md', schema: 'gauge' } }),
+  ).outDoc;
+  const done = { status: 'done', summary: 'Tests for --json', assumptions: [] };
+  const valid = (doc: Record<string, unknown>) => schema.safeParse(doc).success;
+
+  it('takes a done with its new tests and its regression tests by name', () => {
+    const named = { tests: ['prints JSON'], regressionTests: ['keeps the table'] };
+    assert.deepEqual(schema.parse({ ...done, ...named }), { ...done, ...named });
+  });
+
+  it('takes a done without either list, as an empty one', () => {
+    assert.deepEqual(schema.parse(done), { ...done, tests: [], regressionTests: [] });
+    assert.equal(valid({ ...done, status: 'failed' }), true);
+  });
+
+  it('refuses a name of two lines, an empty one, one past 1,000 characters, and more than 200', () => {
+    assert.equal(valid({ ...done, regressionTests: ['keeps\nit'] }), false);
+    assert.equal(valid({ ...done, regressionTests: [''] }), false);
+    assert.equal(valid({ ...done, tests: ['t'.repeat(1_000)] }), true);
+    assert.equal(valid({ ...done, tests: ['t'.repeat(1_001)] }), false);
+    assert.equal(valid({ ...done, regressionTests: Array(200).fill('keeps') }), true);
+    assert.equal(valid({ ...done, regressionTests: Array(201).fill('keeps') }), false);
+    assert.equal(valid({ ...done, verdict: 'approve' }), false);
+  });
+});
+
 describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
   const taster = brewer({ name: 'taster', output: { doc: 'taste.md', schema: 'tasting' } });
   const finding = {

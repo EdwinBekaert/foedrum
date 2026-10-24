@@ -8,6 +8,9 @@ import {
   FiningOutDoc,
   type FiningReport,
   finingOf,
+  GaugeOutDoc,
+  type GaugeReport,
+  gaugeOf,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
@@ -80,6 +83,8 @@ export interface StepReport {
   sections?: PullRequestSections;
   /** A Finer's changes, or why there was nothing to simplify (ADR 0166). */
   fining?: FiningReport;
+  /** The new tests and the regression tests a Gauger named (ADR 0170). */
+  gauge?: GaugeReport;
 }
 
 /** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
@@ -157,18 +162,20 @@ export const stepReports = (batch: Batch): StepReport[] =>
       .at(-1);
     if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
     // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
-    // a pullRequest brewer's the pull request's sections (ADR 0167), and a Finer's its changes
-    // (ADR 0166).
+    // a pullRequest brewer's the pull request's sections (ADR 0167), a Finer's its changes
+    // (ADR 0166), and a Gauger's its tests (ADR 0170).
     const { output } = latest.outcome;
     const doc = OutDocFrontmatter.or(TastingOutDoc)
       .or(PullRequestOutDoc)
       .or(FiningOutDoc)
+      .or(GaugeOutDoc)
       .safeParse(output);
     if (!doc.success) return [];
     const { summary, assumptions } = doc.data;
     const tasting = tastingOf(output);
     const sections = pullRequestSectionsOf(output);
     const fining = finingOf(output);
+    const gauge = gaugeOf(output);
     return [
       {
         stepId: step.id,
@@ -177,6 +184,7 @@ export const stepReports = (batch: Batch): StepReport[] =>
         ...(tasting === undefined ? {} : { tasting }),
         ...(sections === undefined ? {} : { sections }),
         ...(fining === undefined ? {} : { fining }),
+        ...(gauge === undefined ? {} : { gauge }),
       },
     ];
   });
@@ -403,9 +411,11 @@ export const pullRequestText = ({
     return withoutSecrets(read, stepId, isCommit);
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
-  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting, fining }) => [
+  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting, fining, gauge }) => [
     `${stepId}: ${shown(summary, stepId)}`,
     ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
+    ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
+    ...(gauge?.regressionTests ?? []).map((name) => `  regression test: ${flat(name, stepId)}`),
     // What a Finer changed, or why nothing (ADR 0166).
     ...(fining?.changes ?? []).map(
       (change) => `  simplified: ${flat(changeText(change), stepId)}: ${flat(change.why, stepId)}`,

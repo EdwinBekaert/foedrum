@@ -4,7 +4,7 @@
 
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
-import { assertsOnly } from './tests-unchanged.ts';
+import { assertsOnly, declaresTest } from './tests-unchanged.ts';
 
 export type RedVerdict =
   /** `tests`: the names of the proven step's tests, all failing. */
@@ -94,12 +94,31 @@ function declares(name: string, lines: readonly string[]): boolean {
   });
 }
 
+/** A line that is a comment, in the languages a Brewery is likely to use; `#[` is a Rust attribute. */
+const COMMENT = /^\s*(?:\/\/|\/\*|\*|#(?!\[)|--)/;
+
+/**
+ * The lines of `diff` a regression test may be declared in (ADR 0170): in a file where the step
+ * declared a test, whose lines testsUnchanged keeps, and no comment, which declares nothing.
+ */
+const testFileLines = (diff: readonly DiffFile[]): string[] =>
+  diff
+    .filter(({ added }) => added.some(declaresTest))
+    .flatMap(({ added }) => added.filter((line) => !COMMENT.test(line)));
+
 /** "test "a"", or "test "a" (and 2 more)". */
 const named = (tests: readonly ReportedTest[]): string =>
   `test "${tests[0]?.name}"${tests.length > 1 ? ` (and ${tests.length - 1} more)` : ''}`;
 
-/** Whether `report` proves red the tests that `diff`, the proven step's commits, added. */
-export function judgeRed(report: TestReport, diff: readonly DiffFile[]): RedVerdict {
+/**
+ * Whether `report` proves red the tests that `diff`, the proven step's commits, added; of them,
+ * `regressionTests` are the names the step gave its regression tests, which pass (ADR 0170).
+ */
+export function judgeRed(
+  report: TestReport,
+  diff: readonly DiffFile[],
+  regressionTests: readonly string[] = [],
+): RedVerdict {
   const refused = (why: string): RedVerdict => ({ proven: false, why });
   if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
   const failures = report.tests.filter(({ result }) => result === 'failed');
@@ -109,12 +128,31 @@ export function judgeRed(report: TestReport, diff: readonly DiffFile[]): RedVerd
   }
   const lines = diff.flatMap(({ added }) => added);
   // A suite's own result follows its tests'; its tests are judged.
-  const proven = report.tests.filter(
+  const added = report.tests.filter(
     ({ name, leaf }) =>
       leaf && name.trim() !== '' && name.length <= MAX_NAME && declares(name, lines),
   );
+  const regression = new Set(regressionTests.map((name) => name.trim()));
+  const inTests = testFileLines(diff);
+  for (const name of regression) {
+    const found = added.filter((test) => test.name.trim() === name && declares(test.name, inTests));
+    const quoted = `regression test "${cut(name)}"`;
+    if (found.length === 0) return refused(`${quoted} is not a test the step added in the report`);
+    if (found.some(({ result }) => result === 'failed')) {
+      return refused(
+        `${quoted} fails before the implementation: a regression test passes before the change`,
+      );
+    }
+    if (found.some(({ result }) => result === 'skipped')) {
+      return refused(`${quoted} is skipped, so it proves nothing`);
+    }
+  }
+  const proven = added.filter(({ name }) => !regression.has(name.trim()));
   if (proven.length === 0) {
-    return refused(`none of the ${report.tests.length} tests in the report is one the step added`);
+    const besides = regression.size > 0 ? ', besides its regression tests' : '';
+    return refused(
+      `none of the ${report.tests.length} tests in the report is one the step added${besides}`,
+    );
   }
   const passed = proven.filter(({ result }) => result === 'passed');
   if (passed.length > 0) {

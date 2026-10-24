@@ -16,6 +16,8 @@ import type { ModelsConfig } from '../schemas/models.ts';
 import {
   FINING,
   FiningOutDoc,
+  GAUGE,
+  GaugeOutDoc,
   OutDocFrontmatter,
   PULL_REQUEST,
   PullRequestOutDoc,
@@ -91,7 +93,8 @@ export function attemptLimits(
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
-  // changes (ADR 0166); every other out doc against the contract's schema.
+  // changes (ADR 0166), a Gauger's with its tests (ADR 0170); every other out doc against the
+  // contract's schema.
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
@@ -100,7 +103,9 @@ export function attemptLimits(
         ? PullRequestOutDoc
         : name === FINING
           ? FiningOutDoc
-          : OutDocFrontmatter;
+          : name === GAUGE
+            ? GaugeOutDoc
+            : OutDocFrontmatter;
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),
@@ -255,15 +260,32 @@ export const changeStart = (batch: Batch, repo: string): string | undefined =>
 /** The most of a change input a prompt holds, in UTF-8 bytes (ADR 0161). */
 export const MAX_CHANGE_INPUT_BYTES = 256 * 1024;
 
+/** The regression tests a step of the batch named (ADR 0170): model text, untrusted. */
+export interface RegressionTests {
+  step: string;
+  names: readonly string[];
+}
+
 /**
- * The change input of a Taster that reviews a diff (ADR 0161): the commits after `since` and their
- * diff, as git printed them, held to its limit. The engine reads them, so the Taster runs no git.
+ * The change input of a Taster that reviews a diff (ADR 0161): the commits after `since`, the
+ * regression tests the batch's steps named (ADR 0170), and the commits' diff, as git printed it,
+ * held to its limit. The engine reads them, so the Taster runs no git; the lists come before the
+ * diff, which the limit cuts.
  */
-export function changeInput(since: string, log: string, diff: string): PromptInput {
+export function changeInput(
+  since: string,
+  log: string,
+  diff: string,
+  regression: readonly RegressionTests[],
+): PromptInput {
+  const lists = regression.map(({ step, names }) => {
+    const items = names.map((name) => `- ${name.replace(/\s+/g, ' ').trim()}\n`);
+    return `The tests step ${step} named as regression tests, which pass before the change:\n${items.join('')}\n`;
+  });
   const text = `The commits after ${since}, up to HEAD:
 ${log.trimEnd()}
 
-Their diff:
+${lists.join('')}Their diff:
 ${diff}`;
   return {
     name: 'change',

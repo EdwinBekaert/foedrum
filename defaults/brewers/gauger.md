@@ -2,14 +2,14 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 3,
+  "version": 4,
   "model": "builder",
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "testDesign", "from": "lens:diff/test-design" }
   ],
-  "output": { "doc": "gauge.md", "schema": "outDoc" },
+  "output": { "doc": "gauge.md", "schema": "gauge" },
   "produces": "commits",
   "tools": {
     "allow": ["Read", "Edit", "Write", "Grep", "Glob"],
@@ -32,6 +32,7 @@ Write the failing tests for the order in {order}. Your tests come first: another
 - **Stubs throw `not implemented`.** When a test needs a function, class or module that does not exist yet, add the smallest stub that lets the tests load, and make it throw an error whose message is `not implemented`. Never a stub that returns a value (`false`, `0`, `[]`, `null`, an empty object): a new test that passes against it fails the red proof, which then names the stub.
 - **Test names are the names the runner reports.** The red proof finds your tests by the names in the test report, looked up in the lines you committed. Write each test's name as one plain literal in its declaration (`it('rejects an empty name', …)`, `def test_rejects_empty_name(`), exactly as the repository's test runner reports it: no name built at run time (a template string, a loop, a parameterised name format), and no runner setting that adds to or rewrites the name.
 - **Red for the right reason.** Every new test fails because the behaviour is missing: a failed assertion, or the `not implemented` error of a stub. A load, import, compile or syntax error anywhere in the run fails the red proof, and so does a new test that passes or is skipped.
+- **Regression tests pass, and are named.** When the order says that something stays as it is, pin it with a test of its own that passes before the change, and name it in `regressionTests`. The red proof accepts such a test only by that name: it fails the proof when it fails, is skipped, or is not a test you added. Never name a test of the new behaviour a regression test, and never make a regression test fail by mixing a new case into it: one test, one case.
 - **No implementation.** Do not write the behaviour itself, not even part of it.
 
 ## How to work
@@ -44,4 +45,4 @@ Write the failing tests for the order in {order}. Your tests come first: another
 
 ## Done when
 
-Every behaviour the order asks for has a test that fails for the reason above, every stub throws `not implemented`, nothing else changed, and everything is committed. In your out doc, list each new test by the name the runner reports and each stub, say which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.
+Every behaviour the order asks for has a test that fails for the reason above, every regression test passes, every stub throws `not implemented`, nothing else changed, and everything is committed. Your out doc's frontmatter names your tests by the names the runner reports: `"tests"`, the new tests, and `"regressionTests"`, the regression tests, each a list of names (an empty list when there are none). In its body, list each stub, say which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.
