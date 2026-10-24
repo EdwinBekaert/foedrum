@@ -42,6 +42,8 @@ describe('selectRules: the lens of a recipe step (ADR 0169)', () => {
       lens: 'diff/correctness',
     });
     assert.deepEqual(ids(selected).sort(), ['by-folder', 'by-name', 'no-lens']);
+    const plan = selectRules(rules().rules, { files: ['src/a.ts'], lens: 'plan/correctness' });
+    assert.deepEqual(ids(plan.selected).sort(), ['by-name', 'no-lens', 'plan-only']);
   });
 
   it('gives a step without a lens only the rules that name none', () => {
@@ -77,11 +79,19 @@ describe('changedFilesZ: what git diff --name-status -z printed', () => {
       'new\tname.ts',
       'D',
       'gone.ts',
+      'C075',
+      'a.ts',
+      'b.ts',
       'A',
       'x\\y.md',
       '',
     ];
-    assert.deepEqual(changedFilesZ(printed.join('\0')), ['src/a"b.ts', 'new\tname.ts', 'x\\y.md']);
+    assert.deepEqual(changedFilesZ(printed.join('\0')), [
+      'src/a"b.ts',
+      'new\tname.ts',
+      'b.ts',
+      'x\\y.md',
+    ]);
   });
 
   it('takes none from a change that touched nothing', () => {
