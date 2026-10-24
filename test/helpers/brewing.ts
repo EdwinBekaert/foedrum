@@ -190,6 +190,14 @@ export const createBrewing = (options: BrewingOptions) => {
           if (latest?.phase !== 'scheduled' || latest.abandoned === true) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
           const key = attemptKey.encode(ref);
+          // As the driver does, it waits for the live lease of another attempt of the step: one
+          // Stuck abandoned, as a sibling's Stuck abandons a child of a parallel group, whose run
+          // stops at the next tick (I2, #150, ADR 0168).
+          const waits = store.currentLeases(clock()).some(({ attemptKey: other }) => {
+            const held = attemptKey.decode(other);
+            return held?.batchId === ref.batchId && held.stepId === stepId && other !== key;
+          });
+          if (waits) continue;
           moved = true;
           if (!(await startAttempt(ref, key))) continue;
           const run = runner.start({ ref, limits: limits(stepId) });

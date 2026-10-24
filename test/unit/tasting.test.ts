@@ -542,3 +542,99 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     );
   });
 });
+
+describe('the tasting room in one parallel group (#428, ADR 0168)', () => {
+  const room = withRecipe('tasting-room', [
+    { id: 'implement', brewer: 'cellarman' },
+    {
+      id: 'tasting',
+      parallel: LENSES.map((lens) => ({ id: lens, brewer: 'taster', lens: `diff/${lens}` })),
+    },
+    { action: 'openPullRequest' },
+  ]);
+  const planted = ({ stepId }: { stepId: string }): Behaviour =>
+    stepId in PLANTED
+      ? tasted('changes', [PLANTED[stepId]], `One finding through diff/${stepId}`)
+      : behave.succeed();
+
+  it('reports each planted defect from its own attempt, all of them started before any ended', async () => {
+    const { events, batch } = await brew(room, 'tasting-room', planted);
+    const at = (type: Event['type']) =>
+      events.flatMap((event, index) =>
+        event.type === type && 'stepId' in event && LENSES.includes(event.stepId) ? [index] : [],
+      );
+    assert.equal(at('step.started').length, LENSES.length);
+    assert.ok(Math.max(...at('step.started')) < Math.min(...at('step.finished')), 'they overlap');
+    assert.deepEqual(batch.lane, { kind: 'on_tap', pullRequests: [PULL_REQUEST] });
+    const reports = stepReports(batch);
+    for (const lens of LENSES) {
+      const report = reports.find(({ stepId }) => stepId === lens);
+      assert.deepEqual(report?.tasting, { verdict: 'changes', findings: [PLANTED[lens]] });
+    }
+    const status = renderStatus(
+      batch,
+      valid(loadRecipes(room)).recipes.find('tasting-room')?.steps,
+    );
+    for (const lens of LENSES) assert.ok(status.includes(`- \`${lens}\`: `), status);
+  });
+
+  it('resumes only the lenses that had not ended when the driver was killed mid-group', async () => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const { recipes, brewers } = valid(loadRecipes(room));
+      let now = new Date('2026-10-23T12:00:00.000Z');
+      const driver = (scripts: (attempt: { stepId: string }) => Behaviour) =>
+        createBrewing({
+          store,
+          runner: fakeBrewerRunner(({ ref }) => scripts(ref)),
+          recipes,
+          limits: (stepId) => {
+            const found = brewers.find('tasting-room', stepId);
+            return found === undefined ? defaultLimits : attemptLimits(found.brewer);
+          },
+          clock: () => now,
+        });
+      // The killed run: correctness and security end, the other lenses' processes die with it.
+      const ended = new Set(['correctness', 'security']);
+      const killed = driver(({ stepId }) =>
+        LENSES.includes(stepId) && !ended.has(stepId) ? behave.lost() : planted({ stepId }),
+      );
+      assert.ok(killed.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      store.withTransaction((tx) => {
+        tx.append({
+          type: 'effect.applied',
+          key: effectKey.encode(pullRequestKey('b1')),
+          result: PULL_REQUEST,
+        });
+      });
+      assert.ok(
+        killed.command({
+          kind: 'route',
+          batchId: 'b1',
+          recipe: 'tasting-room',
+          reason: 'label',
+          source: 'label',
+        }),
+      );
+      await killed.drive();
+      // The restart: the killed run's leases expire at once, and its ticks lose them.
+      now = new Date(now.getTime() + 60_000);
+      const restarted = driver(planted);
+      await restarted.start();
+      // The supervisor loses one attempt of a batch per tick.
+      for (let tick = 0; tick < 10 && restarted.batch('b1').lane.kind === 'brewing'; tick++) {
+        await restarted.tick();
+      }
+      const events = restarted.events();
+      const attempts = (stepId: string) =>
+        events.filter((event) => event.type === 'step.started' && event.stepId === stepId).length;
+      for (const lens of LENSES) assert.equal(attempts(lens), ended.has(lens) ? 1 : 2, lens);
+      assert.deepEqual(restarted.batch('b1').lane, {
+        kind: 'on_tap',
+        pullRequests: [PULL_REQUEST],
+      });
+    } finally {
+      store.close();
+    }
+  });
+});
