@@ -411,6 +411,14 @@ describe("attemptLimits: a Finer's changes, or why there was nothing to simplify
     invalid({ changes: [] });
   });
 
+  it('fails, retryably, when it says nothing was simplified but made one commit (review of #462)', () => {
+    assert.deepEqual(ended({ unchanged }, 1), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the out doc says nothing was simplified, but the brewer made 1 commit since ccccccc',
+    });
+  });
+
   it('puts a rewritten start and uncounted commits before nothing to simplify (review of #462)', () => {
     const settled = (commits: CommitsSeen) =>
       settleAttempt(
