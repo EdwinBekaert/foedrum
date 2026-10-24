@@ -863,6 +863,17 @@ describe('judgeRed: a name before a parenthesis declares a test only where no ca
     }
   });
 
+  it('does not take a name that ends a longer identifier for a declaration', () => {
+    for (const line of [
+      '  void reparse() {',
+      '  void éparse() {',
+      '  void x2parse() {',
+      '  void my_parse() {',
+    ]) {
+      callIsNoDeclaration(line);
+    }
+  });
+
   it('does not take a call after assert in a one-line test for a declaration', () => {
     callIsNoDeclaration('def test_reads(): assert parse(input)');
   });
