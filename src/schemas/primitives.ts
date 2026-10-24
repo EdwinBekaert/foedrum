@@ -203,18 +203,15 @@ function readProgram(tool: string, word: string, rest: string, star: boolean): S
   const name = base === 'yarnpkg' ? 'yarn' : base;
   if (star && rest === '') return { kind: 'any', name };
   const unreadable = !plainRest.test(rest);
+  const plain: ShellProgram = { kind: 'program', name, rest, star, unreadable };
   const isRunner = packageManagers.get(name);
-  if (isRunner === undefined) return { kind: 'program', name, rest, star, unreadable };
+  if (isRunner === undefined) return plain;
   const subcommand = packageSubcommand.exec(rest);
-  if (subcommand === null) {
-    return star || /\S/.test(rest)
-      ? { kind: 'any' }
-      : { kind: 'program', name, rest, star, unreadable };
-  }
+  if (subcommand === null) return star || /\S/.test(rest) ? { kind: 'any' } : plain;
   const [whole, next = ''] = subcommand;
   const after = rest.slice(whole.length);
   if (isRunner(next)) return { kind: 'program', name: 'npx', rest: after, star, unreadable };
-  if (name === 'npm') return { kind: 'program', name, rest, star, unreadable };
+  if (name === 'npm') return plain;
   return readProgram(tool, next, after, star);
 }
 
