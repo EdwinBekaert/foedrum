@@ -87,7 +87,7 @@ GitHub shows a parse error instead of a mermaid picture that breaks its syntax, 
 
 - In a `sequenceDiagram`, `;` ends a statement and `#` starts an entity code, so neither may appear
   in a message or a note: write `,` instead, or `#59;` for a semicolon you need.
-- In a `flowchart`, put a label with `( ) [ ] { } < > | "` or a leading `-` in quotes: `A["f(x) > 0"]`.
+- In a `flowchart`, quote every node and edge label, always: `A["f(x) > 0"]`, `B{"ready?"}`, `-->|"yes"|`. A bare label breaks as soon as it holds `( ) [ ] { } < > |`, and a quoted one never does; write a `"` inside it as `#quot;`.
 - Use `<br/>` for a line break, never a real newline inside a label.
 - Read the block once more for these before posting it.
 
