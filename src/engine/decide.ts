@@ -825,6 +825,13 @@ function settle(draft: Draft, batchId: string, group: string): void {
   const batch = draft.batch(batchId);
   const recipe = recipeOf(draft, batch);
   const children = recipe.children(group) ?? [];
+  // Never past the group while an attempt of the batch runs: a sibling, or a child its recipe
+  // dropped, whose finish then makes the batch Stuck (`leftRecipe`).
+  const inFlight = [...batch.steps.keys()].some((stepId) => {
+    const latest = latestOf(batch, stepId);
+    return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
+  });
+  if (inFlight) return;
   // A child the batch never scheduled joined the group after the batch entered it: its file
   // changed under the batch, and the group would wait for it with nothing in flight.
   const added = children.find((child) => !batch.steps.has(child));

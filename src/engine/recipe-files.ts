@@ -613,6 +613,20 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         groupRefused = true;
       }
     }
+    // A child's route to a sibling would run that sibling alone, and once its rounds are used up
+    // the group would wait for the child with nothing in flight.
+    for (const step of value.steps) {
+      if (!('parallel' in step)) continue;
+      const siblings = new Set(step.parallel.map(stepId));
+      for (const child of step.parallel) {
+        const goto = child.onBlocked?.findings.goto;
+        if (goto === undefined || !siblings.has(goto)) continue;
+        problems.push(
+          `${path}: step "${stepId(child)}" in the parallel group "${step.id}" routes back to "${goto}" in its own group: route to a step before the group (ADR 0168)`,
+        );
+        groupRefused = true;
+      }
+    }
     const listed = value.steps.flatMap(
       (step, index): { step: Step; index: number; group?: string }[] => {
         if (!('parallel' in step)) return [{ step, index }];
