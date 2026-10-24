@@ -56,7 +56,9 @@ function describeSource(source: InputSource): string {
     case 'file':
       return `file ${source.path}`;
     case 'house-yeast':
-      return `house-yeast rule ${source.rule}`;
+      return source.path === undefined
+        ? `house-yeast rule ${source.rule}`
+        : `house-yeast rule ${source.rule}, file ${source.path}`;
     case 'lens':
       return `lens ${source.lens}, file ${source.path}`;
     case 'change':

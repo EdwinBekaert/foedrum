@@ -83,4 +83,4 @@ The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `s
 
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 
-**House-yeast rules** (`src/schemas/house-yeast.ts`, `schemas/house-yeast.json`) carry the frontmatter of [ADR 0018](../../adr/0018-house-yeast-layers.md): `id`, `scope` (`globs`, `language`, `lens`, all optional), `kind`, `source`, `created` (a date) and `status`.
+**House-yeast rules** (`src/schemas/house-yeast.ts`, `schemas/house-yeast.json`) carry the frontmatter of [ADR 0018](../../adr/0018-house-yeast-layers.md): `id`, `scope` (`globs`, `language`, `lens` by its name or as `diff/<name>` or `plan/<name>`, all optional), `kind`, `source`, `created` (a date) and `status`.

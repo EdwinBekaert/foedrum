@@ -110,6 +110,22 @@ export function breweryRecipes(root: string): Recipes {
  * those in `house-yeast/<owner>/<name>/` for the repositories whose rules the Brewery keeps (ADR
  * 0018), by their path from the Brewery's root.
  */
-export function readHouseYeast(_root: string): BreweryFile[] {
-  throw new Error('not implemented');
+export function readHouseYeast(root: string): BreweryFile[] {
+  /** The folders directly in `folder` of `root`, by name; none when it cannot be listed. */
+  const folders = (folder: string): string[] => {
+    try {
+      return readdirSync(join(root, folder), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => `${folder}/${entry.name}`)
+        .sort();
+    } catch {
+      // readFolder names a house-yeast/ it cannot list; a missing folder has no rules.
+      return [];
+    }
+  };
+  const repositories = folders('house-yeast').flatMap(folders);
+  return [
+    ...readFolder(root, 'house-yeast', '.md'),
+    ...repositories.flatMap((folder) => readFolder(root, folder, '.md')),
+  ];
 }

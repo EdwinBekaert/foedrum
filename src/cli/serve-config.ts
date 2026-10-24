@@ -290,6 +290,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         checks: repository.checks,
         ...(repository.testReport === undefined ? {} : { testReport: repository.testReport }),
         ...(repository.setup === undefined ? {} : { setup: repository.setup }),
+        ...(repository.houseYeast === 'brewery' ? { houseYeast: 'brewery' as const } : {}),
       };
     },
   );
@@ -365,6 +366,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       models,
       recipes: loaded.recipes,
       brewers: loaded.brewers,
+      ...(files.houseYeast === undefined ? {} : { houseYeast: files.houseYeast }),
       checks: loaded.checks,
       intake: {
         users: config.users ?? [],
