@@ -999,6 +999,20 @@ describe('attemptSettings and the runners of a package manager (ADR 0165)', () =
   it('keeps Bash(corepack enable), read as a program named enable', () => {
     keeps('Bash(corepack enable)');
   });
+
+  // A star after a subcommand that is not a runner: npm's stays a plain argument, and bun's and
+  // corepack's is read as a program that is neither git, gh nor a wrapper.
+  it('keeps Bash(npm run*), a star right after a plain npm subcommand', () => {
+    keeps('Bash(npm run*)');
+  });
+
+  it('keeps Bash(bun test *), a bun subcommand that is not a runner, with a star', () => {
+    keeps('Bash(bun test *)');
+  });
+
+  it('keeps Bash(corepack enable *), a program named enable with a star', () => {
+    keeps('Bash(corepack enable *)');
+  });
 });
 
 // A valid sandbox block; each refused row below changes one thing in it, so it is refused for
