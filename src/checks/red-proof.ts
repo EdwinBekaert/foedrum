@@ -98,11 +98,14 @@ function declares(name: string, lines: readonly string[]): boolean {
 const named = (tests: readonly ReportedTest[]): string =>
   `test "${tests[0]?.name}"${tests.length > 1 ? ` (and ${tests.length - 1} more)` : ''}`;
 
-/** Whether `report` proves red the tests that `diff`, the proven step's commits, added. */
+/**
+ * Whether `report` proves red the tests that `diff`, the proven step's commits, added; of them,
+ * `regressionTests` are the names the step gave its regression tests, which pass (ADR 0170).
+ */
 export function judgeRed(
   report: TestReport,
   diff: readonly DiffFile[],
-  _regressionTests: readonly string[] = [],
+  regressionTests: readonly string[] = [],
 ): RedVerdict {
   const refused = (why: string): RedVerdict => ({ proven: false, why });
   if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
@@ -113,12 +116,30 @@ export function judgeRed(
   }
   const lines = diff.flatMap(({ added }) => added);
   // A suite's own result follows its tests'; its tests are judged.
-  const proven = report.tests.filter(
+  const added = report.tests.filter(
     ({ name, leaf }) =>
       leaf && name.trim() !== '' && name.length <= MAX_NAME && declares(name, lines),
   );
+  const regression = new Set(regressionTests.map((name) => name.trim()));
+  for (const name of regression) {
+    const found = added.filter((test) => test.name.trim() === name);
+    const quoted = `regression test "${cut(name)}"`;
+    if (found.length === 0) return refused(`${quoted} is not a test the step added in the report`);
+    if (found.some(({ result }) => result === 'failed')) {
+      return refused(
+        `${quoted} fails before the implementation: a regression test passes before the change`,
+      );
+    }
+    if (found.some(({ result }) => result === 'skipped')) {
+      return refused(`${quoted} is skipped, so it proves nothing`);
+    }
+  }
+  const proven = added.filter(({ name }) => !regression.has(name.trim()));
   if (proven.length === 0) {
-    return refused(`none of the ${report.tests.length} tests in the report is one the step added`);
+    const besides = regression.size > 0 ? ', besides its regression tests' : '';
+    return refused(
+      `none of the ${report.tests.length} tests in the report is one the step added${besides}`,
+    );
   }
   const passed = proven.filter(({ result }) => result === 'passed');
   if (passed.length > 0) {
