@@ -1,6 +1,6 @@
 # 0169. House-yeast rules reach a batch's brewers, by scope and lens
 
-Date: 2026-10-24 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (`"houseYeast": true` loads, and the plan gives the rules as inputs) and [0018](0018-house-yeast-layers.md) (where each layer is read, the commit a repository's rules are read at, which layer wins), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (a house-yeast rule's source names its file), [0143](0143-lenses-in-two-folders-diff-and-plan.md) (a rule's `lens` may name its folder), and [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) (the selection moves into `src/`, and a rule's `lens` may name its folder)
+Date: 2026-10-24 · Status: Accepted · Amends [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (`"houseYeast": true` loads, and the plan gives the rules as inputs) and [0018](0018-house-yeast-layers.md) (where each layer is read, the commit a repository's rules are read at, which layer wins), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (a house-yeast rule's source names its file), [0143](0143-lenses-in-two-folders-diff-and-plan.md) (a rule's `lens` may name its folder), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the default Taster asks for house yeast), and [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) (the selection moves into `src/`, and a rule's `lens` may name its folder)
 
 ## Context
 House yeast is a Brewery's or repository's own review rules ([ADR 0015](0015-house-yeast.md)), in three layers ([ADR 0018](0018-house-yeast-layers.md)).
@@ -12,7 +12,7 @@ So a Taster ([ADR 0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory
 
 ### One selection, in `src/`
 - The selection of ADR 0122 moves from `scripts/house-yeast/core.ts` into `src/brewers/house-yeast.ts`: reading rule files, the changed files of a `git diff --name-status`, the scope match, the priority, the budget and the cut. The script re-exports it, so `/brew-review` and a batch select the same way. `scripts/` is not shipped, so `src/` cannot import it.
-- A rule's `scope.lens` names a lens by its name (`correctness`, as `/brew-review` writes it) or by its folder and name (`diff/correctness`, [ADR 0143](0143-lenses-in-two-folders-diff-and-plan.md)). A name alone matches the lens of that name in either folder. A brewer whose step has no lens gets only the rules without one.
+- A rule's `scope.lens` names a lens by its name (`correctness`, as `/brew-review` writes it) or by its folder and name (`diff/correctness`, [ADR 0143](0143-lenses-in-two-folders-diff-and-plan.md)). A name alone matches the lens of that name in either folder. A lens given by its name alone, as `/brew-review` gives its own, is the diff lens of that name, so a rule scoped to `diff/correctness` reaches `/brew-review`'s correctness review too. A brewer whose step has no lens gets only the rules without one.
 
 ### Where the rules are read
 - **The Brewery layer** is the Markdown files directly in the Brewery's `house-yeast/`, read with the Brewery's files when `foedrum serve` starts, as recipes and brewers are. A change needs a restart.
@@ -21,7 +21,7 @@ So a Taster ([ADR 0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory
   - `"brewery"`: the Markdown files in the Brewery's `house-yeast/<owner>/<name>/`, read with the Brewery layer.
 - **The defaults layer** stays inside Foedrum's lens and brewer prompts. Foedrum ships no rule files.
 - When a repository rule and a Brewery rule have the same id, the repository's wins and the other is left out (ADR 0018: the more specific layer wins). Everything else is ranked as ADR 0122 ranks it.
-- A rule file that does not read, whose id is not its file name, or whose language no extension has, is left out. It is named in the attempt's record (below), and serve does not refuse it. A failed git call, or a repository's rules that together pass the input limit of 1 MiB (ADR 0059), refuse the plan and name the reason, as an input that cannot be read does.
+- A rule file that does not read (its text holds U+FFFD, the character a byte that is not UTF-8 is read as, from the Brewery's files as from git), whose id is not its file name, or whose language no extension has, is left out. It is named in the attempt's record (below), and serve does not refuse it. A failed git call, or a repository's rules that together pass the input limit of 1 MiB (ADR 0059), refuse the plan and name the reason, as an input that cannot be read does.
 
 ### What an attempt gets
 - A brewer with `"houseYeast": true` loads. For each fresh attempt, the plan selects from both layers with the budget of ADR 0122 (about 2,000 tokens):
