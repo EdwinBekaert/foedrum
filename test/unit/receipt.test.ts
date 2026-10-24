@@ -92,6 +92,14 @@ describe('receiptParts', () => {
     assert.equal(receiptParts(receipt(), tokens(999_400))[2], '999k tokens');
   });
 
+  // Review of #459 (Brett): the edges of a minute and of a cent.
+  it('writes a whole minute in minutes, and half a cent as a cent', () => {
+    assert.equal(receiptParts(receipt({ durationMs: 59_400 }), undefined)[0], '59s');
+    assert.equal(receiptParts(receipt({ durationMs: 60_000 }), undefined)[0], '1m 0s');
+    assert.equal(receiptParts(receipt({ costUsd: 0.0049 }), undefined)[2], '<$0.01 est.');
+    assert.equal(receiptParts(receipt({ costUsd: 0.005 }), undefined)[2], '$0.01 est.');
+  });
+
   it('names each denied family, and shows the refused prefixes through told', () => {
     const denied = [
       { tool: 'Write', count: 1, refused: [] },
