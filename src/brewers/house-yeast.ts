@@ -123,10 +123,15 @@ const fileMatches = (scope: Scope, file: string): boolean =>
 export const unscoped = ({ scope }: HouseYeastRule): boolean =>
   scope.globs === undefined && scope.language === undefined;
 
-// A rule's lens by its name matches that lens in either folder: diff/<name> or plan/<name> (ADR 0169).
-const lensMatches = (ruleLens: string | undefined, lens: string | undefined): boolean =>
-  ruleLens === undefined ||
-  (lens !== undefined && (ruleLens === lens || ruleLens === lens.slice(lens.indexOf('/') + 1)));
+// A rule's lens by its name matches that lens in either folder: diff/<name> or plan/<name>. A lens
+// given without its folder, as /brew-review gives its own, is the diff lens of that name (ADR 0169).
+const lensMatches = (ruleLens: string | undefined, given: string | undefined): boolean => {
+  const lens = given === undefined || given.includes('/') ? given : `diff/${given}`;
+  return (
+    ruleLens === undefined ||
+    (lens !== undefined && (ruleLens === lens || ruleLens === lens.slice(lens.indexOf('/') + 1)))
+  );
+};
 
 const matches = ({ rule }: Rule, files: readonly string[], lens?: string): boolean =>
   rule.status === 'active' &&
@@ -271,8 +276,14 @@ export interface PickedRules {
 
 /** The rules of `files`, with those that could not be read among the invalid. */
 const readLayer = (files: readonly RuleSource[]): Rules => {
-  const read = readRules(files.flatMap((file) => ('text' in file ? [file] : [])));
-  const unread = files.flatMap((file) =>
+  // A byte that is not UTF-8 was read as U+FFFD, from the file system as from git.
+  const garbled = (file: RuleSource): RuleSource =>
+    'text' in file && file.text.includes('�')
+      ? { path: file.path, unreadable: 'it is not UTF-8 text' }
+      : file;
+  const checked = files.map(garbled);
+  const read = readRules(checked.flatMap((file) => ('text' in file ? [file] : [])));
+  const unread = checked.flatMap((file) =>
     'unreadable' in file ? [{ path: file.path, reason: file.unreadable }] : [],
   );
   return { rules: read.rules, invalid: [...read.invalid, ...unread] };
