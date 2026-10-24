@@ -83,11 +83,14 @@ const NO_PUSH_CREDENTIALS: readonly (readonly [string, string])[] = [
 
 /**
  * The runner's forced variables (brewers-and-recipes §1.1): npm runs no lifecycle script, and git
- * holds no credential that lets a push succeed and never prompts for one (ADR 0109).
+ * holds no credential that lets a push succeed and never prompts for one (ADR 0109), and claude
+ * neither updates itself nor sends telemetry, error reports or feature-flag requests (ADR 0177).
  */
 export function brewerForcedEnv(): Record<string, string> {
   return {
     npm_config_ignore_scripts: 'true',
+    DISABLE_AUTOUPDATER: '1',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     GIT_TERMINAL_PROMPT: '0',
     GIT_CONFIG_COUNT: String(NO_PUSH_CREDENTIALS.length),
     ...Object.fromEntries(
