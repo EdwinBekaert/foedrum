@@ -116,6 +116,16 @@ describe('readClaudeStream progress for the live line: the latest tool call', ()
     }
   });
 
+  it('shows a name that only starts with two dots inside the worktree, since no segment is ..', () => {
+    for (const [file, word] of [
+      [join(worktree, '..foo', 'a.ts'), '..foo/a.ts'],
+      [join(worktree, '..x'), '..x'],
+      ['..foo/a.ts', '..foo/a.ts'],
+    ] as const) {
+      assert.deepEqual(lastToolOf('Edit', { file_path: file }), { name: 'Edit', word }, file);
+    }
+  });
+
   it('leaves out a path in which a secret is found', () => {
     for (const file of [
       // Built at run time, so the batch's own commits hold no key-shaped text (ADR 0079).
