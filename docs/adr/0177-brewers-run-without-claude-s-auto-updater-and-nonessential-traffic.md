@@ -24,7 +24,8 @@ A brewer loads no MCP server (`--strict-mcp-config` with no config) and no plugi
 | `DISABLE_AUTOUPDATER` | `1` | No background update of claude, and with it none of plugins, during an attempt |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | The updater again, by a second name the docs give for it, and no telemetry, error reporting or feature-flag fetching: an attempt sends Anthropic only what the run itself needs |
 
-The layer goes last, so neither the base nor a brewer's `env` can replace them, in any case on Windows (ADR 0028): a user's `DISABLE_AUTOUPDATER=0`, or an empty value, in the terminal `foedrum resume` takes its environment from does not win.
+The layer goes last, so neither the base nor a brewer's `env` can replace them, in any case on Windows (ADR 0028).
+A user's own `DISABLE_AUTOUPDATER=0`, or an empty value, never reaches the base: `brewerBaseEnv` keeps neither name, and `foedrum resume` adds only the terminal's own names (`terminalEnv`, ADR 0126); the tests still hold the forced value over a `0` or empty one in the base, should the base ever carry one.
 A brewer's `env` may already not name `CLAUDE_*`; `DISABLE_AUTOUPDATER` it may name, and the forced value replaces it.
 
 Every place that takes the forced layer gets both: every brewer attempt, every check step ([ADR 0069](0069-check-steps-run-the-repositorys-commands-in-an-attempt-of-their-own.md)), and `foedrum resume`'s session ([ADR 0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)).
