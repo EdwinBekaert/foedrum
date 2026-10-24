@@ -10,16 +10,18 @@ import {
   type UsageLimit,
 } from '../engine/brewer-runner.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { findSecrets } from '../formats/secrets.ts';
 import {
   ClaudeAssistant,
   ClaudeDenial,
   ClaudeEvent,
   ClaudeResult,
+  ClaudeResultReceipt,
   ClaudeToolResult,
   ClaudeToolUse,
   ClaudeUser,
 } from '../schemas/claude-stream.ts';
-import type { Receipt, Usage } from '../schemas/events.ts';
+import { MOST_REFUSED, type Receipt, type Usage } from '../schemas/events.ts';
 import { type AskedSession, checkInit, type SessionFacts } from './claude-init.ts';
 
 /** What the runner asked for, and when it stops the attempt itself. */
@@ -69,6 +71,28 @@ export const cut = (text: string): string =>
 /** The tools that write a file; a shell command counts only when it commits. */
 const WRITERS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SHELLS = new Set(['Bash', 'PowerShell']);
+/** The file tools, whose calls a receipt counts as edits (ADR 0172). */
+const FILE_TOOLS = WRITERS;
+/** A word of a refused command's prefix: plain, and short. */
+const PLAIN_WORD = /^[A-Za-z0-9._-]{1,32}$/;
+
+/**
+ * The first one or two words of a shell command, as far as they are plain words, without any that
+ * looks like a secret (ADR 0088, ADR 0172); none when its first word is not plain. The command is
+ * model output: only its start is read, and nothing else of it is kept.
+ */
+const prefixOf = (command: string): string | undefined => {
+  const words: string[] = [];
+  for (const word of command.trimStart().slice(0, 80).split(/\s+/, 2)) {
+    if (!PLAIN_WORD.test(word)) break;
+    words.push(word);
+  }
+  for (; words.length > 0; words.pop()) {
+    const prefix = words.join(' ');
+    if (findSecrets(prefix, () => false).length === 0) return prefix;
+  }
+  return undefined;
+};
 /**
  * Whether a shell command runs `git … commit`: `commit` after `git` within one command between
  * separators. The command is model output, so each test is linear (review of #133).
@@ -194,6 +218,15 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   const writing = new Set<string>();
   let lastProgressAt = startedAt;
   let turnsAtProgress = 0;
+  // The receipt (ADR 0172): each call's tool and a shell's command prefix, the calls denied, and
+  // what the result says the run took.
+  const calls = new Map<string, { name: string; prefix?: string }>();
+  const deniedCalls = new Set<string>();
+  const families: Receipt['denied'] = [];
+  let edits = 0;
+  let toolErrors = 0;
+  let lastLineAt = startedAt;
+  let took: ClaudeResultReceipt | undefined;
 
   const failBeforeReply = (why: string): void => {
     if (!replied && environment === undefined) {
@@ -202,6 +235,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   };
 
   const readResult = (result: ClaudeResult): void => {
+    took = ClaudeResultReceipt.parse(result);
     if (result.num_turns !== undefined) finalTurns = result.num_turns;
     if (result.usage !== undefined) {
       usage = {
@@ -253,7 +287,12 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     }
     for (const block of event.message.content) {
       const use = ClaudeToolUse.safeParse(block);
-      if (use.success && writes(use.data.name, use.data.input)) writing.add(use.data.id);
+      if (!use.success) continue;
+      const { id, name, input } = use.data;
+      if (writes(name, input)) writing.add(id);
+      const prefix =
+        SHELLS.has(name) && typeof input.command === 'string' ? prefixOf(input.command) : undefined;
+      calls.set(id, prefix === undefined ? { name } : { name, prefix });
     }
   };
 
@@ -261,11 +300,57 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
     if (typeof event.message.content === 'string') return;
     for (const block of event.message.content) {
       const result = ClaudeToolResult.safeParse(block);
-      if (!result.success || !writing.delete(result.data.tool_use_id)) continue;
-      if (result.data.is_error === true) continue;
+      if (!result.success) continue;
+      const id = result.data.tool_use_id;
+      const failed = result.data.is_error === true;
+      // A denied call comes back as an error too: it is counted as a denial.
+      if (failed && !deniedCalls.has(id)) toolErrors += 1;
+      if (!failed && FILE_TOOLS.has(calls.get(id)?.name ?? '')) edits += 1;
+      if (!writing.delete(id) || failed) continue;
       lastProgressAt = now;
       turnsAtProgress = turns();
     }
+  };
+
+  /** One more denial of `tool`'s family, with the prefix its call was refused, each once. */
+  const noteFamily = (tool: string, id: string | undefined): void => {
+    if (id !== undefined) deniedCalls.add(id);
+    const prefix = id === undefined ? undefined : calls.get(id)?.prefix;
+    const family = families.find((each) => each.tool === tool);
+    if (family === undefined) {
+      families.push({ tool, count: 1, refused: prefix === undefined ? [] : [prefix] });
+      return;
+    }
+    family.count += 1;
+    const { refused } = family;
+    if (prefix !== undefined && !refused.includes(prefix) && refused.length < MOST_REFUSED) {
+      refused.push(prefix);
+    }
+  };
+
+  const receipt = (): Receipt => {
+    const models = Object.entries(took?.modelUsage ?? {}).map(([model, used]) => ({
+      model,
+      inputTokens: used.inputTokens,
+      outputTokens: used.outputTokens,
+      cacheReadTokens: used.cacheReadInputTokens,
+      cacheWriteTokens: used.cacheCreationInputTokens,
+      costUsd: used.costUSD,
+    }));
+    // Without a result, what was seen: until the last line read.
+    const durationMs =
+      took === undefined ? lastLineAt.getTime() - startedAt.getTime() : took.duration_ms;
+    return {
+      complete: took !== undefined,
+      ...(durationMs === undefined ? {} : { durationMs: Math.max(0, durationMs) }),
+      ...(took?.duration_api_ms === undefined ? {} : { apiDurationMs: took.duration_api_ms }),
+      turns: turns(),
+      ...(took?.total_cost_usd === undefined ? {} : { costUsd: took.total_cost_usd }),
+      ...(models.length === 0 ? {} : { models }),
+      edits,
+      toolErrors,
+      denied: families.map((family) => ({ ...family, refused: [...family.refused] })),
+    };
   };
 
   const readEvent = (parsed: unknown, type: string, now: Date): 'go' | 'stop' => {
@@ -290,6 +375,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
         const denial = ClaudeDenial.safeParse(parsed);
         if (!denial.success) return 'go';
         denials = noteDenial(denials, denial.data.tool_name);
+        noteFamily(denial.data.tool_name, denial.data.tool_use_id);
         const { maxDenials } = asked;
         if (maxDenials === undefined || denials.denials < maxDenials) return 'go';
         stopped = true;
@@ -304,6 +390,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   const read = (line: string, now: Date): 'go' | 'stop' => {
     if (stopped) return 'stop';
     lines += 1;
+    lastLineAt = now;
     if (line === '') return 'go';
     let parsed: unknown;
     try {
@@ -336,9 +423,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       ...(usage === undefined ? {} : { usage }),
       lines,
     }),
-    receipt: () => {
-      throw new Error('not implemented');
-    },
+    receipt,
     progress: () => ({ lastProgressAt, turnsWithoutProgress: turns() - turnsAtProgress }),
   };
 }

@@ -458,6 +458,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       // What the stream reported stays with the attempt however it ends from here.
       const reported = {
         ...(seen.usage === undefined ? {} : { usage: seen.usage }),
+        receipt: stream.receipt(),
         ...(seen.session === undefined ? {} : { session: seen.session }),
       };
       // A stop while counting kills git: the attempt was stopped, git did not fail.

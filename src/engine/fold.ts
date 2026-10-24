@@ -382,6 +382,7 @@ function apply(state: State, event: Event): State {
           ...(event.usage === undefined ? {} : { usage: event.usage }),
           ...(event.readings === undefined ? {} : { readings: event.readings }),
           ...(event.claude === undefined ? {} : { claude: event.claude }),
+          ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;

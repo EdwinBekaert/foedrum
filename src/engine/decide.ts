@@ -412,7 +412,7 @@ function refuseOrder(
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, readings, claude } = command;
+  const { batchId, stepId, attempt, ending, usage, readings, claude, receipt } = command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
@@ -432,6 +432,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(usage === undefined ? {} : { usage }),
     ...(readings === undefined ? {} : { readings: [...readings] }),
     ...(claude === undefined ? {} : { claude }),
+    ...(receipt === undefined ? {} : { receipt }),
   });
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
   const batch = draft.batch(batchId);
