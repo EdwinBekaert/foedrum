@@ -1267,6 +1267,34 @@ describe('runBrew', () => {
     assert.equal(screen.drawn(), undefined);
   });
 
+  it('ticks every five redraws on a terminal even when the clock steps back (ADR 0174)', async () => {
+    const screen = fakeScreen(120);
+    const controller = new AbortController();
+    let now = t0;
+    let waits = 0;
+    let flushes = 0;
+    const taken = shell(behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0, turn: 3 }), {
+      terminal: screen.terminal,
+      signal: controller.signal,
+      clock: () => now,
+      wait: async (ms) => {
+        waits++;
+        // The machine's clock is set back ten minutes in the second redraw.
+        now = new Date(now.getTime() + ms - (waits === 2 ? 600_000 : 0));
+        if (waits >= 30) controller.abort();
+      },
+      stateBranch: () => ({
+        start: async () => ({ decision: 'ready' }),
+        flush: async () => {
+          flushes += 1;
+          return { kind: 'unchanged' };
+        },
+      }),
+    });
+    assert.equal(await runBrew(setup, taken, request), 1);
+    assert.ok(flushes >= 5, `${flushes} ticks in ${waits} redraws`);
+  });
+
   it('refuses at once a batch taken over to resume no step, waiting for no run (ADR 0124)', async () => {
     assert.equal(await takenWithEndlessRun(false), 1);
   });
