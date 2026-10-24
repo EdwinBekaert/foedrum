@@ -46,8 +46,8 @@ import {
   type PickedRules,
   pickRules,
   type RuleFile,
+  type RuleSource,
   ruleBlobs,
-  type UnreadRuleFile,
 } from './house-yeast.ts';
 import type { PromptInput, RandomBytes } from './prompt.ts';
 
@@ -86,7 +86,7 @@ export interface AttemptPlansOptions {
    * its change (ADR 0169).
    */
   houseYeast?: {
-    files: readonly (RuleFile | UnreadRuleFile)[];
+    files: readonly RuleSource[];
     keptIn: (repo: string) => 'repo' | 'brewery';
   };
   /** Default the file system's: `readOutDocFile` and a recursive `mkdir`. */
@@ -236,8 +236,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
-   * The house-yeast rules for an attempt of `found` in `repo`, whose change runs from `since` to
-   * `head` (ADR 0169): the Brewery's, and the repository's, from the Brewery or with git in the
+   * The house-yeast rules for an attempt with `stepLens` in `repo`, whose change runs from `since`
+   * to `head` (ADR 0169): the Brewery's, and the repository's, from the Brewery or with git in the
    * clone at `since`, so the batch's own commits never add or remove one. The files the change
    * touched are read in the clone too; with no `since`, it touched none.
    */
@@ -245,12 +245,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     repo: string,
     since: string | undefined,
     head: string,
-    found: StepBrewer,
+    stepLens: string | undefined,
     houseYeast: NonNullable<AttemptPlansOptions['houseYeast']>,
   ): Promise<PickedRules> => {
     const keptIn = houseYeast.keptIn(repo);
     const fromBrewery = breweryRules(houseYeast.files, repo, keptIn);
-    const lens = found.lens === undefined ? {} : { lens: found.lens };
+    const lens = stepLens === undefined ? {} : { lens: stepLens };
     // Before an attempt recorded where the batch started, nothing changed, and no commit holds
     // the repository's own rules.
     if (since === undefined) return pickRules(fromBrewery, { files: [], ...lens });
@@ -324,7 +324,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const { houseYeast } = options;
     const rules =
       found.brewer.houseYeast && houseYeast !== undefined
-        ? await houseYeastFor(worktree.repo, start, worktree.commit, found, houseYeast)
+        ? await houseYeastFor(worktree.repo, start, worktree.commit, found.lens, houseYeast)
         : undefined;
     if (rules !== undefined) inputs.push(...rules.inputs);
     const answers = answersOf(batch, ref.stepId);

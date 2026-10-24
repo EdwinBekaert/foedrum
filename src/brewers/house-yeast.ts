@@ -171,6 +171,9 @@ export interface UnreadRuleFile {
   unreadable: string;
 }
 
+/** A rule file as it was read, or why it could not be. */
+export type RuleSource = RuleFile | UnreadRuleFile;
+
 /**
  * The rule files `git ls-tree -z <commit> -- .foedrum/house-yeast/` lists: the regular `.md` files
  * directly in the folder, by path and blob id; never a link or a folder (ADR 0169).
@@ -211,10 +214,10 @@ export const blobTexts = (
  * `house-yeast/<owner>/<name>/` are its repository layer.
  */
 export const breweryRules = (
-  files: readonly (RuleFile | UnreadRuleFile)[],
+  files: readonly RuleSource[],
   repo: string,
   keptIn: 'repo' | 'brewery',
-): { brewery: (RuleFile | UnreadRuleFile)[]; repository: (RuleFile | UnreadRuleFile)[] } => {
+): { brewery: RuleSource[]; repository: RuleSource[] } => {
   // GitHub's names are not case-sensitive, so neither is the folder of one.
   const folder = `house-yeast/${repo.toLowerCase()}/`;
   const inFolder = ({ path }: { path: string }): boolean =>
@@ -232,7 +235,7 @@ export interface PickedRules {
 }
 
 /** The rules of `files`, with those that could not be read among the invalid. */
-const readLayer = (files: readonly (RuleFile | UnreadRuleFile)[]): Rules => {
+const readLayer = (files: readonly RuleSource[]): Rules => {
   const read = readRules(files.flatMap((file) => ('text' in file ? [file] : [])));
   const unread = files.flatMap((file) =>
     'unreadable' in file ? [{ path: file.path, reason: file.unreadable }] : [],
@@ -246,10 +249,7 @@ const readLayer = (files: readonly (RuleFile | UnreadRuleFile)[]): Rules => {
  * selected and cut and the files left out as invalid, which the attempt records (ADR 0169).
  */
 export const pickRules = (
-  layers: {
-    repository: readonly (RuleFile | UnreadRuleFile)[];
-    brewery: readonly (RuleFile | UnreadRuleFile)[];
-  },
+  layers: { repository: readonly RuleSource[]; brewery: readonly RuleSource[] },
   change: { files: readonly string[]; lens?: string },
   budget: number = defaultBudget,
 ): PickedRules => {
