@@ -104,6 +104,22 @@ describe('serveSetup', () => {
     assert.equal(setup.sandbox, false);
   });
 
+  it("passes on the Brewery's house-yeast rule files and where each repository keeps its own (ADR 0169)", () => {
+    const rules = [{ path: 'house-yeast/cents.md', text: 'cents' }];
+    const setup = ready(
+      inputs({
+        files: {
+          ...inputs().files,
+          config: config({}, { houseYeast: 'brewery' }),
+          houseYeast: rules,
+        },
+      }),
+    );
+    assert.deepStrictEqual(setup.houseYeast, rules);
+    assert.equal(setup.repositories[0]?.houseYeast, 'brewery');
+    assert.equal(ready(inputs()).repositories[0]?.houseYeast, undefined);
+  });
+
   it('finds the clone of a repository whose name the two files spell in another case', () => {
     const setup = ready(
       inputs({

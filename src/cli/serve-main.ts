@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join } from 'node:path';
-import { readBreweryFiles } from '../engine/brewery-files.ts';
+import { readBreweryFiles, readHouseYeast } from '../engine/brewery-files.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { execProcess } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
@@ -58,6 +58,7 @@ export const readServeSetup = async (
       local: readIfThere(join(cwd, '.foedrum', 'local.jsonc')),
       models: readIfThere(join(cwd, 'models.jsonc')),
       brewery: readBreweryFiles(cwd),
+      houseYeast: readHouseYeast(cwd),
     },
     diagnosis: diagnose(facts),
   });

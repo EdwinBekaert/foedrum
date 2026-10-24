@@ -3,6 +3,7 @@
 // Both turn what the process did into the outcome through settleAttempt, so the rules are shared.
 
 import type { GravityReading, Usage } from '../schemas/events.ts';
+import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -40,6 +41,8 @@ export interface AttemptEnd {
    * when it has one (ADR 0163).
    */
   readings?: readonly GravityReading[];
+  /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
+  houseYeast?: HouseYeastSelection;
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };
   /**

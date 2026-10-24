@@ -812,6 +812,15 @@ describe('loadRecipes: the brewer of each step (#148)', () => {
     assert.equal(brewers.find('pale', 'maltster')?.brewer.name, 'maltster');
   });
 
+  it('loads a brewer that asks for house yeast (ADR 0169)', () => {
+    const taster = brewer('taster', { houseYeast: true });
+    const files = brewery({
+      recipes: [recipe('stout', [{ id: 'taste', brewer: 'taster' }], { testFirst: false })],
+      brewers: [maltster, brewmaster, taster],
+    });
+    assert.equal(brewersOf(files).find('stout', 'taste')?.brewer.houseYeast, true);
+  });
+
   it('finds nothing for a recipe or a step the Brewery does not have', () => {
     const brewers = brewersOf(brewery());
     assert.equal(brewers.find('stout', 'plan'), undefined);
@@ -842,7 +851,6 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
     const refused = (what: string) =>
       `recipes/stout.jsonc: step "brew" has the brewer "cellarman", with ${what}, which the engine does not follow yet (ADR 0059)`;
     assert.deepEqual(problemsOf(files), [
-      refused('"houseYeast": true'),
       refused('"skills"'),
       refused('"mcp"'),
       refused('"context": "repo"'),
