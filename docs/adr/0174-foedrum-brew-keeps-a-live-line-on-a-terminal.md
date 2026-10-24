@@ -15,13 +15,13 @@ Tools that run for minutes keep one line alive instead: a spinner and a counter 
 ### What one running attempt shows
 In this order, joined by ` / `:
 - the step and attempt (`implement #1`);
-- its elapsed time, written as the plain lines write it and counted from when this driver's runner started the attempt (after a `--take` or a restart, from then: the same start the plain lines count from);
+- its elapsed time, written and counted as the plain lines do: from when `brew`'s loop first saw the attempt running (`seenAt`), for a brewer's attempt and a check step's alike, so the two outputs never disagree;
 - for a brewer attempt, its turn (`turn 14`), counted as ADR 0047 counts turns: the main thread's messages;
 - what it did last: the latest tool call of the main thread (a call with no `parent_tool_use_id`; a subagent's calls are not shown, as they do not count as turns), as its name and, for some tools, one safe word:
   - `Read`, `Edit`, `Write`, `MultiEdit`: the input's `file_path`; `NotebookEdit`: its `notebook_path`. Shown relative to the attempt's worktree with `/` separators, or as `outside`. The test is lexical: the path resolved against the worktree, then made relative to it, is outside when the result starts with `..` or is absolute (another drive or root). No file is read for it. A path in which `findSecrets` finds a secret (ADR 0088) shows as `(left out)`.
   - `Bash`, `PowerShell`: the command's prefix as the stream reader already reads it for a receipt's denials (ADR 0172, `prefixOf`, kept with each call). With no prefix, the tool's name alone.
   - any other tool: its name alone.
-- `denied`, from a denial until the attempt's next main-thread tool call: so it stays on while the brewer is held up by the refusal and goes once it works on.
+- `denied`, from any denial in the attempt (a subagent's call's too) until the attempt's next main-thread tool call: so it stays on while the brewer is held up by the refusal and goes once it works on.
 
 The tool's name and the path are the only model-written text on the line; nothing else of a call's input, no tool result and no other text the model wrote is shown.
 
@@ -38,7 +38,7 @@ An ASCII spinner, `| / - \`, then the attempts. The line is ASCII only: in every
 - A lasting line (a change, a notice, the status comment's link, a question, the end) clears the live line, is printed, and the live line is drawn again. Before `brew` exits, on any exit code, a stop and Ctrl+C, the live line is cleared, so the last lines on screen are today's.
 
 ### Where it comes from
-- **The runner** (ADR 0027, ADR 0047): `AttemptProgress` gains optional fields, which the claude runner fills from its stream reader: `turn`, `lastTool` (the name and safe word, already reduced) and `denied` (whether a denial came after the latest main-thread call), plus `startedAt` and `settingUp`. The supervisor reads it as before and ignores them. The check runner and the tests guard report no such fields. The reduction happens in the stream reader, so a tool call's raw input never leaves it.
+- **The runner** (ADR 0027, ADR 0047): `AttemptProgress` gains optional fields, which the claude runner fills from its stream reader: `turn`, `lastTool` (the name and safe word, already reduced) and `denied` (whether a denial came after the latest main-thread call), plus `settingUp`. The supervisor reads it as before and ignores them. The check runner and the tests guard report no such fields. The reduction happens in the stream reader, so a tool call's raw input never leaves it: the runner passes the attempt's worktree into the reader's `StreamAsk`, which it already builds, so the reader can make a path relative to it.
 - **The driver** gains `progress(ref)`, which passes through to the runner it already holds (as `step-runner.ts` joins the check runner's and the brewer runner's). `brew` reads it for each running attempt.
 - **The terminal** comes through the shell: `ServeShell` gains an optional `terminal`, present only when the rule under *When* holds, with its `columns`, a resize subscription, and a way to clear and rewrite the current line. `runBrew` draws the live line when `terminal` is present and prints the plain lines when it is not; tests give a fake terminal, clock and `wait`.
 
