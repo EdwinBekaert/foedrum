@@ -1232,6 +1232,41 @@ describe('runBrew', () => {
     assert.ok(waits >= 5 && waits <= 7, `${waits} waits`);
   });
 
+  it('keeps redrawing the live line each second while it waits for the runs it stopped (ADR 0174, ADR 0127)', async () => {
+    const screen = fakeScreen(120);
+    let now = t0;
+    const waits: number[] = [];
+    let drawnAtTakeover = 0;
+    const endless = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0, turn: 3 });
+    const runner = fakeBrewerRunner(() => endless);
+    const taken = shell(behave.succeed(), {
+      terminal: screen.terminal,
+      runner: () => ({
+        ...runner,
+        start: (attempt) => ({ ...runner.start(attempt), stop: () => {} }),
+      }),
+      clock: () => now,
+      wait: async (ms) => {
+        waits.push(ms);
+        if (waits.length === 1) {
+          const handover = { batchId: '12-1', owner: 'bob', by: 'bob', via: 'terminal' } as const;
+          takeOver(log(), { ...handover, now, leaseMs: 300_000, resumes: 'brew' });
+          drawnAtTakeover = screen.rewrites().length;
+        }
+        now = new Date(now.getTime() + 1_000);
+        if (waits.length > 400) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+      },
+    });
+    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.ok(waits.length > 5, `${waits.length} waits`);
+    assert.ok(
+      waits.every((ms) => ms <= 1_000),
+      waits.join(' '),
+    );
+    assert.ok(screen.rewrites().length >= drawnAtTakeover + 200, `${screen.rewrites().length}`);
+    assert.equal(screen.drawn(), undefined);
+  });
+
   it('refuses at once a batch taken over to resume no step, waiting for no run (ADR 0124)', async () => {
     assert.equal(await takenWithEndlessRun(false), 1);
   });
