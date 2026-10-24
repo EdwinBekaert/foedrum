@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
+import { attemptLimits, routeInput, routeOf } from '../../src/brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
@@ -15,8 +15,8 @@ import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.t
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
-import { createBrewing } from '../helpers/brewing.ts';
-import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
+import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
+import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
 
 // A Brewery with no recipes/, brewers/ or lenses/ of its own: a folder that does not exist has
 // none, so only Foedrum's defaults load.
@@ -343,6 +343,85 @@ describe('the default Cellarman', () => {
       .filter((line) => /wrong test/i.test(line));
     assert.match(wrongTest, /"blockerKind": "findings"/);
     assert.match(wrongTest, /out doc's text/);
+  });
+
+  it('sends a Cellarman out doc with a wrong test in its text back to the Gauger, whose input names the test (#470)', async () => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const done = behave.succeed();
+      // Written as the Cellarman's instructions say: the findings in blockerKind and the text.
+      const blocked = [
+        outDoc({
+          status: 'blocked',
+          summary: '1 of the Gauger’s tests cannot pass',
+          assumptions: [],
+          blockerKind: 'findings',
+        }),
+        '- `brews twice on one lock`: the first brew releases the fake lock the second needs.',
+        '',
+      ].join('\n');
+      const scripts: Record<string, Behaviour[]> = {
+        gauge: [done, done],
+        red: [done, done],
+        implement: [behave.writes(blocked), done],
+        fine: [done],
+        green: [done],
+        taste: [done],
+        'open-pull-request': [done],
+      };
+      const { brewers, recipes } = valid(loadRecipes(noFiles));
+      const told: (PromptInput | undefined)[] = [];
+      const brewing = createBrewing({
+        store,
+        runner: fakeBrewerRunner((attempt) => {
+          const { stepId } = attempt.ref;
+          if (stepId === 'gauge') {
+            const batch = fold(brewing.events()).batches.get('b1');
+            assert.ok(batch !== undefined);
+            const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
+            const route = routeOf(batch, attempt.ref, outDocOf);
+            // The plan reads the out doc the route points at; here, the one implement wrote.
+            told.push(
+              route === undefined ? undefined : routeInput(route, { kind: 'text', text: blocked }),
+            );
+          }
+          return scripts[stepId]?.shift();
+        }),
+        recipes,
+        // Implement's out doc read with the Cellarman's own schema, as the attempt plan reads it.
+        limits: (stepId) => {
+          const found = stepId === 'implement' ? brewers.find('nip', stepId) : undefined;
+          return found === undefined ? defaultLimits : attemptLimits(found.brewer);
+        },
+        clock: () => new Date('2026-10-21T12:00:00.000Z'),
+      });
+      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      assert.ok(
+        brewing.command({
+          kind: 'route',
+          batchId: 'b1',
+          recipe: 'nip',
+          reason: 'label',
+          source: 'label',
+        }),
+      );
+      await brewing.drive();
+      const started = brewing
+        .events()
+        .flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
+      // An out doc the Cellarman's schema refused would retry implement instead of going to gauge.
+      assert.deepEqual(started.slice(0, 4), ['gauge', 'red', 'implement', 'gauge']);
+      assert.equal(told.length, 2);
+      assert.deepEqual(told[1]?.source, {
+        kind: 'route',
+        step: 'gauge',
+        from: 'implement',
+        why: 'findings',
+      });
+      assert.match(told[1]?.text ?? '', /brews twice on one lock`: the first brew releases/);
+    } finally {
+      store.close();
+    }
   });
 });
 
