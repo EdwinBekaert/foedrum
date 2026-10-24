@@ -188,14 +188,17 @@ describe("a batch's receipts", () => {
     assert.match(text, /1 denied \(Bash: rm -\\_x\\_\)/);
   });
 
-  it("adds each batch's total to its row in foedrum status", () => {
+  // Review of #459: a pipe on Windows decodes the terminal's output with its code page, so the
+  // terminal's line is ASCII; the status comment keeps its middle dot.
+  it("adds each batch's total to its row in foedrum status, in ASCII", () => {
     const state = { ...emptyState, batches: new Map([[ran.id, ran]]) };
     const row = formatStatus(state)
       .split('\n')
       .find((line) => line.trimStart().startsWith('7-1'));
     assert.match(
       row ?? '',
-      /brewing\s+implement #3 started; 2 attempts · 2m 58s · 36 turns · 1\.54M tokens · \$1\.64 est\. · 2 denied$/,
+      /brewing\s+implement #3 started; 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ \$1\.64 est\. \/ 2 denied$/,
     );
+    assert.match(row ?? '', /^[\x20-\x7e]*$/);
   });
 });
