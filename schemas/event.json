@@ -716,6 +716,132 @@
           ],
           "additionalProperties": false
         },
+        "receipt": {
+          "type": "object",
+          "properties": {
+            "complete": {
+              "type": "boolean"
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "apiDurationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turns": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "resumed": {
+              "type": "boolean",
+              "const": true
+            },
+            "costUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "models": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "inputTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "outputTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "cacheReadTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "cacheWriteTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "costUsd": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "model",
+                  "inputTokens",
+                  "outputTokens",
+                  "cacheReadTokens",
+                  "cacheWriteTokens",
+                  "costUsd"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "edits": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "toolErrors": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "denied": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "refused": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._-]{1,32}( [A-Za-z0-9._-]{1,32})?$"
+                    }
+                  }
+                },
+                "required": [
+                  "tool",
+                  "count",
+                  "refused"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "complete",
+            "turns",
+            "edits",
+            "toolErrors",
+            "denied"
+          ],
+          "additionalProperties": false
+        },
         "houseYeast": {
           "type": "object",
           "properties": {

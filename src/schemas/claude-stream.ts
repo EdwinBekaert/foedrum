@@ -58,6 +58,11 @@ export const ClaudeDenial = z.looseObject({
   type: z.literal('system'),
   subtype: z.literal('permission_denied'),
   tool_name: z.string(),
+  /**
+   * The denied call, for the command it was refused (ADR 0172); one it cannot read is left out,
+   * so the denial is still counted.
+   */
+  tool_use_id: z.string().optional().catch(undefined),
 });
 
 const Tokens = z.int().nonnegative();
@@ -81,3 +86,27 @@ export const ClaudeResult = z.looseObject({
     .optional(),
 });
 export type ClaudeResult = z.infer<typeof ClaudeResult>;
+
+const Cost = z.number().nonnegative();
+/** A field of what the result says it took: one that cannot be read is left out, never an error. */
+const kept = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
+
+/** What a `result` says the run took (ADR 0172); read apart, so it never fails the result. */
+export const ClaudeResultReceipt = z.looseObject({
+  duration_ms: kept(Tokens),
+  duration_api_ms: kept(Tokens),
+  total_cost_usd: kept(Cost),
+  modelUsage: kept(
+    z.record(
+      z.string().regex(/\S/),
+      z.looseObject({
+        inputTokens: Tokens,
+        outputTokens: Tokens,
+        cacheReadInputTokens: Tokens,
+        cacheCreationInputTokens: Tokens,
+        costUSD: Cost,
+      }),
+    ),
+  ),
+});
+export type ClaudeResultReceipt = z.infer<typeof ClaudeResultReceipt>;

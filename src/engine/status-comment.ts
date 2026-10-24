@@ -16,6 +16,7 @@ import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { findingText, knownCommits } from './pull-request.ts';
+import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
@@ -340,6 +341,27 @@ const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): str
     );
   });
 
+/** How many receipt lines the comment shows. */
+const mostReceipts = 30;
+
+/**
+ * One line per attempt with a receipt, in the order they ran (ADR 0172). A tool's name and a
+ * refused prefix came from the stream, so they are told as a brewer's text.
+ */
+const receiptLines = (batch: Batch, told: Told): string[] => {
+  const all = receiptsOf(batch);
+  const shown = all
+    .slice(0, mostReceipts)
+    .map(({ stepId, attempt, receipt, usage, forSession }) =>
+      [
+        `- ${code(`${stepId} #${attempt}`)}`,
+        ...receiptParts(receipt, usage, (text) => told(text, stepId), forSession === true),
+      ].join(' · '),
+    );
+  const more = all.length - shown.length;
+  return more > 0 ? [...shown, `- and ${more} more`] : shown;
+};
+
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the assumptions of
@@ -373,6 +395,8 @@ export const renderStatus = (
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
   const findings = findingLines(batch, stepIds, told);
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
+  const receipts = receiptLines(batch, told);
+  if (receipts.length > 0) sections.push(['**Receipts**', ...receipts]);
   if (batch.lane.kind === 'on_tap') {
     const { pullRequests } = batch.lane;
     sections.push(

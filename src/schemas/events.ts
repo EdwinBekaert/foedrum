@@ -104,6 +104,46 @@ export const Usage = z.strictObject({
 });
 export type Usage = z.infer<typeof Usage>;
 
+/** The most command prefixes a receipt keeps of one denied tool family (ADR 0172). */
+export const MOST_REFUSED = 5;
+/** A denied command's first one or two words: never its arguments, which are model output. */
+const RefusedPrefix = z
+  .string()
+  .regex(/^[A-Za-z0-9._-]{1,32}( [A-Za-z0-9._-]{1,32})?$/, 'Must be one or two plain words');
+
+/** What an attempt took, from its stream (ADR 0172); its tokens are on `usage`. */
+export const Receipt = z.strictObject({
+  /** Whether claude's `result` event was read. */
+  complete: z.boolean(),
+  durationMs: Count.optional(),
+  apiDurationMs: Count.optional(),
+  turns: Count,
+  /**
+   * The run resumed its session: its cost, API duration and tokens per model are then the
+   * session's so far, not the run's alone (ADR 0042).
+   */
+  resumed: z.literal(true).optional(),
+  /** claude's list price: an estimate, never what a subscription pays. */
+  costUsd: z.number().nonnegative().optional(),
+  models: z
+    .array(z.strictObject({ model: NonEmpty, ...Usage.shape, costUsd: z.number().nonnegative() }))
+    .min(1)
+    .optional(),
+  /** File tool calls that came back without an error. */
+  edits: Count,
+  /** Tool results that came back as an error, denied calls apart. */
+  toolErrors: Count,
+  /** Per tool family, in the order each was first denied. */
+  denied: z.array(
+    z.strictObject({
+      tool: NonEmpty,
+      count: z.int().positive(),
+      refused: z.array(RefusedPrefix).max(MOST_REFUSED),
+    }),
+  ),
+});
+export type Receipt = z.infer<typeof Receipt>;
+
 /** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
 export const MAX_TAIL_LENGTH = 4000;
 const Tail = z.string().max(MAX_TAIL_LENGTH);
@@ -302,6 +342,8 @@ export const Event = z.discriminatedUnion('type', [
     usage: Usage.optional(),
     readings: z.array(GravityReading).min(1).optional(),
     claude: ClaudeReport.optional(),
+    // What a brewer's attempt took, once its stream was read (ADR 0172).
+    receipt: Receipt.optional(),
     // The house-yeast rules a brewer's plan selected for it (ADR 0169).
     houseYeast: HouseYeastSelection.optional(),
   }),
