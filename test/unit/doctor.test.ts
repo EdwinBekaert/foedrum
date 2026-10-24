@@ -2,6 +2,7 @@
 // isolation level (ADR 0010) and what is missing. The report's text is in cli.test.ts.
 
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import {
@@ -11,6 +12,7 @@ import {
   formatDiagnosis,
   githubHostOfConfig,
 } from '../../src/cli/doctor.ts';
+import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import {
   type BreweryFile,
   type BreweryFiles,
@@ -931,6 +933,14 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
       formatDiagnosis(diagnose({ ...linux(), brewery: brewery({ lenses: [replaced, lens] }) })),
       /\nDefaults in use: defaults\/lenses\/diff\/security\.md \(a Brewery file of the same name replaces one\)\n/,
     );
+  });
+
+  it("lists the simplify lens among the defaults of Foedrum's own install (ADR 0166)", () => {
+    const brewery = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
+    const line = formatDiagnosis(diagnose({ ...linux(), brewery }))
+      .split('\n')
+      .find((text) => text.startsWith('Defaults in use: '));
+    assert.ok(line?.includes(' defaults/lenses/diff/simplify.md,'), line);
   });
 
   it("says nothing of the defaults when the Brewery's files do not load", () => {

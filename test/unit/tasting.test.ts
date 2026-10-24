@@ -253,6 +253,25 @@ describe('a blocking lens step (#26, ADR 0161)', () => {
   });
 });
 
+describe('the default simplify lens (ADR 0166)', () => {
+  it("loads on a Taster's step as diff/simplify, from Foedrum's defaults", () => {
+    const loaded = valid(
+      loadRecipes(
+        withRecipe('lager', [
+          { id: 'implement', brewer: 'cellarman' },
+          { id: 'simplify', brewer: 'taster', lens: 'diff/simplify' },
+          { action: 'openPullRequest' },
+        ]),
+      ),
+    );
+    assert.deepEqual(loaded.brewers.find('lager', 'simplify')?.lenses?.get('diff/simplify'), {
+      name: 'diff/simplify',
+      path: 'defaults/lenses/diff/simplify.md',
+      text: readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'diff', 'simplify.md'), 'utf8'),
+    });
+  });
+});
+
 describe('the default Taster (defaults/brewers/taster.md)', () => {
   const room = withRecipe('amber', [
     { id: 'implement', brewer: 'cellarman' },
