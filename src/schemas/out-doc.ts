@@ -115,3 +115,54 @@ export const tastingOf = (output: unknown): TastingReport | undefined => {
  * fields): what the status comment shows (ADR 0072).
  */
 export const OutDocAssumptions = z.object({ assumptions: z.array(z.string()) });
+
+/**
+ * The name of the out doc schema of a brewer that writes the pull request's sections
+ * (`output.schema`, ADR 0167): the default Cellarman's.
+ */
+export const PULL_REQUEST = 'pullRequest';
+
+/** One line of at most `max` characters. */
+const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
+
+/** One row of the pull request's before/after table (ADR 0167). */
+const BeforeAfterRow = z.strictObject({
+  case: lineOf(200),
+  before: lineOf(200),
+  after: lineOf(200),
+});
+type BeforeAfterRow = z.infer<typeof BeforeAfterRow>;
+
+/** The pull request's sections a brewer wrote (ADR 0167): model text, untrusted. */
+export interface PullRequestSections {
+  howItWorks?: string;
+  seeIt?: string;
+  beforeAfter: readonly BeforeAfterRow[];
+}
+
+/**
+ * The out doc of a brewer whose schema is `pullRequest`: the contract's, with the sections. They
+ * are optional, since a retry for a missing one would redo the whole run; the limits keep the body
+ * within GitHub's without cutting its Markdown.
+ */
+export const PullRequestOutDoc = outDocFrontmatter({
+  howItWorks: NonEmpty.max(10_000).optional(),
+  seeIt: lineOf(1_000).optional(),
+  beforeAfter: z.array(BeforeAfterRow).max(20).default([]),
+});
+
+/**
+ * The sections of an attempt's `output` when a `pullRequest` brewer wrote any and was done;
+ * undefined for any other out doc.
+ */
+export const pullRequestSectionsOf = (output: unknown): PullRequestSections | undefined => {
+  const read = PullRequestOutDoc.safeParse(output);
+  if (!read.success || read.data.status !== 'done') return undefined;
+  const { howItWorks, seeIt, beforeAfter } = read.data;
+  if (howItWorks === undefined && seeIt === undefined && beforeAfter.length === 0) return undefined;
+  return {
+    ...(howItWorks === undefined ? {} : { howItWorks }),
+    ...(seeIt === undefined ? {} : { seeIt }),
+    beforeAfter,
+  };
+};

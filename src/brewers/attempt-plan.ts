@@ -13,7 +13,13 @@ import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import { OutDocFrontmatter, TASTING, TastingOutDoc } from '../schemas/out-doc.ts';
+import {
+  OutDocFrontmatter,
+  PULL_REQUEST,
+  PullRequestOutDoc,
+  TASTING,
+  TastingOutDoc,
+} from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
@@ -82,8 +88,15 @@ export function attemptLimits(
   blocking = false,
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
-  // Every other out doc is read against the contract's schema.
-  const schema = brewer.output.schema === TASTING ? TastingOutDoc : OutDocFrontmatter;
+  // A pullRequest brewer's out doc is read with its sections (ADR 0167); every other out doc
+  // against the contract's schema.
+  const { schema: name } = brewer.output;
+  const schema =
+    name === TASTING
+      ? TastingOutDoc
+      : name === PULL_REQUEST
+        ? PullRequestOutDoc
+        : OutDocFrontmatter;
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),

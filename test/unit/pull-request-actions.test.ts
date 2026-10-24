@@ -218,6 +218,68 @@ describe('pullRequestActions: the pull request', () => {
     assert.match(request?.body ?? '', /\nCloses acme\/brewery#12$/);
   });
 
+  it('opens it as a draft with the recipe and the brew log when no step tasted it (ADR 0167)', async () => {
+    const { actions, requests } = actionsWith();
+    keysOf(brewing(), actions);
+    await actions.target.apply(open);
+    const request = requests[0]?.request;
+    assert.equal(request?.draft, true);
+    assert.match(
+      request?.body ?? '',
+      /\nBrewed by Foedrum from acme\/brewery#12 with the recipe ale\.\n/,
+    );
+    assert.match(request?.body ?? '', /\n\| implement #1 \| succeeded \|\n/);
+  });
+
+  it('opens it ready when every Taster approved and how it works is written (ADR 0167)', async () => {
+    const { actions, requests } = actionsWith();
+    const written = brewed.map((event) =>
+      event.type === 'step.finished'
+        ? {
+            ...event,
+            outcome: {
+              kind: 'succeeded' as const,
+              output: {
+                status: 'done',
+                summary: 'Added --json',
+                assumptions: [],
+                howItWorks: 'This touches the CLI.',
+              },
+            },
+          }
+        : event,
+    );
+    const tasted: Event[] = [
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'taste',
+        attempt: 1,
+        deadlineAt: '2026-10-15T13:30:00.000Z',
+      },
+      { type: 'step.started', batchId: '12-1', stepId: 'taste', attempt: 1 },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'taste',
+        attempt: 1,
+        outcome: {
+          kind: 'succeeded',
+          output: {
+            status: 'done',
+            summary: 'No defects',
+            assumptions: [],
+            verdict: 'approve',
+            findings: [],
+          },
+        },
+      },
+    ];
+    keysOf(fold([ordered({ issue: 12 }), ...written, ...tasted, ...opening]), actions);
+    await actions.target.apply(open);
+    assert.equal(requests[0]?.request.draft, false);
+  });
+
   it("leaves out report text that looks like a secret, but not a commit the batch's state records (#235)", async () => {
     const { actions, requests } = actionsWith();
     const token = ['ghp', 'A1b2'.repeat(9)].join('_');
