@@ -18,7 +18,7 @@ import {
   toolsOf,
 } from '../../src/brewers/attempt-plan.ts';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
-import { settleAttempt } from '../../src/engine/brewer-runner.ts';
+import { type CommitsSeen, settleAttempt } from '../../src/engine/brewer-runner.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
@@ -409,6 +409,31 @@ describe("attemptLimits: a Finer's changes, or why there was nothing to simplify
     invalid({ changes: [change], unchanged });
     invalid({});
     invalid({ changes: [] });
+  });
+
+  it('puts a rewritten start and uncounted commits before nothing to simplify (review of #462)', () => {
+    const settled = (commits: CommitsSeen) =>
+      settleAttempt(
+        {
+          exit: { kind: 'exited', code: 0 },
+          outDoc: outDoc({ status: 'done', summary: 'Fined', unchanged }),
+          denials: 0,
+          deniedTools: [],
+          turns: 3,
+          commits,
+        },
+        attemptLimits(finer, sha),
+      );
+    assert.deepEqual(settled({ kind: 'rewritten' }), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer rewrote ccccccc, the commit its worktree started at',
+    });
+    assert.deepEqual(settled({ kind: 'uncounted', reason: 'git exited with 128' }), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the commits since ccccccc were not counted: git exited with 128',
+    });
   });
 
   it('says a done gives exactly one of the two, whether it gave both or neither (review of #462)', () => {
