@@ -493,3 +493,54 @@ describe('judgeRed: how a regression name matches (ADR 0170)', () => {
     });
   });
 });
+
+describe('judgeRed: where a regression test may be declared (ADR 0170)', () => {
+  const newTestsFail = [
+    ...failing(1, 'adds two numbers', 'not implemented'),
+    ...failing(2, 'adds a negative number', 'not implemented'),
+  ];
+  const refusal = (name: string) => ({
+    proven: false,
+    why: `regression test "${name}" is not a test the step added in the report`,
+  });
+
+  it('refuses a name a line of a file without a test declaration holds', () => {
+    // An older passing test, listed in a document the step added.
+    const listed: DiffFile[] = [
+      ...gauged,
+      { newPath: 'docs/regressions.md', added: ['- keeps subtracting'], removed: [] },
+    ];
+    const report = tap(...newTestsFail, 'ok 3 - keeps subtracting');
+    assert.deepEqual(judgeRed(report, listed, ['keeps subtracting']), refusal('keeps subtracting'));
+  });
+
+  it('refuses a name only a comment holds, in each comment form, and takes a Rust attribute line', () => {
+    for (const comment of [
+      '# keeps subtracting',
+      ' * keeps subtracting',
+      '/* keeps subtracting',
+      '-- keeps subtracting',
+    ]) {
+      const mentioned: DiffFile[] = [
+        ...gauged,
+        { newPath: 'test/sub.test.mjs', added: ["test('x', () => {});", comment], removed: [] },
+      ];
+      const report = tap(
+        ...newTestsFail,
+        'ok 3 - keeps subtracting',
+        ...failing(4, 'x', 'not implemented'),
+      );
+      assert.deepEqual(
+        judgeRed(report, mentioned, ['keeps subtracting']),
+        refusal('keeps subtracting'),
+        comment,
+      );
+    }
+    const rust: DiffFile[] = [
+      ...gauged,
+      { newPath: 'tests/add.rs', added: ['#[test] fn keeps_adding_zero() {', '}'], removed: [] },
+    ];
+    const report = tap(...newTestsFail, 'ok 3 - keeps_adding_zero');
+    assert.equal(judgeRed(report, rust, ['keeps_adding_zero']).proven, true);
+  });
+});
