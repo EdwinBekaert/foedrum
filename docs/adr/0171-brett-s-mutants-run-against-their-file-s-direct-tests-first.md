@@ -1,6 +1,6 @@
 # 0171. Brett's mutants run against their file's direct tests first, and the wide list only when they survive
 
-Date: 2026-10-24 · Status: Accepted · Amends [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the mutation check's one list of tests becomes two rounds)
+Date: 2026-10-24 · Status: Accepted · Amends [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (a baseline per round, and a round-1 survivor runs again in round 2) and [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the mutation check's one list of tests becomes two rounds)
 
 ## Context
 Stage 4 of /brew-review runs a baseline and then each of Brett's valid mutants, one after the other, over one list of test files: every file in `test/unit/`, `test/property/` and `test/chaos/` that imports a mutated file directly or through one module in between (`scripts/mutant-tests.ts`, ADR 0054).
@@ -27,6 +27,7 @@ The files one module away matter only for a mutant the direct tests miss.
 ## Alternatives considered
 - **A direct list per mutated file, each with its own baseline:** fewer files per mutant when a review mutates several files, but one baseline per file; most reviews mutate one or two files, and the union is still the direct importers.
 - **Run each mutant's wide list in parallel with others:** the same work at once, against ADR 0054's one run at a time, which keeps the terminal and other sessions responsive.
+- **Round 2 runs only the files one module away, with a baseline of those:** the direct files would not run twice for a survivor, but its verdict would rest on two runs against two baselines. The wide list keeps a survivor's verdict one run against one baseline, as under ADR 0054, and the direct files it repeats are the few that round 1 ran.
 - **Stop a run at its first failing test:** the run still starts every file it was given, and the verdict needs the outcomes of the tests that did run.
 
 ## Verification
