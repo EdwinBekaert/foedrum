@@ -70,7 +70,7 @@ Proves that the tests were written first and failed for the right reason.
 
 ## Stage 2: simplify
 
-Start one fresh `taster` with [reviewer-prompt.md](reviewer-prompt.md), filled in for the **simplify** lens ([lenses/simplify.md](lenses/simplify.md), a lens for this skill only; Foedrum does not ship it). It returns proposed patches and edits nothing. Check the citations of its proposals as in stage 3 (*Check the citations*).
+Start one fresh `taster` with [reviewer-prompt.md](reviewer-prompt.md), filled in for the **simplify** lens ([lenses/simplify.md](lenses/simplify.md), a lens for this skill that proposes patches; the one Foedrum ships, `defaults/lenses/diff/simplify.md`, reports findings, ADR 0166). It returns proposed patches and edits nothing. Check the citations of its proposals as in stage 3 (*Check the citations*).
 
 Model output is untrusted too. List each patch's paths with `git apply --numstat <patch>` before doing anything with it, and sort it:
 - **apply**: it touches only files the diff changes, under `src/`, `test/` (no test declaration or assertion) or other documentation. Apply the ones you agree with, run the checks, and commit them together as `Refactor: simplify <area>` when they pass. The subject starts with "Refactor" because the commit changes no behaviour (CLAUDE.md, Tests), so stage 1 classifies it as a refactor. Reject the rest with a reason.

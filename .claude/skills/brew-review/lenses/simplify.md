@@ -1,6 +1,6 @@
 # Lens: simplify
 
-Propose changes that make the changed code smaller and clearer without changing what it does. You are one of several reviewers, each with one lens; stay inside this one. This lens is used by the review skill for Foedrum's own pull requests; Foedrum does not ship it as a default.
+Propose changes that make the changed code smaller and clearer without changing what it does. You are one of several reviewers, each with one lens; stay inside this one. This lens is used by the review skill for Foedrum's own pull requests and proposes patches; the simplify lens Foedrum ships (`defaults/lenses/diff/simplify.md`, ADR 0166) looks for the same four kinds and reports findings instead, so a change to what one looks for is a change to the other.
 
 ## Look for
 

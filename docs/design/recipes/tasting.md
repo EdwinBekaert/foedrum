@@ -1,6 +1,6 @@
 # Tasting
 
-**Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](../../adr/0022-five-default-lenses.md)), one lens step after another until parallel groups land (#428).
+**Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design, simplify; [ADR 0022](../../adr/0022-five-default-lenses.md), [ADR 0166](../../adr/0166-a-sixth-default-diff-lens-simplify.md)), one lens step after another until parallel groups land (#428).
 A lens step is a Taster's step with a `lens`: a Taster is a brewer whose out doc schema is `tasting`, and the default one is `defaults/brewers/taster.md`, read-only ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)).
 The step's lens reaches the Taster as its input `lens`, and a Taster that reviews a diff also gets the input `change`: the commits and the diff from the commit its batch started at to HEAD, or from the base a merge before its last check brought in ([ADR 0164](../../adr/0164-a-batch-merges-its-base-before-its-last-check.md)), the log by first parents only, which the engine reads with git in the repository's clone, with no diff driver, and holds to 256 KiB, so the Taster runs no shell.
 Its out doc adds `findings`, each with `severity` (`blocker`, `major`, `minor`), `why`, `introduced`, and `file` and `line` unless it is about the change as a whole, and a `verdict`, `approve` or `changes`, which must be `changes` exactly when a finding the change introduced is a `blocker` or `major`.
@@ -11,10 +11,11 @@ Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-b
 
 Lenses live in two folders, by what they review ([ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md)): `lenses/diff/` for a diff (code) and `lenses/plan/` for a plan (an order's breakdown, #391), in the Brewery and in `defaults/lenses/`.
 A lens is named by its folder and file name, `diff/security` or `plan/coverage`, so the two folders can hold a lens of the same file name.
-Default **tasting lenses** (`defaults/lenses/diff/*.md`): correctness, security, cross-platform, design conformance, test design; `defaults/lenses/plan/` has none yet.
+Default **tasting lenses** (`defaults/lenses/diff/*.md`): correctness, security, cross-platform, design conformance, test design, simplify; `defaults/lenses/plan/` has none yet.
+The simplify lens reports duplication, dead code, needless indirection and over-general code as findings, `minor` except a rule stated twice that must change together, which is `major`, and no default recipe names it yet ([ADR 0166](../../adr/0166-a-sixth-default-diff-lens-simplify.md)).
 A Brewery adds or overrides lenses by committing files to `lenses/diff/` or `lenses/plan/`: a file of the same folder and name replaces the default, and a brewer input `"from": "lens:diff/<name>"` or `"lens:plan/<name>"` takes the lens's text ([ADR 0098](../../adr/0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)).
 A step with a `lens` reviews a diff once a step before it (in the order the recipe lists its steps, nested ones included) produces commits, and a plan otherwise; a lens of the other folder fails the load with a line that names the step and the lens, and a lens file directly in `lenses/` fails it with a line that says where it belongs.
-Test-first and lenses: [ADR 0017](../../adr/0017-test-first-recipes-and-tasting-lenses.md); the fifth lens: [ADR 0022](../../adr/0022-five-default-lenses.md).
+Test-first and lenses: [ADR 0017](../../adr/0017-test-first-recipes-and-tasting-lenses.md); the fifth lens: [ADR 0022](../../adr/0022-five-default-lenses.md); the sixth: [ADR 0166](../../adr/0166-a-sixth-default-diff-lens-simplify.md).
 
 **Parallel groups.** Every child is its own attempt with its own lease and deadline; the group ends when all children end.
 The group's `verdict` is `approve` only when every child that returns a verdict approves.
