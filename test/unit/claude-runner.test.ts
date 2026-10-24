@@ -258,7 +258,29 @@ describe('claudeBrewerRunner', () => {
     assert.match(ending.kind === 'failed' ? ending.reason : '', /EBUSY/);
   });
 
-  it('succeeds with the out doc, the usage and the session of a clean run', async () => {
+  // What success.jsonl took (ADR 0172).
+  const cleanReceipt = {
+    complete: true,
+    durationMs: 1568,
+    apiDurationMs: 1434,
+    turns: 1,
+    costUsd: 0.0005093000000000001,
+    models: [
+      {
+        model: 'claude-haiku-5-5',
+        inputTokens: 2,
+        outputTokens: 4,
+        cacheReadTokens: 1670,
+        cacheWriteTokens: 2452,
+        costUsd: 0.0005093000000000001,
+      },
+    ],
+    edits: 0,
+    toolErrors: 0,
+    denied: [],
+  };
+
+  it('succeeds with the out doc, the usage, the receipt and the session of a clean run', async () => {
     const { read, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
     const end = await runner.start(attempt).ended;
     assert.deepEqual(end, {
@@ -267,6 +289,7 @@ describe('claudeBrewerRunner', () => {
         output: { status: 'done', summary: 'Planned', assumptions: [] },
       },
       usage: { inputTokens: 2, outputTokens: 4, cacheReadTokens: 1670, cacheWriteTokens: 2452 },
+      receipt: cleanReceipt,
       session: { sessionId: session(1), model: 'claude-haiku-5-5', claudeVersion: '2.1.301' },
       // Its text as read, for the state branch (ADR 0103).
       outDoc: done,
@@ -366,6 +389,7 @@ describe('claudeBrewerRunner', () => {
       assert.deepEqual(await run.ended, {
         ending: { kind: 'cancelled' },
         usage: { inputTokens: 2, outputTokens: 4, cacheReadTokens: 1670, cacheWriteTokens: 2452 },
+        receipt: cleanReceipt,
         session: { sessionId: session(1), model: 'claude-haiku-5-5', claudeVersion: '2.1.301' },
       });
     });
@@ -425,6 +449,12 @@ describe('claudeBrewerRunner', () => {
       blockerKind: 'environment',
       summary: '2 permission denials, maxDenials is 2; denied: Write, Bash',
     });
+    // Stopped before its result: what was seen, the refused rule named (ADR 0172).
+    assert.equal(end.receipt?.complete, false);
+    assert.deepEqual(end.receipt?.denied, [
+      { tool: 'Write', count: 1, refused: [] },
+      { tool: 'Bash', count: 1, refused: ['git push'] },
+    ]);
   });
 
   // ADR 0047: the process is stopped at that line, so it spends no more turns.
@@ -708,6 +738,17 @@ describe('claudeBrewerRunner', () => {
       retryable: false,
       reason: 'the brewer could not start: claude: not found on PATH (ENOENT)',
     });
+  });
+
+  // Review of #459: claude never ran, so there is nothing it took (ADR 0172).
+  it('ends with no receipt when claude could not start', async () => {
+    const { runner } = setup(
+      { lines: [], result: { exitCode: null, stderr: 'claude: not found on PATH (ENOENT)' } },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.equal(end.receipt, undefined);
   });
 
   it('fails, not retryably, and starts nothing, when the attempt cannot be prepared', async () => {

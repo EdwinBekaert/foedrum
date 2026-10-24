@@ -1,8 +1,9 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
-// or waiting for. The lane's words are shared with replay.
+// or waiting for, and what its attempts took. The lane's words are shared with replay.
 
 import { orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
+import { totalParts } from '../engine/receipt.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { columns } from './columns.ts';
 
@@ -97,11 +98,14 @@ export const formatStatus = (
     const { lane, detail } = describeLane(batch);
     const owner = interactive.get(batch.id);
     const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
+    // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
+    // with its code page.
+    const total = totalParts(batch).join(' / ');
     return [
       batch.id,
       orderName(state, batch),
       lane,
-      [detail, ...by].filter((part) => part !== '').join('; '),
+      [detail, ...by, total].filter((part) => part !== '').join('; '),
     ];
   });
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
