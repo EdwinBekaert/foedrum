@@ -1,0 +1,160 @@
+// House-yeast rules (ADR 0015, ADR 0018): reads rule files and selects those whose scope matches a
+// change and a lens, within a token budget (ADR 0122). Pure: /brew-review selects through it
+// (scripts/house-yeast.ts), and in src/ a batch can too (#434).
+
+import { posix } from 'node:path';
+import { HouseYeastRule } from '../schemas/house-yeast.ts';
+import { readDoc } from '../schemas/read.ts';
+
+export interface RuleFile {
+  path: string;
+  text: string;
+}
+
+export interface Rule {
+  path: string;
+  rule: HouseYeastRule;
+  body: string;
+}
+
+export interface Rules {
+  rules: Rule[];
+  invalid: { path: string; reason: string }[];
+}
+
+export interface Priced {
+  rule: Rule;
+  tokens: number;
+}
+
+export interface Selection {
+  selected: Priced[];
+  cut: Priced[];
+}
+
+export const defaultBudget = 2000;
+
+const oneLine = (text: string): string => text.replace(/\s*\r?\n\s*/g, '; ');
+
+/** Reads rule files given with `/` paths, as the skill writes them; a rule's id is its file name without `.md`. */
+export const readRules = (files: readonly RuleFile[]): Rules => {
+  const read: Rules = { rules: [], invalid: [] };
+  for (const { path, text } of files) {
+    const doc = readDoc(text, HouseYeastRule);
+    const name = posix.basename(path, '.md');
+    if (!doc.valid) {
+      read.invalid.push({ path, reason: oneLine(doc.reason) });
+    } else if (doc.frontmatter.id !== name) {
+      read.invalid.push({
+        path,
+        reason: `id "${doc.frontmatter.id}" is not the file name "${name}"`,
+      });
+    } else if (
+      doc.frontmatter.scope.language !== undefined &&
+      !Object.values(languages).includes(doc.frontmatter.scope.language)
+    ) {
+      // A language no extension has would never match, and the rule would drop out silently.
+      read.invalid.push({
+        path,
+        reason: `language "${doc.frontmatter.scope.language}" is none of ${[...new Set(Object.values(languages))].join(', ')}`,
+      });
+    } else {
+      read.rules.push({ path, rule: doc.frontmatter, body: doc.body.trim() });
+    }
+  }
+  return read;
+};
+
+/** The files of `git diff --name-status` the change adds, alters or renames (new path); not deleted ones. */
+export const changedFiles = (nameStatus: string): string[] =>
+  nameStatus
+    .split(/\r?\n/)
+    .map((line) => line.split('\t'))
+    .filter(([status = '', path]) => path !== undefined && !status.startsWith('D'))
+    .map((fields) => fields[fields.length - 1] as string);
+
+const languages: Record<string, string> = {
+  '.ts': 'typescript',
+  '.tsx': 'typescript',
+  '.mts': 'typescript',
+  '.cts': 'typescript',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+  '.md': 'markdown',
+  '.json': 'json',
+  '.jsonc': 'json',
+  '.yml': 'yaml',
+  '.yaml': 'yaml',
+  '.sh': 'bash',
+  '.ps1': 'powershell',
+};
+
+const languageOf = (file: string): string | undefined =>
+  languages[posix.extname(file).toLowerCase()];
+
+type Scope = HouseYeastRule['scope'];
+
+const fileMatches = (scope: Scope, file: string): boolean =>
+  (scope.globs === undefined || scope.globs.some((glob) => posix.matchesGlob(file, glob))) &&
+  (scope.language === undefined || languageOf(file) === scope.language);
+
+/** A rule with neither globs nor a language: it matches every change, so curation is due (ADR 0015). */
+export const unscoped = ({ scope }: HouseYeastRule): boolean =>
+  scope.globs === undefined && scope.language === undefined;
+
+const matches = ({ rule }: Rule, files: readonly string[], lens: string): boolean =>
+  rule.status === 'active' &&
+  (rule.scope.lens === undefined || rule.scope.lens === lens) &&
+  (unscoped(rule) || files.some((file) => fileMatches(rule.scope, file)));
+
+// Lower comes first: a rule for this lens, then globs, a language alone, the whole repository.
+const rank = ({ scope }: HouseYeastRule): [number, number] => [
+  scope.lens === undefined ? 1 : 0,
+  scope.globs !== undefined ? 0 : scope.language !== undefined ? 1 : 2,
+];
+
+// Not localeCompare: a locale's collation would make the order, and so the cut, differ by machine.
+const byCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+const byPriority = (a: Rule, b: Rule): number => {
+  const [lensA, scopeA] = rank(a.rule);
+  const [lensB, scopeB] = rank(b.rule);
+  return (
+    lensA - lensB ||
+    scopeA - scopeB ||
+    byCodeUnits(b.rule.created, a.rule.created) ||
+    byCodeUnits(a.rule.id, b.rule.id)
+  );
+};
+
+/** A rule as a lens reads it: its heading and body. */
+export const section = ({ rule, body }: Rule): string =>
+  `## ${rule.id} (${rule.kind})\n\n${body}\n`;
+
+// An estimate, about four characters a token: a budget of this size needs no tokenizer (ADR 0122).
+const price = (rule: Rule): number => Math.ceil(section(rule).length / 4);
+
+/**
+ * The active rules whose scope matches the change and the lens, in order of priority, within the
+ * budget: a rule that would pass what is left is cut, and the next one is tried.
+ */
+export const selectRules = (
+  rules: readonly Rule[],
+  change: { files: readonly string[]; lens: string },
+  budget: number = defaultBudget,
+): Selection => {
+  const selection: Selection = { selected: [], cut: [] };
+  let left = budget;
+  for (const rule of rules.filter((r) => matches(r, change.files, change.lens)).sort(byPriority)) {
+    const tokens = price(rule);
+    if (tokens <= left) {
+      selection.selected.push({ rule, tokens });
+      left -= tokens;
+    } else {
+      selection.cut.push({ rule, tokens });
+    }
+  }
+  return selection;
+};
