@@ -7,9 +7,11 @@ import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
-import { loadRecipes } from '../../src/engine/recipe-files.ts';
+import { loadRecipes, MAX_INPUT_BYTES } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git, GitOptions } from '../../src/workspace/git.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
@@ -44,11 +46,11 @@ const worktree = (name: string, commit: string) => ({
   branch: `foedrum/12-1/${name}`,
   commit,
 });
-const scheduled = (stepId: string): Event => ({
+const scheduled = (stepId: string, attempt = 1): Event => ({
   type: 'step.scheduled',
   batchId: '12-1',
   stepId,
-  attempt: 1,
+  attempt,
   deadlineAt: '2026-10-24T13:00:00.000Z',
 });
 const startedAt = (stepId: string, commit: string): Event => ({
@@ -103,7 +105,16 @@ const DOCS = rule('docs-tone', { globs: ['docs/**'] }, 'One sentence per line.')
 const repository = (changed: string, rules: Record<string, string> = { waits: WAITS }): Git => {
   const blobs = Object.keys(rules).map((id, i) => ({ id, blob: String(i + 1).repeat(40) }));
   return async (_cwd, args, options) => {
-    const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' });
+    // As the runner does, git is stopped once its output passes the limit, which keeps its start
+    // (ADR 0035).
+    const ok = (stdout: string) => {
+      const limit = options?.maxOutputBytes;
+      if (limit === undefined || Buffer.byteLength(stdout) <= limit) {
+        return { code: 0, stdout, stderr: '' };
+      }
+      const start = Buffer.from(stdout).subarray(0, limit).toString();
+      return { code: null, stdout: start, stderr: '', killed: 'too-much-output' as const };
+    };
     if (args.includes('--name-status')) return ok(changed);
     if (args[0] === 'ls-tree') {
       return ok(
@@ -132,6 +143,7 @@ const planOf = (
   stepId = 'correctness',
   events = tasting,
   houseYeast: AttemptPlansOptions['houseYeast'] = { files: [], keptIn: () => 'repo' },
+  attempt = 1,
 ) => {
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
   const plans = createAttemptPlans({
@@ -153,7 +165,7 @@ const planOf = (
     files: { read: () => ({ kind: 'text', text: 'out' }), makeFolder: () => {} },
     random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
   });
-  const ref = { batchId: '12-1', stepId, attempt: 1 };
+  const ref = { batchId: '12-1', stepId, attempt };
   return { plan: plans.plan({ ref, limits: plans.limits(ref) }), calls };
 };
 
@@ -252,5 +264,64 @@ describe('createAttemptPlans: house yeast (#434, ADR 0169)', () => {
     const huge = rule('huge', {}, 'x'.repeat(1024 * 1024));
     const { plan } = await planOf(repository('M\tsrc/wait.ts\n', { huge }));
     await assert.rejects(plan, /the house-yeast rules of acme\/api were not read: .*1048576 bytes/);
+  });
+
+  it("takes the repository's rules when git prints exactly the input limit", async () => {
+    // What git prints is the blob's header, its text and a line feed: 55 bytes besides the text.
+    const bare = Buffer.byteLength(rule('edge', {}, ''));
+    const edge = rule('edge', {}, 'x'.repeat(MAX_INPUT_BYTES - 55 - bare));
+    const { plan } = await planOf(repository('M\tsrc/wait.ts\n', { edge }));
+    // Past the budget of about 2,000 tokens, so it is cut.
+    assert.deepEqual((await plan).houseYeast, { selected: [], cut: ['edge'] });
+  });
+
+  it('reads the rules and the changed files from the base the batch last merged (ADR 0164)', async () => {
+    const merged = 'c'.repeat(40);
+    const key = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const events: Event[] = [
+      ...tasting.slice(0, -2),
+      { type: 'effect.applied', key, result: { base: merged, merged: 'd'.repeat(40) } },
+      ...tasting.slice(-2),
+    ];
+    const { plan, calls } = await planOf(repository('M\tsrc/wait.ts\n'), 'correctness', events);
+    assert.deepEqual((await plan).houseYeast, { selected: ['waits'], cut: [] });
+    const argsOf = (word: string) => calls.find(({ args }) => args.includes(word))?.args ?? [];
+    assert.equal(argsOf('ls-tree')[2], merged);
+    assert.deepEqual(argsOf('--name-status').slice(-2), [merged, head]);
+  });
+
+  it('gives a resumed attempt no rules again, and records none (ADR 0117)', async () => {
+    const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    const events: Event[] = [
+      ...tasting,
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'correctness',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'claude exited' },
+      },
+      scheduled('correctness', 2),
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'correctness',
+        attempt: 2,
+        session: { id, resumes: id, worktree: join('/work', 'correctness') },
+      },
+    ];
+    const { plan, calls } = await planOf(
+      repository('M\tsrc/wait.ts\n'),
+      'correctness',
+      events,
+      undefined,
+      2,
+    );
+    const { prompt, houseYeast } = await plan;
+    assert.ok(!prompt.includes('name="houseYeast"'));
+    assert.equal(houseYeast, undefined);
+    assert.ok(!calls.some(({ args }) => args[0] === 'ls-tree' || args.includes('--name-status')));
   });
 });

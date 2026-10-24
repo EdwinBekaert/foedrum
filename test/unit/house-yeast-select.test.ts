@@ -47,6 +47,23 @@ describe('selectRules: the lens of a recipe step (ADR 0169)', () => {
     const { selected } = selectRules(rules().rules, { files: ['src/a.ts'] });
     assert.deepEqual(ids(selected), ['no-lens']);
   });
+
+  it('leaves out a rule whose lens names another folder, no name, or a name in capitals', () => {
+    const { rules: read, invalid } = readRules([
+      file('.foedrum/house-yeast/other-folder.md', { lens: 'review/correctness' }),
+      file('.foedrum/house-yeast/no-name.md', { lens: 'diff/' }),
+      file('.foedrum/house-yeast/capitals.md', { lens: 'diff/Correctness' }),
+    ]);
+    assert.deepEqual(read, []);
+    assert.deepEqual(
+      invalid.map(({ path }) => path),
+      [
+        '.foedrum/house-yeast/other-folder.md',
+        '.foedrum/house-yeast/no-name.md',
+        '.foedrum/house-yeast/capitals.md',
+      ],
+    );
+  });
 });
 
 describe('ruleBlobs: what git ls-tree -z listed', () => {
@@ -99,6 +116,10 @@ describe('breweryRules: the layers of the Brewery’s house-yeast/', () => {
     { path: 'house-yeast/cents.md', text: 'x' },
     { path: 'house-yeast/Acme/Web/web-rule.md', text: 'y' },
     { path: 'house-yeast/acme/api/api-rule.md', text: 'z' },
+    // A sibling whose name starts with the repository's, and a file a folder deeper: neither is
+    // its rule.
+    { path: 'house-yeast/acme/web-old/old-rule.md', text: 'o' },
+    { path: 'house-yeast/acme/web/deeper/deep-rule.md', text: 'd' },
     { path: 'house-yeast/broken.md', unreadable: 'EACCES' },
   ];
 
