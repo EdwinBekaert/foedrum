@@ -32,7 +32,7 @@ import {
 } from './gravity.ts';
 import { judgeRed, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
-import { readDiff, stepCommits } from './step-commits.ts';
+import { readDiff, stepCommits, stepTests } from './step-commits.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
@@ -242,7 +242,9 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       const format = report.format === 'tap' ? 'TAP' : 'JUnit XML';
       return failed(`the test report ${where} is not ${format}: ${parsed.reason}`);
     }
-    const verdict = judgeRed(parsed.report, diff.files);
+    // The regression tests the proven step named pass, as they should (ADR 0170).
+    const regressionTests = stepTests(batch, of)?.regressionTests ?? [];
+    const verdict = judgeRed(parsed.report, diff.files, regressionTests);
     if (!verdict.proven) return failed(verdict.why);
     return { ending: { kind: 'succeeded', output: null }, readings };
   };

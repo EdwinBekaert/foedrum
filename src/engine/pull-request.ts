@@ -4,7 +4,9 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import {
+  GaugeOutDoc,
   type GaugeReport,
+  gaugeOf,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
@@ -154,13 +156,18 @@ export const stepReports = (batch: Batch): StepReport[] =>
       .at(-1);
     if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
     // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
-    // and a pullRequest brewer's the pull request's sections (ADR 0167).
+    // a pullRequest brewer's the pull request's sections (ADR 0167), and a Gauger's its tests
+    // (ADR 0170).
     const { output } = latest.outcome;
-    const doc = OutDocFrontmatter.or(TastingOutDoc).or(PullRequestOutDoc).safeParse(output);
+    const doc = OutDocFrontmatter.or(TastingOutDoc)
+      .or(PullRequestOutDoc)
+      .or(GaugeOutDoc)
+      .safeParse(output);
     if (!doc.success) return [];
     const { summary, assumptions } = doc.data;
     const tasting = tastingOf(output);
     const sections = pullRequestSectionsOf(output);
+    const gauge = gaugeOf(output);
     return [
       {
         stepId: step.id,
@@ -168,6 +175,7 @@ export const stepReports = (batch: Batch): StepReport[] =>
         assumptions,
         ...(tasting === undefined ? {} : { tasting }),
         ...(sections === undefined ? {} : { sections }),
+        ...(gauge === undefined ? {} : { gauge }),
       },
     ];
   });
@@ -390,9 +398,11 @@ export const pullRequestText = ({
     return withoutSecrets(read, stepId, isCommit);
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
-  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting }) => [
+  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting, gauge }) => [
     `${stepId}: ${shown(summary, stepId)}`,
     ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
+    ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
+    ...(gauge?.regressionTests ?? []).map((name) => `  regression test: ${flat(name, stepId)}`),
     // A Taster's findings are listed, never acted on, unless its step is blocking (ADR 0161).
     ...(tasting === undefined
       ? []

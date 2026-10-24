@@ -110,23 +110,6 @@ export const tastingOf = (output: unknown): TastingReport | undefined => {
   return { verdict: read.data.verdict, findings: read.data.findings };
 };
 
-/** The name of the Gauger's out doc schema (`output.schema`, ADR 0170). */
-export const GAUGE = 'gauge';
-
-/** The tests a Gauger named (ADR 0170), by the names the runner reports: model text, untrusted. */
-export interface GaugeReport {
-  tests: readonly string[];
-  regressionTests: readonly string[];
-}
-
-/**
- * The tests of an attempt's `output` when it names any; undefined for an out doc without them,
- * and for a check's success, which has none.
- */
-export const gaugeOf = (_output: unknown): GaugeReport | undefined => {
-  throw new Error('not implemented');
-};
-
 /**
  * The assumptions of an out doc that succeeded, beside whatever else it holds (a brewer's own
  * fields): what the status comment shows (ADR 0072).
@@ -182,4 +165,42 @@ export const pullRequestSectionsOf = (output: unknown): PullRequestSections | un
     ...(seeIt === undefined ? {} : { seeIt }),
     beforeAfter,
   };
+};
+
+/** The name of the Gauger's out doc schema (`output.schema`, ADR 0170): the default Gauger's. */
+export const GAUGE = 'gauge';
+
+/** The most names a Gauger gives in each list, and the longest name: the red proof's (ADR 0170). */
+const MAX_TESTS = 200;
+const TestNames = z.array(lineOf(1_000)).max(MAX_TESTS).default([]);
+
+/**
+ * The out doc of a brewer whose schema is `gauge`: the contract's, with its new tests and its
+ * regression tests, by the names the runner reports (ADR 0170).
+ */
+export const GaugeOutDoc = outDocFrontmatter({ tests: TestNames, regressionTests: TestNames });
+
+/** The tests a Gauger named (ADR 0170), by the names the runner reports: model text, untrusted. */
+export interface GaugeReport {
+  tests: readonly string[];
+  regressionTests: readonly string[];
+}
+
+/** Any out doc's lists of tests, read leniently: a Brewery's own brewer may name them too. */
+const NamedTests = z.object({
+  tests: z.array(z.string()).max(MAX_TESTS).default([]),
+  regressionTests: z.array(z.string()).max(MAX_TESTS).default([]),
+});
+
+/**
+ * The tests of an attempt's `output` when it names any; undefined for an out doc without them,
+ * and for a check's success, which has none.
+ */
+export const gaugeOf = (output: unknown): GaugeReport | undefined => {
+  const read = NamedTests.safeParse(output);
+  if (!read.success) return undefined;
+  const { tests, regressionTests } = read.data;
+  return tests.length === 0 && regressionTests.length === 0
+    ? undefined
+    : { tests, regressionTests };
 };
