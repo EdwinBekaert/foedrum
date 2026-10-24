@@ -1,6 +1,6 @@
 # Tasting
 
-**Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](../../adr/0022-five-default-lenses.md)), one lens step after another until parallel groups land (#428).
+**Tasting through lenses:** the Taster reviews through one lens per session (correctness, security, cross-platform, design conformance, test design; [ADR 0022](../../adr/0022-five-default-lenses.md)), in lens steps one after another or side by side in a parallel group.
 A lens step is a Taster's step with a `lens`: a Taster is a brewer whose out doc schema is `tasting`, and the default one is `defaults/brewers/taster.md`, read-only ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)).
 The step's lens reaches the Taster as its input `lens`, and a Taster that reviews a diff also gets the input `change`: the commits and the diff from the commit its batch started at to HEAD, or from the base a merge before its last check brought in ([ADR 0164](../../adr/0164-a-batch-merges-its-base-before-its-last-check.md)), the log by first parents only, which the engine reads with git in the repository's clone, with no diff driver, and holds to 256 KiB, so the Taster runs no shell.
 Its out doc adds `findings`, each with `severity` (`blocker`, `major`, `minor`), `why`, `introduced`, and `file` and `line` unless it is about the change as a whole, and a `verdict`, `approve` or `changes`, which must be `changes` exactly when a finding the change introduced is a `blocker` or `major`.
@@ -16,9 +16,14 @@ A Brewery adds or overrides lenses by committing files to `lenses/diff/` or `len
 A step with a `lens` reviews a diff once a step before it (in the order the recipe lists its steps, nested ones included) produces commits, and a plan otherwise; a lens of the other folder fails the load with a line that names the step and the lens, and a lens file directly in `lenses/` fails it with a line that says where it belongs.
 Test-first and lenses: [ADR 0017](../../adr/0017-test-first-recipes-and-tasting-lenses.md); the fifth lens: [ADR 0022](../../adr/0022-five-default-lenses.md).
 
-**Parallel groups.** Every child is its own attempt with its own lease and deadline; the group ends when all children end.
-The group's `verdict` is `approve` only when every child that returns a verdict approves.
-Their time counts against the recipe budget.
+**Parallel groups.** A `parallel` step's children are Tasters' lens steps without `when`, and a child whose brewer is no Taster, or produces commits, fails the load, so no child writes the task tree ([ADR 0168](../../adr/0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)).
+Each child is a step of its own, with its own attempts, lease, worktree, deadline and stall limit, and the status comment lists the children where the group stands.
+Entering the group schedules every child at once; a failed child is tried again on its own, and a child that makes the batch Stuck does so at once, abandoning the children still in flight.
+A child ends when its latest attempt succeeded, or was blocked by findings with its route's rounds not used up; the group ends when every child ended.
+Then a blocking child's `changes` sends the batch back along that child's `onBlocked` route, the first such child in the recipe's order, and otherwise the group's verdict is `approve` and the batch goes on.
+A `retry` or `answer` of a child also schedules every child of its group that has not ended, a `skip` of a child skips the rest of its group, and a `rewind` to a child runs the whole group again.
+A kill mid-group retries only the children that had not ended: the supervisor loses one attempt of a batch per tick and keeps the expired leases of the others for the ticks after.
+Each child's time counts toward the recipe's budget, summed, once a budget is built (#445).
 
 **Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 The engine checks each edit (an existing file under `src/` or `scripts/`, a line whose text is `original`, no new identifier or string), applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading.
