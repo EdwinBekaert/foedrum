@@ -110,20 +110,24 @@ export const brewLog = (batch: Batch): AttemptRow[] =>
     }
   });
 
+// A keyword after anything but a letter or digit: emphasis with `_` around it starts a word once
+// GitHub renders it (`_fixes #3_`).
 const KEYWORD =
-  /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(?:[^\p{L}\p{N}]|&[a-z]+;)*(?=#|GH-|[\w.-]+\/[\w.-]+#|https?:)/giu;
-const MENTION = /(^|[^\p{L}\p{N}_])@(?=[\p{L}\p{N}])/gu;
+  /(?<![\p{L}\p{N}])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^\p{L}\p{N}]*(?=#|GH-|[\w.-]+\/[\w.-]+#|https?:)/giu;
+const MENTION = /(^|[^\p{L}\p{N}])@(?=[\p{L}\p{N}])/gu;
+// Every character reference GitHub would decode, named or numeric: `&commat;` is an `@`.
+const REFERENCE = /&(?!amp;)(?=[#\p{L}])/gu;
 
 /**
  * Model text without what GitHub would act on outside a fence (ADR 0167): the `@` of a mention,
- * a closing keyword before an issue reference, and a numeric character reference.
+ * a closing keyword before an issue reference, and the `&` of a character reference.
  */
 export const unlinked = (text: string): string => {
-  // A removal can make what it removes again: `closes closes #3`, `@@ann`, `&fixes #3#`.
+  // A removal can make what it removes again: `closes closes #3`, `@@ann`, `&@ann`.
   let out = text;
   for (let before = ''; before !== out; ) {
     before = out;
-    out = out.replaceAll('&#', '&amp;#').replace(MENTION, '$1').replace(KEYWORD, '');
+    out = out.replace(REFERENCE, '&amp;').replace(MENTION, '$1').replace(KEYWORD, '');
   }
   return out;
 };
@@ -234,9 +238,10 @@ const brewTable = (attempts: readonly AttemptRow[], isCommit: IsCommit): string 
       reason === undefined
         ? ''
         : `: ${codeCell(
-            escapedLine(
-              withoutSecrets(reason.slice(0, MAX_CELL + SCAN_PAST), stepId, isCommit),
-            ).slice(0, MAX_CELL),
+            escapedLine(withoutSecrets(reason.slice(0, MAX_CELL + SCAN_PAST), stepId, isCommit))
+              // A long run of backticks would make the code span's fence as long.
+              .replace(/`{4,}/g, '```')
+              .slice(0, MAX_CELL),
           )}`;
     return `| ${stepId} #${attempt} | ${result}${why} |`;
   });
@@ -247,9 +252,46 @@ const brewTable = (attempts: readonly AttemptRow[], isCommit: IsCommit): string 
   ].join('\n\n');
 };
 
+const NEWLINE = String.fromCodePoint(0x0a);
+
+/** A fence line: up to three spaces, then three or more backticks or tildes. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Markdown that ends where it starts (ADR 0167): a fence it leaves open is closed, and a line that
+ * would start an HTML block outside a fence starts with `&lt;` instead, since either would run to
+ * the end of the body and swallow the engine's lines after it.
+ */
+const closedBlocks = (text: string): string => {
+  let open: string | undefined;
+  const lines = text.split(NEWLINE).map((line) => {
+    const fence = FENCE.exec(line);
+    if (open === undefined) {
+      if (fence !== null && !(fence[1]?.startsWith('`') && fence[2]?.includes('`'))) {
+        open = fence[1];
+        return line;
+      }
+      return line.replace(/^( {0,3})</, '$1&lt;');
+    }
+    const [, run = '', rest = ''] = fence ?? [];
+    if (run[0] === open[0] && run.length >= open.length && rest.trim() === '') open = undefined;
+    return line;
+  });
+  return [...lines, ...(open === undefined ? [] : [open])].join(NEWLINE);
+};
+
+/** The longest how it works and See it, once made safe: `unlinked` and the escapes make them grow. */
+const MAX_SHOWN_HOW = 12_000;
+const MAX_SHOWN_SEE = 1_200;
+
 /** The model's sections, without secrets and with nothing GitHub would act on (ADR 0167). */
 const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsCommit): string => {
   const shown = (text: string) => unlinked(withoutSecrets(text, stepId, isCommit));
+  // A section that grew past its room is left out whole: cutting it could break its Markdown.
+  const within = (text: string, max: number) =>
+    text.length <= max
+      ? text
+      : `[left out: a text of step ${stepId} that is too long once made safe for GitHub]`;
   const cell = (text: string) =>
     shown(text)
       .replace(/\s+/g, ' ')
@@ -262,9 +304,11 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
   const { howItWorks: how, seeIt } = sections;
   return [
     '## How it works',
-    ...(how === undefined ? [] : [shown(how).trim()]),
+    ...(how === undefined ? [] : [within(closedBlocks(shown(how).trim()), MAX_SHOWN_HOW)]),
     ...(table.length === 0 ? [] : [['| | Before | After |', '|---|---|---|', ...table].join('\n')]),
-    ...(seeIt === undefined ? [] : [`**See it:** ${shown(seeIt).replace(/\s+/g, ' ')}`]),
+    ...(seeIt === undefined
+      ? []
+      : [`**See it:** ${within(shown(seeIt).replace(/\s+/g, ' '), MAX_SHOWN_SEE)}`]),
   ].join('\n\n');
 };
 
@@ -307,7 +351,7 @@ export const pullRequestText = ({
   ].join('\n\n');
   const closing = `Closes ${order}`;
   // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS.
-  const room = Math.min(MAX_REPORTS, MAX_BODY - head.length - closing.length - FRAME);
+  const room = Math.max(0, Math.min(MAX_REPORTS, MAX_BODY - head.length - closing.length - FRAME));
   // Only what can be shown is read (ADR 0088): reports of 1 MiB would cost a second at every apply.
   let unread = room + SCAN_PAST;
   let cut = false;
