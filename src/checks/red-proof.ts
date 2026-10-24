@@ -80,12 +80,12 @@ function namesOf(name: string): string[] {
 /**
  * Whether a line the step added declares the test `name`, as a declaration writes a test's name
  * (ADR 0176): as the whole of a string literal (`test('adds two numbers'`, `` fun `adds`() ``); as
- * an identifier right before `(` where no call can stand (`void adds(`, ADR 0178); after `def`, `fn` or `func` (`def test_adds`, `fn adds<T>()`); as a GoogleTest
- * macro's test (`TEST(CalcTest, Adds)`); or as the rest of a Gherkin scenario's line (`Scenario:
- * adds two numbers`). A bare word in code (`key: null,`, `f(null)`) is none (#466), nor a method
- * call (`calc.add(`), nor a line that only asserts (`assert.equal(add(1, 2), 3)`). Each form is a
- * literal between fixed parts, so the match stays linear in the line. A line keeps no carriage
- * return of a CRLF file.
+ * an identifier right before `(` where no call can stand (`void adds(`, ADR 0178); after `def`,
+ * `fn` or `func` (`def test_adds`, `fn adds<T>()`); as a GoogleTest macro's test (`TEST(CalcTest,
+ * Adds)`); or as the rest of a Gherkin scenario's line (`Scenario: adds two numbers`). A bare word
+ * in code (`key: null,`, `f(null)`) is none (#466), nor a method call (`calc.add(`), nor a line
+ * that only asserts (`assert.equal(add(1, 2), 3)`). Each form is a literal between fixed parts, so
+ * the match stays linear in the line. A line keeps no carriage return of a CRLF file.
  */
 function declares(name: string, lines: readonly string[]): boolean {
   const names = namesOf(name);
