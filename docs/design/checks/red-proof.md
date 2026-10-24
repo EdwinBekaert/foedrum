@@ -16,9 +16,9 @@ Tests the step did not add may pass or fail on an assertion.
 
 **Regression tests** ([ADR 0170](../../adr/0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md)).
 A test that pins behaviour the order keeps passes before the change, as it should; the step names it in its out doc's `regressionTests` (the Gauger's schema `gauge`), by the name the runner reports.
-Each named test must be one the step added, matched by its whole reported name, and pass; one that fails, is skipped or is no test the step added fails the proof.
+Each named test must be one the step added, matched by its whole reported name, in a file where it declared a test and not in a comment, and pass; one that fails, is skipped or is no test the step added fails the proof.
 The step's other tests must still fail as above, and there must be at least one, so a run with regression tests only proves nothing.
-`testsUnchanged` keeps a regression test as it keeps the step's other tests, and the test-design lens checks that each one pins behaviour the order keeps: a Taster that reviews a diff gets the list in its change input.
+`testsUnchanged` keeps a regression test as it keeps the step's other tests, and the test-design lens checks that each one pins behaviour the order keeps: a Taster that reviews a diff gets the list in its change input ([tasting](../recipes/tasting.md)).
 
 **What `testsUnchanged` keeps** ([ADR 0078](../../adr/0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).
 After an attempt of a brewer with the guard succeeds, the engine compares its commits with what the step its recipe's red proof proves committed.
