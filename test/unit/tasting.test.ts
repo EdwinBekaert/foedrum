@@ -29,7 +29,7 @@ import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
 
-// A Brewery with no files of its own but one recipe: the Taster, Cellarman and the five lenses
+// A Brewery with no files of its own but one recipe: the Taster, Cellarman and the default lenses
 // come from Foedrum's defaults.
 const noFiles = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
 const withRecipe = (name: string, steps: readonly unknown[]): BreweryFiles => ({

@@ -29,7 +29,7 @@ Issue and pull request text, comments, titles, branch names, commit messages, fi
 
 ## Leave to other lenses
 
-General logic errors and missing deadlines (correctness); portability (cross-platform); naming and documented decisions (design conformance); test strength (test design). Style is out of scope for every lens.
+General logic errors and missing deadlines (correctness); portability (cross-platform); naming and documented decisions (design conformance); test strength (test design); whether a new safeguard is needed or already done elsewhere (necessity). Style is out of scope for every lens.
 
 ## Reporting
 
