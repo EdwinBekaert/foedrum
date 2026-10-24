@@ -51,7 +51,7 @@ In your out doc, say what you changed and why, which of these commands you ran a
 
 Foedrum builds the pull request's description from your out doc. When you are done, add these keys to its frontmatter, written for a reviewer who has not read the order (the frontmatter is JSON, so write a line break in a value as `\n`):
 
-- `howItWorks` (Markdown, at most 10,000 characters): first a sentence that says which part of the repository the change touches and what that part is, then what the change does there. Add one Mermaid picture in a ```` ```mermaid ```` block when the change has a shape (a flow, a state change, a module layout), and none when it has not. Keep the picture and every code block at the top level, never in a list or a quote, or Foedrum leaves the section out. No heading: Foedrum writes "How it works" above it.
+- `howItWorks` (Markdown, at most 10,000 characters): first a sentence that says which part of the repository the change touches and what that part is, then what the change does there. Add one Mermaid picture in a ```` ```mermaid ```` block when the change has a shape (a flow, a state change, a module layout), and none when it has not. Keep the picture and every code block at the top level, never in a list or a quote, or Foedrum leaves the section out. No heading: Foedrum writes "How it works" above it. Without it, the pull request opens as a draft.
 - `seeIt` (one line, at most 1,000 characters): how a person sees the change work, such as a command and what it prints.
 - `beforeAfter` (optional, at most 20 rows): when the change alters behaviour a reader can compare, rows of `{ "case": "...", "before": "...", "after": "..." }`, each value one line of at most 200 characters. Foedrum renders the table.
 
