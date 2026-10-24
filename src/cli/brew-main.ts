@@ -7,7 +7,9 @@ import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
 import { runBrew } from './brew.ts';
 import { brewOwner } from './driver-owner.ts';
+import { liveTerminal } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
+import type { ServeShell } from './serve.ts';
 import { readServeSetup, type StartOptions } from './serve-main.ts';
 import { listenWhileServing, serveShell } from './serve-shell.ts';
 
@@ -33,13 +35,18 @@ export const brewFromCheckout = async (
   // The stop signals are listened for while brew runs, and no longer once it returns.
   const listening = listenWhileServing(process);
   try {
-    const shell = serveShell(setup, {
-      root: cwd,
-      git: runGit,
-      out: (line) => process.stdout.write(`${line}\n`),
-      listen: listening.listen,
-      command: 'brew',
-    });
+    const terminal = liveTerminal(process.stdout, env);
+    const shell: ServeShell = {
+      ...serveShell(setup, {
+        root: cwd,
+        git: runGit,
+        out: (line) => process.stdout.write(`${line}\n`),
+        listen: listening.listen,
+        command: 'brew',
+      }),
+      // A live line only where standard output is a terminal that takes it (ADR 0174).
+      ...(terminal === undefined ? {} : { terminal }),
+    };
     const exitCode = await runBrew(setup, shell, {
       target: input.issue,
       owner: owner.owner,

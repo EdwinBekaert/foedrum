@@ -16,8 +16,26 @@ export interface TerminalStream {
 
 /** The live terminal over `stream` when the rule of ADR 0174 holds in `env`, else none. */
 export const liveTerminal = (
-  _stream: TerminalStream,
-  _env: Readonly<Record<string, string | undefined>>,
+  stream: TerminalStream,
+  env: Readonly<Record<string, string | undefined>>,
 ): LiveTerminal | undefined => {
-  throw new Error('not implemented');
+  if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
+  const clear = (): void => {
+    stream.cursorTo(0);
+    stream.clearLine(0);
+  };
+  return {
+    columns: () => stream.columns,
+    onResize: (handler) => {
+      stream.on('resize', handler);
+      return () => {
+        stream.off('resize', handler);
+      };
+    },
+    clear,
+    rewrite: (text) => {
+      clear();
+      stream.write(text);
+    },
+  };
 };

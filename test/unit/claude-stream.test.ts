@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { readClaudeStream, type StreamAsk } from '../../src/brewers/claude-stream.ts';
+import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import {
   documentedSpendLimits,
   documentedUsageLimits,
@@ -416,16 +417,21 @@ describe('readClaudeStream', () => {
 // The stall watchdog's signal (ADR 0027, ADR 0047): a file written or a commit made, read from
 // the tool calls and their results; no other event counts.
 describe('readClaudeStream progress', () => {
+  // The watchdog's two signals; the live line's fields are tested in claude-stream-live.test.ts.
+  const watched = ({ lastProgressAt, turnsWithoutProgress }: AttemptProgress) => ({
+    lastProgressAt,
+    turnsWithoutProgress,
+  });
   const run = (events: string[]) => {
     const reader = readClaudeStream(asked, started);
     events.forEach((line, index) => {
       reader.read(line, at(index + 1));
     });
-    return reader.progress();
+    return watched(reader.progress());
   };
 
   it('starts at the start of the attempt with no turns', () => {
-    assert.deepEqual(readClaudeStream(asked, started).progress(), {
+    assert.deepEqual(watched(readClaudeStream(asked, started).progress()), {
       lastProgressAt: started,
       turnsWithoutProgress: 0,
     });

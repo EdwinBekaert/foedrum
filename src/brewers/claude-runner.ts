@@ -352,7 +352,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     let claudeFrom = startedAt;
     running.set(key, () => {
       if (reader !== undefined) return reader.progress();
-      return { lastProgressAt: settingUp ? deps.now() : claudeFrom, turnsWithoutProgress: 0 };
+      return {
+        lastProgressAt: settingUp ? deps.now() : claudeFrom,
+        turnsWithoutProgress: 0,
+        ...(settingUp ? { settingUp } : {}),
+      };
     });
     const unstartable = (error: unknown): AttemptEnd => ({
       ending: settleAttempt(noFacts({ kind: 'unstartable', reason: messageOf(error) }), limits),
@@ -413,6 +417,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
             tools,
             maxDenials: limits.maxDenials,
             resumes: session.kind === 'resume',
+            worktree: cwd,
           },
           claudeFrom,
         );

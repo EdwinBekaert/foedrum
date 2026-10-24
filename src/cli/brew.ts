@@ -3,8 +3,9 @@
 // wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch alone, orders and
 // routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
 // Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
+// On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
 
-import { attemptKey } from '../engine/attempt-key.ts';
+import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -13,6 +14,7 @@ import type { Batch } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
+import type { AttemptProgress } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { githubOrderLabels } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
@@ -96,12 +98,21 @@ export const drivenBy = (lease: BatchLease): string =>
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
 
-/** The attempts of `batch` that run now, as `<step> #<n>`. */
-const runningAttempts = (batch: Batch): string[] =>
+/** An attempt of `batch` that runs now: named `<step> #<n>`, and the ref the driver reports it by. */
+interface Running {
+  label: string;
+  ref: AttemptRef;
+}
+
+/** The attempts of `batch` that run now. */
+const runningAttempts = (batch: Batch): Running[] =>
   [...batch.steps.values()].flatMap(({ id, attempts }) =>
     [...attempts.values()]
       .filter((attempt) => attempt.phase === 'started' && attempt.abandoned !== true)
-      .map(({ attempt }) => `${id} #${attempt}`),
+      .map(({ attempt }) => ({
+        label: `${id} #${attempt}`,
+        ref: { batchId: batch.id, stepId: id, attempt },
+      })),
   );
 
 /** `ms` as whole seconds, and minutes from one: `30s`, `1m 0s`. */
@@ -110,17 +121,85 @@ const elapsed = (ms: number): string => {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
+/** The frames of the live line's spinner, one at each redraw (ADR 0174). */
+const SPINNER = '|/-\\';
+/** How often the live line is redrawn, apart from the tick. */
+const REDRAW_MS = 1000;
+/** The longest a tool's name is shown, before it is escaped. */
+const TOOL_NAME_MAX = 64;
+/** The width of a terminal that does not say. */
+const UNKNOWN_COLUMNS = 80;
+
+/** What the live line shows of one running attempt, in the order of ADR 0174. */
+const attemptText = (label: string, ms: number, progress: AttemptProgress | undefined): string => {
+  const parts = [label, elapsed(ms)];
+  if (progress?.settingUp === true) {
+    parts.push('setup');
+  } else {
+    if (progress?.turn !== undefined) parts.push(`turn ${progress.turn}`);
+    const tool = progress?.lastTool;
+    if (tool !== undefined) {
+      const name = tool.name.slice(0, TOOL_NAME_MAX);
+      parts.push(tool.word === undefined ? name : `${name} ${tool.word}`);
+    }
+    if (progress?.denied === true) parts.push('denied');
+  }
+  return parts.join(' / ');
+};
+
+/**
+ * The live line: `frame`, then the attempts, in ASCII only (every UTF-16 unit outside U+0020 to
+ * U+007E as a `\uXXXX` escape), cut to one character less than the terminal's width.
+ */
+const liveLine = (frame: string, attempts: readonly string[], columns: number | undefined) =>
+  `${frame} ${attempts.join(' ; ')}`
+    .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    .slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
+
 /** Brews the batch of `request.target` until it stops; the exit code of ADR 0123. */
 export const runBrew = async (
   setup: ServeSetup,
   shell: ServeShell,
   request: BrewRequest,
 ): Promise<number> => {
-  const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
+  const { out, signal, clock, wait, intervalMs = INTERVAL_MS, terminal } = shell;
   const { target, owner, by, via } = request;
+  // The live line (ADR 0174), drawn only with a terminal: the attempts that run, when this driver
+  // first saw each run, what the driver reports of one, and whether the line is on screen.
+  let brewing: Running[] = [];
+  const seenAt = new Map<string, number>();
+  let progressOf: (ref: AttemptRef) => AttemptProgress | undefined = () => undefined;
+  let frame = 0;
+  let onScreen = false;
+  const clearLive = (): void => {
+    if (!onScreen) return;
+    terminal?.clear();
+    onScreen = false;
+  };
+  const draw = (): void => {
+    if (terminal === undefined) return;
+    if (brewing.length === 0) {
+      clearLive();
+      return;
+    }
+    const at = clock().getTime();
+    const attempts = brewing.map(({ label, ref }) =>
+      attemptText(label, at - (seenAt.get(label) ?? at), progressOf(ref)),
+    );
+    terminal.rewrite(
+      liveLine(SPINNER.charAt(frame++ % SPINNER.length), attempts, terminal.columns()),
+    );
+    onScreen = true;
+  };
   // Notices and questions may carry text a model wrote: never a control character on the
   // terminal, and never a line break, which would forge a line the session acts on (ADR 0123).
-  const say = (line: string): void => out(oneLine(printable(`foedrum brew: ${line}`)));
+  // A lasting line goes over the live line: it clears it, prints, and draws it again.
+  const say = (line: string): void => {
+    const wasOnScreen = onScreen;
+    clearLive();
+    out(oneLine(printable(`foedrum brew: ${line}`)));
+    if (wasOnScreen) draw();
+  };
   const refuse = (reason: string): number => {
     say(reason);
     return BREW_EXIT.refused;
@@ -149,6 +228,7 @@ export const runBrew = async (
   let batchId: string | undefined;
   // Another driver's lease of the batch, once this driver lost it or never got it.
   let holder: BatchLease | undefined;
+  let stopResize: (() => void) | undefined;
   try {
     const { store, driver, reads, claims } = await wireDriver(setup, shell, opened, {
       // This batch alone, once it is known (ADR 0044).
@@ -161,6 +241,7 @@ export const runBrew = async (
         say(formatNotice(notice));
       },
     });
+    progressOf = (ref) => driver.progress(ref);
     const log = createCommandLog({ store, recipes: setup.recipes });
     const heldElsewhere = (id: string): BatchLease | undefined =>
       store.batchLeases(clock()).find((lease) => lease.batchId === id && lease.owner !== owner);
@@ -272,8 +353,17 @@ export const runBrew = async (
     let shown = '';
     // When the last line was said, and when this driver first saw each attempt run.
     let saidAt = clock().getTime();
-    const seenAt = new Map<string, number>();
     let linked = false;
+    stopResize = terminal?.onResize(draw);
+    /** Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174). */
+    const pause = async (): Promise<void> => {
+      if (terminal === undefined) return wait(intervalMs, signal);
+      const until = clock().getTime() + intervalMs;
+      do {
+        draw();
+        await wait(Math.min(REDRAW_MS, intervalMs), signal);
+      } while (!signal.aborted && clock().getTime() < until);
+    };
     for (;;) {
       try {
         await driver.tick();
@@ -331,21 +421,22 @@ export const runBrew = async (
       const line = `batch ${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
       const at = clock().getTime();
       const running = runningAttempts(now);
-      for (const each of running) if (!seenAt.has(each)) seenAt.set(each, at);
+      for (const { label } of running) if (!seenAt.has(label)) seenAt.set(label, at);
+      brewing = running;
       if (line !== shown) {
         shown = line;
         saidAt = at;
         say(line);
-      } else if (running.length > 0 && at - saidAt >= PROGRESS_MS) {
+      } else if (terminal === undefined && running.length > 0 && at - saidAt >= PROGRESS_MS) {
         // A step can run for many minutes in silence: say it still runs (#406).
         saidAt = at;
         const runs = running.map(
-          (each) => `${each} running for ${elapsed(at - (seenAt.get(each) ?? at))}`,
+          ({ label }) => `${label} running for ${elapsed(at - (seenAt.get(label) ?? at))}`,
         );
         say(`batch ${batchId} ${lane}: ${runs.join(', ')}`);
       }
       if (signal.aborted) break;
-      await wait(intervalMs, signal);
+      await pause();
       if (signal.aborted) break;
     }
     say(`stopped; ${shown}`);
@@ -359,6 +450,9 @@ export const runBrew = async (
     say(messageOf(error));
     return BREW_EXIT.failed;
   } finally {
+    // The live line goes before any exit, so the last lines on screen are the lasting ones.
+    stopResize?.();
+    clearLive();
     // Closing the driver stops its runs and lets the lock go; a Stuck batch keeps its lease.
     closeOpened(opened);
   }

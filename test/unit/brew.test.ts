@@ -453,6 +453,9 @@ describe('runBrew', () => {
     /** Brews with a terminal, a clock that only the waits move and a brewer that shows `progress`. */
     const brewLive = async (progress: AttemptProgress, more: Live = {}) => {
       const { seconds = 10, columns = 120, onWait, runner, flush } = more;
+      // A test brews more than once: each brew gets the lock and the store of a fresh machine.
+      lock = fakeLock('ann');
+      store = { ...openSqliteEventStore(':memory:'), close: () => {} };
       const screen = fakeScreen(columns);
       const controller = new AbortController();
       const waits: number[] = [];
