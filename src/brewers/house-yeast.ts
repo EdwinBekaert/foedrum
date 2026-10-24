@@ -3,8 +3,9 @@
 // (scripts/house-yeast.ts), and in src/ a batch can too (#434).
 
 import { posix } from 'node:path';
-import { HouseYeastRule } from '../schemas/house-yeast.ts';
+import { HouseYeastRule, type HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { readDoc } from '../schemas/read.ts';
+import type { PromptInput } from './prompt.ts';
 
 export interface RuleFile {
   path: string;
@@ -73,6 +74,24 @@ export const changedFiles = (nameStatus: string): string[] =>
     .filter(([status = '', path]) => path !== undefined && !status.startsWith('D'))
     .map((fields) => fields[fields.length - 1] as string);
 
+/**
+ * The files of `git diff --name-status -z` the change adds, alters or renames (new path), as git
+ * wrote them, never quoted; not deleted ones (ADR 0169).
+ */
+export const changedFilesZ = (nameStatus: string): string[] => {
+  // Each entry is its status, then its path, or for a rename or a copy its old and new paths.
+  const fields = nameStatus.split('\0');
+  const files: string[] = [];
+  for (let at = 0; at < fields.length - 1; ) {
+    const status = fields[at] ?? '';
+    const paths = /^[RC]/.test(status) ? 2 : 1;
+    const path = fields[at + paths];
+    if (path !== undefined && !status.startsWith('D')) files.push(path);
+    at += 1 + paths;
+  }
+  return files;
+};
+
 const languages: Record<string, string> = {
   '.ts': 'typescript',
   '.tsx': 'typescript',
@@ -104,9 +123,19 @@ const fileMatches = (scope: Scope, file: string): boolean =>
 export const unscoped = ({ scope }: HouseYeastRule): boolean =>
   scope.globs === undefined && scope.language === undefined;
 
-const matches = ({ rule }: Rule, files: readonly string[], lens: string): boolean =>
+// A rule's lens by its name matches that lens in either folder: diff/<name> or plan/<name>. A lens
+// given without its folder, as /brew-review gives its own, is the diff lens of that name (ADR 0169).
+const lensMatches = (ruleLens: string | undefined, given: string | undefined): boolean => {
+  const lens = given === undefined || given.includes('/') ? given : `diff/${given}`;
+  return (
+    ruleLens === undefined ||
+    (lens !== undefined && (ruleLens === lens || ruleLens === lens.slice(lens.indexOf('/') + 1)))
+  );
+};
+
+const matches = ({ rule }: Rule, files: readonly string[], lens?: string): boolean =>
   rule.status === 'active' &&
-  (rule.scope.lens === undefined || rule.scope.lens === lens) &&
+  lensMatches(rule.scope.lens, lens) &&
   (unscoped(rule) || files.some((file) => fileMatches(rule.scope, file)));
 
 // Lower comes first: a rule for this lens, then globs, a language alone, the whole repository.
@@ -142,7 +171,7 @@ const price = (rule: Rule): number => Math.ceil(section(rule).length / 4);
  */
 export const selectRules = (
   rules: readonly Rule[],
-  change: { files: readonly string[]; lens: string },
+  change: { files: readonly string[]; lens?: string },
   budget: number = defaultBudget,
 ): Selection => {
   const selection: Selection = { selected: [], cut: [] };
@@ -157,4 +186,136 @@ export const selectRules = (
     }
   }
   return selection;
+};
+
+/** A rule file of the Brewery that could not be read, with why. */
+export interface UnreadRuleFile {
+  path: string;
+  unreadable: string;
+}
+
+/** A rule file as it was read, or why it could not be. */
+export type RuleSource = RuleFile | UnreadRuleFile;
+
+/**
+ * The rule files `git ls-tree -z <commit> -- .foedrum/house-yeast/` lists: the regular `.md` files
+ * directly in the folder, by path and blob id; never a link or a folder (ADR 0169).
+ */
+export const ruleBlobs = (lsTree: string): { path: string; blob: string }[] =>
+  lsTree.split('\0').flatMap((entry) => {
+    const [, blob, path] = /^100(?:644|755) blob ([0-9a-f]+)\t(.+\.md)$/.exec(entry) ?? [];
+    return blob === undefined || path === undefined ? [] : [{ path, blob }];
+  });
+
+/**
+ * The text of each of `blobs`, from what `git cat-file --batch` printed for their ids, in order,
+ * or why it is not a rule's (ADR 0169); throws when the output does not hold them.
+ */
+export const blobTexts = (
+  blobs: readonly { path: string; blob: string }[],
+  batch: string,
+): RuleSource[] => {
+  // Each blob is `<id> blob <size>`, a line feed, its bytes and a line feed: sizes count bytes.
+  // The runner decoded them as UTF-8, and a byte that is not became U+FFFD, three bytes, so a
+  // blob ends where the next one's header starts, and its size only checks it.
+  let at = 0;
+  return blobs.map(({ path, blob }, index) => {
+    const lineEnd = batch.indexOf('\n', at);
+    const header = lineEnd < 0 ? '' : batch.slice(at, lineEnd);
+    const [, id, size = ''] = /^([0-9a-f]+) blob (\d+)$/.exec(header) ?? [];
+    const next = blobs[index + 1];
+    const end =
+      next === undefined ? batch.length - 1 : batch.indexOf(`\n${next.blob} blob `, lineEnd);
+    const text = batch.slice(lineEnd + 1, end);
+    const unreadable = text.includes('�');
+    if (
+      id !== blob ||
+      end <= lineEnd ||
+      batch[end] !== '\n' ||
+      (!unreadable && Buffer.byteLength(text) !== Number(size))
+    ) {
+      throw new Error(`git cat-file did not print the blob ${blob} of ${path}`);
+    }
+    at = end + 1;
+    return unreadable ? { path, unreadable: 'it is not UTF-8 text' } : { path, text };
+  });
+};
+
+/**
+ * The Brewery's rule files by layer (ADR 0169): those directly in `house-yeast/` are the Brewery
+ * layer, and for a repository whose rules are kept in the Brewery, those in
+ * `house-yeast/<owner>/<name>/` are its repository layer.
+ */
+export const breweryRules = (
+  files: readonly RuleSource[],
+  repo: string,
+  keptIn: 'repo' | 'brewery',
+): { brewery: RuleSource[]; repository: RuleSource[] } => {
+  // GitHub's names are not case-sensitive, so neither is the folder of one.
+  const folder = `house-yeast/${repo.toLowerCase()}`;
+  // A folder that could not be listed is named by its own path, in the layer it holds.
+  const unlisted = (file: RuleSource, name: string): boolean =>
+    'unreadable' in file && file.path.toLowerCase() === name;
+  const inFolder = (file: RuleSource): boolean =>
+    unlisted(file, folder) ||
+    (file.path.toLowerCase().startsWith(`${folder}/`) &&
+      !file.path.slice(folder.length + 1).includes('/'));
+  return {
+    brewery: files.filter(
+      (file) => unlisted(file, 'house-yeast') || /^house-yeast\/[^/]+$/.test(file.path),
+    ),
+    repository: keptIn === 'brewery' ? files.filter(inFolder) : [],
+  };
+};
+
+/** The rules one attempt gets: its inputs, and what it records (ADR 0169). */
+export interface PickedRules {
+  inputs: PromptInput[];
+  record: HouseYeastSelection;
+}
+
+/** The rules of `files`, with those that could not be read among the invalid. */
+const readLayer = (files: readonly RuleSource[]): Rules => {
+  // A byte that is not UTF-8 was read as U+FFFD, from the file system as from git.
+  const garbled = (file: RuleSource): RuleSource =>
+    'text' in file && file.text.includes('�')
+      ? { path: file.path, unreadable: 'it is not UTF-8 text' }
+      : file;
+  const checked = files.map(garbled);
+  const read = readRules(checked.flatMap((file) => ('text' in file ? [file] : [])));
+  const unread = checked.flatMap((file) =>
+    'unreadable' in file ? [{ path: file.path, reason: file.unreadable }] : [],
+  );
+  return { rules: read.rules, invalid: [...read.invalid, ...unread] };
+};
+
+/**
+ * The rules of both layers whose scope matches `change`, within `budget`: a repository rule over a
+ * Brewery rule of its id (ADR 0018), each selected one as an input named `houseYeast`, and the ids
+ * selected and cut and the files left out as invalid, which the attempt records (ADR 0169).
+ */
+export const pickRules = (
+  layers: { repository: readonly RuleSource[]; brewery: readonly RuleSource[] },
+  change: { files: readonly string[]; lens?: string },
+  budget: number = defaultBudget,
+): PickedRules => {
+  const repository = readLayer(layers.repository);
+  const brewery = readLayer(layers.brewery);
+  const own = new Set(repository.rules.map(({ rule }) => rule.id));
+  const rules = [...repository.rules, ...brewery.rules.filter(({ rule }) => !own.has(rule.id))];
+  const { selected, cut } = selectRules(rules, change, budget);
+  const invalid = [...repository.invalid, ...brewery.invalid].map(({ path }) => path);
+  const idsOf = (priced: readonly Priced[]): string[] => priced.map(({ rule }) => rule.rule.id);
+  return {
+    inputs: selected.map(({ rule }) => ({
+      name: 'houseYeast',
+      source: { kind: 'house-yeast', rule: rule.rule.id, path: rule.path },
+      text: section(rule),
+    })),
+    record: {
+      selected: idsOf(selected),
+      cut: idsOf(cut),
+      ...(invalid.length === 0 ? {} : { invalid }),
+    },
+  };
 };
