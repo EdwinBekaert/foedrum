@@ -152,8 +152,9 @@ const plainProgram = /^[a-z0-9._/\\:-]+$/;
 // The extensions Windows runs a program by (PATHEXT): `git.cmd` is git too. PowerShell runs `.ps1`.
 const windowsExtension = /\.(?:exe|com|bat|cmd)$/;
 const powerShellExtension = /\.(?:exe|com|bat|cmd|ps1)$/;
-const gitWord = /(?:^|[\s/\\'"=])git(?:-[a-z0-9-]+)?(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
-const ghWord = /(?:^|[\s/\\'"=])gh(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
+// git or gh after a wrapper, also through a PowerShell shim, which a wrapper may start.
+const gitWord = /(?:^|[\s/\\'"=])git(?:-[a-z0-9-]+)?(?:\.(?:exe|com|bat|cmd|ps1))?(?=[\s'"]|$)/;
+const ghWord = /(?:^|[\s/\\'"=])gh(?:\.(?:exe|com|bat|cmd|ps1))?(?=[\s'"]|$)/;
 const gitSubcommand = /^\s+([a-z][a-z0-9-]*)(?=\s|$)/;
 // A package manager's subcommand: no option, quote, star or escape.
 const packageSubcommand = /^\s+([a-z0-9._][a-z0-9._-]*)(?=\s|$)/;
