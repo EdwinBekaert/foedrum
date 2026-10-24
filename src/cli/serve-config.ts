@@ -51,6 +51,8 @@ export interface ServeInputs {
     /** models.jsonc, which merges over Foedrum's own (ADR 0153) */
     models: string | undefined;
     brewery: BreweryFiles;
+    /** The Brewery's house-yeast rule files (`readHouseYeast`, ADR 0169). */
+    houseYeast?: readonly BreweryFile[];
   };
   diagnosis: Pick<Diagnosis, 'tools' | 'isolation' | 'problems'>;
 }
@@ -71,6 +73,8 @@ export interface ServeRepository {
   testReport?: TestReportConfig;
   /** What runs before a brewer attempt and a check step's checks, with the network (ADR 0163). */
   setup?: RepositorySetup;
+  /** Where its own house-yeast rules are kept (ADR 0018); default in the repository. */
+  houseYeast?: 'repo' | 'brewery';
 }
 
 /** What the intake in serve's loop orders, and how often it polls (ADR 0068). */
@@ -97,6 +101,8 @@ export interface ServeSetup {
   models: ModelsConfig;
   recipes: Recipes;
   brewers: StepBrewers;
+  /** The Brewery's house-yeast rule files, for the brewers that ask for them (ADR 0169). */
+  houseYeast?: readonly BreweryFile[];
   /** The checks of the recipes' check steps (ADR 0069). */
   checks: StepChecks;
   /** The host gh reaches GitHub on, with its own login (ADR 0073). */
@@ -284,6 +290,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         checks: repository.checks,
         ...(repository.testReport === undefined ? {} : { testReport: repository.testReport }),
         ...(repository.setup === undefined ? {} : { setup: repository.setup }),
+        ...(repository.houseYeast === 'brewery' ? { houseYeast: 'brewery' as const } : {}),
       };
     },
   );
@@ -359,6 +366,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       models,
       recipes: loaded.recipes,
       brewers: loaded.brewers,
+      ...(files.houseYeast === undefined ? {} : { houseYeast: files.houseYeast }),
       checks: loaded.checks,
       intake: {
         users: config.users ?? [],

@@ -5,7 +5,11 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { breweryRecipes, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import {
+  breweryRecipes,
+  readBreweryFiles,
+  readHouseYeast,
+} from '../../src/engine/brewery-files.ts';
 import { INVALID_RECIPES, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
 import { ModelsConfig } from '../../src/schemas/models.ts';
@@ -46,6 +50,19 @@ describe('readBreweryFiles', () => {
       brewers: [{ path: 'defaults/brewers/gauger.md', text: 'gauger' }],
       lenses: [{ path: 'defaults/lenses/diff/correctness.md', text: 'correctness' }],
     });
+  });
+
+  it("reads the Brewery's house-yeast rules, and those it keeps for a repository, by path (ADR 0169)", () => {
+    assert.deepEqual(readHouseYeast(brewery.path), []);
+    write('house-yeast/cents.md', 'cents');
+    write('house-yeast/notes.txt', 'not a rule');
+    write('house-yeast/acme/web/web-rule.md', 'web');
+    write('house-yeast/acme/web/deeper/no.md', 'too deep');
+    write('house-yeast/acme/stray.md', 'not in a repository folder');
+    assert.deepEqual(readHouseYeast(brewery.path), [
+      { path: 'house-yeast/cents.md', text: 'cents' },
+      { path: 'house-yeast/acme/web/web-rule.md', text: 'web' },
+    ]);
   });
 
   it("reads the defaults' models.jsonc by its path in defaults/, and has none where it is missing (ADR 0153)", () => {

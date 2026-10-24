@@ -15,6 +15,7 @@ import type {
   Usage,
   WaitCondition,
 } from '../schemas/events.ts';
+import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
@@ -87,6 +88,8 @@ export type EngineCommand =
       readings?: readonly GravityReading[];
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
+      /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
+      houseYeast?: HouseYeastSelection;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -412,7 +415,7 @@ function refuseOrder(
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, readings, claude } = command;
+  const { batchId, stepId, attempt, ending, usage, readings, claude, houseYeast } = command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
@@ -432,6 +435,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(usage === undefined ? {} : { usage }),
     ...(readings === undefined ? {} : { readings: [...readings] }),
     ...(claude === undefined ? {} : { claude }),
+    ...(houseYeast === undefined ? {} : { houseYeast }),
   });
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
   const batch = draft.batch(batchId);
