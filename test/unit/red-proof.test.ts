@@ -345,3 +345,81 @@ describe('judgeRed', () => {
     assert.deepEqual(judgeRed(report, gauged), { proven: true, tests: ['adds two numbers'] });
   });
 });
+
+describe('judgeRed with regression tests (ADR 0170)', () => {
+  // The Gauger's commit with a regression test beside the new ones: it pins what stays as it is.
+  const withRegression: DiffFile[] = [
+    ...gauged,
+    {
+      newPath: 'test/add-zero.test.mjs',
+      added: ["test('keeps adding zero', () => {", '  assert.equal(add(1, 0), 1);', '});'],
+      removed: [],
+    },
+  ];
+  const newTestsFail = [
+    ...failing(1, 'adds two numbers', 'not implemented'),
+    ...failing(2, 'adds a negative number', 'Expected values to be strictly equal'),
+  ];
+  const refusedWith = (report: TestReport, regressionTests: readonly string[]): string => {
+    const verdict = judgeRed(report, withRegression, regressionTests);
+    assert.equal(verdict.proven, false, 'the red proof should fail');
+    return verdict.proven ? '' : verdict.why;
+  };
+
+  it('proves red when a named regression test passes and every new test fails', () => {
+    const report = tap(...newTestsFail, 'ok 3 - keeps adding zero', '1..3');
+    assert.deepEqual(judgeRed(report, withRegression, ['keeps adding zero']), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it('refuses a named regression test that fails', () => {
+    const report = tap(...newTestsFail, ...failing(3, 'keeps adding zero', 'Expected 1'));
+    assert.equal(
+      refusedWith(report, ['keeps adding zero']),
+      'regression test "keeps adding zero" fails before the implementation: a regression test passes before the change',
+    );
+  });
+
+  it('refuses a named regression test that is skipped', () => {
+    const report = tap(...newTestsFail, 'ok 3 - keeps adding zero # SKIP');
+    assert.equal(
+      refusedWith(report, ['keeps adding zero']),
+      'regression test "keeps adding zero" is skipped, so it proves nothing',
+    );
+  });
+
+  it('still refuses a new test that passes when it is not named a regression test', () => {
+    const report = tap(...newTestsFail, 'ok 3 - keeps adding zero');
+    assert.match(
+      refusedWith(report, []),
+      /^test "keeps adding zero" passes before the implementation/,
+    );
+  });
+
+  it('refuses a run whose only tests the step added are regression tests', () => {
+    const report = tap('ok 1 - keeps adding zero', '1..1');
+    assert.equal(
+      refusedWith(report, ['keeps adding zero']),
+      'none of the 1 tests in the report is one the step added, besides its regression tests',
+    );
+  });
+
+  it('refuses a named regression test the report does not list', () => {
+    const report = tap(...newTestsFail, 'ok 3 - keeps adding zero');
+    assert.equal(
+      refusedWith(report, ['keeps adding zero', 'keeps adding one']),
+      'regression test "keeps adding one" is not a test the step added in the report',
+    );
+  });
+
+  it('refuses a named regression test that passes but is not one the step added', () => {
+    // "subtracts" is an older test: the guard would not keep it, so it is no regression test.
+    const report = tap(...newTestsFail, 'ok 3 - subtracts');
+    assert.equal(
+      refusedWith(report, ['subtracts']),
+      'regression test "subtracts" is not a test the step added in the report',
+    );
+  });
+});

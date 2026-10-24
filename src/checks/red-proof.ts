@@ -99,7 +99,11 @@ const named = (tests: readonly ReportedTest[]): string =>
   `test "${tests[0]?.name}"${tests.length > 1 ? ` (and ${tests.length - 1} more)` : ''}`;
 
 /** Whether `report` proves red the tests that `diff`, the proven step's commits, added. */
-export function judgeRed(report: TestReport, diff: readonly DiffFile[]): RedVerdict {
+export function judgeRed(
+  report: TestReport,
+  diff: readonly DiffFile[],
+  _regressionTests: readonly string[] = [],
+): RedVerdict {
   const refused = (why: string): RedVerdict => ({ proven: false, why });
   if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
   const failures = report.tests.filter(({ result }) => result === 'failed');
