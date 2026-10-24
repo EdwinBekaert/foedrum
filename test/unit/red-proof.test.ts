@@ -706,15 +706,16 @@ describe('judgeRed: a name before a parenthesis declares a test only where no ca
   ];
   const callIsNoDeclaration = (line: string, older = 'parser > parse') => {
     const report = tap(`ok 1 - ${older}`, ...failing(2, 'reads a result line', 'not implemented'));
-    assert.deepEqual(judgeRed(report, withLine(line)), {
-      proven: true,
-      tests: ['reads a result line'],
-    });
+    assert.deepEqual(
+      judgeRed(report, withLine(line)),
+      { proven: true, tests: ['reads a result line'] },
+      line,
+    );
   };
   const declaresIt = (line: string, name = 'parser > parse') => {
     const report = tap(...failing(1, name, 'not implemented'));
     const diff: DiffFile[] = [{ newPath: 'test/Parser.java', added: [line], removed: [] }];
-    assert.deepEqual(judgeRed(report, diff), { proven: true, tests: [name] });
+    assert.deepEqual(judgeRed(report, diff), { proven: true, tests: [name] }, line);
   };
 
   it('does not take a call in an assignment for a declaration', () => {
@@ -811,5 +812,73 @@ describe('judgeRed: a name before a parenthesis declares a test only where no ca
 
   it('declares a test when the name stands first as a call and then as a declaration', () => {
     declaresIt('  int x = parse(a); void parse() {');
+  });
+  it('does not take a call after any pair or character that opens an expression for a declaration', () => {
+    for (const line of [
+      '    ok || parse(input);',
+      '    show(parse(input));',
+      '    const run = () => { parse(input); };',
+      '    if (!parse(input)) stop();',
+      '    const tree = { root: parse(input) };',
+      '    total + parse(input);',
+      '    total - parse(input);',
+      '    total / parse(input);',
+      '    total % parse(input);',
+      '    flags | parse(input);',
+      '    flags ^ parse(input);',
+      '    ~parse(input);',
+      '    run(); parse(input);',
+      '? parse(input)',
+    ]) {
+      callIsNoDeclaration(line);
+    }
+  });
+
+  it('does not take a call after any word that takes an expression for a declaration', () => {
+    for (const word of [
+      'yield',
+      'raise',
+      'new',
+      'typeof',
+      'in',
+      'of',
+      'case',
+      'do',
+      'then',
+      'if',
+      'elif',
+      'while',
+      'unless',
+      'until',
+      'when',
+      'match',
+      'with',
+      'defer',
+      'go',
+      'not',
+      'and',
+      'or',
+    ]) {
+      callIsNoDeclaration(`    x ${word} parse(input)`);
+    }
+  });
+
+  it('does not take a call after assert in a one-line test for a declaration', () => {
+    callIsNoDeclaration('def test_reads(): assert parse(input)');
+  });
+
+  it('declares a test after a reference, a nested generic or a nullable generic return type', () => {
+    declaresIt('  Foo& parse() {');
+    declaresIt('  Map<String, List<Int>> parse() {');
+    declaresIt('  List<int>? Parse() {', 'parser > Parse');
+    declaresIt('  Vec2? Parse() {', 'parser > Parse');
+  });
+
+  it('declares a test after a capitalised word that is only a keyword in lower case', () => {
+    declaresIt('  If parse() {');
+  });
+
+  it('declares a test after a word that only ends like a six-letter keyword', () => {
+    declaresIt('  Mytypeof parse() {');
   });
 });
