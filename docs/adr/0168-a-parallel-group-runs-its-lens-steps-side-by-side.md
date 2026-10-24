@@ -1,0 +1,33 @@
+# 0168. A parallel group runs its lens steps side by side
+
+Date: 2026-10-24 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (a `parallel` step loads when its children are Tasters' steps), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (several attempts in flight in one batch), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (lens steps may run side by side) and [0017](0017-test-first-recipes-and-tasting-lenses.md) (what a group's verdict sends back)
+
+## Context
+The recipe schema has had a `parallel` step from the start (`src/schemas/recipe.ts`): brewer steps that run side by side.
+The load refused it (`step "…" is a parallel step, which the engine does not brew yet`, [ADR 0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)), so a recipe that tastes through several lenses lists them in a line ([ADR 0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)), and five lenses take five times as long as one.
+A Taster only reads, so its attempts can overlap.
+The driver and the supervisor already go over every step of a batch: each scheduled attempt starts with its own lease and worktree, and each running attempt has its own deadline and stall limit.
+The event store's deadline of a batch is the earliest deadline of its steps.
+[ADR 0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) left the transitions of several attempts in flight to the time recipes use them.
+The recipe's `budget` loads but nothing counts it yet.
+
+## Decision
+- **A `parallel` step loads when each of its children is a Taster's lens step** (ADR 0161) without `when`: its brewer's out doc schema is `tasting`, and it produces no commits, so no child writes the task tree. Every other child fails the load with its line: `step "<id>" in the parallel group "<group>" has the brewer "<name>", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`, or `has a "when", which the engine does not follow in a parallel group yet (ADR 0168)`. A child's `blocking` and `onBlocked` load as on a lens step in a line. The group's own `when` reads the recipe's settings, as any step's does (ADR 0064).
+- **Each child is a step of its own.** Its id names its attempts, its status comment line and its out doc, and the status comment lists the children where the group stands. The group's id names no attempt: a recipe answers that it has the step, and which children it has (`Recipe.children`, `Recipe.group`).
+- **Entering the group schedules every child at once**, each with its own deadline, from its own step or its brewer. The driver starts each one with its own lease and worktree at the task tree, as it starts any scheduled attempt; the supervisor expires, loses and stalls each one on its own. A brewing batch then has one attempt in flight per child that has not ended, and its pending deadline is the earliest of theirs (I1 as amended).
+- **A child ends** when its latest attempt succeeded, or ended blocked by findings with its route's rounds not used up, or a human skipped it. A failed or cancelled attempt is tried again as on any step (`maxAttempts`), and a lost one too: so a driver killed mid-group leaves the children that had ended as they were, and the supervisor loses and retries only the attempts that were running.
+- **The group ends when every child has ended, and only then reads its verdict.** When a blocking child ended blocked by findings, the batch goes back along that child's `onBlocked` route, the first such child in the recipe's order when there are several, with its out doc as the route input (ADR 0128), and the round counts against that child's route. Otherwise the group's verdict is `approve` and the batch goes on to the step after the group. An advisory child's `changes` does not hold the group up, as on a lens step in a line.
+- **A child that makes the batch Stuck does so at once**: a `needs_input`, attempts used up, a blocker on its environment or a divergence, a passed deadline or a stall, or a blocking child whose route has no rounds left. Stuck abandons the children still in flight (ADR 0025). A `retry`, `skip`, `answer` or `rewind` that names a child schedules it, or skips it, and schedules again every child of its group that has not ended, so the group runs on from where it stood.
+- **Budget.** Each child's attempt counts its own time toward the recipe's `budget`, summed and not as wall-clock time, when the budget lands (#BUDGET); until then the budget loads and does nothing, as before.
+
+## Consequences
+- A recipe can taste through several lenses in the time of the slowest, at the same tokens as in a line.
+- A batch can hold several live attempt leases, one per child; I2 stays per attempt and per worktree.
+- A group whose children all advise never sends the batch back, whatever they find; findings still show in the status comment and the pull request body.
+- When two blocking children ask for changes, the step they go back to reads the out doc of the first one only; the second asks again in the next round if its findings are still there.
+
+## Alternatives considered
+- **Settle the group on the first blocking verdict, abandoning the others.** Faster back to Cellarman, but the other lenses' findings of that round are lost, and the batch would run a Cellarman attempt beside Tasters still reading the tree it changes.
+- **Children of any brewer.** A child that commits would write the task tree beside its siblings, and which commit wins would depend on which finishes last.
+- **The group as one step with one attempt that runs several brewers.** One lease and one deadline for several processes: a stalled child could not be told from its siblings, and a kill would run every child again.
+- **A route input of every blocking child's out doc.** Better for Cellarman, but a route input is one step's out doc (ADR 0128); merging them is a change of its own.
