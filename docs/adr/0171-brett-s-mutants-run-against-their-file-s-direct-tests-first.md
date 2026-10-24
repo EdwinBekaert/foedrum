@@ -28,3 +28,10 @@ The files one module away matter only for a mutant the direct tests miss.
 - **A direct list per mutated file, each with its own baseline:** fewer files per mutant when a review mutates several files, but one baseline per file; most reviews mutate one or two files, and the union is still the direct importers.
 - **Run each mutant's wide list in parallel with others:** the same work at once, against ADR 0054's one run at a time, which keeps the terminal and other sessions responsive.
 - **Stop a run at its first failing test:** the run still starts every file it was given, and the verdict needs the outcomes of the tests that did run.
+
+## Verification
+Measured on 2026-10-24 on the twelve-core Windows machine of #140, with other sessions running, on #443's five mutants of `src/schemas/primitives.ts` at its head `8b8e1c1a`, rebuilt from its review summary, in a scratch tree as stage 4 makes it, the runs one after the other with `--test-concurrency=6`.
+
+- **Before** (one list, ADR 0054): 57 test files; baseline 32.7 s, the five mutants 25.8–40.4 s each; 197 s in all. Every mutant killed (9, 6, 18, 110 and 26 tests).
+- **After** (two rounds): `--direct` lists 3 test files (`attempt-plan`, `attempt-settings` and `primitives`); baseline 0.9 s, each mutant 0.7 s; 7.8 s in all, with listing both rounds. Every mutant killed in round 1 (8, 4, 11, 81 and 18 tests), so round 2 never ran.
+- The verdicts are the same; the counts are smaller, since round 1 runs fewer tests.
