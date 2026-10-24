@@ -128,7 +128,7 @@ const runnerOf = (lines: readonly string[], withSetup: boolean, setupPasses = fa
 };
 
 describe('claudeBrewerRunner progress for the live line', () => {
-  it('says it sets up while the repository’s setup runs, with no turn and no tool yet', async () => {
+  it('says it sets up while the setup of the repository runs, with no turn and no tool yet', async () => {
     const { runner, setupRuns } = runnerOf([init, reads('a.ts')], true);
     const running = runner.start(attempt);
     await setupRuns;
@@ -140,7 +140,7 @@ describe('claudeBrewerRunner progress for the live line', () => {
     await running.ended;
   });
 
-  it('reports the turn, the latest tool as a path relative to the attempt’s worktree, and a denial', async () => {
+  it('reports the turn, the latest tool as a path relative to the worktree of the attempt, and a denial', async () => {
     const { runner, claudeWrote } = runnerOf(
       [init, reads(join(worktree, 'src', 'a.ts')), denied],
       false,

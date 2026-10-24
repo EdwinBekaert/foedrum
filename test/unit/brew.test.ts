@@ -513,7 +513,7 @@ describe('runBrew', () => {
       for (const text of attempts) assert.match(text, /^brew #1 \/ (\d+m )?\d+s$/);
     });
 
-    it('shows setup in place of the turn and the tool while the repository’s setup runs', async () => {
+    it('shows setup in place of the turn and the tool while the setup of the repository runs', async () => {
       const { screen } = await brewLive({ ...idle, settingUp: true }, { seconds: 5 });
       const attempts = screen.texts().filter((text) => text.startsWith('brew'));
       assert.ok(attempts.length > 0, 'the attempt is shown');
@@ -560,7 +560,7 @@ describe('runBrew', () => {
       );
     });
 
-    it('shows every code point outside U+0020 to U+007E as an escape with four hex digits, the tool’s name and the path alike', async () => {
+    it('shows every code point outside U+0020 to U+007E as an escape with four hex digits, the name of the tool and the path alike', async () => {
       const lastTool = { name: 'Ed⁦it\u0007\n\u007f', word: 'src/Ж/‮\u{1f600}.ts' };
       const { screen } = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3 });
       const expected =
@@ -573,7 +573,7 @@ describe('runBrew', () => {
       for (const drawn of screen.rewrites()) assert.match(drawn, /^[ -~]*$/);
     });
 
-    it('cuts the tool’s name to 64 characters before it escapes it', async () => {
+    it('cuts the name of the tool to 64 characters before it escapes it', async () => {
       const plain = await brewLive(
         { ...idle, turn: 3, lastTool: { name: 'A'.repeat(100) } },
         { seconds: 3, columns: 500 },
@@ -596,7 +596,7 @@ describe('runBrew', () => {
       );
     });
 
-    it('cuts the whole line, spinner included, to the terminal’s width less one, and to 79 when it is unknown', async () => {
+    it('cuts the whole line, spinner included, to the width of the terminal less one, and to 79 when it is unknown', async () => {
       const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
       const narrow = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3, columns: 40 });
       const full = narrow.screen.rewrites().filter((drawn) => drawn.length >= 39);
@@ -632,7 +632,7 @@ describe('runBrew', () => {
       assert.equal(screen.resizers.size, 0);
     });
 
-    it('redraws about once a second on the shell’s wait, while the tick stays every 5 s', async () => {
+    it('redraws about once a second on the wait of the shell, while the tick stays every 5 s', async () => {
       const { screen, waits, flushes } = await brewLive(
         { ...idle, turn: 3 },
         { seconds: 30, columns: 120 },
@@ -694,7 +694,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(screen.printedOver, []);
     });
 
-    it('clears the live line before it exits when it is stopped, and leaves today’s last line', async () => {
+    it('clears the live line before it exits when it is stopped, and leaves the last line of today', async () => {
       const { code, screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 10 });
       assert.equal(code, 1);
       assert.ok(screen.rewrites().length > 0, 'a live line was drawn');

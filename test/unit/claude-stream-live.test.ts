@@ -63,7 +63,7 @@ const lastToolOf = (name: string, input: Record<string, unknown>) =>
   progressOf([init(), assistant('msg_1', [toolUse('t1', name, input)])]).lastTool;
 
 describe('readClaudeStream progress for the live line: the turn', () => {
-  it('counts the main thread’s messages, one per message id, and not a subagent’s', () => {
+  it('counts the messages of the main thread, one per message id, and not those of a subagent', () => {
     const progress = progressOf([
       init(),
       assistant('msg_1', [{ type: 'thinking', thinking: '' }]),
@@ -162,7 +162,7 @@ describe('readClaudeStream progress for the live line: the latest tool call', ()
     );
   });
 
-  it('keeps nothing of a call’s input but that word: not a file’s content, not the rest of a command', () => {
+  it('keeps nothing of the input of a call but that word: not the content of a file, not the rest of a command', () => {
     const write = lastToolOf('Write', {
       file_path: 'src/a.ts',
       content: 'TOP-SECRET-BODY',
@@ -182,7 +182,7 @@ describe('readClaudeStream progress for the live line: the latest tool call', ()
     assert.doesNotMatch(everything, /TOP-SECRET-BODY|hunter2|reporter/);
   });
 
-  it('is the latest call of the main thread: a later message’s, and the last of one message’s calls', () => {
+  it('is the latest call of the main thread: of a later message, and the last of the calls of one message', () => {
     const progress = progressOf([
       init(),
       assistant('msg_1', [toolUse('t1', 'Read', { file_path: 'a.ts' })]),
@@ -194,7 +194,7 @@ describe('readClaudeStream progress for the live line: the latest tool call', ()
     assert.deepEqual(progress.lastTool, { name: 'Edit', word: 'b.ts' });
   });
 
-  it('does not show a subagent’s call, and keeps the main thread’s', () => {
+  it('does not show a call of a subagent, and keeps the last call of the main thread', () => {
     const progress = progressOf([
       init(),
       assistant('msg_1', [toolUse('t1', 'Read', { file_path: 'a.ts' })]),
@@ -210,7 +210,7 @@ describe('readClaudeStream progress for the live line: a denial', () => {
   const call = (id: string, file: string) =>
     assistant(`msg_${id}`, [toolUse(id, 'Edit', { file_path: file })]);
 
-  it('is denied from a denial until the main thread’s next tool call, and the last call stays shown meanwhile', () => {
+  it('is denied from a denial until the next tool call of the main thread, and the last call stays shown meanwhile', () => {
     const held = progressOf([init(), call('t1', 'a.ts'), denial('Edit', 't1')]);
     assert.equal(held.denied, true);
     assert.deepEqual(held.lastTool, { name: 'Edit', word: 'a.ts' });
@@ -248,7 +248,7 @@ describe('readClaudeStream progress for the live line: a denial', () => {
     assert.equal(progress.denied, true);
   });
 
-  it('counts the denial of a subagent’s call, and one that names no call', () => {
+  it('counts the denial of a call of a subagent, and one that names no call', () => {
     const subagent = progressOf([
       init(),
       call('t1', 'a.ts'),

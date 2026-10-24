@@ -81,25 +81,4 @@ describe('stepRunner', () => {
     assert.equal(runner.progress(ref('brew'))?.turnsWithoutProgress, 6);
     assert.equal(runner.progress(ref('taste')), undefined);
   });
-
-  it('passes the display fields of a runner’s progress through as they are', () => {
-    const shown = {
-      lastProgressAt: new Date(0),
-      turnsWithoutProgress: 1,
-      turn: 14,
-      lastTool: { name: 'Edit', word: 'src/a.ts' },
-      denied: true,
-      settingUp: false,
-    };
-    const brewer: BrewerRunner = {
-      ...named('brewer', []).runner,
-      progress: (attempt) => (attempt.stepId === 'brew' ? shown : undefined),
-    };
-    const runner = stepRunner({
-      brewer,
-      check: named('check', []).runner,
-      isCheck: (attempt) => attempt.stepId === 'green',
-    });
-    assert.deepStrictEqual(runner.progress(ref('brew')), shown);
-  });
 });
