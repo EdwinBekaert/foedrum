@@ -480,7 +480,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       lastProgressAt,
       turnsWithoutProgress: turns() - turnsAtProgress,
       turn: turns(),
-      ...(lastTool === undefined ? {} : { lastTool: { ...lastTool } }),
+      ...(lastTool === undefined ? {} : { lastTool }),
       denied,
     }),
   };
