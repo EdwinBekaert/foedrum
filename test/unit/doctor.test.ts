@@ -940,7 +940,8 @@ describe("formatDiagnosis: Foedrum's defaults in use (ADR 0098)", () => {
     const line = formatDiagnosis(diagnose({ ...linux(), brewery }))
       .split('\n')
       .find((text) => text.startsWith('Defaults in use: '));
-    assert.ok(line?.includes(' defaults/lenses/diff/simplify.md,'), line);
+    const listed = line?.slice('Defaults in use: '.length).split(' (')[0]?.split(', ');
+    assert.ok(listed?.includes('defaults/lenses/diff/simplify.md'), line);
   });
 
   it("says nothing of the defaults when the Brewery's files do not load", () => {
