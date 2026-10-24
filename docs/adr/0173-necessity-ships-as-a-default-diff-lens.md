@@ -13,7 +13,7 @@ Only its references were Foedrum's: `docs/trust-boundaries.md`, `docs/design/sec
 A Brewery whose brewers add retries, guards and checks gets no review of whether they are needed, although the prompt for it exists and is exercised on every Foedrum pull request.
 
 On 2026-10-24 the maintainer decided that every lens that judges a change ships.
-Simplifying is no longer a lens: the Finer applies it before review (#455).
+Simplify, the skill's other lens of its own, is not one that judges a change: it proposes edits, and #455 moves it out of the review, before it.
 
 ## Decision
 - A sixth default lens, **necessity** (`defaults/lenses/diff/necessity.md`), weighs every safeguard a change adds against its proof and against what already covers the same risk. The default lenses are now **correctness, security, cross-platform, design conformance, test design and necessity**. This amends the list in ADR 0022; everything else in it stands.
