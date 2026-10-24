@@ -179,6 +179,7 @@ describe("stepReports: a pullRequest brewer's sections (ADR 0167)", () => {
 });
 
 describe('brewLog (ADR 0167)', () => {
+  const question = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
   const asked: Event = {
     type: 'step.finished',
     batchId: '12-1',
@@ -186,7 +187,7 @@ describe('brewLog (ADR 0167)', () => {
     attempt: 1,
     outcome: {
       kind: 'needs_input',
-      questions: [{ q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' }],
+      questions: [question],
     },
   };
   const failedRed: Event[] = [
@@ -235,6 +236,37 @@ describe('brewLog (ADR 0167)', () => {
       { stepId: 'correctness', attempt: 1, result: 'approve' },
     ]);
   });
+
+  it('gives an attempt that was cancelled, and one the batch abandoned when it got Stuck (review of #450)', () => {
+    const cancelled: Event = {
+      type: 'step.finished',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 1,
+      outcome: { kind: 'cancelled' },
+    };
+    const stuck: Event = {
+      type: 'batch.stuck',
+      batchId: '12-1',
+      reason: { kind: 'needs_input', stepId: 'implement', questions: [question] },
+      options: ['answer', 'cancel'],
+      remindAt: '2026-10-16T12:00:00.000Z',
+    };
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('implement', 1).slice(0, 2),
+      cancelled,
+      ...ran('implement', 2).slice(0, 2),
+      stuck,
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(brewLog(batch), [
+      { stepId: 'implement', attempt: 1, result: 'cancelled' },
+      { stepId: 'implement', attempt: 2, result: 'abandoned' },
+    ]);
+  });
 });
 
 describe('unlinked (ADR 0167)', () => {
@@ -267,6 +299,23 @@ describe('unlinked (ADR 0167)', () => {
 
   it('keeps a numeric character reference as text, so it spells no keyword or mention', () => {
     assert.equal(unlinked('Fi&#120;es #3 &#64;octocat'), 'Fi&amp;#120;es #3 &amp;#64;octocat');
+  });
+
+  it('keeps a named character reference as text, but not a bare & (review of #450)', () => {
+    assert.equal(
+      unlinked('Ask &commat;ann, Fixes &num;3'),
+      'Ask &amp;commat;ann, Fixes &amp;num;3',
+    );
+    assert.equal(unlinked('A & B, &amp; C'), 'A & B, &amp; C');
+  });
+
+  it('removes a mention and a keyword that emphasis with _ starts (review of #450)', () => {
+    assert.equal(unlinked('Thanks _@ann_, __@bob__ and x_@eve'), 'Thanks _ann_, __bob__ and x_eve');
+    assert.equal(unlinked('_fixes #3_ and __Closes #4__'), '_#3_ and __#4__');
+  });
+
+  it('keeps an @ that no name follows', () => {
+    assert.equal(unlinked('3 @ 4, a @-sign'), '3 @ 4, a @-sign');
   });
 });
 
@@ -464,6 +513,72 @@ describe('pullRequestText', () => {
     assert.ok(body.startsWith('## How it works\n\nHow.\n\n**See it:** See.\n\n## How this'), body);
   });
 
+  it("closes a fence how it works leaves open, so the rest of the body stays the engine's (review of #450)", () => {
+    const fenced = (howItWorks: string) => {
+      const sections = { howItWorks, seeIt: 'See.', beforeAfter: [] };
+      const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+      return pullRequestText({ title: 'T', closes, reports }).body;
+    };
+    assert.ok(
+      fenced('Pic:\n\n````mermaid\nflowchart LR\n```\n  A --> B').startsWith(
+        '## How it works\n\nPic:\n\n````mermaid\nflowchart LR\n```\n  A --> B\n````\n\n**See it:** See.\n\n## How this',
+      ),
+    );
+    assert.ok(fenced('~~~\ncode').startsWith('## How it works\n\n~~~\ncode\n~~~\n\n**See it:**'));
+  });
+
+  it('keeps how it works from starting an HTML block, outside a fence (review of #450)', () => {
+    const sections = {
+      howItWorks:
+        'A <b>bold</b> word.\n\n<!-- hidden\n   <details>\n\n```mermaid\nA["x<br/>y"]\n<b>\n```',
+      seeIt: 'See.',
+      beforeAfter: [],
+    };
+    const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.ok(
+      body.startsWith(
+        '## How it works\n\nA <b>bold</b> word.\n\n&lt;!-- hidden\n   &lt;details>\n\n```mermaid\nA["x<br/>y"]\n<b>\n```\n\n**See it:**',
+      ),
+      body,
+    );
+  });
+
+  it('leaves out a section that grows past its room once made safe (review of #450)', () => {
+    const sections = { howItWorks: '&#'.repeat(5_000), seeIt: '&#'.repeat(500), beforeAfter: [] };
+    const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const left = '[left out: a text of step implement that is too long once made safe for GitHub]';
+    assert.ok(body.startsWith(`## How it works\n\n${left}\n\n**See it:** ${left}\n\n`), body);
+  });
+
+  it('gives the reports only the room the rest of the body leaves (review of #450)', () => {
+    const cell = 'c|'.repeat(100);
+    const sections = {
+      howItWorks: `${'h'.repeat(9_000)}${'&#'.repeat(500)}`,
+      seeIt: 's'.repeat(1_000),
+      beforeAfter: Array.from({ length: 20 }, () => ({ case: cell, before: cell, after: cell })),
+    };
+    const reports = [
+      { stepId: 'implement', summary: 'S', assumptions: [], sections },
+      ...Array.from({ length: 100 }, (_, i) => ({
+        stepId: `s${i}`,
+        summary: 'y'.repeat(1_000),
+        assumptions: [],
+      })),
+    ];
+    const attempts = Array.from({ length: 50 }, (_, i) => ({
+      stepId: 'implement-the-order',
+      attempt: i + 1,
+      result: 'failed',
+      reason: '`|'.repeat(200),
+    }));
+    const { body } = pullRequestText({ title: 'T', closes, reports, recipe: 'nip', attempts });
+    assert.ok(body.length <= 65_536, `${body.length}`);
+    const fenced = body.slice(body.indexOf('```text\n') + 8, body.indexOf('\n(cut short)'));
+    assert.ok(fenced.length < 25_000, `${fenced.length}`);
+  });
+
   it('takes the sections of the step scheduled last that wrote them', () => {
     const sections = (howItWorks: string) => ({ howItWorks, seeIt: 'See.', beforeAfter: [] });
     const reports = [
@@ -572,6 +687,14 @@ describe('pullRequestText', () => {
     const attempts = [{ stepId: 'red', attempt: 1, result: 'failed', reason: 'a\\|b\\\\|c' }];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
     assert.ok(body.includes('| red #1 | failed: ` a\\|b\\\\\\|c ` |'), body);
+  });
+
+  it("cuts a reason's runs of backticks to three, so its code span stays short (review of #450)", () => {
+    const attempts = [
+      { stepId: 'red', attempt: 1, result: 'failed', reason: `a${'`'.repeat(50)}b` },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
+    assert.ok(body.includes('| red #1 | failed: ```` a```b ```` |'), body);
   });
 
   it('cuts a reason to 200 characters, and leaves out one that looks like a secret', () => {

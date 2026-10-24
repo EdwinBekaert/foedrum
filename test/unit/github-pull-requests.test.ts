@@ -148,6 +148,21 @@ describe('githubPullRequests: open', () => {
     );
   });
 
+  it('asks only once when GitHub lists another error for the draft (review of #450)', async () => {
+    const refusal = {
+      message: 'Validation Failed',
+      errors: [
+        { resource: 'PullRequest', code: 'custom', message: `No commits between main and ${head}` },
+      ],
+    };
+    const { host, requests } = hostWith([
+      { status: 422, body: refusal },
+      { status: 201, body: listed() },
+    ]);
+    await assert.rejects(host.open('acme/api', { ...request, draft: true }), /422/);
+    assert.equal(requests.length, 1);
+  });
+
   it('asks only once when GitHub refuses a draft for another reason', async () => {
     const { host, requests } = hostWith([
       { status: 422, body: { message: 'Validation Failed' } },
