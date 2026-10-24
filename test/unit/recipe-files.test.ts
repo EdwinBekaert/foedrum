@@ -1642,4 +1642,66 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     ).find('amber');
     assert.equal(amber?.skip(batch, 'tasting'), 'recipe.testFirst');
   });
+
+  it('starts a recipe whose first step is a group at the group', () => {
+    const amber = loaded(
+      loadRecipes({
+        // Nothing commits before it, so its lens reviews a plan (ADR 0143).
+        recipes: [
+          recipe('amber', [
+            {
+              id: 'tasting',
+              parallel: [{ id: 'coverage', brewer: 'taster', lens: 'plan/coverage' }],
+            },
+          ]),
+        ],
+        brewers: [taster],
+        lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
+      }),
+    ).find('amber');
+    assert.equal(amber?.firstStep, 'tasting');
+    assert.deepEqual(amber?.children('tasting'), ['coverage']);
+  });
+
+  it("refuses a group whose when reads something other than the recipe's settings", () => {
+    const files = grouped([security]);
+    assert.deepEqual(
+      problemsOf({
+        ...files,
+        recipes: [
+          opened(
+            'amber',
+            [
+              { brewer: 'cellarman' },
+              { id: 'tasting', parallel: [security], when: 'cellarman.status' },
+            ],
+            { testFirst: false },
+          ),
+        ],
+      }),
+      [
+        'recipes/amber.jsonc: step "tasting" has a "when" that reads step "cellarman", which the engine does not follow yet (ADR 0064)',
+      ],
+    );
+  });
+
+  it('refuses a route back to a group, which no attempt runs', () => {
+    const route = { findings: { goto: 'tasting', maxRounds: 1 } };
+    const reviewer = brewer('reviewer');
+    const steps = [
+      { brewer: 'cellarman' },
+      { id: 'tasting', parallel: [correctness, security] },
+      { id: 'review', brewer: 'reviewer', onBlocked: route },
+    ];
+    assert.deepEqual(
+      problemsOf({
+        recipes: [opened('amber', steps, { testFirst: false })],
+        brewers: [committer, taster, reviewer],
+        defaults: { lenses },
+      }),
+      [
+        'recipes/amber.jsonc: step "review" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+      ],
+    );
+  });
 });

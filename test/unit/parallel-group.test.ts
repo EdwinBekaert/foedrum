@@ -202,4 +202,88 @@ describe('a parallel group (ADR 0168)', () => {
       ]);
     });
   });
+
+  it('refuses a rewind to the group itself, which no attempt runs', () => {
+    const question = { q: 'Is it shared?', options: ['yes'], recommended: 'yes', whyBlocking: 'x' };
+    const reason: StuckReason = {
+      kind: 'needs_input',
+      stepId: 'correctness',
+      questions: [question],
+    };
+    const all = ['answer', 'retry', 'skip', 'recipe', 'rewind', 'cancel'] as const;
+    const asked = finished('correctness', { kind: 'needs_input', questions: [question] });
+    const stuck = [...inGroup, asked, stuckOn(reason, [...all])];
+    const shas = { 'acme/api': 'a'.repeat(40) };
+    assert.deepStrictEqual(
+      decide(
+        fold(stuck),
+        { kind: 'rewind', batchId: 'b1', ...by, toStepId: 'tasting', shas },
+        context,
+      ),
+      {
+        kind: 'refused',
+        reason:
+          'step tasting is a parallel group: rewind to one of its children, which runs the whole group again (ADR 0168)',
+      },
+    );
+  });
+
+  it('goes back along the first blocking child in the recipe, whichever ended first', () => {
+    const both: Context = {
+      ...context,
+      recipes: fakeRecipes({
+        flight: fakeRecipe({
+          steps: ['implement', 'tasting', 'polish'],
+          groups: { tasting: ['correctness', 'security'] },
+          routes: { correctness: { findings: 'implement' }, security: { findings: 'implement' } },
+        }),
+      }),
+    };
+    const back = { ...next('implement', 2), route: { from: 'correctness', why: 'findings' } };
+    for (const [first, last] of [
+      ['correctness', 'security'],
+      ['security', 'correctness'],
+    ] as const) {
+      const events = [...inGroup, finished(first, blockedOutcome)];
+      assert.deepStrictEqual(decide(fold(events), finish(last, blocked), both), {
+        kind: 'accepted',
+        events: [finished(last, blockedOutcome), back],
+      });
+    }
+  });
+
+  it('makes the batch Stuck on a divergence when the group gained a child the batch never scheduled', () => {
+    // The recipe file changed under the batch: style joined the group after it was entered.
+    const grown: Context = {
+      ...context,
+      recipes: fakeRecipes({
+        flight: fakeRecipe({
+          steps: ['implement', 'tasting', 'polish'],
+          groups: { tasting: ['correctness', 'security', 'style'] },
+        }),
+      }),
+    };
+    const summary =
+      'the parallel group tasting of recipe flight has a child style the batch never scheduled: its file changed under the batch';
+    assert.deepStrictEqual(
+      decide(
+        fold([...inGroup, finished('security', succeeded)]),
+        finish('correctness', succeeded),
+        grown,
+      ),
+      {
+        kind: 'accepted',
+        events: [
+          finished('correctness', succeeded),
+          stuckOn({ kind: 'blocked', stepId: 'style', blockerKind: 'divergence', summary }, [
+            'retry',
+            'skip',
+            'recipe',
+            'rewind',
+            'cancel',
+          ]),
+        ],
+      },
+    );
+  });
 });
