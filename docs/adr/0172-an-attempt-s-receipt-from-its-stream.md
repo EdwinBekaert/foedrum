@@ -13,7 +13,7 @@ So a person looking at a batch could not tell which attempt was expensive, which
   - `durationMs`, `apiDurationMs`: the result's `duration_ms` and `duration_api_ms`. Without a result, `durationMs` is the time from claude's start to the last line seen, and `apiDurationMs` is absent;
   - `turns`: the result's `num_turns`, else the main thread's messages seen (as `turns` already counts them, ADR 0047);
   - `costUsd`: the result's `total_cost_usd`, when there is one;
-  - `models`: `modelUsage` by model, with that model's tokens and `costUSD`, when the result has them;
+  - `models`: `modelUsage` by model, with that model's tokens and `costUSD`, when the result has them, at most ten;
   - `edits`: the calls of the file tools (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`) that came back without an error;
   - `toolErrors`: the tool results that came back as an error, apart from denied calls;
   - `denied`: one entry per tool family (the denial's `tool_name`, such as `Bash`, `PowerShell`, `Edit`, `Read`), in the order each was first denied, with its count and, for `Bash` and `PowerShell`, the command prefixes it refused. A prefix is the first one or two words of the denied call's command, each word only letters, digits, `.`, `_` and `-` and at most 32 characters. At most five prefixes per family are kept, each once. The rest of a command is model output and stays out, so the prefix (`git push`) names the rule without the arguments.
@@ -28,4 +28,4 @@ So a person looking at a batch could not tell which attempt was expensive, which
 - The status comment changes whenever a brewer attempt finishes. It already did, since the step line changes too, so no extra revision is due.
 - An event log from before this record has no receipts. Those attempts show no receipt line, and their batch's total counts only the attempts that have one.
 - `foedrum brewers` (ADR 0159) still sums tokens only. Summing cost there is a later change that reads the same field.
-- The receipt is the runner's reading of a stream it does not trust. Every count is a non-negative integer, the cost a non-negative number, and the strings are cut, so a stream cannot make the event large. A stream of many distinct denied tools grows `denied` as it already grew `deniedTools` (ADR 0047).
+- The receipt is the runner's reading of a stream it does not trust. Every count is a non-negative integer, the cost a non-negative number, and the strings are cut (a model's and a tool's name to 200 characters, a blank tool's name to `unnamed`), so a stream cannot make the event large. A receipt the event cannot hold is left out by the driver, so it never refuses the attempt's ending with it, as ADR 0116 does for claude's report. A stream of many distinct denied tools grows `denied` as it already grew `deniedTools` (ADR 0047).

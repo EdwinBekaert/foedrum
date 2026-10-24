@@ -73,6 +73,8 @@ const WRITERS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SHELLS = new Set(['Bash', 'PowerShell']);
 /** The file tools, whose calls a receipt counts as edits (ADR 0172). */
 const FILE_TOOLS = WRITERS;
+/** The most models a receipt names: a run uses one or two. */
+const MOST_MODELS = 10;
 /** A word of a refused command's prefix: plain, and short. */
 const PLAIN_WORD = /^[A-Za-z0-9._-]{1,32}$/;
 
@@ -313,8 +315,9 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   };
 
   /** One more denial of `tool`'s family, with the prefix its call was refused, each once. */
-  const noteFamily = (tool: string, id: string | undefined): void => {
+  const noteFamily = (name: string, id: string | undefined): void => {
     if (id !== undefined) deniedCalls.add(id);
+    const tool = name.trim() === '' ? 'unnamed' : cut(name);
     const prefix = id === undefined ? undefined : calls.get(id)?.prefix;
     const family = families.find((each) => each.tool === tool);
     if (family === undefined) {
@@ -329,14 +332,16 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   };
 
   const receipt = (): Receipt => {
-    const models = Object.entries(took?.modelUsage ?? {}).map(([model, used]) => ({
-      model,
-      inputTokens: used.inputTokens,
-      outputTokens: used.outputTokens,
-      cacheReadTokens: used.cacheReadInputTokens,
-      cacheWriteTokens: used.cacheCreationInputTokens,
-      costUsd: used.costUSD,
-    }));
+    const models = Object.entries(took?.modelUsage ?? {})
+      .slice(0, MOST_MODELS)
+      .map(([model, used]) => ({
+        model: cut(model),
+        inputTokens: used.inputTokens,
+        outputTokens: used.outputTokens,
+        cacheReadTokens: used.cacheReadInputTokens,
+        cacheWriteTokens: used.cacheCreationInputTokens,
+        costUsd: used.costUSD,
+      }));
     // Without a result, what was seen: until the last line read.
     const durationMs =
       took === undefined ? lastLineAt.getTime() - startedAt.getTime() : took.duration_ms;
