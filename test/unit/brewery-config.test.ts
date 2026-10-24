@@ -284,14 +284,12 @@ describe('BreweryConfig', () => {
   });
 
   it('rejects gh after pnpm in the repository tools, under a ceiling of npm and pnpm', () => {
-    assert.equal(
-      accepted(
-        config(
-          { tools: ['Bash(pnpm gh pr list)'] },
-          { permissionCeiling: ['Bash(npm *)', 'Bash(pnpm *)'] },
-        ),
+    refusesGh(
+      config(
+        { tools: ['Bash(pnpm gh pr list)'] },
+        { permissionCeiling: ['Bash(npm *)', 'Bash(pnpm *)'] },
       ),
-      false,
+      ['repositories', 'acme/web', 'tools', 0],
     );
   });
 
