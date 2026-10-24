@@ -344,6 +344,36 @@ describe('judgeRed', () => {
     const report = tap('ok 1', 'ok 2 - adds two', ...failing(3, 'adds two numbers', 'x'));
     assert.deepEqual(judgeRed(report, gauged), { proven: true, tests: ['adds two numbers'] });
   });
+
+  it('does not take a word in an object literal or an argument list for a declaration (#466)', () => {
+    const streamed = (...lines: string[]): DiffFile[] => [
+      {
+        newPath: 'test/unit/stream.test.ts',
+        added: [
+          "  it('reads a result line', () => {",
+          '    const line = {',
+          '      parent_tool_use_id: null,',
+          '    };',
+          "    done({ exitCode: null, stdout: '' });",
+          ...lines,
+        ],
+        removed: [],
+      },
+    ];
+    // "null" is an older table case that passes; the step only writes the word in code.
+    const report = tap(
+      'ok 1 - malformed input > null',
+      ...failing(2, 'reads a result line', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, streamed()), {
+      proven: true,
+      tests: ['reads a result line'],
+    });
+    assert.equal(
+      why(report, streamed("  it('null', () => {")),
+      'test "malformed input > null" passes before the implementation: a stub must throw, not return a value',
+    );
+  });
 });
 
 describe('judgeRed with regression tests (ADR 0170)', () => {
