@@ -26,6 +26,18 @@ import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
+/** The terminal `foedrum brew` keeps a live line on (ADR 0174). */
+export interface LiveTerminal {
+  /** The terminal's width in characters, when it is known. */
+  columns: () => number | undefined;
+  /** Calls `handler` when the terminal is resized; the returned function stops it. */
+  onResize: (handler: () => void) => () => void;
+  /** Clears the current line and leaves the cursor at its start. */
+  clear: () => void;
+  /** Clears the current line and writes `text` on it, without a line feed. */
+  rewrite: (text: string) => void;
+}
+
 /** What serve needs from the machine. */
 export interface ServeShell {
   /** Prints one line. */
@@ -73,6 +85,8 @@ export interface ServeShell {
   intakeDeadlineMs?: number;
   /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
   intervalMs?: number;
+  /** Present only where `brew` keeps a live line (ADR 0174); `serve` never reads it. */
+  terminal?: LiveTerminal;
 }
 
 /** The supervisor's interval (ADR 0027). */

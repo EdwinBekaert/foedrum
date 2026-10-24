@@ -14,6 +14,14 @@ export interface AttemptProgress {
   lastProgressAt: Date;
   /** Turns since then. */
   turnsWithoutProgress: number;
+  /** For display (ADR 0174): the main thread's turns so far; a brewer's attempt only. */
+  turn?: number;
+  /** For display: the latest main-thread tool call, reduced to its name and one safe word. */
+  lastTool?: { name: string; word?: string };
+  /** For display: whether a denial came after the latest main-thread tool call. */
+  denied?: boolean;
+  /** For display: whether the repository's setup runs, before claude starts. */
+  settingUp?: boolean;
 }
 
 /** The runner's progress signals; `undefined` for an attempt it does not run. */

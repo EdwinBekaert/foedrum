@@ -887,10 +887,14 @@ describe('claudeBrewerRunner', () => {
     const { runner } = setup({ lines: fixture('success.jsonl').slice(0, 2), hang: true });
     const running = runner.start(attempt);
     await new Promise((settled) => setImmediate(settled));
-    assert.deepEqual(runner.progress(attempt.ref), {
-      lastProgressAt: at(1),
-      turnsWithoutProgress: 1,
-    });
+    const progress = runner.progress(attempt.ref);
+    assert.deepEqual(
+      {
+        lastProgressAt: progress?.lastProgressAt,
+        turnsWithoutProgress: progress?.turnsWithoutProgress,
+      },
+      { lastProgressAt: at(1), turnsWithoutProgress: 1 },
+    );
     running.stop();
     const end = await running.ended;
     assert.deepEqual(end.ending, { kind: 'cancelled' });

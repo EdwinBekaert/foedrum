@@ -2,6 +2,7 @@
 // init check first, then the facts settleAttempt decides on and the progress the stall watchdog
 // reads. Pure: the runner hands it each line with the time it came.
 
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import {
   type AttemptFacts,
   type Denials,
@@ -30,6 +31,8 @@ export interface StreamAsk extends AskedSession {
   maxDenials?: number | undefined;
   /** Whether claude resumes the session rather than start it (ADR 0117). */
   resumes?: boolean | undefined;
+  /** The attempt's worktree, which a file path shown for display is made relative to (ADR 0174). */
+  worktree?: string | undefined;
 }
 
 /** What the stream showed, for settleAttempt. */
@@ -93,6 +96,43 @@ const prefixOf = (command: string): string | undefined => {
   }
   return undefined;
 };
+
+/** The input key that holds the path a file tool works on. */
+const PATH_KEYS = new Map([
+  ['Read', 'file_path'],
+  ['Edit', 'file_path'],
+  ['Write', 'file_path'],
+  ['MultiEdit', 'file_path'],
+  ['NotebookEdit', 'notebook_path'],
+]);
+
+/**
+ * The one word the live line shows of a file tool's path (ADR 0174): the path relative to the
+ * worktree with `/` separators, `outside` when it leaves it (a lexical test, no file is read), or
+ * `(left out)` when it holds a secret.
+ */
+const pathWord = (file: string, worktree: string): string => {
+  const shown = relative(worktree, resolve(worktree, file));
+  const segments = shown.split(sep);
+  if (segments[0] === '..' || isAbsolute(shown)) return 'outside';
+  const word = segments.join('/') || '.';
+  return findSecrets(word, () => false).length === 0 ? word : '(left out)';
+};
+
+/** The latest tool call as the live line shows it: its name and, for some tools, one safe word. */
+const shownCall = (
+  name: string,
+  input: Record<string, unknown>,
+  prefix: string | undefined,
+  worktree: string | undefined,
+): { name: string; word?: string } => {
+  const key = PATH_KEYS.get(name);
+  const file = key === undefined ? undefined : input[key];
+  const word =
+    typeof file === 'string' && worktree !== undefined ? pathWord(file, worktree) : prefix;
+  return word === undefined ? { name } : { name, word };
+};
+
 /**
  * Whether a shell command runs `git … commit`: `commit` after `git` within one command between
  * separators. The command is model output, so each test is linear (review of #133).
@@ -227,6 +267,9 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
   let toolErrors = 0;
   let lastLineAt = startedAt;
   let took: ClaudeResultReceipt | undefined;
+  // For the live line (ADR 0174): the main thread's latest call, and whether a denial came after it.
+  let lastTool: { name: string; word?: string } | undefined;
+  let denied = false;
 
   const failBeforeReply = (why: string): void => {
     if (!replied && environment === undefined) {
@@ -282,9 +325,8 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       return;
     }
     replied = true;
-    if (event.parent_tool_use_id === null || event.parent_tool_use_id === undefined) {
-      messages.add(event.message.id);
-    }
+    const mainThread = event.parent_tool_use_id === null || event.parent_tool_use_id === undefined;
+    if (mainThread) messages.add(event.message.id);
     for (const block of event.message.content) {
       const use = ClaudeToolUse.safeParse(block);
       if (!use.success) continue;
@@ -293,6 +335,10 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       const prefix =
         SHELLS.has(name) && typeof input.command === 'string' ? prefixOf(input.command) : undefined;
       calls.set(id, prefix === undefined ? { name } : { name, prefix });
+      if (mainThread) {
+        lastTool = shownCall(name, input, prefix, asked.worktree);
+        denied = false;
+      }
     }
   };
 
@@ -382,6 +428,7 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
         if (!denial.success) return 'go';
         denials = noteDenial(denials, denial.data.tool_name);
         noteFamily(denial.data.tool_name, denial.data.tool_use_id);
+        denied = true;
         const { maxDenials } = asked;
         if (maxDenials === undefined || denials.denials < maxDenials) return 'go';
         stopped = true;
@@ -430,6 +477,12 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       lines,
     }),
     receipt,
-    progress: () => ({ lastProgressAt, turnsWithoutProgress: turns() - turnsAtProgress }),
+    progress: () => ({
+      lastProgressAt,
+      turnsWithoutProgress: turns() - turnsAtProgress,
+      turn: turns(),
+      ...(lastTool === undefined ? {} : { lastTool }),
+      denied,
+    }),
   };
 }

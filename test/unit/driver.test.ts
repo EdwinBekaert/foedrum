@@ -205,6 +205,25 @@ describe('openDriver', () => {
   const holdFor = (owner: string, batchId: string, until = 5) =>
     store.withTransaction((tx) => tx.putBatchLease({ batchId, owner, expiresAt: at(until) }));
 
+  describe('progress (ADR 0174)', () => {
+    it('passes through what its runner reports of an attempt, display fields included, and nothing for one the runner does not run', async () => {
+      const shown = {
+        lastProgressAt: t0,
+        turnsWithoutProgress: 2,
+        turn: 14,
+        lastTool: { name: 'Edit', word: 'src/a.ts' },
+        denied: true,
+      };
+      const runner: BrewerRunner = {
+        ...handRunner().runner,
+        progress: (ref) => (ref.batchId === 'b1' ? shown : undefined),
+      };
+      const driver = await open({ runner });
+      assert.deepStrictEqual(driver.progress(plan('b1')), shown);
+      assert.equal(driver.progress(plan('b2')), undefined);
+    });
+  });
+
   describe('start', () => {
     it("takes its lock, then expires its earlier run's leases before any work", async () => {
       const key = attemptKey.encode(plan('b1'));
