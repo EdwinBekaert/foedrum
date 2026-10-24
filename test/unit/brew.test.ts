@@ -9,12 +9,15 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import { brewFromCheckout } from '../../src/cli/brew-main.ts';
 import { brewOwner } from '../../src/cli/driver-owner.ts';
-import type { ServeShell } from '../../src/cli/serve.ts';
+import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
+import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { FlushResult } from '../../src/engine/state-branch-git.ts';
+import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { BrewCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import {
@@ -31,6 +34,67 @@ import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts'
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-22T12:00:00.000Z');
+
+const SPINNER = ['|', '/', '-', '\\'];
+
+/**
+ * A terminal over a fake screen (ADR 0174): it keeps what the live line shows now, every call and
+ * every lasting line in order, and the lasting lines printed while the live line was on screen.
+ */
+const fakeScreen = (width: number | 'unknown') => {
+  let columns = width === 'unknown' ? undefined : width;
+  let drawn: string | undefined;
+  const events: string[] = [];
+  const resizers = new Set<() => void>();
+  const printedOver: string[] = [];
+  const terminal: LiveTerminal = {
+    columns: () => columns,
+    onResize: (handler) => {
+      resizers.add(handler);
+      return () => {
+        resizers.delete(handler);
+      };
+    },
+    clear: () => {
+      events.push('clear');
+      drawn = undefined;
+    },
+    rewrite: (text) => {
+      events.push(`rewrite: ${text}`);
+      drawn = text;
+    },
+  };
+  /** The live lines drawn, in order. */
+  const rewrites = (): string[] =>
+    events.filter((event) => event.startsWith('rewrite: ')).map((event) => event.slice(9));
+  return {
+    terminal,
+    events,
+    resizers,
+    printedOver,
+    rewrites,
+    /** What the live line shows now. */
+    drawn: () => drawn,
+    /** The shell's `out`: a lasting line. */
+    print: (line: string): void => {
+      if (drawn !== undefined) printedOver.push(line);
+      events.push(`out: ${line}`);
+    },
+    resize: (to: number | undefined): void => {
+      columns = to;
+      for (const handler of [...resizers]) handler();
+    },
+    /** The live lines drawn, each without its spinner. */
+    texts: (): string[] =>
+      rewrites().map((text) => {
+        assert.ok(SPINNER.includes(text[0] ?? ''), `a spinner starts ${JSON.stringify(text)}`);
+        return text.slice(2);
+      }),
+  };
+};
+
+/** The line without its elapsed time, which depends on when each redraw came. */
+const withoutTime = (text: string): string => text.replace(/ \/ (\d+m )?\d+s(?= \/|$)/, '');
 
 describe('BrewCommand', () => {
   it('takes an issue as foedrum order does, and the name of its driver', () => {
@@ -334,6 +398,357 @@ describe('runBrew', () => {
       'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
       'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
     ]);
+  });
+
+  const idle: AttemptProgress = { lastProgressAt: t0, turnsWithoutProgress: 0 };
+
+  it('prints the same plain lines, waiting the whole tick, when the shell has no terminal, whatever the brewer reports (ADR 0174)', async () => {
+    const controller = new AbortController();
+    const waits: number[] = [];
+    let now = t0;
+    const running = behave.hang({
+      ...idle,
+      turn: 14,
+      lastTool: { name: 'Edit', word: 'src/a.ts' },
+      denied: true,
+    });
+    const plain = shell(running, {
+      signal: controller.signal,
+      clock: () => now,
+      wait: async (ms) => {
+        waits.push(ms);
+        now = new Date(now.getTime() + ms);
+        if (now.getTime() - t0.getTime() > 60_000) controller.abort();
+      },
+    });
+    assert.equal(await runBrew(setup, plain, request), 1);
+    assert.ok(waits.length > 0 && waits.every((ms) => ms === 5_000), waits.join(' '));
+    assert.deepStrictEqual(
+      lines.filter((line) => line.includes('running for')),
+      [
+        'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
+        'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
+      ],
+    );
+    assert.ok(
+      lines.every(
+        (line) => line.startsWith('foedrum brew: ') && !/\bturn\b|\bdenied\b|Edit/.test(line),
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  describe('with a live line on a terminal (ADR 0174)', () => {
+    interface Live {
+      /** How many seconds of the fake clock the brew runs before it is stopped. */
+      seconds?: number;
+      columns?: number | 'unknown';
+      /** Runs inside each wait, with the number of waits so far. */
+      onWait?: (waits: number, screen: ReturnType<typeof fakeScreen>) => void;
+      runner?: BrewerRunner;
+      /** What the state branch's flush answers, by the number of flushes so far. */
+      flush?: (flushes: number) => FlushResult;
+    }
+
+    /** Brews with a terminal, a clock that only the waits move and a brewer that shows `progress`. */
+    const brewLive = async (progress: AttemptProgress, more: Live = {}) => {
+      const { seconds = 10, columns = 120, onWait, runner, flush } = more;
+      const screen = fakeScreen(columns);
+      const controller = new AbortController();
+      const waits: number[] = [];
+      let flushes = 0;
+      let now = t0;
+      const live = shell(behave.hang(progress), {
+        terminal: screen.terminal,
+        out: (line) => {
+          lines.push(line);
+          screen.print(line);
+        },
+        signal: controller.signal,
+        clock: () => now,
+        wait: async (ms) => {
+          waits.push(ms);
+          now = new Date(now.getTime() + ms);
+          onWait?.(waits.length, screen);
+          if (now.getTime() - t0.getTime() > seconds * 1000) controller.abort();
+        },
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            flushes += 1;
+            return flush?.(flushes) ?? { kind: 'unchanged' };
+          },
+        }),
+        ...(runner === undefined ? {} : { runner: () => runner }),
+      });
+      const code = await runBrew(setup, live, request);
+      return { code, screen, waits, flushes: () => flushes };
+    };
+
+    it('shows an attempt as step and attempt, elapsed time, turn and last tool, joined by " / "', async () => {
+      const { code, screen } = await brewLive(
+        { ...idle, turn: 14, lastTool: { name: 'Edit', word: 'src/schemas/primitives.ts' } },
+        { seconds: 170 },
+      );
+      assert.equal(code, 1);
+      assert.ok(
+        screen.texts().includes('brew #1 / 2m 41s / turn 14 / Edit src/schemas/primitives.ts'),
+        screen.texts().slice(-3).join('\n'),
+      );
+    });
+
+    it('counts the elapsed time as the plain lines do: whole seconds, then minutes from one', async () => {
+      const { screen } = await brewLive({ ...idle, turn: 1 }, { seconds: 70 });
+      const texts = screen.texts().map(withoutTime);
+      assert.ok(texts.includes('brew #1 / turn 1'), texts.join('\n'));
+      const times = screen.texts().map((text) => /^brew #1 \/ ((?:\d+m )?\d+s)/.exec(text)?.[1]);
+      assert.ok(times.includes('59s'), times.join(' '));
+      assert.ok(times.includes('1m 0s'), times.join(' '));
+    });
+
+    it('shows only the step, attempt and elapsed time for an attempt whose runner reports no brewer fields, as a check step does', async () => {
+      const { screen } = await brewLive(idle, { seconds: 5 });
+      const attempts = screen.texts().filter((text) => text.startsWith('brew'));
+      assert.ok(attempts.length > 0, 'the attempt is shown');
+      for (const text of attempts) assert.match(text, /^brew #1 \/ (\d+m )?\d+s$/);
+    });
+
+    it('shows setup in place of the turn and the tool while the repository’s setup runs', async () => {
+      const { screen } = await brewLive({ ...idle, settingUp: true }, { seconds: 5 });
+      const attempts = screen.texts().filter((text) => text.startsWith('brew'));
+      assert.ok(attempts.length > 0, 'the attempt is shown');
+      for (const text of attempts) assert.match(text, /^brew #1 \/ (\d+m )?\d+s \/ setup$/);
+    });
+
+    it('shows the last tool as its name and the one safe word the runner reduced it to, or the name alone', async () => {
+      const cases: [{ name: string; word?: string } | undefined, string][] = [
+        [{ name: 'Read', word: 'src/a.ts' }, 'brew #1 / turn 3 / Read src/a.ts'],
+        [{ name: 'Read', word: 'outside' }, 'brew #1 / turn 3 / Read outside'],
+        [{ name: 'Write', word: '(left out)' }, 'brew #1 / turn 3 / Write (left out)'],
+        [{ name: 'Bash', word: 'git status' }, 'brew #1 / turn 3 / Bash git status'],
+        [{ name: 'Grep' }, 'brew #1 / turn 3 / Grep'],
+        [undefined, 'brew #1 / turn 3'],
+      ];
+      for (const [lastTool, expected] of cases) {
+        const progress = { ...idle, turn: 3, ...(lastTool === undefined ? {} : { lastTool }) };
+        const { screen } = await brewLive(progress, { seconds: 3 });
+        const shown = screen.texts().map(withoutTime);
+        assert.ok(shown.includes(expected), `${expected}\n${shown.join('\n')}`);
+      }
+    });
+
+    it('adds denied after the last tool while the runner reports a denial, and not otherwise', async () => {
+      const tool = { name: 'Bash', word: 'git push' };
+      const held = await brewLive(
+        { ...idle, turn: 3, lastTool: tool, denied: true },
+        { seconds: 3 },
+      );
+      const heldTexts = held.screen.texts().map(withoutTime);
+      assert.ok(
+        heldTexts.includes('brew #1 / turn 3 / Bash git push / denied'),
+        heldTexts.join('\n'),
+      );
+      const clear = await brewLive(
+        { ...idle, turn: 3, lastTool: tool, denied: false },
+        { seconds: 3 },
+      );
+      const clearTexts = clear.screen.texts().map(withoutTime);
+      assert.ok(clearTexts.includes('brew #1 / turn 3 / Bash git push'), clearTexts.join('\n'));
+      assert.ok(
+        clearTexts.every((text) => !text.includes('denied')),
+        clearTexts.join('\n'),
+      );
+    });
+
+    it('shows every code point outside U+0020 to U+007E as an escape with four hex digits, the tool’s name and the path alike', async () => {
+      const lastTool = { name: 'Ed⁦it\u0007\n\u007f', word: 'src/Ж/‮\u{1f600}.ts' };
+      const { screen } = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3 });
+      const expected =
+        'brew #1 / turn 3 / Ed\\u2066it\\u0007\\u000a\\u007f src/\\u0416/\\u202e\\ud83d\\ude00.ts';
+      const shown = screen.texts().map(withoutTime);
+      assert.ok(
+        shown.some((text) => text.toLowerCase() === expected.toLowerCase()),
+        shown.join('\n'),
+      );
+      for (const drawn of screen.rewrites()) assert.match(drawn, /^[ -~]*$/);
+    });
+
+    it('cuts the tool’s name to 64 characters before it escapes it', async () => {
+      const plain = await brewLive(
+        { ...idle, turn: 3, lastTool: { name: 'A'.repeat(100) } },
+        { seconds: 3, columns: 500 },
+      );
+      assert.ok(
+        plain.screen
+          .texts()
+          .map(withoutTime)
+          .includes(`brew #1 / turn 3 / ${'A'.repeat(64)}`),
+        plain.screen.texts().join('\n'),
+      );
+      const wide = await brewLive(
+        { ...idle, turn: 3, lastTool: { name: 'é'.repeat(70) } },
+        { seconds: 3, columns: 500 },
+      );
+      const escaped = '\\u00e9'.repeat(64);
+      assert.ok(
+        wide.screen.texts().map(withoutTime).includes(`brew #1 / turn 3 / ${escaped}`),
+        wide.screen.texts().join('\n'),
+      );
+    });
+
+    it('cuts the whole line, spinner included, to the terminal’s width less one, and to 79 when it is unknown', async () => {
+      const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
+      const narrow = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3, columns: 40 });
+      const full = narrow.screen.rewrites().filter((drawn) => drawn.length >= 39);
+      assert.ok(full.length > 0, 'a line fills the terminal');
+      assert.ok(full.every((drawn) => drawn.length === 39));
+      assert.ok(narrow.screen.rewrites().every((drawn) => drawn.length <= 39));
+      assert.ok(full.every((drawn) => drawn.slice(2).startsWith('brew #1 / ')));
+      const unknown = await brewLive(
+        { ...idle, turn: 3, lastTool },
+        { seconds: 3, columns: 'unknown' },
+      );
+      const lengths = unknown.screen.rewrites().map((drawn) => drawn.length);
+      assert.equal(Math.max(...lengths), 79);
+    });
+
+    it('redraws at once when the terminal is resized, to its new width, and stops listening at the end', async () => {
+      const lastTool = { name: 'Edit', word: 'x'.repeat(300) };
+      let seen: { before: number; after: number; line: string | undefined } | undefined;
+      const { screen } = await brewLive(
+        { ...idle, turn: 3, lastTool },
+        {
+          seconds: 8,
+          onWait: (waits, screen) => {
+            if (waits !== 3) return;
+            const before = screen.rewrites().length;
+            screen.resize(30);
+            seen = { before, after: screen.rewrites().length, line: screen.drawn() };
+          },
+        },
+      );
+      assert.ok(seen !== undefined && seen.after > seen.before, JSON.stringify(seen));
+      assert.equal(seen.line?.length, 29);
+      assert.equal(screen.resizers.size, 0);
+    });
+
+    it('redraws about once a second on the shell’s wait, while the tick stays every 5 s', async () => {
+      const { screen, waits, flushes } = await brewLive(
+        { ...idle, turn: 3 },
+        { seconds: 30, columns: 120 },
+      );
+      assert.ok(waits.length > 0 && waits.every((ms) => ms <= 1_000), waits.join(' '));
+      const drawn = screen.rewrites().length;
+      assert.ok(drawn >= 25 && drawn <= 45, `${drawn} redraws in 30 s`);
+      // A tick flushes the state branch once: every 5 s, not every redraw.
+      assert.ok(flushes() >= 5 && flushes() <= 9, `${flushes()} ticks in 30 s`);
+    });
+
+    it('turns the spinner one frame at each redraw, through its four frames in order', async () => {
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 20 });
+      const frames = new Set<string>();
+      let previous: string | undefined;
+      let steps = 0;
+      for (const event of screen.events) {
+        if (!event.startsWith('rewrite: ')) {
+          previous = undefined;
+          continue;
+        }
+        const frame = event.charAt(9);
+        frames.add(frame);
+        if (previous !== undefined) {
+          const next = SPINNER[(SPINNER.indexOf(previous) + 1) % SPINNER.length];
+          assert.equal(frame, next, `after ${previous}`);
+          steps += 1;
+        }
+        previous = frame;
+      }
+      assert.deepEqual([...frames].sort(), [...SPINNER].sort());
+      assert.ok(steps >= 10, `${steps} steps`);
+    });
+
+    it('prints no 30 s progress line while it keeps a live line', async () => {
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 70 });
+      assert.ok(screen.rewrites().length > 0, 'a live line is drawn');
+      assert.deepStrictEqual(
+        lines.filter((line) => line.includes('running for')),
+        [],
+      );
+    });
+
+    it('clears the live line, prints a lasting line, and draws the live line again', async () => {
+      const { screen } = await brewLive(
+        { ...idle, turn: 3 },
+        {
+          seconds: 20,
+          flush: (flushes) =>
+            flushes === 3 ? { kind: 'failed', reason: 'offline' } : { kind: 'unchanged' },
+        },
+      );
+      const at = screen.events.indexOf(
+        'out: foedrum brew: the state branch was not pushed: offline',
+      );
+      assert.ok(at > 0, screen.events.join('\n'));
+      assert.equal(screen.events[at - 1], 'clear');
+      assert.ok(screen.events[at + 1]?.startsWith('rewrite: '), screen.events[at + 1]);
+      assert.deepStrictEqual(screen.printedOver, []);
+    });
+
+    it('clears the live line before it exits when it is stopped, and leaves today’s last line', async () => {
+      const { code, screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 10 });
+      assert.equal(code, 1);
+      assert.ok(screen.rewrites().length > 0, 'a live line was drawn');
+      assert.ok(lines.at(-1)?.startsWith('foedrum brew: stopped; '), lines.at(-1));
+      assert.equal(screen.drawn(), undefined);
+      assert.ok(!screen.events.at(-1)?.startsWith('rewrite: '), screen.events.at(-1));
+    });
+
+    it('clears the live line before it exits, whatever the exit code', async () => {
+      const exits: [string, ReturnType<typeof behave.succeed>, number][] = [
+        ['on tap', behave.succeed('Brewed'), 0],
+        ['needs input', behave.needInput(), 4],
+      ];
+      for (const [name, ending, exitCode] of exits) {
+        lines.length = 0;
+        const inner = fakeBrewerRunner(() => ending);
+        let release: () => void = () => {};
+        const released = new Promise<void>((done) => {
+          release = done;
+        });
+        let over = false;
+        const runner: BrewerRunner = {
+          start: (attempt) => {
+            const run = inner.start(attempt);
+            const ended = released
+              .then(() => run.ended)
+              .then((end) => {
+                over = true;
+                return end;
+              });
+            return { ended, stop: run.stop };
+          },
+          progress: () => (over ? undefined : { ...idle, turn: 3 }),
+        };
+        const { code, screen } = await brewLive(
+          { ...idle, turn: 3 },
+          {
+            seconds: 300,
+            runner,
+            onWait: (waits) => {
+              if (waits === 6) release();
+            },
+          },
+        );
+        assert.equal(code, exitCode, `${name}: ${lines.join('\n')}`);
+        assert.ok(screen.rewrites().length >= 5, `${name}: a live line was drawn`);
+        assert.equal(screen.drawn(), undefined, name);
+        assert.ok(
+          !screen.events.at(-1)?.startsWith('rewrite: '),
+          `${name}: ${screen.events.at(-1)}`,
+        );
+        assert.deepStrictEqual(screen.printedOver, [], name);
+      }
+    });
   });
 
   it('refuses a batch another driver leases, naming it and when its lease ends: exit 5', async () => {

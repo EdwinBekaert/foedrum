@@ -26,6 +26,7 @@ import type { Batch, State } from './fold.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
+import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
 import type { OutDocOf } from './worktree-claims.ts';
@@ -173,6 +174,8 @@ export interface Driver {
   applyEffects(): Promise<void>;
   /** The folded state of every committed event. */
   state(): State;
+  /** What the runner reports of the running attempt `ref`, for display (ADR 0174). */
+  progress(ref: AttemptRef): AttemptProgress | undefined;
   /** Stops the runs it still has and lets its lock go; its batch leases expire on their own. */
   close(): void;
 }
@@ -941,6 +944,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     tick,
     applyEffects,
     state: log.state,
+    progress: () => {
+      throw new Error('not implemented');
+    },
     close: () => {
       // Their ends are not recorded: the next start of this owner loses them (ADR 0033, ADR 0063).
       for (const { run } of runs.values()) run.stop();

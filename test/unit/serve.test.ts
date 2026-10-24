@@ -11,6 +11,7 @@ import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import {
   formatIntakeNotice,
   formatNotice,
+  type LiveTerminal,
   runServe,
   type ServeShell,
 } from '../../src/cli/serve.ts';
@@ -251,6 +252,29 @@ describe('runServe', () => {
       createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane,
       { kind: 'on_tap', pullRequests: [`https://github.com/acme/web/pull/${pull?.number}`] },
     );
+  });
+
+  it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
+    const touched: string[] = [];
+    const terminal: LiveTerminal = {
+      columns: () => {
+        touched.push('columns');
+        return 80;
+      },
+      onResize: () => {
+        touched.push('onResize');
+        return () => {};
+      },
+      clear: () => {
+        touched.push('clear');
+      },
+      rewrite: () => {
+        touched.push('rewrite');
+      },
+    };
+    assert.equal(await runServe(setup, shell({ terminal })), 0);
+    assert.deepStrictEqual(touched, []);
+    assert.ok(lines.length > 0, 'serve printed its lines');
   });
 
   it('sets the Cellar up in order, brews the order with its text, and stops on Ctrl+C', async () => {

@@ -30,6 +30,8 @@ export interface StreamAsk extends AskedSession {
   maxDenials?: number | undefined;
   /** Whether claude resumes the session rather than start it (ADR 0117). */
   resumes?: boolean | undefined;
+  /** The attempt's worktree, which a file path shown for display is made relative to (ADR 0174). */
+  worktree?: string | undefined;
 }
 
 /** What the stream showed, for settleAttempt. */
