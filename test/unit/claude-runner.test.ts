@@ -300,6 +300,17 @@ describe('claudeBrewerRunner', () => {
     );
   });
 
+  it('ends with the house-yeast rules its plan gave the brewer, however it ends (ADR 0169)', async () => {
+    const houseYeast = { selected: ['cents'], cut: ['deadline'], invalid: ['house-yeast/x.md'] };
+    const given = async (): Promise<ClaudeAttemptPlan> => ({ ...plan(), houseYeast });
+    const clean = setup({ lines: fixture('success.jsonl'), result: exited(0) }, { plan: given });
+    assert.deepEqual((await clean.runner.start(attempt).ended).houseYeast, houseYeast);
+    const unstarted = setup({ throws: new Error('ENOENT') }, { plan: given });
+    const end = await unstarted.runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(end.houseYeast, houseYeast);
+  });
+
   describe('a brewer that produces commits (ADR 0074)', () => {
     const start = 'c'.repeat(40);
     const committing: AttemptStart = { ...attempt, limits: { ...limits, commitsSince: start } };

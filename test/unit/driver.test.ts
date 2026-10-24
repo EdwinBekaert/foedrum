@@ -1362,6 +1362,18 @@ describe('openDriver', () => {
       assert.equal(implemented?.claude, undefined);
     });
 
+    it('records the house-yeast rules an attempt ended with on its step.finished (ADR 0169)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const houseYeast = { selected: ['waits'], cut: ['huge'], invalid: ['house-yeast/bad.md'] };
+      end(plan('b1'), succeeded, { houseYeast });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.houseYeast, houseYeast);
+    });
+
     it('records the receipt of an attempt on its step.finished (ADR 0172)', async () => {
       const { runner, end } = handRunner();
       order('b1');

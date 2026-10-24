@@ -15,12 +15,13 @@ import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/re
 import { ranIn } from '../engine/session-resume.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
+import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import { OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
-import type { Git } from '../workspace/git.ts';
+import type { Git, GitOptions } from '../workspace/git.ts';
 import {
   answersOf,
   attemptLimits,
@@ -38,6 +39,15 @@ import {
 } from './attempt-plan.ts';
 import type { ConfigDirs } from './attempt-settings.ts';
 import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claude-runner.ts';
+import {
+  blobTexts,
+  breweryRules,
+  changedFilesZ,
+  type PickedRules,
+  pickRules,
+  type RuleSource,
+  ruleBlobs,
+} from './house-yeast.ts';
 import type { PromptInput, RandomBytes } from './prompt.ts';
 
 export interface AttemptPlansOptions {
@@ -69,6 +79,15 @@ export interface AttemptPlansOptions {
    * that needs it fails without it.
    */
   git?: Git;
+  /**
+   * The Brewery's house-yeast rule files, read with its files, and where a repository's own rules
+   * are kept (`foedrum.jsonc`, ADR 0018): a brewer that asks for house yeast gets those that match
+   * its change (ADR 0169).
+   */
+  houseYeast?: {
+    files: readonly RuleSource[];
+    keptIn: (repo: string) => 'repo' | 'brewery';
+  };
   /** Default the file system's: `readOutDocFile` and a recursive `mkdir`. */
   files?: {
     read: (file: string, maxBytes: number, root: string) => OutDocRead;
@@ -162,6 +181,29 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
+   * git in the clone of `repo`, never by discovery in a worktree, with no hook, external diff or
+   * textconv a brewer could have planted there (ADR 0029, ADR 0096, ADR 0137): its stdout, or an
+   * error that starts with `why` and names the call. With `keepCut`, the start of an output git
+   * was stopped for past its limit.
+   */
+  const gitIn = (repo: string, why: string) => {
+    if (options.git === undefined) throw new Error(`${why}: no git was given`);
+    const git = inClone(options.git);
+    const clone = options.clone(repo);
+    return async (
+      args: readonly string[],
+      { keepCut = false, ...more }: GitOptions & { keepCut?: boolean } = {},
+    ): Promise<string> => {
+      const result = await git(clone, args, more);
+      if (result.code === 0 || (keepCut && result.killed === 'too-much-output')) {
+        return result.stdout;
+      }
+      const [said = ''] = result.stderr.trim().split('\n');
+      throw new Error(`${why}: git ${args.join(' ')} exited with code ${result.code}: ${said}`);
+    };
+  };
+
+  /**
    * The change a Taster that reviews a diff is given (ADR 0161): the commits from `since` to `head`,
    * the commit its worktree started at, and their diff. Read in the repository's clone, never by
    * discovery in the worktree, with no hook, external diff or textconv a brewer could have planted
@@ -169,48 +211,104 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * input cuts anyway.
    */
   const changeFor = async (repo: string, since: string, head: string): Promise<PromptInput> => {
-    const why = `the change since commit ${since} was not read`;
-    if (options.git === undefined) throw new Error(`${why}: no git was given`);
-    const git = inClone(options.git);
-    const clone = options.clone(repo);
-    const read = async (args: readonly string[]): Promise<string> => {
-      const result = await git(clone, args, { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES });
-      if (result.code === 0 || result.killed === 'too-much-output') return result.stdout;
-      const [said = ''] = result.stderr.trim().split('\n');
-      throw new Error(`${why}: git ${args.join(' ')} exited with code ${result.code}: ${said}`);
-    };
+    const read = gitIn(repo, `the change since commit ${since} was not read`);
+    const cut = { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES, keepCut: true };
     // The first parents only: never the commits a merge of the base brought in (ADR 0164).
-    const log = await read([
-      'log',
-      '--no-show-signature',
-      '--first-parent',
-      '--format=%h %s',
-      `${since}..${head}`,
-    ]);
-    const diff = await read([
-      '-c',
-      'core.quotePath=false',
-      'diff',
-      '--no-color',
-      '--no-ext-diff',
-      '--no-textconv',
-      since,
-      head,
-    ]);
+    const log = await read(
+      ['log', '--no-show-signature', '--first-parent', '--format=%h %s', `${since}..${head}`],
+      cut,
+    );
+    const diff = await read(
+      [
+        '-c',
+        'core.quotePath=false',
+        'diff',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        since,
+        head,
+      ],
+      cut,
+    );
     return changeInput(since, log, diff);
   };
 
   /**
+   * The house-yeast rules for an attempt with `stepLens` in `repo`, whose change runs from `since`
+   * to `head` (ADR 0169): the Brewery's, and the repository's, from the Brewery or with git in the
+   * clone at `since`, so the batch's own commits never add or remove one. The files the change
+   * touched are read in the clone too; with no `since`, it touched none.
+   */
+  const houseYeastFor = async (
+    repo: string,
+    since: string | undefined,
+    head: string,
+    stepLens: string | undefined,
+    houseYeast: NonNullable<AttemptPlansOptions['houseYeast']>,
+  ): Promise<PickedRules> => {
+    const keptIn = houseYeast.keptIn(repo);
+    const fromBrewery = breweryRules(houseYeast.files, repo, keptIn);
+    const lens = stepLens === undefined ? {} : { lens: stepLens };
+    // Before an attempt recorded where the batch started, nothing changed, and no commit holds
+    // the repository's own rules.
+    if (since === undefined) return pickRules(fromBrewery, { files: [], ...lens });
+    const why = `the house-yeast rules of ${repo} were not read`;
+    const read = gitIn(repo, why);
+    const changed = await read([
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      '--name-status',
+      '-z',
+      '--no-color',
+      '--no-ext-diff',
+      since,
+      head,
+    ]);
+    const repository =
+      keptIn === 'brewery' ? fromBrewery.repository : await rulesAt(read, why, since);
+    const change = { files: changedFilesZ(changed), ...lens };
+    return pickRules({ brewery: fromBrewery.brewery, repository }, change);
+  };
+
+  /** The rule files of `.foedrum/house-yeast/` at commit `at`, read with `read` (ADR 0169). */
+  const rulesAt = async (
+    read: ReturnType<typeof gitIn>,
+    why: string,
+    at: string,
+  ): Promise<RuleSource[]> => {
+    const blobs = ruleBlobs(await read(['ls-tree', '-z', at, '--', '.foedrum/house-yeast/']));
+    if (blobs.length === 0) return [];
+    const batch = await read(['cat-file', '--batch'], {
+      stdin: `${blobs.map(({ blob }) => blob).join('\n')}\n`,
+      // One byte past the limit, and kept when git is stopped there, so the check below says so.
+      maxOutputBytes: MAX_INPUT_BYTES + 1,
+      keepCut: true,
+    });
+    // The rules are one input's worth of text, as a file input is (ADR 0059).
+    if (Buffer.byteLength(batch, 'utf8') > MAX_INPUT_BYTES) {
+      throw new Error(`${why}: they are larger than ${MAX_INPUT_BYTES} bytes`);
+    }
+    try {
+      return blobTexts(blobs, batch);
+    } catch (error) {
+      throw new Error(`${why}: ${(error as Error).message}`);
+    }
+  };
+
+  /**
    * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then for a Taster
-   * that reviews a diff where the change starts (ADR 0161), then the answers to its step's
-   * questions, then what sent it back when a route scheduled it (ADR 0128).
+   * that reviews a diff where the change starts (ADR 0161), then for a brewer that asks for house
+   * yeast the rules that match its change (ADR 0169), then the answers to its step's questions,
+   * then what sent it back when a route scheduled it (ADR 0128). With the rules it was given.
    */
   const inputsFor = async (
     batch: Batch,
     ref: AttemptRef,
     found: StepBrewer,
     worktree: WorktreeRef,
-  ): Promise<PromptInput[]> => {
+  ): Promise<{ inputs: PromptInput[]; houseYeast?: HouseYeastSelection }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
     const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
@@ -219,10 +317,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
-    const since = found.lens?.startsWith('diff/')
-      ? (mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo))
-      : undefined;
+    const start = mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo);
+    const since = found.lens?.startsWith('diff/') ? start : undefined;
     if (since !== undefined) inputs.push(await changeFor(worktree.repo, since, worktree.commit));
+    // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
+    const { houseYeast } = options;
+    const rules =
+      found.brewer.houseYeast && houseYeast !== undefined
+        ? await houseYeastFor(worktree.repo, start, worktree.commit, found.lens, houseYeast)
+        : undefined;
+    if (rules !== undefined) inputs.push(...rules.inputs);
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);
     const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
@@ -232,7 +336,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
       inputs.push(routeInput(route, read));
     }
-    return inputs;
+    return rules === undefined ? { inputs } : { inputs, houseYeast: rules.record };
   };
 
   return {
@@ -259,15 +363,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const resumes: Resumed | undefined =
         session.resumes === undefined ? undefined : answered ? 'answered' : 'retry';
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
-      const inputs =
+      const { inputs, houseYeast } =
         resumes === undefined
           ? await inputsFor(batch, ref, found, worktree)
-          : latest === undefined
-            ? []
-            : [latest];
+          : { inputs: latest === undefined ? [] : [latest] };
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
-      const plan = planAttempt({
+      const planned = planAttempt({
         brewer: found.brewer,
         instructions: found.instructions,
         worktree: worktree.path,
@@ -282,6 +384,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
+      // The rules it was given go with its end onto its step.finished (ADR 0169).
+      const plan = houseYeast === undefined ? planned : { ...planned, houseYeast };
       // Every attempt's worktree gets its repository's dependencies before the brewer starts: a
       // resumed one too, since the driver may have added its worktree again. Not for a brewer
       // that cannot run a command, such as a read-only Taster: it could not use them (ADR 0163).

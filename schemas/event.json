@@ -841,6 +841,37 @@
             "denied"
           ],
           "additionalProperties": false
+        },
+        "houseYeast": {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+              }
+            },
+            "cut": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+              }
+            },
+            "invalid": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          },
+          "required": [
+            "selected",
+            "cut"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
