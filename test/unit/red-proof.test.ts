@@ -390,6 +390,50 @@ describe('judgeRed', () => {
     assert.deepEqual(judgeRed(report, bare), { proven: true, tests: names });
   });
 
+  it('finds a GoogleTest fixture test and the other Gherkin scenario keywords', () => {
+    const declared = [
+      { newPath: 'test/calc_test.cc', added: ['TEST_F(CalcFixture, Subtracts) {'], removed: [] },
+      {
+        newPath: 'features/add.feature',
+        added: ['  Scenario Outline: adds many numbers', '  Example: adds no numbers'],
+        removed: [],
+      },
+    ];
+    const names = ['CalcFixture.Subtracts', 'adds many numbers', 'adds no numbers'];
+    const report = tap(...names.flatMap((name, n) => failing(n + 1, name, 'not implemented')));
+    assert.deepEqual(judgeRed(report, declared), { proven: true, tests: names });
+  });
+
+  it('does not take an older name that a declaration form only begins or a comment holds', () => {
+    const nearMisses = [
+      {
+        newPath: 'test/near.test.ts',
+        added: [
+          "  it('reads a result line', () => {",
+          'fn divides_all<T>() {',
+          'TEST(CalcTest, AddsMore) {',
+          '  Scenario: adds two numbers',
+          '  undef adds',
+          '  // Scenario: subtracts',
+        ],
+        removed: [],
+      },
+    ];
+    // Each is an older passing test whose name only begins a form, or stands after a comment.
+    const report = tap(
+      'ok 1 - divides',
+      'ok 2 - CalcTest.Adds',
+      'ok 3 - adds two',
+      'ok 4 - adds',
+      'ok 5 - subtracts',
+      ...failing(6, 'reads a result line', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, nearMisses), {
+      proven: true,
+      tests: ['reads a result line'],
+    });
+  });
+
   it('does not take a capitalised key in a fixture line for a Gherkin scenario', () => {
     const fixture = [
       {
@@ -628,5 +672,25 @@ describe('judgeRed: where a regression test may be declared (ADR 0170)', () => {
     ];
     const report = tap(...newTestsFail, 'ok 3 - keeps_adding_zero');
     assert.equal(judgeRed(report, rust, ['keeps_adding_zero']).proven, true);
+  });
+
+  it('refuses a name a comment after code holds (ADR 0176)', () => {
+    const mentioned: DiffFile[] = [
+      ...gauged,
+      {
+        newPath: 'test/sub.test.mjs',
+        added: ["test('x', () => {", '  run(); // keeps subtracting', '});'],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      ...newTestsFail,
+      'ok 3 - keeps subtracting',
+      ...failing(4, 'x', 'not implemented'),
+    );
+    assert.deepEqual(
+      judgeRed(report, mentioned, ['keeps subtracting']),
+      refusal('keeps subtracting'),
+    );
   });
 });
