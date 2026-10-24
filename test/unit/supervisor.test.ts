@@ -236,6 +236,25 @@ describe('planTick: expired leases (ADR 0027)', () => {
     assert.deepStrictEqual(tick, { commands: [lose('b1')], releaseLeases: [lease.attemptKey] });
   });
 
+  it('keeps the lease of a second lost attempt of a batch for the next tick, which loses it (ADR 0168)', () => {
+    // Two children of a parallel group, both started, both of a run that was killed.
+    const child = (stepId: string): Event[] => [
+      { type: 'step.scheduled', batchId: 'b1', stepId, attempt: 1, deadlineAt: ahead },
+      { type: 'step.started', batchId: 'b1', stepId, attempt: 1 },
+    ];
+    const events = [ordered('b1'), chosen('b1', 'flight'), ...child('security'), ...child('style')];
+    const security = leaseOf({ batchId: 'b1', stepId: 'security', attempt: 1 });
+    const style = leaseOf({ batchId: 'b1', stepId: 'style', attempt: 1 });
+    const recipes = fakeRecipes({
+      flight: fakeRecipe({ steps: ['tasting'], groups: { tasting: ['security', 'style'] } }),
+    });
+    const tick = planTick({ ...input(events, { expiredLeases: [security, style] }), recipes });
+    assert.deepStrictEqual(tick, {
+      commands: [{ ...lose('b1'), stepId: 'security' }],
+      releaseLeases: [security.attemptKey],
+    });
+  });
+
   it('only releases the lease of an attempt that has not started: its deadline covers it', () => {
     const lease = leaseOf(plan('b1'));
     const events = [ordered('b1'), chosen('b1'), scheduled('b1')];

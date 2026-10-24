@@ -29,10 +29,20 @@ export interface Stall {
 export interface Recipe {
   /** The step a batch starts with. */
   readonly firstStep: string;
-  /** Its step ids in the order the recipe lists them: what the status comment shows (ADR 0072). */
+  /**
+   * Its step ids in the order the recipe lists them, a parallel group's children in its place: what
+   * the status comment shows (ADR 0072, ADR 0168).
+   */
   readonly steps: readonly string[];
-  /** Whether the recipe has a step `stepId`. */
+  /** Whether the recipe has a step `stepId`: a parallel group, or a child of one, too. */
   has(stepId: string): boolean;
+  /**
+   * The children of `stepId`, in the recipe's order, when it is a parallel group, whose attempts
+   * run side by side (ADR 0168); `undefined` for any other step.
+   */
+  children(stepId: string): readonly string[] | undefined;
+  /** The parallel group `stepId` is a child of, or `undefined` when it is none's (ADR 0168). */
+  group(stepId: string): string | undefined;
   /** The action `stepId` is, which the engine runs itself; `undefined` for any other step. */
   action(stepId: string): RecipeAction | undefined;
   /**
