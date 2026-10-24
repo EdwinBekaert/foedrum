@@ -117,6 +117,11 @@ export const Receipt = z.strictObject({
   durationMs: Count.optional(),
   apiDurationMs: Count.optional(),
   turns: Count,
+  /**
+   * The run resumed its session: its cost, API duration and tokens per model are then the
+   * session's so far, not the run's alone (ADR 0042).
+   */
+  resumed: z.literal(true).optional(),
   /** claude's list price: an estimate, never what a subscription pays. */
   costUsd: z.number().nonnegative().optional(),
   models: z

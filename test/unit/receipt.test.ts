@@ -154,6 +154,38 @@ describe("a batch's receipts", () => {
     );
   });
 
+  // Review of #459: a resumed run reports its session's cost so far (ADR 0042).
+  describe('attempts that resume a session', () => {
+    const sessionOf = (id: string) => ({ session: { id, worktree: '/work/7-1' } });
+    const resumedBatch = (...attempts: Attempt[]) =>
+      batch({
+        steps: new Map([step('implement', ...attempts)]),
+        path: attempts.map(({ attempt }) => ({ stepId: 'implement', attempt })),
+      });
+
+    it("gives each attempt its own cost, and the total each session's once", () => {
+      const ran = resumedBatch(
+        finished(1, { ...sessionOf('s1'), receipt: receipt({ costUsd: 0.5 }) }),
+        finished(2, { ...sessionOf('s1'), receipt: receipt({ costUsd: 0.8, resumed: true }) }),
+        finished(3, { ...sessionOf('s2'), receipt: receipt({ costUsd: 0.25 }) }),
+      );
+      const text = renderStatus(ran, ['implement']);
+      assert.match(text, /^- `implement #2` · .* · \$0\.30 est\.$/m);
+      assert.match(text, /^- `implement #3` · .* · \$0\.25 est\.$/m);
+      assert.equal(
+        totalParts(ran).find((part) => part.startsWith('$')),
+        '$1.05 est.',
+      );
+    });
+
+    it('says a resumed cost is for the session when no earlier receipt of it is in the batch', () => {
+      const ran = resumedBatch(
+        finished(2, { ...sessionOf('s1'), receipt: receipt({ costUsd: 0.8, resumed: true }) }),
+      );
+      assert.match(renderStatus(ran, ['implement']), /· \$0\.80 est\. for the session$/m);
+    });
+  });
+
   it('sums them', () => {
     assert.deepEqual(totalParts(ran), [
       '2 attempts',

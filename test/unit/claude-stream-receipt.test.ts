@@ -71,6 +71,18 @@ describe('the receipt of each captured stream', () => {
     );
   });
 
+  // Review of #459: a resumed run's cost, API duration and tokens per model are the session's
+  // (ADR 0042), so its receipt says it resumed one.
+  it('marks the receipt of a run that resumed its session', () => {
+    const resumed = receiptOf(lines('resumed.jsonl'), {
+      sessionId: session(1),
+      tools: ['Read'],
+      resumes: true,
+    });
+    assert.equal(resumed.resumed, true);
+    assert.equal(resumed.costUsd, 0.0006379900000000001);
+  });
+
   it('reads a run that reached its maximum turns', () => {
     assert.deepEqual(
       receiptOf(lines('max-turns.jsonl'), { sessionId: session(59), tools: ['Read'] }),
