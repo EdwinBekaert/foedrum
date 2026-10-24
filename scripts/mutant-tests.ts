@@ -36,7 +36,11 @@ const readSources = async (tree: string): Promise<Map<string, string>> => {
 };
 
 // The tests the mutation check runs for mutants of `files`.
-export const mutantTests = async (tree: string, files: readonly string[]): Promise<Result> => {
+export const mutantTests = async (
+  tree: string,
+  files: readonly string[],
+  _options: { direct?: boolean } = {},
+): Promise<Result> => {
   let sources: Map<string, string>;
   try {
     if (!(await stat(tree)).isDirectory()) {

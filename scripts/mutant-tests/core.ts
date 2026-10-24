@@ -22,6 +22,15 @@ const importedBy = (sources: ReadonlyMap<string, string>, file: string): string[
     posix.normalize(posix.join(posix.dirname(file), specifier)),
   );
 
+// The two rounds of the mutation check (ADR 0171): the test files among `sources` that import
+// one of `targets` directly, and the ones that import one only through one module, each sorted.
+export const testRounds = (
+  _sources: ReadonlyMap<string, string>,
+  _targets: readonly string[],
+): { direct: string[]; oneAway: string[] } => {
+  throw new Error('not implemented');
+};
+
 // The test files among `sources` (path relative to the tree, with /, to its text) that import
 // one of `targets` directly or through one module, sorted.
 export const testsFor = (
