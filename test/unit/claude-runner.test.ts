@@ -729,6 +729,17 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
+  // Review of #459: claude never ran, so there is nothing it took (ADR 0172).
+  it('ends with no receipt when claude could not start', async () => {
+    const { runner } = setup(
+      { lines: [], result: { exitCode: null, stderr: 'claude: not found on PATH (ENOENT)' } },
+      { outDoc: undefined },
+    );
+    const end = await runner.start(attempt).ended;
+    assert.equal(end.ending.kind, 'failed');
+    assert.equal(end.receipt, undefined);
+  });
+
   it('fails, not retryably, and starts nothing, when the attempt cannot be prepared', async () => {
     const { calls, runner } = setup(
       { lines: [], result: exited(0) },
