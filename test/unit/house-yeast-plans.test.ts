@@ -115,7 +115,18 @@ const repository = (changed: string, rules: Record<string, string> = { waits: WA
       const start = Buffer.from(stdout).subarray(0, limit).toString();
       return { code: null, stdout: start, stderr: '', killed: 'too-much-output' as const };
     };
-    if (args.includes('--name-status')) return ok(changed);
+    if (args.includes('--name-status')) {
+      const lines = changed.split('\n').filter((line) => line !== '');
+      // Without -z, git quotes a path with a double quote, backslash, tab or line feed in it, even
+      // with core.quotePath=false.
+      const quoted = (path: string) =>
+        /["\\\t\n]/.test(path) ? `"${path.replace(/["\\]/g, '\\$&').replace(/\t/g, '\\t')}"` : path;
+      return ok(
+        args.includes('-z')
+          ? lines.map((line) => `${line.split('\t').join('\0')}\0`).join('')
+          : lines.map((line) => `${line.split('\t').map(quoted).join('\t')}\n`).join(''),
+      );
+    }
     if (args[0] === 'ls-tree') {
       return ok(
         blobs
@@ -198,6 +209,7 @@ describe('createAttemptPlans: house yeast (#434, ADR 0169)', () => {
             'core.quotePath=false',
             'diff',
             '--name-status',
+            '-z',
             '--no-color',
             '--no-ext-diff',
             base,
@@ -214,6 +226,11 @@ describe('createAttemptPlans: house yeast (#434, ADR 0169)', () => {
       ],
     );
     assert.equal(read[2]?.options?.stdin, `${'1'.repeat(40)}\n`);
+  });
+
+  it('matches a changed file whose path git would quote', async () => {
+    const { plan } = await planOf(repository('M\tsrc/say "hi".ts\n'));
+    assert.deepEqual((await plan).houseYeast, { selected: ['waits'], cut: [] });
   });
 
   it('leaves out a rule whose files the batch did not change, and records that it selected none', async () => {

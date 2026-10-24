@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   blobTexts,
   breweryRules,
+  changedFilesZ,
   pickRules,
   type RuleFile,
   readRules,
@@ -66,6 +67,28 @@ describe('selectRules: the lens of a recipe step (ADR 0169)', () => {
   });
 });
 
+describe('changedFilesZ: what git diff --name-status -z printed', () => {
+  it('takes each file the change adds, alters or renames, by its new path, as git wrote it', () => {
+    const printed = [
+      'M',
+      'src/a"b.ts',
+      'R100',
+      'old.ts',
+      'new\tname.ts',
+      'D',
+      'gone.ts',
+      'A',
+      'x\\y.md',
+      '',
+    ];
+    assert.deepEqual(changedFilesZ(printed.join('\0')), ['src/a"b.ts', 'new\tname.ts', 'x\\y.md']);
+  });
+
+  it('takes none from a change that touched nothing', () => {
+    assert.deepEqual(changedFilesZ(''), []);
+  });
+});
+
 describe('ruleBlobs: what git ls-tree -z listed', () => {
   it('takes the regular .md files directly in the folder, not links, folders or other files', () => {
     const listed = [
@@ -104,6 +127,20 @@ describe('blobTexts: what git cat-file --batch printed', () => {
     ]);
   });
 
+  it('leaves out a blob that is not UTF-8 as unreadable, and reads the blobs after it', () => {
+    // A byte that is not UTF-8 (0xE9, an é in Windows-1252) reaches it as U+FFFD, three bytes for
+    // the one git counted.
+    const batch = 'aaaa blob 5\ncaf�!\nbbbb blob 2\ny\n\n';
+    assert.deepEqual(blobTexts(blobs, batch), [
+      { path: '.foedrum/house-yeast/a.md', unreadable: 'it is not UTF-8 text' },
+      { path: '.foedrum/house-yeast/b.md', text: 'y\n' },
+    ]);
+    assert.deepEqual(blobTexts(blobs, 'aaaa blob 1\nx\nbbbb blob 1\n�\n')[1], {
+      path: '.foedrum/house-yeast/b.md',
+      unreadable: 'it is not UTF-8 text',
+    });
+  });
+
   it('throws on a missing object, another id or output cut short', () => {
     assert.throws(() => blobTexts(blobs, 'aaaa missing\nbbbb blob 1\nx\n'), /aaaa/);
     assert.throws(() => blobTexts(blobs, 'cccc blob 1\nx\nbbbb blob 1\ny\n'), /aaaa/);
@@ -130,6 +167,17 @@ describe('breweryRules: the layers of the Brewery’s house-yeast/', () => {
       ['house-yeast/cents.md', 'house-yeast/broken.md'],
     );
     assert.deepEqual(repository, []);
+  });
+
+  it('names a folder of rules it could not list in the layer it holds', () => {
+    const unlisted = [
+      { path: 'house-yeast', unreadable: 'EACCES' },
+      { path: 'house-yeast/Acme/Web', unreadable: 'EPERM' },
+      { path: 'house-yeast/acme/web-old', unreadable: 'EIO' },
+    ];
+    const { brewery, repository } = breweryRules(unlisted, 'acme/web', 'brewery');
+    assert.deepEqual(brewery, [{ path: 'house-yeast', unreadable: 'EACCES' }]);
+    assert.deepEqual(repository, [{ path: 'house-yeast/Acme/Web', unreadable: 'EPERM' }]);
   });
 
   it("takes a repository's folder, in any case, when the Brewery keeps its rules", () => {

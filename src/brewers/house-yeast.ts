@@ -74,6 +74,14 @@ export const changedFiles = (nameStatus: string): string[] =>
     .filter(([status = '', path]) => path !== undefined && !status.startsWith('D'))
     .map((fields) => fields[fields.length - 1] as string);
 
+/**
+ * The files of `git diff --name-status -z` the change adds, alters or renames (new path), as git
+ * wrote them, never quoted; not deleted ones (ADR 0169).
+ */
+export const changedFilesZ = (_nameStatus: string): string[] => {
+  throw new Error('not implemented');
+};
+
 const languages: Record<string, string> = {
   '.ts': 'typescript',
   '.tsx': 'typescript',
