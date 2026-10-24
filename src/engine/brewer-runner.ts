@@ -2,7 +2,7 @@
 // it with a typed outcome (ADR 0005). The real runner drives the `claude` CLI; tests use a fake.
 // Both turn what the process did into the outcome through settleAttempt, so the rules are shared.
 
-import type { GravityReading, Usage } from '../schemas/events.ts';
+import type { GravityReading, Receipt, Usage } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
 import type { z } from '../schemas/zod.ts';
@@ -36,6 +36,8 @@ export interface AttemptStart {
 export interface AttemptEnd {
   ending: Ending;
   usage?: Usage;
+  /** What the attempt took, when the runner read its stream (ADR 0172). */
+  receipt?: Receipt;
   /**
    * What a check step read, one per check (ADR 0069); a brewer's attempt, its repository's setup's
    * when it has one (ADR 0163).
