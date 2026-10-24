@@ -270,6 +270,8 @@ interface LineStep {
   action?: RecipeAction;
   /** A check step that expects its checks to pass: not a red proof (ADR 0164). */
   passes?: true;
+  /** The parallel group it is a child of (ADR 0168). */
+  group?: string;
 }
 
 /**
@@ -435,9 +437,27 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
     );
 }
 
-/** A recipe of brewer and check steps in a line, and its settings. */
-function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings): Recipe {
+/**
+ * A recipe of brewer and check steps in a line, a parallel group's children in its place, and its
+ * settings; `groups` holds each group's `when`, if it has one (ADR 0168).
+ */
+function lineRecipe(
+  name: string,
+  steps: readonly LineStep[],
+  settings: Settings,
+  groups: ReadonlyMap<string, string | undefined>,
+): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
+  const children = new Map(
+    [...groups.keys()].map((group) => [
+      group,
+      steps.filter((entry) => entry.group === group).map(({ id }) => id),
+    ]),
+  );
+  // A group stands where its children are: the batch enters and leaves it as one step.
+  const named = (entry: LineStep): string => entry.group ?? entry.id;
+  const indexOf = (id: string): number =>
+    groups.has(id) ? steps.findLastIndex((entry) => entry.group === id) : at(id).index;
   const opens = steps.find((entry) => entry.action === 'openPullRequest')?.id;
   // The last checks before the pull request read the code it will hold (ADR 0164): of those the
   // recipe runs, since a `when` reads only the recipe's settings (ADR 0064).
@@ -453,26 +473,22 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
   };
   return {
     // A recipe has at least one step (its schema).
-    firstStep: steps[0]?.id ?? '',
+    firstStep: steps[0] === undefined ? '' : named(steps[0]),
     steps: steps.map(({ id }) => id),
-    has: (id) => byId.has(id),
-    children: () => {
-      throw new Error('not implemented');
-    },
-    group: () => {
-      throw new Error('not implemented');
-    },
+    has: (id) => byId.has(id) || groups.has(id),
+    children: (id) => children.get(id),
+    group: (id) => byId.get(id)?.group,
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),
     stall: (id) => at(id).stall,
     skip: (_batch, id) => {
-      const { when } = at(id);
+      const when = groups.has(id) ? groups.get(id) : at(id).when;
       return when === undefined || holds(when, settings) ? undefined : when;
     },
     after: (_batch, id) => {
-      const next = steps[at(id).index + 1];
-      if (next !== undefined) return { kind: 'step', stepId: next.id };
+      const next = steps[indexOf(id) + 1];
+      if (next !== undefined) return { kind: 'step', stepId: named(next) };
       // The batch goes on tap with the pull request of its action, which is the last step.
       return opens === undefined
         ? { kind: 'done', pullRequests: [] }
@@ -578,8 +594,29 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
       return true;
     };
-    const steps = value.steps.flatMap(
-      (step, index): { line: LineStep; brewer?: StepBrewer; check?: StepCheck }[] => {
+    // A parallel group's children load as steps of their own, in its place (ADR 0168).
+    const groups = new Map<string, string | undefined>();
+    let unfollowedGroups = 0;
+    const listed = value.steps.flatMap(
+      (step, index): { step: Step; index: number; group?: string }[] => {
+        if (!('parallel' in step)) return [{ step, index }];
+        const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
+        if (unfollowed !== undefined) {
+          problems.push(`${path}: ${unfollowed}`);
+          unfollowedGroups++;
+        }
+        groups.set(step.id, step.when);
+        return step.parallel.map((child) => ({ step: child, index, group: step.id }));
+      },
+    );
+    const steps = listed.flatMap(
+      ({ step, index, group }): { line: LineStep; brewer?: StepBrewer; check?: StepCheck }[] => {
+        if (group !== undefined && step.when !== undefined) {
+          problems.push(
+            `${path}: step "${stepId(step)}" in the parallel group "${group}" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)`,
+          );
+          return [];
+        }
         const runnable = runnableStep(step);
         if (typeof runnable === 'string') {
           problems.push(`${path}: ${runnable}`);
@@ -641,6 +678,19 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           }
           return [];
         }
+        // No child writes the task tree beside its siblings (ADR 0168).
+        const ungrouped =
+          group === undefined
+            ? undefined
+            : !isTaster(brewer)
+              ? `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`
+              : brewer.produces === 'commits'
+                ? `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree (ADR 0168)`
+                : undefined;
+        if (ungrouped !== undefined) {
+          problems.push(`${path}: step "${id}" in the parallel group "${group}" ${ungrouped}`);
+          return [];
+        }
         const refusedLens = untasted(runnable, brewer);
         const lens = runnable.lens === undefined ? undefined : lenses.get(runnable.lens);
         // A lens whose file or folder has a problem of its own is reported once, as that.
@@ -666,6 +716,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           // Attempts are counted over the batch's whole life (ADR 0053).
           mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
           route: findings === undefined ? undefined : { why: 'findings', ...findings },
+          ...(group === undefined ? {} : { group }),
         };
         if (lens === undefined) return [{ line, brewer: found }];
         // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161).
@@ -737,7 +788,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     }
     const refused =
       misfolded.length + ofNothing.length + unprovenLines.length + unopened.length > 0;
-    if (steps.length < value.steps.length || refused) continue;
+    if (steps.length < listed.length || unfollowedGroups > 0 || refused) continue;
     const [proof] = proofs;
     if (proof !== undefined) redProofs.set(value.name, proof);
     recipes.set(
@@ -746,6 +797,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         value.name,
         steps.map(({ line }) => line),
         { testFirst },
+        groups,
       ),
     );
     stepBrewers.set(

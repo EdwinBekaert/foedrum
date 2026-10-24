@@ -285,6 +285,7 @@ function run(draft: Draft, command: Command): Event[] {
       }
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
       schedule(draft, batchId, reason.stepId, { retry: true });
+      resumeGroup(draft, batchId, reason.stepId);
       break;
     }
     case 'skip': {
@@ -292,7 +293,9 @@ function run(draft: Draft, command: Command): Event[] {
       const { reason } = stuckLane(draft.batch(batchId), 'skip');
       if (reason.kind === 'routing') throw new Refusal(`batch ${batchId} has no step to skip`);
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'skip' });
-      continueAfter(draft, batchId, reason.stepId);
+      // A skip of a child skips the rest of its group (ADR 0168).
+      const group = recipeOf(draft, draft.batch(batchId)).group(reason.stepId);
+      continueAfter(draft, batchId, group ?? reason.stepId);
       break;
     }
     case 'answer':
@@ -417,7 +420,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
       ? {
           kind: 'failed',
           retryable: false,
-          reason: `blocked (${ending.blockerKind}): ${ending.summary}`,
+          reason: `${blockedBy(ending.blockerKind)}${ending.summary}`,
         }
       : ending;
   draft.push({
@@ -452,7 +455,10 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
         case 'findings': {
           // The next round, until the route's rounds are used up (brewers-and-recipes §2).
           const back = recipe.loopBack(batch, stepId, 'findings');
+          const group = recipe.group(stepId);
           if (back === undefined) stick(draft, batchId, blocked);
+          // A child's verdict waits for its group's other children (ADR 0168).
+          else if (group !== undefined) settle(draft, batchId, group);
           else goBack(draft, batchId, back, { from: stepId, why: 'findings' });
           return;
         }
@@ -661,6 +667,7 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
   draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
   draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
   schedule(draft, batchId, stepId, { answered: true });
+  resumeGroup(draft, batchId, stepId);
 }
 
 /**
@@ -676,7 +683,10 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
     throw new Refusal(`recipe ${batch.recipe.name} has no step ${toStepId}`);
   }
   draft.push({ type: 'batch.rewound', batchId, toStepId, by, via, shas: { ...shas } });
-  schedule(draft, batchId, toStepId);
+  // A rewind to a child runs its whole group again: the tree its children read changed (ADR 0168).
+  const group = recipeOf(draft, batch).group(toStepId);
+  const children = group === undefined ? undefined : recipeOf(draft, batch).children(group);
+  for (const stepId of children ?? [toStepId]) schedule(draft, batchId, stepId);
 }
 
 /**
@@ -714,9 +724,11 @@ function schedule(
 function enter(draft: Draft, batchId: string, stepId: string): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
-  const when = recipeOf(draft, batch).skip(batch, stepId);
+  const recipe = recipeOf(draft, batch);
+  const when = recipe.skip(batch, stepId);
   if (when === undefined) {
-    schedule(draft, batchId, stepId);
+    // A parallel group schedules every child at once (ADR 0168).
+    for (const child of recipe.children(stepId) ?? [stepId]) schedule(draft, batchId, child);
     return;
   }
   draft.push({ type: 'step.skipped', batchId, stepId, when });
@@ -727,7 +739,14 @@ function enter(draft: Draft, batchId: string, stepId: string): void {
 function continueAfter(draft: Draft, batchId: string, stepId: string): void {
   const batch = draft.batch(batchId);
   requireStep(draft, batch, stepId);
-  const next = recipeOf(draft, batch).after(batch, stepId);
+  const recipe = recipeOf(draft, batch);
+  // A child that succeeded waits for its group's other children (ADR 0168).
+  const group = recipe.group(stepId);
+  if (group !== undefined) {
+    settle(draft, batchId, group);
+    return;
+  }
+  const next = recipe.after(batch, stepId);
   switch (next.kind) {
     case 'step':
       enter(draft, batchId, next.stepId);
@@ -753,6 +772,67 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
       const unhandled: never = next;
       throw new Error(`Unhandled continuation ${JSON.stringify(unhandled)}`);
     }
+  }
+}
+
+/** How a blocked out doc's failure reason starts, by its blocker kind. */
+const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
+
+/** Whether `outcome` is a blocked out doc's on findings: a blocking Taster's `changes` (ADR 0161). */
+const onFindings = (outcome: StepOutcome): boolean =>
+  outcome.kind === 'failed' &&
+  !outcome.retryable &&
+  outcome.reason.startsWith(blockedBy('findings'));
+
+/** The latest attempt of `stepId` in `batch`, if it has one. */
+const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
+  const attempts = batch.steps.get(stepId)?.attempts;
+  return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
+};
+
+/**
+ * Whether the child `stepId` of a parallel group has ended (ADR 0168): its latest attempt
+ * succeeded, or it was blocked by findings with its route's rounds not used up. Every other ending
+ * retries the child or makes the batch Stuck.
+ */
+function ended(batch: Batch, recipe: Recipe, stepId: string): boolean {
+  const latest = latestOf(batch, stepId);
+  if (latest?.phase !== 'finished') return false;
+  if (latest.outcome.kind === 'succeeded') return true;
+  return onFindings(latest.outcome) && recipe.loopBack(batch, stepId, 'findings') !== undefined;
+}
+
+/**
+ * Ends the parallel group `group` once every child of it has ended (ADR 0168): back along the
+ * route of its first child that was blocked by findings, else on to the step after the group.
+ */
+function settle(draft: Draft, batchId: string, group: string): void {
+  const batch = draft.batch(batchId);
+  const recipe = recipeOf(draft, batch);
+  const children = recipe.children(group) ?? [];
+  if (!children.every((child) => ended(batch, recipe, child))) return;
+  for (const child of children) {
+    const latest = latestOf(batch, child);
+    const back = recipe.loopBack(batch, child, 'findings');
+    if (latest?.phase === 'finished' && onFindings(latest.outcome) && back !== undefined) {
+      goBack(draft, batchId, back, { from: child, why: 'findings' });
+      return;
+    }
+  }
+  continueAfter(draft, batchId, group);
+}
+
+/**
+ * Schedules again every other child of the group `stepId` is a child of that has not ended, so a
+ * retry or an answer resumes the group where it stood (ADR 0168).
+ */
+function resumeGroup(draft: Draft, batchId: string, stepId: string): void {
+  const batch = draft.batch(batchId);
+  const recipe = recipeOf(draft, batch);
+  const group = recipe.group(stepId);
+  if (group === undefined) return;
+  for (const child of recipe.children(group) ?? []) {
+    if (child !== stepId && !ended(batch, recipe, child)) schedule(draft, batchId, child);
   }
 }
 
