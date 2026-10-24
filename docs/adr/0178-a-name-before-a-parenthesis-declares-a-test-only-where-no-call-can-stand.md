@@ -8,21 +8,22 @@ The red proof finds the tests a step added by looking up each reported name in t
 What stands before a declared name on its line is a declaration's own words: modifiers, a return type, an annotation, a receiver (`public void adds(`, `async Task Adds(`, `fun adds(`, `func (s *Suite) TestAdds(`, `List<int> adds(`, `int *adds(`). What stands before a called name is an expression's: an assignment, an argument list, an operator or a keyword that takes an expression.
 
 ## Decision
-The form of an identifier right before `(` (ADR 0176's second form) counts only when what stands before the name on the line, with spaces skipped, ends in none of these:
-- a character or pair that opens or continues an expression: `=` (so also `==`, `=>`, `+=`), `(`, `,`, `[`, `{`, `!`, `?`, `:`, `+`, `-`, `/`, `%`, `|`, `^`, `~`, `;`, `&&`, `||`;
-- a word that takes an expression after it: `return`, `await`, `yield`, `throw`, `new`, `typeof`, `in`, `of`, `case`, `else`, `do`, `if`, `elif`, `while`, `unless`, `until`, `when`, `match`, `not`, `and`, `or`, `assert`.
+The form of an identifier right before `(` (ADR 0176’s second form) counts only where something stands before the name on its line, and that text, with whitespace (`s`) skipped back from the name, ends in none of these:
+- a pair, checked before the single characters: `=>`, `->`, `::`, `&&`, `||`;
+- a character that opens or continues an expression: `=` (so also `==`, `+=`), `(`, `,`, `[`, `{`, `!`, `:`, `+`, `-`, `/`, `%`, `|`, `^`, `~`, `;`, and `?` after whitespace (a conditional, `x ? parse(a)`);
+- a word that takes an expression after it, matched as a whole word and case-sensitive: `return`, `await`, `yield`, `throw`, `raise`, `new`, `typeof`, `in`, `of`, `case`, `else`, `do`, `then`, `if`, `elif`, `while`, `unless`, `until`, `when`, `match`, `with`, `defer`, `go`, `not`, `and`, `or`, `assert`.
 
-With nothing before the name, at the line’s start, the form counts only when the line, with a trailing comment left out, does not end in `;` or `)`: `parse(input);` and Python’s or Go’s `parse(input)` are statements, while a declaration goes on with `{`, `:`, `->` or a return type.
+With nothing before the name, at the line’s start after whitespace, the form does not count: there a call (`parse(input);`, `run(` of a call broken over lines, `withServer(async (url) => {`) and a declaration look the same.
 
-`*` and a single `&` count, as a pointer or a reference (`int *adds(`, `Foo& adds(`), and so do `>`, a generic’s close (`List<int> adds(`), and `)`, a Go receiver (`func (s *Suite) TestAdds(`). So `a * parse(x)` is still taken as a declaration; multiplying by a call in a test is rare.
+What does count before the name is a declaration’s own words and marks: modifiers, a return type, an annotation (`@Test void adds(`, `public async Task Adds(`), `*` and a single `&` (`int *adds(`, `Foo& adds(`), a single `>` (a generic’s close, `List<int> adds(`), `?` right after a letter or digit (a nullable type, `Task? Adds(`), and `)` (a Go receiver, `func (s *Suite) TestAdds(`).
 
-The other forms of ADR 0176 stand unchanged. Each test stays a fixed text or a scan of the line from its end, so a match stays linear in the line, which is model output.
+The text before is checked at every place the name stands in the line, not only the first, and only from there backwards over whitespace, so the match stays linear in the line, which is model output. The other forms of ADR 0176 stand unchanged.
 
 ## Consequences
-- An older test named after a free function the step calls is no longer taken for the step's, in an assignment, an argument, a `return`, an `await` or a statement of its own: the known limit ADR 0176 records for `const tree = parse(input);` is closed.
-- A declaration whose name follows one of those characters or words is no longer found by this form: none of the declarations ADR 0176 lists does, and a one-line test whose declaration sits after `;` on another statement's line is found by none of the forms. Its test is not counted as the step's, as for any form not listed.
-- A free function called after `*`, a single `&`, `>` or `)`, or alone on a line that ends in neither `;` nor `)`, is still taken as a declaration. The list grows by a change to the engine, with a test.
-- An older test whose name is a string in a line the step added (`{ kind: 'null' }`) is still counted as the step's, as ADR 0176 records.
+- An older test named after a free function the step calls is no longer taken for the step’s: in an assignment, an argument, an arrow function or lambda (`() => parse(x)`, `x -> parse(x)`), a `return`, an `await`, a condition, a statement of its own, or a call broken over lines. The known limit ADR 0176 records for `const tree = parse(input);` is closed, and so is a C++ member call through a pointer (`calc->Add(1, 2)`), which ADR 0176’s form took for a declaration.
+- Declarations lost: an undecorated class method at the start of its line (`adds() {`), which none of the test styles the red proof’s tests cover writes, and a C++ method defined outside its class (`void CalcTest::testAdds()`), whose declaration in the class (`void testAdds();`) is still found when the step adds it. A test found by no form is not counted as the step’s, as ADR 0176 records.
+- Still taken as a declaration: a call after `*`, a single `&` or `>`, `?` right after a word, or `)`; and after a word not on the list. The lists grow by a change to the engine, with a test.
+- An older test whose name is a string in a line the step added (`{ kind: 'null' }`) is still counted as the step’s, as ADR 0176 records.
 
 ## Alternatives considered
 - **Count the form only after a declaration keyword (`void`, `def`, `fun`, `function`, `func`, `public`, …):** a list per language, and a return type such as `List<int>` or `Task` is any word.
