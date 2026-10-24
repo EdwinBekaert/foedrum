@@ -6,7 +6,7 @@ Review the change for code that could be smaller and clearer without doing anyth
 
 **Duplication.**
 - The same rule, logic or text stated twice in the change: two functions that do the same thing, a block copied with one value changed, a constant or message written out in several places.
-- Code the change adds that repeats something the repository already has: search for an existing function, helper or constant that does the same before you report it, and name it with its file and line.
+- Code the change adds that repeats something the repository already has, also in files the change does not touch. For every function, helper or constant the change adds, search the whole repository for a distinctive part of it (a regular expression, a literal, a call it makes) and read what you find; name the existing code with its file and line.
 
 **Dead code.** Branches no input reaches, parameters no caller passes or no body reads, exports nothing imports, variables written and never read, and comments or text about code that is gone.
 
