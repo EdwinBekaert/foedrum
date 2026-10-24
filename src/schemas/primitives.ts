@@ -123,16 +123,41 @@ const pushingSubcommands = ['push', 'send-pack', 'http-push', 'subtree', 'submod
 // dropped); a known list, not a complete one (ADR 0062).
 const wrappers = new Set([
   ...['env', 'command', 'exec', 'builtin', 'xargs', 'sudo', 'doas', 'nice', 'nohup', 'time'],
-  ...['timeout', 'stdbuf', 'npx', 'eval', 'source', '.', 'iex', 'invoke-expression'],
+  ...[
+    'timeout',
+    'stdbuf',
+    'npx',
+    'bunx',
+    'pnpx',
+    'eval',
+    'source',
+    '.',
+    'iex',
+    'invoke-expression',
+  ],
   ...['start-process', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'pwsh', 'powershell'],
+]);
+// The package managers read by their subcommand, each with whether a subcommand is a runner: it
+// runs the rest of the line as a command, as `npx` does (ADR 0165). npm resolves any start of
+// `exec` or `explore`. The others read any other subcommand as the program word of the rest.
+const packageManagers = new Map<string, (subcommand: string) => boolean>([
+  ['npm', (word) => word === 'x' || 'exec'.startsWith(word) || 'explore'.startsWith(word)],
+  ['pnpm', (word) => word === 'exec' || word === 'dlx'],
+  ['yarn', (word) => word === 'exec' || word === 'dlx'],
+  ['bun', (word) => word === 'x' || word === 'run'],
+  ['corepack', () => false],
 ]);
 // A program word without quotes, call operators, assignments or variables: a name or a path.
 const plainProgram = /^[a-z0-9._/\\:-]+$/;
-// The extensions Windows runs a program by (PATHEXT): `git.cmd` is git too.
+// The extensions Windows runs a program by (PATHEXT): `git.cmd` is git too. PowerShell runs `.ps1`.
 const windowsExtension = /\.(?:exe|com|bat|cmd)$/;
-const gitWord = /(?:^|[\s/\\'"])git(?:-[a-z0-9-]+)?(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
-const ghWord = /(?:^|[\s/\\'"])gh(?:\.(?:exe|com|bat|cmd))?(?=[\s'"]|$)/;
+const powerShellExtension = /\.(?:exe|com|bat|cmd|ps1)$/;
+// git or gh after a wrapper, also through a PowerShell shim, which a wrapper may start.
+const gitWord = /(?:^|[\s/\\'"=])git(?:-[a-z0-9-]+)?(?:\.(?:exe|com|bat|cmd|ps1))?(?=[\s'"]|$)/;
+const ghWord = /(?:^|[\s/\\'"=])gh(?:\.(?:exe|com|bat|cmd|ps1))?(?=[\s'"]|$)/;
 const gitSubcommand = /^\s+([a-z][a-z0-9-]*)(?=\s|$)/;
+// A package manager's subcommand: no option, quote, star or escape.
+const packageSubcommand = /^\s+([a-z0-9._][a-z0-9._-]*)(?=\s|$)/;
 // What follows a program can be read as written only in plain characters: anything else may be a
 // quote, an escape or an expansion of the shell a wrapper starts (`env g""h`, `env /usr/bin/g?`,
 // `cmd /c g^h`, `bash -c g\h` run gh), so it fails closed (review of #225).
@@ -162,13 +187,33 @@ function shellProgramOf(rule: string): ShellProgram {
   const star = command.indexOf('*');
   const fixed = star === -1 ? command : command.slice(0, star);
   const program = /^\S*/.exec(fixed)?.[0] ?? '';
-  const rest = fixed.slice(program.length);
   if (!plainProgram.test(program)) return { kind: 'any' };
   if (tool === 'Bash' && program.includes('\\')) return { kind: 'any' };
-  const name = (program.split(/[/\\]/).at(-1) ?? '').replace(windowsExtension, '');
-  if (star !== -1 && rest === '') return { kind: 'any', name };
+  return readProgram(tool, program, fixed.slice(program.length), star !== -1);
+}
+
+/**
+ * A program word with what follows it up to the first star. A package manager is read by its
+ * subcommand (ADR 0165): a runner is read as `npx`; for pnpm, yarn, bun and corepack, any other
+ * subcommand is the program word of the rest; an option, a star or an unreadable word in its place
+ * is any program.
+ */
+function readProgram(tool: string, word: string, rest: string, star: boolean): ShellProgram {
+  const extension = tool === 'PowerShell' ? powerShellExtension : windowsExtension;
+  const base = (word.split(/[/\\]/).at(-1) ?? '').replace(extension, '');
+  const name = base === 'yarnpkg' ? 'yarn' : base;
+  if (star && rest === '') return { kind: 'any', name };
   const unreadable = !plainRest.test(rest);
-  return { kind: 'program', name, rest, star: star !== -1, unreadable };
+  const plain: ShellProgram = { kind: 'program', name, rest, star, unreadable };
+  const isRunner = packageManagers.get(name);
+  if (isRunner === undefined) return plain;
+  const subcommand = packageSubcommand.exec(rest);
+  if (subcommand === null) return star || /\S/.test(rest) ? { kind: 'any' } : plain;
+  const [whole, next = ''] = subcommand;
+  const after = rest.slice(whole.length);
+  if (isRunner(next)) return { kind: 'program', name: 'npx', rest: after, star, unreadable };
+  if (name === 'npm') return plain;
+  return readProgram(tool, next, after, star);
 }
 
 /**
