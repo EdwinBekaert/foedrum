@@ -26,9 +26,17 @@ export const liveTerminal = (
   env: Readonly<Record<string, string | undefined>>,
 ): StdoutTerminal | undefined => {
   if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
+  // The live line on screen now, so a lasting line from anywhere can go over it.
+  let shown: string | undefined;
   const clear = (): void => {
     stream.cursorTo(0);
     stream.clearLine(0);
+    shown = undefined;
+  };
+  const rewrite = (text: string): void => {
+    clear();
+    stream.write(text);
+    shown = text;
   };
   return {
     columns: () => stream.columns,
@@ -39,12 +47,12 @@ export const liveTerminal = (
       };
     },
     clear,
-    rewrite: (text) => {
-      clear();
-      stream.write(text);
-    },
-    print: () => {
-      throw new Error('not implemented');
+    rewrite,
+    print: (line) => {
+      const live = shown;
+      if (live !== undefined) clear();
+      stream.write(`${line}\n`);
+      if (live !== undefined) rewrite(live);
     },
   };
 };

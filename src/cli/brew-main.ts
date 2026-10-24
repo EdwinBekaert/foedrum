@@ -40,7 +40,8 @@ export const brewFromCheckout = async (
       ...serveShell(setup, {
         root: cwd,
         git: runGit,
-        out: (line) => process.stdout.write(`${line}\n`),
+        // On a terminal every lasting line, the state branch's too, goes over the live line.
+        out: terminal?.print ?? ((line) => process.stdout.write(`${line}\n`)),
         listen: listening.listen,
         command: 'brew',
       }),
