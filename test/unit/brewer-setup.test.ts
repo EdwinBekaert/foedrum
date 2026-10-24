@@ -264,8 +264,11 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
   });
 
   type Script = Partial<ExecResult> | 'hang' | { until: Promise<void> };
-  /** How the fake claude ends: it succeeds, runs until stopped, throws, or fails before its stream. */
-  type Claude = 'success' | 'hang' | 'throws' | 'pre-stream';
+  /**
+   * How the fake claude ends: it succeeds, runs until stopped (after its init line, with
+   * `init-then-hang`), throws, or fails before its stream.
+   */
+  type Claude = 'success' | 'hang' | 'init-then-hang' | 'throws' | 'pre-stream';
   /** A runner whose setup answers as scripted; `order` records the setup and claude's starts. */
   const runnerOf = (
     setup: SetupRun | undefined,
@@ -306,7 +309,8 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
         order.push('claude');
         if (claude === 'throws') throw new Error('spawn claude ENOENT');
         if (claude === 'pre-stream') return { exitCode: 1, stderr: 'boom' };
-        if (claude === 'hang') {
+        if (claude === 'init-then-hang') options.onLine(success[0] ?? '');
+        if (claude === 'hang' || claude === 'init-then-hang') {
           return new Promise((done) =>
             options.signal?.addEventListener('abort', () =>
               done({ exitCode: null, stderr: '', killed: 'stopped' }),
@@ -430,6 +434,28 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
     assert.deepEqual(end.readings, [
       { result: 'unstarted', setup: true, command: 'npm ci', tail: why },
     ]);
+  });
+
+  // Review of #459: an incomplete receipt measures claude, from its start after the setup.
+  it("measures an incomplete receipt from claude's start, after the setup", async () => {
+    let clock = new Date('2026-10-17T12:00:00.000Z');
+    let setUp = (): void => {};
+    const { runner } = runnerOf(
+      run,
+      { until: new Promise<void>((done) => (setUp = done)) },
+      { claude: 'init-then-hang', now: () => clock },
+    );
+    const running = runner.start(attempt);
+    await new Promise((resolve) => setImmediate(resolve));
+    // The setup took five minutes, and claude's init comes as it starts: from the attempt's start
+    // the receipt would count those five minutes.
+    clock = new Date('2026-10-17T12:05:00.000Z');
+    setUp();
+    await new Promise((resolve) => setImmediate(resolve));
+    running.stop();
+    const end = await running.ended;
+    assert.equal(end.receipt?.complete, false);
+    assert.equal(end.receipt?.durationMs, 0);
   });
 
   it("keeps the setup's reading when claude cannot start after it", async () => {

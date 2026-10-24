@@ -253,6 +253,18 @@ describe('the receipt of a synthetic stream', () => {
     assert.deepEqual(receipt.denied, [{ tool: 'Bash', count: 4, refused: [] }]);
   });
 
+  // Review of #459: the other edge of the plain-word rule.
+  it('keeps a prefix of words up to 32 characters, with dots and underscores', () => {
+    const long = 'z'.repeat(32);
+    const receipt = receiptOf(
+      [init, ...refused(1, 'Bash', `${long} push`), ...refused(2, 'Bash', 'python3.12 my_tool x')],
+      asked,
+    );
+    assert.deepEqual(receipt.denied, [
+      { tool: 'Bash', count: 2, refused: [`${long} push`, 'python3.12 my_tool'] },
+    ]);
+  });
+
   // Review of the plan for #447: the prefix is model output, which may hold a token (ADR 0088).
   it('keeps no word of a refused prefix that looks like a secret', () => {
     const token = ['ghp', 'A1b2'.repeat(7)].join('_');

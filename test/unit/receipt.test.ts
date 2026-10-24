@@ -135,6 +135,25 @@ describe("a batch's receipts", () => {
     );
   });
 
+  // Review of #459: a route back runs a step again after another one.
+  it('follows the path where it goes back to a step, not the order of the steps', () => {
+    const back = batch({
+      steps: new Map([
+        step('implement', finished(1, { receipt: receipt() }), finished(2, { receipt: receipt() })),
+        step('review', finished(1, { receipt: receipt() })),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'review', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
+    });
+    assert.deepEqual(
+      receiptsOf(back).map(({ stepId, attempt }) => `${stepId} #${attempt}`),
+      ['implement #1', 'review #1', 'implement #2'],
+    );
+  });
+
   it('sums them', () => {
     assert.deepEqual(totalParts(ran), [
       '2 attempts',
