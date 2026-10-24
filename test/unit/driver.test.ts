@@ -1381,6 +1381,19 @@ describe('openDriver', () => {
       assert.deepStrictEqual(planned?.receipt, receipt);
     });
 
+    it('records the ending without a receipt the event cannot hold (ADR 0172)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const receipt = { complete: true, turns: -1, edits: 0, toolErrors: 0, denied: [] };
+      end(plan('b1'), succeeded, { receipt });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.equal(planned?.outcome.kind, 'succeeded');
+      assert.equal(planned?.receipt, undefined);
+    });
+
     it('records the ending without claude when its init reported a blank version or model', async () => {
       const { runner, end } = handRunner();
       order('b1');

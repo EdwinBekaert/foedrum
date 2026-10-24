@@ -263,3 +263,38 @@ describe('the receipt of a synthetic stream', () => {
     assert.deepEqual(receipt.denied, [{ tool: 'Bash', count: 2, refused: ['curl'] }]);
   });
 });
+
+// The stream is untrusted: what a receipt names of it is short, so the event stays small.
+describe('the receipt of a stream that names too much', () => {
+  it('names a blank tool family, and cuts a long one', () => {
+    const long = 'T'.repeat(300);
+    const receipt = receiptOf([init, denied('toolu_1', ' '), denied('toolu_2', long)], asked);
+    assert.deepEqual(
+      receipt.denied.map(({ tool }) => tool),
+      ['unnamed', `${'T'.repeat(200)}…`],
+    );
+  });
+
+  it('keeps at most ten models, each name cut', () => {
+    const used = {
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      costUSD: 0,
+    };
+    const modelUsage = Object.fromEntries(
+      Array.from({ length: 12 }, (_, n) => [`${'m'.repeat(250)}${n}`, used]),
+    );
+    const result = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      num_turns: 1,
+      modelUsage,
+    });
+    const { models = [] } = receiptOf([init, result], asked);
+    assert.equal(models.length, 10);
+    assert.ok(models.every(({ model }) => model === `${'m'.repeat(200)}…`));
+  });
+});
