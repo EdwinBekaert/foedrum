@@ -317,6 +317,7 @@ describe('judgeRed', () => {
           '  void addNegative() {',
           '    assertEquals(-3, calc.add(-1, -2));',
           '    assert.equal(add(1, -2), -1);',
+          '    const sum = calc.add(1, 2);',
         ],
         removed: [],
       },
@@ -343,6 +344,135 @@ describe('judgeRed', () => {
   it('never takes an unnamed test, or a name that is only part of a word, for one the step added', () => {
     const report = tap('ok 1', 'ok 2 - adds two', ...failing(3, 'adds two numbers', 'x'));
     assert.deepEqual(judgeRed(report, gauged), { proven: true, tests: ['adds two numbers'] });
+  });
+
+  it('does not take a word in an object literal or an argument list for a declaration (#466)', () => {
+    const streamed = (...lines: string[]): DiffFile[] => [
+      {
+        newPath: 'test/unit/stream.test.ts',
+        added: [
+          "  it('reads a result line', () => {",
+          '    const line = {',
+          '      parent_tool_use_id: null,',
+          '    };',
+          "    done({ exitCode: null, stdout: '' });",
+          '      exitCode: null',
+          '  Given: null,',
+          `    const quoted = ['null", "null'];`,
+          ...lines,
+        ],
+        removed: [],
+      },
+    ];
+    // "null" is an older table case that passes; the step only writes the word in code.
+    const report = tap(
+      'ok 1 - malformed input > null',
+      ...failing(2, 'reads a result line', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, streamed()), {
+      proven: true,
+      tests: ['reads a result line'],
+    });
+    assert.equal(
+      why(report, streamed("  it('null', () => {")),
+      'test "malformed input > null" passes before the implementation: a stub must throw, not return a value',
+    );
+  });
+
+  it('finds a name GoogleTest, Ruby and a generic Rust test write as a bare identifier', () => {
+    const bare = [
+      { newPath: 'test/calc_test.cc', added: ['TEST(CalcTest, Adds) {'], removed: [] },
+      { newPath: 'test/add_test.rb', added: ['  def test_subtracts'], removed: [] },
+      { newPath: 'tests/add.rs', added: ['#[test]', 'fn divides<T>() {'], removed: [] },
+    ];
+    const names = ['CalcTest.Adds', 'AddTest.test_subtracts', 'divides'];
+    const report = tap(...names.flatMap((name, n) => failing(n + 1, name, 'not implemented')));
+    assert.deepEqual(judgeRed(report, bare), { proven: true, tests: names });
+  });
+
+  it('finds a GoogleTest fixture test and the other Gherkin scenario keywords', () => {
+    const declared = [
+      { newPath: 'test/calc_test.cc', added: ['TEST_F(CalcFixture, Subtracts) {'], removed: [] },
+      {
+        newPath: 'features/add.feature',
+        added: ['  Scenario Outline: adds many numbers', '  Example: adds no numbers'],
+        removed: [],
+      },
+    ];
+    const names = ['CalcFixture.Subtracts', 'adds many numbers', 'adds no numbers'];
+    const report = tap(...names.flatMap((name, n) => failing(n + 1, name, 'not implemented')));
+    assert.deepEqual(judgeRed(report, declared), { proven: true, tests: names });
+  });
+
+  it('does not take an older name that a declaration form only begins or a comment holds', () => {
+    const nearMisses = [
+      {
+        newPath: 'test/near.test.ts',
+        added: [
+          "  it('reads a result line', () => {",
+          'fn divides_all<T>() {',
+          'TEST(CalcTest, AddsMore) {',
+          '  Scenario: adds two numbers',
+          '  undef adds',
+          '  // Scenario: subtracts',
+        ],
+        removed: [],
+      },
+    ];
+    // Each is an older passing test whose name only begins a form, or stands after a comment.
+    const report = tap(
+      'ok 1 - divides',
+      'ok 2 - CalcTest.Adds',
+      'ok 3 - adds two',
+      'ok 4 - adds',
+      'ok 5 - subtracts',
+      ...failing(6, 'reads a result line', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, nearMisses), {
+      proven: true,
+      tests: ['reads a result line'],
+    });
+  });
+
+  it('does not take a capitalised key in a fixture line for a Gherkin scenario', () => {
+    const fixture = [
+      {
+        newPath: 'test/stream.test.ts',
+        added: ["  it('reads a result line', () => {", '  Status: null', '  Scenario: null'],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      'ok 1 - malformed input > null',
+      ...failing(2, 'reads a result line', 'not implemented'),
+    );
+    // "Scenario: null" names the older test: a feature file's scenario declares it.
+    assert.match(why(report, fixture), /^test "malformed input > null" passes/);
+    fixture[0]?.added.pop();
+    assert.deepEqual(judgeRed(report, fixture), { proven: true, tests: ['reads a result line'] });
+  });
+
+  it('finds a name written in double quotes or backticks, as Go, C# and Kotlin declare a test', () => {
+    const quoted = [
+      {
+        newPath: 'add_test.go',
+        added: ['  t.Run("adds two numbers", func(t *testing.T) {'],
+        removed: [],
+      },
+      {
+        newPath: 'src/test/kotlin/AddTest.kt',
+        added: ['  fun `adds a negative number`() {'],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, quoted), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
   });
 });
 
@@ -542,5 +672,25 @@ describe('judgeRed: where a regression test may be declared (ADR 0170)', () => {
     ];
     const report = tap(...newTestsFail, 'ok 3 - keeps_adding_zero');
     assert.equal(judgeRed(report, rust, ['keeps_adding_zero']).proven, true);
+  });
+
+  it('refuses a name a comment after code holds (ADR 0176)', () => {
+    const mentioned: DiffFile[] = [
+      ...gauged,
+      {
+        newPath: 'test/sub.test.mjs',
+        added: ["test('x', () => {", '  run(); // keeps subtracting', '});'],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      ...newTestsFail,
+      'ok 3 - keeps subtracting',
+      ...failing(4, 'x', 'not implemented'),
+    );
+    assert.deepEqual(
+      judgeRed(report, mentioned, ['keeps subtracting']),
+      refusal('keeps subtracting'),
+    );
   });
 });

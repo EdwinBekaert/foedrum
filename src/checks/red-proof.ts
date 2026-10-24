@@ -78,16 +78,28 @@ function namesOf(name: string): string[] {
 }
 
 /**
- * Whether a line the step added declares the test `name`: the name stands as a whole, after
- * something that is no letter, digit, underscore or dot, and before something that is none of
- * those nor a space, or the line's end, as a declaration writes it (`test('adds two numbers'`,
- * `def test_adds(`, `void adds(`). A call (`calc.add(`) is none, and neither is a line that only
- * asserts (`assert.equal(add(1, 2), 3)`). A line keeps no carriage return of a CRLF file.
+ * Whether a line the step added declares the test `name`, as a declaration writes a test's name
+ * (ADR 0176): as the whole of a string literal (`test('adds two numbers'`, `` fun `adds`() ``); as
+ * an identifier right before `(` after something that is no letter, digit, underscore or dot
+ * (`void adds(`); after `def`, `fn` or `func` (`def test_adds`, `fn adds<T>()`); as a GoogleTest
+ * macro's test (`TEST(CalcTest, Adds)`); or as the rest of a Gherkin scenario's line (`Scenario:
+ * adds two numbers`). A bare word in code (`key: null,`, `f(null)`) is none (#466), nor a method
+ * call (`calc.add(`), nor a line that only asserts (`assert.equal(add(1, 2), 3)`). Each form is a
+ * literal between fixed parts, so the match stays linear in the line. A line keeps no carriage
+ * return of a CRLF file.
  */
 function declares(name: string, lines: readonly string[]): boolean {
-  const patterns = namesOf(name).map(
-    (each) => new RegExp(`(?<![\\p{L}\\p{N}_.])${escapeRegExp(each)}(?![\\p{L}\\p{N}_\\s])`, 'u'),
-  );
+  const patterns = namesOf(name).map((each) => {
+    const escaped = escapeRegExp(each);
+    const forms = [
+      `(['"\`])${escaped}\\1`,
+      `(?<![\\p{L}\\p{N}_.])${escaped}\\(`,
+      `(?<=\\b(?:def|fn|func) )${escaped}(?![\\p{L}\\p{N}_])`,
+      `\\bTEST(?:_F|_P)?\\(\\s*[\\p{L}\\p{N}_]+,\\s*${escaped}\\s*\\)`,
+      `^\\s*(?:Scenario(?: Outline| Template)?|Example)\\s*:\\s*${escaped}\\s*$`,
+    ];
+    return new RegExp(forms.join('|'), 'u');
+  });
   return lines.some((line) => {
     const text = line.replace(/\r$/, '');
     return !assertsOnly(text) && patterns.some((pattern) => pattern.test(text));
