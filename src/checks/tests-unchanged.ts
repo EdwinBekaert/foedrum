@@ -38,6 +38,9 @@ const IMPORT =
 const any = (patterns: readonly RegExp[], line: string): boolean =>
   patterns.some((pattern) => pattern.test(line));
 
+/** Whether `line` declares a test: a file with one is a test file, whose lines the guard keeps. */
+export const declaresTest = (line: string): boolean => any(DECLARATIONS, line);
+
 /** Whether `line` asserts without declaring a test: a call of what it tests, not a declaration. */
 export const assertsOnly = (line: string): boolean =>
   any(ASSERTIONS, line) && !any(DECLARATIONS, line);

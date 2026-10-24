@@ -4,7 +4,7 @@
 
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
-import { assertsOnly } from './tests-unchanged.ts';
+import { assertsOnly, declaresTest } from './tests-unchanged.ts';
 
 export type RedVerdict =
   /** `tests`: the names of the proven step's tests, all failing. */
@@ -94,6 +94,18 @@ function declares(name: string, lines: readonly string[]): boolean {
   });
 }
 
+/** A line that is a comment, in the languages a Brewery is likely to use; `#[` is a Rust attribute. */
+const COMMENT = /^\s*(?:\/\/|\/\*|\*|#(?!\[)|--)/;
+
+/**
+ * The lines of `diff` a regression test may be declared in (ADR 0170): in a file where the step
+ * declared a test, whose lines testsUnchanged keeps, and no comment, which declares nothing.
+ */
+const testFileLines = (diff: readonly DiffFile[]): string[] =>
+  diff
+    .filter(({ added }) => added.some(declaresTest))
+    .flatMap(({ added }) => added.filter((line) => !COMMENT.test(line)));
+
 /** "test "a"", or "test "a" (and 2 more)". */
 const named = (tests: readonly ReportedTest[]): string =>
   `test "${tests[0]?.name}"${tests.length > 1 ? ` (and ${tests.length - 1} more)` : ''}`;
@@ -121,8 +133,9 @@ export function judgeRed(
       leaf && name.trim() !== '' && name.length <= MAX_NAME && declares(name, lines),
   );
   const regression = new Set(regressionTests.map((name) => name.trim()));
+  const inTests = testFileLines(diff);
   for (const name of regression) {
-    const found = added.filter((test) => test.name.trim() === name);
+    const found = added.filter((test) => test.name.trim() === name && declares(test.name, inTests));
     const quoted = `regression test "${cut(name)}"`;
     if (found.length === 0) return refused(`${quoted} is not a test the step added in the report`);
     if (found.some(({ result }) => result === 'failed')) {
