@@ -706,6 +706,103 @@ describe('runBrew', () => {
       assert.ok(!screen.events.at(-1)?.startsWith('rewrite: '), screen.events.at(-1));
     });
 
+    it('shows the attempts of a parallel group on the one line, joined by " ; ", in the order of the plain lines', async () => {
+      // Two Tasters' lens steps side by side (ADR 0168), on a batch routed to their recipe.
+      const taster = brewer
+        .replace('"name": "cellarman"', '"name": "taster"')
+        .replace('"doc": "brew.md", "schema": "outDoc"', '"doc": "taste.md", "schema": "tasting"')
+        .replace('"allow": ["Read", "Write"]', '"allow": ["Read"]')
+        .replace('"produces": "commits"', '"produces": "report"')
+        .replace('"access": "write"', '"access": "read"')
+        .replace('"git": { "commit": true },', '');
+      const tasting = JSON.stringify({
+        name: 'tasting',
+        description: 'Two lenses side by side.',
+        testFirst: false,
+        steps: [
+          {
+            id: 'tasting',
+            parallel: [
+              { id: 'security', brewer: 'taster', lens: 'plan/security' },
+              { id: 'correctness', brewer: 'taster', lens: 'plan/correctness' },
+            ],
+          },
+        ],
+      });
+      const inputs = serveInputs({
+        files: { ...serveInputs().files, local: local({ workRoot: dir.path }) },
+      });
+      const { brewery } = inputs.files;
+      const result = serveSetup({
+        ...inputs,
+        files: {
+          ...inputs.files,
+          brewery: {
+            ...brewery,
+            recipes: [...brewery.recipes, { path: 'recipes/tasting.jsonc', text: tasting }],
+            brewers: [...brewery.brewers, { path: 'brewers/taster.md', text: taster }],
+            lenses: [
+              { path: 'lenses/plan/security.md', text: 'Security.' },
+              { path: 'lenses/plan/correctness.md', text: 'Correctness.' },
+            ],
+          },
+        },
+      });
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            {
+              number: 12,
+              labels: ['recipe:tasting'],
+              author: 'ann',
+              title: 'Taste',
+              body: 'Both.',
+            },
+          ],
+        },
+      });
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 5 });
+      const times = / \/ (\d+m )?\d+s(?= \/|$| ;)/g;
+      const shown = screen.texts().map((text) => text.replace(times, ''));
+      assert.ok(shown.includes('security #1 / turn 3 ; correctness #1 / turn 3'), shown.join('\n'));
+      assert.ok(
+        lines.some((line) => line.includes('security #1') && line.includes('correctness #1')),
+        lines.join('\n'),
+      );
+    });
+
+    it('draws no line with only its spinner: once no attempt runs, the live line is cleared', async () => {
+      // The brew attempt runs for six redraws, then ends; the pull request step runs no attempt.
+      const inner = fakeBrewerRunner(() => behave.succeed('Brewed'));
+      let release: () => void = () => {};
+      const released = new Promise<void>((done) => {
+        release = done;
+      });
+      const runner: BrewerRunner = {
+        start: (attempt) => {
+          const run = inner.start(attempt);
+          return { ended: released.then(() => run.ended), stop: run.stop };
+        },
+        progress: () => ({ ...idle, turn: 3 }),
+      };
+      const { code, screen, waits } = await brewLive(
+        { ...idle, turn: 3 },
+        {
+          seconds: 300,
+          runner,
+          onWait: (count) => {
+            if (count === 6) release();
+          },
+        },
+      );
+      assert.equal(code, 0, lines.join('\n'));
+      assert.ok(waits.length > 6, `${waits.length} waits: brew went on after the attempt ended`);
+      assert.ok(screen.rewrites().length > 0, 'a live line was drawn');
+      for (const text of screen.texts()) assert.match(text, /^brew #1 \/ /);
+    });
+
     it('clears the live line before it exits, whatever the exit code', async () => {
       const exits: [string, ReturnType<typeof behave.succeed>, number][] = [
         ['on tap', behave.succeed('Brewed'), 0],

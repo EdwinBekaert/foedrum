@@ -3,7 +3,7 @@
 // whether a denial came after that call. The raw input of a call never leaves the reader.
 
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { readClaudeStream, type StreamAsk } from '../../src/brewers/claude-stream.ts';
 
@@ -124,6 +124,38 @@ describe('readClaudeStream progress for the live line: the latest tool call', ()
     ] as const) {
       assert.deepEqual(lastToolOf('Edit', { file_path: file }), { name: 'Edit', word }, file);
     }
+  });
+
+  it('shows a sibling whose name starts with the worktree name as outside, and the worktree itself as .', () => {
+    for (const file of [
+      resolve('work', 'attempt-2', 'a.ts'),
+      resolve('work', 'attempt.bak'),
+      '../attempt2/a.ts',
+    ]) {
+      assert.deepEqual(lastToolOf('Edit', { file_path: file }), { name: 'Edit', word: 'outside' });
+    }
+    assert.deepEqual(lastToolOf('Read', { file_path: worktree }), { name: 'Read', word: '.' });
+  });
+
+  it('reads a path under the root as inside when the worktree is the root', () => {
+    const root = parse(worktree).root;
+    const reader = readClaudeStream({ ...asked, worktree: root }, started);
+    reader.read(init(), at(1));
+    reader.read(
+      assistant('msg_1', [toolUse('t1', 'Edit', { file_path: join(root, 'src', 'a.ts') })]),
+      at(2),
+    );
+    assert.deepEqual(reader.progress().lastTool, { name: 'Edit', word: 'src/a.ts' });
+  });
+
+  it('shows a path on another drive as outside', {
+    skip: process.platform !== 'win32' && 'a path on another drive exists only on Windows',
+  }, () => {
+    const other = worktree.toUpperCase().startsWith('C:') ? 'D:\\x\\a.ts' : 'C:\\x\\a.ts';
+    assert.deepEqual(lastToolOf('Write', { file_path: other }), {
+      name: 'Write',
+      word: 'outside',
+    });
   });
 
   it('leaves out a path in which a secret is found', () => {
