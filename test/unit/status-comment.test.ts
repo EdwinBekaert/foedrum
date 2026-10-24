@@ -548,7 +548,7 @@ describe('renderStatus', () => {
       batch({
         steps: new Map([
           step('fine', fined({ changes })),
-          step('polish', fined({ changes: [], unchanged: `Already small\n${token}` })),
+          step('polish', fined({ changes: [], unchanged: `Already small ${token}` })),
         ]),
       }),
       ['fine', 'polish'],
