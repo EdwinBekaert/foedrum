@@ -98,8 +98,9 @@ export const formatStatus = (
     const { lane, detail } = describeLane(batch);
     const owner = interactive.get(batch.id);
     const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
-    // What its attempts took, summed (ADR 0172).
-    const total = totalParts(batch).join(' · ');
+    // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
+    // with its code page.
+    const total = totalParts(batch).join(' / ');
     return [
       batch.id,
       orderName(state, batch),

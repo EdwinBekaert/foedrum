@@ -39,8 +39,10 @@ const duration = (ms: number): string => {
 /** `812 tokens`, `4.13k tokens`, `1.34M tokens`: three significant digits past a thousand. */
 const tokens = (n: number): string => {
   if (n < 1000) return counted(n, 'token');
-  const [scaled, unit] = n < 1_000_000 ? [n / 1000, 'k'] : [n / 1_000_000, 'M'];
-  return `${Number(scaled.toPrecision(3))}${unit} tokens`;
+  // Rounded first: 999,600 is 1M, not 1000k.
+  const thousands = Number((n / 1000).toPrecision(3));
+  if (thousands < 1000) return `${thousands}k tokens`;
+  return `${Number((n / 1_000_000).toPrecision(3))}M tokens`;
 };
 
 /** Always an estimate: on a subscription it is not what the user pays. */
@@ -82,12 +84,13 @@ export function totalParts(batch: Batch): string[] {
   if (all.length === 0) return [];
   const sum = (of: (each: AttemptReceipt) => number | undefined): number =>
     all.reduce((total, each) => total + (of(each) ?? 0), 0);
+  const timed = all.some(({ receipt }) => receipt.durationMs !== undefined);
   const priced = all.some(({ receipt }) => receipt.costUsd !== undefined);
   const used = all.some(({ usage }) => usage !== undefined);
   const denied = sum(({ receipt }) => deniedCount(receipt));
   return [
     counted(all.length, 'attempt'),
-    duration(sum(({ receipt }) => receipt.durationMs)),
+    ...(timed ? [duration(sum(({ receipt }) => receipt.durationMs))] : []),
     counted(
       sum(({ receipt }) => receipt.turns),
       'turn',

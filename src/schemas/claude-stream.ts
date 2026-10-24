@@ -58,8 +58,11 @@ export const ClaudeDenial = z.looseObject({
   type: z.literal('system'),
   subtype: z.literal('permission_denied'),
   tool_name: z.string(),
-  /** The denied call, for the command it was refused (ADR 0172). */
-  tool_use_id: z.string().optional(),
+  /**
+   * The denied call, for the command it was refused (ADR 0172); one it cannot read is left out,
+   * so the denial is still counted.
+   */
+  tool_use_id: z.string().optional().catch(undefined),
 });
 
 const Tokens = z.int().nonnegative();
