@@ -25,7 +25,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Receipt** | What an attempt took, read from its claude stream: duration, turns, cost (an estimate), tokens per model, edits, tool errors and denials per tool family; on `step.finished`, one line per attempt in the status comment (ADR 0172) |
 | **In-doc / out doc** | Documents a brewer receives / must produce; the out doc's frontmatter is the step outcome |
 | **Gravity reading** | A deterministic check: tests, lint, types, diff limits. Measured, not judged. A check step is one; it records a reading per check it ran or skipped (`readings` on `step.finished`, ADR 0069), after a first reading of the repository's setup when it has one (ADR 0140); a brewer's attempt records its setup's reading too (ADR 0163) |
-| **Red proof** | A gravity reading that must fail: the tests committed by the Gauger (or Microbiologist) fail because the behaviour is missing (an assertion or an error from the code under test, not a load error), read from a structured test report |
+| **Red proof** | A gravity reading that must fail: the tests committed by the Gauger (or Microbiologist) fail because the behaviour is missing (an assertion or an error from the code under test, not a load error), but for the regression tests its out doc names, which pass ([ADR 0170](adr/0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md)); read from a structured test report |
 | **Tasting** | An AI review. Judged, not measured |
 | **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, test design, or a Brewery's own |
 | **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |

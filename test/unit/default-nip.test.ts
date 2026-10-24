@@ -219,6 +219,11 @@ describe('the default Nip', () => {
     assert.equal(brewers.find('nip', 'implement')?.brewer.output.schema, 'pullRequest');
   });
 
+  it('has the Gauger name its new tests and regression tests, its out doc schema gauge (ADR 0170)', () => {
+    const { brewers } = valid(loadRecipes(noFiles));
+    assert.equal(brewers.find('nip', 'gauge')?.brewer.output.schema, 'gauge');
+  });
+
   it("plans Nip's steps from the defaults in a Brewery without its own nip.jsonc and gauger.md", () => {
     const loaded = valid(loadRecipes(noFiles));
     assert.deepEqual(loaded.recipes.find('nip')?.steps, [

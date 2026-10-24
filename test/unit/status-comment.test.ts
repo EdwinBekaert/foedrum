@@ -476,6 +476,62 @@ describe('renderStatus', () => {
     assert.doesNotMatch(text, /old guess/);
   });
 
+  it("lists a step's new tests and regression tests under Tests, at most 10 of each (ADR 0170)", () => {
+    const gauged = (tests: string[], regressionTests: string[]): Attempt => ({
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Gauged', assumptions: [], tests, regressionTests },
+      },
+    });
+    const many = Array.from({ length: 12 }, (_, i) => `keeps case ${i + 1}`);
+    const text = renderStatus(
+      batch({ steps: new Map([step('gauge', gauged(['refuses <npm exec>'], many))]) }),
+      ['gauge'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Tests**');
+    assert.ok(at_ >= 0, text);
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 3), [
+      '- `gauge`: new test: refuses &lt;npm exec&gt;',
+      '- `gauge`: regression test: keeps case 1',
+    ]);
+    assert.equal(lines[at_ + 11], '- `gauge`: regression test: keeps case 10');
+    assert.equal(lines[at_ + 12], '- `gauge`: and 2 more regression tests');
+    const newOnes = renderStatus(batch({ steps: new Map([step('gauge', gauged(many, []))]) }), [
+      'gauge',
+    ]).split('\n');
+    const tests = newOnes.indexOf('**Tests**');
+    assert.equal(newOnes[tests + 10], '- `gauge`: new test: keeps case 10');
+    assert.equal(newOnes[tests + 11], '- `gauge`: and 2 more new tests');
+    // One past the cap is counted too, never dropped.
+    const eleven = renderStatus(
+      batch({ steps: new Map([step('gauge', gauged([], many.slice(0, 11)))]) }),
+      ['gauge'],
+    );
+    assert.match(eleven, /- `gauge`: and 1 more regression tests/);
+    // A Gauger sent back names its tests again: its latest success's names are shown.
+    const again = renderStatus(
+      batch({
+        steps: new Map([
+          step('gauge', gauged([], ['keeps the old case']), {
+            ...gauged([], ['keeps the new case']),
+            attempt: 2,
+          }),
+        ]),
+      }),
+      ['gauge'],
+    );
+    assert.match(again, /regression test: keeps the new case/);
+    assert.doesNotMatch(again, /keeps the old case/);
+    assert.doesNotMatch(
+      renderStatus(batch({ steps: new Map([step('plan', done(1))]) }), steps),
+      /\*\*Tests\*\*/,
+    );
+  });
+
   it("lists a Taster's findings under Findings, by step, saying which were there before (ADR 0161)", () => {
     const finding = (n: number, introduced = true) => ({
       file: 'src/wait.ts',

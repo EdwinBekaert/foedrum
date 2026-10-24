@@ -4,6 +4,7 @@
 import type { Batch } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import { type DiffFile, parseDiff } from '../formats/unified-diff.ts';
+import { type GaugeReport, gaugeOf } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
 
@@ -31,6 +32,19 @@ export function stepCommits(
   // Built from the attempt, never the recorded branch (ADR 0037).
   const branch = attemptBranch({ batchId: batch.id, stepId, attempt: ran.attempt });
   return { from, to: `refs/heads/${branch}` };
+}
+
+/**
+ * The tests step `stepId` named in the out doc of its latest attempt that succeeded, the one whose
+ * commits `stepCommits` ends at (ADR 0170); undefined when it named none.
+ */
+export function stepTests(batch: Batch, stepId: string): GaugeReport | undefined {
+  const done = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].findLast(
+    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+  );
+  return done?.phase === 'finished' && done.outcome.kind === 'succeeded'
+    ? gaugeOf(done.outcome.output)
+    : undefined;
 }
 
 /** The last line of `text` that is not blank. */
