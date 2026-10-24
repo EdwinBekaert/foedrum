@@ -5,6 +5,9 @@
 import type { IsCommit } from '../formats/secrets.ts';
 import {
   OutDocFrontmatter,
+  PullRequestOutDoc,
+  type PullRequestSections,
+  pullRequestSectionsOf,
   type TastingFinding,
   TastingOutDoc,
   type TastingReport,
@@ -69,7 +72,76 @@ export interface StepReport {
   assumptions: readonly string[];
   /** A Taster's verdict and findings (ADR 0161). */
   tasting?: TastingReport;
+  /** The pull request's sections a `pullRequest` brewer wrote (ADR 0167). */
+  sections?: PullRequestSections;
 }
+
+/** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
+export interface AttemptRow {
+  stepId: string;
+  attempt: number;
+  /** The engine's word for how it ended, or a Taster's verdict. */
+  result: string;
+  /** Why a failed attempt failed: the engine's text, which may quote a model's words. */
+  reason?: string;
+}
+
+/** The finished attempts of `batch`, in the order they started (`Batch.path`). */
+export const brewLog = (batch: Batch): AttemptRow[] =>
+  (batch.path ?? []).flatMap(({ stepId, attempt }): AttemptRow[] => {
+    const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+    if (ran === undefined) return [];
+    // A running attempt, the action's own among them, has no result yet.
+    if (ran.phase !== 'finished') {
+      return ran.abandoned === true ? [{ stepId, attempt, result: 'abandoned' }] : [];
+    }
+    const { outcome } = ran;
+    switch (outcome.kind) {
+      case 'succeeded':
+        return [{ stepId, attempt, result: tastingOf(outcome.output)?.verdict ?? 'succeeded' }];
+      case 'failed':
+        return [{ stepId, attempt, result: 'failed', reason: outcome.reason }];
+      case 'needs_input':
+        return [{ stepId, attempt, result: 'needs input' }];
+      case 'cancelled':
+        return [{ stepId, attempt, result: 'cancelled' }];
+      default:
+        return outcome satisfies never;
+    }
+  });
+
+// A keyword after anything but an ASCII letter or digit, the word boundary GitHub reads: emphasis
+// with `_` around it starts a word once GitHub renders it (`_fixes #3_`), and so does `é`.
+const KEYWORD =
+  /(?<![A-Za-z0-9])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^A-Za-z0-9]*(?=#|GH-|[\w.-]+\/[\w.-]+#|https?:)/giu;
+const MENTION = /(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/gu;
+// Every character reference GitHub would decode, named or numeric: `&commat;` is an `@`.
+const REFERENCE = /&(?!amp;)(?=[#\p{L}])/gu;
+
+/**
+ * Model text without what GitHub would act on outside a fence (ADR 0167): the `@` of a mention,
+ * a closing keyword before an issue reference, and the `&` of a character reference.
+ */
+export const unlinked = (text: string): string => {
+  // A removal can make what it removes again: `closes closes #3`, `@@ann`, `&@ann`.
+  let out = text;
+  for (let before = ''; before !== out; ) {
+    before = out;
+    out = out.replace(REFERENCE, '&amp;').replace(MENTION, '$1').replace(KEYWORD, '');
+  }
+  return out;
+};
+
+/**
+ * Whether the pull request opens as a draft (ADR 0167): unless a Taster tasted the change and
+ * every Taster approved.
+ */
+export const opensAsDraft = (reports: readonly StepReport[]): boolean => {
+  const verdicts = reports.flatMap(({ tasting }) =>
+    tasting === undefined ? [] : [tasting.verdict],
+  );
+  return verdicts.length === 0 || verdicts.some((verdict) => verdict !== 'approve');
+};
 
 /** The reports of `batch`'s steps, in the order they were first scheduled. */
 export const stepReports = (batch: Batch): StepReport[] =>
@@ -78,14 +150,22 @@ export const stepReports = (batch: Batch): StepReport[] =>
       .filter((attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded')
       .at(-1);
     if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
-    // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161).
+    // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
+    // and a pullRequest brewer's the pull request's sections (ADR 0167).
     const { output } = latest.outcome;
-    const doc = OutDocFrontmatter.or(TastingOutDoc).safeParse(output);
+    const doc = OutDocFrontmatter.or(TastingOutDoc).or(PullRequestOutDoc).safeParse(output);
     if (!doc.success) return [];
     const { summary, assumptions } = doc.data;
     const tasting = tastingOf(output);
+    const sections = pullRequestSectionsOf(output);
     return [
-      { stepId: step.id, summary, assumptions, ...(tasting === undefined ? {} : { tasting }) },
+      {
+        stepId: step.id,
+        summary,
+        assumptions,
+        ...(tasting === undefined ? {} : { tasting }),
+        ...(sections === undefined ? {} : { sections }),
+      },
     ];
   });
 
@@ -104,36 +184,201 @@ export interface PullRequestTextInput {
   reports: readonly StepReport[];
   /** Whether a 40-character hexadecimal word is a commit, not a key; none is when absent. */
   isCommit?: IsCommit;
+  /** The recipe the batch brewed with. */
+  recipe?: string;
+  /** The batch's finished attempts, for the brew table (ADR 0167). */
+  attempts?: readonly AttemptRow[];
 }
 
 export interface PullRequestText {
   title: string;
   body: string;
+  /** Opened as a draft (ADR 0167): unless every Taster approved and how it works is written. */
+  draft: boolean;
 }
 
 /** GitHub's longest title of a pull request. */
 const MAX_TITLE = 256;
-/** GitHub's longest body, less room for the lines around the reports. */
-const MAX_REPORTS = 60_000;
+/** GitHub's longest body of a pull request. */
+const MAX_BODY = 65_536;
+/** The longest the reports are, when the sections leave room (ADR 0167). */
+const MAX_REPORTS = 25_000;
+/** Room for the lines around the reports: the details, the fences and the cut. */
+const FRAME = 200;
 const CUT = '(cut short)';
-/** How far past the cut the reports are read for secrets: room for a match that starts before it. */
+/** How far past the cut a text is read for secrets: room for a match that starts before it. */
 const SCAN_PAST = 1_000;
+/** The most attempts the brew table lists, and the longest a reason or a cell it shows. */
+const MAX_ATTEMPTS = 50;
+const MAX_CELL = 200;
+
+/** The control characters, and the line and paragraph separators, which end a line. */
+const UNPRINTABLE = new RegExp(
+  `[${String.fromCodePoint(0)}-${String.fromCodePoint(0x1f)}${String.fromCodePoint(0x7f)}-${String.fromCodePoint(0x9f)}${String.fromCodePoint(0x2028, 0x2029)}]`,
+  'g',
+);
+
+/** The line breaks and control characters of `text` as `\uXXXX` escapes, as `foedrum brew` shows. */
+const escapedLine = (text: string): string =>
+  text.replace(UNPRINTABLE, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
+/** `text` in a code span longer than any run of backticks in it, every pipe escaped for a table. */
+const codeCell = (text: string): string => {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map(([run]) => run.length));
+  const fence = '`'.repeat(longest + 1);
+  // A pipe after an even run of backslashes ends the cell, in a code span too.
+  const piped = text.replace(/(\\*)\|/g, (all, slashes: string) =>
+    slashes.length % 2 === 0 ? `${slashes}\\|` : all,
+  );
+  return `${fence} ${piped} ${fence}`;
+};
+
+/** The table of the batch's finished attempts, and a count of those it leaves out. */
+const brewTable = (attempts: readonly AttemptRow[], isCommit: IsCommit): string => {
+  const rows = attempts.slice(0, MAX_ATTEMPTS).map(({ stepId, attempt, result, reason }) => {
+    const why =
+      reason === undefined
+        ? ''
+        : `: ${codeCell(
+            escapedLine(withoutSecrets(reason.slice(0, MAX_CELL + SCAN_PAST), stepId, isCommit))
+              // A long run of backticks would make the code span's fence as long.
+              .replace(/`{4,}/g, '```')
+              .slice(0, MAX_CELL),
+          )}`;
+    return `| ${stepId} #${attempt} | ${result}${why} |`;
+  });
+  const more = attempts.length - rows.length;
+  return [
+    ['| Attempt | Result |', '|---|---|', ...rows].join('\n'),
+    ...(more > 0 ? [`And ${more} more attempts.`] : []),
+  ].join('\n\n');
+};
+
+const NEWLINE = String.fromCodePoint(0x0a);
+
+/** A fence line at the top level: three or more backticks or tildes, and its info string. */
+const OPENER = /^(`{3,}|~{3,})([\s\S]*)$/;
+/** A closing fence: up to three spaces, the run, and only spaces and tabs after it. */
+const CLOSER = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+/** A run of fence characters after an indent or a list or quote marker: inside a container. */
+const CONTAINED = /^(?:[ \t]|[>*+-]|\d+[.)])[ \t>*+\-\d.)]*(?:`{3,}|~{3,})/;
 
 /**
- * The pull request's title and body. The reports are quoted in a fenced block, where GitHub links
- * no issue, mentions nobody and reads no closing keyword: a model could write `Fixes #3`. A report
- * text that looks like a secret is left out (ADR 0088).
+ * Markdown that ends where it starts (ADR 0167): a fence it leaves open is closed, and a line that
+ * would start an HTML block outside a fence starts with `&lt;` instead, since either would run to
+ * the end of the body and swallow the engine's lines after it. Line ends are read as CommonMark
+ * reads them (`\r\n` and `\r` too). A fence that starts inside a list, a quote or an indent ends
+ * with its container, which this does not follow, so such a text is `undefined`: left out.
+ */
+const closedBlocks = (text: string): string | undefined => {
+  let open: string | undefined;
+  const lines: string[] = [];
+  for (const line of text.replace(/\r\n?/g, NEWLINE).split(NEWLINE)) {
+    if (open !== undefined) {
+      const run = CLOSER.exec(line)?.[1] ?? '';
+      if (run[0] === open[0] && run.length >= open.length) open = undefined;
+      lines.push(line);
+      continue;
+    }
+    const opener = OPENER.exec(line);
+    if (opener !== null && !(opener[1]?.startsWith('`') && opener[2]?.includes('`'))) {
+      open = opener[1];
+      lines.push(line);
+      continue;
+    }
+    if (CONTAINED.test(line)) return undefined;
+    lines.push(line.replace(/^( {0,3})</, '$1&lt;'));
+  }
+  return [...lines, ...(open === undefined ? [] : [open])].join(NEWLINE);
+};
+
+/** The longest how it works and See it, once made safe: `unlinked` and the escapes make them grow. */
+const MAX_SHOWN_HOW = 12_000;
+const MAX_SHOWN_SEE = 1_200;
+
+/** The model's sections, without secrets and with nothing GitHub would act on (ADR 0167). */
+const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsCommit): string => {
+  const shown = (text: string) => unlinked(withoutSecrets(text, stepId, isCommit));
+  // A section that grew past its room is left out whole: cutting it could break its Markdown.
+  const within = (text: string, max: number) =>
+    text.length <= max
+      ? text
+      : `[left out: a text of step ${stepId} that is too long once made safe for GitHub]`;
+  // A fence it cannot pair as GitHub would is left out whole too, failing closed.
+  const checked = (text: string) =>
+    closedBlocks(text) ??
+    `[left out: a text of step ${stepId} with a fence Foedrum cannot check outside its top level]`;
+  const cell = (text: string) =>
+    shown(text)
+      .replace(/\s+/g, ' ')
+      .replaceAll('\\', '\\\\')
+      .replaceAll('|', '\\|')
+      .slice(0, MAX_CELL);
+  const table = sections.beforeAfter.map(
+    (row) => `| ${cell(row.case)} | ${cell(row.before)} | ${cell(row.after)} |`,
+  );
+  const { howItWorks: how, seeIt } = sections;
+  return [
+    '## How it works',
+    ...(how === undefined ? [] : [within(checked(shown(how).trim()), MAX_SHOWN_HOW)]),
+    ...(table.length === 0 ? [] : [['| | Before | After |', '|---|---|---|', ...table].join('\n')]),
+    ...(seeIt === undefined
+      ? []
+      : [`**See it:** ${within(shown(seeIt).replace(/\s+/g, ' '), MAX_SHOWN_SEE)}`]),
+  ].join('\n\n');
+};
+
+/** The line of a body without how it works, which then opens as a draft. */
+const NO_HOW = 'No How it works: the Cellarman wrote none.';
+
+/** Why the pull request is a draft or ready, in one line. */
+const draftLine = (reports: readonly StepReport[], written: boolean): string => {
+  if (!opensAsDraft(reports)) {
+    return written
+      ? 'Ready for review: every Taster approved.'
+      : 'A person reviews this before it is marked ready: every Taster approved, but it has no How it works.';
+  }
+  const asking = reports.filter(({ tasting }) => tasting?.verdict === 'changes');
+  return asking.length === 0
+    ? 'A person reviews this before it is marked ready: no step tasted the change.'
+    : `A person reviews this before it is marked ready: a Taster asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`;
+};
+
+/**
+ * The pull request's title and body, in one layout for every repository (ADR 0167): how it works,
+ * before and after and See it from the sections a `pullRequest` brewer wrote, how it was brewed,
+ * the reports folded, and `Closes`. The sections are model text outside a fence, so mentions,
+ * closing keywords and numeric character references are taken out of them (`unlinked`). The
+ * reports are quoted in a fenced block, where GitHub links no issue, mentions nobody and reads no
+ * closing keyword. A text that looks like a secret is left out (ADR 0088).
  */
 export const pullRequestText = ({
   title,
   closes,
   reports,
   isCommit = () => false,
+  recipe,
+  attempts = [],
 }: PullRequestTextInput): PullRequestText => {
   const order = `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
+  const written = reports.findLast(({ sections }) => sections !== undefined);
+  const head = [
+    ...(written?.sections === undefined
+      ? []
+      : [howItWorks(written.stepId, written.sections, isCommit)]),
+    '## How this was brewed',
+    `Brewed by Foedrum from ${order}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
+    // Without how it works, a person reads the change first, whatever the Tasters say.
+    ...(written?.sections?.howItWorks === undefined ? [NO_HOW] : []),
+    draftLine(reports, written?.sections?.howItWorks !== undefined),
+    ...(attempts.length === 0 ? [] : [brewTable(attempts, isCommit)]),
+  ].join('\n\n');
+  const closing = `Closes ${order}`;
+  // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS.
+  const room = Math.max(0, Math.min(MAX_REPORTS, MAX_BODY - head.length - closing.length - FRAME));
   // Only what can be shown is read (ADR 0088): reports of 1 MiB would cost a second at every apply.
-  let unread = MAX_REPORTS + SCAN_PAST;
+  let unread = room + SCAN_PAST;
   let cut = false;
   const shown = (text: string, stepId: string): string => {
     const read = text.slice(0, Math.max(0, unread));
@@ -159,15 +404,20 @@ export const pullRequestText = ({
   // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
   // output could otherwise make the fence, which comes twice, as long as the reports.
   let quoted = lines.join('\n').replace(/`{17,}/g, '`'.repeat(16));
-  if (cut || quoted.length > MAX_REPORTS) quoted = `${quoted.slice(0, MAX_REPORTS)}\n${CUT}`;
+  if (cut || quoted.length > room) quoted = `${quoted.slice(0, room)}\n${CUT}`;
   const longest = Math.max(0, ...[...quoted.matchAll(/`+/g)].map(([run]) => run.length));
   const fence = '`'.repeat(Math.max(3, longest + 1));
   const reported =
     lines.length === 0
-      ? `Brewed by Foedrum from ${order}.`
-      : `Brewed by Foedrum from ${order}. What each step reported:\n\n${fence}text\n${quoted}\n${fence}`;
+      ? []
+      : [
+          '<details><summary>What each step reported</summary>',
+          `${fence}text\n${quoted}\n${fence}`,
+          '</details>',
+        ];
   return {
     title: oneLine === '' ? order : oneLine.slice(0, MAX_TITLE),
-    body: `${reported}\n\nCloses ${order}`,
+    body: [head, ...reported, closing].join('\n\n'),
+    draft: opensAsDraft(reports) || written?.sections?.howItWorks === undefined,
   };
 };

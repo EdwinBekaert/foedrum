@@ -232,6 +232,73 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  it("opens the pull request on the code host in Foedrum's layout, as a draft with no Taster (ADR 0167)", async () => {
+    const files = serveInputs().files;
+    const writing = serveSetup(
+      serveInputs({
+        files: {
+          ...files,
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            ...files.brewery,
+            brewers: [
+              {
+                path: 'brewers/cellarman.md',
+                text: brewer.replace('"schema": "outDoc"', '"schema": "pullRequest"'),
+              },
+            ],
+          },
+        },
+      }),
+    );
+    assert.equal(writing.kind, 'ready');
+    if (writing.kind !== 'ready') return;
+    const sections = {
+      howItWorks: 'This touches `foedrum status`. Fixes #3 for @octocat.',
+      seeIt: '`foedrum status --json` prints JSON',
+      beforeAfter: [{ case: '`status --json`', before: 'refused', after: 'JSON' }],
+    };
+    const brewing = shell(behave.succeedWith(sections, 'Added --json'));
+    assert.equal(await runBrew(writing.setup, brewing, request), 0);
+    assert.equal(api.pulls.length, 1);
+    const [pull] = api.pulls;
+    assert.equal(pull?.draft, true);
+    assert.equal(
+      pull?.body,
+      [
+        '## How it works',
+        '',
+        'This touches `foedrum status`. #3 for octocat.',
+        '',
+        '| | Before | After |',
+        '|---|---|---|',
+        '| `status --json` | refused | JSON |',
+        '',
+        '**See it:** `foedrum status --json` prints JSON',
+        '',
+        '## How this was brewed',
+        '',
+        'Brewed by Foedrum from Acme/Brewery#12 with the recipe stout.',
+        '',
+        'A person reviews this before it is marked ready: no step tasted the change.',
+        '',
+        '| Attempt | Result |',
+        '|---|---|',
+        '| brew #1 | succeeded |',
+        '',
+        '<details><summary>What each step reported</summary>',
+        '',
+        '```text',
+        'brew: Added --json',
+        '```',
+        '',
+        '</details>',
+        '',
+        'Closes Acme/Brewery#12',
+      ].join('\n'),
+    );
+  });
+
   it("labels the order's issue with its batch's lane, made in the Brewery first (#406)", async () => {
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     assert.deepStrictEqual(api.issue('acme/brewery', 12)?.labels, [

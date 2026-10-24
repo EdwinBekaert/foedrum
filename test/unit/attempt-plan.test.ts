@@ -154,6 +154,47 @@ describe('attemptLimits', () => {
   });
 });
 
+describe("attemptLimits: a pullRequest brewer's sections (ADR 0167)", () => {
+  const { schema } = attemptLimits(
+    brewer({ name: 'cellarman', output: { doc: 'brew.md', schema: 'pullRequest' } }),
+  ).outDoc;
+  const done = { status: 'done', summary: 'Added --json', assumptions: [] };
+  const sections = { howItWorks: 'This touches the CLI.', seeIt: 'Run `status --json`' };
+  const row = { case: 'status --json', before: 'refused', after: 'JSON' };
+  const valid = (doc: Record<string, unknown>) => schema.safeParse(doc).success;
+
+  it('takes a done with how it works and See it, and a before/after table', () => {
+    assert.equal(valid({ ...done, ...sections }), true);
+    assert.equal(valid({ ...done, ...sections, beforeAfter: [row] }), true);
+    assert.deepEqual(schema.parse({ ...done, ...sections }), {
+      ...done,
+      ...sections,
+      beforeAfter: [],
+    });
+  });
+
+  it('takes a done without the sections, which a retry would redo the whole run for', () => {
+    assert.equal(valid(done), true);
+    assert.equal(valid({ ...done, seeIt: sections.seeIt }), true);
+    assert.equal(valid({ ...done, status: 'failed' }), true);
+    assert.equal(valid({ ...done, verdict: 'approve' }), false);
+  });
+
+  it('refuses sections past their limits, and a See it or a cell of two lines', () => {
+    assert.equal(valid({ ...done, ...sections, howItWorks: 'h'.repeat(10_000) }), true);
+    assert.equal(valid({ ...done, ...sections, howItWorks: 'h'.repeat(10_001) }), false);
+    assert.equal(valid({ ...done, ...sections, seeIt: 's'.repeat(1_001) }), false);
+    assert.equal(valid({ ...done, ...sections, seeIt: 'Run\nit' }), false);
+    assert.equal(valid({ ...done, ...sections, beforeAfter: Array(20).fill(row) }), true);
+    assert.equal(valid({ ...done, ...sections, beforeAfter: Array(21).fill(row) }), false);
+    assert.equal(valid({ ...done, ...sections, beforeAfter: [{ ...row, after: 'a\nb' }] }), false);
+    assert.equal(
+      valid({ ...done, ...sections, beforeAfter: [{ ...row, case: 'c'.repeat(201) }] }),
+      false,
+    );
+  });
+});
+
 describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
   const taster = brewer({ name: 'taster', output: { doc: 'taste.md', schema: 'tasting' } });
   const finding = {

@@ -21,6 +21,7 @@ export interface FakeApiPull {
   base: string;
   title: string;
   body: string;
+  draft?: boolean;
 }
 
 /** An answer to send instead of the fake's own; `hang` never answers until its signal aborts. */
@@ -203,7 +204,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
         ofRepo.filter((pull) => head === undefined || pull.head === head).map(asPull),
       );
     }
-    const fields = body as { head: string; base: string; title: string; body: string };
+    const fields = body as Omit<FakeApiPull, 'repo' | 'number' | 'author'>;
     if (ofRepo.some((pull) => pull.head === fields.head)) {
       return json(422, { message: 'A pull request already exists' });
     }

@@ -59,6 +59,9 @@ export const question: Question = {
 /** The behaviours a scripted attempt can have (#11). */
 export const behave = {
   succeed: (summary = 'Done'): Behaviour => settle(outDoc({ status: 'done', summary })),
+  /** Done, with a brewer's own fields beside the contract's (a verdict, sections). */
+  succeedWith: (fields: Record<string, unknown>, summary = 'Done'): Behaviour =>
+    settle(outDoc({ status: 'done', summary, ...fields })),
   /** The out doc says done, but the brewer committed nothing (#196). */
   succeedWithoutCommit: (summary = 'Done'): Behaviour =>
     settle(outDoc({ status: 'done', summary }), { commits: { kind: 'counted', count: 0 } }),

@@ -11,7 +11,7 @@ import {
   replaying,
   type Scenario,
 } from '../helpers/event-sequences.ts';
-import { openEngine, runScenario } from '../helpers/simulation.ts';
+import { openEngine, running, runScenario } from '../helpers/simulation.ts';
 
 /** What a scenario did: the events it appended, and why the engine refused what it refused. */
 interface Played {
@@ -66,6 +66,23 @@ const reached = ({ events, refusals }: Played): Set<string> => {
         seen.add(event.type);
     }
     state = fold([event], state);
+    // A parallel group's children in flight side by side, and its verdict sending the batch back
+    // (ADR 0168).
+    if (event.type === 'step.started') {
+      const batch = state.batches.get(event.batchId);
+      if (
+        batch !== undefined &&
+        running(batch).filter(({ phase }) => phase === 'started').length > 1
+      ) {
+        seen.add('attempts side by side');
+      }
+    }
+    if (
+      event.type === 'step.scheduled' &&
+      ['correctness', 'test-design'].includes(event.route?.from ?? '')
+    ) {
+      seen.add('a group sent back by a blocking child');
+    }
   }
   return seen;
 };
@@ -79,12 +96,7 @@ describe('engine scenarios', () => {
     }
   });
 
-  it('reach lost and stalled attempts, reminders, rewinds from Stuck and denial storms', async () => {
-    const seen = new Set<string>();
-    // Fixed seeds: what the generator reaches does not depend on FOEDRUM_SEED.
-    for (let seed = 1; seed <= 10; seed++) {
-      for (const what of reached(await play({ moves: [], plays: [] }, seed))) seen.add(what);
-    }
+  it('reach lost and stalled attempts, reminders, rewinds from Stuck, denial storms and parallel groups', async () => {
     const wanted = [
       'lost attempt',
       'stuck stalled',
@@ -103,7 +115,15 @@ describe('engine scenarios', () => {
       'effect applied twice refused',
       'batch.on_tap',
       'batch.cancelled',
+      'attempts side by side',
+      'a group sent back by a blocking child',
     ];
+    const seen = new Set<string>();
+    // Fixed seeds, so what the generator reaches does not depend on FOEDRUM_SEED: the first ones
+    // until every goal is reached, within a bound, as the chaos kills test does.
+    for (let seed = 1; seed <= 60 && wanted.some((what) => !seen.has(what)); seed++) {
+      for (const what of reached(await play({ moves: [], plays: [] }, seed))) seen.add(what);
+    }
     assert.deepStrictEqual(
       wanted.filter((what) => !seen.has(what)),
       [],
