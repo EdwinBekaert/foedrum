@@ -321,6 +321,16 @@ export const runBrew = async (
     }
     say(`brewing batch ${batchId} as ${owner}`);
 
+    /** Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174). */
+    const pause = async (): Promise<void> => {
+      if (terminal === undefined) return wait(intervalMs, signal);
+      const until = clock().getTime() + intervalMs;
+      do {
+        draw();
+        await wait(Math.min(REDRAW_MS, intervalMs), signal);
+      } while (!signal.aborted && clock().getTime() < until);
+    };
+
     /**
      * After a takeover from this driver that resumes a step, the ends of the runs it stopped there,
      * recorded at the step boundary before brew lets its driver go, within a lease: the new holder
@@ -340,7 +350,7 @@ export const runBrew = async (
             (lease) => lease.owner === owner && attemptKey.decode(lease.attemptKey)?.batchId === id,
           );
       while (running() && clock().getTime() < until && !signal.aborted) {
-        await wait(intervalMs, signal);
+        await pause();
         try {
           await driver.tick();
         } catch (error) {
@@ -355,15 +365,6 @@ export const runBrew = async (
     let saidAt = clock().getTime();
     let linked = false;
     stopResize = terminal?.onResize(draw);
-    /** Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174). */
-    const pause = async (): Promise<void> => {
-      if (terminal === undefined) return wait(intervalMs, signal);
-      const until = clock().getTime() + intervalMs;
-      do {
-        draw();
-        await wait(Math.min(REDRAW_MS, intervalMs), signal);
-      } while (!signal.aborted && clock().getTime() < until);
-    };
     for (;;) {
       try {
         await driver.tick();
