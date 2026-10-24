@@ -9,7 +9,7 @@ Foedrum's own `/brew-review` has a simplify lens for that (`.claude/skills/brew-
 A Taster cannot do that: it is read-only, and its out doc holds findings and a verdict ([ADR 0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)).
 
 ## Decision
-- A sixth default diff lens, **simplify** (`defaults/lenses/diff/simplify.md`), reviews the change for duplication, dead code, needless indirection and over-general code, each only where the change adds or alters it.
+- A sixth default diff lens, **simplify** (`defaults/lenses/diff/simplify.md`), reviews the change for duplication, dead code, needless indirection and over-general code.
 - It answers with findings like every other lens, never patches: the Taster's `tasting` out doc, with the file, the line and the smaller form in `why`. A recipe that wants Cellarman to act on them routes the step's findings back, as for any lens (ADR 0161).
 - Its findings are `minor`, except a rule or logic stated twice that must change together, which is `major`, since one copy changed alone is a bug; it never reports a `blocker`. So a blocking simplify step holds a batch up only for duplication that can drift.
 - It changes no behaviour it proposes: a smaller form that alters an error message, an output format or a public interface other code depends on is not a finding of this lens.
