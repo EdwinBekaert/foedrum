@@ -22,7 +22,7 @@ The text before is checked at every place the name stands in the line, not only 
 ## Consequences
 - An older test named after a free function the step calls is no longer taken for the step’s: in an assignment, an argument, an arrow function or lambda (`() => parse(x)`, `x -> parse(x)`), a `return`, an `await`, a condition, a statement of its own, or a call broken over lines. The known limit ADR 0176 records for `const tree = parse(input);` is closed, and so is a C++ member call through a pointer (`calc->Add(1, 2)`), which ADR 0176’s form took for a declaration.
 - Declarations lost: an undecorated class method at the start of its line (`adds() {`), which none of the test styles the red proof’s tests cover writes, and a C++ method defined outside its class (`void CalcTest::testAdds()`), whose declaration in the class (`void testAdds();`) is still found when the step adds it. A test found by no form is not counted as the step’s, as ADR 0176 records.
-- Still taken as a declaration: a call after `*`, a single `&` or `>`, `?` right after a word, or `)`; and after a word not on the list. The lists grow by a change to the engine, with a test.
+- Still taken as a declaration: a call after `*`, a single `&`, a `>` not part of `=>` or `->`, `?` right after a word or `>`, or `)`; and after a word not on the list. The lists grow by a change to the engine, with a test.
 - An older test whose name is a string in a line the step added (`{ kind: 'null' }`) is still counted as the step’s, as ADR 0176 records.
 
 ## Alternatives considered
