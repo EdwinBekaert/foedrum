@@ -35,7 +35,7 @@ Review the change for code that works on the author's operating system but break
 
 ## Leave to other lenses
 
-Shell injection and untrusted input (security); logic errors and missing deadlines (correctness); naming and documented decisions (design conformance); whether tests could fail at all, or start processes a unit test should not (test design). Style is out of scope for every lens.
+Shell injection and untrusted input (security); logic errors and missing deadlines (correctness); naming and documented decisions (design conformance); whether tests could fail at all, or start processes a unit test should not (test design); whether a new safeguard is needed or already done elsewhere (necessity). Style is out of scope for every lens.
 
 ## Reporting
 
