@@ -16,7 +16,7 @@ import { ranIn } from '../engine/session-resume.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import { OutDocFrontmatter } from '../schemas/out-doc.ts';
+import { FINING, OutDocFrontmatter } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
@@ -219,9 +219,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
-    const since = found.lens?.startsWith('diff/')
-      ? (mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo))
-      : undefined;
+    // A Finer simplifies the change, so it reads it as a Taster of a diff does (ADR 0166).
+    const since =
+      found.lens?.startsWith('diff/') || found.brewer.output.schema === FINING
+        ? (mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo))
+        : undefined;
     if (since !== undefined) inputs.push(await changeFor(worktree.repo, since, worktree.commit));
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);

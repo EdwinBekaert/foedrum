@@ -174,11 +174,12 @@ export const pullRequestSectionsOf = (output: unknown): PullRequestSections | un
 export const FINING = 'fining';
 
 /** One change a Finer made (ADR 0166): where, and why; `line` when it is about one. */
-export interface FiningChange {
-  file: string;
-  line?: number;
-  why: string;
-}
+const FiningChange = z.strictObject({
+  file: lineOf(1_000),
+  line: z.int().positive().optional(),
+  why: NonEmpty,
+});
+export type FiningChange = z.infer<typeof FiningChange>;
 
 /** What a Finer reported: its changes, or why there was nothing to simplify (ADR 0166). */
 export interface FiningReport {
@@ -186,12 +187,27 @@ export interface FiningReport {
   unchanged?: string;
 }
 
-/** The out doc of a brewer whose schema is `fining`: the contract's, with its changes. */
-export const FiningOutDoc = outDocFrontmatter({}).superRefine(() => {
-  throw new Error('not implemented');
+/**
+ * The out doc of a brewer whose schema is `fining`: the contract's, with its changes. A `done`
+ * lists them, or says why there was nothing to simplify, never both: the engine reads which, to
+ * take a done without a commit (ADR 0166).
+ */
+export const FiningOutDoc = outDocFrontmatter({
+  changes: z.array(FiningChange).max(50).default([]),
+  unchanged: lineOf(1_000).optional(),
+}).superRefine((doc, ctx) => {
+  if (doc.status !== 'done' || doc.changes.length > 0 !== (doc.unchanged !== undefined)) return;
+  ctx.addIssue({
+    code: 'custom',
+    message: 'A done Finer lists its changes or says why there was nothing to simplify, not both',
+    path: ['unchanged'],
+  });
 });
 
 /** The changes of an attempt's `output` when a Finer wrote it and was done; else undefined. */
-export const finingOf = (_output: unknown): FiningReport | undefined => {
-  throw new Error('not implemented');
+export const finingOf = (output: unknown): FiningReport | undefined => {
+  const read = FiningOutDoc.safeParse(output);
+  if (!read.success || read.data.status !== 'done') return undefined;
+  const { changes, unchanged } = read.data;
+  return unchanged === undefined ? { changes } : { changes, unchanged };
 };

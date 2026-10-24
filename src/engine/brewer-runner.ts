@@ -169,7 +169,8 @@ const failed = (retryable: boolean, reason: string): Ending => ({
 
 /**
  * A `done` of a brewer that produces commits, by what git said of its commits after `since`
- * (ADR 0074): without one its work never reached the task tree, so a human sees why.
+ * (ADR 0074): without one its work never reached the task tree, so a human sees why, unless a
+ * Finer says there was nothing to simplify (ADR 0166).
  */
 function doneWithCommits(
   seen: CommitsSeen = { kind: 'uncounted', reason: 'the runner did not count them' },
@@ -177,9 +178,17 @@ function doneWithCommits(
   output: OutDocFrontmatter,
 ): Ending {
   const start = since.slice(0, 7);
+  // A Finer that found nothing to simplify commits nothing (ADR 0166).
+  const unchanged = 'unchanged' in output && output.unchanged !== undefined;
   switch (seen.kind) {
     case 'counted':
-      if (seen.count > 0) return { kind: 'succeeded', output };
+      if (unchanged && seen.count > 0) {
+        return failed(
+          true,
+          `the out doc says nothing was simplified, but the brewer made ${seen.count} commits since ${start}`,
+        );
+      }
+      if (unchanged || seen.count > 0) return { kind: 'succeeded', output };
       // Not retried: a brewer that found nothing to change would find it again.
       return {
         kind: 'blocked',

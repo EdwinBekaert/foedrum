@@ -4,7 +4,10 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import {
+  type FiningChange,
+  FiningOutDoc,
   type FiningReport,
+  finingOf,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
@@ -154,13 +157,18 @@ export const stepReports = (batch: Batch): StepReport[] =>
       .at(-1);
     if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
     // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
-    // and a pullRequest brewer's the pull request's sections (ADR 0167).
+    // a pullRequest brewer's the pull request's sections (ADR 0167), and a Finer's its changes
+    // (ADR 0166).
     const { output } = latest.outcome;
-    const doc = OutDocFrontmatter.or(TastingOutDoc).or(PullRequestOutDoc).safeParse(output);
+    const doc = OutDocFrontmatter.or(TastingOutDoc)
+      .or(PullRequestOutDoc)
+      .or(FiningOutDoc)
+      .safeParse(output);
     if (!doc.success) return [];
     const { summary, assumptions } = doc.data;
     const tasting = tastingOf(output);
     const sections = pullRequestSectionsOf(output);
+    const fining = finingOf(output);
     return [
       {
         stepId: step.id,
@@ -168,6 +176,7 @@ export const stepReports = (batch: Batch): StepReport[] =>
         assumptions,
         ...(tasting === undefined ? {} : { tasting }),
         ...(sections === undefined ? {} : { sections }),
+        ...(fining === undefined ? {} : { fining }),
       },
     ];
   });
@@ -177,6 +186,10 @@ export const findingText = ({ file, line, severity, introduced }: TastingFinding
   const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
   return `${severity}${where}${introduced ? '' : ', there before the change'}`;
 };
+
+/** Where a Finer's change is: its file, and its line when it has one. */
+export const changeText = ({ file, line }: FiningChange): string =>
+  line === undefined ? file : `${file}:${line}`;
 
 export interface PullRequestTextInput {
   /** The title of the order's issue: untrusted. */
@@ -390,9 +403,14 @@ export const pullRequestText = ({
     return withoutSecrets(read, stepId, isCommit);
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
-  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting }) => [
+  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting, fining }) => [
     `${stepId}: ${shown(summary, stepId)}`,
     ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
+    // What a Finer changed, or why nothing (ADR 0166).
+    ...(fining?.changes ?? []).map(
+      (change) => `  simplified: ${flat(changeText(change), stepId)}: ${flat(change.why, stepId)}`,
+    ),
+    ...(fining?.unchanged === undefined ? [] : [`  unchanged: ${flat(fining.unchanged, stepId)}`]),
     // A Taster's findings are listed, never acted on, unless its step is blocking (ADR 0161).
     ...(tasting === undefined
       ? []
