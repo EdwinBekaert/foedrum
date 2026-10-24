@@ -106,7 +106,7 @@ export type Usage = z.infer<typeof Usage>;
 /** The most command prefixes a receipt keeps of one denied tool family (ADR 0172). */
 export const MOST_REFUSED = 5;
 /** A denied command's first one or two words: never its arguments, which are model output. */
-export const RefusedPrefix = z
+const RefusedPrefix = z
   .string()
   .regex(/^[A-Za-z0-9._-]{1,32}( [A-Za-z0-9._-]{1,32})?$/, 'Must be one or two plain words');
 

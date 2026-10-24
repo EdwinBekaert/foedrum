@@ -71,8 +71,6 @@ export const cut = (text: string): string =>
 /** The tools that write a file; a shell command counts only when it commits. */
 const WRITERS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SHELLS = new Set(['Bash', 'PowerShell']);
-/** The file tools, whose calls a receipt counts as edits (ADR 0172). */
-const FILE_TOOLS = WRITERS;
 /** The most models a receipt names: a run uses one or two. */
 const MOST_MODELS = 10;
 /** A word of a refused command's prefix: plain, and short. */
@@ -307,7 +305,8 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       const failed = result.data.is_error === true;
       // A denied call comes back as an error too: it is counted as a denial.
       if (failed && !deniedCalls.has(id)) toolErrors += 1;
-      if (!failed && FILE_TOOLS.has(calls.get(id)?.name ?? '')) edits += 1;
+      // A file tool's call that came back without an error is an edit (ADR 0172).
+      if (!failed && WRITERS.has(calls.get(id)?.name ?? '')) edits += 1;
       if (!writing.delete(id) || failed) continue;
       lastProgressAt = now;
       turnsAtProgress = turns();
