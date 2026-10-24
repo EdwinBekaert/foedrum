@@ -475,6 +475,24 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.ok(prompt.includes(`${LOG}\n\n${list}\n\nTheir diff:\n`), prompt);
   });
 
+  it('lists no regression tests when no step named any, and each name on one line (ADR 0170)', async () => {
+    const { plan } = await planTaster(answers);
+    assert.ok((await plan).prompt.includes(`${LOG}\n\nTheir diff:\n`));
+    const gauge = { batchId: '12-1', stepId: 'gauge', attempt: 1 };
+    const output = {
+      status: 'done',
+      summary: 'Tests',
+      assumptions: [],
+      regressionTests: ['returns\n  once merged'],
+    };
+    const named = await planTaster(answers, room, [
+      { type: 'step.scheduled', ...gauge, deadlineAt: '2026-10-23T13:00:00.000Z' },
+      { type: 'step.started', ...gauge, worktree: worktree('gauge-1', base) },
+      { type: 'step.finished', ...gauge, outcome: { kind: 'succeeded', output } },
+    ]);
+    assert.match((await named.plan).prompt, /\n- returns once merged\n\nTheir diff:\n/);
+  });
+
   it('cuts a change longer than 256 KiB, saying so', async () => {
     const long: Git = async (_cwd, args) => ({
       code: 0,

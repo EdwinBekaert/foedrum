@@ -443,3 +443,53 @@ describe('judgeRed: a regression test the step declared (ADR 0170)', () => {
     });
   });
 });
+
+describe('judgeRed: how a regression name matches (ADR 0170)', () => {
+  const withRegression: DiffFile[] = [
+    ...gauged,
+    {
+      newPath: 'test/add-zero.test.mjs',
+      added: [
+        '// keeps subtracting, an older test, is only mentioned here',
+        "test('keeps adding zero', () => {",
+        '  assert.equal(add(1, 0), 1);',
+        '});',
+      ],
+      removed: [],
+    },
+  ];
+  const newTestsFail = [
+    ...failing(1, 'adds two numbers', 'not implemented'),
+    ...failing(2, 'adds a negative number', 'not implemented'),
+  ];
+
+  it('takes the whole name, trimmed, never a part of it', () => {
+    const report = tap(...newTestsFail, 'ok 3 - keeps adding zero');
+    assert.equal(judgeRed(report, withRegression, [' keeps adding zero ']).proven, true);
+    assert.deepEqual(judgeRed(report, withRegression, ['keeps adding']), {
+      proven: false,
+      why: 'regression test "keeps adding" is not a test the step added in the report',
+    });
+  });
+
+  it('refuses a name reported twice when one of them fails', () => {
+    const report = tap(
+      ...newTestsFail,
+      'ok 3 - keeps adding zero',
+      ...failing(4, 'keeps adding zero', 'Expected 1'),
+    );
+    const verdict = judgeRed(report, withRegression, ['keeps adding zero']);
+    assert.equal(
+      verdict.proven ? '' : verdict.why,
+      'regression test "keeps adding zero" fails before the implementation: a regression test passes before the change',
+    );
+  });
+
+  it('refuses a name only a comment in a test file mentions', () => {
+    const report = tap(...newTestsFail, 'ok 3 - keeps adding zero', 'ok 4 - keeps subtracting');
+    assert.deepEqual(judgeRed(report, withRegression, ['keeps subtracting']), {
+      proven: false,
+      why: 'regression test "keeps subtracting" is not a test the step added in the report',
+    });
+  });
+});

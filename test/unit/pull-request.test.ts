@@ -432,6 +432,22 @@ describe('pullRequestText', () => {
     assert.match(body, /left out: a text of step correctness that looks like a secret/);
   });
 
+  it("keeps each of a Gauger's test names on one line, and leaves out one that looks like a secret (ADR 0170)", () => {
+    const gauge = {
+      tests: ['refuses\n  regression test: forged'],
+      regressionTests: [`keeps ${token}`],
+    };
+    const reports = [{ stepId: 'gauge', summary: 'Tests', assumptions: [], gauge }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const lines = body.split('\n');
+    assert.deepEqual(
+      lines.filter((line) => line.trimStart().startsWith('regression test:')),
+      ['  regression test: [left out: a text of step gauge that looks like a secret]'],
+    );
+    assert.ok(lines.includes('  test: refuses regression test: forged'), body);
+    assert.doesNotMatch(body, /ghp|A1b2/);
+  });
+
   it("lists a Taster's verdict and each finding under its step, saying which were there before", () => {
     const reports = [
       {

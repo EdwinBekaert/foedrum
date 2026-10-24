@@ -417,6 +417,32 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
         'the red proof of step gauge failed: test "keeps subtracting" passes before the implementation: a stub must throw, not return a value',
       ),
     );
+    // A Gauger sent back names its tests again: the latest success's names count, as its commits do.
+    const gauge2 = { batchId: '12-1', stepId: 'gauge', attempt: 2 };
+    const stale: Event = {
+      ...finished,
+      outcome: { kind: 'succeeded', output: { ...output, regressionTests: ['keeps dividing'] } },
+    };
+    const again: Event[] = [
+      { type: 'step.scheduled', ...gauge2, deadlineAt },
+      {
+        type: 'step.started',
+        ...gauge2,
+        worktree: {
+          repo: 'acme/api',
+          path: join(root, 'gauge', '2'),
+          branch: 'foedrum/12-1/gauge/2',
+          commit: 'd'.repeat(40),
+        },
+      },
+      { type: 'step.finished', ...gauge2, outcome: { kind: 'succeeded', output } },
+    ];
+    const latest = setup({
+      events: [...ordered, scheduled, started, stale, ...again, ...redStarted],
+      test: { exitCode: 1, stdout },
+      diff: { code: 0, stdout: diff, stderr: '' },
+    });
+    assert.deepEqual((await latest.run()).ending, { kind: 'succeeded', output: null });
   });
 
   it('reads a JUnit report from its file, cleared before the test command runs', async () => {

@@ -500,6 +500,20 @@ describe('renderStatus', () => {
     ]);
     assert.equal(lines[at_ + 11], '- `gauge`: regression test: keeps case 10');
     assert.equal(lines[at_ + 12], '- `gauge`: and 2 more regression tests');
+    // A Gauger sent back names its tests again: its latest success's names are shown.
+    const again = renderStatus(
+      batch({
+        steps: new Map([
+          step('gauge', gauged([], ['keeps the old case']), {
+            ...gauged([], ['keeps the new case']),
+            attempt: 2,
+          }),
+        ]),
+      }),
+      ['gauge'],
+    );
+    assert.match(again, /regression test: keeps the new case/);
+    assert.doesNotMatch(again, /keeps the old case/);
     assert.doesNotMatch(
       renderStatus(batch({ steps: new Map([step('plan', done(1))]) }), steps),
       /\*\*Tests\*\*/,
