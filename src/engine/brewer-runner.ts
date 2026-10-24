@@ -181,7 +181,6 @@ function doneWithCommits(
   output: OutDocFrontmatter,
 ): Ending {
   const start = since.slice(0, 7);
-  // A Finer that found nothing to simplify commits nothing (ADR 0166).
   const unchanged = 'unchanged' in output && output.unchanged !== undefined;
   switch (seen.kind) {
     case 'counted':
