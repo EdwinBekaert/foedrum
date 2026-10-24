@@ -231,8 +231,24 @@ describe('pullRequestActions: the pull request', () => {
     assert.match(request?.body ?? '', /\n\| implement #1 \| succeeded \|\n/);
   });
 
-  it('opens it ready when every Taster approved (ADR 0167)', async () => {
+  it('opens it ready when every Taster approved and how it works is written (ADR 0167)', async () => {
     const { actions, requests } = actionsWith();
+    const written = brewed.map((event) =>
+      event.type === 'step.finished'
+        ? {
+            ...event,
+            outcome: {
+              kind: 'succeeded' as const,
+              output: {
+                status: 'done',
+                summary: 'Added --json',
+                assumptions: [],
+                howItWorks: 'This touches the CLI.',
+              },
+            },
+          }
+        : event,
+    );
     const tasted: Event[] = [
       {
         type: 'step.scheduled',
@@ -259,7 +275,7 @@ describe('pullRequestActions: the pull request', () => {
         },
       },
     ];
-    keysOf(fold([ordered({ issue: 12 }), ...brewed, ...tasted, ...opening]), actions);
+    keysOf(fold([ordered({ issue: 12 }), ...written, ...tasted, ...opening]), actions);
     await actions.target.apply(open);
     assert.equal(requests[0]?.request.draft, false);
   });
