@@ -682,6 +682,12 @@ function rewind(draft: Draft, command: Extract<Command, { kind: 'rewind' }>): vo
   if (batch.recipe !== undefined && !recipeOf(draft, batch).has(toStepId)) {
     throw new Refusal(`recipe ${batch.recipe.name} has no step ${toStepId}`);
   }
+  // No attempt runs a group: the batch rewinds to one of its children (ADR 0168).
+  if (batch.recipe !== undefined && recipeOf(draft, batch).children(toStepId) !== undefined) {
+    throw new Refusal(
+      `step ${toStepId} is a parallel group: rewind to one of its children, which runs the whole group again (ADR 0168)`,
+    );
+  }
   draft.push({ type: 'batch.rewound', batchId, toStepId, by, via, shas: { ...shas } });
   // A rewind to a child runs its whole group again: the tree its children read changed (ADR 0168).
   const group = recipeOf(draft, batch).group(toStepId);
@@ -819,6 +825,14 @@ function settle(draft: Draft, batchId: string, group: string): void {
   const batch = draft.batch(batchId);
   const recipe = recipeOf(draft, batch);
   const children = recipe.children(group) ?? [];
+  // A child the batch never scheduled joined the group after the batch entered it: its file
+  // changed under the batch, and the group would wait for it with nothing in flight.
+  const added = children.find((child) => !batch.steps.has(child));
+  if (added !== undefined) {
+    const summary = `the parallel group ${group} of recipe ${batch.recipe?.name} has a child ${added} the batch never scheduled: its file changed under the batch`;
+    stick(draft, batchId, { kind: 'blocked', stepId: added, blockerKind: 'divergence', summary });
+    return;
+  }
   if (!children.every((child) => ended(batch, recipe, child))) return;
   for (const child of children) {
     const back = sentBack(batch, recipe, child);

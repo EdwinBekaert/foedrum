@@ -596,14 +596,30 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     };
     // A parallel group's children load as steps of their own, in its place (ADR 0168).
     const groups = new Map<string, string | undefined>();
-    let unfollowedGroup = false;
+    let groupRefused = false;
+    const groupIds = new Set(value.steps.flatMap((step) => ('parallel' in step ? [step.id] : [])));
+    // No attempt runs a group, so a route back to one would schedule nothing it could run.
+    for (const { step } of walk(value.steps, ['steps'])) {
+      const goto =
+        'onFail' in step
+          ? step.onFail?.goto
+          : 'onBlocked' in step
+            ? step.onBlocked?.findings.goto
+            : undefined;
+      if (goto !== undefined && groupIds.has(goto)) {
+        problems.push(
+          `${path}: step "${stepId(step)}" routes back to the parallel group "${goto}": route to one of the steps before it (ADR 0168)`,
+        );
+        groupRefused = true;
+      }
+    }
     const listed = value.steps.flatMap(
       (step, index): { step: Step; index: number; group?: string }[] => {
         if (!('parallel' in step)) return [{ step, index }];
         const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
         if (unfollowed !== undefined) {
           problems.push(`${path}: ${unfollowed}`);
-          unfollowedGroup = true;
+          groupRefused = true;
         }
         groups.set(step.id, step.when);
         return step.parallel.map((child) => ({ step: child, index, group: step.id }));
@@ -788,7 +804,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     }
     const refused =
       misfolded.length + ofNothing.length + unprovenLines.length + unopened.length > 0;
-    if (steps.length < listed.length || unfollowedGroup || refused) continue;
+    if (steps.length < listed.length || groupRefused || refused) continue;
     const [proof] = proofs;
     if (proof !== undefined) redProofs.set(value.name, proof);
     recipes.set(
