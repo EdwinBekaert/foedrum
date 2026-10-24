@@ -38,7 +38,7 @@ The maintainer decided the shape in #455 on 2026-10-24.
 
 ### In the recipes
 - **Every default recipe has the step**: Nip gets `{ "id": "fine", "brewer": "finer" }` between `implement` and `green`, and each default recipe still to come includes it after its last writing step and before its checks.
-- **Green's `onFail` route still goes back to `implement`.** A failing green after the Finer sends the Cellarman the failed reading as its route input ([ADR 0128](0128-a-route-hands-its-step-the-reason-it-was-sent-back.md)), whichever step broke the code, and the Finer then runs again on the fixed change, since `fine` follows `implement`.
+- **Green's `onFail` route still goes back to `implement`.** A failing green after the Finer sends the Cellarman the failed reading as its route input ([ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)), whichever step broke the code, and the Finer then runs again on the fixed change, since `fine` follows `implement`.
   A route back to `fine` would hand the Finer a failure it may not have caused, with no right to fix code beyond simplifying it.
 - **No shipped `diff/simplify` lens.** A Taster that reported simplifications after the Finer would review what the Finer did.
 
