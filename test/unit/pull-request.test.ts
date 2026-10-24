@@ -288,6 +288,18 @@ describe('unlinked (ADR 0167)', () => {
     assert.equal(unlinked('fixed\n#8 and resolve&nbsp;#9'), '#8 and resolve&amp;nbsp;#9');
   });
 
+  it('removes every form of each keyword, before an http reference too (review of #450)', () => {
+    assert.equal(
+      unlinked('close #1, closed #2, resolve #3, Resolves #4, fixes http://x/y/issues/5'),
+      '#1, #2, #3, #4, http://x/y/issues/5',
+    );
+  });
+
+  it('reads a word boundary as GitHub does, in ASCII (review of #450)', () => {
+    assert.equal(unlinked('café@octocat and éfixes #3'), 'caféoctocat and é#3');
+    assert.equal(unlinked('ann@octocat.dev and prefixes #3'), 'ann@octocat.dev and prefixes #3');
+  });
+
   it('removes a keyword the removal of another brings before a reference', () => {
     assert.equal(unlinked('closes closes #3'), '#3');
     assert.equal(unlinked('Fixes fixes: fixes #3'), '#3');
@@ -525,6 +537,66 @@ describe('pullRequestText', () => {
       ),
     );
     assert.ok(fenced('~~~\ncode').startsWith('## How it works\n\n~~~\ncode\n~~~\n\n**See it:**'));
+  });
+
+  it('closes a fence only with a bare run of its own character, as long or longer (review of #450)', () => {
+    const fenced = (howItWorks: string) => {
+      const sections = { howItWorks, seeIt: 'See.', beforeAfter: [] };
+      const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+      return pullRequestText({ title: 'T', closes, reports }).body;
+    };
+    const section = (body: string) => body.slice(0, body.indexOf('\n\n**See it:**'));
+    assert.equal(
+      section(fenced('```mermaid\nA\n~~~\n<!--')),
+      '## How it works\n\n```mermaid\nA\n~~~\n<!--\n```',
+    );
+    assert.equal(
+      section(fenced('```\na\n``` foo\nb')),
+      '## How it works\n\n```\na\n``` foo\nb\n```',
+    );
+    assert.equal(section(fenced('```a`b\n<x>')), '## How it works\n\n```a`b\n&lt;x>');
+  });
+
+  it('reads a carriage return as a line end, and only spaces and tabs after a closing fence (review of #450)', () => {
+    const fenced = (howItWorks: string) => {
+      const sections = { howItWorks, seeIt: 'See.', beforeAfter: [] };
+      const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+      return pullRequestText({ title: 'T', closes, reports }).body;
+    };
+    const section = (body: string) => body.slice(0, body.indexOf('\n\n**See it:**'));
+    assert.equal(
+      section(fenced('```mermaid\r\ngraph TD\rA-->B')),
+      '## How it works\n\n```mermaid\ngraph TD\nA-->B\n```',
+    );
+    const nbsp = String.fromCodePoint(0xa0);
+    assert.equal(
+      section(fenced(`\`\`\`\na\n\`\`\`${nbsp}\nb`)),
+      `## How it works\n\n\`\`\`\na\n\`\`\`${nbsp}\nb\n\`\`\``,
+    );
+    assert.equal(section(fenced('```\na\n```  \t\nb')), '## How it works\n\n```\na\n```  \t\nb');
+  });
+
+  it('leaves out how it works when a fence starts inside a list, a quote or an indent (review of #450)', () => {
+    const left =
+      '[left out: a text of step implement with a fence Foedrum cannot check outside its top level]';
+    for (const howItWorks of [
+      '1. Step\n   ```\n   code\n```',
+      '- a\n\n  ~~~\n  b\n  ~~~',
+      '> ```\n> x',
+      'Intro\n    ```\n    x',
+    ]) {
+      const sections = { howItWorks, seeIt: 'See.', beforeAfter: [] };
+      const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+      const { body } = pullRequestText({ title: 'T', closes, reports });
+      assert.ok(body.startsWith(`## How it works\n\n${left}\n\n**See it:**`), body);
+    }
+  });
+
+  it('keeps a fence line inside a top-level fence, indented or not (review of #450)', () => {
+    const sections = { howItWorks: '````\n  ```\n> ```\n````', seeIt: 'See.', beforeAfter: [] };
+    const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.ok(body.startsWith('## How it works\n\n````\n  ```\n> ```\n````\n\n**See it:**'), body);
   });
 
   it('keeps how it works from starting an HTML block, outside a fence (review of #450)', () => {
