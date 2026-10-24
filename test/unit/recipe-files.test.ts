@@ -1704,4 +1704,29 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
       ],
     );
   });
+
+  it("refuses a check's route back to a group too", () => {
+    const steps = [
+      { brewer: 'cellarman' },
+      { id: 'tasting', parallel: [security] },
+      { id: 'recheck', check: 'test', onFail: { goto: 'tasting', maxRounds: 1 } },
+    ];
+    assert.deepEqual(
+      problemsOf({
+        recipes: [opened('amber', steps, { testFirst: false })],
+        brewers: [committer, taster],
+        defaults: { lenses },
+      }),
+      [
+        'recipes/amber.jsonc: step "recheck" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+      ],
+    );
+  });
+
+  it('refuses a route from a child to a sibling, which would run alone', () => {
+    const back = { ...correctness, onBlocked: { findings: { goto: 'security', maxRounds: 1 } } };
+    assert.deepEqual(problemsOf(grouped([security, back])), [
+      'recipes/amber.jsonc: step "correctness" in the parallel group "tasting" routes back to "security" in its own group: route to a step before the group (ADR 0168)',
+    ]);
+  });
 });

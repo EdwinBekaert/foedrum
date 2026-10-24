@@ -129,10 +129,16 @@ describe('a parallel group (ADR 0168)', () => {
   });
 
   it('makes the batch Stuck at once when a child is blocked by findings with no route', () => {
-    const decision = decide(fold(inGroup), finish('security', blocked), context);
-    assert.equal(decision.kind, 'accepted');
-    const types = decision.kind === 'accepted' ? decision.events.map(({ type }) => type) : [];
-    assert.deepStrictEqual(types, ['step.finished', 'batch.stuck']);
+    accepts(inGroup, finish('security', blocked), [
+      finished('security', blockedOutcome),
+      stuckOn({ kind: 'blocked', stepId: 'security', blockerKind: 'findings', summary: changes }, [
+        'retry',
+        'skip',
+        'recipe',
+        'rewind',
+        'cancel',
+      ]),
+    ]);
   });
 
   it('retries a failed child alone, leaving its sibling running', () => {
@@ -285,5 +291,38 @@ describe('a parallel group (ADR 0168)', () => {
         ],
       },
     );
+  });
+
+  it('waits for the children still in flight before it is Stuck on a child it gained', () => {
+    const grown: Context = {
+      ...context,
+      recipes: fakeRecipes({
+        flight: fakeRecipe({
+          steps: ['implement', 'tasting', 'polish'],
+          groups: { tasting: ['correctness', 'security', 'style'] },
+        }),
+      }),
+    };
+    assert.deepStrictEqual(decide(fold(inGroup), finish('correctness', succeeded), grown), {
+      kind: 'accepted',
+      events: [finished('correctness', succeeded)],
+    });
+  });
+
+  it('does not leave the group while a child the recipe dropped still runs', () => {
+    // The recipe file changed under the batch: security left the group while its attempt ran.
+    const shrunk: Context = {
+      ...context,
+      recipes: fakeRecipes({
+        flight: fakeRecipe({
+          steps: ['implement', 'tasting', 'polish'],
+          groups: { tasting: ['correctness'] },
+        }),
+      }),
+    };
+    assert.deepStrictEqual(decide(fold(inGroup), finish('correctness', succeeded), shrunk), {
+      kind: 'accepted',
+      events: [finished('correctness', succeeded)],
+    });
   });
 });
