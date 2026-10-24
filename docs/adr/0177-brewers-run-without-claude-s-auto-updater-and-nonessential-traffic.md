@@ -34,11 +34,14 @@ Every place that takes the forced layer gets both: every brewer attempt, every c
 - A brew runs on the claude it started with; `claude --version` before and after a brew is the same, also when a newer claude is out.
   Updating claude is the user's own act, outside a brew.
 - A brewer's claude runs without the feature flags it would fetch, on their built-in defaults.
-  Foedrum reads only claude's stream and exit code, which the proof below shows unchanged.
+  Foedrum reads only claude's stream and exit code; the one change the proof below shows is a `system/ui_invalidate` event before `init`, which the runner already skips (ADR 0046).
 - Telemetry and error reports of brewer runs no longer reach Anthropic, so a crash of claude in an attempt is known only from Foedrum's own records.
 
 ## Verification
-One short `claude --print` run with the brewer's command line and both variables, and one without them as a control, each reached a `result` event with the same shape of stream; the outputs are in the pull request (#472).
+On claude 2.1.310 (Windows, subscription login), `claude --print` with the brewer's command line (`claudeArgs`), its minimal base and the forced layer ran twice with both variables and twice without them as a control; each run exited 0 and ended in `result/success` (#472).
+The streams had the same shape, `system/init`, `assistant`, `rate_limit_event`, `result/success`, except that every run with the variables began with `system/ui_invalidate`.
+Run with each variable alone, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` sends it and `DISABLE_AUTOUPDATER` does not.
+ADR 0046 already skips `system` events before `init` (it saw `ui_invalidate` with an API key), and `test/unit/claude-stream.test.ts` covers it, so the runner needs no change.
 
 ## Alternatives considered
 - **`DISABLE_AUTOUPDATER` alone.** It stops the update that was seen, but leaves telemetry, error reports and feature-flag fetching, which an attempt does not need and which can change claude's behaviour between attempts of one brew.
