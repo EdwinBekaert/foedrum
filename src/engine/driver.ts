@@ -5,7 +5,7 @@
 // ones, and applies a batch's effects only while it holds the batch's lease (ADR 0033).
 
 import { randomUUID } from 'node:crypto';
-import { ClaudeReport, type SessionRef } from '../schemas/events.ts';
+import { ClaudeReport, Receipt, type SessionRef } from '../schemas/events.ts';
 import type {
   AttemptWorktree,
   AttemptWorktrees,
@@ -228,9 +228,17 @@ const rejectionSummary = (error: unknown): string => {
  * model is left out rather than refusing the ending with it (ADR 0116).
  */
 const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
-  const { session, ...rest } = end;
+  const { session, receipt, ...rest } = end;
   const report = ClaudeReport.safeParse({ version: session?.claudeVersion, model: session?.model });
-  return { kind: 'finish', ...ref, ...rest, ...(report.success ? { claude: report.data } : {}) };
+  // Read from a stream the runner does not trust: one the event cannot hold is left out (ADR 0172).
+  const took = Receipt.safeParse(receipt);
+  return {
+    kind: 'finish',
+    ...ref,
+    ...rest,
+    ...(report.success ? { claude: report.data } : {}),
+    ...(took.success ? { receipt: took.data } : {}),
+  };
 };
 
 /** A live lease of an attempt, whose it is, and when it expires unless it is renewed. */
