@@ -131,7 +131,7 @@ const BeforeAfterRow = z.strictObject({
   before: lineOf(200),
   after: lineOf(200),
 });
-export type BeforeAfterRow = z.infer<typeof BeforeAfterRow>;
+type BeforeAfterRow = z.infer<typeof BeforeAfterRow>;
 
 /** The pull request's sections a brewer wrote (ADR 0167): model text, untrusted. */
 export interface PullRequestSections {
