@@ -166,3 +166,32 @@ export const pullRequestSectionsOf = (output: unknown): PullRequestSections | un
     beforeAfter,
   };
 };
+
+/**
+ * The name of the out doc schema of a brewer that simplifies a batch's change (`output.schema`,
+ * ADR 0166): the default Finer's.
+ */
+export const FINING = 'fining';
+
+/** One change a Finer made (ADR 0166): where, and why; `line` when it is about one. */
+export interface FiningChange {
+  file: string;
+  line?: number;
+  why: string;
+}
+
+/** What a Finer reported: its changes, or why there was nothing to simplify (ADR 0166). */
+export interface FiningReport {
+  changes: readonly FiningChange[];
+  unchanged?: string;
+}
+
+/** The out doc of a brewer whose schema is `fining`: the contract's, with its changes. */
+export const FiningOutDoc = outDocFrontmatter({}).superRefine(() => {
+  throw new Error('not implemented');
+});
+
+/** The changes of an attempt's `output` when a Finer wrote it and was done; else undefined. */
+export const finingOf = (_output: unknown): FiningReport | undefined => {
+  throw new Error('not implemented');
+};

@@ -529,6 +529,47 @@ describe('renderStatus', () => {
     );
   });
 
+  it("lists a Finer's changes under Simplifications, ten per step, or why it changed nothing (ADR 0166)", () => {
+    const fined = (fields: Record<string, unknown>): Attempt => ({
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Fined', assumptions: [], ...fields },
+      },
+    });
+    const changes = Array.from({ length: 12 }, (_, i) => ({
+      file: 'src/slug.ts',
+      line: i + 1,
+      why: `change ${i + 1}`,
+    }));
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('fine', fined({ changes })),
+          step('polish', fined({ changes: [], unchanged: `Already small\n${token}` })),
+        ]),
+      }),
+      ['fine', 'polish'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Simplifications**');
+    assert.ok(at_ >= 0, text);
+    assert.equal(lines[at_ + 1], '- `fine`: src/slug.ts:1: change 1');
+    assert.match(text, /change 10\b/);
+    assert.doesNotMatch(text, /change 11\b/);
+    assert.equal(lines[at_ + 11], '- `fine`: and 2 more');
+    assert.equal(
+      lines[at_ + 12],
+      '- `polish`: nothing to simplify: \\[left out: a text of step polish that looks like a secret\\]',
+    );
+    assert.doesNotMatch(
+      renderStatus(batch({ steps: new Map([step('plan', done(1))]) }), steps),
+      /Simplifications/,
+    );
+  });
+
   it("shows no Taster's findings from an earlier round when its latest attempt did not succeed (ADR 0161)", () => {
     const approved: Attempt = {
       phase: 'finished',

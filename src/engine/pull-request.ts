@@ -4,6 +4,7 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import {
+  type FiningReport,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
@@ -74,6 +75,8 @@ export interface StepReport {
   tasting?: TastingReport;
   /** The pull request's sections a `pullRequest` brewer wrote (ADR 0167). */
   sections?: PullRequestSections;
+  /** A Finer's changes, or why there was nothing to simplify (ADR 0166). */
+  fining?: FiningReport;
 }
 
 /** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
