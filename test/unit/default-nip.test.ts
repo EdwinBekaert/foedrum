@@ -214,6 +214,11 @@ describe('the default Nip', () => {
     }
   });
 
+  it("has Cellarman write the pull request's sections, its out doc schema pullRequest (ADR 0167)", () => {
+    const { brewers } = valid(loadRecipes(noFiles));
+    assert.equal(brewers.find('nip', 'implement')?.brewer.output.schema, 'pullRequest');
+  });
+
   it("plans Nip's steps from the defaults in a Brewery without its own nip.jsonc and gauger.md", () => {
     const loaded = valid(loadRecipes(noFiles));
     assert.deepEqual(loaded.recipes.find('nip')?.steps, [

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { holdsInScenarios } from '../helpers/property.ts';
-import { farFuture, running } from '../helpers/simulation.ts';
+import { farFuture, recipes, running } from '../helpers/simulation.ts';
 
 it('I1: every non-terminal batch has exactly one pending action with a deadline', () =>
   holdsInScenarios({
@@ -20,18 +20,27 @@ it('I1: every non-terminal batch has exactly one pending action with a deadline'
         const deadline = pending.get(batch.id);
         switch (lane.kind) {
           case 'brewing': {
-            // One attempt in flight per batch until parallel groups have their transitions
-            // (ADR 0025); none at all would be a batch sitting silently.
+            // One attempt in flight, or one per child of a parallel group that has not ended
+            // (ADR 0168); none at all would be a batch sitting silently.
             const attempts = running(batch);
-            const [attempt] = attempts;
-            assert.ok(
-              attempt !== undefined && attempts.length === 1,
-              `brewing batch ${batch.id} runs one attempt, not ${attempts.length}`,
-            );
+            const [first] = attempts;
+            assert.ok(first !== undefined, `brewing batch ${batch.id} runs no attempt`);
+            if (attempts.length > 1) {
+              const recipe = recipes.find(batch.recipe?.name ?? '');
+              const groups = new Set(attempts.map(({ stepId }) => recipe?.group(stepId)));
+              assert.ok(
+                groups.size === 1 && !groups.has(undefined),
+                `brewing batch ${batch.id} runs ${attempts.length} attempts, not all in one parallel group: ${attempts.map(({ stepId }) => stepId).join(', ')}`,
+              );
+            }
+            const earliest = attempts
+              .map(({ deadlineAt }) => iso(deadlineAt))
+              .sort()
+              .at(0);
             assert.equal(
               deadline,
-              iso(attempt.deadlineAt),
-              `the deadline of batch ${batch.id} is its attempt's`,
+              earliest,
+              `the deadline of batch ${batch.id} is its earliest attempt's`,
             );
             break;
           }

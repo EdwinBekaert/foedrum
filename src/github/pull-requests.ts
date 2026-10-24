@@ -3,7 +3,7 @@
 
 import { same } from '../engine/issue-claims.ts';
 import type { PullRequestHost } from '../engine/pull-request-actions.ts';
-import { GitHubOpenedPullRequest } from '../schemas/github.ts';
+import { GitHubOpenedPullRequest, GitHubValidationErrors } from '../schemas/github.ts';
 import { checked, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
@@ -14,6 +14,15 @@ export interface GitHubPullRequestsOptions {
   /** The login gh uses, read once when first needed (ADR 0073). */
   login: () => Promise<string>;
 }
+
+/** Whether GitHub's 422 says the repository does not support draft pull requests. */
+const refusesDrafts = (body: unknown): boolean => {
+  const read = GitHubValidationErrors.safeParse(body);
+  return (
+    read.success &&
+    read.data.errors.some(({ message }) => /draft pull requests are not supported/i.test(message))
+  );
+};
 
 export const githubPullRequests = (options: GitHubPullRequestsOptions): PullRequestHost => {
   const { client, reads } = options;
@@ -52,14 +61,19 @@ export const githubPullRequests = (options: GitHubPullRequestsOptions): PullRequ
       }
       return undefined;
     },
-    open: async (repo, { head, base, title, body }, signal) => {
+    open: async (repo, { head, base, title, body, draft = false }, signal) => {
       const what = `opening a pull request from ${head} in ${repo}`;
-      const answer = await client.rest(
-        'POST',
-        `/repos/${repoPath(repo)}/pulls`,
-        { title, head, base, body, maintainer_can_modify: false },
-        signal,
-      );
+      const ask = (asDraft: boolean) =>
+        client.rest(
+          'POST',
+          `/repos/${repoPath(repo)}/pulls`,
+          { title, head, base, body, maintainer_can_modify: false, draft: asDraft },
+          signal,
+        );
+      let answer = await ask(draft);
+      // A repository that cannot have drafts (a private one on GitHub Free) gets it ready: the
+      // body already says a person reviews it first (ADR 0167).
+      if (draft && answer.status === 422 && refusesDrafts(answer.body)) answer = await ask(false);
       if (answer.status !== 201) throw refused(answer.status, answer.body, what);
       return checked(GitHubOpenedPullRequest, answer.body, what).html_url;
     },

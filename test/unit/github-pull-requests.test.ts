@@ -116,7 +116,60 @@ describe('githubPullRequests: open', () => {
       base: 'main',
       body: 'Closes acme/api#7',
       maintainer_can_modify: false,
+      draft: false,
     });
+  });
+
+  it('opens it as a draft when asked (ADR 0167)', async () => {
+    const { host, requests } = hostWith([{ status: 201, body: listed() }]);
+    assert.equal(await host.open('acme/api', { ...request, draft: true }), url);
+    assert.equal((requests[0]?.body as { draft?: boolean } | undefined)?.draft, true);
+  });
+
+  it('opens it ready once GitHub says the repository cannot have a draft (ADR 0167)', async () => {
+    const refusal = {
+      message: 'Validation Failed',
+      errors: [
+        {
+          resource: 'PullRequest',
+          code: 'custom',
+          message: 'Draft pull requests are not supported in this repository.',
+        },
+      ],
+    };
+    const { host, requests } = hostWith([
+      { status: 422, body: refusal },
+      { status: 201, body: listed() },
+    ]);
+    assert.equal(await host.open('acme/api', { ...request, draft: true }), url);
+    assert.deepEqual(
+      requests.map(({ body }) => (body as { draft?: boolean }).draft),
+      [true, false],
+    );
+  });
+
+  it('asks only once when GitHub lists another error for the draft (review of #450)', async () => {
+    const refusal = {
+      message: 'Validation Failed',
+      errors: [
+        { resource: 'PullRequest', code: 'custom', message: `No commits between main and ${head}` },
+      ],
+    };
+    const { host, requests } = hostWith([
+      { status: 422, body: refusal },
+      { status: 201, body: listed() },
+    ]);
+    await assert.rejects(host.open('acme/api', { ...request, draft: true }), /422/);
+    assert.equal(requests.length, 1);
+  });
+
+  it('asks only once when GitHub refuses a draft for another reason', async () => {
+    const { host, requests } = hostWith([
+      { status: 422, body: { message: 'Validation Failed' } },
+      { status: 201, body: listed() },
+    ]);
+    await assert.rejects(host.open('acme/api', { ...request, draft: true }), /422/);
+    assert.equal(requests.length, 1);
   });
 
   it("fails with GitHub's message when it refuses, as for a branch without commits", async () => {

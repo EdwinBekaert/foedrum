@@ -431,6 +431,13 @@ export const scenarioRecipes: Readonly<Record<string, FakeRecipe>> = {
     stall: { minutes: 20 },
     routes: { implement: { failed: 'tests' }, review: { findings: 'implement' } },
   },
+  // Three lenses side by side after implement; correctness and test-design block (ADR 0168).
+  flight: {
+    steps: ['implement', 'tasting'],
+    groups: { tasting: ['correctness', 'security', 'test-design'] },
+    stall: { minutes: 20 },
+    routes: { correctness: { findings: 'implement' }, 'test-design': { findings: 'implement' } },
+  },
 };
 
 /** The limits of every attempt, so a denial storm and an exceeded budget end it (ADR 0028). */

@@ -22,20 +22,32 @@ const importedBy = (sources: ReadonlyMap<string, string>, file: string): string[
     posix.normalize(posix.join(posix.dirname(file), specifier)),
   );
 
+// The two rounds of the mutation check (ADR 0171): the test files among `sources` that import
+// one of `targets` directly, and the ones that import one only through one module, each sorted.
+export const testRounds = (
+  sources: ReadonlyMap<string, string>,
+  targets: readonly string[],
+): { direct: string[]; oneAway: string[] } => {
+  const wanted = new Set(targets);
+  const isWanted = (file: string): boolean => wanted.has(file);
+  const direct: string[] = [];
+  const oneAway: string[] = [];
+  for (const test of [...sources.keys()].filter((file) => TEST_FILE.test(file)).sort()) {
+    const modules = importedBy(sources, test);
+    if (modules.some(isWanted)) direct.push(test);
+    else if (modules.some((module) => importedBy(sources, module).some(isWanted))) {
+      oneAway.push(test);
+    }
+  }
+  return { direct, oneAway };
+};
+
 // The test files among `sources` (path relative to the tree, with /, to its text) that import
 // one of `targets` directly or through one module, sorted.
 export const testsFor = (
   sources: ReadonlyMap<string, string>,
   targets: readonly string[],
 ): string[] => {
-  const wanted = new Set(targets);
-  const isWanted = (file: string): boolean => wanted.has(file);
-  return [...sources.keys()]
-    .filter((file) => TEST_FILE.test(file))
-    .filter((test) =>
-      importedBy(sources, test).some(
-        (module) => isWanted(module) || importedBy(sources, module).some(isWanted),
-      ),
-    )
-    .sort();
+  const { direct, oneAway } = testRounds(sources, targets);
+  return [...direct, ...oneAway].sort();
 };
