@@ -14,8 +14,8 @@ A reported name, in any of the forms ADR 0078 reads it in (whole, without parame
 - the whole of a string literal in `'…'`, `"…"` or `` `…` `` (`test('adds two numbers'`, `t.Run("adds"`, Kotlin's `` fun `adds`() ``);
 - an identifier right before `(`, after something that is no letter, digit, underscore or dot (`def test_adds(`, `void adds(`);
 - an identifier after `def`, `fn` or `func` and a space (Ruby's `def test_adds`, Rust's `fn adds<T>()`);
-- the test of a GoogleTest macro (`TEST(CalcTest, Adds)`, `TEST_F`, `TEST_P`);
-- the rest of a Gherkin scenario's line (`Scenario:`, `Scenario Outline:`, `Scenario Template:`, `Example:`).
+- the test of a GoogleTest macro (`TEST(CalcTest, Adds)`, `TEST_F`, `TEST_P`), reported as `CalcTest.Adds`;
+- the rest of a Gherkin scenario's line (`Scenario:`, `Scenario Outline:`, `Scenario Template:`, `Example:`), as the runner reports it.
 
 A bare word in code declares nothing: `key: null,`, `f(null)`, `Status: null`.
 The rest of ADR 0078's rule stands: a method call (`calc.add(`) and a line that only asserts declare nothing, a carriage return does not count, and a name over 1,000 characters is never the step's.
@@ -25,7 +25,8 @@ A regression name (ADR 0170) is matched through the same forms, so a comment aft
 ## Consequences
 - Batch `9-1`'s gauge step (`b4202db4..b08772ea`) passes the red proof with its 45 tests; the older `null` case is no longer one of them, and no test of the step is lost.
 - A declaration in a form not listed is not found: its test is not counted as the step's, and the red proof says none of the report's tests is one the step added, or that a regression test is not one. The list grows by a change to the engine, with a test, as ADR 0078's other lists do.
-- An older test whose name is also a string in a line the step added (`{ kind: 'null' }`) is still counted as the step's; a string is how most runners take a test's name, so the red proof cannot tell the two apart.
+- An older test whose name is also a string in a line the step added (`{ kind: 'null' }`) is still counted as the step's; a string is how most runners take a test's name, so the red proof cannot tell the two apart. So is one named after a free function the step calls (`const tree = parse(input);` beside an older `parser > parse`), as before this record.
+- A name a runner reports with more than the declaration holds is not found, as before: a value-parameterised GoogleTest test (`Inst/CalcTest.Adds/0`, from `TEST_P`) and a scenario outline whose name has its examples' values filled in (`adds 1 and 2` from `Scenario Outline: adds <a> and <b>`). Their forms count only when the reported name is the declared one.
 
 ## Alternatives considered
 - **Keep the whole-word rule and refuse names that are keywords of code (`null`, `true`, `None`).** A list per language, and any other short word (`empty`, `value`) has the same fault.
