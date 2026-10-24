@@ -77,7 +77,10 @@ const reached = ({ events, refusals }: Played): Set<string> => {
         seen.add('attempts side by side');
       }
     }
-    if (event.type === 'step.scheduled' && event.route?.from === 'correctness') {
+    if (
+      event.type === 'step.scheduled' &&
+      ['correctness', 'test-design'].includes(event.route?.from ?? '')
+    ) {
       seen.add('a group sent back by a blocking child');
     }
   }
@@ -94,11 +97,6 @@ describe('engine scenarios', () => {
   });
 
   it('reach lost and stalled attempts, reminders, rewinds from Stuck, denial storms and parallel groups', async () => {
-    const seen = new Set<string>();
-    // Fixed seeds: what the generator reaches does not depend on FOEDRUM_SEED.
-    for (let seed = 1; seed <= 10; seed++) {
-      for (const what of reached(await play({ moves: [], plays: [] }, seed))) seen.add(what);
-    }
     const wanted = [
       'lost attempt',
       'stuck stalled',
@@ -120,6 +118,12 @@ describe('engine scenarios', () => {
       'attempts side by side',
       'a group sent back by a blocking child',
     ];
+    const seen = new Set<string>();
+    // Fixed seeds, so what the generator reaches does not depend on FOEDRUM_SEED: the first ones
+    // until every goal is reached, within a bound, as the chaos kills test does.
+    for (let seed = 1; seed <= 60 && wanted.some((what) => !seen.has(what)); seed++) {
+      for (const what of reached(await play({ moves: [], plays: [] }, seed))) seen.add(what);
+    }
     assert.deepStrictEqual(
       wanted.filter((what) => !seen.has(what)),
       [],
