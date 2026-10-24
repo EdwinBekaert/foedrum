@@ -570,6 +570,32 @@ describe('renderStatus', () => {
     );
   });
 
+  it("escapes a Finer's change and leaves out one that looks like a secret (review of #462)", () => {
+    const output = {
+      status: 'done',
+      summary: 'Fined',
+      assumptions: [],
+      changes: [
+        { file: 'src/slug_of.ts', line: 3, why: 'Merged *two* copies' },
+        { file: 'src/a.ts', why: `Token ${token}` },
+      ],
+    };
+    const fined: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output },
+    };
+    const text = renderStatus(batch({ steps: new Map([step('fine', fined)]) }), ['fine']);
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Simplifications**');
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 3), [
+      '- `fine`: src/slug\\_of.ts:3: Merged \\*two\\* copies',
+      '- `fine`: src/a.ts: \\[left out: a text of step fine that looks like a secret\\]',
+    ]);
+    assert.doesNotMatch(text, /ghp|A1b2/);
+  });
+
   it("shows no Taster's findings from an earlier round when its latest attempt did not succeed (ADR 0161)", () => {
     const approved: Attempt = {
       phase: 'finished',
