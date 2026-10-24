@@ -14,6 +14,7 @@ paths:
   - "**/scripts/issue-draft/**"
   - "**/scripts/house-yeast.ts"
   - "**/scripts/house-yeast/**"
+  - "**/src/brewers/house-yeast.ts"
   - "**/scripts/adr-index.ts"
   - "**/scripts/adr-index/**"
   - "**/test/**/remove-scratch*.test.ts"
