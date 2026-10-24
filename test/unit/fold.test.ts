@@ -166,6 +166,8 @@ describe('fold', () => {
 
   it('follows an attempt from scheduled to started to finished, and the batch is brewing', () => {
     const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1 };
+    // What the attempt took (ADR 0172).
+    const receipt = { complete: true, turns: 3, edits: 1, toolErrors: 0, denied: [] };
     const outcome = { kind: 'succeeded', output: { plan: 'ok' } } as const;
     const base = { batchId: 'b1', stepId: 'plan', attempt: 1 };
     const states = [
@@ -175,7 +177,7 @@ describe('fold', () => {
         ordered,
         scheduled,
         { type: 'step.started', ...base, session },
-        { type: 'step.finished', ...base, outcome, usage, claude },
+        { type: 'step.finished', ...base, outcome, usage, claude, receipt },
       ]),
     ];
     assert.deepStrictEqual(
@@ -183,7 +185,7 @@ describe('fold', () => {
       [
         { phase: 'scheduled', attempt: 1, deadlineAt },
         { phase: 'started', attempt: 1, deadlineAt, session },
-        { phase: 'finished', attempt: 1, deadlineAt, session, outcome, usage, claude },
+        { phase: 'finished', attempt: 1, deadlineAt, session, outcome, usage, claude, receipt },
       ],
     );
     for (const state of states) assert.deepStrictEqual(batch(state).lane, { kind: 'brewing' });

@@ -1362,6 +1362,25 @@ describe('openDriver', () => {
       assert.equal(implemented?.claude, undefined);
     });
 
+    it('records the receipt of an attempt on its step.finished (ADR 0172)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const receipt = {
+        complete: false,
+        durationMs: 61_000,
+        turns: 4,
+        edits: 2,
+        toolErrors: 1,
+        denied: [{ tool: 'Bash', count: 2, refused: ['git push'] }],
+      };
+      end(plan('b1'), succeeded, { receipt });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.receipt, receipt);
+    });
+
     it('records the ending without claude when its init reported a blank version or model', async () => {
       const { runner, end } = handRunner();
       order('b1');

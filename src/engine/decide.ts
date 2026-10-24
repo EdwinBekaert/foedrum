@@ -8,6 +8,7 @@ import type {
   Event,
   GravityReading,
   OrderRef,
+  Receipt,
   ScheduleRoute,
   StuckOption,
   StuckReason,
@@ -87,6 +88,8 @@ export type EngineCommand =
       readings?: readonly GravityReading[];
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
+      /** What a brewer's attempt took, once its stream was read (ADR 0172). */
+      receipt?: Receipt;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }

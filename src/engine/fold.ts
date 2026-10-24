@@ -7,6 +7,7 @@ import type {
   Dependency,
   Event,
   GravityReading,
+  Receipt,
   ScheduleRoute,
   SessionRef,
   StuckOption,
@@ -76,6 +77,8 @@ export type Attempt =
       readings?: readonly GravityReading[];
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
+      /** What a brewer's attempt took, once its stream was read (ADR 0172). */
+      receipt?: Receipt;
     };
 
 export interface Input {

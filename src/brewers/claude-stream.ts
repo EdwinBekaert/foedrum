@@ -19,7 +19,7 @@ import {
   ClaudeToolUse,
   ClaudeUser,
 } from '../schemas/claude-stream.ts';
-import type { Usage } from '../schemas/events.ts';
+import type { Receipt, Usage } from '../schemas/events.ts';
 import { type AskedSession, checkInit, type SessionFacts } from './claude-init.ts';
 
 /** What the runner asked for, and when it stops the attempt itself. */
@@ -55,6 +55,8 @@ export interface StreamReader {
   /** Reads one stdout line that came at `now`; `stop` when the runner must stop the attempt. */
   read(line: string, now: Date): 'go' | 'stop';
   facts(): StreamFacts;
+  /** What the attempt took so far: complete once the result was read (ADR 0172). */
+  receipt(): Receipt;
   /** For the stall watchdog: when the brewer last wrote a file or committed, and turns since. */
   progress(): AttemptProgress;
 }
@@ -334,6 +336,9 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
       ...(usage === undefined ? {} : { usage }),
       lines,
     }),
+    receipt: () => {
+      throw new Error('not implemented');
+    },
     progress: () => ({ lastProgressAt, turnsWithoutProgress: turns() - turnsAtProgress }),
   };
 }
