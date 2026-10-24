@@ -278,16 +278,17 @@ const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
   return [];
 };
 
-/** The first `most` of `all` as lines of `stepId`, and a line that counts the rest. */
+/** The first `most` of `all` as lines of `stepId`, and a line that counts the rest, as `rest`. */
 const capped = <T>(
   stepId: string,
   all: readonly T[],
   most: number,
   text: (item: T) => string,
+  rest = '',
 ): string[] => {
   const shown = all.slice(0, most).map((item) => `- ${code(stepId)}: ${text(item)}`);
   const more = all.length - shown.length;
-  return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+  return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more${rest}`] : shown;
 };
 
 const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
@@ -312,13 +313,8 @@ const testLines = (batch: Batch, stepIds: readonly string[], told: Told): string
         ? gaugeOf(done.outcome.output)
         : undefined;
     if (named === undefined) return [];
-    const kind = (names: readonly string[], what: string): string[] => {
-      const shown = names
-        .slice(0, mostTests)
-        .map((name) => `- ${code(stepId)}: ${what}: ${told(name, stepId)}`);
-      const more = names.length - shown.length;
-      return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more ${what}s`] : shown;
-    };
+    const kind = (names: readonly string[], what: string): string[] =>
+      capped(stepId, names, mostTests, (name) => `${what}: ${told(name, stepId)}`, ` ${what}s`);
     return [...kind(named.tests, 'new test'), ...kind(named.regressionTests, 'regression test')];
   });
 

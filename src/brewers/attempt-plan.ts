@@ -271,7 +271,7 @@ export function changeInput(
   since: string,
   log: string,
   diff: string,
-  regression: readonly RegressionTests[] = [],
+  regression: readonly RegressionTests[],
 ): PromptInput {
   const lists = regression.map(({ step, names }) => {
     const items = names.map((name) => `- ${name.replace(/\s+/g, ' ').trim()}\n`);
