@@ -189,7 +189,7 @@ function doneWithCommits(
       if (unchanged && seen.count > 0) {
         return failed(
           true,
-          `the out doc says nothing was simplified, but the brewer made ${seen.count} commits since ${start}`,
+          `the out doc says nothing was simplified, but the brewer made ${seen.count} commit${seen.count === 1 ? '' : 's'} since ${start}`,
         );
       }
       if (unchanged || seen.count > 0) return { kind: 'succeeded', output };
