@@ -722,6 +722,33 @@ describe('pullRequestText', () => {
     assert.ok(body.includes('\n| a\\|b | c:\\\\d\\\\\\| | x y |\n'), body);
   });
 
+  it('opens as a draft without how it works, whatever the Tasters say, saying why (#450)', () => {
+    const reports = [
+      { stepId: 'implement', summary: 'S', assumptions: [] },
+      {
+        stepId: 'correctness',
+        summary: 'No defects',
+        assumptions: [],
+        tasting: { verdict: 'approve' as const, findings: [] },
+      },
+    ];
+    const text = pullRequestText({ title: 'T', closes, reports });
+    assert.equal(text.draft, true);
+    assert.ok(
+      text.body.includes(
+        '\nNo How it works: the Cellarman wrote none.\n\nA person reviews this before it is marked ready: every Taster approved, but it has no How it works.\n',
+      ),
+      text.body,
+    );
+    const [implement, ...tasted] = reports;
+    assert.ok(implement !== undefined);
+    const written = [
+      { ...implement, sections: { howItWorks: 'How.', beforeAfter: [] } },
+      ...tasted,
+    ];
+    assert.equal(pullRequestText({ title: 'T', closes, reports: written }).draft, false);
+  });
+
   it('says why it is a draft when a Taster asks for changes', () => {
     const reports = [
       {

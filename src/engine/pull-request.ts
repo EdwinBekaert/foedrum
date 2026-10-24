@@ -193,6 +193,8 @@ export interface PullRequestTextInput {
 export interface PullRequestText {
   title: string;
   body: string;
+  /** Opened as a draft (ADR 0167): unless every Taster approved and how it works is written. */
+  draft: boolean;
 }
 
 /** GitHub's longest title of a pull request. */
