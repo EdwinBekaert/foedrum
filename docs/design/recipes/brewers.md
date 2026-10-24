@@ -38,7 +38,7 @@ The setup command is not a brewer field: it depends on the repository, so it is 
 | Field | Purpose |
 |---|---|
 | `output.doc` | File the brewer must write |
-| `output.schema` | Named schema for the frontmatter (validated): `tasting` makes the brewer a Taster, whose out doc adds `findings` and a `verdict` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)); `pullRequest` adds the pull request's sections, `howItWorks`, `seeIt` and `beforeAfter`, all optional (the default Cellarman's, [ADR 0167](../../adr/0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md)); `gauge` adds the tests a test-first step wrote, `tests` and `regressionTests`, lists of names the runner reports (the default Gauger's, [ADR 0170](../../adr/0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md)); any other name is read against the out doc contract |
+| `output.schema` | Named schema for the frontmatter (validated): `tasting` makes the brewer a Taster, whose out doc adds `findings` and a `verdict` ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)); `pullRequest` adds the pull request's sections, `howItWorks`, `seeIt` and `beforeAfter`, all optional (the default Cellarman's, [ADR 0167](../../adr/0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md)); `gauge` adds the tests a test-first step wrote, `tests` and `regressionTests`, lists of names the runner reports (the default Gauger's, [ADR 0170](../../adr/0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md)); `fining` adds a Finer's `changes` or `unchanged` ([ADR 0166](../../adr/0166-the-finer-simplifies-a-batch-s-change-before-green.md)); any other name is read against the out doc contract |
 | `produces` | Expected side effects: `commits`, `report`, `comment`, `none` |
 
 **Model**
@@ -84,7 +84,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | Guard | Fails when |
 |---|---|
 | `requiresOutDoc` | the out doc is missing or invalid |
-| `requiresCommits` | the out doc says `done`, but the brewer made no commit after its worktree's start: the batch goes Stuck on a `divergence`. Every brewer that produces commits has it, listed or not ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)) |
+| `requiresCommits` | the out doc says `done`, but the brewer made no commit after its worktree's start: the batch goes Stuck on a `divergence`. Every brewer that produces commits has it, listed or not ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)), except for a `fining` out doc's `done` with `unchanged`, which needs none ([ADR 0166](../../adr/0166-the-finer-simplifies-a-batch-s-change-before-green.md)) |
 | `testsNotRemoved` | test declarations disappeared compared with the attempt's start commit |
 | `testsUnchanged` | test declarations or assertions committed by the step named in the red proof's `of` were changed or removed (helpers, fixtures, imports and new tests may change) |
 | `scope` | files outside the worktree were touched |

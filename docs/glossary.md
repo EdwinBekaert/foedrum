@@ -57,6 +57,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | Brewmaster | Planning |
 | Gauger | Failing tests first |
 | Cellarman | Implementation |
+| Finer | Simplifying the change before the checks and reviews |
 | Taster | Review, one lens at a time |
 | Brett | Mutation check |
 | Cooper | Fixing review findings |

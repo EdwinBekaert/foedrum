@@ -14,6 +14,8 @@ import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
+  FINING,
+  FiningOutDoc,
   GAUGE,
   GaugeOutDoc,
   OutDocFrontmatter,
@@ -90,17 +92,20 @@ export function attemptLimits(
   blocking = false,
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
-  // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Gauger's with its tests
-  // (ADR 0170); every other out doc against the contract's schema.
+  // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
+  // changes (ADR 0166), a Gauger's with its tests (ADR 0170); every other out doc against the
+  // contract's schema.
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
       ? TastingOutDoc
       : name === PULL_REQUEST
         ? PullRequestOutDoc
-        : name === GAUGE
-          ? GaugeOutDoc
-          : OutDocFrontmatter;
+        : name === FINING
+          ? FiningOutDoc
+          : name === GAUGE
+            ? GaugeOutDoc
+            : OutDocFrontmatter;
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),

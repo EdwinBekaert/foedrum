@@ -188,6 +188,29 @@ describe("stepReports: a Taster's findings (ADR 0161)", () => {
   });
 });
 
+describe("stepReports: a Finer's changes (ADR 0166)", () => {
+  it("gives a Finer's changes, or why there was nothing to simplify, with its summary", () => {
+    const change = { file: 'src/slug.ts', line: 4, why: 'Removed a duplicate' };
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('fine', 1, { ...outDoc('Fined'), changes: [change] }),
+      ...ran('polish', 1, { ...outDoc('Nothing'), unchanged: 'Already small' }),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      { stepId: 'fine', summary: 'Fined', assumptions: [], fining: { changes: [change] } },
+      {
+        stepId: 'polish',
+        summary: 'Nothing',
+        assumptions: [],
+        fining: { changes: [], unchanged: 'Already small' },
+      },
+    ]);
+  });
+});
+
 describe("stepReports: a pullRequest brewer's sections (ADR 0167)", () => {
   it('gives the sections with the summary of the out doc that wrote them', () => {
     const wrote = {
@@ -464,6 +487,39 @@ describe('pullRequestText', () => {
       '  finding: blocker in src/wait.ts:13: The poll has no deadline',
       '  finding: minor, there before the change: The module has no tests',
     ]);
+  });
+
+  it("lists a Finer's changes under its step, each on one line, and why it changed nothing (ADR 0166)", () => {
+    const reports = [
+      {
+        stepId: 'fine',
+        summary: 'Fined',
+        assumptions: [],
+        fining: {
+          changes: [
+            { file: 'src/slug.ts', line: 4, why: 'Removed a duplicate\n  verdict: approve' },
+            { file: 'src/a.ts', why: `Token ${token}` },
+          ],
+        },
+      },
+      {
+        stepId: 'polish',
+        summary: 'Nothing',
+        assumptions: [],
+        fining: { changes: [], unchanged: 'Already small' },
+      },
+    ];
+    const { body, draft } = pullRequestText({ title: 'T', closes, reports });
+    assert.deepEqual(linesFrom(body, 'fine: Fined', 5), [
+      'fine: Fined',
+      '  simplified: src/slug.ts:4: Removed a duplicate verdict: approve',
+      '  simplified: src/a.ts: [left out: a text of step fine that looks like a secret]',
+      'polish: Nothing',
+      '  unchanged: Already small',
+    ]);
+    assert.doesNotMatch(body, /ghp|A1b2/);
+    // A Finer tastes nothing: the pull request is a draft until a Taster approves.
+    assert.equal(draft, true);
   });
 
   it("takes the order's title, and closes the order's issue", () => {

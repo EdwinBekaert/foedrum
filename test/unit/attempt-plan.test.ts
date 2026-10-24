@@ -18,7 +18,7 @@ import {
   toolsOf,
 } from '../../src/brewers/attempt-plan.ts';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
-import { settleAttempt } from '../../src/engine/brewer-runner.ts';
+import { type CommitsSeen, settleAttempt } from '../../src/engine/brewer-runner.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepBrewer } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
@@ -370,6 +370,141 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
       kind: 'blocked',
       blockerKind: 'findings',
       summary: 'the Taster asks for changes: Tasted',
+    });
+  });
+});
+
+describe("attemptLimits: a Finer's changes, or why there was nothing to simplify (ADR 0166)", () => {
+  const finer = brewer({
+    name: 'finer',
+    access: 'write',
+    produces: 'commits',
+    git: { commit: true },
+    output: { doc: 'fine.md', schema: 'fining' },
+  });
+  const change = { file: 'src/slug.ts', line: 4, why: 'slugOf repeated toSlug; it now calls it' };
+  const unchanged = 'The change is already as small as it does';
+  const ended = (fields: Record<string, unknown>, commits: number, status = 'done') =>
+    settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc({ status, summary: 'Fined', ...fields }),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+        commits: { kind: 'counted', count: commits },
+      },
+      attemptLimits(finer, sha),
+    );
+  const invalid = (fields: Record<string, unknown>, commits = 1) => {
+    const ending = ended(fields, commits);
+    assert.equal(ending.kind, 'failed', JSON.stringify(fields));
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /the out doc fine\.md is invalid/);
+  };
+
+  it('succeeds on a done with nothing to simplify and no commit', () => {
+    assert.deepEqual(ended({ unchanged }, 0), {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Fined', assumptions: [], changes: [], unchanged },
+    });
+  });
+
+  it('succeeds on a done that lists its changes, with a commit', () => {
+    assert.deepEqual(ended({ changes: [change] }, 1), {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Fined', assumptions: [], changes: [change] },
+    });
+  });
+
+  it('blocks on a divergence when it lists changes but committed none (ADR 0074)', () => {
+    assert.deepEqual(ended({ changes: [change] }, 0), {
+      kind: 'blocked',
+      blockerKind: 'divergence',
+      summary: 'the out doc says done, but the brewer made no commit since ccccccc: Fined',
+    });
+  });
+
+  it('fails, retryably, when it says nothing was simplified but made commits', () => {
+    assert.deepEqual(ended({ unchanged }, 2), {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        'the out doc says nothing was simplified, but the brewer made 2 commits since ccccccc',
+    });
+  });
+
+  it('fails a done with both changes and nothing to simplify, or neither', () => {
+    invalid({ changes: [change], unchanged });
+    invalid({});
+    invalid({ changes: [] });
+  });
+
+  it('fails, retryably, when it says nothing was simplified but made one commit (review of #462)', () => {
+    assert.deepEqual(ended({ unchanged }, 1), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the out doc says nothing was simplified, but the brewer made 1 commit since ccccccc',
+    });
+  });
+
+  it('puts a rewritten start and uncounted commits before nothing to simplify (review of #462)', () => {
+    const settled = (commits: CommitsSeen) =>
+      settleAttempt(
+        {
+          exit: { kind: 'exited', code: 0 },
+          outDoc: outDoc({ status: 'done', summary: 'Fined', unchanged }),
+          denials: 0,
+          deniedTools: [],
+          turns: 3,
+          commits,
+        },
+        attemptLimits(finer, sha),
+      );
+    assert.deepEqual(settled({ kind: 'rewritten' }), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer rewrote ccccccc, the commit its worktree started at',
+    });
+    assert.deepEqual(settled({ kind: 'uncounted', reason: 'git exited with 128' }), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the commits since ccccccc were not counted: git exited with 128',
+    });
+  });
+
+  it('says a done gives exactly one of the two, whether it gave both or neither (review of #462)', () => {
+    for (const fields of [{ changes: [change], unchanged }, {}]) {
+      const ending = ended(fields, 1);
+      assert.match(
+        ending.kind === 'failed' ? ending.reason : '',
+        /exactly one of a non-empty changes or unchanged/,
+        JSON.stringify(fields),
+      );
+    }
+  });
+
+  it('fails a change without its file or why, on two lines, or line 0, and more than 50', () => {
+    invalid({ changes: [{ ...change, file: undefined }] });
+    invalid({ changes: [{ ...change, why: undefined }] });
+    invalid({ changes: [{ ...change, file: 'a.ts\nb' }] });
+    invalid({ changes: [{ ...change, line: 0 }] });
+    invalid({ changes: Array(51).fill(change) });
+    assert.equal(ended({ changes: Array(50).fill(change) }, 1).kind, 'succeeded');
+    assert.equal(ended({ changes: [{ file: 'a.ts', why: 'Merged' }] }, 1).kind, 'succeeded');
+  });
+
+  it('fails a reason of two lines or past 1,000 characters', () => {
+    invalid({ unchanged: 'Nothing\nhere' }, 0);
+    invalid({ unchanged: 'n'.repeat(1_001) }, 0);
+    assert.equal(ended({ unchanged: 'n'.repeat(1_000) }, 0).kind, 'succeeded');
+  });
+
+  it('reads an out doc that is not done as before, with neither field', () => {
+    const failed = ended({}, 0, 'failed');
+    assert.deepEqual(failed, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer failed: Fined',
     });
   });
 });

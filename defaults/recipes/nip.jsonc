@@ -1,7 +1,7 @@
 // Nip, the quick fix in one repository, test-first (ADR 0017): the Gauger commits failing tests,
-// the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the checks
-// read the result, the Taster reviews the change through the correctness lens, and the pull
-// request opens with its findings (ADR 0161).
+// the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
+// simplifies the change (ADR 0166), the checks read the result, the Taster reviews the change
+// through the correctness lens, and the pull request opens with its findings (ADR 0161).
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
@@ -24,7 +24,9 @@
       // A test Cellarman finds wrong goes back to the Gauger, once (ADR 0017, ADR 0064).
       "onBlocked": { "findings": { "goto": "gauge", "maxRounds": 1 } }
     },
+    { "id": "fine", "brewer": "finer" },
     {
+      // A failure goes back to Cellarman, whichever step broke it; the Finer then runs again.
       "id": "green",
       "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }

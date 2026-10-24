@@ -63,6 +63,7 @@ describe('the default Nip', () => {
       gauge: [done, done],
       red: [done, done],
       implement: [behave.blocked('findings', 'The test expects the wrong slug'), done],
+      fine: [done, done],
       green: [done],
       taste: [done],
       'open-pull-request': [done],
@@ -74,6 +75,7 @@ describe('the default Nip', () => {
       'gauge',
       'red',
       'implement',
+      'fine',
       'green',
       'taste',
       'open-pull-request',
@@ -86,6 +88,7 @@ describe('the default Nip', () => {
       gauge: [done],
       red: [done],
       implement: [done, done],
+      fine: [done, done],
       green: [behave.fail(false), done],
       taste: [done],
       'open-pull-request': [done],
@@ -94,8 +97,10 @@ describe('the default Nip', () => {
       'gauge',
       'red',
       'implement',
+      'fine',
       'green',
       'implement',
+      'fine',
       'green',
       'taste',
       'open-pull-request',
@@ -117,6 +122,7 @@ describe('the default Nip', () => {
         gauge: [done],
         red: [done],
         implement: [done, done],
+        fine: [done, done],
         green: [behave.read([failing]), done],
         taste: [done],
         'open-pull-request': [done],
@@ -172,6 +178,7 @@ describe('the default Nip', () => {
       gauge: [done, done, done],
       red: [behave.fail(false), behave.fail(false), done],
       implement: [done],
+      fine: [done, done],
     });
     assert.deepEqual(started, ['gauge', 'red', 'gauge', 'red']);
   });
@@ -182,6 +189,7 @@ describe('the default Nip', () => {
       gauge: [done, done],
       red: [behave.fail(false), done],
       implement: [done],
+      fine: [done, done],
       green: [done],
       taste: [done],
       'open-pull-request': [done],
@@ -192,6 +200,7 @@ describe('the default Nip', () => {
       'gauge',
       'red',
       'implement',
+      'fine',
       'green',
       'taste',
       'open-pull-request',
@@ -214,6 +223,17 @@ describe('the default Nip', () => {
     }
   });
 
+  it('simplifies the change with the Finer after Cellarman and before green, keeping the red proof tests (ADR 0166)', () => {
+    const { brewers, recipes } = valid(loadRecipes(noFiles));
+    const steps = recipes.find('nip')?.steps ?? [];
+    assert.equal(steps.indexOf('fine'), steps.indexOf('implement') + 1, steps.join(', '));
+    assert.equal(steps.indexOf('green'), steps.indexOf('fine') + 1, steps.join(', '));
+    const finer = brewers.find('nip', 'fine')?.brewer;
+    assert.equal(finer?.name, 'finer');
+    assert.equal(finer.produces, 'commits');
+    assert.ok(finer.guards.includes('testsUnchanged'), JSON.stringify(finer.guards));
+  });
+
   it("has Cellarman write the pull request's sections, its out doc schema pullRequest (ADR 0167)", () => {
     const { brewers } = valid(loadRecipes(noFiles));
     assert.equal(brewers.find('nip', 'implement')?.brewer.output.schema, 'pullRequest');
@@ -230,6 +250,7 @@ describe('the default Nip', () => {
       'gauge',
       'red',
       'implement',
+      'fine',
       'green',
       'taste',
       'open-pull-request',
@@ -246,6 +267,7 @@ describe('the default Nip', () => {
       'defaults/recipes/nip.jsonc',
       'defaults/brewers/gauger.md',
       'defaults/brewers/cellarman.md',
+      'defaults/brewers/finer.md',
       'defaults/brewers/taster.md',
     ]) {
       assert.ok(loaded.defaults.includes(path), `${path} is not in ${loaded.defaults.join(', ')}`);
@@ -273,10 +295,9 @@ describe('the default Nip', () => {
         // line, not what each step does.
         runner: fakeBrewerRunner(
           Object.fromEntries(
-            ['gauge', 'red', 'implement', 'green', 'taste', 'open-pull-request'].map((id) => [
-              id,
-              [done],
-            ]),
+            ['gauge', 'red', 'implement', 'fine', 'green', 'taste', 'open-pull-request'].map(
+              (id) => [id, [done]],
+            ),
           ),
         ),
         recipes: valid(loadRecipes(noFiles)).recipes,
@@ -300,6 +321,7 @@ describe('the default Nip', () => {
         'gauge',
         'red',
         'implement',
+        'fine',
         'green',
         'taste',
         'open-pull-request',

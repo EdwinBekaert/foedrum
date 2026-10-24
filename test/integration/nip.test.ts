@@ -212,8 +212,10 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
       'gauge#1 succeeded',
       'red#1 succeeded',
       'implement#1 succeeded',
+      'fine#1 succeeded',
       'green#1 failed',
       'implement#2 succeeded',
+      'fine#2 succeeded',
       'green#2 succeeded',
       'taste#1 succeeded',
       'open-pull-request#1 succeeded',
@@ -320,7 +322,7 @@ describe('the Nip recipe end to end with the real claude', {
     await removeTree(dir.path);
   });
 
-  it('brews the same order with claude playing the Gauger and the Cellarman from a fake model', async () => {
+  it('brews the same order with claude playing the Gauger, the Cellarman and the Finer from a fake model', async () => {
     const scratch = dir.path;
     // The attempt's worktree, where serve makes it.
     const worktree = (step: string, attempt: number) =>
@@ -371,6 +373,15 @@ describe('the Nip recipe end to end with the real claude', {
         // The Taster's only rule that writes is Edit on its out doc, so Edit makes the file.
         const file_path = join(worktree('taste', 1), 'taste.md');
         return [{ name: 'Edit', input: { file_path, old_string: '', new_string: content } }];
+      }
+      if (body.includes('# Finer')) {
+        // The second Finer reads the Cellarman's second fix in its change input (ADR 0166).
+        const second = NIP_SCRIPT.implement?.[1]?.message ?? '';
+        const attempt = body.includes(second) ? 2 : 1;
+        const scripted = NIP_SCRIPT.fine?.[attempt - 1];
+        assert.ok(scripted !== undefined);
+        const file_path = join(worktree('fine', attempt), 'fine.md');
+        return [{ name: 'Write', input: { file_path, content: scriptedOutDoc(scripted) } }];
       }
       return brew('implement', ROUTE.test(body) ? 2 : 1, 'brew.md');
     });

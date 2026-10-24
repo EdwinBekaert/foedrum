@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
-import { gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
+import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
@@ -15,7 +15,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { findingText, knownCommits } from './pull-request.ts';
+import { changeText, findingText, knownCommits } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 
@@ -297,6 +297,14 @@ const assumptionLines = (batch: Batch, stepIds: readonly string[], told: Told): 
     capped(stepId, assumptionsOf(batch, stepId, told), mostAssumptions, (text) => text),
   );
 
+/** The output of `stepId`'s latest finished attempt when it succeeded; else undefined. */
+const latestOutput = (batch: Batch, stepId: string): unknown => {
+  const finished = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
+  return finished?.phase === 'finished' && finished.outcome.kind === 'succeeded'
+    ? finished.outcome.output
+    : undefined;
+};
+
 /** How many of a step's new tests, and of its regression tests, the comment shows. */
 const mostTests = 10;
 
@@ -327,17 +335,33 @@ const mostFindings = 10;
  * verdict ends its attempt blocked, and an earlier round's findings are no longer current.
  */
 const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
-  stepIds.flatMap((stepId) => {
-    const finished = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
-    const output =
-      finished?.phase === 'finished' && finished.outcome.kind === 'succeeded'
-        ? finished.outcome.output
-        : undefined;
-    return capped(
+  stepIds.flatMap((stepId) =>
+    capped(
       stepId,
-      tastingOf(output)?.findings ?? [],
+      tastingOf(latestOutput(batch, stepId))?.findings ?? [],
       mostFindings,
       (finding) => `${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+    ),
+  );
+
+/** How many changes of one Finer's step the comment shows. */
+const mostChanges = 10;
+
+/**
+ * The changes of each Finer's step whose latest finished attempt succeeded, or why it had nothing
+ * to simplify (ADR 0166), as the findings are shown.
+ */
+const simplificationLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) => {
+    const fining = finingOf(latestOutput(batch, stepId));
+    if (fining?.unchanged !== undefined) {
+      return [`- ${code(stepId)}: nothing to simplify: ${told(fining.unchanged, stepId)}`];
+    }
+    return capped(
+      stepId,
+      fining?.changes ?? [],
+      mostChanges,
+      (change) => `${told(changeText(change), stepId)}: ${told(change.why, stepId)}`,
     );
   });
 
@@ -395,6 +419,8 @@ export const renderStatus = (
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
   const findings = findingLines(batch, stepIds, told);
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
+  const simplifications = simplificationLines(batch, stepIds, told);
+  if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);
   const receipts = receiptLines(batch, told);
   if (receipts.length > 0) sections.push(['**Receipts**', ...receipts]);
   if (batch.lane.kind === 'on_tap') {
