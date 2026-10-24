@@ -38,7 +38,7 @@ type BatchCommand = Extract<EngineCommand, { batchId: string }>;
 export interface TickPlan {
   /** At most one per batch, to decide in this order. */
   commands: BatchCommand[];
-  /** Every expired lease: its attempt is lost, or no longer runs. */
+  /** Every expired lease but those of lost attempts it leaves to the next tick (ADR 0168). */
   releaseLeases: string[];
 }
 
@@ -56,11 +56,16 @@ export const planTick = (input: TickInput): TickPlan => {
     const batch = state.batches.get(batchId);
     if (batch !== undefined) issue(dueCommand(batch, now));
   }
+  // The expired leases of lost attempts this tick leaves to the next: a batch's other children
+  // of a parallel group, which would otherwise wait out their deadline with no lease (ADR 0168).
+  const kept = new Set<string>();
   for (const { attemptKey: key, owner, expiresAt } of expiredLeases) {
     const ref = attemptKey.decode(key);
     const batch = ref && state.batches.get(ref.batchId);
     const lost = batch && running(batch).find((attempt) => isSame(attempt, ref));
-    if (lost?.phase === 'started') {
+    if (lost?.phase === 'started' && commands.get(lost.batchId)?.kind === 'lose') {
+      kept.add(key);
+    } else if (lost?.phase === 'started') {
       const reason = `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
       issue({
         kind: 'lose',
@@ -88,7 +93,7 @@ export const planTick = (input: TickInput): TickPlan => {
   }
   return {
     commands: [...commands.values()],
-    releaseLeases: expiredLeases.map((lease) => lease.attemptKey),
+    releaseLeases: expiredLeases.map((lease) => lease.attemptKey).filter((key) => !kept.has(key)),
   };
 };
 
