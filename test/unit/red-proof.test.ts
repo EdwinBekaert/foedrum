@@ -317,6 +317,7 @@ describe('judgeRed', () => {
           '  void addNegative() {',
           '    assertEquals(-3, calc.add(-1, -2));',
           '    assert.equal(add(1, -2), -1);',
+          '    const sum = calc.add(1, 2);',
         ],
         removed: [],
       },
@@ -355,6 +356,9 @@ describe('judgeRed', () => {
           '      parent_tool_use_id: null,',
           '    };',
           "    done({ exitCode: null, stdout: '' });",
+          '      exitCode: null',
+          '  Given: null,',
+          `    const quoted = ['null", "null'];`,
           ...lines,
         ],
         removed: [],
@@ -373,6 +377,29 @@ describe('judgeRed', () => {
       why(report, streamed("  it('null', () => {")),
       'test "malformed input > null" passes before the implementation: a stub must throw, not return a value',
     );
+  });
+
+  it('finds a name written in double quotes or backticks, as Go, C# and Kotlin declare a test', () => {
+    const quoted = [
+      {
+        newPath: 'add_test.go',
+        added: ['  t.Run("adds two numbers", func(t *testing.T) {'],
+        removed: [],
+      },
+      {
+        newPath: 'src/test/kotlin/AddTest.kt',
+        added: ['  fun `adds a negative number`() {'],
+        removed: [],
+      },
+    ];
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, quoted), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
   });
 });
 
