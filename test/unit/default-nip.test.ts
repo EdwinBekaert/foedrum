@@ -332,6 +332,20 @@ describe('the default Nip', () => {
   });
 });
 
+describe('the default Cellarman', () => {
+  const cellarman = () => valid(loadRecipes(noFiles)).brewers.find('nip', 'implement');
+
+  it("puts a wrong test's findings in blockerKind and the out doc's text, which its frontmatter allows (#470)", () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    const [wrongTest = ''] = found.instructions
+      .split('\n')
+      .filter((line) => /wrong test/i.test(line));
+    assert.match(wrongTest, /"blockerKind": "findings"/);
+    assert.match(wrongTest, /out doc's text/);
+  });
+});
+
 describe('the default Gauger', () => {
   const gauger = () => valid(loadRecipes(noFiles)).brewers.find('nip', 'gauge');
 
