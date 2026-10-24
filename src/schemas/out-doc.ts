@@ -115,3 +115,36 @@ export const tastingOf = (output: unknown): TastingReport | undefined => {
  * fields): what the status comment shows (ADR 0072).
  */
 export const OutDocAssumptions = z.object({ assumptions: z.array(z.string()) });
+
+/**
+ * The name of the out doc schema of a brewer that writes the pull request's sections
+ * (`output.schema`, ADR 0167): the default Cellarman's.
+ */
+export const PULL_REQUEST = 'pullRequest';
+
+/** One row of the pull request's before/after table (ADR 0167). */
+export interface BeforeAfterRow {
+  case: string;
+  before: string;
+  after: string;
+}
+
+/** The pull request's sections a brewer wrote (ADR 0167): model text, untrusted. */
+export interface PullRequestSections {
+  howItWorks: string;
+  seeIt: string;
+  beforeAfter: readonly BeforeAfterRow[];
+}
+
+/** The out doc of a brewer whose schema is `pullRequest`: the contract's, with the sections. */
+export const PullRequestOutDoc = outDocFrontmatter({}).superRefine(() => {
+  throw new Error('not implemented');
+});
+
+/**
+ * The sections of an attempt's `output` when a `pullRequest` brewer wrote it and was done; undefined
+ * for any other out doc.
+ */
+export const pullRequestSectionsOf = (_output: unknown): PullRequestSections | undefined => {
+  throw new Error('not implemented');
+};

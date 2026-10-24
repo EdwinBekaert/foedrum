@@ -33,6 +33,8 @@ export interface PullRequestRequest {
   base: string;
   title: string;
   body: string;
+  /** Opened as a draft (ADR 0167); ready for review when absent. */
+  draft?: boolean;
 }
 
 /** Where pull requests are opened (architecture §3.1). Every call stops when `signal` aborts. */

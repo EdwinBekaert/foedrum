@@ -5,6 +5,7 @@
 import type { IsCommit } from '../formats/secrets.ts';
 import {
   OutDocFrontmatter,
+  type PullRequestSections,
   type TastingFinding,
   TastingOutDoc,
   type TastingReport,
@@ -69,7 +70,40 @@ export interface StepReport {
   assumptions: readonly string[];
   /** A Taster's verdict and findings (ADR 0161). */
   tasting?: TastingReport;
+  /** The pull request's sections a `pullRequest` brewer wrote (ADR 0167). */
+  sections?: PullRequestSections;
 }
+
+/** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
+export interface AttemptRow {
+  stepId: string;
+  attempt: number;
+  /** The engine's word for how it ended, or a Taster's verdict. */
+  result: string;
+  /** Why a failed attempt failed: the engine's text, which may quote a model's words. */
+  reason?: string;
+}
+
+/** The finished attempts of `batch`, in the order they started (`Batch.path`). */
+export const brewLog = (_batch: Batch): AttemptRow[] => {
+  throw new Error('not implemented');
+};
+
+/**
+ * Model text without what GitHub would act on outside a fence (ADR 0167): the `@` of a mention,
+ * a closing keyword before an issue reference, and a numeric character reference.
+ */
+export const unlinked = (_text: string): string => {
+  throw new Error('not implemented');
+};
+
+/**
+ * Whether the pull request opens as a draft (ADR 0167): unless a Taster tasted the change and
+ * every Taster approved.
+ */
+export const opensAsDraft = (_reports: readonly StepReport[]): boolean => {
+  throw new Error('not implemented');
+};
 
 /** The reports of `batch`'s steps, in the order they were first scheduled. */
 export const stepReports = (batch: Batch): StepReport[] =>
@@ -104,6 +138,10 @@ export interface PullRequestTextInput {
   reports: readonly StepReport[];
   /** Whether a 40-character hexadecimal word is a commit, not a key; none is when absent. */
   isCommit?: IsCommit;
+  /** The recipe the batch brewed with. */
+  recipe?: string;
+  /** The batch's finished attempts, for the brew table (ADR 0167). */
+  attempts?: readonly AttemptRow[];
 }
 
 export interface PullRequestText {
