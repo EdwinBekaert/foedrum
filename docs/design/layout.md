@@ -6,7 +6,7 @@
 src/
   cli/          entry point and commands
   engine/       events, fold, store, state branch, scheduler, supervisor, executor
-  brewers/      brewer loading, prompt assembly (ADR 0041), CLI invocation
+  brewers/      brewer loading, prompt assembly (ADR 0041), house-yeast selection (ADR 0122), CLI invocation
   recipes/      schema and loading
   github/       client, auth, intake, projection
   workspace/    git (a non-interactive runner with timeouts) and worktrees
