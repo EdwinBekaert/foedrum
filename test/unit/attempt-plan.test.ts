@@ -411,6 +411,17 @@ describe("attemptLimits: a Finer's changes, or why there was nothing to simplify
     invalid({ changes: [] });
   });
 
+  it('says a done gives exactly one of the two, whether it gave both or neither (review of #462)', () => {
+    for (const fields of [{ changes: [change], unchanged }, {}]) {
+      const ending = ended(fields, 1);
+      assert.match(
+        ending.kind === 'failed' ? ending.reason : '',
+        /exactly one of a non-empty changes or unchanged/,
+        JSON.stringify(fields),
+      );
+    }
+  });
+
   it('fails a change without its file or why, on two lines, or line 0, and more than 50', () => {
     invalid({ changes: [{ ...change, file: undefined }] });
     invalid({ changes: [{ ...change, why: undefined }] });
