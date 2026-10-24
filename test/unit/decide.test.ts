@@ -407,6 +407,15 @@ describe('decide finish', () => {
     });
   });
 
+  it('records the house-yeast rules the attempt was given (ADR 0169)', () => {
+    const houseYeast = { selected: ['cents'], cut: [], invalid: ['house-yeast/x.md'] };
+    const decision = decide(fold(brewing()), { ...finish(final), houseYeast } as Command, context);
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events[0], {
+      ...finished(final),
+      houseYeast,
+    });
+  });
+
   it('puts the batch on tap when the last step succeeded', () => {
     accepts(brewing('patch', 1, 'nip'), finish(succeeded, 'patch'), [
       finished(succeeded, 'patch'),

@@ -38,6 +38,7 @@ import {
 } from './attempt-plan.ts';
 import type { ConfigDirs } from './attempt-settings.ts';
 import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claude-runner.ts';
+import type { RuleFile, UnreadRuleFile } from './house-yeast.ts';
 import type { PromptInput, RandomBytes } from './prompt.ts';
 
 export interface AttemptPlansOptions {
@@ -69,6 +70,15 @@ export interface AttemptPlansOptions {
    * that needs it fails without it.
    */
   git?: Git;
+  /**
+   * The Brewery's house-yeast rule files, read with its files, and where a repository's own rules
+   * are kept (`foedrum.jsonc`, ADR 0018): a brewer that asks for house yeast gets those that match
+   * its change (ADR 0169).
+   */
+  houseYeast?: {
+    files: readonly (RuleFile | UnreadRuleFile)[];
+    keptIn: (repo: string) => 'repo' | 'brewery';
+  };
   /** Default the file system's: `readOutDocFile` and a recursive `mkdir`. */
   files?: {
     read: (file: string, maxBytes: number, root: string) => OutDocRead;

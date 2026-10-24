@@ -15,6 +15,7 @@ import type {
   Usage,
   WaitCondition,
 } from '../schemas/events.ts';
+import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
@@ -87,6 +88,8 @@ export type EngineCommand =
       readings?: readonly GravityReading[];
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
+      /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
+      houseYeast?: HouseYeastSelection;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }

@@ -3,8 +3,9 @@
 // (scripts/house-yeast.ts), and in src/ a batch can too (#434).
 
 import { posix } from 'node:path';
-import { HouseYeastRule } from '../schemas/house-yeast.ts';
+import { HouseYeastRule, type HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { readDoc } from '../schemas/read.ts';
+import type { PromptInput } from './prompt.ts';
 
 export interface RuleFile {
   path: string;
@@ -104,7 +105,7 @@ const fileMatches = (scope: Scope, file: string): boolean =>
 export const unscoped = ({ scope }: HouseYeastRule): boolean =>
   scope.globs === undefined && scope.language === undefined;
 
-const matches = ({ rule }: Rule, files: readonly string[], lens: string): boolean =>
+const matches = ({ rule }: Rule, files: readonly string[], lens?: string): boolean =>
   rule.status === 'active' &&
   (rule.scope.lens === undefined || rule.scope.lens === lens) &&
   (unscoped(rule) || files.some((file) => fileMatches(rule.scope, file)));
@@ -142,7 +143,7 @@ const price = (rule: Rule): number => Math.ceil(section(rule).length / 4);
  */
 export const selectRules = (
   rules: readonly Rule[],
-  change: { files: readonly string[]; lens: string },
+  change: { files: readonly string[]; lens?: string },
   budget: number = defaultBudget,
 ): Selection => {
   const selection: Selection = { selected: [], cut: [] };
@@ -157,4 +158,64 @@ export const selectRules = (
     }
   }
   return selection;
+};
+
+/** A rule file of the Brewery that could not be read, with why. */
+export interface UnreadRuleFile {
+  path: string;
+  unreadable: string;
+}
+
+/**
+ * The rule files `git ls-tree -z <commit> -- .foedrum/house-yeast/` lists: the regular `.md` files
+ * directly in the folder, by path and blob id; never a link or a folder (ADR 0169).
+ */
+export const ruleBlobs = (_lsTree: string): { path: string; blob: string }[] => {
+  throw new Error('not implemented');
+};
+
+/**
+ * The text of each of `blobs`, from what `git cat-file --batch` printed for their ids, in order;
+ * throws when the output does not hold them.
+ */
+export const blobTexts = (
+  _blobs: readonly { path: string; blob: string }[],
+  _batch: string,
+): RuleFile[] => {
+  throw new Error('not implemented');
+};
+
+/**
+ * The Brewery's rule files by layer (ADR 0169): those directly in `house-yeast/` are the Brewery
+ * layer, and for a repository whose rules are kept in the Brewery, those in
+ * `house-yeast/<owner>/<name>/` are its repository layer.
+ */
+export const breweryRules = (
+  _files: readonly (RuleFile | UnreadRuleFile)[],
+  _repo: string,
+  _keptIn: 'repo' | 'brewery',
+): { brewery: (RuleFile | UnreadRuleFile)[]; repository: (RuleFile | UnreadRuleFile)[] } => {
+  throw new Error('not implemented');
+};
+
+/** The rules one attempt gets: its inputs, and what it records (ADR 0169). */
+export interface PickedRules {
+  inputs: PromptInput[];
+  record: HouseYeastSelection;
+}
+
+/**
+ * The rules of both layers whose scope matches `change`, within `budget`: a repository rule over a
+ * Brewery rule of its id (ADR 0018), each selected one as an input named `houseYeast`, and the ids
+ * selected and cut and the files left out as invalid, which the attempt records (ADR 0169).
+ */
+export const pickRules = (
+  _layers: {
+    repository: readonly (RuleFile | UnreadRuleFile)[];
+    brewery: readonly (RuleFile | UnreadRuleFile)[];
+  },
+  _change: { files: readonly string[]; lens?: string },
+  _budget: number = defaultBudget,
+): PickedRules => {
+  throw new Error('not implemented');
 };

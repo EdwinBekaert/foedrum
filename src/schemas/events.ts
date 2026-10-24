@@ -1,5 +1,6 @@
 // Events: the append-only log that state is folded from (architecture §4.1, ADR 0002, ADR 0019).
 
+import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
 import { BlockerKind } from './out-doc.ts';
 import { CheckName } from './primitives.ts';
@@ -301,6 +302,8 @@ export const Event = z.discriminatedUnion('type', [
     usage: Usage.optional(),
     readings: z.array(GravityReading).min(1).optional(),
     claude: ClaudeReport.optional(),
+    // The house-yeast rules a brewer's plan selected for it (ADR 0169).
+    houseYeast: HouseYeastSelection.optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

@@ -104,3 +104,12 @@ export function loadBrewery(root: string): Extract<LoadedRecipes, { valid: true 
 export function breweryRecipes(root: string): Recipes {
   return loadBrewery(root).recipes;
 }
+
+/**
+ * The Brewery's house-yeast rule files (ADR 0169): the `.md` files directly in `house-yeast/`, and
+ * those in `house-yeast/<owner>/<name>/` for the repositories whose rules the Brewery keeps (ADR
+ * 0018), by their path from the Brewery's root.
+ */
+export function readHouseYeast(_root: string): BreweryFile[] {
+  throw new Error('not implemented');
+}

@@ -10,7 +10,8 @@ export type InputSource =
   | { kind: 'comment'; issue: number; comment: number }
   | { kind: 'out-doc'; step: string }
   | { kind: 'file'; path: string }
-  | { kind: 'house-yeast'; rule: string }
+  /** A house-yeast rule, with the file it was read from (ADR 0169). */
+  | { kind: 'house-yeast'; rule: string; path?: string }
   /**
    * A lens's text (ADR 0098): `path` is the Brewery's `lenses/diff/<name>.md` or
    * `lenses/plan/<name>.md` (ADR 0143), or the default's.

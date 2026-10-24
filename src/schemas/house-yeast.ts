@@ -36,3 +36,12 @@ export const HouseYeastCandidate = z.strictObject({
   rule: NonEmpty.describe('The rule in one or two sentences'),
 });
 export type HouseYeastCandidate = z.infer<typeof HouseYeastCandidate>;
+
+// The house-yeast rules an attempt was given, by id, those the budget cut, and the rule files left
+// out as invalid, by path: recorded on its step.finished (ADR 0169).
+export const HouseYeastSelection = z.strictObject({
+  selected: z.array(PathSafeId),
+  cut: z.array(PathSafeId),
+  invalid: z.array(NonEmpty).optional(),
+});
+export type HouseYeastSelection = z.infer<typeof HouseYeastSelection>;
