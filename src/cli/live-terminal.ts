@@ -14,11 +14,17 @@ export interface TerminalStream {
   write(text: string): boolean;
 }
 
+/** The live terminal, and the way every lasting line reaches it. */
+export interface StdoutTerminal extends LiveTerminal {
+  /** Prints a lasting line: clears the live line, writes `line`, and draws the live line again. */
+  print: (line: string) => void;
+}
+
 /** The live terminal over `stream` when the rule of ADR 0174 holds in `env`, else none. */
 export const liveTerminal = (
   stream: TerminalStream,
   env: Readonly<Record<string, string | undefined>>,
-): LiveTerminal | undefined => {
+): StdoutTerminal | undefined => {
   if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
   const clear = (): void => {
     stream.cursorTo(0);
@@ -36,6 +42,9 @@ export const liveTerminal = (
     rewrite: (text) => {
       clear();
       stream.write(text);
+    },
+    print: () => {
+      throw new Error('not implemented');
     },
   };
 };

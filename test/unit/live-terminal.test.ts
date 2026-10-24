@@ -96,6 +96,31 @@ describe('liveTerminal: what it does to the stream', () => {
     assert.deepEqual(calls, ['cursorTo(0)', 'clearLine(0)']);
   });
 
+  it('prints a lasting line over the live line: clears it, writes the line, and draws the live line again', () => {
+    const { terminal, calls } = terminalOf();
+    terminal.rewrite('| brew #1 / 5s');
+    calls.length = 0;
+    terminal.print('foedrum brew: removed a stale index.lock');
+    assert.deepEqual(calls, [
+      'cursorTo(0)',
+      'clearLine(0)',
+      'write("foedrum brew: removed a stale index.lock\\n")',
+      'cursorTo(0)',
+      'clearLine(0)',
+      'write("| brew #1 / 5s")',
+    ]);
+  });
+
+  it('prints a lasting line alone when no live line is on screen, also once it was cleared', () => {
+    const { terminal, calls } = terminalOf();
+    terminal.print('first');
+    terminal.rewrite('| brew #1 / 5s');
+    terminal.clear();
+    calls.length = 0;
+    terminal.print('second');
+    assert.deepEqual(calls, ['write("second\\n")']);
+  });
+
   it('calls the handler when the stream is resized, until the returned function stops it', () => {
     const { terminal, handlers } = terminalOf();
     let resized = 0;
