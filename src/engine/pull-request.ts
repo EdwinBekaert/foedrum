@@ -328,9 +328,16 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
   ].join('\n\n');
 };
 
+/** The line of a body without how it works, which then opens as a draft. */
+const NO_HOW = 'No How it works: the Cellarman wrote none.';
+
 /** Why the pull request is a draft or ready, in one line. */
-const draftLine = (reports: readonly StepReport[]): string => {
-  if (!opensAsDraft(reports)) return 'Ready for review: every Taster approved.';
+const draftLine = (reports: readonly StepReport[], written: boolean): string => {
+  if (!opensAsDraft(reports)) {
+    return written
+      ? 'Ready for review: every Taster approved.'
+      : 'A person reviews this before it is marked ready: every Taster approved, but it has no How it works.';
+  }
   const asking = reports.filter(({ tasting }) => tasting?.verdict === 'changes');
   return asking.length === 0
     ? 'A person reviews this before it is marked ready: no step tasted the change.'
@@ -362,7 +369,9 @@ export const pullRequestText = ({
       : [howItWorks(written.stepId, written.sections, isCommit)]),
     '## How this was brewed',
     `Brewed by Foedrum from ${order}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
-    draftLine(reports),
+    // Without how it works, a person reads the change first, whatever the Tasters say.
+    ...(written?.sections?.howItWorks === undefined ? [NO_HOW] : []),
+    draftLine(reports, written?.sections?.howItWorks !== undefined),
     ...(attempts.length === 0 ? [] : [brewTable(attempts, isCommit)]),
   ].join('\n\n');
   const closing = `Closes ${order}`;
@@ -409,5 +418,6 @@ export const pullRequestText = ({
   return {
     title: oneLine === '' ? order : oneLine.slice(0, MAX_TITLE),
     body: [head, ...reported, closing].join('\n\n'),
+    draft: opensAsDraft(reports) || written?.sections?.howItWorks === undefined,
   };
 };

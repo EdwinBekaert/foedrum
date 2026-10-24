@@ -20,7 +20,6 @@ import {
   brewLog,
   knownCommits,
   openedPullRequest,
-  opensAsDraft,
   pullRequestKey,
   pullRequestText,
   pushKey,
@@ -250,8 +249,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
               ...(recipe === undefined ? {} : { recipe }),
               attempts,
             });
-            const draft = opensAsDraft(reports);
-            return pullRequestUrl(await host.open(repo, { ...request, ...text, draft }, signal));
+            return pullRequestUrl(await host.open(repo, { ...request, ...text }, signal));
           },
         };
       }
