@@ -329,10 +329,10 @@ const receiptLines = (batch: Batch, told: Told): string[] => {
   const all = receiptsOf(batch);
   const shown = all
     .slice(0, mostReceipts)
-    .map(({ stepId, attempt, receipt, usage }) =>
+    .map(({ stepId, attempt, receipt, usage, forSession }) =>
       [
         `- ${code(`${stepId} #${attempt}`)}`,
-        ...receiptParts(receipt, usage, (text) => told(text, stepId)),
+        ...receiptParts(receipt, usage, (text) => told(text, stepId), forSession === true),
       ].join(' · '),
     );
   const more = all.length - shown.length;

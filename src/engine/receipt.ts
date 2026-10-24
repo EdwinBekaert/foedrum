@@ -4,22 +4,47 @@
 import type { Receipt, Usage } from '../schemas/events.ts';
 import type { Batch } from './fold.ts';
 
-/** A finished attempt's receipt, with the tokens its step.finished recorded. */
+/**
+ * A finished attempt's receipt, with the tokens its step.finished recorded. Its cost is the
+ * attempt's own, unless `forSession` says it is its session's so far.
+ */
 export interface AttemptReceipt {
   stepId: string;
   attempt: number;
   receipt: Receipt;
   usage?: Usage;
+  forSession?: true;
 }
 
-/** The receipts of `batch`'s attempts, in the order they ran. */
+/**
+ * The receipts of `batch`'s attempts, in the order they ran. A resumed run reports its session's
+ * cost so far (ADR 0042): its own is that less the cost the session's receipt before it reported,
+ * and without one in the batch it stays the session's.
+ */
 export function receiptsOf(batch: Batch): AttemptReceipt[] {
+  // The cost each session reported last, by its id: a resumed session keeps it (ADR 0117).
+  const sessionCost = new Map<string, number>();
   return (batch.path ?? []).flatMap(({ stepId, attempt }) => {
     const found = batch.steps.get(stepId)?.attempts.get(attempt);
     if (found?.phase !== 'finished' || found.receipt === undefined) return [];
-    const { receipt, usage } = found;
+    const { usage } = found;
+    const session = found.session?.id;
+    const reported = found.receipt.costUsd;
+    const before = session === undefined ? undefined : sessionCost.get(session);
+    if (session !== undefined && reported !== undefined) sessionCost.set(session, reported);
+    const resumed = found.receipt.resumed === true && reported !== undefined;
+    const receipt =
+      resumed && before !== undefined
+        ? { ...found.receipt, costUsd: Math.max(0, reported - before) }
+        : found.receipt;
     return [
-      usage === undefined ? { stepId, attempt, receipt } : { stepId, attempt, receipt, usage },
+      {
+        stepId,
+        attempt,
+        receipt,
+        ...(usage === undefined ? {} : { usage }),
+        ...(resumed && before === undefined ? { forSession: true as const } : {}),
+      },
     ];
   });
 }
@@ -63,6 +88,7 @@ export function receiptParts(
   receipt: Receipt,
   usage: Usage | undefined,
   told: (text: string) => string = (text) => text,
+  forSession = false,
 ): string[] {
   const denied = deniedCount(receipt);
   const families = receipt.denied.map(({ tool, refused }) =>
@@ -72,7 +98,9 @@ export function receiptParts(
     ...(receipt.durationMs === undefined ? [] : [duration(receipt.durationMs)]),
     counted(receipt.turns, 'turn'),
     ...(usage === undefined ? [] : [tokens(tokensOf(usage))]),
-    ...(receipt.costUsd === undefined ? [] : [cost(receipt.costUsd)]),
+    ...(receipt.costUsd === undefined
+      ? []
+      : [`${cost(receipt.costUsd)}${forSession ? ' for the session' : ''}`]),
     ...(denied === 0 ? [] : [`${denied} denied (${families.join('; ')})`]),
     ...(receipt.complete ? [] : ['incomplete']),
   ];
