@@ -8,14 +8,14 @@ The red proof finds the tests a step added by looking up each reported name in t
 What stands before a declared name on its line is a declaration's own words: modifiers, a return type, an annotation, a receiver (`public void adds(`, `async Task Adds(`, `fun adds(`, `func (s *Suite) TestAdds(`, `List<int> adds(`, `int *adds(`). What stands before a called name is an expression's: an assignment, an argument list, an operator or a keyword that takes an expression.
 
 ## Decision
-The form of an identifier right before `(` (ADR 0176’s second form) counts only where something stands before the name on its line, and that text, with whitespace (`s`) skipped back from the name, ends in none of these:
+The form of an identifier right before `(` (ADR 0176’s second form) counts only where something stands before the name on its line, and that text, with whitespace (`\s`) skipped back from the name, ends in none of these:
 - a pair, checked before the single characters: `=>`, `->`, `::`, `&&`, `||`;
-- a character that opens or continues an expression: `=` (so also `==`, `+=`), `(`, `,`, `[`, `{`, `!`, `:`, `+`, `-`, `/`, `%`, `|`, `^`, `~`, `;`, and `?` after whitespace (a conditional, `x ? parse(a)`);
+- a character that opens or continues an expression: `=` (so also `==`, `+=`), `(`, `,`, `[`, `{`, `!`, `:`, `+`, `-`, `/`, `%`, `|`, `^`, `~`, `;`, and `?` after whitespace or at the line’s start (a conditional, `x ? parse(a)`, or a formatter’s `? parse(a)` on a line of its own);
 - a word that takes an expression after it, matched as a whole word and case-sensitive: `return`, `await`, `yield`, `throw`, `raise`, `new`, `typeof`, `in`, `of`, `case`, `else`, `do`, `then`, `if`, `elif`, `while`, `unless`, `until`, `when`, `match`, `with`, `defer`, `go`, `not`, `and`, `or`, `assert`.
 
 With nothing before the name, at the line’s start after whitespace, the form does not count: there a call (`parse(input);`, `run(` of a call broken over lines, `withServer(async (url) => {`) and a declaration look the same.
 
-What does count before the name is a declaration’s own words and marks: modifiers, a return type, an annotation (`@Test void adds(`, `public async Task Adds(`), `*` and a single `&` (`int *adds(`, `Foo& adds(`), a single `>` (a generic’s close, `List<int> adds(`), `?` right after a letter or digit (a nullable type, `Task? Adds(`), and `)` (a Go receiver, `func (s *Suite) TestAdds(`).
+What does count before the name is a declaration’s own words and marks: modifiers, a return type, an annotation (`@Test void adds(`, `public async Task Adds(`), `*` and a single `&` (`int *adds(`, `Foo& adds(`), a `>` not part of `=>` or `->` (a generic’s close, `List<int> adds(`, also `>>` in `Map<String, List<Int>> adds(`), `?` right after a letter, digit or `>` (a nullable type, `Task? Adds(`, `List<int>? Adds(`), and `)` (a Go receiver, `func (s *Suite) TestAdds(`).
 
 The text before is checked at every place the name stands in the line, not only the first, and only from there backwards over whitespace, so the match stays linear in the line, which is model output. The other forms of ADR 0176 stand unchanged.
 
