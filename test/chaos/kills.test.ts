@@ -70,8 +70,8 @@ const siblings = new Map(
 
 /**
  * Whether the lost attempt that `events[at]` finishes is a child of a parallel group, a sibling of
- * which had succeeded before the loss, and whose retry was scheduled with no new attempt of that
- * sibling: the kill resumed only the children that had not ended (ADR 0168).
+ * which had succeeded before the loss, and whose retry was scheduled in a decision that scheduled
+ * no new attempt of that sibling: the kill resumed only the children that had not ended (ADR 0168).
  */
 const retriedAlone = (events: readonly Event[], at: number): boolean => {
   const lost = events[at];
@@ -89,8 +89,12 @@ const retriedAlone = (events: readonly Event[], at: number): boolean => {
       event.attempt === attempt + 1,
   );
   if (retry < 0) return false;
+  // The decision that scheduled the retry may schedule more after it: up to its last schedule.
+  let decided = retry + 1;
+  while (events[decided]?.type === 'step.scheduled') decided++;
   return (siblings.get(stepId) ?? []).some((sibling) => {
-    // The sibling's latest event before the loss is a success, and it gets no attempt until the retry.
+    // The sibling's latest event before the loss is a success, and that decision schedules it no
+    // new attempt.
     const before = events
       .slice(0, at)
       .findLastIndex(
@@ -103,7 +107,7 @@ const retriedAlone = (events: readonly Event[], at: number): boolean => {
       latest?.type === 'step.finished' &&
       latest.outcome.kind === 'succeeded' &&
       !events
-        .slice(at, retry + 1)
+        .slice(at, decided)
         .some((event) => event.type === 'step.scheduled' && ofBatch(event, sibling))
     );
   });

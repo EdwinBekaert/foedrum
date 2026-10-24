@@ -48,7 +48,11 @@ export const fakeRecipe = ({
     group: groupOf,
     action: (stepId) => actions[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
-    deadlineMs: () => hour,
+    // As the loaded recipe does, a parallel group has no deadline: only its children are scheduled.
+    deadlineMs: (stepId) => {
+      if (groups[stepId] !== undefined) throw new Error(`${stepId} is a parallel group`);
+      return hour;
+    },
     stall: () => stall,
     skip: (_batch, stepId) => skips[stepId],
     after: (_batch, stepId) => {
