@@ -199,7 +199,7 @@ export const FiningOutDoc = outDocFrontmatter({
   if (doc.status !== 'done' || doc.changes.length > 0 !== (doc.unchanged !== undefined)) return;
   ctx.addIssue({
     code: 'custom',
-    message: 'A done Finer lists its changes or says why there was nothing to simplify, not both',
+    message: 'A done Finer gives exactly one of a non-empty changes or unchanged',
     path: ['unchanged'],
   });
 });
