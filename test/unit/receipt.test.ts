@@ -192,7 +192,7 @@ describe("a batch's receipts", () => {
     const state = { ...emptyState, batches: new Map([[ran.id, ran]]) };
     const row = formatStatus(state)
       .split('\n')
-      .find((line) => line.startsWith('7-1'));
+      .find((line) => line.trimStart().startsWith('7-1'));
     assert.match(
       row ?? '',
       /brewing\s+implement #3 started; 2 attempts · 2m 58s · 36 turns · 1\.54M tokens · \$1\.64 est\. · 2 denied$/,
