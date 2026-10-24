@@ -62,6 +62,11 @@ export const GitHubOpenedPullRequest = z.object({
   head: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }),
 });
 
+/** GitHub's 422 answer with the errors it found in a request, each with its message. */
+export const GitHubValidationErrors = z.object({
+  errors: z.array(z.object({ message: z.string() })),
+});
+
 /** One item of `GET .../issues/{n}/comments`, or the answer to `POST` there. */
 export const GitHubComment = z.object({
   id: z.number().int().positive(),

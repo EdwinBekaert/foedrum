@@ -2,14 +2,14 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 3,
+  "version": 4,
   "model": "builder",
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "tests", "from": "step:gauge" }
   ],
-  "output": { "doc": "brew.md", "schema": "outDoc" },
+  "output": { "doc": "brew.md", "schema": "pullRequest" },
   "produces": "commits",
   "tools": {
     "allow": ["Read", "Edit", "Write", "Grep", "Glob"],
@@ -46,3 +46,13 @@ The Gauger's tests and the existing tests that cover the code you changed pass, 
 The repository's setup, when it has one, has installed its dependencies in your worktree. Before you commit, run the repository's formatter on the files you changed, then its lint and typecheck, then the tests that cover the code you changed, each with the command the repository uses (its scripts, its README, its CI), and fix what they find. Run each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way. You don't need to run the whole test suite or the build: the recipe's check step runs every check after you and is the gate, and a failure there sends the batch back to you.
 
 In your out doc, say what you changed and why, which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`.
+
+## The pull request's sections
+
+Foedrum builds the pull request's description from your out doc. When you are done, add these keys to its frontmatter, written for a reviewer who has not read the order (the frontmatter is JSON, so write a line break in a value as `\n`):
+
+- `howItWorks` (Markdown, at most 10,000 characters): first a sentence that says which part of the repository the change touches and what that part is, then what the change does there. Add one Mermaid picture in a ```` ```mermaid ```` block when the change has a shape (a flow, a state change, a module layout), and none when it has not. Keep the picture and every code block at the top level, never in a list or a quote, or Foedrum leaves the section out. No heading: Foedrum writes "How it works" above it. Without it, the pull request opens as a draft.
+- `seeIt` (one line, at most 1,000 characters): how a person sees the change work, such as a command and what it prints.
+- `beforeAfter` (optional, at most 20 rows): when the change alters behaviour a reader can compare, rows of `{ "case": "...", "before": "...", "after": "..." }`, each value one line of at most 200 characters. Foedrum renders the table.
+
+Do not write `Closes`, `Fixes` or `@`-mentions there: Foedrum closes the order's issue itself and takes them out.
