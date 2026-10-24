@@ -11,6 +11,7 @@ One row per risk, and one owner per row: the single place that handles it. A new
 | Bad code reaching `main` | The pull request: CI on three platforms, the review (`/brew-review`), the maintainer's merge, and the ruleset requiring `ci-ok` | |
 | A session skipping the procedure: merging, force-pushing, pushing without the check, marking ready without a review | The local gate (`scripts/precheck.ts`) | |
 | A secret in what is pushed or posted | GitHub secret scanning and push protection (ADR 0113) | ADR 0079 (the push scans a batch's commits before it leaves), ADR 0114 (the personal denylist) |
+| Model text in what the engine posts on GitHub closing an issue or pinging people | The engine's frame of the pull request body: the reports fenced, the `Closes` line its own, and the unfenced sections without mentions, closing keywords or numeric character references (`unlinked`, ADR 0167) | |
 | Untrusted text steering a model | Nonce tags around every input, allow-listed authors (ADR 0041) | |
 | Foedrum's own dependencies | The dependency policy (ADR 0004, DEPENDENCIES.md) | |
 | The engine's state after a crash, a kill or a second driver | The event store, leases and locks; these are the engine's correctness, not safeguards in this sense | |
