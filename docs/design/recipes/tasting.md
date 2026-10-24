@@ -21,7 +21,8 @@ Each child is a step of its own, with its own attempts, lease, worktree, deadlin
 Entering the group schedules every child at once; a failed child is tried again on its own, and a child that makes the batch Stuck does so at once, abandoning the children still in flight.
 A child ends when its latest attempt succeeded, or was blocked by findings with its route's rounds not used up; the group ends when every child ended.
 Then a blocking child's `changes` sends the batch back along that child's `onBlocked` route, the first such child in the recipe's order, and otherwise the group's verdict is `approve` and the batch goes on.
-A `retry` or `answer` of a child also schedules every child of its group that has not ended, a `skip` of a child skips the rest of its group, and a `rewind` to a child runs the whole group again; a rewind or a route back to the group itself is refused.
+A `retry` or `answer` of a child also schedules every child of its group that has not ended, a `skip` of a child skips the rest of its group, and a `rewind` to a child runs the whole group again; a rewind or a route back to the group itself is refused, and so is a child's route back to a sibling.
+The batch leaves a group only while no attempt of it runs.
 A group whose recipe file gained a child while the batch was in it makes the batch Stuck on a divergence, naming that child.
 A kill mid-group retries only the children that had not ended: the supervisor loses one attempt of a batch per tick and keeps the expired leases of the others for the ticks after.
 Each child's time counts toward the recipe's budget, summed, once a budget is built (#445).
