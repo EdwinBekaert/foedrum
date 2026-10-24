@@ -110,6 +110,23 @@ export const tastingOf = (output: unknown): TastingReport | undefined => {
   return { verdict: read.data.verdict, findings: read.data.findings };
 };
 
+/** The name of the Gauger's out doc schema (`output.schema`, ADR 0170). */
+export const GAUGE = 'gauge';
+
+/** The tests a Gauger named (ADR 0170), by the names the runner reports: model text, untrusted. */
+export interface GaugeReport {
+  tests: readonly string[];
+  regressionTests: readonly string[];
+}
+
+/**
+ * The tests of an attempt's `output` when it names any; undefined for an out doc without them,
+ * and for a check's success, which has none.
+ */
+export const gaugeOf = (_output: unknown): GaugeReport | undefined => {
+  throw new Error('not implemented');
+};
+
 /**
  * The assumptions of an out doc that succeeded, beside whatever else it holds (a brewer's own
  * fields): what the status comment shows (ADR 0072).

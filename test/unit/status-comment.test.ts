@@ -476,6 +476,36 @@ describe('renderStatus', () => {
     assert.doesNotMatch(text, /old guess/);
   });
 
+  it("lists a step's new tests and regression tests under Tests, at most 10 of each (ADR 0170)", () => {
+    const gauged = (tests: string[], regressionTests: string[]): Attempt => ({
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Gauged', assumptions: [], tests, regressionTests },
+      },
+    });
+    const many = Array.from({ length: 12 }, (_, i) => `keeps case ${i + 1}`);
+    const text = renderStatus(
+      batch({ steps: new Map([step('gauge', gauged(['refuses <npm exec>'], many))]) }),
+      ['gauge'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Tests**');
+    assert.ok(at_ >= 0, text);
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 3), [
+      '- `gauge`: new test: refuses &lt;npm exec&gt;',
+      '- `gauge`: regression test: keeps case 1',
+    ]);
+    assert.equal(lines[at_ + 11], '- `gauge`: regression test: keeps case 10');
+    assert.equal(lines[at_ + 12], '- `gauge`: and 2 more regression tests');
+    assert.doesNotMatch(
+      renderStatus(batch({ steps: new Map([step('plan', done(1))]) }), steps),
+      /\*\*Tests\*\*/,
+    );
+  });
+
   it("lists a Taster's findings under Findings, by step, saying which were there before (ADR 0161)", () => {
     const finding = (n: number, introduced = true) => ({
       file: 'src/wait.ts',

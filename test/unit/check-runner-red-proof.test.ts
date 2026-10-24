@@ -376,6 +376,49 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
+  it("accepts the regression tests the proven step's latest success names in its out doc (ADR 0170)", async () => {
+    const [scheduled, started, finished] = gauged;
+    assert.ok(finished?.type === 'step.finished' && scheduled && started);
+    const output = {
+      status: 'done',
+      summary: 'Tests for add',
+      assumptions: [],
+      tests: ['adds two numbers'],
+      regressionTests: ['keeps subtracting'],
+    };
+    const named: Event = { ...finished, outcome: { kind: 'succeeded', output } };
+    const diff = [
+      gaugeDiff.trimEnd(),
+      'diff --git a/test/sub.test.mjs b/test/sub.test.mjs',
+      '--- /dev/null',
+      '+++ b/test/sub.test.mjs',
+      '@@ -0,0 +1,3 @@',
+      "+test('keeps subtracting', () => {",
+      '+  assert.equal(sub(2, 1), 1);',
+      '+});',
+      '',
+    ].join('\n');
+    const stdout = stubFails.replace('ok 2 - subtracts', 'ok 2 - keeps subtracting');
+    const events = [...ordered, scheduled, started, named, ...redStarted];
+    const { run } = setup({
+      events,
+      test: { exitCode: 1, stdout },
+      diff: { code: 0, stdout: diff, stderr: '' },
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+    // Without the name, the passing test the step added fails the proof, as before.
+    const unnamed = setup({
+      test: { exitCode: 1, stdout },
+      diff: { code: 0, stdout: diff, stderr: '' },
+    });
+    assert.deepEqual(
+      (await unnamed.run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: test "keeps subtracting" passes before the implementation: a stub must throw, not return a value',
+      ),
+    );
+  });
+
   it('reads a JUnit report from its file, cleared before the test command runs', async () => {
     const results = join(redTree, 'build', 'results.xml');
     const xml =

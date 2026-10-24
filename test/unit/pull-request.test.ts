@@ -135,6 +135,42 @@ const blocker = {
 };
 const before = { severity: 'minor' as const, why: 'The module has no tests', introduced: false };
 
+describe("stepReports and the body: a Gauger's tests (ADR 0170)", () => {
+  it("gives a Gauger's new tests and regression tests with its summary", () => {
+    const tests = { tests: ['refuses npm exec'], regressionTests: ['keeps npm run lint'] };
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('gauge', 1, { ...outDoc('Tests for the rule'), ...tests }),
+      ...ran('implement', 1, outDoc('Refused it')),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      { stepId: 'gauge', summary: 'Tests for the rule', assumptions: [], gauge: tests },
+      { stepId: 'implement', summary: 'Refused it', assumptions: [] },
+    ]);
+  });
+
+  it('lists them under the summary in what each step reported', () => {
+    const gauge = { tests: ['refuses npm exec'], regressionTests: ['keeps npm run lint'] };
+    const reports = [{ stepId: 'gauge', summary: 'Tests for the rule', assumptions: [], gauge }];
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Refuse npm exec', closes, reports });
+    assert.ok(
+      body.includes(
+        [
+          'gauge: Tests for the rule',
+          '  test: refuses npm exec',
+          '  regression test: keeps npm run lint',
+          '```',
+        ].join('\n'),
+      ),
+      body,
+    );
+  });
+});
+
 describe("stepReports: a Taster's findings (ADR 0161)", () => {
   it("gives a Taster's verdict and findings with its summary", () => {
     const tasted = { ...outDoc('Tasted'), verdict: 'changes', findings: [blocker, before] };

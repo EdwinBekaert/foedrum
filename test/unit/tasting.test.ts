@@ -451,6 +451,30 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     );
   });
 
+  it('lists the regression tests a step of the batch named in its change, before the diff (ADR 0170)', async () => {
+    const gauge = { batchId: '12-1', stepId: 'gauge', attempt: 1 };
+    const output = {
+      status: 'done',
+      summary: 'Tests for waitForMerge',
+      assumptions: [],
+      tests: ['gives up at the deadline'],
+      regressionTests: ['returns once merged', 'polls every second'],
+    };
+    const gauged: Event[] = [
+      { type: 'step.scheduled', ...gauge, deadlineAt: '2026-10-23T13:00:00.000Z' },
+      { type: 'step.started', ...gauge, worktree: worktree('gauge-1', base) },
+      { type: 'step.finished', ...gauge, outcome: { kind: 'succeeded', output } },
+    ];
+    const { plan } = await planTaster(answers, room, gauged);
+    const { prompt } = await plan;
+    const list = [
+      'The tests step gauge named as regression tests, which pass before the change:',
+      '- returns once merged',
+      '- polls every second',
+    ].join('\n');
+    assert.ok(prompt.includes(`${LOG}\n\n${list}\n\nTheir diff:\n`), prompt);
+  });
+
   it('cuts a change longer than 256 KiB, saying so', async () => {
     const long: Git = async (_cwd, args) => ({
       code: 0,
