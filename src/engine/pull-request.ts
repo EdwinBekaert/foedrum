@@ -110,11 +110,11 @@ export const brewLog = (batch: Batch): AttemptRow[] =>
     }
   });
 
-// A keyword after anything but a letter or digit: emphasis with `_` around it starts a word once
-// GitHub renders it (`_fixes #3_`).
+// A keyword after anything but an ASCII letter or digit, the word boundary GitHub reads: emphasis
+// with `_` around it starts a word once GitHub renders it (`_fixes #3_`), and so does `é`.
 const KEYWORD =
-  /(?<![\p{L}\p{N}])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^\p{L}\p{N}]*(?=#|GH-|[\w.-]+\/[\w.-]+#|https?:)/giu;
-const MENTION = /(^|[^\p{L}\p{N}])@(?=[\p{L}\p{N}])/gu;
+  /(?<![A-Za-z0-9])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^A-Za-z0-9]*(?=#|GH-|[\w.-]+\/[\w.-]+#|https?:)/giu;
+const MENTION = /(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/gu;
 // Every character reference GitHub would decode, named or numeric: `&commat;` is an `@`.
 const REFERENCE = /&(?!amp;)(?=[#\p{L}])/gu;
 
@@ -254,29 +254,39 @@ const brewTable = (attempts: readonly AttemptRow[], isCommit: IsCommit): string 
 
 const NEWLINE = String.fromCodePoint(0x0a);
 
-/** A fence line: up to three spaces, then three or more backticks or tildes. */
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/** A fence line at the top level: three or more backticks or tildes, and its info string. */
+const OPENER = /^(`{3,}|~{3,})([\s\S]*)$/;
+/** A closing fence: up to three spaces, the run, and only spaces and tabs after it. */
+const CLOSER = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+/** A run of fence characters after an indent or a list or quote marker: inside a container. */
+const CONTAINED = /^(?:[ \t]|[>*+-]|\d+[.)])[ \t>*+\-\d.)]*(?:`{3,}|~{3,})/;
 
 /**
  * Markdown that ends where it starts (ADR 0167): a fence it leaves open is closed, and a line that
  * would start an HTML block outside a fence starts with `&lt;` instead, since either would run to
- * the end of the body and swallow the engine's lines after it.
+ * the end of the body and swallow the engine's lines after it. Line ends are read as CommonMark
+ * reads them (`\r\n` and `\r` too). A fence that starts inside a list, a quote or an indent ends
+ * with its container, which this does not follow, so such a text is `undefined`: left out.
  */
-const closedBlocks = (text: string): string => {
+const closedBlocks = (text: string): string | undefined => {
   let open: string | undefined;
-  const lines = text.split(NEWLINE).map((line) => {
-    const fence = FENCE.exec(line);
-    if (open === undefined) {
-      if (fence !== null && !(fence[1]?.startsWith('`') && fence[2]?.includes('`'))) {
-        open = fence[1];
-        return line;
-      }
-      return line.replace(/^( {0,3})</, '$1&lt;');
+  const lines: string[] = [];
+  for (const line of text.replace(/\r\n?/g, NEWLINE).split(NEWLINE)) {
+    if (open !== undefined) {
+      const run = CLOSER.exec(line)?.[1] ?? '';
+      if (run[0] === open[0] && run.length >= open.length) open = undefined;
+      lines.push(line);
+      continue;
     }
-    const [, run = '', rest = ''] = fence ?? [];
-    if (run[0] === open[0] && run.length >= open.length && rest.trim() === '') open = undefined;
-    return line;
-  });
+    const opener = OPENER.exec(line);
+    if (opener !== null && !(opener[1]?.startsWith('`') && opener[2]?.includes('`'))) {
+      open = opener[1];
+      lines.push(line);
+      continue;
+    }
+    if (CONTAINED.test(line)) return undefined;
+    lines.push(line.replace(/^( {0,3})</, '$1&lt;'));
+  }
   return [...lines, ...(open === undefined ? [] : [open])].join(NEWLINE);
 };
 
@@ -292,6 +302,10 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
     text.length <= max
       ? text
       : `[left out: a text of step ${stepId} that is too long once made safe for GitHub]`;
+  // A fence it cannot pair as GitHub would is left out whole too, failing closed.
+  const checked = (text: string) =>
+    closedBlocks(text) ??
+    `[left out: a text of step ${stepId} with a fence Foedrum cannot check outside its top level]`;
   const cell = (text: string) =>
     shown(text)
       .replace(/\s+/g, ' ')
@@ -304,7 +318,7 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
   const { howItWorks: how, seeIt } = sections;
   return [
     '## How it works',
-    ...(how === undefined ? [] : [within(closedBlocks(shown(how).trim()), MAX_SHOWN_HOW)]),
+    ...(how === undefined ? [] : [within(checked(shown(how).trim()), MAX_SHOWN_HOW)]),
     ...(table.length === 0 ? [] : [['| | Before | After |', '|---|---|---|', ...table].join('\n')]),
     ...(seeIt === undefined
       ? []
