@@ -15,9 +15,12 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
 import {
+  type AttemptRow,
   bottleBranch,
+  brewLog,
   knownCommits,
   openedPullRequest,
+  opensAsDraft,
   pullRequestKey,
   pullRequestText,
   pushKey,
@@ -94,10 +97,12 @@ type ActionEffect =
   | {
       kind: 'open';
       repo: string;
-      request: Omit<PullRequestRequest, 'title' | 'body'>;
+      request: Omit<PullRequestRequest, 'title' | 'body' | 'draft'>;
       order: OrderIssue;
       reports: readonly StepReport[];
       isCommit: IsCommit;
+      recipe?: string;
+      attempts: readonly AttemptRow[];
     };
 
 /** Where the action pushes from and opens into, or why it cannot run. */
@@ -230,7 +235,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         };
       }
       case 'open': {
-        const { repo, request, order, reports, isCommit } = effect;
+        const { repo, request, order, reports, isCommit, recipe, attempts } = effect;
         return {
           find: async (_key, signal) => {
             const url = await host.find(repo, request.head, signal);
@@ -242,8 +247,11 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
               closes: { repo: order.repo ?? brewery, issue: order.issue },
               reports,
               isCommit,
+              ...(recipe === undefined ? {} : { recipe }),
+              attempts,
             });
-            return pullRequestUrl(await host.open(repo, { ...request, ...text }, signal));
+            const draft = opensAsDraft(reports);
+            return pullRequestUrl(await host.open(repo, { ...request, ...text, draft }, signal));
           },
         };
       }
@@ -278,6 +286,8 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         order,
         reports: stepReports(batch),
         isCommit: knownCommits(state, batchId),
+        ...(batch.recipe === undefined ? {} : { recipe: batch.recipe.name }),
+        attempts: brewLog(batch),
       });
       return [pushKey(batchId), pullRequestKey(batchId)];
     },
