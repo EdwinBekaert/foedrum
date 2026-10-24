@@ -506,6 +506,12 @@ describe('renderStatus', () => {
     const tests = newOnes.indexOf('**Tests**');
     assert.equal(newOnes[tests + 10], '- `gauge`: new test: keeps case 10');
     assert.equal(newOnes[tests + 11], '- `gauge`: and 2 more new tests');
+    // One past the cap is counted too, never dropped.
+    const eleven = renderStatus(
+      batch({ steps: new Map([step('gauge', gauged([], many.slice(0, 11)))]) }),
+      ['gauge'],
+    );
+    assert.match(eleven, /- `gauge`: and 1 more regression tests/);
     // A Gauger sent back names its tests again: its latest success's names are shown.
     const again = renderStatus(
       batch({
