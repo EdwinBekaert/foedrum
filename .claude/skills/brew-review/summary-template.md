@@ -33,9 +33,11 @@ Verdicts: correctness approve · security approve · …
 
 ### Mutation check (Brett)
 
+<m> min <s> s · round 1: <d> test files (direct) · round 2: <w> test files (wide), <k> mutants (or "not needed") (or "one round: <w> test files", when the criteria's `mutant-tests.ts` predates `--direct`)
+
 | # | Mutant | Result | Disposition |
 |---|---|---|---|
-| 1 | `src/…:42` removed timeout | survived / killed by `<first test>` / killed (timed out) / invalid: <reason> | … |
+| 1 | `src/…:42` removed timeout | survived / killed in round <1 or 2> by `<first test>` / killed (timed out) in round <1 or 2> / not judged (…) / invalid: <reason> | … |
 
 ### House yeast
 
