@@ -79,6 +79,34 @@ describe('the test files for mutants of a tree', () => {
     });
   });
 
+  it('prints only the direct importers with --direct', async () => {
+    assert.deepEqual(await mutantTests(dir.path, ['src/engine/fold.ts'], { direct: true }), {
+      ok: true,
+      lines: ['test/unit/fold.test.ts'],
+    });
+    assert.deepEqual(await main(['--direct', dir.path, 'src/engine/fold.ts']), {
+      exitCode: 0,
+      stdout: ['test/unit/fold.test.ts'],
+      stderr: [],
+    });
+  });
+
+  it('prints nothing with --direct when only a module imports the file', async () => {
+    write('src/engine/deep.ts', '');
+    write('src/engine/mid.ts', "import './deep.ts';\n");
+    write('test/unit/mid.test.ts', "import '../../src/engine/mid.ts';\n");
+    assert.deepEqual(await main([dir.path, 'src/engine/deep.ts', '--direct']), {
+      exitCode: 0,
+      stdout: [],
+      stderr: [],
+    });
+    assert.deepEqual(await main([dir.path, 'src/engine/deep.ts']), {
+      exitCode: 0,
+      stdout: ['test/unit/mid.test.ts'],
+      stderr: [],
+    });
+  });
+
   it('says how to use it without a tree or a file, and fails on a tree it cannot read', async () => {
     for (const argv of [[], [dir.path]]) {
       const result = await main(argv);
