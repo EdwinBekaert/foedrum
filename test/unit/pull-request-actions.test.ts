@@ -224,7 +224,10 @@ describe('pullRequestActions: the pull request', () => {
     await actions.target.apply(open);
     const request = requests[0]?.request;
     assert.equal(request?.draft, true);
-    assert.match(request?.body ?? '', /\nBrewed by Foedrum from acme\/brewery#12 with the recipe ale\.\n/);
+    assert.match(
+      request?.body ?? '',
+      /\nBrewed by Foedrum from acme\/brewery#12 with the recipe ale\.\n/,
+    );
     assert.match(request?.body ?? '', /\n\| implement #1 \| succeeded \|\n/);
   });
 

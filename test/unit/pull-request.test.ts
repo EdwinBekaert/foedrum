@@ -300,8 +300,7 @@ describe('opensAsDraft (ADR 0167)', () => {
 
 describe('pullRequestText', () => {
   const closes = { repo: 'acme/brewery', issue: 12 };
-  const untasted =
-    'Opened as a draft: no step tasted the change, so a person reviews it before it is marked ready.';
+  const untasted = 'A person reviews this before it is marked ready: no step tasted the change.';
   /** The body's lines from the line that is `first`, `count` of them. */
   const linesFrom = (body: string, first: string, count: number) => {
     const lines = body.split('\n');
@@ -436,7 +435,7 @@ describe('pullRequestText', () => {
         '',
         'Brewed by Foedrum from acme/brewery#12 with the recipe nip.',
         '',
-        'Opened ready for review: every Taster approved.',
+        'Ready for review: every Taster approved.',
         '',
         '| Attempt | Result |',
         '|---|---|',
@@ -476,7 +475,7 @@ describe('pullRequestText', () => {
     assert.doesNotMatch(body, /First/);
   });
 
-  it("removes mentions and closing keywords from the sections, but not from the fenced reports", () => {
+  it('removes mentions and closing keywords from the sections, but not from the fenced reports', () => {
     const reports = [
       {
         stepId: 'implement',
@@ -552,7 +551,7 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.ok(
       body.includes(
-        '\nOpened as a draft: a Taster asks for changes (correctness); its findings are in the reports below.\n',
+        '\nA person reviews this before it is marked ready: a Taster asks for changes (correctness); its findings are in the reports below.\n',
       ),
       body,
     );
@@ -583,7 +582,9 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
     assert.ok(body.includes(`| red #1 | failed: \` ${'y'.repeat(200)} \` |`), body);
     assert.ok(
-      body.includes('| red #2 | failed: ` [left out: a text of step red that looks like a secret] ` |'),
+      body.includes(
+        '| red #2 | failed: ` [left out: a text of step red that looks like a secret] ` |',
+      ),
       body,
     );
     assert.doesNotMatch(body, /ghp_|A1b2/);
@@ -655,7 +656,11 @@ describe('pullRequestText', () => {
         sections: {
           howItWorks: 'h'.repeat(10_000),
           seeIt: 's'.repeat(1_000),
-          beforeAfter: Array.from({ length: 20 }, () => ({ case: cell, before: cell, after: cell })),
+          beforeAfter: Array.from({ length: 20 }, () => ({
+            case: cell,
+            before: cell,
+            after: cell,
+          })),
         },
       },
       ...Array.from({ length: 100 }, (_, i) => ({

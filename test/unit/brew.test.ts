@@ -278,9 +278,9 @@ describe('runBrew', () => {
         '',
         '## How this was brewed',
         '',
-        'Brewed by Foedrum from acme/brewery#12 with the recipe stout.',
+        'Brewed by Foedrum from Acme/Brewery#12 with the recipe stout.',
         '',
-        'Opened as a draft: no step tasted the change, so a person reviews it before it is marked ready.',
+        'A person reviews this before it is marked ready: no step tasted the change.',
         '',
         '| Attempt | Result |',
         '|---|---|',
@@ -294,7 +294,7 @@ describe('runBrew', () => {
         '',
         '</details>',
         '',
-        'Closes acme/brewery#12',
+        'Closes Acme/Brewery#12',
       ].join('\n'),
     );
   });

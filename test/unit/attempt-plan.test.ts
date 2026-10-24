@@ -166,13 +166,18 @@ describe("attemptLimits: a pullRequest brewer's sections (ADR 0167)", () => {
   it('takes a done with how it works and See it, and a before/after table', () => {
     assert.equal(valid({ ...done, ...sections }), true);
     assert.equal(valid({ ...done, ...sections, beforeAfter: [row] }), true);
-    assert.deepEqual(schema.parse({ ...done, ...sections }), { ...done, ...sections, beforeAfter: [] });
+    assert.deepEqual(schema.parse({ ...done, ...sections }), {
+      ...done,
+      ...sections,
+      beforeAfter: [],
+    });
   });
 
-  it('refuses a done without how it works or See it, and takes any other status without', () => {
-    assert.equal(valid({ ...done, seeIt: sections.seeIt }), false);
-    assert.equal(valid({ ...done, howItWorks: sections.howItWorks }), false);
+  it('takes a done without the sections, which a retry would redo the whole run for', () => {
+    assert.equal(valid(done), true);
+    assert.equal(valid({ ...done, seeIt: sections.seeIt }), true);
     assert.equal(valid({ ...done, status: 'failed' }), true);
+    assert.equal(valid({ ...done, verdict: 'approve' }), false);
   });
 
   it('refuses sections past their limits, and a See it or a cell of two lines', () => {

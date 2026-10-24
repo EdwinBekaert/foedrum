@@ -123,7 +123,7 @@ describe('githubPullRequests: open', () => {
   it('opens it as a draft when asked (ADR 0167)', async () => {
     const { host, requests } = hostWith([{ status: 201, body: listed() }]);
     assert.equal(await host.open('acme/api', { ...request, draft: true }), url);
-    assert.equal((requests[0]?.body as { draft?: boolean }).draft, true);
+    assert.equal((requests[0]?.body as { draft?: boolean } | undefined)?.draft, true);
   });
 
   it('opens it ready once GitHub says the repository cannot have a draft (ADR 0167)', async () => {
