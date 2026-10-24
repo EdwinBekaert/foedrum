@@ -139,13 +139,18 @@ describe('readBreweryFiles', () => {
     assert.deepEqual(found, { path: 'defaults/lenses/diff/test-design.md', text: own });
   });
 
-  it("has the five default lenses in Foedrum's defaults/lenses/diff/ (ADR 0022, ADR 0143)", () => {
+  it("has the six default lenses in Foedrum's defaults/lenses/diff/ (ADR 0022, ADR 0143, ADR 0173)", () => {
     const lenses = readBreweryFiles(brewery.path).defaults?.lenses ?? [];
     assert.deepEqual(
       lenses.map(({ path }) => path),
-      ['correctness', 'cross-platform', 'design-conformance', 'security', 'test-design'].map(
-        (name) => `defaults/lenses/diff/${name}.md`,
-      ),
+      [
+        'correctness',
+        'cross-platform',
+        'design-conformance',
+        'necessity',
+        'security',
+        'test-design',
+      ].map((name) => `defaults/lenses/diff/${name}.md`),
     );
   });
 
@@ -224,6 +229,15 @@ describe('breweryRecipes', () => {
   it("loads Foedrum's own defaults in a Brewery without files of its own (ADR 0098)", () => {
     const loaded = loadRecipes(readBreweryFiles(brewery.path));
     assert.equal(loaded.valid, true, loaded.valid ? '' : loaded.problems.join('\n'));
+  });
+
+  it('lists the necessity lens in the defaults in use that doctor prints (ADR 0173)', () => {
+    const loaded = loadRecipes(readBreweryFiles(brewery.path));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    assert.ok(
+      loaded.defaults.includes('defaults/lenses/diff/necessity.md'),
+      loaded.defaults.join(', '),
+    );
   });
 
   it("throws doctor's line when a file is not valid", () => {
