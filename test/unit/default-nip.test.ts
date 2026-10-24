@@ -17,6 +17,7 @@ import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
+import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
 
 // A Brewery with no recipes/, brewers/ or lenses/ of its own: a folder that does not exist has
 // none, so only Foedrum's defaults load.
@@ -371,22 +372,37 @@ describe('the default Cellarman', () => {
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));
       const told: (PromptInput | undefined)[] = [];
+      // The out docs the brewers wrote, by their path in the attempt's worktree.
+      const written = new Map<string, string>();
+      const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
       const brewing = createBrewing({
         store,
         runner: fakeBrewerRunner((attempt) => {
           const { stepId } = attempt.ref;
+          const batch = fold(brewing.events()).batches.get('b1');
+          assert.ok(batch !== undefined);
+          if (stepId === 'implement' && attempt.ref.attempt === 1) {
+            const running = batch.steps.get('implement')?.attempts.get(1);
+            assert.ok(running?.phase === 'started', 'implement#1 has not started');
+            assert.ok(running.worktree !== undefined, 'implement#1 has no worktree');
+            written.set(join(running.worktree.path, 'brew.md'), blocked);
+          }
           if (stepId === 'gauge') {
-            const batch = fold(brewing.events()).batches.get('b1');
-            assert.ok(batch !== undefined);
-            const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
             const route = routeOf(batch, attempt.ref, outDocOf);
-            // The plan reads the out doc the route points at; here, the one implement wrote.
+            // The plan reads the out doc the route points at, as the brewer left it there.
+            const text = route?.outDoc === undefined ? undefined : written.get(route.outDoc.path);
             told.push(
-              route === undefined ? undefined : routeInput(route, { kind: 'text', text: blocked }),
+              route === undefined
+                ? undefined
+                : routeInput(
+                    route,
+                    text === undefined ? { kind: 'missing' } : { kind: 'text', text },
+                  ),
             );
           }
           return scripts[stepId]?.shift();
         }),
+        worktrees: { repo: 'acme/api', base: 'origin/main', manager: fakeWorktrees() },
         recipes,
         // Implement's out doc read with the Cellarman's own schema, as the attempt plan reads it.
         limits: (stepId) => {
@@ -418,6 +434,7 @@ describe('the default Cellarman', () => {
         from: 'implement',
         why: 'findings',
       });
+      assert.match(told[1]?.text ?? '', /^Step implement ended: blocked \(findings\)/);
       assert.match(told[1]?.text ?? '', /brews twice on one lock`: the first brew releases/);
     } finally {
       store.close();
