@@ -46,6 +46,11 @@ describe('selectRules: the lens of a recipe step (ADR 0169)', () => {
     assert.deepEqual(ids(plan.selected).sort(), ['by-name', 'no-lens', 'plan-only']);
   });
 
+  it('takes a lens given without its folder, as /brew-review gives it, as the diff lens of that name', () => {
+    const { selected } = selectRules(rules().rules, { files: ['src/a.ts'], lens: 'correctness' });
+    assert.deepEqual(ids(selected).sort(), ['by-folder', 'by-name', 'no-lens']);
+  });
+
   it('gives a step without a lens only the rules that name none', () => {
     const { selected } = selectRules(rules().rules, { files: ['src/a.ts'] });
     assert.deepEqual(ids(selected), ['no-lens']);
@@ -241,6 +246,14 @@ describe('pickRules: the rules one attempt gets (ADR 0169)', () => {
   it('names the files it left out as invalid, from both layers', () => {
     const { record } = pickRules({ repository, brewery }, { files: [] });
     assert.deepEqual(record.invalid, ['.foedrum/house-yeast/broken.md', 'house-yeast/unread.md']);
+  });
+
+  it('leaves out a Brewery rule file that is not UTF-8, as it does a repository one', () => {
+    // The file system read it as UTF-8, and its byte that is not became U+FFFD.
+    const garbled = file('house-yeast/accents.md', {}, 'Caf�.');
+    const { inputs, record } = pickRules({ repository: [], brewery: [garbled] }, { files: [] });
+    assert.deepEqual(inputs, []);
+    assert.deepEqual(record, { selected: [], cut: [], invalid: ['house-yeast/accents.md'] });
   });
 
   it('records the rules the budget cut', () => {
