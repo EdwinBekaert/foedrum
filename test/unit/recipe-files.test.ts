@@ -228,14 +228,13 @@ describe('loadRecipes: fails closed', () => {
           steps: [{ id: 'taste', brewer: 'brewmaster' }],
         },
       },
-      { id: 'panel', parallel: [{ brewer: 'brewmaster' }] },
       { id: 'refine', session: 'refine', deadline: '1d' },
       { id: 'approve', gate: 'human', deadline: '1d' },
       { action: 'comment' },
       { id: 'split', fanOut: {} },
     ];
-    const kinds = ['loop', 'parallel', 'session', 'gate', 'action', 'fanOut'];
-    const ids = ['review', 'panel', 'refine', 'approve', 'comment', 'split'];
+    const kinds = ['loop', 'session', 'gate', 'action', 'fanOut'];
+    const ids = ['review', 'refine', 'approve', 'comment', 'split'];
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
@@ -1534,5 +1533,113 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
         'recipes/amber.jsonc: step "taste" gives the Taster "taster" its lens as the input "lens", which the brewer has already (ADR 0161)',
       ],
     );
+  });
+});
+
+describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
+  const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const lenses = ['correctness', 'security'].map((name) => ({
+    path: `defaults/lenses/diff/${name}.md`,
+    text: `Look at ${name}.`,
+  }));
+  const correctness = {
+    id: 'correctness',
+    brewer: 'taster',
+    lens: 'diff/correctness',
+    blocking: true,
+    onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
+  };
+  const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+  const grouped = (children: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
+    recipes: [
+      opened('amber', [{ brewer: 'cellarman' }, { id: 'tasting', parallel: children }], {
+        testFirst: false,
+      }),
+    ],
+    brewers,
+    defaults: { lenses },
+  });
+  const batch = { steps: new Map() } as unknown as Batch;
+
+  it('loads a group of Tasters, whose children stand in its place among the steps', () => {
+    const result = loadRecipes(grouped([correctness, security]));
+    const amber = loaded(result).find('amber');
+    assert.ok(amber !== undefined);
+    assert.deepEqual(amber.steps, ['cellarman', 'correctness', 'security', 'open-pull-request']);
+    assert.ok(amber.has('tasting'));
+    assert.deepEqual(amber.children('tasting'), ['correctness', 'security']);
+    assert.equal(amber.children('cellarman'), undefined);
+    assert.equal(amber.group('security'), 'tasting');
+    assert.equal(amber.group('cellarman'), undefined);
+    assert.equal(amber.deadlineMs('security'), 30 * 60_000);
+    assert.deepEqual(amber.after(batch, 'tasting'), { kind: 'step', stepId: 'open-pull-request' });
+    assert.deepEqual(amber.after(batch, 'cellarman'), { kind: 'step', stepId: 'tasting' });
+    assert.equal(amber.loopBack(batch, 'correctness', 'findings'), 'cellarman');
+    assert.ok(result.valid);
+    assert.equal(result.brewers.find('amber', 'security')?.lens, 'diff/security');
+    assert.equal(result.brewers.find('amber', 'correctness')?.blocking, true);
+  });
+
+  it('refuses a child whose brewer is no Taster', () => {
+    const scribe = brewer('scribe');
+    assert.deepEqual(
+      problemsOf(
+        grouped([security, { id: 'notes', brewer: 'scribe' }], [committer, taster, scribe]),
+      ),
+      [
+        'recipes/amber.jsonc: step "notes" in the parallel group "tasting" has the brewer "scribe", which is no Taster: a parallel group runs Tasters\' lens steps (ADR 0168)',
+      ],
+    );
+  });
+
+  it('refuses a child whose Taster produces commits', () => {
+    const writer = brewer('writer', {
+      output: { doc: 'taste.md', schema: 'tasting' },
+      access: 'write',
+      git: { commit: true },
+      produces: 'commits',
+    });
+    assert.deepEqual(
+      problemsOf(
+        grouped(
+          [security, { id: 'rewrite', brewer: 'writer', lens: 'diff/correctness' }],
+          [committer, taster, writer],
+        ),
+      ),
+      [
+        'recipes/amber.jsonc: step "rewrite" in the parallel group "tasting" has the Taster "writer", which produces commits: no child of a parallel group writes the task tree (ADR 0168)',
+      ],
+    );
+  });
+
+  it('refuses a child with a when', () => {
+    assert.deepEqual(problemsOf(grouped([{ ...security, when: 'recipe.testFirst' }])), [
+      'recipes/amber.jsonc: step "security" in the parallel group "tasting" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)',
+    ]);
+  });
+
+  it("skips the group by its own when, which reads the recipe's settings", () => {
+    const files = grouped([security]);
+    const amber = loaded(
+      loadRecipes({
+        ...files,
+        recipes: [
+          opened(
+            'amber',
+            [
+              { brewer: 'cellarman' },
+              { id: 'tasting', parallel: [security], when: 'recipe.testFirst' },
+            ],
+            { testFirst: false },
+          ),
+        ],
+      }),
+    ).find('amber');
+    assert.equal(amber?.skip(batch, 'tasting'), 'recipe.testFirst');
   });
 });

@@ -17,6 +17,8 @@ export interface FakeRecipe {
   pullRequests?: readonly string[];
   /** The steps whose attempts merge the base before they run (ADR 0164); default none. */
   merges?: readonly string[];
+  /** The children of each step that is a parallel group, by its id (ADR 0168); default none. */
+  groups?: Readonly<Record<string, readonly string[]>>;
 }
 
 export const hour = 3_600_000;
@@ -30,15 +32,20 @@ export const fakeRecipe = ({
   actions = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
+  groups = {},
 }: FakeRecipe): Recipe => {
   const [firstStep] = steps;
   if (firstStep === undefined) throw new Error('A recipe needs a step');
   // The step that opens the pull request, which the batch goes on tap with (ADR 0071).
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
+  const groupOf = (stepId: string): string | undefined =>
+    Object.entries(groups).find(([, children]) => children.includes(stepId))?.[0];
   return {
     firstStep,
-    steps,
-    has: (stepId) => steps.includes(stepId),
+    steps: steps.flatMap((stepId) => groups[stepId] ?? [stepId]),
+    has: (stepId) => steps.includes(stepId) || groupOf(stepId) !== undefined,
+    children: (stepId) => groups[stepId],
+    group: groupOf,
     action: (stepId) => actions[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
     deadlineMs: () => hour,

@@ -456,6 +456,12 @@ function lineRecipe(name: string, steps: readonly LineStep[], settings: Settings
     firstStep: steps[0]?.id ?? '',
     steps: steps.map(({ id }) => id),
     has: (id) => byId.has(id),
+    children: () => {
+      throw new Error('not implemented');
+    },
+    group: () => {
+      throw new Error('not implemented');
+    },
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),

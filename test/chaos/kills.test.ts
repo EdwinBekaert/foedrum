@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import type { Event } from '../../src/schemas/events.ts';
 import {
   type ChaosRun,
   fakeCodeHost,
@@ -17,6 +18,7 @@ import {
   recording,
   replaying,
   type Scenario,
+  scenarioRecipes,
 } from '../helpers/event-sequences.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -57,6 +59,56 @@ const chaos = async <T>(
   }
 };
 
+/** The children of each parallel group of the scenario recipes, by step id (ADR 0168). */
+const siblings = new Map(
+  Object.values(scenarioRecipes).flatMap(({ groups = {} }) =>
+    Object.values(groups).flatMap((children) =>
+      children.map((child) => [child, children.filter((other) => other !== child)] as const),
+    ),
+  ),
+);
+
+/**
+ * Whether the lost attempt that `events[at]` finishes is a child of a parallel group, a sibling of
+ * which had succeeded before the loss, and whose retry was scheduled with no new attempt of that
+ * sibling: the kill resumed only the children that had not ended (ADR 0168).
+ */
+const retriedAlone = (events: readonly Event[], at: number): boolean => {
+  const lost = events[at];
+  if (lost?.type !== 'step.finished') return false;
+  const { batchId, stepId, attempt } = lost;
+  const ofBatch = (event: Event | undefined, step: string) =>
+    event !== undefined && 'batchId' in event && event.batchId === batchId && 'stepId' in event
+      ? event.stepId === step
+      : false;
+  const retry = events.findIndex(
+    (event, index) =>
+      index > at &&
+      event.type === 'step.scheduled' &&
+      ofBatch(event, stepId) &&
+      event.attempt === attempt + 1,
+  );
+  if (retry < 0) return false;
+  return (siblings.get(stepId) ?? []).some((sibling) => {
+    // The sibling's latest event before the loss is a success, and it gets no attempt until the retry.
+    const before = events
+      .slice(0, at)
+      .findLastIndex(
+        (event) =>
+          (event.type === 'step.scheduled' || event.type === 'step.finished') &&
+          ofBatch(event, sibling),
+      );
+    const latest = events[before];
+    return (
+      latest?.type === 'step.finished' &&
+      latest.outcome.kind === 'succeeded' &&
+      !events
+        .slice(at, retry + 1)
+        .some((event) => event.type === 'step.scheduled' && ofBatch(event, sibling))
+    );
+  });
+};
+
 describe('chaos runs', () => {
   it('kill the engine at every kind of point, and restart into what it must recover from', async () => {
     const wanted = [
@@ -64,6 +116,7 @@ describe('chaos runs', () => {
       'an effect found on the code host, not applied again',
       'killed again soon after a restart',
       'an attempt of the killed run lost and retried',
+      'a kill mid-group retried only the children that had not ended',
     ];
     const seen = new Set<string>();
     // Fixed seeds, so what the harness reaches does not depend on FOEDRUM_SEED: the first ones
@@ -98,6 +151,9 @@ describe('chaos runs', () => {
             restarted.some((expiry) => reason.endsWith(expiry))
           ) {
             seen.add('an attempt of the killed run lost and retried');
+            if (retriedAlone(events, at)) {
+              seen.add('a kill mid-group retried only the children that had not ended');
+            }
           }
         }
       });
