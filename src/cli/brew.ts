@@ -321,14 +321,17 @@ export const runBrew = async (
     }
     say(`brewing batch ${batchId} as ${owner}`);
 
-    /** Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174). */
+    /**
+     * Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174),
+     * counted rather than read off the clock, so a clock set back cannot hold the tick off.
+     */
     const pause = async (): Promise<void> => {
       if (terminal === undefined) return wait(intervalMs, signal);
-      const until = clock().getTime() + intervalMs;
-      do {
+      const redraws = Math.max(1, Math.ceil(intervalMs / REDRAW_MS));
+      for (let each = 0; each < redraws && !signal.aborted; each++) {
         draw();
         await wait(Math.min(REDRAW_MS, intervalMs), signal);
-      } while (!signal.aborted && clock().getTime() < until);
+      }
     };
 
     /**
