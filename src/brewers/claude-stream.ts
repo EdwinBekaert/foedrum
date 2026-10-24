@@ -113,8 +113,9 @@ const PATH_KEYS = new Map([
  */
 const pathWord = (file: string, worktree: string): string => {
   const shown = relative(worktree, resolve(worktree, file));
-  if (shown.split(sep)[0] === '..' || isAbsolute(shown)) return 'outside';
-  const word = shown.split(sep).join('/') || '.';
+  const segments = shown.split(sep);
+  if (segments[0] === '..' || isAbsolute(shown)) return 'outside';
+  const word = segments.join('/') || '.';
   return findSecrets(word, () => false).length === 0 ? word : '(left out)';
 };
 
