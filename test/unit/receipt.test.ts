@@ -85,6 +85,13 @@ describe('receiptParts', () => {
     assert.deepEqual(tiny.slice(0, 4), ['0s', '31 turns', '1 token', '$0.00 est.']);
   });
 
+  // Review of #459: rounded to three digits, 999,600 is a million.
+  it('writes a count that rounds to a thousand thousands in millions', () => {
+    const near = receiptParts(receipt(), tokens(999_600));
+    assert.equal(near[2], '1M tokens');
+    assert.equal(receiptParts(receipt(), tokens(999_400))[2], '999k tokens');
+  });
+
   it('names each denied family, and shows the refused prefixes through told', () => {
     const denied = [
       { tool: 'Write', count: 1, refused: [] },
@@ -137,6 +144,18 @@ describe("a batch's receipts", () => {
       '$1.64 est.',
       '2 denied',
     ]);
+  });
+
+  // Review of #459: a part with nothing to show is left out of the total too (ADR 0172).
+  it('leaves out of the total what no receipt measured', () => {
+    const seen = receipt({ complete: false, turns: 2 });
+    delete seen.durationMs;
+    delete seen.costUsd;
+    const unmeasured = batch({
+      steps: new Map([step('plan', finished(1, { receipt: seen }))]),
+      path: [{ stepId: 'plan', attempt: 1 }],
+    });
+    assert.deepEqual(totalParts(unmeasured), ['1 attempt', '2 turns']);
   });
 
   it('has no total without a receipt', () => {

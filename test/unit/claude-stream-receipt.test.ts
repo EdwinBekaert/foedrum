@@ -298,3 +298,53 @@ describe('the receipt of a stream that names too much', () => {
     assert.ok(models.every(({ model }) => model === `${'m'.repeat(200)}…`));
   });
 });
+
+describe('the receipt of a stream it cannot read all of (review of #459)', () => {
+  // A denial is counted for maxDenials, so a field read only for the receipt must not lose it.
+  it('counts a denial whose call id is not a string, without a prefix', () => {
+    const odd = JSON.stringify({
+      type: 'system',
+      subtype: 'permission_denied',
+      tool_name: 'Bash',
+      tool_use_id: null,
+    });
+    const reader = readClaudeStream(asked, at(0));
+    for (const [index, line] of [init, odd].entries()) reader.read(line, at(index + 1));
+    assert.equal(reader.facts().denials, 1);
+    assert.deepEqual(reader.receipt().denied, [{ tool: 'Bash', count: 1, refused: [] }]);
+  });
+
+  it('leaves out what a result says it took when it cannot be read, and keeps the result', () => {
+    const result = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      num_turns: 2,
+      duration_ms: 'x',
+      total_cost_usd: -1,
+      modelUsage: { 'claude-haiku-5-5': { inputTokens: 1 } },
+      usage: {
+        input_tokens: 3,
+        output_tokens: 4,
+        cache_read_input_tokens: 5,
+        cache_creation_input_tokens: 6,
+      },
+    });
+    const reader = readClaudeStream(asked, at(0));
+    for (const [index, line] of [init, result].entries()) reader.read(line, at(index + 1));
+    assert.deepEqual(reader.receipt(), { complete: true, turns: 2, ...nothingDone });
+    assert.equal(reader.facts().streamError, undefined);
+    assert.equal(reader.facts().turns, 2);
+    assert.deepEqual(reader.facts().usage, {
+      inputTokens: 3,
+      outputTokens: 4,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 6,
+    });
+  });
+
+  it('reads the prefix of a command that starts with whitespace', () => {
+    const receipt = receiptOf([init, ...refused(1, 'Bash', '  git push origin')], asked);
+    assert.deepEqual(receipt.denied, [{ tool: 'Bash', count: 1, refused: ['git push'] }]);
+  });
+});
