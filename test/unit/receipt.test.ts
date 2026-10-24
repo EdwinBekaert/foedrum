@@ -159,7 +159,11 @@ describe("a batch's receipts", () => {
   });
 
   it('has no total without a receipt', () => {
-    assert.deepEqual(totalParts(batch({ steps: new Map([step('plan', finished(1))]) })), []);
+    const unreceipted = batch({
+      steps: new Map([step('plan', finished(1))]),
+      path: [{ stepId: 'plan', attempt: 1 }],
+    });
+    assert.deepEqual(totalParts(unreceipted), []);
   });
 
   it('shows one receipt line per attempt in the status comment, under Receipts', () => {
@@ -174,7 +178,11 @@ describe("a batch's receipts", () => {
   });
 
   it('shows no Receipts section without a receipt', () => {
-    const text = renderStatus(batch({ steps: new Map([step('plan', finished(1))]) }), ['plan']);
+    const unreceipted = batch({
+      steps: new Map([step('plan', finished(1))]),
+      path: [{ stepId: 'plan', attempt: 1 }],
+    });
+    const text = renderStatus(unreceipted, ['plan']);
     assert.doesNotMatch(text, /Receipts/);
   });
 
