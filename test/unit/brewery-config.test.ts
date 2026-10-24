@@ -216,6 +216,91 @@ describe('BreweryConfig', () => {
     });
   }
 
+  // #439: a package manager's runner and its other subcommands are read as the program they run,
+  // so gh behind them is named; the ceiling stays no allowlist (ADR 0165).
+  const refusesGh = (value: unknown, path: (string | number)[]): void => {
+    const result = BreweryConfig.safeParse(value);
+    assert.equal(result.success, false);
+    assert.deepEqual(
+      result.error?.issues.map((issue) => issue.path),
+      [path],
+    );
+    assert.match(result.error?.message ?? '', /only the engine talks to GitHub/);
+  };
+
+  it('rejects gh after npm exec in the ceiling, pointing at the rule', () => {
+    refusesGh(config({}, { permissionCeiling: ['Bash(npm exec gh *)'] }), ['permissionCeiling', 0]);
+  });
+
+  it('rejects gh after pnpm in the ceiling, pointing at the rule', () => {
+    refusesGh(config({}, { permissionCeiling: ['Bash(pnpm gh *)'] }), ['permissionCeiling', 0]);
+  });
+
+  it('rejects gh after yarn dlx in the ceiling, pointing at the rule', () => {
+    refusesGh(config({}, { permissionCeiling: ['Bash(yarn dlx gh pr list)'] }), [
+      'permissionCeiling',
+      0,
+    ]);
+  });
+
+  it('rejects gh behind corepack and pnpm in the ceiling, pointing at the rule', () => {
+    refusesGh(config({}, { permissionCeiling: ['Bash(corepack pnpm gh *)'] }), [
+      'permissionCeiling',
+      0,
+    ]);
+  });
+
+  it('rejects gh after an equals sign in the ceiling, pointing at the rule', () => {
+    refusesGh(config({}, { permissionCeiling: ['Bash(npx --call=gh auth token)'] }), [
+      'permissionCeiling',
+      0,
+    ]);
+  });
+
+  it('rejects gh after bunx in the ceiling, pointing at the rule', () => {
+    refusesGh(config({}, { permissionCeiling: ['PowerShell(bunx gh auth token)'] }), [
+      'permissionCeiling',
+      0,
+    ]);
+  });
+
+  it('rejects gh after npm exec in the repository tools, under a ceiling of every command', () => {
+    refusesGh(
+      config(
+        { tools: ['Bash(npm test)', 'Bash(npm exec gh pr list)'] },
+        { permissionCeiling: ['Bash(*)'] },
+      ),
+      ['repositories', 'acme/web', 'tools', 1],
+    );
+  });
+
+  it('rejects gh after pnpm in the repository tools, under a ceiling of every command', () => {
+    refusesGh(config({ tools: ['Bash(pnpm gh pr list)'] }, { permissionCeiling: ['Bash(*)'] }), [
+      'repositories',
+      'acme/web',
+      'tools',
+      0,
+    ]);
+  });
+
+  // Rules that load today and must keep loading: regression tests for the reading.
+  it('accepts Bash(npm *) and Bash(pnpm *) in the ceiling, which is no allowlist', () => {
+    assert.equal(accepted(config({}, { permissionCeiling: ['Bash(npm *)'] })), true);
+    assert.equal(accepted(config({}, { permissionCeiling: ['Bash(pnpm *)'] })), true);
+  });
+
+  it('accepts npm and pnpm scripts in the repository tools, under their ceiling', () => {
+    assert.equal(
+      accepted(
+        config(
+          { tools: ['Bash(npm run lint)', 'Bash(pnpm run lint)'] },
+          { permissionCeiling: ['Bash(npm *)', 'Bash(pnpm *)'] },
+        ),
+      ),
+      true,
+    );
+  });
+
   const beyond: [string, unknown, (string | number)[]][] = [
     [
       'a tool broader than the ceiling',

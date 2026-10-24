@@ -248,6 +248,88 @@ describe('BrewerFrontmatter', () => {
   }
 });
 
+// #439: a package manager's runner is `npx` under another name, and its other subcommands are read
+// as the program they run (ADR 0165). The brewer file is refused when it loads.
+describe('BrewerFrontmatter shell rules and the runners of a package manager (ADR 0165)', () => {
+  const allowing = (rule: string) => ({ ...taster, tools: { allow: ['Read', rule] } });
+
+  it('rejects a brewer file that allows Bash(npm exec *)', () => {
+    assert.equal(accepted(allowing('Bash(npm exec *)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(npm *)', () => {
+    assert.equal(accepted(allowing('Bash(npm *)')), false);
+  });
+
+  it('rejects a brewer file that allows PowerShell(npm.ps1 exec *)', () => {
+    assert.equal(accepted(allowing('PowerShell(npm.ps1 exec *)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(npm exec gh pr list)', () => {
+    assert.equal(accepted(allowing('Bash(npm exec gh pr list)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(pnpm dlx *)', () => {
+    assert.equal(accepted(allowing('Bash(pnpm dlx *)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(pnpm git -C . push)', () => {
+    assert.equal(accepted(allowing('Bash(pnpm git -C . push)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(yarn gh pr list)', () => {
+    assert.equal(accepted(allowing('Bash(yarn gh pr list)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(bunx *)', () => {
+    assert.equal(accepted(allowing('Bash(bunx *)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(bun run *)', () => {
+    assert.equal(accepted(allowing('Bash(bun run *)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(corepack pnpm exec *)', () => {
+    assert.equal(accepted(allowing('Bash(corepack pnpm exec *)')), false);
+  });
+
+  it('rejects a brewer file that allows PowerShell(npx.ps1 *)', () => {
+    assert.equal(accepted(allowing('PowerShell(npx.ps1 *)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(npx --call=gh auth token)', () => {
+    assert.equal(accepted(allowing('Bash(npx --call=gh auth token)')), false);
+  });
+
+  it('rejects a brewer file that allows Bash(env --split-string=gh auth token)', () => {
+    assert.equal(accepted(allowing('Bash(env --split-string=gh auth token)')), false);
+  });
+
+  // Rules that load today and must keep loading: regression tests for the reading.
+  it('accepts a brewer file that allows Bash(npm run *) and Bash(npm ci)', () => {
+    assert.equal(accepted(allowing('Bash(npm run *)')), true);
+    assert.equal(accepted(allowing('Bash(npm ci)')), true);
+  });
+
+  it('accepts a brewer file that allows Bash(npm exec biome format --write)', () => {
+    assert.equal(accepted(allowing('Bash(npm exec biome format --write)')), true);
+  });
+
+  it('accepts a brewer file that allows Bash(npx -y tsc)', () => {
+    assert.equal(accepted(allowing('Bash(npx -y tsc)')), true);
+  });
+
+  it('accepts a brewer file that allows Bash(pnpm run *) and Bash(yarn run lint)', () => {
+    assert.equal(accepted(allowing('Bash(pnpm run *)')), true);
+    assert.equal(accepted(allowing('Bash(yarn run lint)')), true);
+  });
+
+  it('accepts a brewer file that allows Bash(bun run lint) and Bash(corepack enable)', () => {
+    assert.equal(accepted(allowing('Bash(bun run lint)')), true);
+    assert.equal(accepted(allowing('Bash(corepack enable)')), true);
+  });
+});
+
 // Names that would undo the brewer's minimal environment, its sandbox or its credentials. The
 // runner applies its own variables last (the real guarantee); the schema catches mistakes early.
 // #135: the brewer file says what to write instead, when it loads (ADR 0093).

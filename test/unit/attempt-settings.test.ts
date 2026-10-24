@@ -692,6 +692,315 @@ describe('attemptSettings and gh', () => {
   }
 });
 
+// #439: `npm exec`, `pnpm dlx`, `bunx` and the like are `npx` under other names, and the program
+// word of a package manager is read by its subcommand (ADR 0165). Each test names its rule, so the
+// runner reports which form passed the check.
+describe('attemptSettings and the runners of a package manager (ADR 0165)', () => {
+  const gitReason = /git with no fixed subcommand/;
+  const ghReason = /only the engine talks to GitHub/;
+
+  const allowing = (rule: string) => (): AttemptSettings =>
+    attemptSettings({ allow: ['Read', rule], deny: [], sandbox: false });
+
+  // Refused for every reason given (a wrapper with a star is both a git and a gh risk).
+  const refuses = (rule: string, ...reasons: RegExp[]): void => {
+    assert.throws(
+      allowing(rule),
+      (error: Error) => reasons.every((reason) => reason.test(error.message)),
+      rule,
+    );
+  };
+  // Refused, for either reason: the rule reads as nothing the check can follow.
+  const refusesUnreadable = (rule: string): void => {
+    assert.throws(
+      allowing(rule),
+      (error: Error) => gitReason.test(error.message) || ghReason.test(error.message),
+      rule,
+    );
+  };
+  const keeps = (rule: string): void => {
+    const settings = attemptSettings({ allow: [rule], deny: [], sandbox: false });
+    assert.ok(settings.permissions.allow.includes(rule), rule);
+  };
+
+  // npm: `x` and every start of `exec` or `explore` run the rest of the line as a command.
+  it('refuses Bash(npm exec *), npx under another name', () => {
+    refuses('Bash(npm exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm x *), the alias of npm exec', () => {
+    refuses('Bash(npm x *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm exe *), an abbreviation npm resolves to exec', () => {
+    refuses('Bash(npm exe *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm e *), the start of exec and explore', () => {
+    refuses('Bash(npm e *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm explo *), an abbreviation npm resolves to explore', () => {
+    refuses('Bash(npm explo *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm explore *), which runs a command in a package folder', () => {
+    refuses('Bash(npm explore *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm exec*), a star right after the subcommand', () => {
+    refuses('Bash(npm exec*)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm x*), a star that could make the subcommand x', () => {
+    refusesUnreadable('Bash(npm x*)');
+  });
+
+  it('refuses Bash(npm e*), a star right after the start of exec', () => {
+    refusesUnreadable('Bash(npm e*)');
+  });
+
+  it('refuses Bash(npm EXEC *), which PowerShell would match and npm would not run', () => {
+    refuses('Bash(npm EXEC *)', gitReason, ghReason);
+  });
+
+  it('refuses PowerShell(npm EXEC *), since PowerShell rules match without case', () => {
+    refuses('PowerShell(npm EXEC *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(/usr/bin/npm exec *), npm by path', () => {
+    refuses('Bash(/usr/bin/npm exec *)', gitReason, ghReason);
+  });
+
+  it('refuses PowerShell(npm.cmd exec *), npm with a Windows extension', () => {
+    refuses('PowerShell(npm.cmd exec *)', gitReason, ghReason);
+  });
+
+  it('refuses PowerShell(npm.ps1 exec *), the PowerShell shim of npm', () => {
+    refuses('PowerShell(npm.ps1 exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(npm *), which may be npm exec', () => {
+    refusesUnreadable('Bash(npm *)');
+  });
+
+  it('refuses Bash(npm --prefix . exec *), an option before the subcommand', () => {
+    refusesUnreadable('Bash(npm --prefix . exec *)');
+  });
+
+  it('refuses Bash(npm --prefix . exec gh), since an option may take a value', () => {
+    refusesUnreadable('Bash(npm --prefix . exec gh)');
+  });
+
+  it('refuses a quote in the subcommand of a Bash npm rule', () => {
+    refusesUnreadable('Bash(npm "exec" *)');
+  });
+
+  it('refuses a backslash in the subcommand of a Bash npm rule, which the shell turns into exec', () => {
+    refusesUnreadable('Bash(npm ex\\ec *)');
+  });
+
+  it('refuses a backtick in the subcommand of a PowerShell npm rule', () => {
+    refusesUnreadable('PowerShell(npm e`xec *)');
+  });
+
+  it('refuses Bash(npm {exec,} *), a brace the shell turns into exec', () => {
+    refusesUnreadable('Bash(npm {exec,} *)');
+  });
+
+  it('refuses Bash(npm exec gh auth token), gh after npm exec', () => {
+    refuses('Bash(npm exec gh auth token)', ghReason);
+  });
+
+  it('refuses Bash(npm x git -C . push), git after npm x', () => {
+    refuses('Bash(npm x git -C . push)', gitReason);
+  });
+
+  it('refuses Bash(npm explore left-pad -- gh auth token), gh after npm explore', () => {
+    refuses('Bash(npm explore left-pad -- gh auth token)', ghReason);
+  });
+
+  it('refuses Bash(npm exec --call=gh auth token), gh after an equals sign', () => {
+    refuses('Bash(npm exec --call=gh auth token)', ghReason);
+  });
+
+  it('refuses Bash(npm exec --call=git -C . push), git after an equals sign', () => {
+    refuses('Bash(npm exec --call=git -C . push)', gitReason);
+  });
+
+  // pnpm, yarn and bun: a runner subcommand is a wrapper, any other one the program word of the rest.
+  it('refuses Bash(pnpm exec *), a pnpm runner', () => {
+    refuses('Bash(pnpm exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(pnpm dlx *), a pnpm runner', () => {
+    refuses('Bash(pnpm dlx *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(pnpx *), pnpm dlx under its other name', () => {
+    refuses('Bash(pnpx *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(pnpx gh auth token), gh after pnpx', () => {
+    refuses('Bash(pnpx gh auth token)', ghReason);
+  });
+
+  it('refuses Bash(pnpm exec git -C . push), git after pnpm exec', () => {
+    refuses('Bash(pnpm exec git -C . push)', gitReason);
+  });
+
+  it('refuses Bash(pnpm git -C . push), which pnpm runs as git', () => {
+    refuses('Bash(pnpm git -C . push)', gitReason);
+  });
+
+  it('refuses Bash(pnpm gh pr list), which pnpm runs as gh', () => {
+    refuses('Bash(pnpm gh pr list)', ghReason);
+  });
+
+  it('refuses Bash(pnpm sh *), which pnpm runs as pnpm exec sh', () => {
+    refuses('Bash(pnpm sh *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(pnpm npm exec *), a runner behind another program word', () => {
+    refuses('Bash(pnpm npm exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(pnpm --filter app run build), an option before the subcommand', () => {
+    refusesUnreadable('Bash(pnpm --filter app run build)');
+  });
+
+  it('refuses Bash(pnpm r*), a star that could make the subcommand any program', () => {
+    refusesUnreadable('Bash(pnpm r*)');
+  });
+
+  it('refuses Bash(pnpm *), which may be any program', () => {
+    refusesUnreadable('Bash(pnpm *)');
+  });
+
+  it('refuses Bash(yarn exec *), a yarn runner', () => {
+    refuses('Bash(yarn exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(yarn dlx *), a yarn runner', () => {
+    refuses('Bash(yarn dlx *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(yarnpkg dlx *), read as yarn', () => {
+    refuses('Bash(yarnpkg dlx *)', gitReason, ghReason);
+  });
+
+  it('refuses PowerShell(yarn.ps1 dlx *), the PowerShell shim of yarn', () => {
+    refuses('PowerShell(yarn.ps1 dlx *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(yarn gh pr list), which yarn runs as gh', () => {
+    refuses('Bash(yarn gh pr list)', ghReason);
+  });
+
+  it('refuses Bash(yarn *), which may be any program', () => {
+    refusesUnreadable('Bash(yarn *)');
+  });
+
+  it('refuses Bash(bunx *), bun x under its other name', () => {
+    refuses('Bash(bunx *)', gitReason, ghReason);
+  });
+
+  it('refuses PowerShell(bunx.exe gh auth token), bunx with a Windows extension and gh after it', () => {
+    refuses('PowerShell(bunx.exe gh auth token)', ghReason);
+  });
+
+  it('refuses Bash(bun x *), a bun runner', () => {
+    refuses('Bash(bun x *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(bun run *), since bun run falls back to any program on the PATH', () => {
+    refuses('Bash(bun run *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(bun run gh pr list), gh after bun run', () => {
+    refuses('Bash(bun run gh pr list)', ghReason);
+  });
+
+  it('refuses Bash(bun exec *), read as the program exec', () => {
+    refuses('Bash(bun exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(bun *), which may be any program', () => {
+    refusesUnreadable('Bash(bun *)');
+  });
+
+  // corepack runs the package manager its next word names.
+  it('refuses Bash(corepack *), which may run any package manager', () => {
+    refusesUnreadable('Bash(corepack *)');
+  });
+
+  it('refuses Bash(corepack pnpm exec *), a runner behind corepack', () => {
+    refuses('Bash(corepack pnpm exec *)', gitReason, ghReason);
+  });
+
+  it('refuses Bash(corepack yarn gh pr list), gh behind corepack and yarn', () => {
+    refuses('Bash(corepack yarn gh pr list)', ghReason);
+  });
+
+  // The two gaps that close for every wrapper, npx included.
+  it('refuses PowerShell(npx.ps1 *), the PowerShell shim of npx', () => {
+    refuses('PowerShell(npx.ps1 *)', gitReason, ghReason);
+  });
+
+  it('refuses PowerShell(gh.ps1 api user), gh through its PowerShell shim', () => {
+    refuses('PowerShell(gh.ps1 api user)', ghReason);
+  });
+
+  it('refuses Bash(npx --call=gh auth token), gh after an equals sign', () => {
+    refuses('Bash(npx --call=gh auth token)', ghReason);
+  });
+
+  it('refuses Bash(npx --call=git -C . push), git after an equals sign', () => {
+    refuses('Bash(npx --call=git -C . push)', gitReason);
+  });
+
+  it('refuses Bash(env --split-string=gh auth token), gh after an equals sign', () => {
+    refuses('Bash(env --split-string=gh auth token)', ghReason);
+  });
+
+  // Rules that load today and must keep loading: regression tests for the reading.
+  it('keeps Bash(npm run lint), a plain npm subcommand', () => {
+    keeps('Bash(npm run lint)');
+  });
+
+  it('keeps Bash(npm run *), a plain npm subcommand with a star', () => {
+    keeps('Bash(npm run *)');
+  });
+
+  it('keeps Bash(npm ci), a plain npm subcommand', () => {
+    keeps('Bash(npm ci)');
+  });
+
+  it('keeps Bash(npm exec biome format --write), a runner with no star, git or gh after it', () => {
+    keeps('Bash(npm exec biome format --write)');
+  });
+
+  it('keeps Bash(npx -y tsc), an option after a runner', () => {
+    keeps('Bash(npx -y tsc)');
+  });
+
+  it('keeps Bash(pnpm run *), read as a program named run', () => {
+    keeps('Bash(pnpm run *)');
+  });
+
+  it('keeps Bash(yarn run lint), read as a program named run', () => {
+    keeps('Bash(yarn run lint)');
+  });
+
+  it('keeps Bash(bun run lint), a bun script with no star', () => {
+    keeps('Bash(bun run lint)');
+  });
+
+  it('keeps Bash(corepack enable), read as a program named enable', () => {
+    keeps('Bash(corepack enable)');
+  });
+});
+
 // A valid sandbox block; each refused row below changes one thing in it, so it is refused for
 // that reason alone.
 const sandboxBlock = {
