@@ -951,6 +951,14 @@ describe('attemptSettings and the runners of a package manager (ADR 0165)', () =
     refuses('PowerShell(gh.ps1 api user)', ghReason);
   });
 
+  it('refuses PowerShell(npm exec gh.ps1 auth token), gh through its shim after a runner', () => {
+    refuses('PowerShell(npm exec gh.ps1 auth token)', ghReason);
+  });
+
+  it('refuses PowerShell(pwsh -c git.ps1 -C . push), git through a shim after a wrapper', () => {
+    refuses('PowerShell(pwsh -c git.ps1 -C . push)', gitReason);
+  });
+
   it('refuses Bash(npx --call=gh auth token), gh after an equals sign', () => {
     refuses('Bash(npx --call=gh auth token)', ghReason);
   });
