@@ -413,3 +413,14 @@ describe('gatherDoctorFacts: keeping the machine awake (ADR 0195)', () => {
     });
   });
 });
+
+describe('gatherDoctorFacts: systemd that is not running (ADR 0195)', () => {
+  it('records none when systemd is not running, though its programs are on PATH', async () => {
+    const { shell } = fakeShell({
+      onPath: { 'systemd-inhibit': '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' },
+      answers: {},
+    });
+    const facts = await gatherDoctorFacts({ ...shell, exists: () => false });
+    assert.deepStrictEqual(facts.keepAwake, { kind: 'none', why: 'systemd is not running' });
+  });
+});

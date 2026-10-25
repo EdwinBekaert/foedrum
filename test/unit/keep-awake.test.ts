@@ -11,6 +11,7 @@ import {
   keepAwake,
 } from '../../src/platform/keep-awake.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
+import { cuedTimers } from '../helpers/load.ts';
 
 const onPath =
   (found: Record<string, string>) =>
@@ -252,5 +253,60 @@ describe('keepAwake', () => {
     hold.attemptEnded();
     hold.release();
     assert.deepStrictEqual(started, []);
+  });
+});
+
+describe('keepAwake: the minute after the last attempt (ADR 0195)', () => {
+  const helper: AwakeCommand = { file: '/usr/bin/caffeinate', args: ['-i', '-w', '4242'] };
+  const running = () => {
+    const started: AbortSignal[] = [];
+    const exec: ExecProcess = (_file, _args, options) => {
+      if (options.signal !== undefined) started.push(options.signal);
+      return new Promise(() => {});
+    };
+    const live = () => started.filter((signal) => !signal.aborted).length;
+    return { exec, started, live };
+  };
+
+  it('keeps holding until the minute after the last attempt has passed, then lets go', () => {
+    const { exec, live } = running();
+    const timers = cuedTimers();
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann', timers });
+    hold.attemptStarted();
+    hold.attemptEnded();
+    assert.equal(live(), 1);
+    timers.fire();
+    assert.equal(live(), 0);
+  });
+
+  it('keeps the same helper for an attempt that starts within that minute, the next step of a batch', () => {
+    const { exec, started, live } = running();
+    const timers = cuedTimers();
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann', timers });
+    hold.attemptStarted();
+    hold.attemptEnded();
+    hold.attemptStarted();
+    assert.deepStrictEqual([started.length, live()], [1, 1]);
+    // The minute it waited is called off: only the end of the new attempt starts another.
+    assert.throws(() => timers.fire(), /no timer to fire/);
+  });
+});
+
+describe('awakeMechanism: systemd that is not running', () => {
+  it('is none on Linux when /run/systemd/system is not there, though both programs are on PATH', () => {
+    const asked: string[] = [];
+    assert.deepStrictEqual(
+      awakeMechanism({
+        platform: 'linux',
+        resolve: onPath({ 'systemd-inhibit': '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' }),
+        env: {},
+        exists: (path) => {
+          asked.push(path);
+          return false;
+        },
+      }),
+      { kind: 'none', why: 'systemd is not running' },
+    );
+    assert.deepStrictEqual(asked, ['/run/systemd/system']);
   });
 });

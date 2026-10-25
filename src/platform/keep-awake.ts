@@ -5,7 +5,7 @@
 
 import { win32 } from 'node:path';
 import { environmentVariable } from './executables.ts';
-import type { ExecProcess } from './processes.ts';
+import type { ExecProcess, Timers } from './processes.ts';
 
 /** How this machine can be kept awake, or why it cannot. */
 export type AwakeMechanism =
@@ -22,6 +22,8 @@ export interface AwakeMechanismInputs {
   /** The file a command name runs, or `undefined` when it is not on PATH. */
   resolve: (name: string) => string | undefined;
   env: NodeJS.ProcessEnv;
+  /** Whether a path exists: on Linux, /run/systemd/system says systemd runs (sd_booted). */
+  exists?: (path: string) => boolean;
 }
 
 /** The mechanism this machine has: a program found by its full path, or none with why. */
@@ -136,6 +138,8 @@ export interface KeepAwakeOptions {
   exec: ExecProcess;
   /** Where the helper runs. */
   cwd: string;
+  /** The timer of the minute after the last attempt; default the real ones. */
+  timers?: Timers;
 }
 
 // The helpers print nothing; anything past this is not theirs to say, and stops them.

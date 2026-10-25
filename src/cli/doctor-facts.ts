@@ -58,6 +58,8 @@ export interface DoctorShell {
   env?: NodeJS.ProcessEnv;
   /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
   githubHost?: string;
+  /** Whether a path exists, for the keep-awake mechanism (ADR 0195); default `existsSync`. */
+  exists?: (path: string) => boolean;
   /** On Linux, whether AppArmor restricts unprivileged user namespaces; undefined when unknown. */
   restrictsUserns?: () => boolean | undefined;
 }
