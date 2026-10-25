@@ -354,6 +354,31 @@ describe('foedrum init (ADR 0199)', () => {
     assert.ok(again.questions.includes('Alias of other/web [web]: '), again.questions.join('\n'));
     const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
     assert.deepStrictEqual(Object.keys(config.repositories), ['other/web']);
+    assert.ok(again.lines.includes('  repositories.acme/web (removed)'), again.lines.join('\n'));
+  });
+
+  it('lists a changed value by its path', async () => {
+    const clone: Clone = { files: new Map() };
+    await init(['', ''], clone);
+    const again = await init(['acme/brewery', '', 'n'], clone);
+    assert.ok(again.lines.includes('  brewery'), again.lines.join('\n'));
+  });
+
+  it('keeps the keys of a foedrum.jsonc it does not ask about', async () => {
+    const was = {
+      brewery: 'acme/brewery',
+      users: ['octocat', 'hubot'],
+      pollEvery: '5m',
+      permissionCeiling: ['Bash(make *)'],
+      repositories: {},
+    };
+    const clone: Clone = { files: new Map([['foedrum.jsonc', JSON.stringify(was)]]) };
+    await init(['', 'acme/api', '', '', '', '', '', '', 'y'], clone);
+    const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
+    assert.deepStrictEqual(config.users, ['octocat', 'hubot']);
+    assert.equal(config.pollEvery, '5m');
+    assert.deepStrictEqual(config.permissionCeiling, ['Bash(make *)']);
+    assert.ok(config.repositories['acme/api'] !== undefined);
   });
 
   it("runs doctor at the end, shows its report, ends with its exit code and the plugin's commands", async () => {
