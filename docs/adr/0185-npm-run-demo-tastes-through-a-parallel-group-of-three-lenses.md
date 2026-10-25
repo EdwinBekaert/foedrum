@@ -14,6 +14,7 @@ Since [ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) a re
 
 ## Consequences
 - The demo shows a parallel group with no change to the engine, Nip or the default brewers: three more Taster attempts, which the scripted brewer plays at once, and no model.
+- `foedrum brew`'s integration test (`test/integration/brew.test.ts`), which brews the demo's Brewery, brews `nip-parallel` with `DEMO_SCRIPT` too; the E2E test (`test/integration/nip.test.ts`) still brews Nip from `defaults/` with the fixture's own script.
 - The demo no longer brews with a recipe from `defaults/` as it is: a change to Nip's steps fails the recipe's unit test until `recipeText` follows.
 - The path line lists attempts in the order they started, so the comment's last revision shows the three side by side, not that they overlapped; the overlap shows in `foedrum status` while they brew, and in the store's events (`foedrum replay`).
 

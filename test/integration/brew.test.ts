@@ -1,15 +1,15 @@
 // `foedrum brew` (ADR 0123) on the machine, with no Cellar running: the demo's scratch Brewery and
 // target repository with bare remotes (ADR 0097), real git, the real driver lock and event store,
 // the state branch, the attempt worktrees of the user's clone and serve's pushes, with two seams
-// of the demo's own: the Nip fixture's scripted Gauger and Cellarman for claude and its in-process
-// code host for gh. The order has no batch yet: brew orders it, routes it by its label to Nip,
-// brews it and opens its pull request.
+// of the demo's own: its brewers (the Nip fixture's scripted Gauger, Cellarman and Finer, and three
+// Tasters) for claude and its in-process code host for gh. The order has no batch yet: brew orders
+// it, routes it by its label to the demo's recipe (ADR 0185), brews it and opens its pull request.
 
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
+import { DEMO_GIT_CONFIG, DEMO_SCRIPT } from '../../scripts/demo/brewer.ts';
 import { codeHost } from '../../scripts/demo/code-host.ts';
 import {
   BREWERY,
@@ -98,7 +98,7 @@ describe('foedrum brew', () => {
       ...machine,
       intervalMs: 50,
       // Only a guard against a hang (ADR 0075): brew stops, closing its driver, and the exit
-      // code below says it never got there. Nip's seven attempts take long on a loaded machine.
+      // code below says it never got there. The recipe's attempts take long on a loaded machine.
       signal: AbortSignal.any([machine.signal, AbortSignal.timeout(5 * hangGuardMs)]),
       runner: (_claude, plan) =>
         scriptedNip({
@@ -106,6 +106,7 @@ describe('foedrum brew', () => {
           git,
           config: DEMO_GIT_CONFIG,
           write: (path, text) => writeFileSync(path, text),
+          script: DEMO_SCRIPT,
         }),
       gh: host.exec,
     };
@@ -120,7 +121,7 @@ describe('foedrum brew', () => {
     const output = lines.join('\n');
     assert.equal(exitCode, 0, output);
     assert.ok(lines.includes(`foedrum brew: ordered #${ORDER.number} as batch 1-1`), output);
-    assert.ok(lines.includes('foedrum brew: routed batch 1-1 to the recipe nip'), output);
+    assert.ok(lines.includes('foedrum brew: routed batch 1-1 to the recipe nip-parallel'), output);
     // One pull request on the code host, from the batch's bottle branch into main, with the
     // brewer's commit pushed to the target's remote.
     const branch = `foedrum/${BREWERY.replace('/', '.')}/1-1/${TARGET.replace('/', '.')}`;
