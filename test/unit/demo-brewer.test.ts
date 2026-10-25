@@ -195,6 +195,25 @@ describe('the demo brewers', () => {
     ]);
   });
 
+  it("write each attempt's out doc to the file its limits name, whatever its step", async () => {
+    const { runner, log } = brewers('finish');
+    for (const [stepId, schema] of [
+      ['correctness', TastingOutDoc],
+      ['gauge', OutDocFrontmatter],
+    ] as const) {
+      const named: AttemptStart = {
+        ref: { batchId: '1-1', stepId, attempt: 1 },
+        limits: { outDoc: { file: `${stepId}-out.md`, schema } },
+      };
+      const { ending } = await runner.start(named).ended;
+      assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    }
+    assert.deepStrictEqual(
+      log.filter((line) => line.endsWith('-out.md')),
+      [`write ${join(cwd, 'correctness-out.md')}`, `write ${join(cwd, 'gauge-out.md')}`],
+    );
+  });
+
   it('fail the attempt, not the tick, when git cannot commit, and do not crash', async () => {
     const { runner, log } = brewers('crash', {}, 128);
     const { ending } = await runner.start(start).ended;
