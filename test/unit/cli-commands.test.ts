@@ -837,6 +837,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         batchId: 'web-7-2',
         order: { issue: 7, repo: 'acme/web' },
         routeBy: iso(60),
+        at: t0.toISOString(),
         by: 'ada',
         via: 'terminal',
       });
@@ -979,6 +980,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
           batchId: '21-2',
           order: { issue: 21 },
           routeBy: iso(60),
+          at: t0.toISOString(),
           by: 'ada',
           via: 'terminal',
         });
