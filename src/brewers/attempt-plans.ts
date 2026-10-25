@@ -38,7 +38,6 @@ import {
   type RegressionTests,
   type Resumed,
   roundBefore,
-  roundChangeInput,
   routeInput,
   routeOf,
   scanRetryOf,
@@ -223,12 +222,6 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     head: string,
     regression: readonly RegressionTests[],
   ): Promise<PromptInput> => {
-    const { log, diff } = await commitsAndDiff(repo, since, head);
-    return changeInput(since, log, diff, regression);
-  };
-
-  /** The commits from `since` to `head` and their diff, as a change input reads them. */
-  const commitsAndDiff = async (repo: string, since: string, head: string) => {
     const read = gitIn(repo, `the change since commit ${since} was not read`);
     const cut = { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES, keepCut: true };
     // The first parents only: never the commits a merge of the base brought in (ADR 0164).
@@ -249,7 +242,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       ],
       cut,
     );
-    return { log, diff };
+    return changeInput(since, log, diff, regression);
   };
 
   /** Whether commit `ancestor` is on the line to `head` in the clone of `repo`. */
@@ -286,9 +279,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     if (merged !== undefined && !(await onLine(repo, merged, commit))) {
       return unread(`the base was merged in since, at ${merged}`);
     }
-    const { log, diff } = await commitsAndDiff(repo, commit, worktree.commit);
+    // The change input's text without regression tests, under a name of its own.
+    const change = await changeFor(repo, commit, worktree.commit, []);
     return {
-      input: roundChangeInput(commit, log, diff),
+      input: { ...change, name: 'roundChange' },
       laterRound: { kind: 'since', step, commit },
     };
   };

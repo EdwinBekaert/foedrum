@@ -345,18 +345,8 @@ export type LaterRound =
   | { kind: 'since'; step: string; commit: string }
   | { kind: 'unread'; step: string; why: string };
 
-/** The change since the round before (ADR 0190): its commits and diff, held to its limit. */
-export function roundChangeInput(since: string, log: string, diff: string): PromptInput {
-  const text = `The commits after ${since}, up to HEAD:\n${log.trimEnd()}\n\nTheir diff:\n${diff}`;
-  return {
-    name: 'roundChange',
-    source: { kind: 'change', since },
-    text: bounded(text, MAX_CHANGE_INPUT_BYTES, 'change input'),
-  };
-}
-
 /** The engine's fixed text for every `diff/` lens of a later round (ADR 0190). */
-export function laterRoundText(round: LaterRound): string {
+function laterRoundText(round: LaterRound): string {
   switch (round.kind) {
     case 'since':
       return [
