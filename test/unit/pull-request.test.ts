@@ -351,6 +351,11 @@ describe('unlinked (ADR 0167)', () => {
     assert.equal(unlinked('``@ann` and @bob'), '``ann` and bob');
   });
 
+  it('closes a span only on a run exactly as long as its opener (review of #490)', () => {
+    assert.equal(unlinked('`@a`` and @b'), '`a`` and b');
+    assert.equal(unlinked('``@a``` and @b'), '``a``` and b');
+  });
+
   it('pairs no span from a backtick a backslash escapes (ADR 0184)', () => {
     assert.equal(unlinked('\\`@ann`'), '\\`ann`');
     assert.equal(unlinked('\\\\`@ann`'), '\\\\`@ann`');
