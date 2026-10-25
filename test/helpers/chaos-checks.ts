@@ -86,7 +86,7 @@ export const nothingOverdue = (run: ChaosRun): void => {
  * other driver takes the batch over (ADR 0044). And except in a batch a terminal command changed
  * in this move: one that came after the drivers' last drive waits for their next (ADR 0044). And
  * except an attempt whose step still has a live lease of an attempt the log shows over, or had one
- * of another driver than the batch's as this tick began (#464). And except
+ * of another driver than the batch's as this tick began (ADR 0186). And except
  * the effects of a batch taken over, until the lease the takeover took has run out (ADR 0124).
  */
 export const nothingLeftWaiting = (run: ChaosRun): void => {
@@ -128,8 +128,8 @@ export const nothingLeftWaiting = (run: ChaosRun): void => {
       .map(({ ref }) => `${ref.batchId} ${ref.stepId}`),
   );
   // Or one that was live as this tick began, of a driver that does not hold the batch: it let the
-  // lease go after the holder drove, and the holder starts the attempt at its next tick (#464).
-  // For this move only: the next tick's leases no longer have it.
+  // lease go after the holder drove, and the holder starts the attempt at its next tick (ADR 0186).
+  // For this tick only: the check runs after ticks, and the next tick's leases no longer have it.
   for (const { attemptKey: key, owner } of engine.leasedAtTick()) {
     const ref = attemptKey.decode(key);
     if (ref === undefined || holders.get(ref.batchId) === owner) continue;
