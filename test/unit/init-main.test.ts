@@ -34,10 +34,12 @@ describe('initFromCheckout', () => {
     ]);
     const gh = ghOver(github.fetch);
     const tools: string[] = [];
+    const cwds: (string | undefined)[] = [];
     // gh api through the fake GitHub; doctor's tools answer a version.
     const exec: ExecProcess = async (file, args, options) => {
       if (args[0] === 'api') return gh.exec(file, args, options);
       tools.push(`${file} ${args.join(' ')}`);
+      cwds.push(options.cwd);
       return { exitCode: 0, stdout: '1.0.0\n', stderr: '', output: '1.0.0\n' };
     };
     let shown = '';
@@ -66,9 +68,25 @@ describe('initFromCheckout', () => {
       readFileSync(join(dir.path, '.claude', 'settings.json'), 'utf8'),
       /"foedrum@foedrum": true/,
     );
-    // doctor ran in the clone, through the same runner.
+    // doctor ran through the same runner, and its report is shown before the plugin's commands.
     assert.ok(tools.length > 0);
+    assert.ok(shown.includes('Foedrum doctor\n'), shown);
+    assert.ok(shown.indexOf('Foedrum doctor') < shown.indexOf('claude plugin install'), shown);
+    assert.ok(
+      cwds.every((cwd) => cwd === undefined || cwd === dir.path),
+      JSON.stringify(cwds),
+    );
     assert.ok(shown.includes('claude plugin install foedrum@foedrum --scope project\n'), shown);
     assert.equal(result.stderr, '');
+  });
+
+  it('stops with one line when standard input ends before the answers', async () => {
+    const answers = fakeFetch([{ status: 200, body: { login: 'octocat' } }]);
+    const result = await initFromCheckout(dir.path, {
+      exec: ghOver(answers.fetch).exec,
+      terminal: { input: Readable.from(['acme/brewery\n']), output: { write: () => true } },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: no answer to "Target repositories/);
   });
 });

@@ -55,6 +55,15 @@ describe('repositoryFacts', () => {
     });
   });
 
+  it('has a package.json it could not read where GitHub sends it without its content', async () => {
+    const { client } = clientWith([
+      { status: 200, body: { default_branch: 'main' } },
+      { status: 200, body: { type: 'file', encoding: 'none', content: '' } },
+      missing,
+    ]);
+    assert.equal((await repositoryFacts(client, 'acme/big')).packageJson, '');
+  });
+
   it('fails on a repository GitHub refuses, with its message', async () => {
     const { client } = clientWith([missing]);
     await assert.rejects(

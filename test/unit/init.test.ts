@@ -77,7 +77,9 @@ const init = async (
     login: async () => 'octocat',
     repository: async (repo) => {
       run.read.push(repo);
-      return GITHUB[repo] ?? assert.fail(`no ${repo} on the fake GitHub`);
+      const facts = GITHUB[repo];
+      if (facts === undefined) throw new Error(`GitHub answered 404 to the repository ${repo}`);
+      return facts;
     },
     doctor: async () => options.doctor ?? { ok: true, report: 'Doctor: ready\n' },
   };
@@ -369,6 +371,73 @@ describe('foedrum init (ADR 0199)', () => {
     const at = lines.indexOf('claude plugin marketplace add EdwinBekaert/foedrum');
     assert.ok(at > 0, shown);
     assert.equal(lines[at + 1], 'claude plugin install foedrum@foedrum --scope project');
+  });
+
+  it('finds .foedrum ignored in each form git reads, but not in a near miss', async () => {
+    for (const was of [
+      '.foedrum\n',
+      '/.foedrum\n',
+      '.foedrum/\n',
+      '/.foedrum/\n',
+      'x\r\n.foedrum/\r\n',
+    ]) {
+      const clone: Clone = { files: new Map([['.gitignore', was]]) };
+      const { lines, written } = await init(['', ''], clone);
+      assert.ok(lines.includes('.gitignore is up to date'), JSON.stringify(was));
+      assert.ok(!written.includes('.gitignore'), JSON.stringify(was));
+    }
+    const near: Clone = { files: new Map([['.gitignore', '.foedrumx\n']]) };
+    const { lines } = await init(['', '', 'y'], near);
+    assert.ok(lines.includes('.gitignore would change:'), lines.join('\n'));
+    assert.equal(near.files.get('.gitignore'), '.foedrumx\n.foedrum/\n');
+  });
+
+  it('ends a last line without a line break before adding its own', async () => {
+    const clone: Clone = { files: new Map([['.gitignore', 'node_modules/']]) };
+    await init(['', '', 'y'], clone);
+    assert.equal(clone.files.get('.gitignore'), 'node_modules/\n.foedrum/\n');
+  });
+
+  it('stops with one line when standard input ends at a file question, writing no file after it', async () => {
+    const clone: Clone = { files: new Map([['.gitignore', 'node_modules/\n']]) };
+    const { result, written } = await init(['', ''], clone);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: no answer to "Change \.gitignore\?"/);
+    assert.deepStrictEqual(written, ['foedrum.jsonc', 'models.jsonc']);
+  });
+
+  it('asks the targets again for a repository named twice, or one GitHub cannot find', async () => {
+    const { lines, questions } = await init(['', 'acme/api ACME/api', 'gone/repo', ''], {
+      files: new Map(),
+    });
+    assert.equal(questions[1], questions[2]);
+    assert.equal(questions[2], questions[3]);
+    assert.ok(lines.includes('  A repository is named twice'), lines.join('\n'));
+    assert.ok(
+      lines.includes('  GitHub answered 404 to the repository gone/repo'),
+      lines.join('\n'),
+    );
+  });
+
+  it('refuses the alias of a repository it keeps for a new one, and writes no setup without a lockfile', async () => {
+    const clone: Clone = { files: new Map() };
+    await init(['', 'acme/web', '', ''], clone);
+    const again = await init(['', 'acme/web other/web', 'web', 'site', '', 'y'], clone);
+    assert.ok(again.questions.includes('Alias of other/web: '), again.questions.join('\n'));
+    assert.ok(again.lines.includes('  The alias web is taken'), again.lines.join('\n'));
+    const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
+    assert.equal(config.repositories['other/web']?.alias, 'site');
+    assert.equal(config.repositories['other/web']?.setup, undefined);
+  });
+
+  it('names a settings file that does not read, and asks before replacing it', async () => {
+    const clone: Clone = { files: new Map([['.claude/settings.json', '{ not json']]) };
+    const { lines, questions } = await init(['', '', 'n'], clone);
+    const at = lines.indexOf('.claude/settings.json would change:');
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^ {2}all of it: /);
+    assert.ok(questions.includes('Change .claude/settings.json? [y/N]: '), questions.join('\n'));
+    assert.equal(clone.files.get('.claude/settings.json'), '{ not json');
   });
 
   it('refuses a folder that is not a clone, before any question', async () => {
