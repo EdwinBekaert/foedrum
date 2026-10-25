@@ -100,7 +100,9 @@ describe('renderStatus', () => {
   // ADR 0175: a retry after the turn budget ran out goes on in the same session.
   it('says a running attempt resumed after the turn budget, and only then', () => {
     const overran: Attempt = {
-      ...failed(1, 'budget exceeded: 81 turns, maxTurns is 80'),
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
       outcome: {
         kind: 'failed',
         retryable: true,
@@ -110,7 +112,9 @@ describe('renderStatus', () => {
     };
     const id = '0f8fad5b-d9cb-469f-a165-708677289500';
     const resumed: Attempt = {
-      ...running(2),
+      phase: 'started',
+      attempt: 2,
+      deadlineAt: at,
       session: { id, resumes: id, worktree: 'work/7-1/brew/1' },
     };
     const text = renderStatus(batch({ steps: new Map([step('brew', overran, resumed)]) }), steps);

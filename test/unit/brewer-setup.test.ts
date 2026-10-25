@@ -326,6 +326,8 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
         writeSystemPrompt: () => {},
         readOutDoc: () => ({ kind: 'text', text: outDoc({ status: 'done', summary: 'Planned' }) }),
         clearOutDoc: () => {},
+        restoreOutDoc: () => {},
+        copyOutDoc: () => {},
       },
       // By default ten minutes before the attempt's deadline.
       now,

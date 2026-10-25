@@ -9,6 +9,7 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  readFileSync,
   readSync,
   realpathSync,
   statSync,
@@ -23,6 +24,7 @@ import type { Env } from '../engine/brewer-env.ts';
 import {
   type AttemptEnd,
   type AttemptFacts,
+  type AttemptLimits,
   type AttemptStart,
   type BrewerRunner,
   type CommitsSeen,
@@ -44,7 +46,7 @@ import type { GravityReading } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
-import type { AttemptSystemPrompt } from './attempt-plan.ts';
+import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
   type AttemptPermissions,
   attemptSettings,
@@ -229,8 +231,37 @@ export function clearOutDocFile(file: string, root: string): void {
  * Writes `copy`, the out doc a run that ran out of turns left, to `file` in `root`, the worktree,
  * when the worktree has none: it was recreated (ADR 0175). Nothing when there is no copy.
  */
-export function restoreOutDocFile(_file: string, _root: string, _copy: string): void {
-  throw new Error('not implemented');
+export function restoreOutDocFile(file: string, root: string, copy: string): void {
+  if (lstatSync(file, { throwIfNoEntry: false }) !== undefined) return;
+  let text: string;
+  try {
+    text = readFileSync(copy, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  // As clearOutDocFile: a linked folder on its path, or `..`, could lead out of the worktree.
+  const real = join(realpathSync(dirname(file)), basename(file));
+  if (pathInside(realpathSync(root), real) === undefined) {
+    throw new Error(`the out doc ${file} is outside the worktree`);
+  }
+  // A new file only: `wx` neither follows a link put in its place nor overwrites one.
+  writeFileSync(real, text, { flag: 'wx' });
+}
+
+/**
+ * Before a run that resumes a session: the out doc a run before left goes, so the run is read by
+ * what it writes itself, such as after its needs_input (ADR 0118); after a turn overrun it stays,
+ * or its copy comes back, since it is the work the session finishes (ADR 0175).
+ */
+export function prepareOutDoc(
+  files: Pick<ClaudeRunnerDeps['files'], 'clearOutDoc' | 'restoreOutDoc'>,
+  plan: Pick<ClaudeAttemptPlan, 'cwd' | 'outDocFrom'>,
+  limits: Pick<AttemptLimits, 'outDoc'>,
+): void {
+  const file = resolve(plan.cwd, limits.outDoc.file);
+  if (plan.outDocFrom === undefined) files.clearOutDoc(file, plan.cwd);
+  else files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
 }
 
 /** How the process ended, from what the stream process answered. */
@@ -417,11 +448,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
-        // A resumed run is read by the out doc it writes, never the one the run before left,
-        // such as its needs_input (ADR 0118).
-        if (plan.call.session.kind === 'resume') {
-          deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
-        }
+        if (plan.call.session.kind === 'resume') prepareOutDoc(deps.files, plan, limits);
         args = claudeArgs({
           ...plan.call,
           settingsFile: plan.settingsFile,
@@ -528,11 +555,21 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         denials: seen.denials,
         deniedTools: seen.deniedTools,
         turns: seen.turns,
+        sessionStarted: seen.session !== undefined,
         ...(commits === undefined ? {} : { commits }),
       };
+      const ending = settleAttempt(facts, limits);
+      // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).
+      if (ending.kind === 'failed' && ending.overran === 'turns' && facts.outDoc !== undefined) {
+        try {
+          deps.files.copyOutDoc(outDocCopyOf(plan.settingsFile), facts.outDoc);
+        } catch {
+          // The retry resumes without it: a copy is no reason to change how the attempt ended.
+        }
+      }
       // The text as read, valid or not, for the state branch (ADR 0103).
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return withReadings({ ending: settleAttempt(facts, limits), ...reported, ...outDoc });
+      return withReadings({ ending, ...reported, ...outDoc });
     };
 
     // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169).

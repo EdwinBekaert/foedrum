@@ -18,6 +18,7 @@ import { withoutSecrets } from './out-doc-text.ts';
 import { changeText, findingText, knownCommits } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
+import { resumedAfterOverrun } from './session-resume.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
 export interface StatusComments {
@@ -188,6 +189,9 @@ const recipeText = (recipe: Batch['recipe']): string => {
   }
 };
 
+/** What the comment says of an attempt that resumed after a turn overrun (ADR 0175). */
+const afterTheBudget = 'resumed after the turn budget';
+
 /** The attempts of a step, latest first. */
 const latestFirst = (batch: Batch, stepId: string): Attempt[] =>
   [...(batch.steps.get(stepId)?.attempts.values() ?? [])].sort((a, b) => b.attempt - a.attempt);
@@ -203,9 +207,9 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
     return `- 🔔 ${id}: stuck at attempt ${n}`;
   }
   if (latest.phase !== 'finished') {
-    return latest.abandoned === true
-      ? `- ⏹️ ${id}: attempt ${n} stopped`
-      : `- ▶️ ${id}: brewing, attempt ${n}`;
+    if (latest.abandoned === true) return `- ⏹️ ${id}: attempt ${n} stopped`;
+    const resumed = resumedAfterOverrun(batch, { batchId: batch.id, stepId, attempt: n });
+    return `- ▶️ ${id}: brewing, attempt ${n}${resumed ? `, ${afterTheBudget}` : ''}`;
   }
   const { outcome } = latest;
   switch (outcome.kind) {
@@ -380,6 +384,9 @@ const receiptLines = (batch: Batch, told: Told): string[] => {
       [
         `- ${code(`${stepId} #${attempt}`)}`,
         ...receiptParts(receipt, usage, (text) => told(text, stepId)),
+        ...(resumedAfterOverrun(batch, { batchId: batch.id, stepId, attempt })
+          ? [afterTheBudget]
+          : []),
       ].join(' · '),
     );
   const more = all.length - shown.length;

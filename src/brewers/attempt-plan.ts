@@ -462,8 +462,8 @@ export function systemPromptFileOf(settingsFile: string): string {
  * Where the runner keeps a copy of the out doc of an attempt that ran out of turns, beside its
  * settings file: `<attempt>.out.md` (ADR 0175).
  */
-export function outDocCopyOf(_settingsFile: string): string {
-  throw new Error('not implemented');
+export function outDocCopyOf(settingsFile: string): string {
+  return join(dirname(settingsFile), `${basename(settingsFile, '.json')}.out.md`);
 }
 
 /** An attempt's appended system prompt: its file and the engine's fixed rules (ADR 0183). */
@@ -567,7 +567,7 @@ export function goOn(doc: string, why: Resumed): string {
     case 'answered':
       return `A human answered the questions the run before this one asked. Go on with the step where it stopped, with the answers below, then write ${doc} as your instructions say.`;
     case 'turns':
-      throw new Error('not implemented');
+      return `The run before this one ran out of turns. Finish what is left of the step, write ${doc} as your instructions say, and end.`;
     default: {
       const unhandled: never = why;
       throw new Error(`Unhandled resume ${JSON.stringify(unhandled)}`);
@@ -577,7 +577,7 @@ export function goOn(doc: string, why: Resumed): string {
 
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
-  const { brewer, worktree, models, env, sessionId, resumes } = facts;
+  const { brewer, worktree, models, env, sessionId, resumes, outDocFrom } = facts;
   const permissions = attemptPermissions(
     brewer,
     facts.repoTools,
@@ -614,5 +614,6 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     settingsFile: facts.settingsFile,
     // A resumed session has them recorded until it is compacted; then claude reads the file again.
     systemPrompt: attemptSystemPrompt(brewer, allow, facts.settingsFile),
+    ...(outDocFrom === undefined ? {} : { outDocFrom }),
   };
 }
