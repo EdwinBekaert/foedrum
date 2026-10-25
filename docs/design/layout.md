@@ -32,7 +32,7 @@ brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
 lenses/           custom and overriding tasting lenses: diff/*.md review a diff, plan/*.md a plan (ADR 0143); a brewer input "lens:diff/<name>" or "lens:plan/<name>" reads one (ADR 0098)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback ([house yeast](house-yeast.md))
-.foedrum/         local (git-ignored): SQLite index (index.db; foedrum status and replay open it read-only), local.jsonc (this machine's work root and clones, ADR 0063), logs
+.foedrum/         local (git-ignored): SQLite index (index.db; foedrum status and replay open it read-only), local.jsonc (this machine's work root, clones and keepAwake, ADR 0063, ADR 0195), logs
 
 Work root (outside the checkout, default ~/.foedrum/<owner>.<name>/): brewery.json (the Brewery it belongs to) and drivers/<owner>.lock (one per driver), ADR 0037; per repository <owner>.<name>/ with attempts/<batch>/<step>/<attempt> (worktrees), clone.git (managed clone) and git-dirs/ (a git directory per base fetch, ADR 0090 and ADR 0137; one a stopped call left goes at the first cleanup an hour on, ADR 0130); ADR 0029; state/ (the state branch's worktree) with state.lock (its writer lock, ADR 0107), and attempt-settings/<batch>/<step>/<attempt>.json, ADR 0059 and ADR 0063, with <attempt>.system.md beside it (the attempt's system prompt file, ADR 0183)
 

@@ -2,7 +2,8 @@
 
 `foedrum brew` and `foedrum serve` keep the machine from sleeping on its idle timer while at least one attempt of theirs runs, a brewer's or a check step's ([ADR 0195](../../adr/0195-brew-and-serve-keep-the-machine-awake-while-an-attempt-runs.md)).
 The hold starts when the first attempt starts and is let go when the last one ends, so `serve` lets the machine sleep as usual between orders; it is let go too when the command ends.
-Only the idle timer is held off: the display may still turn off, and the machine still sleeps when the lid closes or the battery is critical; on battery the hold stays.
+The idle timer is held off: the display may still turn off, and the machine still sleeps when the lid closes or the battery is critical; on battery the hold stays.
+On Linux the lock also covers a suspend the user asks for, which logind refuses or asks authentication for while an attempt runs.
 It is on by default; `"keepAwake": false` in `foedrum.jsonc` turns it off for the Brewery, and in `.foedrum/local.jsonc` for one machine, whose word wins.
 
 A helper process holds it, started through the process runner with no shell and stopped with its whole tree (`keepAwake`, `src/platform/keep-awake.ts`):

@@ -1,6 +1,6 @@
 # 0195. `brew` and `serve` keep the machine awake while an attempt runs
 
-Date: 2026-10-25 · Status: Accepted
+Date: 2026-10-25 · Status: Accepted · Amends [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (a `keepAwake` key in foedrum.jsonc and .foedrum/local.jsonc)
 
 ## Context
 A brew runs for many minutes, and `foedrum serve` for hours (ADR 0063, ADR 0123). Nothing kept the machine awake: when a laptop's idle timer fired, every running attempt stopped with it, claude and the checks too, and the batch picked up only through the supervisor's lost-attempt path (ADR 0027) once the machine woke. That costs the attempt's tokens and its time.
@@ -12,7 +12,7 @@ Each platform has a built-in way to hold the machine awake, so no package is nee
 ### When
 - `foedrum brew` and `foedrum serve` hold the machine awake while at least one attempt of theirs runs, a brewer's or a check step's. The hold starts when the first attempt starts and is let go when the last one ends, so `serve` lets the machine sleep as usual between orders.
 - It is let go when the command ends, and when Foedrum is killed: the helper that holds it watches Foedrum's process id and exits when that process is gone.
-- Only the idle timer is held off. The display may still turn off, and the operating system still sleeps when the lid closes and on a critical battery.
+- The idle timer is held off. The display may still turn off, and the operating system still sleeps when the lid closes and on a critical battery. On Linux the lock also covers a suspend the user asks for: logind refuses it, or asks for authentication, while an attempt runs, since a block lock on `sleep` is what keeps a desktop's own idle suspend off.
 - It holds on battery too: an attempt cut off by sleep loses more than the battery it would use.
 - It is on by default. `"keepAwake": false` in `foedrum.jsonc` turns it off for the Brewery, and in `.foedrum/local.jsonc` for one machine; the local file wins when both say.
 
@@ -31,6 +31,7 @@ One helper process per hold, started through the process runner with an argument
 - A brew started on a laptop with a short idle timer is still running when its owner comes back.
 - A Windows hold costs one PowerShell process, about 0.4 s to start (ADR 0039), once per stretch of attempts, not once per attempt.
 - The hold is held by a separate process; a killed Foedrum leaves it for at most the helper's own poll (`tail --pid` reads about once a second; `caffeinate -w` and PowerShell's wait are told by the system).
+- On Linux, a user who wants to suspend while an attempt runs stops the command first, or suspends past the lock (`systemctl suspend -i`).
 - A Linux machine without systemd keeps sleeping on its idle timer. A mechanism for it is its own issue, when someone needs one.
 
 ## Alternatives considered
