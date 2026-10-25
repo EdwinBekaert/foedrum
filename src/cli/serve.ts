@@ -14,7 +14,7 @@ import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
-import type { BranchPush } from '../engine/pull-request-actions.ts';
+import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { GitHubRateLimited } from '../github/client.ts';
@@ -24,6 +24,7 @@ import type { ExecProcess } from '../platform/processes.ts';
 import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
+import { mergeTreeSupported } from '../workspace/merge-tree-git.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
@@ -171,6 +172,40 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
   }
 };
 
+/**
+ * The repositories whose open pull requests each intake pass checks against their base (ADR 0198):
+ * every one, when the shell can merge-tree and git is 2.38 or later, read once here; else none,
+ * and one line says why.
+ */
+const baseChecks = async (
+  setup: ServeSetup,
+  shell: ServeShell,
+  pushes: readonly PullRequestRepository[],
+  say: (line: string) => void,
+): Promise<BaseCheckRepository[]> => {
+  const { mergeTree } = shell;
+  if (mergeTree === undefined) return [];
+  if (!(await mergeTreeSupported(shell.git, setup.workRoot, shell.signal))) {
+    say(
+      'git is older than 2.38, which merge-tree --write-tree needs: open pull requests are not checked against a base that moved (ADR 0198)',
+    );
+    return [];
+  }
+  return pushes.flatMap(({ repo, base, push }) => {
+    const repository = setup.repositories.find((each) => each.repo === repo);
+    return repository === undefined
+      ? []
+      : [
+          {
+            repo,
+            base,
+            tip: (name, signal) => push.baseTip(name, signal),
+            mergeTree: mergeTree(repository),
+          },
+        ];
+  });
+};
+
 /** Runs the Cellar until `shell.signal` aborts; the exit code: 0 stopped, 1 failed. */
 export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
@@ -187,12 +222,18 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   const opened: Opened = { lock };
   let polling: Promise<void> | undefined;
   try {
-    const { store, driver, reads, claims, claimant } = await wireDriver(setup, shell, opened, {
-      // The Cellar takes every free batch (ADR 0044).
-      takes: () => true,
-      say,
-      report: (notice) => say(formatNotice(notice)),
-    });
+    const { store, driver, reads, claims, claimant, pushes } = await wireDriver(
+      setup,
+      shell,
+      opened,
+      {
+        // The Cellar takes every free batch (ADR 0044).
+        takes: () => true,
+        say,
+        report: (notice) => say(formatNotice(notice)),
+      },
+    );
+    const bases = await baseChecks(setup, shell, pushes, say);
     // GitHub's rate limit holds requests until then: no pass starts before it (ADR 0052).
     let pausedUntil = 0;
     const intake = createIntake({
@@ -213,6 +254,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         say(formatIntakeNotice(notice));
       },
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
+      bases,
     });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).
     let nextPoll = Number.NEGATIVE_INFINITY;
