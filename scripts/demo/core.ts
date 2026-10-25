@@ -37,7 +37,6 @@ export const recipeText = (): string =>
     {
       name: RECIPE,
       description: 'Quick fix in one repository, test-first, tasted through three lenses at once',
-      budget: { minutes: 30 },
       steps: [
         { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
         {

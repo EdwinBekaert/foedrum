@@ -4,7 +4,6 @@
   "name": "nip",
   "description": "Quick fix in one repository",
   "match": { "labels": ["quick-fix"] },
-  "budget": { "minutes": 30 },
   "steps": [
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
     {

@@ -162,7 +162,7 @@ describe('loadRecipes: a recipe of brewer steps in a line', () => {
   });
 
   it('ignores the recipe settings the engine has no use for yet', () => {
-    const fields = { match: { labels: ['feature'] }, budget: { minutes: 60 }, testFirst: false };
+    const fields = { match: { labels: ['feature'] }, testFirst: false };
     const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });
     assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
   });
@@ -177,11 +177,20 @@ describe('loadRecipes: fails closed', () => {
   });
 
   it('says in one line why a recipe does not pass its schema', () => {
-    const fields = { budget: { minutes: 0 } };
+    const fields = { match: { labels: [] } };
     const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });
     const [problem, ...rest] = problemsOf(files);
     assert.deepEqual(rest, []);
-    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*budget\.minutes/);
+    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*match\.labels/);
+    assert.doesNotMatch(problem ?? '', /\n/);
+  });
+
+  it('refuses a recipe that still has a budget, saying the field is gone (ADR 0194)', () => {
+    const fields = { budget: { minutes: 30 } };
+    const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });
+    const [problem, ...rest] = problemsOf(files);
+    assert.deepEqual(rest, []);
+    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*a recipe has no "budget" any more/);
     assert.doesNotMatch(problem ?? '', /\n/);
   });
 

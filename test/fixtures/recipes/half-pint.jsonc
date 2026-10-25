@@ -4,7 +4,6 @@
   "name": "half-pint",
   "description": "Small feature in one repository",
   "match": { "labels": ["feature"] },
-  "budget": { "minutes": 60 },
   "testFirst": true,
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },
