@@ -30,7 +30,7 @@ A **safeguard** here is a new mechanism whose only job is to stop or catch somet
 
 ## Leave to other lenses
 
-Whether code is correct (correctness); whether a risk exists (security); portability (cross-platform); naming and documented decisions (design conformance); test strength (test design). Style is out of scope for every lens.
+Whether code is correct (correctness); whether a risk exists (security); portability (cross-platform); naming and documented decisions (design conformance); test strength (test design); whether the change builds what its order asked for (acceptance). Style is out of scope for every lens.
 
 ## Reporting
 

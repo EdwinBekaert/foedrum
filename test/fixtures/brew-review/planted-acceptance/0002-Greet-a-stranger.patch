@@ -1,0 +1,38 @@
+From b7a8a08b6497652153a6cf0200424e360f24a896 Mon Sep 17 00:00:00 2001
+From: Sample <sample@example.test>
+Date: Sun, 25 Oct 2026 20:46:28 +0100
+Subject: [PATCH 2/2] Greet a stranger
+
+---
+ greet.mjs      | 6 +++++-
+ greet.test.mjs | 4 ++++
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/greet.mjs b/greet.mjs
+index 69c66f0..5855f4c 100644
+--- a/greet.mjs
++++ b/greet.mjs
+@@ -1,3 +1,7 @@
+ export function greet(name) {
+-  return 'Hello, ' + name + '!';
++  return 'Hello, ' + (name === '' ? 'stranger' : name) + '!';
++}
++
++export function farewell(name) {
++  return 'Goodbye, ' + (name === '' ? 'stranger' : name) + '!';
+ }
+diff --git a/greet.test.mjs b/greet.test.mjs
+index 38ce7b6..90991d3 100644
+--- a/greet.test.mjs
++++ b/greet.test.mjs
+@@ -5,3 +5,7 @@ import { greet } from './greet.mjs';
+ test('greets a visitor by name', () => {
+   assert.equal(greet('Ann'), 'Hello, Ann!');
+ });
++
++test('greets a stranger when no name is given', () => {
++  assert.equal(greet(''), 'Hello, stranger!');
++});
+-- 
+2.56.0.windows.2
+

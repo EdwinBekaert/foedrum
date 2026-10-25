@@ -55,7 +55,6 @@ const tasting = (lens: string, file: string, line: number, why: string): Scripte
  */
 export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   ...NIP_SCRIPT,
-  correctness: NIP_SCRIPT.taste ?? [],
   security: [
     tasting(
       'diff/security',

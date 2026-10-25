@@ -28,7 +28,7 @@ Review the change for code that does the wrong thing, or that can stop doing any
 
 ## Leave to other lenses
 
-Injection, secrets and permissions (security); paths, process spawning and line endings across operating systems (cross-platform); naming, documented decisions and dependency policy (design conformance); the tests themselves: whether they would catch a bug, which behaviours and error paths they leave untested, and their speed (test design); whether a new safeguard is needed or already done elsewhere (necessity). Review the code under test, not its tests. Style is out of scope for every lens.
+Injection, secrets and permissions (security); paths, process spawning and line endings across operating systems (cross-platform); naming, documented decisions and dependency policy (design conformance); the tests themselves: whether they would catch a bug, which behaviours and error paths they leave untested, and their speed (test design); whether a new safeguard is needed or already done elsewhere (necessity); whether the change builds what its order asked for (acceptance). Review the code under test, not its tests. Style is out of scope for every lens.
 
 ## Reporting
 

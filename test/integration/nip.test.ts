@@ -201,13 +201,19 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
 
   // The red proof read the Gauger's test red, the first green check failed and sent the batch
   // back to the Cellarman, and the second one passed.
+  // Nip's two Tasters run side by side, so either may finish first: compared in the recipe's order
+  // (ADR 0197).
+  const tasters = ['correctness', 'acceptance'];
   const outcomes = events.flatMap((event) =>
     event.type === 'step.finished'
       ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
       : [],
   );
+  const first = outcomes.findIndex((line) => tasters.some((id) => line.startsWith(`${id}#`)));
+  const group = outcomes.slice(first, first + tasters.length);
+  const tasted = tasters.map((id) => group.find((line) => line.startsWith(`${id}#`)));
   assert.deepEqual(
-    outcomes,
+    [...outcomes.slice(0, first), ...tasted, ...outcomes.slice(first + tasters.length)],
     [
       'gauge#1 succeeded',
       'red#1 succeeded',
@@ -217,7 +223,8 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
       'implement#2 succeeded',
       'fine#2 succeeded',
       'green#2 succeeded',
-      'taste#1 succeeded',
+      'correctness#1 succeeded',
+      'acceptance#1 succeeded',
       'open-pull-request#1 succeeded',
     ],
     dump,
@@ -248,12 +255,20 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
   // The bottle branch: the Gauger's test, then the Cellarman's two fixes.
   assert.equal(pull?.base, 'main');
   assert.equal(pull?.title, NIP_ORDER.title);
-  // The Taster's advisory finding, in the pull request it did not hold up (ADR 0161).
+  // The Tasters' advisory finding and approval, in the pull request they did not hold up (ADR
+  // 0161, ADR 0197).
   assert.match(
     pull?.body ?? '',
-    /taste: One minor finding through diff\/correctness\.\n {2}verdict: approve\n {2}finding: minor in greet\.mjs:2: a name of only spaces/,
+    /acceptance: Both items of What to build are built: [^\n]*\n {2}verdict: approve/,
   );
-  assert.match(comments[0]?.body ?? '', /\*\*Findings\*\*\n- `taste`: minor in greet\.mjs:2: /);
+  assert.match(
+    pull?.body ?? '',
+    /correctness: One minor finding through diff\/correctness\.\n {2}verdict: approve\n {2}finding: minor in greet\.mjs:2: a name of only spaces/,
+  );
+  assert.match(
+    comments[0]?.body ?? '',
+    /\*\*Findings\*\*\n- `correctness`: minor in greet\.mjs:2: /,
+  );
   const gitDir = join(scratch, 'web.git');
   const log = await run(scratch, [
     '--git-dir',
@@ -304,6 +319,13 @@ describe('the Nip recipe end to end', () => {
     assert.doesNotMatch(promptOf(1), FAILED_READING);
     assert.match(promptOf(2), ROUTE);
     assert.match(promptOf(2), FAILED_READING);
+
+    // The acceptance Taster is given the order's checklist, which only the issue holds, and its
+    // lens (ADR 0197).
+    const acceptance =
+      prompts.get(attemptKey.encode({ batchId: BATCH, stepId: 'acceptance', attempt: 1 })) ?? '';
+    assert.match(acceptance, /- \[ \] a test pins it down/);
+    assert.match(acceptance, /# Lens: acceptance/);
   });
 });
 
@@ -367,11 +389,13 @@ describe('the Nip recipe end to end with the real claude', {
     api = await startFakeMessagesApi((body) => {
       if (body.includes('# Gauger')) return [probe, ...brew('gauge', 1, 'gauge.md')];
       if (body.includes('# Taster')) {
-        const [scripted] = NIP_SCRIPT.taste ?? [];
+        // Nip's two Tasters, told apart by the lens in their prompt (ADR 0197).
+        const lens = body.includes('# Lens: acceptance') ? 'acceptance' : 'correctness';
+        const [scripted] = NIP_SCRIPT[lens] ?? [];
         assert.ok(scripted !== undefined);
         const content = scriptedOutDoc(scripted);
         // The Taster's only rule that writes is Edit on its out doc, so Edit makes the file.
-        const file_path = join(worktree('taste', 1), 'taste.md');
+        const file_path = join(worktree(lens, 1), 'taste.md');
         return [{ name: 'Edit', input: { file_path, old_string: '', new_string: content } }];
       }
       if (body.includes('# Finer')) {

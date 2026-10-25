@@ -39,7 +39,7 @@ Review the tests in the change, and the existing tests that run the code it chan
 
 ## Leave to other lenses
 
-Bugs in the code under test (correctness); test paths and temporary directories across operating systems (cross-platform); whether the test commit came before the implementation, and test conventions the repository writes down that are not about test strength (design conformance); whether a new safeguard is needed or already done elsewhere (necessity). Style is out of scope for every lens.
+Bugs in the code under test (correctness); test paths and temporary directories across operating systems (cross-platform); whether the test commit came before the implementation, and test conventions the repository writes down that are not about test strength (design conformance); whether a new safeguard is needed or already done elsewhere (necessity); whether the change builds what its order asked for (acceptance). Style is out of scope for every lens.
 
 ## Reporting
 

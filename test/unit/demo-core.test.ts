@@ -185,8 +185,11 @@ describe('the demo Brewery', () => {
     for (const child of ['correctness', 'security', 'test-design']) {
       assert.equal(ready.setup.brewers.find('nip-parallel', child)?.brewer.name, 'taster', child);
     }
-    // Nip in Foedrum's defaults stays as it is: one Taster's step in a line.
-    assert.equal(ready.setup.recipes.find('nip')?.children('taste'), undefined);
+    // Nip in Foedrum's defaults keeps its own group of two lenses (ADR 0197).
+    assert.deepStrictEqual(ready.setup.recipes.find('nip')?.children('taste'), [
+      'correctness',
+      'acceptance',
+    ]);
   });
 
   it('files the order foedrum brew brews unlabelled, so the Cellar leaves it', () => {
