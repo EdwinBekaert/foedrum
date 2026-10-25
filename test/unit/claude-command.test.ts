@@ -137,4 +137,13 @@ describe('resumeArgs', () => {
       /claude session id is not valid/,
     );
   });
+
+  // ADR 0183: the CLI reference says the system prompt flags work in an interactive session too.
+  it("passes the attempt's system prompt file last, when it has one", () => {
+    const file = '/work/attempt-settings/12-1/plan/1.system.md';
+    const args = resumeArgs({ ...call, appendSystemPromptFile: file });
+    assert.deepEqual(args.slice(-2), ['--append-system-prompt-file', file]);
+    assert.deepEqual(args.slice(0, -2), resumeArgs(call));
+    assert.ok(!resumeArgs(call).includes('--append-system-prompt-file'));
+  });
 });
