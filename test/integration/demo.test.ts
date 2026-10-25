@@ -99,7 +99,7 @@ describe('npm run demo', () => {
     const brew = part('brew');
     assert.ok(brew.includes(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}\n`), brew);
     assert.match(brew, /foedrum brew: ordered #2 as batch 2-1/);
-    assert.match(brew, /foedrum brew: routed batch 2-1 to the recipe nip/);
+    assert.match(brew, /foedrum brew: routed batch 2-1 to the recipe nip-parallel$/m);
     assert.match(
       brew,
       /foedrum brew: batch 2-1 is on tap: https:\/\/github\.com\/demo\/web\/pull\/\d+/,
@@ -146,7 +146,15 @@ describe('npm run demo', () => {
         ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
         : [],
     );
-    assert.deepStrictEqual(outcomes, [
+    // The three lens attempts run side by side, so they may end in any order.
+    const lensOutcome = /^(?:correctness|security|test-design)#/;
+    const firstLens = outcomes.findIndex((outcome) => lensOutcome.test(outcome));
+    const inOrder = [
+      ...outcomes.slice(0, firstLens),
+      ...outcomes.slice(firstLens, firstLens + 3).sort(),
+      ...outcomes.slice(firstLens + 3),
+    ];
+    assert.deepStrictEqual(inOrder, [
       'gauge#1 failed',
       'gauge#2 succeeded',
       'red#1 succeeded',
@@ -156,9 +164,34 @@ describe('npm run demo', () => {
       'implement#2 succeeded',
       'fine#2 succeeded',
       'green#2 succeeded',
-      'taste#1 succeeded',
+      ...['correctness', 'security', 'test-design'].map((lens) => `${lens}#1 succeeded`),
       'open-pull-request#1 succeeded',
     ]);
+    // The parallel group's three lens attempts all started before any of them ended (ADR 0168).
+    const lenses = new Set(['correctness', 'security', 'test-design']);
+    const group = events.flatMap((event) =>
+      (event.type === 'step.started' || event.type === 'step.finished') &&
+      event.batchId === '1-1' &&
+      lenses.has(event.stepId)
+        ? [event.type]
+        : [],
+    );
+    assert.deepStrictEqual(group.slice(0, 3), ['step.started', 'step.started', 'step.started']);
+    assert.equal(group.length, 6, JSON.stringify(group));
+    // While they brewed, foedrum status showed the three of them at once.
+    assert.match(
+      part('checks'),
+      /brewing +correctness #1 started, security #1 started, test-design #1 started/,
+    );
+    // The status comment's path line has the three side by side, and each one's findings show
+    // under its own step.
+    const comment = host.comments(BREWERY, ORDER.number)[0]?.body ?? '';
+    assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
+    assert.match(
+      comment,
+      /`green #2` ✅ → `correctness #1` ✅ → `security #1` ✅ → `test-design #1` ✅ → `open-pull-request #1` ✅/,
+    );
+    for (const lens of lenses) assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
     assert.ok(
       events.some((event) => event.type === 'batch.on_tap' && event.batchId === '2-1'),
       JSON.stringify(events),

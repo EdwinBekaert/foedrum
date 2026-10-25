@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { join, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
@@ -23,6 +24,7 @@ import {
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import type { BreweryFile, BreweryFiles } from '../../src/engine/recipe-files.ts';
+import { parseJsonc } from '../../src/formats/jsonc.ts';
 import type { Event } from '../../src/schemas/events.ts';
 
 const root = resolve('/repo/.claude/worktrees/193-demo');
@@ -136,17 +138,52 @@ describe('the demo Brewery', () => {
     assert.equal(ready.kind, 'ready', JSON.stringify(ready));
   });
 
-  it("routes the order to Nip from Foedrum's defaults, whose Gauger gets a second attempt after the crash", () => {
-    const { files, ready } = demo(
-      readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults,
-    );
-    assert.equal(ready.kind, 'ready');
+  it("routes the order to the demo's own recipe, whose Gauger from Foedrum's defaults gets a second attempt after the crash", () => {
+    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    assert.equal(ready.kind, 'ready', JSON.stringify(ready));
     if (ready.kind !== 'ready') return;
-    assert.deepStrictEqual(ORDER.labels, ['recipe:nip']);
-    assert.ok(ready.setup.recipes.find('nip') !== undefined);
-    assert.ok(!Object.keys(files).some((path) => path.startsWith('recipes/')));
-    const gauger = ready.setup.brewers.find('nip', 'gauge')?.brewer;
+    assert.deepStrictEqual(ORDER.labels, ['recipe:nip-parallel']);
+    assert.ok(ready.setup.recipes.find('nip-parallel') !== undefined);
+    const gauger = ready.setup.brewers.find('nip-parallel', 'gauge')?.brewer;
     assert.ok((gauger?.maxAttempts ?? 1) >= 2, JSON.stringify(gauger));
+  });
+
+  it("holds a recipe of Nip's steps with its taste step a parallel group of three lens steps (ADR 0168)", () => {
+    const { files } = demo();
+    const recipe = parseJsonc(files['recipes/nip-parallel.jsonc'] ?? '{}') as {
+      name?: string;
+      steps?: unknown[];
+    };
+    const nip = parseJsonc(
+      readFileSync(join(FOEDRUM_DEFAULTS, 'recipes', 'nip.jsonc'), 'utf8'),
+    ) as {
+      steps: { id?: string }[];
+    };
+    assert.equal(recipe.name, 'nip-parallel');
+    const group = {
+      id: 'taste',
+      parallel: [
+        { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+        { id: 'security', brewer: 'taster', lens: 'diff/security' },
+        { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
+      ],
+    };
+    assert.deepStrictEqual(
+      recipe.steps,
+      nip.steps.map((step) => (step.id === 'taste' ? group : step)),
+    );
+  });
+
+  it("loads the group with its three children in Nip's place of the taste step", () => {
+    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    if (ready.kind !== 'ready') assert.fail(JSON.stringify(ready));
+    const recipe = ready.setup.recipes.find('nip-parallel');
+    assert.deepStrictEqual(recipe?.children('taste'), ['correctness', 'security', 'test-design']);
+    for (const child of ['correctness', 'security', 'test-design']) {
+      assert.equal(ready.setup.brewers.find('nip-parallel', child)?.brewer.name, 'taster', child);
+    }
+    // Nip in Foedrum's defaults stays as it is: one Taster's step in a line.
+    assert.equal(ready.setup.recipes.find('nip')?.children('taste'), undefined);
   });
 
   it('files the order foedrum brew brews unlabelled, so the Cellar leaves it', () => {
