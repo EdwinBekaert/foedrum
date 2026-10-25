@@ -145,6 +145,20 @@ const nodeChecks = (scripts: Json): Record<CheckName, string | null> =>
     ]),
   ) as Record<CheckName, string | null>;
 
+/**
+ * The rules that let a brewer run a Node repository's checks, in the shapes the default Cellarman
+ * runs them: each script, lint with `--write` on the files it changed, and one test file at a time
+ * (ADR 0163, ADR 0199).
+ */
+const nodeTools = (checks: Record<string, string | null>): string[] =>
+  CheckName.options.flatMap((check) => {
+    if (checks[check] === null) return [];
+    const script = `Bash(npm run ${check})`;
+    if (check === 'lint') return [script, 'Bash(npm run lint -- --write *)'];
+    if (check === 'test') return [script, 'Bash(node --test *)'];
+    return [script];
+  });
+
 /** A repository's `package.json` scripts, `undefined` when it has no package.json that reads. */
 const scriptsOf = (packageJson: string | undefined): Json | undefined => {
   if (packageJson === undefined) return undefined;
@@ -190,6 +204,8 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     }
   };
 
+  // The files written or changed, said before doctor's report.
+  const written: string[] = [];
   try {
     const login = await ports.login();
     const config = readObject(files.read('foedrum.jsonc'));
@@ -282,12 +298,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
         checks = nodeChecks(scripts);
       }
       // A brewer runs a Node repository's checks itself before it commits (ADR 0163).
-      const tools =
-        scripts === undefined
-          ? []
-          : Object.values(checks).flatMap((command) =>
-              command === null ? [] : [`Bash(${command})`],
-            );
+      const tools = scripts === undefined ? [] : nodeTools(checks);
       for (const tool of tools) if (!ceiling.includes(tool)) ceiling.push(tool);
       repositories[repo] = {
         alias,
@@ -328,6 +339,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     for (const plan of plans) {
       if (plan.changes === undefined) {
         files.write(plan.path, plan.text);
+        written.push(plan.path);
         say(`Wrote ${plan.path}`);
         continue;
       }
@@ -341,6 +353,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       if (answer === undefined) throw new NoAnswer(`Change ${plan.path}?`);
       if (/^y(?:es)?$/i.test(answer.trim())) {
         files.write(plan.path, plan.text);
+        written.push(plan.path);
         say(`Changed ${plan.path}`);
       } else {
         say(`Kept ${plan.path}`);
@@ -353,6 +366,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     throw error;
   }
 
+  say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
   const { ok, report } = await ports.doctor();
   say(report.trimEnd());
   say('');

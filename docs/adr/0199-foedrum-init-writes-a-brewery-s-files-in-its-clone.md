@@ -27,7 +27,7 @@ Whether the repository is private or public is asked by #512, which creates it: 
 
 ### What it writes
 Every file is built whole, checked against its schema, and only then written; a file that would not pass is a bug, and refuses the command with the schema's message, before anything is written.
-- **`foedrum.jsonc`** (`BreweryConfig`): `brewery`, `users` with the login, `concurrency` 1, and per target repository its `alias`, `intake` with the label `foedrum:brew`, `source` `managed` (Foedrum's branches and worktrees never land in the user's own clone, ADR 0012), `base`, `checks` and `setup`; for Node, each check as a `tools` rule `Bash(<command>)`, so a brewer can run the checks before it commits (ADR 0163), and the `permissionCeiling` the union of those rules ([ADR 0026](0026-how-a-permission-ceiling-covers-a-rule.md)). Keys the file already has and init does not ask about are kept.
+- **`foedrum.jsonc`** (`BreweryConfig`): `brewery`, `users` with the login, `concurrency` 1, and per target repository its `alias`, `intake` with the label `foedrum:brew`, `source` `managed` (Foedrum's branches and worktrees never land in the user's own clone, ADR 0012), `base`, `checks` and `setup`; for Node, `tools` in the shapes the default Cellarman runs (ADR 0163, `docs/design/recipes/configuration.md`): `Bash(npm run <script>)` for each check script found, with `Bash(npm run lint -- --write *)` for lint and `Bash(node --test *)` for test, all within `Bash(npm run *)` and `Bash(node --test *)`, and the `permissionCeiling` the union of those rules ([ADR 0026](0026-how-a-permission-ceiling-covers-a-rule.md)). Keys the file already has and init does not ask about are kept.
 - **`models.jsonc`** (`ModelsConfig`): no aliases of its own, so every alias is Foedrum's default ([ADR 0153](0153-foedrum-s-defaults-map-their-own-model-aliases.md)), with a comment that says how to map one.
 - **`.gitignore`**: a line `.foedrum/`, the event store and the machine's own files (ADR 0063), added to the lines already there.
 - **`.claude/settings.json`** (`BreweryClaudeSettings`, the keys init writes): `"enabledPlugins": { "foedrum@foedrum": true }`, merged into the settings already there.
@@ -38,7 +38,11 @@ Every file is built whole, checked against its schema, and only then written; a 
 - So a second run, with the same answers, lists nothing to change and writes nothing; with other answers it lists exactly what they change.
 - A `foedrum.jsonc` or `.claude/settings.json` that does not read as JSON(C) is named with its reason, and replacing it is asked as for any change.
 
+### What a brewer may run
+The Node `tools` let a brewer run the repository's scripts and test files, which it can edit, so they run code it may have written. On native Windows, where the isolation level is permissions only (ADR 0010), that is the exposure check steps already have, now a default for every Brewery init writes; at the sandboxed level, the sandbox holds it, as for every brewer command.
+
 ### At the end
+- It says which files it wrote or changed (`Written: …`, or `Written: none`), so a failing doctor never reads as if nothing happened.
 - It runs `foedrum doctor` in the clone and shows its report; init's exit code is doctor's, so a machine that is not ready yet ends in 1 after the files are written.
 - It prints the two commands each machine runs once for the plugin: `claude plugin marketplace add EdwinBekaert/foedrum` and `claude plugin install foedrum@foedrum --scope project`.
 
