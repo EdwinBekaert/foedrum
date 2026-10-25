@@ -742,6 +742,7 @@
               "const": true
             },
             "costUsd": {
+              "description": "Recorded before ADR 0181, and never read",
               "type": "number",
               "minimum": 0
             },
@@ -776,6 +777,7 @@
                     "maximum": 9007199254740991
                   },
                   "costUsd": {
+                    "description": "Recorded before ADR 0181, and never read",
                     "type": "number",
                     "minimum": 0
                   }
@@ -785,8 +787,7 @@
                   "inputTokens",
                   "outputTokens",
                   "cacheReadTokens",
-                  "cacheWriteTokens",
-                  "costUsd"
+                  "cacheWriteTokens"
                 ],
                 "additionalProperties": false
               }
