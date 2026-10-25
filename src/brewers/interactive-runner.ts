@@ -33,6 +33,7 @@ import {
   clearOutDocFile,
   type OutDocRead,
   readOutDocFile,
+  scannedIfDone,
   setUpFor,
   writeSystemPromptFile,
 } from './claude-runner.ts';
@@ -211,7 +212,16 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
                 );
       }
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return { ending: settleAttempt(facts, limits), ...outDoc, ...readings };
+      // Scanned for secrets on the attempt's branch, as for every run (ADR 0187).
+      const ending = await scannedIfDone(
+        deps.scan,
+        settleAttempt(facts, limits),
+        facts,
+        limits,
+        plan,
+        new AbortController().signal,
+      );
+      return { ending, ...outDoc, ...readings };
     };
 
     const ended = run().finally(() => headless.delete(key));

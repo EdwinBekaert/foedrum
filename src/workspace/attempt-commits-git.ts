@@ -1,9 +1,10 @@
 // The commits an attempt made (ADR 0074), the shell: git in the clone the attempt's worktree was
 // added to, asked whether the commit it started at is still an ancestor of the attempt's branch
-// and how many commits lie after it. Git runs only through the injected `Git`, so unit tests pass
-// a fake one (ADR 0021).
+// and how many commits lie after it, and what the push's secret scan finds in them (ADR 0187). Git
+// runs only through the injected `Git`, so unit tests pass a fake one (ADR 0021).
 
 import type { CommitsScanned, CommitsSeen } from '../engine/brewer-runner.ts';
+import { openBranchPush } from './branch-push-git.ts';
 import { inClone } from './clone-git.ts';
 import type { Git, GitResult } from './git.ts';
 
@@ -70,7 +71,18 @@ export type ScanCommits = (
 ) => Promise<CommitsScanned>;
 
 export const scanAttemptCommits =
-  (_shared: Git): ScanCommits =>
-  async () => {
-    throw new Error('not implemented');
+  (shared: Git): ScanCommits =>
+  async (clone, branch, since, signal) => {
+    if (!SHA.test(since)) return { kind: 'unscanned', reason: `${since} is no full commit sha` };
+    if (!ATTEMPT_BRANCH.test(branch)) {
+      return { kind: 'unscanned', reason: `${JSON.stringify(branch)} is no attempt branch` };
+    }
+    // The push's own scan, in the clone, with git reading the objects as committed (ADR 0079).
+    const push = openBranchPush({ git: shared, clone });
+    try {
+      const tip = await push.commit(`refs/heads/${branch}`, signal);
+      return { kind: 'scanned', findings: await push.secretScan(since, tip, signal) };
+    } catch (error) {
+      return { kind: 'unscanned', reason: error instanceof Error ? error.message : String(error) };
+    }
   };
