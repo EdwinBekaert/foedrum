@@ -53,7 +53,7 @@ describe('npm run demo', () => {
     const result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
-      // Only a guard against a hang (ADR 0075): two Nip runs of seven attempts each.
+      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe.
       timeoutMs: 10 * hangGuardMs,
     });
     assert.equal(result.exitCode, 0, result.output);

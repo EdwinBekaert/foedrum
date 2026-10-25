@@ -1,6 +1,6 @@
 # 0185. `npm run demo` tastes through a parallel group of three lenses
 
-Date: 2026-10-25 · Status: Accepted · Amends [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md) (the recipe the demo brews with, and what its Taster's script plays)
+Date: 2026-10-25 · Status: Accepted · Amends [0139](0139-npm-run-demo-brews-with-nip-and-shows-foedrum-brew-and-foedrum-resume.md) (the recipe the demo brews with, and what its Taster's script plays) and [0121](0121-the-m1-end-to-end-test-runs-nip-through-serve-with-real-git-and-checks-and-faked-github-and-brewers.md) (`scriptedNip` takes its script as an option and writes the out doc its limits name)
 
 ## Context
 Since [ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) a recipe can run Tasters' lens steps side by side in a `parallel` group, but `npm run demo` never shows it: it brews with Nip from `defaults/`, which tastes through one lens (ADR 0161).
