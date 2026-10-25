@@ -396,6 +396,52 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.match(prompt, LATER_ROUND);
   });
 
+  for (const verdict of ['approve', 'changes']) {
+    it(`gives a round after one that succeeded with the verdict ${verdict} the change since it, as a group child sent back by a sibling (ADR 0196)`, async () => {
+      const reviewed: StepOutcome = {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Tasted', assumptions: [], verdict, findings: [] },
+      };
+      const events = ROUND_TWO.map((event) =>
+        event.type === 'step.finished' && event.stepId === 'tasting' && event.attempt === 1
+          ? { ...event, outcome: reviewed }
+          : event,
+      );
+      const { prompt } = await planRound(events, 2);
+      assert.ok(prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`));
+      assert.ok(
+        prompt.includes(
+          `An earlier round of this step, tasting#1, reviewed the change up to commit ${ROUND1}.`,
+        ),
+      );
+      assert.match(prompt, LATER_ROUND);
+    });
+  }
+
+  it('gives a lens that runs again after a check sent the batch back past it the change since its round (ADR 0196)', async () => {
+    const approved: StepOutcome = {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Tasted', assumptions: [], verdict: 'approve' },
+    };
+    // Round 1 approved; a later check's onFail route went back to implement, past it.
+    const events: Event[] = [
+      ...ROUND_ONE,
+      { type: 'step.finished', ...at('tasting', 1), outcome: approved },
+      {
+        type: 'step.scheduled',
+        ...at('implement', 2),
+        deadlineAt: DEADLINE,
+        route: { from: 'green', why: 'failed' },
+      },
+      started('implement', 2, ROUND1),
+      succeeded('implement', 2),
+      { type: 'step.scheduled', ...at('tasting', 2), deadlineAt: DEADLINE },
+      started('tasting', 2, HEAD),
+    ];
+    const { prompt } = await planRound(events, 2);
+    assert.ok(prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`));
+  });
+
   for (const [why, outcome] of [
     [
       'succeeded without a verdict',
