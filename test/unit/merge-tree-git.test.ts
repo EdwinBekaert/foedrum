@@ -103,15 +103,15 @@ describe('mergeTreeSupported', () => {
     (result: GitResult): Git =>
     async () =>
       result;
-  it('is true from git 2.38 on, and false before it or when git does not answer', async () => {
-    const cases: [GitResult, boolean][] = [
+  it('is true from git 2.38 on, false before it, and unknown when git names no version', async () => {
+    const cases: [GitResult, boolean | undefined][] = [
       [ok('git version 2.38.0\n'), true],
       [ok('git version 2.56.0.windows.2\n'), true],
       [ok('git version 3.0.1\n'), true],
       [ok('git version 2.37.9\n'), false],
       [ok('git version 2.31.0\n'), false],
-      [exited(1, '', 'not git'), false],
-      [ok('something else'), false],
+      [exited(1, '', 'not git'), undefined],
+      [ok('something else'), undefined],
     ];
     for (const [result, supported] of cases) {
       assert.equal(await mergeTreeSupported(answering(result), clone), supported, result.stdout);

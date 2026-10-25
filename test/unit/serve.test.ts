@@ -486,6 +486,30 @@ describe('runServe', () => {
     });
   }
 
+  it("says that git's version could not be read, not that git is too old, when git names none (ADR 0198)", async () => {
+    const code = await runServe(
+      setup,
+      shell({
+        mergeTree: () => async () => assert.fail('no pull request is open'),
+        git: async (_cwd, args) => {
+          if (args[0] === '--version') return { code: null, stdout: '', stderr: '' };
+          throw new Error('no red proof or guarded step runs here');
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.ok(
+      lines.includes(
+        "foedrum serve: git's version could not be read: open pull requests are not checked against a base that moved (ADR 0198)",
+      ),
+      lines.join('\n'),
+    );
+    assert.equal(
+      lines.some((line) => line.includes('older than 2.38')),
+      false,
+    );
+  });
+
   it('refuses a second Cellar, opening nothing', async () => {
     const running = new DriverRunningError('cellar', 'drivers/cellar.lock', undefined);
     const code = await runServe(
