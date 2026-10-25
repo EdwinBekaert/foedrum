@@ -2,7 +2,7 @@
 // second on a terminal, read from the Brewery's store as `foedrum status` reads it.
 
 import type { Batch, State } from '../engine/fold.ts';
-import { elapsed, runningAttempts } from './brew.ts';
+import { elapsed, fit, runningAttempts } from './brew.ts';
 import { columns } from './columns.ts';
 import type { BoardTerminal } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
@@ -23,22 +23,11 @@ export interface WatchShell {
 
 /** How often the board is redrawn. */
 const REDRAW_MS = 1000;
-/** The width of a terminal that does not say. */
-const UNKNOWN_COLUMNS = 80;
 
 const refusal = 'foedrum status --watch needs a terminal; foedrum status prints the batches once';
 
 /** The lanes a batch is live in: On Tap and Cancelled have ended. */
 const isLive = ({ lane }: Batch): boolean => lane.kind !== 'on_tap' && lane.kind !== 'cancelled';
-
-/**
- * `line` in ASCII only (every UTF-16 unit outside U+0020 to U+007E as a `\uXXXX` escape), cut from
- * the end to one character less than the terminal's width (ADR 0174, ADR 0188).
- */
-const fit = (line: string, width: number | undefined): string =>
-  line
-    .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
-    .slice(0, Math.max(0, (width ?? UNKNOWN_COLUMNS) - 1));
 
 /** Draws the board until `shell.signal` aborts, exit code 0; refuses, exit code 1, off a terminal. */
 export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {

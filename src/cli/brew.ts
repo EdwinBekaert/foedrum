@@ -148,19 +148,21 @@ const attemptText = (label: string, ms: number, progress: AttemptProgress | unde
 };
 
 /**
- * The live line: `frame`, the batch's time, then the attempts, in ASCII only (every UTF-16 unit
- * outside U+0020 to U+007E as a `\uXXXX` escape), cut from the end to one character less than the
- * terminal's width (ADR 0174, ADR 0179).
+ * `line` in ASCII only (every UTF-16 unit outside U+0020 to U+007E as a `\uXXXX` escape), cut from
+ * the end to one character less than the terminal's width (ADR 0174, ADR 0179, ADR 0188).
  */
+export const fit = (line: string, columns: number | undefined): string =>
+  line
+    .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    .slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
+
+/** The live line: `frame`, the batch's time, then the attempts, fitted to the terminal. */
 const liveLine = (
   frame: string,
   batchTime: string,
   attempts: readonly string[],
   columns: number | undefined,
-) =>
-  `${frame} ${batchTime} / ${attempts.join(' ; ')}`
-    .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
-    .slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
+) => fit(`${frame} ${batchTime} / ${attempts.join(' ; ')}`, columns);
 
 /** Brews the batch of `request.target` until it stops; the exit code of ADR 0123. */
 export const runBrew = async (
