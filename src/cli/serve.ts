@@ -18,6 +18,7 @@ import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { GitHubRateLimited } from '../github/client.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
+import type { AwakeHold } from '../platform/keep-awake.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
@@ -85,6 +86,8 @@ export interface ServeShell {
   intakeDeadlineMs?: number;
   /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
   intervalMs?: number;
+  /** Holds the machine awake while an attempt runs (ADR 0195); absent, nothing does. */
+  awake?: AwakeHold;
   /** Present only where `brew` keeps a live line (ADR 0174); `serve` never reads it. */
   terminal?: LiveTerminal;
 }
@@ -262,6 +265,10 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     // The pass underway writes to the store until it settles.
     await polling;
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
-    closeOpened(opened);
+    try {
+      closeOpened(opened);
+    } finally {
+      shell.awake?.release();
+    }
   }
 };

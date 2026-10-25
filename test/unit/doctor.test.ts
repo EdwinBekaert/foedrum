@@ -1334,3 +1334,42 @@ describe('diagnose: what keeps a file in use and a mark of a default (ADR 0141)'
     );
   });
 });
+
+describe('formatDiagnosis: keeping the machine awake (ADR 0195)', () => {
+  const report = (keepAwake: DoctorFacts['keepAwake']) =>
+    formatDiagnosis(diagnose({ ...linux(), keepAwake }));
+
+  it('names the mechanism this machine keeps itself awake by while an attempt runs, and its program', () => {
+    assert.match(
+      report({
+        kind: 'systemd-inhibit',
+        program: '/usr/bin/systemd-inhibit',
+        tail: '/usr/bin/tail',
+      }),
+      /\nKeep awake: systemd-inhibit at \/usr\/bin\/systemd-inhibit while an attempt runs \(keepAwake: false turns it off, ADR 0195\)\n/,
+    );
+    assert.match(
+      report({ kind: 'caffeinate', program: '/usr/bin/caffeinate' }),
+      /\nKeep awake: caffeinate at \/usr\/bin\/caffeinate while an attempt runs/,
+    );
+    assert.match(
+      report({
+        kind: 'SetThreadExecutionState',
+        program: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      }),
+      /\nKeep awake: SetThreadExecutionState through C:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe while an attempt runs/,
+    );
+  });
+
+  it('says there is none, and why, without a problem', () => {
+    const facts: DoctorFacts = {
+      ...linux(),
+      keepAwake: { kind: 'none', why: 'no systemd-inhibit on PATH' },
+    };
+    assert.match(
+      formatDiagnosis(diagnose(facts)),
+      /\nKeep awake: none \(no systemd-inhibit on PATH\); the machine may sleep while an attempt runs \(ADR 0195\)\n/,
+    );
+    assert.deepStrictEqual(diagnose(facts).problems, diagnose(linux()).problems);
+  });
+});

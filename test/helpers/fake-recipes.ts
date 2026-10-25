@@ -40,6 +40,13 @@ export const fakeRecipe = ({
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
   const groupOf = (stepId: string): string | undefined =>
     Object.entries(groups).find(([, children]) => children.includes(stepId))?.[0];
+  // As the loaded recipe does, a route counts the attempts of its goto step it scheduled.
+  const roundsOf: Recipe['rounds'] = (batch, stepId, why) => {
+    const goto = routes[stepId]?.[why];
+    if (goto === undefined) return undefined;
+    const attempts = [...(batch.steps.get(goto)?.attempts.values() ?? [])];
+    return attempts.filter(({ route }) => route?.from === stepId && route.why === why).length;
+  };
   return {
     firstStep,
     steps: steps.flatMap((stepId) => groups[stepId] ?? [stepId]),
@@ -63,6 +70,7 @@ export const fakeRecipe = ({
         : { kind: 'done', pullRequests, opens };
     },
     mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
+    rounds: roundsOf,
     loopBack: (_batch, stepId, why) => routes[stepId]?.[why],
   };
 };

@@ -9,11 +9,11 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, parse } from 'node:path';
+import { dirname, join, parse, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import { columns } from '../../src/cli/columns.ts';
-import { resolveExecutable } from '../../src/platform/executables.ts';
+import { environmentVariable, resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecProcess, execProcessWith, processSpawner } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
@@ -89,6 +89,11 @@ const PROMPT_LINES = [
 // doctorHere gives doctor no denylist, so it never reads the user's own (ADR 0114).
 const DENYLIST_LINE =
   'Denylist: none (optional; the local gate reads FOEDRUM_DENYLIST or /made-up/denylist.txt, ADR 0114)';
+// The stubs' PATH has no caffeinate or systemd-inhibit; Windows PowerShell is in System32 (ADR 0195).
+const KEEP_AWAKE_LINE =
+  process.platform === 'win32'
+    ? `Keep awake: SetThreadExecutionState through ${win32.join(environmentVariable(process.env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')} while an attempt runs (keepAwake: false turns it off, ADR 0195)`
+    : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs (ADR 0195)`;
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
 // canned-gh-login.ts. The real tools' output is no longer read here (ADR 0075).
@@ -245,6 +250,7 @@ describe('foedrum doctor with stub tools', () => {
         `Container: podman 5.2.0 at ${at('podman')}; the container level is available`,
         DEFAULTS_LINE,
         DENYLIST_LINE,
+        KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
         'Foedrum has everything it needs.',
@@ -284,6 +290,7 @@ describe('foedrum doctor with stub tools', () => {
         `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
         DEFAULTS_LINE,
         DENYLIST_LINE,
+        KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
         'Problems:',
@@ -332,6 +339,7 @@ describe('foedrum doctor with stub tools', () => {
         `Container: docker 27.3.1 at ${at('docker')}; the container level is available`,
         DEFAULTS_LINE,
         DENYLIST_LINE,
+        KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
         'Foedrum has everything it needs.',

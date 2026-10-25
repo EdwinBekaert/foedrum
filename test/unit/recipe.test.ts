@@ -55,14 +55,28 @@ describe('Recipe', () => {
     assert.deepEqual(step, { id: 'green', check: 'test', expect: 'pass' });
   });
 
-  it('accepts a $schema reference, a match and a budget', () => {
+  it('accepts a $schema reference and a match', () => {
     const value = recipe([plan], {
       $schema: '../.foedrum/schemas/recipe.json',
       match: { labels: ['feature'] },
-      budget: { minutes: 60 },
       testFirst: false,
     });
     assert.equal(accepted(value), true);
+  });
+
+  it('refuses a budget with one line that says the field is gone (ADR 0194)', () => {
+    const result = Recipe.safeParse(recipe([plan], { budget: { minutes: 60 } }));
+    assert.equal(result.success, false);
+    assert.deepEqual(
+      result.error?.issues.map(({ message, path }) => ({ message, path })),
+      [
+        {
+          message:
+            'a recipe has no "budget" any more: remove it, each step\'s deadline, stall limit and attempts bound the batch (ADR 0194)',
+          path: ['budget'],
+        },
+      ],
+    );
   });
 
   const invalid: [string, unknown][] = [
@@ -70,7 +84,6 @@ describe('Recipe', () => {
     ['an unknown field', recipe([plan], { bottling: 'perRepo' })],
     ['a name that is not path-safe', recipe([plan], { name: 'Half Pint' })],
     ['an empty description', recipe([plan], { description: ' ' })],
-    ['a budget of zero minutes', recipe([plan], { budget: { minutes: 0 } })],
     ['a match without labels', recipe([plan], { match: { labels: [] } })],
     ['a testFirst that is not a boolean', recipe([plan], { testFirst: 'yes' })],
     ['an array', [recipe([plan])]],

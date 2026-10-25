@@ -389,3 +389,41 @@ describe('gatherDoctorFacts: the recipe files (ADR 0053)', () => {
     assert.equal('brewery' in (await gatherDoctorFacts(shell)), false);
   });
 });
+
+describe('gatherDoctorFacts: keeping the machine awake (ADR 0195)', () => {
+  it("records this machine's mechanism, found on PATH, running nothing for it", async () => {
+    const { calls, shell } = fakeShell({
+      onPath: { 'systemd-inhibit': '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' },
+      answers: {},
+    });
+    const facts = await gatherDoctorFacts({
+      ...shell,
+      exists: (path) => path === '/run/systemd/system',
+    });
+    assert.deepStrictEqual(facts.keepAwake, {
+      kind: 'systemd-inhibit',
+      program: '/usr/bin/systemd-inhibit',
+      tail: '/usr/bin/tail',
+    });
+    assert.ok(calls.every(({ file }) => !file.endsWith('systemd-inhibit')));
+  });
+
+  it('records none, with why, where the machine has none', async () => {
+    const { shell } = fakeShell();
+    assert.deepStrictEqual((await gatherDoctorFacts(shell)).keepAwake, {
+      kind: 'none',
+      why: 'no systemd-inhibit on PATH',
+    });
+  });
+});
+
+describe('gatherDoctorFacts: systemd that is not running (ADR 0195)', () => {
+  it('records none when systemd is not running, though its programs are on PATH', async () => {
+    const { shell } = fakeShell({
+      onPath: { 'systemd-inhibit': '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' },
+      answers: {},
+    });
+    const facts = await gatherDoctorFacts({ ...shell, exists: () => false });
+    assert.deepStrictEqual(facts.keepAwake, { kind: 'none', why: 'systemd is not running' });
+  });
+});

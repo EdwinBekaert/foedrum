@@ -100,7 +100,7 @@ An engineer drives a batch from a Claude Code session, every action is one typed
 Stability is proven, not claimed: [unit](design/testing/unit.md), [integration](design/testing/integration.md), [fake brewer runner](design/testing/fake-runner.md), [property](design/testing/property.md), [chaos](design/testing/chaos.md) and [end-to-end](design/testing/end-to-end.md) tests.
 
 **[Platform support](design/platform/README.md).**
-Windows, macOS and Linux: [isolation levels](design/platform/isolation.md) and [cross-platform rules for the code](design/platform/cross-platform.md).
+Windows, macOS and Linux: [isolation levels](design/platform/isolation.md), [cross-platform rules for the code](design/platform/cross-platform.md), and [keeping the machine awake](design/platform/keep-awake.md) while an attempt runs.
 
 **[Security model](design/security.md).**
 A brewer reads untrusted text, so it runs as the least trusted part; [`trust-boundaries.md`](trust-boundaries.md) says which mechanism owns each boundary.

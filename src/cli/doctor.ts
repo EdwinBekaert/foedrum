@@ -11,6 +11,7 @@ import {
   loadRecipes,
   replacedDefaults,
 } from '../engine/recipe-files.ts';
+import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig, githubHostOf } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
@@ -51,6 +52,8 @@ export interface DoctorFacts {
   denylist?: DenylistFact | undefined;
   /** On Linux, whether AppArmor restricts unprivileged user namespaces, which bwrap needs (ADR 0076). */
   restrictsUserns?: boolean | undefined;
+  /** How this machine is kept awake while an attempt runs, or why it cannot be (ADR 0195). */
+  keepAwake?: AwakeMechanism | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */
@@ -107,6 +110,8 @@ type ContainerName = 'podman' | 'docker';
 
 export interface Diagnosis {
   tools: readonly ToolLine[];
+  /** How this machine is kept awake while an attempt runs (ADR 0195); never a problem. */
+  keepAwake?: AwakeMechanism;
   isolation: { level: IsolationLevel; why: string };
   /**
    * The container runtime that makes the optional container level possible; one that is on PATH
@@ -683,6 +688,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...(recipes.prompts === undefined ? {} : { prompts: recipes.prompts }),
     ...(recipes.notices === undefined ? {} : { notices: recipes.notices }),
     ...(facts.denylist === undefined ? {} : { denylist: facts.denylist }),
+    ...(facts.keepAwake === undefined ? {} : { keepAwake: facts.keepAwake }),
     ok: problems.every((problem) => !problem.required),
   };
 };
@@ -703,6 +709,24 @@ const denylistLine = (denylist: DenylistFact): string => {
   }
 };
 
+// The machine's way to stay awake while an attempt runs, or why it has none (ADR 0195).
+const keepAwakeLine = (mechanism: AwakeMechanism): string => {
+  const off = 'while an attempt runs (keepAwake: false turns it off, ADR 0195)';
+  switch (mechanism.kind) {
+    case 'SetThreadExecutionState':
+      return `Keep awake: SetThreadExecutionState through ${mechanism.program} ${off}`;
+    case 'caffeinate':
+    case 'systemd-inhibit':
+      return `Keep awake: ${mechanism.kind} at ${mechanism.program} ${off}`;
+    case 'none':
+      return `Keep awake: none (${mechanism.why}); the machine may sleep while an attempt runs (ADR 0195)`;
+    default: {
+      const unknown: never = mechanism;
+      throw new Error(`unknown keep-awake mechanism ${JSON.stringify(unknown)}`);
+    }
+  }
+};
+
 /** The report `foedrum doctor` prints. */
 export const formatDiagnosis = ({
   tools,
@@ -714,6 +738,7 @@ export const formatDiagnosis = ({
   prompts = [],
   notices = [],
   denylist,
+  keepAwake,
   ok,
 }: Diagnosis): string => {
   const lines = [
@@ -747,6 +772,7 @@ export const formatDiagnosis = ({
               })`,
         ]),
     ...(denylist === undefined ? [] : [denylistLine(denylist)]),
+    ...(keepAwake === undefined ? [] : [keepAwakeLine(keepAwake)]),
     '',
   ];
   if (prompts.length > 0) {

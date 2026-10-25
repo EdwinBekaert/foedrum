@@ -4,7 +4,7 @@
 
 import type { GravityReading, Receipt, Usage } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
-import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
+import { type OutDocFrontmatter, readOutDoc, tastingOf } from '../schemas/out-doc.ts';
 import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -330,7 +330,9 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
         frontmatter.verdict === 'changes'
       ) {
         const summary = `the Taster asks for changes: ${frontmatter.summary}`;
-        return { kind: 'blocked', blockerKind: 'findings', summary };
+        // The findings stay open on the Stuck reason when the route has no rounds left (ADR 0192).
+        const findings = tastingOf(frontmatter)?.findings ?? [];
+        return { kind: 'blocked', blockerKind: 'findings', summary, findings };
       }
       if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
       return doneWithCommits(facts.commits, limits.commitsSince, frontmatter);

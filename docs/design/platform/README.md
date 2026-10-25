@@ -6,3 +6,4 @@ Foedrum runs on **Windows, macOS and Linux** ([ADR 0010](../../adr/0010-cross-pl
 |---|---|
 | [Isolation levels](isolation.md) | Sandboxed, permissions only, container; what doctor reports |
 | [Cross-platform rules](cross-platform.md) | Rules for the code: CI, paths, spawning, killing, locks |
+| [Keeping the machine awake](keep-awake.md) | The idle-sleep hold while `brew` or `serve` has an attempt running |

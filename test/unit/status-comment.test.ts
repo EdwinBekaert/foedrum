@@ -28,6 +28,10 @@ const at = '2026-10-18T09:00:00.000Z';
 const token = ['ghp', 'A1b2'.repeat(9)].join('_');
 /** `text` as a regular expression that matches it literally. */
 const escaped = (text: string): string => text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+/** The line left in place of a text of `stepId` that looks like a secret, as shown and as a pattern. */
+const leftOut = (stepId: string) =>
+  `\\[left out: a text of step ${stepId} that looks like a secret\\]`;
+const noToken = (text: string) => assert.doesNotMatch(text, /ghp|A1b2/);
 const pr = 'https://github.com/alice/web/pull/12';
 
 const done = (attempt: number, assumptions: string[] = []): Attempt => ({
@@ -232,6 +236,78 @@ describe('renderStatus', () => {
     assert.match(text, /npm is missing/);
     assert.match(lineOf(text, 'brew'), /🔔/);
     assert.match(text, /`retry`.*`cancel`/);
+  });
+
+  // An event written before ADR 0192, or by a step with no findings route, has no roundsOut.
+  it('shows a findings blocker without rounds as it always did, with no open findings or step-back', () => {
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'taste',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: no deadline',
+    };
+    const lines = renderStatus(batch({ lane: stuck(reason) }), steps).split('\n');
+    const at_ = lines.findIndex((line) => line.startsWith('🔔'));
+    assert.deepStrictEqual(lines.slice(at_, at_ + 3), [
+      '🔔 **Stuck**: `taste` is blocked (findings): the Taster asks for changes: no deadline',
+      'Get it moving with `retry`, `cancel`.',
+      '',
+    ]);
+  });
+
+  it('lists the open findings of a findings route that ran out of rounds, and recommends stepping back (ADR 0192)', () => {
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'taste',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: no deadline',
+      roundsOut: {
+        rounds: 2,
+        open: [
+          {
+            file: 'src/a_b.ts',
+            line: 3,
+            severity: 'major',
+            why: 'no\n# deadline',
+            introduced: true,
+          },
+          { severity: 'minor', why: 'x'.repeat(300), introduced: false },
+          { severity: 'blocker', why: `Token ${token}`, introduced: true },
+        ],
+        more: 4,
+      },
+    };
+    const lines = renderStatus(batch({ lane: stuck(reason) }), steps).split('\n');
+    const at_ = lines.findIndex((line) => line.startsWith('🔔'));
+    assert.deepStrictEqual(lines.slice(at_, at_ + 9), [
+      '🔔 **Stuck**: `taste` is blocked (findings): the Taster asks for changes: no deadline',
+      'Still open after 2 rounds:',
+      '- `taste`: major in src/a\\_b.ts:3: no \\# deadline',
+      `- \`taste\`: minor, there before the change: ${'x'.repeat(199)}…`,
+      `- \`taste\`: blocker: ${leftOut('taste')}`,
+      '- `taste`: and 4 more',
+      'Another round is unlikely to help: plan the order again, or split it.',
+      'Get it moving with `retry`, `cancel`.',
+      '',
+    ]);
+    noToken(lines.join('\n'));
+  });
+
+  it('says one round, and that the last round recorded no finding (ADR 0192)', () => {
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'taste',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: no deadline',
+      roundsOut: { rounds: 1, open: [], more: 0 },
+    };
+    const lines = renderStatus(batch({ lane: stuck(reason) }), steps).split('\n');
+    const at_ = lines.findIndex((line) => line.startsWith('🔔'));
+    assert.deepStrictEqual(lines.slice(at_ + 1, at_ + 4), [
+      'Still open after 1 round: no finding was recorded.',
+      'Another round is unlikely to help: plan the order again, or split it.',
+      'Get it moving with `retry`, `cancel`.',
+    ]);
   });
 
   // #238, ADR 0091: the reset is claude's text, shown as plain text like any summary (ADR 0072).
@@ -729,10 +805,6 @@ describe('renderStatus', () => {
 });
 
 describe('renderStatus: out doc text that looks like a secret (#235)', () => {
-  const leftOut = (stepId: string) =>
-    `\\[left out: a text of step ${stepId} that looks like a secret\\]`;
-  const noToken = (text: string) => assert.doesNotMatch(text, /ghp|A1b2/);
-
   it("keeps a Taster's finding on one line and leaves out one that looks like a secret (ADR 0161)", () => {
     const findings = [
       {

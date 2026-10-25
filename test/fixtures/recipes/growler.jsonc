@@ -4,7 +4,6 @@
   "name": "growler",
   "description": "Large feature, split into sub-orders",
   "match": { "labels": ["feature", "large"] },
-  "budget": { "minutes": 600 },
   "testFirst": false, // the sub-orders' own recipes write the tests
   "steps": [
     { "id": "context", "brewer": "maltster" },

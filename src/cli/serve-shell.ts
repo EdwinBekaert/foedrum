@@ -10,7 +10,13 @@ import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
 import { type SandboxedChecksOptions, sandboxedChecks } from '../platform/check-sandbox.ts';
-import { execProcess, type ListenForSignal, stopOnSignals } from '../platform/processes.ts';
+import { type AwakeMechanism, awakeCommand, keepAwake } from '../platform/keep-awake.ts';
+import {
+  type ExecProcess,
+  execProcess,
+  type ListenForSignal,
+  stopOnSignals,
+} from '../platform/processes.ts';
 import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
@@ -38,6 +44,11 @@ export interface ServeShellOptions {
    * repository's setup runs in the same sandbox with the network kept (ADR 0158).
    */
   checks?: Partial<SandboxedChecksOptions>;
+  /**
+   * How this machine is kept awake while an attempt runs, and the process the helper watches
+   * (ADR 0195); absent, nothing holds it. The helper starts through `exec`, default `execProcess`.
+   */
+  keepAwake?: { mechanism: AwakeMechanism; pid: number; exec?: ExecProcess };
 }
 
 /** Where a process listens for signals: `process` itself. */
@@ -65,7 +76,7 @@ export const listenWhileServing = (
 };
 
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
-  const { root, git, out, listen, checks, command = 'serve' } = options;
+  const { root, git, out, listen, checks, keepAwake: awake, command = 'serve' } = options;
   const { workRoot } = setup;
   // A repository's setup installs, so its sandbox keeps the network (ADR 0158).
   const setupExec = sandboxedChecks({ exec: execProcess, ...checks, network: true });
@@ -132,5 +143,15 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     setup: setupExec,
     gh: execProcess,
     git,
+    // The helper watches Foedrum's process, so a killed Foedrum lets the hold go (ADR 0195).
+    ...(awake === undefined
+      ? {}
+      : {
+          awake: keepAwake({
+            command: setup.keepAwake ? awakeCommand(awake.mechanism, awake.pid) : undefined,
+            exec: awake.exec ?? execProcess,
+            cwd: root,
+          }),
+        }),
   };
 };

@@ -206,7 +206,7 @@ describe('a blocking lens step (#26, ADR 0161)', () => {
     { action: 'openPullRequest' },
   ]);
 
-  it('sends a changes verdict back to Cellarman once, with what the Taster said, then makes the batch Stuck', async () => {
+  it('sends a changes verdict back to Cellarman once, with what the Taster said, then makes the batch Stuck with the open findings (ADR 0192)', async () => {
     const told: (PromptInput | undefined)[] = [];
     const { brewers } = valid(loadRecipes(blocking));
     const { events, batch } = await brew(
@@ -233,6 +233,7 @@ describe('a blocking lens step (#26, ADR 0161)', () => {
       stepId: 'correctness',
       blockerKind: 'findings',
       summary: 'the Taster asks for changes: The poll has no deadline',
+      roundsOut: { rounds: 1, open: [PLANTED.correctness], more: 0 },
     });
     assert.equal(told[0], undefined);
     assert.deepEqual(told[1]?.source, {

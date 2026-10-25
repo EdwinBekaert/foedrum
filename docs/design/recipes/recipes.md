@@ -10,7 +10,6 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
   "name": "half-pint",
   "description": "Small feature in one repository",
   "match": { "labels": ["feature"] },
-  "budget": { "minutes": 60 },
   "testFirst": true,                                         // the router may switch it off, with a reason
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },                // writes plan.md
@@ -71,7 +70,8 @@ A batch whose step left its recipe file goes Stuck on a divergence when that ste
 A step has exactly one of these kind fields.
 A `session` step needs a `deadline` and may name a `fallback` brewer.
 
-**Recipe fields:** `name`, `description`, `match` (`labels`), `budget` (`minutes`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+**Recipe fields:** `name`, `description`, `match` (`labels`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+A recipe has no time budget: the load refuses a `budget` field with a line that says it is gone, since each step's deadline, stall limit and attempts already bound a batch ([ADR 0194](../../adr/0194-a-recipe-has-no-time-budget.md)).
 
 **Step fields**
 
@@ -84,7 +84,7 @@ A `session` step needs a `deadline` and may name a `fallback` brewer.
 | `of` | Red proof only: an earlier step whose committed tests must fail because the behaviour is missing (a failed assertion or an error thrown by the code under test); load, compile, import or collection errors do not count |
 | `blocking` | Taster: `true` makes a `changes` verdict block the step by findings, so its `onBlocked` route sends the batch back ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)). Brett: `true` makes confirmed surviving mutants block the tasting verdict, not followed yet. Default `false`, advisory |
 | `onFail` | `check` only: `{ goto: <step id>, maxRounds }`. Like `onBlocked`, it goes back to an earlier step at the same level or in an enclosing loop, never forward or into another loop's steps |
-| `onBlocked` | Brewer steps only: route a `findings` blocker outside a loop, e.g. `{ "findings": { "goto": "gauge", "maxRounds": 1 } }`; after `maxRounds` the batch becomes Stuck. `environment` and `divergence` blockers are always Stuck ([the out doc contract](../recipes/out-doc.md)), so they take no route |
+| `onBlocked` | Brewer steps only: route a `findings` blocker outside a loop, e.g. `{ "findings": { "goto": "gauge", "maxRounds": 1 } }`; after `maxRounds` the batch becomes Stuck with the rounds it used and a recommendation to step back, and with a Taster's open findings when its step blocked ([tasting](tasting.md), [ADR 0192](../../adr/0192-a-findings-route-that-runs-out-of-rounds-goes-stuck-with-the-open-findings.md)). `environment` and `divergence` blockers are always Stuck ([the out doc contract](../recipes/out-doc.md)), so they take no route |
 | `deadline` | Overrides the brewer's deadline for this step |
 
 The red proof and `testsUnchanged`: [the red proof](../checks/red-proof.md).

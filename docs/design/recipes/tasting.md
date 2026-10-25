@@ -9,6 +9,9 @@ Its out doc adds `findings`, each with `severity` (`blocker`, `major`, `minor`),
 Findings are advisory: the pull request's body ([openPullRequest](open-pull-request.md)) and the status comment ([GitHub](../humans/github.md)) list them, and the batch goes on.
 The Tasters' verdicts decide whether the pull request opens as a draft ([openPullRequest](open-pull-request.md)).
 With `"blocking": true` on the step, the runner settles a `changes` verdict as blocked by findings, so the step's `onBlocked` route sends the batch back with the Taster's out doc, and after its rounds the batch is Stuck.
+That Stuck reason, like that of any findings route that ran out, records the rounds the route used and the open findings of the last round, ten at most with a count of the rest, each file and `why` on one line and cut to 1,000 characters; the status comment and `foedrum stuck` list them through the same filters as the Findings section and recommend planning the order again or splitting it, beside the usual options ([ADR 0192](../../adr/0192-a-findings-route-that-runs-out-of-rounds-goes-stuck-with-the-open-findings.md)).
+Every finding of the last round counts as open until the step the route goes back to records dispositions, which settle some (#501, [ADR 0191](../../adr/0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md)).
+A findings blocker on a step with no route is Stuck as any other blocker, with its summary only.
 A `lens` on a brewer that is no Taster, a Taster's step without one, and a lens no folder has fail the load with a line each.
 Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
 
@@ -28,7 +31,6 @@ A `retry` or `answer` of a child also schedules every child of its group that ha
 The batch leaves a group only while no attempt of it runs.
 A group whose recipe file gained a child while the batch was in it makes the batch Stuck on a divergence, naming that child.
 A kill mid-group retries only the children that had not ended: the supervisor loses one attempt of a batch per tick and keeps the expired leases of the others for the ticks after.
-Each child's time counts toward the recipe's budget, summed, once a budget is built (#445).
 
 **Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 The engine checks each edit (an existing file under `src/` or `scripts/`, a line whose text is `original`, no new identifier or string), applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading.

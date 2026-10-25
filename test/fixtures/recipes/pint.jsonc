@@ -4,7 +4,6 @@
   "name": "pint",
   "description": "Medium feature in one repository, with plan approval",
   "match": { "labels": ["feature", "medium"] },
-  "budget": { "minutes": 180 },
   "steps": [
     { "id": "context", "brewer": "maltster" },
     { "id": "plan", "brewer": "brewmaster" },

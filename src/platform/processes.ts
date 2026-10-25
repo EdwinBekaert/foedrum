@@ -220,7 +220,7 @@ export interface Timers {
   clear: (timer: unknown) => void;
 }
 
-const realTimers: Timers = {
+export const realTimers: Timers = {
   set: (callback, ms) => setTimeout(callback, ms),
   clear: (timer) => clearTimeout(timer as NodeJS.Timeout),
 };
