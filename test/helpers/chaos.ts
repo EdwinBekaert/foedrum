@@ -1127,9 +1127,7 @@ export const openChaosEngine = async (
         });
       case 'tick':
         now = new Date(now.getTime() + next.advanceMs);
-        leasedAtTick = outside
-          .currentLeases(now)
-          .map(({ attemptKey: key, owner }) => ({ attemptKey: key, owner }));
+        leasedAtTick = outside.currentLeases(now);
         return everyDriver((driver) => driver.tick());
       default: {
         const unhandled: never = next;
