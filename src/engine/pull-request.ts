@@ -460,8 +460,9 @@ const shape = (line: string, at: number): { text: string; end: number } | 'none'
   const [open, close] = found;
   const from = at + open.length;
   const slanted = open === '[' && (line[from] === '/' || line[from] === '\\');
-  if (line[slanted ? from + 1 : from] === '"') {
-    const quote = line.indexOf('"', (slanted ? from + 1 : from) + 1);
+  const start = slanted ? from + 1 : from;
+  if (line[start] === '"') {
+    const quote = line.indexOf('"', start + 1);
     const closer = slanted ? line.slice(quote + 1, quote + 3) : close;
     if (
       quote < 0 ||
@@ -470,7 +471,8 @@ const shape = (line: string, at: number): { text: string; end: number } | 'none'
     ) {
       return undefined;
     }
-    return { text: line.slice(at, quote + 1 + closer.length), end: quote + 1 + closer.length };
+    const end = quote + 1 + closer.length;
+    return { text: line.slice(at, end), end };
   }
   const to = line.indexOf(close, from);
   if (to < 0) return undefined;
