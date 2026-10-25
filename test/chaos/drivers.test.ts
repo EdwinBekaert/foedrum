@@ -17,7 +17,7 @@ import {
   runChaos,
 } from '../helpers/chaos.ts';
 import { nothingLeftWaiting, restsWithEffectsOnce, theLogHolds } from '../helpers/chaos-checks.ts';
-import { holdsAcrossKills, trialChaos } from '../helpers/chaos-shrink.ts';
+import { type ChaosSchedule, holdsAcrossKills, trialChaos } from '../helpers/chaos-shrink.ts';
 import { generateScenario, recording, type Scenario } from '../helpers/event-sequences.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -259,6 +259,119 @@ describe('two drivers on one store', () => {
     assert.deepStrictEqual(
       wanted.filter((what) => !seen.has(what)),
       [],
+    );
+  });
+
+  // Seed 1710582731, shrunk (#464): the terminal hands the batch to cellar while session's run of
+  // the abandoned correctness#1 goes on. In move 7 cellar drives first and waits for that run's
+  // lease, which session lets go later in the move: correctness#3 starts at cellar's next tick.
+  it('start an attempt at the next tick when another driver let the lease it waited for go', async () => {
+    const terminal = { by: 'octocat', via: 'terminal' } as const;
+    const ref = (stepId: string, attempt: number) => ({ batchId: '2-1', stepId, attempt });
+    const schedule: ChaosSchedule = {
+      moves: [
+        {
+          site: 7,
+          move: {
+            kind: 'command',
+            command: { kind: 'order', batchId: '2-1', order: { issue: 2 } },
+          },
+        },
+        {
+          site: 24,
+          move: {
+            kind: 'command',
+            command: {
+              kind: 'route',
+              batchId: '2-1',
+              recipe: 'flight',
+              reason: 'label',
+              source: 'router',
+            },
+          },
+        },
+        { site: 36, move: { kind: 'tick', advanceMs: 61 * 60_000 } },
+        {
+          site: 37,
+          move: { kind: 'command', command: { kind: 'skip', batchId: '2-1', ...terminal } },
+        },
+        {
+          site: 38,
+          move: { kind: 'command', command: { kind: 'retry', batchId: '2-1', ...terminal } },
+        },
+        {
+          site: 39,
+          move: { kind: 'command', command: { kind: 'retry', batchId: '2-1', ...terminal } },
+        },
+        { site: 40, move: { kind: 'tick', advanceMs: 60_000 } },
+      ],
+      settleFrom: 40,
+      plays: [
+        { attempt: ref('implement', 1), play: { kind: 'fail', retryable: true } },
+        { attempt: ref('implement', 2), play: { kind: 'lost' } },
+        {
+          attempt: ref('correctness', 1),
+          play: { kind: 'hang', turnsWithoutProgress: 42, idleMs: 28 * 60_000 },
+        },
+        { attempt: ref('security', 1), play: { kind: 'missingOutDoc' } },
+        { attempt: ref('security', 2), play: { kind: 'crash' } },
+        { attempt: ref('security', 3), play: { kind: 'crash' } },
+      ],
+      faults: [
+        { move: 24, driver: '', kind: 'first', n: 0, value: 1 },
+        {
+          move: 39,
+          driver: 'session',
+          kind: 'take over',
+          n: 4,
+          value: { batchId: '2-1', to: 'cellar' },
+        },
+      ],
+    };
+    // The phase of correctness#3 after each move from the last one played on.
+    const phases: (string | undefined)[] = [];
+    // What the check says in move 7 when the tick began with these leases instead.
+    const stillWaiting = (run: ChaosRun, leases: { attemptKey: string; owner: string }[]) =>
+      assert.throws(
+        () => nothingLeftWaiting({ ...run, engine: { ...run.engine, leasedAtTick: () => leases } }),
+        /batch 2-1 has correctness#3 scheduled and not started/,
+      );
+    const watching: ChaosChecks = {
+      afterMove: (run, move, survived) => {
+        checks.afterMove?.(run, move, survived);
+        if (run.moves.length < schedule.moves.length) return;
+        const first = attemptKey.encode(ref('correctness', 1));
+        if (run.moves.length === schedule.moves.length) {
+          // Move 7 is a tick every driver lived through, and the lease of correctness#1 excuses
+          // the wait of correctness#3.
+          assert.ok(move.kind === 'tick' && survived, 'move 7 is a tick the drivers lived through');
+          assert.ok(run.engine.leasedAtTick().some((lease) => lease.attemptKey === first));
+          nothingLeftWaiting(run);
+          // Without the lease, of the batch's holder, or of an attempt not over: not excused.
+          stillWaiting(run, []);
+          stillWaiting(run, [{ attemptKey: first, owner: 'cellar' }]);
+          stillWaiting(run, [
+            { attemptKey: attemptKey.encode(ref('correctness', 3)), owner: 'session' },
+          ]);
+        } else if (move.kind === 'tick') {
+          // The excuse lasts one tick: the next one began without that lease.
+          assert.ok(!run.engine.leasedAtTick().some((lease) => lease.attemptKey === first));
+        }
+        const attempt = run.engine
+          .state()
+          .batches.get('2-1')
+          ?.steps.get('correctness')
+          ?.attempts.get(3);
+        phases.push(attempt?.phase);
+      },
+      atEnd: (run) => checks.atEnd?.(run),
+    };
+    const failure = await trialChaos(dir.path, { schedule }, watching, { drivers });
+    if (failure !== undefined) throw failure.error;
+    assert.deepStrictEqual(
+      phases.slice(0, 2),
+      ['scheduled', 'finished'],
+      'correctness#3 waits in move 7 and runs in the move after',
     );
   });
 });
