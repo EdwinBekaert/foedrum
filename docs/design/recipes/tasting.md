@@ -8,6 +8,9 @@ Its out doc adds `findings`, each with `severity` (`blocker`, `major`, `minor`),
 Findings are advisory: the pull request's body ([openPullRequest](open-pull-request.md)) and the status comment ([GitHub](../humans/github.md)) list them, and the batch goes on.
 The Tasters' verdicts decide whether the pull request opens as a draft ([openPullRequest](open-pull-request.md)).
 With `"blocking": true` on the step, the runner settles a `changes` verdict as blocked by findings, so the step's `onBlocked` route sends the batch back with the Taster's out doc, and after its rounds the batch is Stuck.
+That Stuck reason records the rounds the route used and the open findings of the last round, ten at most with a count of the rest, each file and `why` cut to 1,000 characters; the status comment and `foedrum stuck` list them through the same filters as the Findings section and recommend planning the order again or splitting it, beside the usual options ([ADR 0192](../../adr/0192-a-findings-route-that-runs-out-of-rounds-goes-stuck-with-the-open-findings.md)).
+Every finding of the last round counts as open until the step the route goes back to records dispositions, which settle some (#501, [ADR 0191](../../adr/0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md)).
+A findings blocker on a step with no route is Stuck as any other blocker, with its summary only.
 A `lens` on a brewer that is no Taster, a Taster's step without one, and a lens no folder has fail the load with a line each.
 Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
 
