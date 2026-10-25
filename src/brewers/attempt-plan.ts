@@ -413,11 +413,9 @@ export type EarlierRound = { step: string; dispositions: readonly Disposition[] 
 );
 
 /** An earlier round as `earlierRoundsOf` finds it: its findings, or where to read them. */
-export type PlannedRound = { step: string; dispositions: readonly Disposition[] } & (
-  | { findings: readonly TastingFinding[] }
-  | { outDoc: { path: string; root: string } }
-  | { unread: string }
-);
+export type PlannedRound =
+  | EarlierRound
+  | { step: string; dispositions: readonly Disposition[]; outDoc: { path: string; root: string } };
 
 /**
  * The earlier rounds of the lens step of attempt `ref` (ADR 0191), in the order they started: each
