@@ -482,9 +482,8 @@ export function attemptSystemPrompt(
   const commands = shellCommandsOf(allow);
   const tools = toolsOf(allow);
   const writers = ['Edit', 'Write'].filter((tool) => tools.includes(tool));
-  const allowed = (example: string): boolean =>
-    commands.some((command) => example === command || example.startsWith(`${command} `));
-  const refused = READ_ONLY_GIT.filter((example) => !allowed(example));
+  // Only `git` itself could start one, and no rule may allow it (ADR 0062).
+  const refused = READ_ONLY_GIT.filter((example) => !commands.includes(example));
   const shell =
     commands.length === 0
       ? []
