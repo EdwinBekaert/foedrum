@@ -419,7 +419,8 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
     for (let max = MAX_CELL; ; ) {
       const safe = unlinked(flat.slice(0, max));
       if (safe.length <= MAX_CELL) return safe;
-      max -= safe.length - MAX_CELL;
+      // Shorter by the share it grew, and by one at least, so it ends at the empty text.
+      max = Math.min(max - 1, Math.floor((max * MAX_CELL) / safe.length));
     }
   };
   const table = sections.beforeAfter.map(
