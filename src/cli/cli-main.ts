@@ -71,6 +71,9 @@ export const cliFromCheckout = async (
       // Loaded only for brew, as for serve.
       brew: async (input, issued) =>
         (await import('./brew-main.ts')).brewFromCheckout(cwd, input, issued, options),
+      watch: async () => {
+        throw new Error('not implemented');
+      },
       // Loaded only for resume: it brings serve's setup and the worktrees.
       resume: async (input, issued) =>
         (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, issued, options),

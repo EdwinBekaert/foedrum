@@ -70,6 +70,11 @@ export interface CliContext {
    * the terminal.
    */
   brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  /**
+   * Draws a board of the live batches until Ctrl+C (ADR 0188), for `foedrum status --watch`; it
+   * draws straight on the terminal, and refuses where there is none.
+   */
+  watch: () => Promise<CliResult>;
   /** The environment, for the Claude Code session that names a driver (ADR 0123, ADR 0124). */
   env: Readonly<Record<string, string | undefined>>;
   /**

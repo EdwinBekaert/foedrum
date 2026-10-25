@@ -64,6 +64,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   claims: () => assert.fail('no claim host to reach'),
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   brew: async () => assert.fail('no brew here'),
+  watch: async () => assert.fail('no watch here'),
   resume: async () => assert.fail('no session to resume'),
   env: {},
   ...overrides,
