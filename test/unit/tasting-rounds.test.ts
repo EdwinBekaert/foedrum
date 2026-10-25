@@ -397,10 +397,10 @@ describe('a later tasting round (#500, ADR 0190)', () => {
 
   for (const [why, outcome] of [
     [
-      'approved',
+      'succeeded without a verdict',
       {
         kind: 'succeeded',
-        output: { status: 'done', summary: 'Approved', assumptions: [] },
+        output: { status: 'done', summary: 'Done', assumptions: [] },
       },
     ],
     ['failed for another reason', { kind: 'failed', retryable: false, reason: 'claude crashed' }],
@@ -408,8 +408,9 @@ describe('a later tasting round (#500, ADR 0190)', () => {
       'was blocked on its environment',
       { kind: 'failed', retryable: false, reason: 'blocked (environment): no network' },
     ],
+    ['was cancelled', { kind: 'cancelled' }],
   ] satisfies [string, StepOutcome][]) {
-    it(`gives a round after one that ${why} no change since it, as when a sibling's route sent the batch back`, async () => {
+    it(`gives a round after an earlier attempt that ${why} no change since it: that attempt reviewed nothing (ADR 0196)`, async () => {
       const events = ROUND_TWO.map((event) =>
         event.type === 'step.finished' && event.stepId === 'tasting' && event.attempt === 1
           ? { ...event, outcome }
