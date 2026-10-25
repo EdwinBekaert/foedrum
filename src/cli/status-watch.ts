@@ -1,7 +1,8 @@
 // `foedrum status --watch` (ADR 0188): a board of the live batches, redrawn in place about once a
 // second on a terminal, read from the Brewery's store as `foedrum status` reads it.
 
-import type { Batch, State } from '../engine/fold.ts';
+import type { State } from '../engine/fold.ts';
+import { laneStatus } from '../engine/worktree-claims.ts';
 import { elapsed, fit, runningAttempts } from './brew.ts';
 import { columns } from './columns.ts';
 import type { BoardTerminal } from './live-terminal.ts';
@@ -26,9 +27,6 @@ const REDRAW_MS = 1000;
 
 const refusal = 'foedrum status --watch needs a terminal; foedrum status prints the batches once';
 
-/** The lanes a batch is live in: On Tap and Cancelled have ended. */
-const isLive = ({ lane }: Batch): boolean => lane.kind !== 'on_tap' && lane.kind !== 'cancelled';
-
 /** Draws the board until `shell.signal` aborts, exit code 0; refuses, exit code 1, off a terminal. */
 export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
   const { terminal, state, signal, clock, wait } = shell;
@@ -38,7 +36,7 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
   const draw = (): void => {
     const folded = state();
     const at = clock().getTime();
-    const batches = [...folded.batches.values()].filter(isLive);
+    const batches = [...folded.batches.values()].filter(({ lane }) => laneStatus(lane) === 'live');
     const seen = new Map<string, number>();
     // A batch's row, led by its time, and a line under it for each attempt that runs.
     const groups = batches.map((batch) => {
