@@ -368,6 +368,18 @@ const CLOSER = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 /** A run of fence characters after an indent or a list or quote marker: inside a container. */
 const CONTAINED = /^(?:[ \t]|[>*+-]|\d+[.)])[ \t>*+\-\d.)]*(?:`{3,}|~{3,})/;
 
+/** The run and the info string of the fence `line` opens at the top level, or `undefined`. */
+const fenceOpened = (line: string): { run: string; info: string } | undefined => {
+  const [, run = '', info = ''] = OPENER.exec(line) ?? [];
+  return run === '' || (run.startsWith('`') && info.includes('`')) ? undefined : { run, info };
+};
+
+/** Whether `line` closes the fence `run` opened: the same character, as long or longer. */
+const fenceCloses = (run: string, line: string): boolean => {
+  const closer = CLOSER.exec(line)?.[1] ?? '';
+  return closer[0] === run[0] && closer.length >= run.length;
+};
+
 /**
  * Markdown that ends where it starts (ADR 0167): a fence it leaves open is closed, and a line that
  * would start an HTML block outside a fence starts with `&lt;` instead, since either would run to
@@ -380,14 +392,13 @@ const closedBlocks = (text: string): string | undefined => {
   const lines: string[] = [];
   for (const line of text.replace(/\r\n?/g, NEWLINE).split(NEWLINE)) {
     if (open !== undefined) {
-      const run = CLOSER.exec(line)?.[1] ?? '';
-      if (run[0] === open[0] && run.length >= open.length) open = undefined;
+      if (fenceCloses(open, line)) open = undefined;
       lines.push(line);
       continue;
     }
-    const opener = OPENER.exec(line);
-    if (opener !== null && !(opener[1]?.startsWith('`') && opener[2]?.includes('`'))) {
-      open = opener[1];
+    const opener = fenceOpened(line);
+    if (opener !== undefined) {
+      open = opener.run;
       lines.push(line);
       continue;
     }
@@ -397,12 +408,235 @@ const closedBlocks = (text: string): string | undefined => {
   return [...lines, ...(open === undefined ? [] : [open])].join(NEWLINE);
 };
 
+/** The line in place of a Mermaid block Foedrum cannot read (ADR 0180). */
+const DIAGRAM_LEFT_OUT = '[left out: a diagram Foedrum could not check]';
+
+/** A label in quotes, which Mermaid accepts whatever it holds once its `"` is `#quot;`. */
+const quoted = (text: string): string => `"${text.replaceAll('"', '#quot;')}"`;
+/** An edge's or a title's label in quotes, unless it is quoted already. */
+const label = (text: string): string => (/^"[^"]*"$/.test(text) ? text : quoted(text));
+
+/** A flowchart's node id, which may hold a `-` between its words but never before a link. */
+const NODE_ID = String.raw`[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*`;
+const FLOWCHART = /^(?:flowchart|graph)(?:[ \t]+(?:TB|TD|BT|RL|LR))?(?:[ \t]*;)?$/;
+const DIRECTION = /^direction[ \t]+(?:TB|TD|BT|RL|LR)(?:[ \t]*;)?$/;
+const STYLING = /^(?:classDef|class|style|linkStyle)(?=[ \t])[\p{L}\p{N}_ \t,:#%.()-]+;?$/u;
+const SUBGRAPH = new RegExp(String.raw`^subgraph[ \t]+(?:"[^"]*"|${NODE_ID})$`, 'u');
+const TITLED = new RegExp(String.raw`^subgraph[ \t]+${NODE_ID}[ \t]*\[[^\]]*\]$`, 'u');
+const ID = new RegExp(NODE_ID, 'uy');
+const CLASS = /:::[\p{L}\p{N}_-]+/uy;
+const SPACE = /[ \t]*/y;
+/** A link without text: `-->`, `---`, `--o`, `==>`, `-.->`, `<-->`, `~~~` and the longer ones. */
+const LINK = /[<ox]?(?:-{2,}[>ox]|-{3,}|={2,}[>ox]|={3,}|-\.+-[>ox]?|~{3,})/y;
+/** The start of a link with its text between the dashes: `-- x -->`, `== x ==>`, `-. x .->`. */
+const TEXT_LINK = /([<ox]?)(--|==|-\.)[ \t]/y;
+const TEXT_LINK_ENDS: Record<string, RegExp> = {
+  '--': /-{2,}[>ox]|-{3,}/g,
+  '==': /={2,}[>ox]|={3,}/g,
+  '-.': /\.+-[>ox]?/g,
+};
+/** A node's shapes, the longer openers first, each with its closer. */
+const SHAPES: readonly [open: string, close: string][] = [
+  ['(((', ')))'],
+  ['((', '))'],
+  ['([', '])'],
+  ['[[', ']]'],
+  ['[(', ')]'],
+  ['{{', '}}'],
+  ['[', ']'],
+  ['(', ')'],
+  ['{', '}'],
+  ['>', ']'],
+];
+
 /**
- * `text`, whose fences are paired, with every label of each Mermaid block quoted, or the block left
- * out when Foedrum cannot read it (ADR 0180).
+ * The shape of the node whose id ends at `at` in `line`, its label quoted, and where it ends; `none`
+ * for a node without one, and `undefined` for a shape it cannot read. An unquoted label ends at the
+ * first closer of its shape; `[/x/]` and `[\x\]`, and their mixes, are `[x]` with a slant inside.
  */
-export const quotedDiagrams = (_text: string): string => {
-  throw new Error('not implemented');
+const shape = (line: string, at: number): { text: string; end: number } | 'none' | undefined => {
+  const found = SHAPES.find(([open]) => line.startsWith(open, at));
+  if (found === undefined) return 'none';
+  const [open, close] = found;
+  const from = at + open.length;
+  const slanted = open === '[' && (line[from] === '/' || line[from] === '\\');
+  if (line[slanted ? from + 1 : from] === '"') {
+    const quote = line.indexOf('"', (slanted ? from + 1 : from) + 1);
+    const closer = slanted ? line.slice(quote + 1, quote + 3) : close;
+    if (
+      quote < 0 ||
+      (slanted && !/^[/\\]\]$/.test(closer)) ||
+      !line.startsWith(closer, quote + 1)
+    ) {
+      return undefined;
+    }
+    return { text: line.slice(at, quote + 1 + closer.length), end: quote + 1 + closer.length };
+  }
+  const to = line.indexOf(close, from);
+  if (to < 0) return undefined;
+  const slant = line[to - 1] ?? '';
+  if (slanted && to - 1 > from && (slant === '/' || slant === '\\')) {
+    return { text: `[${line[from]}${quoted(line.slice(from + 1, to - 1))}${slant}]`, end: to + 1 };
+  }
+  return { text: `${open}${quoted(line.slice(from, to))}${close}`, end: to + close.length };
+};
+
+/**
+ * A flowchart statement with its labels quoted, or `undefined`: nodes joined by links and `&`,
+ * each node an id with an optional shape and `:::class`, and a closing `;`. Read once from the
+ * left, each label up to its closer, so it is linear in the line.
+ */
+const statement = (line: string): string | undefined => {
+  let out = '';
+  let at = 0;
+  const take = (text: string, end = at + text.length) => {
+    out += text;
+    at = end;
+  };
+  const sticky = (pattern: RegExp) => {
+    pattern.lastIndex = at;
+    return pattern.exec(line);
+  };
+  const space = () => take(sticky(SPACE)?.[0] ?? '');
+  const node = (): boolean => {
+    const id = sticky(ID)?.[0];
+    if (id === undefined) return false;
+    take(id);
+    const shaped = shape(line, at);
+    if (shaped === undefined) return false;
+    if (shaped !== 'none') take(shaped.text, shaped.end);
+    take(sticky(CLASS)?.[0] ?? '');
+    return true;
+  };
+  const nodes = (): boolean => {
+    if (!node()) return false;
+    for (space(); line[at] === '&'; space()) {
+      take('&');
+      space();
+      if (!node()) return false;
+    }
+    return true;
+  };
+  const link = (): boolean => {
+    const arrow = sticky(LINK)?.[0];
+    if (arrow !== undefined) {
+      take(arrow);
+      space();
+      if (line[at] !== '|') return true;
+      const close = line.indexOf('|', at + 1);
+      if (close < 0) return false;
+      take(`|${label(line.slice(at + 1, close))}|`, close + 1);
+      return true;
+    }
+    const opened = sticky(TEXT_LINK);
+    const [, tail = '', kind = ''] = opened ?? [];
+    const ends = TEXT_LINK_ENDS[kind];
+    if (opened === null || ends === undefined) return false;
+    ends.lastIndex = at + opened[0].length;
+    const end = ends.exec(line);
+    if (end === null) return false;
+    const text = label(line.slice(at + opened[0].length, end.index).trim());
+    // Written with its text between pipes, as `-->|"x"|`: the dotted link keeps its first dash.
+    take(`${tail}${kind === '-.' ? '-' : ''}${end[0]}|${text}|`, end.index + end[0].length);
+    return true;
+  };
+  space();
+  if (!nodes()) return undefined;
+  while (at < line.length && line[at] !== ';') {
+    if (!link()) return undefined;
+    space();
+    if (!nodes()) return undefined;
+  }
+  const rest = line.slice(at);
+  return /^(?:;[ \t]*)?$/.test(rest) ? out + rest : undefined;
+};
+
+/** A line of a flowchart with its labels quoted, or `undefined` for one it cannot read. */
+const flowchartLine = (line: string): string | undefined => {
+  const trimmed = line.trim();
+  if (DIRECTION.test(trimmed) || STYLING.test(trimmed) || SUBGRAPH.test(trimmed)) return line;
+  if (TITLED.test(trimmed))
+    return line.replace(/\[([^\]]*)\]/, (_, title: string) => `[${label(title)}]`);
+  return statement(line);
+};
+
+const ACTOR = String.raw`[\p{L}\p{N}_]+`;
+const SEQUENCE = /^sequenceDiagram$/;
+/** A message or a note, up to the `:` its text follows. */
+const MESSAGE = new RegExp(
+  String.raw`^(?:${ACTOR}[ \t]*(?:<<)?--?(?:>>|>|x|\))[+-]?[ \t]*${ACTOR}|[Nn]ote[ \t]+(?:over|left of|right of)[ \t]+${ACTOR}(?:[ \t]*,[ \t]*${ACTOR})?)[ \t]*:`,
+  'u',
+);
+/** A block's keyword, or a participant up to its alias, which the text follows. */
+const TEXT_AFTER = new RegExp(
+  String.raw`^(?:(?:loop|alt|else|opt|par|and|critical|option|break)(?![\p{L}\p{N}_])|(?:participant|actor)[ \t]+${ACTOR}[ \t]+as[ \t])`,
+  'u',
+);
+const BARE = new RegExp(
+  String.raw`^(?:(?:participant|actor|activate|deactivate)[ \t]+${ACTOR}|autonumber|end)$`,
+  'u',
+);
+
+/** A line of a sequence diagram, its text's `;` and `#` as entities, or `undefined`. */
+const sequenceLine = (line: string): string | undefined => {
+  const trimmed = line.trim();
+  if (BARE.test(trimmed)) return line;
+  const start = line.length - line.trimStart().length;
+  const head = MESSAGE.exec(trimmed)?.[0] ?? TEXT_AFTER.exec(trimmed)?.[0];
+  if (head === undefined) return undefined;
+  const at = start + head.length;
+  return `${line.slice(0, at)}${line.slice(at).replace(/[;#]/g, (char) => (char === ';' ? '#59;' : '#35;'))}`;
+};
+
+/** A Mermaid block's lines with their labels quoted, or `undefined` for a block it cannot read. */
+const quotedDiagram = (lines: readonly string[]): string[] | undefined => {
+  let read: ((line: string) => string | undefined) | undefined;
+  const out: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // A blank line or a comment, but not a `%%{` directive.
+    if (trimmed === '' || (trimmed.startsWith('%%') && !trimmed.startsWith('%%{'))) {
+      out.push(line);
+      continue;
+    }
+    if (read === undefined) {
+      if (FLOWCHART.test(trimmed)) read = flowchartLine;
+      else if (SEQUENCE.test(trimmed)) read = sequenceLine;
+      else return undefined;
+      out.push(line);
+      continue;
+    }
+    const written = read(line);
+    if (written === undefined) return undefined;
+    out.push(written);
+  }
+  return read === undefined ? undefined : out;
+};
+
+/**
+ * `text`, whose fences are paired (`closedBlocks`), with every node and edge label of each Mermaid
+ * block quoted, and a block of a kind or with a line Foedrum cannot read left out whole, one line
+ * in its place (ADR 0180). The other fences and the text outside them stay as they are.
+ */
+export const quotedDiagrams = (text: string): string => {
+  const lines = text.split(NEWLINE);
+  const out: string[] = [];
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at] ?? '';
+    const opener = fenceOpened(line);
+    if (opener === undefined) {
+      out.push(line);
+      continue;
+    }
+    let end = at + 1;
+    while (end < lines.length && !fenceCloses(opener.run, lines[end] ?? '')) end += 1;
+    const body = lines.slice(at + 1, end);
+    const closer = lines.slice(end, end + 1);
+    const diagram = /^[ \t]*mermaid(?:[ \t]|$)/i.test(opener.info) ? quotedDiagram(body) : body;
+    out.push(...(diagram === undefined ? [DIAGRAM_LEFT_OUT] : [line, ...diagram, ...closer]));
+    at = end;
+  }
+  return out.join(NEWLINE);
 };
 
 /** The longest how it works and See it, once made safe: `unlinked` and the escapes make them grow. */
@@ -417,10 +651,14 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
     text.length <= max
       ? text
       : `[left out: a text of step ${stepId} that is too long once made safe for GitHub]`;
-  // A fence it cannot pair as GitHub would is left out whole too, failing closed.
-  const checked = (text: string) =>
-    closedBlocks(text) ??
-    `[left out: a text of step ${stepId} with a fence Foedrum cannot check outside its top level]`;
+  // A fence it cannot pair as GitHub would is left out whole too, failing closed; once paired, a
+  // Mermaid block has its labels quoted, or is left out (ADR 0180).
+  const checked = (text: string) => {
+    const closed = closedBlocks(text);
+    return closed === undefined
+      ? `[left out: a text of step ${stepId} with a fence Foedrum cannot check outside its top level]`
+      : quotedDiagrams(closed);
+  };
   // Made one line, escaped and cut before `unlinked`, which then pairs the spans GitHub reads, so
   // no cut leaves a kept `@` in a span it opened (ADR 0184). `unlinked` can make it longer
   // (`&amp;`), so it is cut shorter until it fits: 20 rows of grown cells would pass GitHub's limit.
