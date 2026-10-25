@@ -65,11 +65,11 @@ At three runs per arm the wording fixed it in either place: the measurement does
 - A brewer that commits is told which command forms are refused before it tries one, so the measured denials of a joined commit stop, and its commits keep their bodies.
 - The settings cleanup removes whole batch folders under `attempt-settings` ([ADR 0063](0063-foedrum-serve-its-configuration-and-wiring.md)), so the system prompt files go with them.
 - The out doc contract is shorter; the system prompt file adds about 150 tokens to an attempt that commits, about 15 to a read-only one, and is the same for every attempt of a brewer, so it is cached with Claude Code's own system prompt.
-- git's other read-only commands (`git diff`, `git show`, `git ls-files`, `git grep`) stay denied in an attempt's worktree; whether a brewer that commits should get them is a question of its own.
+- git's read-only commands (`git log`, `git diff`, `git show`, `git ls-files`, `git grep`) stay refused in an attempt's worktree by design: `git.commit` grants only fixed subcommands that never reach outside the worktree (ADR 0074), and a brewer that needs another one names it in its own `tools.allow`. The rules now say so, so a brewer no longer finds out by trial.
 - No line-break rule: if a later claude refuses a line break inside a command, the wording has to change with it.
 
 ## Alternatives considered
 - **Reword the contract's shell line only.** The control arm shows it cuts the denials as well at this sample size. It leaves the engine's rules in the prompt the inputs travel in, and does not use what claude offers for exactly this.
 - **Rules against `&&`, `;`, `|` and line breaks.** What the issue proposed; the probe shows none of them is refused, and a false rule costs the brewer turns of its own.
-- **Allow `git log`, `git diff` and `git show` to a brewer that commits.** It would end these denials at the source, but `git diff --no-index` and `git log --output` reach any file (ADR 0074), so it needs rules narrower than a subcommand; left for its own issue.
+- **Allow `git log`, `git diff` and `git show` to a brewer that commits.** It would end these denials at the source, but `git diff --no-index` and `git log --output` reach any file, which is why ADR 0074 refuses them to a brewer that commits; a brewer that needs one names it in its own `tools.allow`.
 - **Replace the whole system prompt (`--system-prompt-file`).** It drops Claude Code's own tool guidance, which the brewers rely on.
