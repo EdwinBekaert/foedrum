@@ -12,8 +12,6 @@ export interface FakeRecipe {
   skips?: Readonly<Record<string, string>>;
   /** Where a failed check or a step blocked by findings goes back to, by step id. */
   routes?: Readonly<Record<string, { failed?: string; findings?: string }>>;
-  /** How many rounds each step's routes may send a batch back, by step id; default no limit. */
-  maxRounds?: Readonly<Record<string, number>>;
   /** The steps that are actions the engine runs itself, by step id; default none (ADR 0071). */
   actions?: Readonly<Record<string, RecipeAction>>;
   pullRequests?: readonly string[];
@@ -31,7 +29,6 @@ export const fakeRecipe = ({
   maxAttempts = 2,
   skips = {},
   routes = {},
-  maxRounds = {},
   actions = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
@@ -74,10 +71,7 @@ export const fakeRecipe = ({
     },
     mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
     rounds: roundsOf,
-    loopBack: (batch, stepId, why) =>
-      (roundsOf(batch, stepId, why) ?? 0) < (maxRounds[stepId] ?? Number.POSITIVE_INFINITY)
-        ? routes[stepId]?.[why]
-        : undefined,
+    loopBack: (_batch, stepId, why) => routes[stepId]?.[why],
   };
 };
 
