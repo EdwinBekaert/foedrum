@@ -8,12 +8,12 @@ An order and a change made for it, used to check `defaults/lenses/diff/acceptanc
 
 ## Apply
 
-In an empty folder under `.foedrum/tmp/` (the read guard lets a reviewer read only inside the checkout, ADR 0049):
+In an empty folder under `.foedrum/tmp/` (the read guard lets a reviewer read only inside the checkout, ADR 0049), in bash (Git Bash on Windows, where PowerShell would leave the glob as it is):
 
 ```sh
 git init -q -b main .
 git am <checkout>/test/fixtures/brew-review/planted-acceptance/*.patch
-git diff HEAD~1 HEAD > diff.patch
+git diff --output=diff.patch HEAD~1 HEAD
 ```
 
 Then start one `taster` subagent with `.claude/skills/brew-review/reviewer-prompt.md` filled in for the acceptance lens, with that folder as `<checkout>` and a bundle that holds `diff.patch`, `commits.txt`, `files.txt` and `order.md` (the copy here) beside the criteria. Or run the default Taster's prompt with the order as its `order` input.

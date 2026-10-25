@@ -1,6 +1,6 @@
 # 0197. Acceptance ships as a default diff lens, and Nip tastes through it beside correctness
 
-Date: 2026-10-25 · Status: Accepted · Amends [0022](0022-five-default-lenses.md) (the list of default lenses, now seven with [0173](0173-necessity-ships-as-a-default-diff-lens.md)) and [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (Nip's taste step)
+Date: 2026-10-25 · Status: Accepted · Amends [0022](0022-five-default-lenses.md) (the list of default lenses, now seven with [0173](0173-necessity-ships-as-a-default-diff-lens.md)), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (Nip's taste step) and [0185](0185-npm-run-demo-tastes-through-a-parallel-group-of-three-lenses.md) (Nip in `defaults/` keeps one Taster)
 
 ## Context
 Every default lens asks whether the change is done right: correctness, security, cross-platform, design conformance, test design and necessity ([ADR 0022](0022-five-default-lenses.md), [ADR 0173](0173-necessity-ships-as-a-default-diff-lens.md)).
@@ -12,7 +12,7 @@ Foedrum's issues, and the orders a Brewery files the same way, list what to buil
 
 ## Decision
 - **A seventh default lens, acceptance** (`defaults/lenses/diff/acceptance.md`), checks the change against its order. It reads the order's "What to build" checklist and says of each item whether the change built it, built part of it, or left it out, each tied to a line of the change that shows it ([ADR 0094](0094-reviewers-show-their-evidence-and-mark-pre-existing-defects.md)), and names what the change builds that the order did not ask for. The default lenses are now **correctness, security, cross-platform, design conformance, test design, necessity and acceptance**. This amends the list in ADR 0022 as ADR 0173 left it; everything else in it stands.
-- **Its verdict is any Taster's** (ADR 0161): `changes` with each item left out or built in part as a finding, else `approve`. What the change builds unasked is a finding too, its severity by what it costs to review and keep.
+- **Its verdict is any Taster's** (ADR 0161): each item left out or built in part is a finding the change introduced, `major` when the order cannot be closed without it and `minor` when what is missing is small, so the verdict is `changes` when such an item is major, else `approve`. What the change builds unasked is a finding too, its severity by what it costs to review and keep; a safeguard the order did not ask for is necessity's to weigh ([ADR 0173](0173-necessity-ships-as-a-default-diff-lens.md)), so the two lenses do not report it twice.
 - **An order with no checklist** gets one minor finding about the change as a whole that says so, and `approve`: the lens has nothing to check against, and the order is not the change's fault.
 - **Follow-ups are proposals in its out doc**, in its body, never issues it files: the Taster is read-only, and its out doc reaches the pull request's body and the status comment as every Taster's does.
 - **Nip tastes through correctness and acceptance side by side**: its `taste` step becomes a parallel group ([ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)) of the lens steps `correctness` (`diff/correctness`) and `acceptance` (`diff/acceptance`), both advisory. This amends ADR 0161's Nip step; a Brewery that wants one Taster replaces `nip.jsonc` (ADR 0098).
@@ -21,7 +21,7 @@ Foedrum's issues, and the orders a Brewery files the same way, list what to buil
 
 ## Consequences
 - Every Nip batch runs one more Taster: in the time of the slower of the two, since they run side by side, and at the tokens of one more Taster run (the lens, the order and the change).
-- A Nip pull request whose order has an item left out has a `changes` verdict among its Tasters', so it opens as a draft ([ADR 0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md)), with the item in its body and the status comment.
+- A Nip pull request whose order has an item left out that the order cannot be closed without has a `changes` verdict among its Tasters', so it opens as a draft ([ADR 0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md)), with the item in its body and the status comment.
 - Nip's step ids change: the Taster's attempts are named `correctness` and `acceptance`, not `taste`, in the status comment, the event log and the scripted Nip of the tests.
 - The planted-defect sample `test/fixtures/brew-review/planted-acceptance/` holds an order with a checklist and a change that passes correctness but leaves one item unbuilt and builds one thing unasked; a change to the lens is exercised on it, as on `planted-demo` for the others.
 - `foedrum doctor` lists `defaults/lenses/diff/acceptance.md` in `Defaults in use`, as it lists every default (ADR 0098).
@@ -29,6 +29,6 @@ Foedrum's issues, and the orders a Brewery files the same way, list what to buil
 
 ## Alternatives considered
 - **An acceptance check in correctness.** No extra session, but correctness reviews what code does, not what was asked, and the lenses would overlap again (ADR 0022).
-- **Ship it without adding it to Nip, as necessity was.** No extra Taster run, but the one question no other lens asks would run only in recipes that name it, and an unbuilt item is the defect a quick fix is most likely to have.
+- **Ship it without adding it to Nip, as necessity was, and as ADR 0185 kept Nip to one Taster.** No extra Taster run, but the one question no other lens asks would run only in recipes that name it, and an unbuilt item is the defect a quick fix is most likely to have; one more Taster beside correctness costs its tokens, not its time.
 - **Acceptance blocking in Nip.** An item left out would send the batch back to Cellarman, but a checklist item a model judges unbuilt can be wrong, as a mutant can be equivalent (ADR 0017); advisory first, a recipe can set `"blocking": true`.
 - **The lens files the follow-ups as issues.** It would need a write the Taster does not have, and a model would decide what enters the backlog; the Innkeeper (#227) is where they go.

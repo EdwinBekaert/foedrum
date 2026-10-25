@@ -13,7 +13,7 @@ The **order** is the issue the change was made for, in your input `order`, or in
 
 An item that names a test, a document or a decision record is built only when the change has it. An item whose wording the change meets only by its letter (a function of the right name that does not do the thing) is built in part.
 
-**Built but not asked for.** Anything the change builds that no item asks for and the item it serves does not need: a feature, an option, a command, a file, a refactor of code the order does not touch. Code that an item needs to work (a helper, a type, a test fixture, an update to a document the change makes wrong) is part of that item, not extra.
+**Built but not asked for.** Anything the change builds that no item asks for and the item it serves does not need: a feature, an option, a command, a file, a refactor of code the order does not touch. A safeguard the order did not ask for (a check, guard, retry or scan) is necessity's to weigh: leave it out. Code that an item needs to work (a helper, a type, a test fixture, an update to a document the change makes wrong) is part of that item, not extra.
 
 **No checklist.** When the order has no checklist, there is nothing to check the change against: report one `minor` finding about the change as a whole that says so, and approve. Do not invent a checklist from the order's prose.
 
@@ -25,7 +25,7 @@ An item that names a test, a document or a decision record is built only when th
 
 ## Leave to other lenses
 
-Whether the code does the right thing (correctness); injection, secrets and permissions (security); portability (cross-platform); naming, documented decisions and dependency policy (design conformance); whether the tests would catch a bug (test design); whether a new safeguard is needed (necessity). Style is out of scope for every lens.
+Whether the code does the right thing (correctness); injection, secrets and permissions (security); portability (cross-platform); naming, documented decisions and dependency policy (design conformance); whether the tests would catch a bug (test design); whether a new safeguard is needed, also one the order did not ask for (necessity). Style is out of scope for every lens.
 
 ## Reporting
 
