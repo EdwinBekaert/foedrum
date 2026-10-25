@@ -385,19 +385,17 @@ export function readClaudeStream(asked: StreamAsk, startedAt: Date): StreamReade
         outputTokens: used.outputTokens,
         cacheReadTokens: used.cacheReadInputTokens,
         cacheWriteTokens: used.cacheCreationInputTokens,
-        costUsd: used.costUSD,
       }));
     // Without a result, what was seen: until the last line read.
     const durationMs =
       took === undefined ? lastLineAt.getTime() - startedAt.getTime() : took.duration_ms;
     return {
       complete: took !== undefined,
-      // Its cost, API duration and tokens per model are then the session's (ADR 0042).
+      // Its API duration and tokens per model are then the session's (ADR 0042).
       ...(asked.resumes === true ? { resumed: true as const } : {}),
       ...(durationMs === undefined ? {} : { durationMs: Math.max(0, durationMs) }),
       ...(took?.duration_api_ms === undefined ? {} : { apiDurationMs: took.duration_api_ms }),
       turns: turns(),
-      ...(took?.total_cost_usd === undefined ? {} : { costUsd: took.total_cost_usd }),
       ...(models.length === 0 ? {} : { models }),
       edits,
       toolErrors,

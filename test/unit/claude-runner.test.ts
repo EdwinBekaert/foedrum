@@ -282,7 +282,6 @@ describe('claudeBrewerRunner', () => {
     durationMs: 1568,
     apiDurationMs: 1434,
     turns: 1,
-    costUsd: 0.0005093000000000001,
     models: [
       {
         model: 'claude-haiku-5-5',
@@ -290,7 +289,6 @@ describe('claudeBrewerRunner', () => {
         outputTokens: 4,
         cacheReadTokens: 1670,
         cacheWriteTokens: 2452,
-        costUsd: 0.0005093000000000001,
       },
     ],
     edits: 0,

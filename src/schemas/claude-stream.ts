@@ -87,15 +87,16 @@ export const ClaudeResult = z.looseObject({
 });
 export type ClaudeResult = z.infer<typeof ClaudeResult>;
 
-const Cost = z.number().nonnegative();
 /** A field of what the result says it took: one that cannot be read is left out, never an error. */
 const kept = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
 
-/** What a `result` says the run took (ADR 0172); read apart, so it never fails the result. */
+/**
+ * What a `result` says the run took (ADR 0172); read apart, so it never fails the result. Its cost
+ * is claude's list price, which says nothing of what a user pays, so it is not read (ADR 0181).
+ */
 export const ClaudeResultReceipt = z.looseObject({
   duration_ms: kept(Tokens),
   duration_api_ms: kept(Tokens),
-  total_cost_usd: kept(Cost),
   modelUsage: kept(
     z.record(
       z.string().regex(/\S/),
@@ -104,7 +105,6 @@ export const ClaudeResultReceipt = z.looseObject({
         outputTokens: Tokens,
         cacheReadInputTokens: Tokens,
         cacheCreationInputTokens: Tokens,
-        costUSD: Cost,
       }),
     ),
   ),

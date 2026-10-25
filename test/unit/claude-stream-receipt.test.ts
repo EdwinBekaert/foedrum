@@ -29,19 +29,17 @@ const haiku = (
   outputTokens: number,
   cacheReadTokens: number,
   cacheWriteTokens: number,
-  costUsd: number,
 ) => ({
   model: 'claude-haiku-5-5',
   inputTokens,
   outputTokens,
   cacheReadTokens,
   cacheWriteTokens,
-  costUsd,
 });
 const nothingDone = { edits: 0, toolErrors: 0, denied: [] };
 
 describe('the receipt of each captured stream', () => {
-  it('reads a clean run: its durations, turns, cost and tokens per model', () => {
+  it('reads a clean run: its durations, turns and tokens per model, never a cost (ADR 0181)', () => {
     assert.deepEqual(
       receiptOf(lines('success.jsonl'), { sessionId: session(1), tools: ['Read'] }),
       {
@@ -49,8 +47,7 @@ describe('the receipt of each captured stream', () => {
         durationMs: 1568,
         apiDurationMs: 1434,
         turns: 1,
-        costUsd: 0.0005093000000000001,
-        models: [haiku(2, 4, 1670, 2452, 0.0005093000000000001)],
+        models: [haiku(2, 4, 1670, 2452)],
         ...nothingDone,
       },
     );
@@ -64,14 +61,13 @@ describe('the receipt of each captured stream', () => {
         durationMs: 1944,
         apiDurationMs: 3122,
         turns: 1,
-        costUsd: 0.0006379900000000001,
-        models: [haiku(4, 8, 5399, 2898, 0.0006379900000000001)],
+        models: [haiku(4, 8, 5399, 2898)],
         ...nothingDone,
       },
     );
   });
 
-  // Review of #459: a resumed run's cost, API duration and tokens per model are the session's
+  // Review of #459: a resumed run's API duration and tokens per model are the session's
   // (ADR 0042), so its receipt says it resumed one.
   it('marks the receipt of a run that resumed its session', () => {
     const resumed = receiptOf(lines('resumed.jsonl'), {
@@ -80,7 +76,7 @@ describe('the receipt of each captured stream', () => {
       resumes: true,
     });
     assert.equal(resumed.resumed, true);
-    assert.equal(resumed.costUsd, 0.0006379900000000001);
+    assert.equal('costUsd' in resumed, false);
   });
 
   it('reads a run that reached its maximum turns', () => {
@@ -91,8 +87,7 @@ describe('the receipt of each captured stream', () => {
         durationMs: 1887,
         apiDurationMs: 1757,
         turns: 2,
-        costUsd: 0.00023449,
-        models: [haiku(2, 96, 3369, 763, 0.00023449)],
+        models: [haiku(2, 96, 3369, 763)],
         ...nothingDone,
       },
     );
@@ -109,8 +104,7 @@ describe('the receipt of each captured stream', () => {
         durationMs: 6087,
         apiDurationMs: 5148,
         turns: 4,
-        costUsd: 0.0018595100000000002,
-        models: [haiku(8, 594, 19031, 6857, 0.0018595100000000002)],
+        models: [haiku(8, 594, 19031, 6857)],
         // The two denied calls came back as errors too: they are denials, not tool errors.
         edits: 0,
         toolErrors: 0,
@@ -125,7 +119,7 @@ describe('the receipt of each captured stream', () => {
   it('reads a run that failed before the model replied, which names no model', () => {
     assert.deepEqual(
       receiptOf(lines('model-not-found.jsonl'), { sessionId: session(68), tools: ['Read'] }),
-      { complete: true, durationMs: 578, apiDurationMs: 0, turns: 1, costUsd: 0, ...nothingDone },
+      { complete: true, durationMs: 578, apiDurationMs: 0, turns: 1, ...nothingDone },
     );
   });
 
@@ -133,7 +127,7 @@ describe('the receipt of each captured stream', () => {
     for (const file of ['resume-not-found.jsonl', 'sandbox-unavailable.jsonl']) {
       assert.deepEqual(
         receiptOf(lines(file), { sessionId: session(1), tools: ['Read'] }),
-        { complete: true, durationMs: 0, apiDurationMs: 0, turns: 0, costUsd: 0, ...nothingDone },
+        { complete: true, durationMs: 0, apiDurationMs: 0, turns: 0, ...nothingDone },
         file,
       );
     }
@@ -320,6 +314,26 @@ describe('the receipt of a stream that names too much', () => {
     const { models = [] } = receiptOf([init, result], asked);
     assert.equal(models.length, 10);
     assert.ok(models.every(({ model }) => model === `${'m'.repeat(200)}…`));
+  });
+
+  // Review of #489: the cost is not read, so a model without one keeps its tokens (ADR 0181).
+  it("reads a model's tokens without its cost", () => {
+    const modelUsage = {
+      'claude-haiku-5-5': {
+        inputTokens: 2,
+        outputTokens: 4,
+        cacheReadInputTokens: 1670,
+        cacheCreationInputTokens: 2452,
+      },
+    };
+    const result = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      num_turns: 1,
+      modelUsage,
+    });
+    assert.deepEqual(receiptOf([init, result], asked).models, [haiku(2, 4, 1670, 2452)]);
   });
 });
 

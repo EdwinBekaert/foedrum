@@ -332,9 +332,74 @@ describe('unlinked (ADR 0167)', () => {
   it('removes the @ of a mention, keeping an address and the name', () => {
     assert.equal(
       unlinked('Ask @octocat and (@acme/team), `@types/node`, mail ann@example.com'),
-      'Ask octocat and (acme/team), `types/node`, mail ann@example.com',
+      'Ask octocat and (acme/team), `@types/node`, mail ann@example.com',
     );
     assert.equal(unlinked('@octocat first'), 'octocat first');
+  });
+
+  it('keeps what a code span closed on its line holds, and removes outside it (ADR 0184)', () => {
+    assert.equal(unlinked('`@Test void adds()`'), '`@Test void adds()`');
+    assert.equal(unlinked('@Test void adds()'), 'Test void adds()');
+    assert.equal(unlinked('``a ` @ann``, then @bob'), '``a ` @ann``, then bob');
+    assert.equal(unlinked('`x` @ann and `@eve`'), '`x` ann and `@eve`');
+  });
+
+  it('reads a span left open on its line as text, failing closed (ADR 0184)', () => {
+    assert.equal(unlinked('`@x and @y'), '`x and y');
+    assert.equal(unlinked('`a\n@ann`'), '`a\nann`');
+    assert.equal(unlinked('`a\r@ann`'), '`a\rann`');
+    assert.equal(unlinked('``@ann` and @bob'), '``ann` and bob');
+  });
+
+  it('closes a span only on a run exactly as long as its opener (review of #490)', () => {
+    assert.equal(unlinked('`@a`` and @b'), '`a`` and b');
+    assert.equal(unlinked('``@a``` and @b'), '``a``` and b');
+  });
+
+  it('pairs no span from a backtick a backslash escapes (ADR 0184)', () => {
+    assert.equal(unlinked('\\`@ann`'), '\\`ann`');
+    assert.equal(unlinked('\\\\`@ann`'), '\\\\`@ann`');
+  });
+
+  it('pairs no span on a line with a < or around a | (ADR 0184)', () => {
+    assert.equal(unlinked('<b title="`">@ann`</b>'), '<b title="`">ann`</b>');
+    assert.equal(unlinked('| `a | @ann` |'), '| `a | ann` |');
+    // GitHub pairs `a|b` outside a table, so what follows it on the line is read as text.
+    assert.equal(unlinked('`a|b` @x `c` `@y`'), '`a|b` x `c` `y`');
+    assert.equal(unlinked('`@x` `a|b`\n`@y`'), '`@x` `a|b`\n`y`');
+  });
+
+  it('pairs no span on or after a line with a ] or a $, until a blank line (review of #490)', () => {
+    // A link's destination or title, and maybe GitHub's math, takes a backtick before a span can.
+    assert.equal(unlinked('[x](`y) @ann `'), '[x](`y) ann `');
+    assert.equal(unlinked('[x](u "`") @ann `'), '[x](u "`") ann `');
+    assert.equal(unlinked('[x](`y) `\n`@ann` z'), '[x](`y) `\n`ann` z');
+    assert.equal(unlinked('$x`$ @ann `'), '$x`$ ann `');
+    assert.equal(unlinked('[x](y)\n\n`@a`'), '[x](y)\n\n`@a`');
+  });
+
+  it('pairs no span after a line that leaves its reading open, until a blank line (review of #490)', () => {
+    // GitHub pairs a span across the lines of a paragraph: `a b` here, then text, then `x`.
+    assert.equal(unlinked('`a\nb` @ann `x`'), '`a\nb` ann `x`');
+    assert.equal(unlinked('`a\r\nb` Fixes #3 `c`'), '`a\r\nb` #3 `c`');
+    assert.equal(unlinked('<a title="\n`">@ann `y`'), '<a title="\n`">ann `y`');
+    assert.equal(unlinked('x < y `a\nb` @ann `c`'), 'x < y `a\nb` ann `c`');
+    assert.equal(unlinked('p `a|b` `q\nr` @ann `s`'), 'p `a|b` `q\nr` ann `s`');
+    // A run left open goes on pairing on its own line, as GitHub does.
+    assert.equal(unlinked('``x `@a` @b\n`@c`'), '``x `@a` b\n`c`');
+    // No paragraph runs over a blank line.
+    assert.equal(unlinked('`a\n\n`@x`'), '`a\n\n`@x`');
+    assert.equal(unlinked('`a\n \t\r\n`@x`'), '`a\n \t\r\n`@x`');
+  });
+
+  it('keeps a closing keyword and a character reference inside a span (ADR 0184)', () => {
+    assert.equal(unlinked('`Fixes #3` and Fixes #4'), '`Fixes #3` and #4');
+    assert.equal(unlinked('`&#64;x &amp;` and &#64;y'), '`&#64;x &amp;` and &amp;#64;y');
+  });
+
+  it('removes what a removal brings outside a span (ADR 0184)', () => {
+    assert.equal(unlinked('`a` closes closes #3 `b`'), '`a` #3 `b`');
+    assert.equal(unlinked('@@ann `@@ann`'), 'ann `@@ann`');
   });
 
   it('removes a closing keyword before an issue reference, in any case and form', () => {
@@ -610,8 +675,8 @@ describe('pullRequestText', () => {
         '',
         '| Attempt | Result |',
         '|---|---|',
-        '| implement #1 | succeeded |',
-        '| correctness #1 | approve |',
+        '| `implement #1` | succeeded |',
+        '| `correctness #1` | approve |',
         '',
         '<details><summary>What each step reported</summary>',
         '',
@@ -793,6 +858,70 @@ describe('pullRequestText', () => {
     assert.equal(body.match(/^Closes /gm)?.length, 1);
   });
 
+  it('keeps an @ in a section or a cell only inside a code span (ADR 0184)', () => {
+    const reports = [
+      {
+        stepId: 'implement',
+        summary: 'S',
+        assumptions: [],
+        sections: {
+          howItWorks: 'Adds `@Test void adds()` for @ann.',
+          seeIt: '`@Test` runs, ask @bob',
+          beforeAfter: [
+            { case: '`@Test`', before: '@Test void parse() {', after: '`@Test void parse() {`' },
+            { case: '`a|@x`', before: '`a\\`@y`', after: `\`${'z'.repeat(196)} @w\`` },
+          ],
+        },
+      },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.match(body, /^## How it works\n\nAdds `@Test void adds\(\)` for ann\.\n/);
+    assert.ok(
+      body.includes('\n| `@Test` | Test void parse() { | `@Test void parse() {` |\n'),
+      body,
+    );
+    // A pipe splits the cell before a span, a doubled backslash escapes none, a cut opens one.
+    assert.ok(body.includes(`\n| \`a\\|x\` | \`a\\\\\`y\` | \`${'z'.repeat(196)} w |\n`), body);
+    assert.match(body, /\n\*\*See it:\*\* `@Test` runs, ask bob\n/);
+  });
+
+  it('pairs See it on the one line it is shown on (review of #490)', () => {
+    const sections = { seeIt: '`a\n`@ann`', beforeAfter: [] };
+    const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.match(body, /\n\*\*See it:\*\* `a `ann`\n/);
+    // Paired before it is made one line, the blank line would end the open span.
+    const apart = { seeIt: '`a\n\n`@ann`', beforeAfter: [] };
+    const shown = pullRequestText({
+      title: 'T',
+      closes,
+      reports: [{ stepId: 'implement', summary: 'S', assumptions: [], sections: apart }],
+    });
+    assert.match(shown.body, /\n\*\*See it:\*\* `a `ann`\n/);
+  });
+
+  it('keeps a cell within 200 characters once made safe (review of #490)', () => {
+    const beforeAfter = [{ case: '&#64;'.repeat(40), before: 'b', after: 'a' }];
+    const reports = [
+      { stepId: 'implement', summary: 'S', assumptions: [], sections: { beforeAfter } },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const cell = /\n\| (&amp;#64;\S*) \| b \| a \|\n/.exec(body)?.[1] ?? '';
+    assert.ok(cell.length > 0 && cell.length <= 200, body);
+  });
+
+  it('cuts a cell that grows twice or more no shorter than it needs (review of #490)', () => {
+    const beforeAfter = [{ case: '&lt;&gt;'.repeat(25), before: '&a'.repeat(100), after: 'a' }];
+    const reports = [
+      { stepId: 'implement', summary: 'S', assumptions: [], sections: { beforeAfter } },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const [, grown = '', tripled = ''] = /\n\| (\S+) \| (\S+) \| a \|\n/.exec(body) ?? [];
+    for (const cell of [grown, tripled]) {
+      assert.ok(cell.length > 150 && cell.length <= 200, body);
+    }
+  });
+
   it('leaves out a section or a cell that looks like a secret, naming the step', () => {
     const reports = [
       {
@@ -887,7 +1016,7 @@ describe('pullRequestText', () => {
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
     assert.ok(
-      body.includes('\n| red #1 | failed: `` test "a\\|b" `x`\\u000anext @ann `` |\n'),
+      body.includes('\n| `red #1` | failed: `` test "a\\|b" `x`\\u000anext @ann `` |\n'),
       body,
     );
   });
@@ -895,7 +1024,7 @@ describe('pullRequestText', () => {
   it('escapes every pipe of a reason, also after a backslash', () => {
     const attempts = [{ stepId: 'red', attempt: 1, result: 'failed', reason: 'a\\|b\\\\|c' }];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes('| red #1 | failed: ` a\\|b\\\\\\|c ` |'), body);
+    assert.ok(body.includes('| `red #1` | failed: ` a\\|b\\\\\\|c ` |'), body);
   });
 
   it("cuts a reason's runs of backticks to three, so its code span stays short (review of #450)", () => {
@@ -903,7 +1032,7 @@ describe('pullRequestText', () => {
       { stepId: 'red', attempt: 1, result: 'failed', reason: `a${'`'.repeat(50)}b` },
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes('| red #1 | failed: ```` a```b ```` |'), body);
+    assert.ok(body.includes('| `red #1` | failed: ```` a```b ```` |'), body);
   });
 
   it('cuts a reason to 200 characters, and leaves out one that looks like a secret', () => {
@@ -912,10 +1041,10 @@ describe('pullRequestText', () => {
       { stepId: 'red', attempt: 2, result: 'failed', reason: `Read ${token}` },
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes(`| red #1 | failed: \` ${'y'.repeat(200)} \` |`), body);
+    assert.ok(body.includes(`| \`red #1\` | failed: \` ${'y'.repeat(200)} \` |`), body);
     assert.ok(
       body.includes(
-        '| red #2 | failed: ` [left out: a text of step red that looks like a secret] ` |',
+        '| `red #2` | failed: ` [left out: a text of step red that looks like a secret] ` |',
       ),
       body,
     );
@@ -929,7 +1058,8 @@ describe('pullRequestText', () => {
       result: 'succeeded',
     }));
     const { body } = pullRequestText({ title: 'T', closes, reports: [], attempts });
-    assert.ok(body.includes('\n| implement #50 | succeeded |\n\nAnd 55 more attempts.\n'), body);
+    assert.ok(body.includes('\n| `implement #50` | succeeded |\n\nAnd 55 more attempts.\n'), body);
+    assert.doesNotMatch(body, /\| implement #/);
     assert.doesNotMatch(body, /implement #51/);
   });
 
