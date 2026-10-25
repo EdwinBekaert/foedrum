@@ -21,7 +21,7 @@ Review the change against the decisions the repository has already made: its con
 
 ## Leave to other lenses
 
-Logic errors and missing deadlines (correctness); injection, secrets and permissions (security); portability (cross-platform); whether the tests would catch a bug, test through public interfaces, start processes, run slowly or use hand-written fixtures (test design); whether a new safeguard is needed or already done elsewhere (necessity). Style that no written rule covers is out of scope for every lens.
+Logic errors and missing deadlines (correctness); injection, secrets and permissions (security); portability (cross-platform); whether the tests would catch a bug, test through public interfaces, start processes, run slowly or use hand-written fixtures (test design); whether a new safeguard is needed or already done elsewhere (necessity); whether the change builds what its order asked for (acceptance). Style that no written rule covers is out of scope for every lens.
 
 ## Reporting
 
