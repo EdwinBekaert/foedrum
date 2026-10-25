@@ -24,7 +24,6 @@ import type { Env } from '../engine/brewer-env.ts';
 import {
   type AttemptEnd,
   type AttemptFacts,
-  type AttemptLimits,
   type AttemptStart,
   type BrewerRunner,
   type CommitsSeen,
@@ -249,21 +248,6 @@ export function restoreOutDocFile(file: string, root: string, copy: string): voi
   writeFileSync(real, text, { flag: 'wx' });
 }
 
-/**
- * Before a run that resumes a session: the out doc a run before left goes, so the run is read by
- * what it writes itself, such as after its needs_input (ADR 0118); after a turn overrun it stays,
- * or its copy comes back, since it is the work the session finishes (ADR 0175).
- */
-export function prepareOutDoc(
-  files: Pick<ClaudeRunnerDeps['files'], 'clearOutDoc' | 'restoreOutDoc'>,
-  plan: Pick<ClaudeAttemptPlan, 'cwd' | 'outDocFrom'>,
-  limits: Pick<AttemptLimits, 'outDoc'>,
-): void {
-  const file = resolve(plan.cwd, limits.outDoc.file);
-  if (plan.outDocFrom === undefined) files.clearOutDoc(file, plan.cwd);
-  else files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
-}
-
 /** How the process ended, from what the stream process answered. */
 const exitOf = (result: StreamResult): ProcessExit => {
   switch (result.killed) {
@@ -448,7 +432,14 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
-        if (plan.call.session.kind === 'resume') prepareOutDoc(deps.files, plan, limits);
+        // A resumed run is read by the out doc it writes, never the one the run before left, such
+        // as its needs_input (ADR 0118); after a turn overrun that out doc stays, or its copy comes
+        // back, since it is the work the session finishes (ADR 0175).
+        if (plan.call.session.kind === 'resume') {
+          const file = resolve(plan.cwd, limits.outDoc.file);
+          if (plan.outDocFrom === undefined) deps.files.clearOutDoc(file, plan.cwd);
+          else deps.files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
+        }
         args = claudeArgs({
           ...plan.call,
           settingsFile: plan.settingsFile,
