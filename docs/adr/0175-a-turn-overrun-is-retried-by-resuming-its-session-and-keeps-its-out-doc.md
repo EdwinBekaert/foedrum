@@ -1,6 +1,6 @@
 # 0175. A turn overrun is retried by resuming its session, and keeps its out doc
 
-Date: 2026-10-25 · Status: Accepted · Amends [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (a run past `maxTurns` whose session the driver can resume fails retryably) and [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) (the retry of such a run resumes its session whatever the brewer's `retryMode`, with a prompt of its own, keeps the out doc the run wrote, and fails instead of starting fresh when the session cannot be got back)
+Date: 2026-10-25 · Status: Accepted · Amends [0028](0028-brewer-runner-outcomes-environment-and-test-first.md) and [0047](0047-the-claude-brewer-runner-its-stream-endings-and-progress.md) (a run past `maxTurns` whose session the driver can resume fails retryably, marked `overran`), [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (a resumed retry after a turn overrun keeps the out doc, or gets its copy back, instead of removing it) and [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) (the retry of such a run resumes its session whatever the brewer's `retryMode`, with a prompt of its own, keeps the out doc the run wrote, and fails instead of starting fresh when the session cannot be got back)
 
 ## Context
 A brewer's `maxTurns` goes to claude as `--max-turns`, so claude stops the session at the limit, wherever it is in its work.
@@ -26,9 +26,12 @@ Its worktree had been recreated from the attempt's branch, so the uncommitted `g
 ### Its retry resumes the session
 - **The retry of a marked attempt resumes its session whatever the brewer's `retryMode` says.**
   The driver asks `resumeOf` as for any retry, so [ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)'s conditions decide, in one place: the attempt before it finished with claude's init report, did not succeed, and an attempt of its session has a worktree to recreate.
-- **It never falls back to a fresh attempt.**
+- **It does not fall back to a fresh attempt.**
   When `resumeOf` says fresh, or the worktree cannot be recreated, the retry fails at once as not retryable, `the turn budget ran out, and its session cannot be resumed: <why>`, with `resumeOf`'s or the recreate's why: a fresh attempt would meet the same budget.
   A human's `retry` from Stuck then starts fresh: the attempt before it carries no mark.
+- **A resumed run that finds no session is the one exception.**
+  It ends before claude's init and fails retryably, as [ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) says, without the mark.
+  Its retry, if the step has one left, follows the brewer's `retryMode`, which for every default brewer starts fresh: there is no session left to resume, and a fresh run is the only way on.
 - **Its prompt is its own**: `The run before this one ran out of turns. Finish what is left of the step, write <out doc> as your instructions say, and end.`, with no tagged input, as a resumed retry has none.
 - **It gets the brewer's full `maxTurns` again**, as every attempt does: the budget is per run.
 - **The status comment says it**: the step line of a running resumed attempt, and its receipt line, end with `resumed after the turn budget`.
@@ -40,6 +43,8 @@ Its worktree had been recreated from the attempt's branch, so the uncommitted `g
   As an attempt ends on a retryable overrun with an out doc, the runner writes the text it read beside the attempt's settings file, `<attempt>.out.md` under `attempt-settings`, which the settings cleanup removes with its batch ([ADR 0183](0183-the-engine-s-fixed-rules-for-a-brewer-go-in-an-appended-system-prompt.md)).
   The retry's plan names that copy, and before claude resumes, the runner writes it into the worktree when the worktree has no out doc: a new file only, inside the worktree, through no link.
   A copy that cannot be written costs the attempt nothing: its retry resumes without it.
+  Nor does an out doc whose folder the recreated worktree does not have, as when git does not track it: the session resumes without it.
+  A copy that would be written outside the worktree, or cannot be read or written there, stops the attempt before claude starts, as an out doc that cannot be removed does ([ADR 0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)).
 
 ## Consequences
 - A brew whose brewer runs past `maxTurns` goes on by itself, within the step's `maxAttempts`, in the same session and worktree, out doc included.
