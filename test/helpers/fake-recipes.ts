@@ -12,6 +12,8 @@ export interface FakeRecipe {
   skips?: Readonly<Record<string, string>>;
   /** Where a failed check or a step blocked by findings goes back to, by step id. */
   routes?: Readonly<Record<string, { failed?: string; findings?: string }>>;
+  /** How many rounds each step's routes may send a batch back, by step id; default no limit. */
+  maxRounds?: Readonly<Record<string, number>>;
   /** The steps that are actions the engine runs itself, by step id; default none (ADR 0071). */
   actions?: Readonly<Record<string, RecipeAction>>;
   pullRequests?: readonly string[];
@@ -29,6 +31,7 @@ export const fakeRecipe = ({
   maxAttempts = 2,
   skips = {},
   routes = {},
+  maxRounds = {},
   actions = {},
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
@@ -40,6 +43,13 @@ export const fakeRecipe = ({
   const opens = steps.find((stepId) => actions[stepId] === 'openPullRequest');
   const groupOf = (stepId: string): string | undefined =>
     Object.entries(groups).find(([, children]) => children.includes(stepId))?.[0];
+  // As the loaded recipe does, a route counts the attempts of its goto step it scheduled.
+  const roundsOf: Recipe['rounds'] = (batch, stepId, why) => {
+    const goto = routes[stepId]?.[why];
+    if (goto === undefined) return undefined;
+    const attempts = [...(batch.steps.get(goto)?.attempts.values() ?? [])];
+    return attempts.filter(({ route }) => route?.from === stepId && route.why === why).length;
+  };
   return {
     firstStep,
     steps: steps.flatMap((stepId) => groups[stepId] ?? [stepId]),
@@ -63,7 +73,11 @@ export const fakeRecipe = ({
         : { kind: 'done', pullRequests, opens };
     },
     mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
-    loopBack: (_batch, stepId, why) => routes[stepId]?.[why],
+    rounds: roundsOf,
+    loopBack: (batch, stepId, why) =>
+      (roundsOf(batch, stepId, why) ?? 0) < (maxRounds[stepId] ?? Number.POSITIVE_INFINITY)
+        ? routes[stepId]?.[why]
+        : undefined,
   };
 };
 

@@ -504,6 +504,9 @@ function lineRecipe(
       ).length;
       return rounds < route.maxRounds ? route.goto : undefined;
     },
+    rounds: () => {
+      throw new Error('not implemented');
+    },
   };
 }
 

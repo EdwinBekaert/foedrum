@@ -68,6 +68,11 @@ export interface Recipe {
    * back to, or `undefined` when `stepId` has no such route or its rounds are used up.
    */
   loopBack(batch: Batch, stepId: string, why: 'failed' | 'findings'): string | undefined;
+  /**
+   * How many rounds the `why` route of `stepId` has sent `batch` back, or `undefined` when the step
+   * has no such route (ADR 0064, ADR 0192).
+   */
+  rounds(batch: Batch, stepId: string, why: 'failed' | 'findings'): number | undefined;
 }
 
 export interface Recipes {

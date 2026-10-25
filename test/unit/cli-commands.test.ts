@@ -638,6 +638,55 @@ describe('foedrum stuck', () => {
     });
   });
 
+  it('lists the open findings of a findings route that ran out of rounds, and recommends stepping back (ADR 0192)', async () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    append(ordered(11), {
+      type: 'batch.stuck',
+      batchId: '11-1',
+      reason: {
+        kind: 'blocked',
+        stepId: 'correctness',
+        blockerKind: 'findings',
+        summary: 'the Taster asks for changes: no deadline',
+        roundsOut: {
+          rounds: 2,
+          open: [
+            {
+              file: 'src/poll.ts',
+              line: 3,
+              severity: 'major',
+              why: 'no\ndeadline',
+              introduced: true,
+            },
+            { severity: 'minor', why: 'x'.repeat(300), introduced: false },
+            { severity: 'blocker', why: `Token ${token}`, introduced: true },
+          ],
+          more: 4,
+        },
+      },
+      options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+      remindAt: iso(2880),
+    });
+    assert.deepStrictEqual(await run(['stuck']), {
+      exitCode: 0,
+      stdout: [
+        '1 Stuck batch',
+        '',
+        `11-1  #11  blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
+        '  options: retry, skip, recipe, rewind, cancel',
+        '  still open after 2 rounds:',
+        '    major in src/poll.ts:3: no deadline',
+        `    minor, there before the change: ${'x'.repeat(199)}…`,
+        '    blocker: [left out: a text of step correctness that looks like a secret]',
+        '    and 4 more',
+        '  Another round is unlikely to help: plan the order again, or split it.',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+  });
+
   // An event written before ADR 0192, or by a step with no findings route, has no roundsOut.
   it('lists a findings blocker without rounds as it always did, with no step-back', async () => {
     append(ordered(11), {

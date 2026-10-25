@@ -17,7 +17,7 @@ import type {
   WaitCondition,
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
-import type { BlockerKind } from '../schemas/out-doc.ts';
+import type { BlockerKind, TastingFinding } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
@@ -55,8 +55,18 @@ export type HumanCommand =
    */
   | ({ kind: 'take_over'; from: string; to: string; until: string; resumes?: string } & Issuer);
 
-/** How an attempt ended: a step outcome, or a brewer's `blocked` out doc with its blocker kind. */
-export type Ending = StepOutcome | { kind: 'blocked'; blockerKind: BlockerKind; summary: string };
+/**
+ * How an attempt ended: a step outcome, or a brewer's `blocked` out doc with its blocker kind, and
+ * for a blocking Taster's `changes` its findings (ADR 0192).
+ */
+export type Ending =
+  | StepOutcome
+  | {
+      kind: 'blocked';
+      blockerKind: BlockerKind;
+      summary: string;
+      findings?: readonly TastingFinding[];
+    };
 
 /** Events the engine records as they happen; they decide nothing about a batch's lane. */
 export type RecordedEvent = Extract<

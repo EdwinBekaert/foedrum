@@ -443,6 +443,18 @@ describe('loadRecipes: an onBlocked route and its rounds (ADR 0064)', () => {
     assert.equal(pale.loopBack(routedBatch([undefined]), 'implement', 'failed'), undefined);
     assert.equal(pale.loopBack(routedBatch([undefined]), 'gauge', 'findings'), undefined);
   });
+
+  it('says how many rounds its own route used, and nothing for a step without one (ADR 0192)', () => {
+    const pale = withRoute(1);
+    const others: Route[] = [
+      { from: 'review', why: 'findings' },
+      { from: 'implement', why: 'failed' },
+    ];
+    assert.equal(pale.rounds(routedBatch([undefined, ...others]), 'implement', 'findings'), 0);
+    assert.equal(pale.rounds(routedBatch([undefined, findings]), 'implement', 'findings'), 1);
+    assert.equal(pale.rounds(routedBatch([undefined, findings]), 'implement', 'failed'), undefined);
+    assert.equal(pale.rounds(routedBatch([undefined]), 'gauge', 'findings'), undefined);
+  });
 });
 
 describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064)', () => {

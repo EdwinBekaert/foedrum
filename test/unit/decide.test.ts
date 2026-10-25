@@ -4,6 +4,7 @@ import {
   type Command,
   type Context,
   decide,
+  type Ending,
   type RecordedEvent,
   stuckOptions,
 } from '../../src/engine/decide.ts';
@@ -528,8 +529,12 @@ describe('decide finish', () => {
       ]);
     });
 
-    it('with findings and no route makes the batch Stuck', () => {
-      accepts(brewing(), finish(blocked('findings')), [
+    it('with findings and no route makes the batch Stuck, as it did before ADR 0192', () => {
+      const withFindings = {
+        ...blocked('findings'),
+        findings: [{ severity: 'major', why: 'no deadline', introduced: true }],
+      } as const;
+      accepts(brewing(), finish(withFindings), [
         finished(recorded('findings')),
         stuckOn({
           kind: 'blocked',
@@ -1756,17 +1761,26 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     started(stepId, attempt),
     { type: 'step.finished', batchId: 'b1', stepId, attempt, outcome: succeeded },
   ];
+  const finding = (n: number) =>
+    ({
+      file: 'src/poll.ts',
+      line: n,
+      severity: 'major',
+      why: `no deadline ${n}`,
+      introduced: true,
+    }) as const;
   const blocked = {
     kind: 'blocked',
     blockerKind: 'findings',
     summary: 'the test is wrong',
+    findings: [finding(1), { severity: 'minor', why: 'a long name', introduced: false }],
   } as const;
-  const finish = (attempt: number): Command => ({
+  const finish = (attempt: number, ending: Ending = blocked): Command => ({
     kind: 'finish',
     batchId: 'b1',
     stepId: 'implement',
     attempt,
-    ending: blocked,
+    ending,
   });
   const recorded = (attempt: number): Event => ({
     type: 'step.finished',
@@ -1778,7 +1792,7 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
   const findings = { from: 'implement', why: 'findings' } as const;
   const inHalfAnHour = '2026-10-15T12:30:00.000Z';
 
-  it('goes back along the route, recording it on the schedule, then is Stuck on the findings', () => {
+  it('goes back along the route, recording it on the schedule, then is Stuck with the open findings (ADR 0192)', () => {
     const firstRound = [
       ordered,
       routed,
@@ -1808,8 +1822,46 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
           stepId: 'implement',
           blockerKind: 'findings',
           summary: 'the test is wrong',
+          roundsOut: { rounds: 1, open: blocked.findings.map((each) => ({ ...each })), more: 0 },
         }),
       ],
+    });
+  });
+
+  it('keeps ten open findings of the last round, cut as the status comment reads them, and counts the rest (ADR 0192)', () => {
+    const lastRound = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+      recorded(1),
+      { ...scheduled('gauge', 2), route: findings },
+      started('gauge', 2),
+      { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt: 2, outcome: succeeded },
+      scheduled('implement', 2),
+      started('implement', 2),
+    ] satisfies Event[];
+    const long = { ...finding(12), file: `src/${'a'.repeat(2_000)}.ts`, why: 'x'.repeat(2_000) };
+    const many = [long, ...Array.from({ length: 11 }, (_, n) => finding(n + 1))];
+    const decision = decide(
+      fold(lastRound),
+      finish(2, { ...blocked, findings: many }),
+      withRoute(),
+    );
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(
+      stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked',
+      JSON.stringify(stuck),
+    );
+    assert.deepStrictEqual(stuck.reason.roundsOut, {
+      rounds: 1,
+      open: [
+        { ...long, file: long.file.slice(0, 1_000), why: long.why.slice(0, 1_000) },
+        ...many.slice(1, 10),
+      ],
+      more: 2,
     });
   });
 
