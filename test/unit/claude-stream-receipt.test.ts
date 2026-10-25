@@ -315,6 +315,26 @@ describe('the receipt of a stream that names too much', () => {
     assert.equal(models.length, 10);
     assert.ok(models.every(({ model }) => model === `${'m'.repeat(200)}…`));
   });
+
+  // Review of #489: the cost is not read, so a model without one keeps its tokens (ADR 0181).
+  it("reads a model's tokens without its cost", () => {
+    const modelUsage = {
+      'claude-haiku-5-5': {
+        inputTokens: 2,
+        outputTokens: 4,
+        cacheReadInputTokens: 1670,
+        cacheCreationInputTokens: 2452,
+      },
+    };
+    const result = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      num_turns: 1,
+      modelUsage,
+    });
+    assert.deepEqual(receiptOf([init, result], asked).models, [haiku(2, 4, 1670, 2452)]);
+  });
 });
 
 describe('the receipt of a stream it cannot read all of (review of #459)', () => {

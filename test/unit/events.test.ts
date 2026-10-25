@@ -636,6 +636,11 @@ describe("step.finished's receipt from before ADR 0181", () => {
     });
   });
 
+  // Review of #489: what the runner records now, with no cost at all.
+  it('accepts a receipt and its models without a cost, as they are', () => {
+    accepts(Event, { ...valid['step.finished'], receipt: { ...receipt, models: [model] } });
+  });
+
   it('replays without its cost', () => {
     const ordered: Event = {
       type: 'batch.ordered',
