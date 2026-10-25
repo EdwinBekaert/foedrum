@@ -21,7 +21,7 @@ export const LOGIN = 'cellar-bot';
 export const RECIPE = 'nip-parallel';
 
 /** The Tasters' lens steps of the recipe's parallel group, which run side by side (ADR 0168). */
-export const LENS_STEPS = [
+const LENS_STEPS = [
   { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
   { id: 'security', brewer: 'taster', lens: 'diff/security' },
   { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },

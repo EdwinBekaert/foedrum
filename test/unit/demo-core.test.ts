@@ -92,6 +92,8 @@ describe('scratchFolder', () => {
 describe('the demo Brewery', () => {
   const work = resolve('/scratch/work');
   const clone = resolve('/scratch/web');
+  /** Foedrum's defaults, as serve reads them under every Brewery (ADR 0098). */
+  const foedrumDefaults = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults;
   /** The Brewery's files, and what serve makes of them, with `defaults` under them. */
   const demo = (defaults?: BreweryFiles['defaults']) => {
     const files = breweryFiles();
@@ -121,7 +123,7 @@ describe('the demo Brewery', () => {
 
   it('is one serve accepts, with the work root and the clone it is given', () => {
     // Under Foedrum's defaults, as serve always reads it: the Brewery's recipe names their brewers.
-    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    const { ready } = demo(foedrumDefaults);
     assert.equal(ready.kind, 'ready', JSON.stringify(ready));
     if (ready.kind !== 'ready') return;
     const { setup } = ready;
@@ -135,12 +137,12 @@ describe('the demo Brewery', () => {
   });
 
   it("is one serve accepts under Foedrum's own defaults, as serve reads them (ADR 0098)", () => {
-    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    const { ready } = demo(foedrumDefaults);
     assert.equal(ready.kind, 'ready', JSON.stringify(ready));
   });
 
   it("routes the order to the demo's own recipe, whose Gauger from Foedrum's defaults gets a second attempt after the crash", () => {
-    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    const { ready } = demo(foedrumDefaults);
     assert.equal(ready.kind, 'ready', JSON.stringify(ready));
     if (ready.kind !== 'ready') return;
     assert.deepStrictEqual(ORDER.labels, ['recipe:nip-parallel']);
@@ -176,7 +178,7 @@ describe('the demo Brewery', () => {
   });
 
   it("loads the group with its three children in Nip's place of the taste step", () => {
-    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
+    const { ready } = demo(foedrumDefaults);
     if (ready.kind !== 'ready') assert.fail(JSON.stringify(ready));
     const recipe = ready.setup.recipes.find('nip-parallel');
     assert.deepStrictEqual(recipe?.children('taste'), ['correctness', 'security', 'test-design']);
