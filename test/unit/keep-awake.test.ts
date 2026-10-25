@@ -285,6 +285,19 @@ describe('keepAwake: the minute after the last attempt (ADR 0195)', () => {
     return { exec, started, live };
   };
 
+  it('waits a whole minute after the last attempt', () => {
+    const { exec } = running();
+    const waits: number[] = [];
+    const timers = {
+      set: (_callback: () => void, ms: number) => waits.push(ms),
+      clear: () => {},
+    };
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann', timers });
+    hold.attemptStarted();
+    hold.attemptEnded();
+    assert.deepStrictEqual(waits, [60_000]);
+  });
+
   it('keeps holding until the minute after the last attempt has passed, then lets go', () => {
     const { exec, live } = running();
     const timers = cuedTimers();
