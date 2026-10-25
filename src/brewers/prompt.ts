@@ -22,7 +22,9 @@ export type InputSource =
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
   /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
-  | { kind: 'route'; step: string; from: string; why: 'failed' | 'findings' };
+  | { kind: 'route'; step: string; from: string; why: 'failed' | 'findings' }
+  /** Why a retry runs: the secret scan failed the attempt before it, `attempt` (ADR 0187). */
+  | { kind: 'scan'; step: string; attempt: number };
 
 export interface PromptInput {
   /** The brewer's input name (`inputs[].name`, the `{variable}` in its body), when it has one. */
@@ -69,6 +71,8 @@ function describeSource(source: InputSource): string {
       const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }
+    case 'scan':
+      throw new Error('not implemented');
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);

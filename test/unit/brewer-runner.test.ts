@@ -492,12 +492,13 @@ describe('scannedEnding: the secret scan of a done attempt with commits (ADR 018
     assert.deepStrictEqual(scannedEnding(success, scanned(), start), success);
   });
 
-  it('fails retryably on a finding, naming its commit by 12 characters, its kind and its place', () => {
+  it('fails retryably on a finding, naming its commit by 12 characters, its kind and its place, and marks it for the retry', () => {
     assert.deepStrictEqual(scannedEnding(success, scanned(finding(1)), start), {
       kind: 'failed',
       retryable: true,
       reason:
         "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 111111111111, GitHub token in test/keys1.test.ts",
+      secrets: true,
     });
   });
 

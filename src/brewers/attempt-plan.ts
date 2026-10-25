@@ -343,6 +343,14 @@ export function routeOf(
 
 const leftOutReason = '[left out: a reason that looks like a secret]';
 
+/**
+ * What a retry is told when the secret scan failed the attempt before it (ADR 0187): its reason,
+ * and to write that text another way; none for any other attempt.
+ */
+export function scanRetryOf(_batch: Batch, _ref: AttemptRef): PromptInput | undefined {
+  throw new Error('not implemented');
+}
+
 /** A reading that did not pass, as the route input shows it: the check, how it ended, its tail. */
 function failedReading(reading: GravityReading): string[] {
   if (reading.result === 'skipped' || passed(reading)) return [];
