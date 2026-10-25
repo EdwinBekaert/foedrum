@@ -388,21 +388,20 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
       ordered(14),
       blocked(14, 'a summary of some length that a narrow terminal cuts'),
     ];
+    // The resize comes in the one wait, which also stops the watch: the board after it is the
+    // resize's own, not the next second's.
     const { frames } = await watched({
       states: [stateOf(events)],
-      waits: 2,
-      onWait: (n, board) => {
-        if (n !== 1) return;
+      waits: 1,
+      onWait: (_n, board) => {
         board.size.columns = 20;
         for (const handler of board.handlers) handler();
       },
     });
     assert.ok((frames[0]?.[1]?.length ?? 0) > 19, 'the first board is as wide as the terminal was');
-    assert.ok(frames.length >= 2, 'a board after the resize');
-    for (const frame of frames.slice(1)) {
-      assert.ok(frame.length > 0);
-      for (const line of frame) assert.ok(line.length <= 19, line);
-    }
+    assert.equal(frames.length, 2, 'one board on the resize');
+    assert.ok((frames[1]?.length ?? 0) > 0);
+    for (const line of frames[1] ?? []) assert.ok(line.length <= 19, line);
   });
 
   it('ends on a stop with exit code 0, nothing on the output, the last board left on screen and a line feed, and the resize no longer listened for', async () => {
