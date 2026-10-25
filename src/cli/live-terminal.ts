@@ -51,7 +51,7 @@ export const boardTerminal = (
     // Back up to the first line, then each line over the old one and clear what is left to its
     // right, and everything below the last: never a blank frame between two boards (ADR 0179).
     // A terminal that got narrower has rewrapped the old lines, so the way up counts the screen
-    // rows each takes at the width now.
+    // rows each takes at the width now (ADR 0189).
     redraw: (lines) => {
       const width = stream.columns;
       const up = shown.reduce(

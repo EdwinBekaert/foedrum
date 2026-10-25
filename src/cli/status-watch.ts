@@ -89,7 +89,7 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
     } catch (error) {
       // A read that fails, such as a store busy while a driver writes, ends no watch: the last
       // board stays, cut where it must be so that it and the line that says so fit in the height
-      // less one, and the next board reads again. From a resize it would otherwise be uncaught.
+      // less one, and the next board reads again (ADR 0189). From a resize it would be uncaught.
       const message = error instanceof Error ? error.message : String(error);
       const height = terminal.rows();
       const kept = height === undefined ? last : last.slice(0, Math.max(0, height - 2));
