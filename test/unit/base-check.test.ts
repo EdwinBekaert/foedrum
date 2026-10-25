@@ -20,7 +20,7 @@ import type { Batch } from '../../src/engine/fold.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { baseCheckLines, renderStatus } from '../../src/engine/status-comment.ts';
-import type { PushResult } from '../../src/schemas/store.ts';
+import { MAX_CONFLICTS, type PushResult } from '../../src/schemas/store.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
@@ -36,6 +36,8 @@ const tip3 = 'e'.repeat(40);
 const recipes = fakeRecipes({
   half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }),
   twice: fakeRecipe({ steps: ['plan'], pullRequests: [other] }),
+  // Two steps that each merged the base, as two check attempts would (ADR 0164).
+  again: fakeRecipe({ steps: ['plan', 'green'], pullRequests: [pullRequest] }),
 });
 const succeeded: Ending = {
   kind: 'succeeded',
@@ -94,14 +96,23 @@ describe('checkBases', () => {
       event: { type: 'effect.applied', key: effectKey.encode(key), result },
     });
   /** `batchId` on tap with the pull request its ledger opened and the commit its push recorded. */
-  const onTap = (batchId = 'web-7', recipe = 'half', url = pullRequest, issue = 7): void => {
-    accept({ kind: 'order', batchId, order: { issue, repo: web } });
+  const onTap = (
+    batchId = 'web-7',
+    recipe = 'half',
+    url = pullRequest,
+    issue = 7,
+    { repo = web, merges = [green] }: { repo?: string; merges?: string[] } = {},
+  ): void => {
+    accept({ kind: 'order', batchId, order: { issue, repo } });
     accept({ kind: 'route', batchId, recipe, reason: 'label', source: 'label' });
-    const ref = { batchId, stepId: 'plan', attempt: 1 };
-    accept({ kind: 'record', event: { type: 'step.started', ...ref } });
-    // The base green merged before the push (ADR 0164).
-    ledger({ ...ref, effect: 'merge_base' }, { base: green });
-    accept({ kind: 'finish', ...ref, ending: succeeded });
+    for (const [n, stepId] of (recipe === 'again' ? ['plan', 'green'] : ['plan']).entries()) {
+      const ref = { batchId, stepId, attempt: 1 };
+      accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+      // The base its check merged before the push (ADR 0164).
+      const base = merges[n];
+      if (base !== undefined) ledger({ ...ref, effect: 'merge_base' }, { base });
+      accept({ kind: 'finish', ...ref, ending: succeeded });
+    }
     const pushed: PushResult = { branch: 'foedrum/x/acme.web', commit: head, from: 'start' };
     ledger(pushKey(batchId), pushed);
     ledger(pullRequestKey(batchId), url);
@@ -310,6 +321,100 @@ describe('checkBases', () => {
     await pass(repository);
     await pass(repository);
     assert.deepStrictEqual(branchCalls, ['foedrum/x/acme.web']);
+  });
+
+  it("compares with the base the batch's latest merge read, not an earlier one", async () => {
+    onTap('web-7', 'again', pullRequest, 7, { merges: [green, tip2] });
+    const { repository, calls, state } = fakeRepository({});
+    state.at = tip2;
+    await pass(repository);
+    assert.deepStrictEqual(calls, ['tip main']);
+  });
+
+  it('records at most MAX_CONFLICTS files of a conflict, the first ones', async () => {
+    onTap();
+    const files = Array.from({ length: MAX_CONFLICTS + 1 }, (_, n) => `src/f${n}.ts`);
+    await pass(fakeRepository({ [tip1]: conflicts(...files) }).repository);
+    assert.deepStrictEqual(batch().baseChecks?.[0]?.conflicts, files.slice(0, MAX_CONFLICTS));
+    assert.deepStrictEqual(failures, []);
+  });
+
+  it('reads a tip that failed once per pass, however many pull requests wait for it', async () => {
+    onTap();
+    onTap('web-8', 'twice', other, 8);
+    const { repository, calls, state } = fakeRepository({});
+    state.at = new Error('fatal: unable to access');
+    await pass(repository);
+    assert.deepStrictEqual(calls, ['tip main']);
+    assert.equal(failures.length, 1);
+  });
+
+  it('passes over a batch of a repository it has no base check for, and checks the others', async () => {
+    onTap('api-3', 'twice', other, 3, { repo: 'acme/api' });
+    onTap();
+    const { repository, calls } = fakeRepository({ [tip1]: clean });
+    await pass(repository);
+    assert.deepStrictEqual(calls, ['tip main', 'merge-tree a c']);
+    assert.equal(batch('api-3').baseChecks, undefined);
+    assert.equal(batch().baseChecks?.length, 1);
+    assert.deepStrictEqual(failures, []);
+  });
+
+  it('runs no merge-tree and records nothing when the pass is given up while it reads the tip', async () => {
+    onTap();
+    const controller = new AbortController();
+    const { repository, calls } = fakeRepository({ [tip1]: conflicts('src/a.ts') });
+    const late: BaseCheckRepository = {
+      ...repository,
+      tip: async (base, signal) => {
+        controller.abort(new Error('late'));
+        return repository.tip(base, signal);
+      },
+    };
+    await checkBases(
+      { log, repositories: [late], clock: () => now, failed: () => {} },
+      controller.signal,
+    );
+    assert.deepStrictEqual(calls, ['tip main']);
+    assert.equal(batch().baseChecks, undefined);
+  });
+
+  it('reports a check the log refuses, as another writer ending the pull request between would', async () => {
+    onTap();
+    const { repository } = fakeRepository({ [tip1]: clean });
+    const refusing: CommandLog = {
+      ...log,
+      issue: () => ({ kind: 'refused', reason: 'pull request ended' }),
+    };
+    await checkBases(
+      {
+        log: refusing,
+        repositories: [repository],
+        clock: () => now,
+        failed: (what, error) => failures.push({ what, error }),
+      },
+      new AbortController().signal,
+    );
+    assert.deepStrictEqual(
+      failures.map(({ what, error }) => [what, (error as Error).message]),
+      [[`recording the check of ${pullRequest}`, 'pull request ended']],
+    );
+  });
+
+  it('posts nothing again for the same files named in another order', async () => {
+    onTap();
+    const { repository, state } = fakeRepository({
+      [tip1]: conflicts('src/a.ts', 'src/b.ts'),
+      [tip2]: conflicts('src/b.ts', 'src/a.ts'),
+    });
+    await pass(repository);
+    state.at = tip2;
+    await pass(repository);
+    assert.equal(batch().baseChecks?.length, 2);
+    assert.deepStrictEqual(
+      conflictPosts(batch()).map(({ n }) => n),
+      [1],
+    );
   });
 
   describe('the status comment', () => {

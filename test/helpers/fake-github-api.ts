@@ -131,8 +131,27 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const [, number, what = '', label] =
       /^issues\/(\d+)(?:\/(assignees|labels|comments)(?:\/(.+))?)?$/.exec(rest) ?? [];
     const found = issue(repo, Number(number));
+    // A pull request is an issue to GitHub's comments, as to its numbers.
+    const pull = pulls.some(
+      (each) => each.repo === repo.toLowerCase() && each.number === Number(number),
+    );
+    if (found === undefined && !(pull && what === 'comments')) return notFound();
+    const key = `${repo.toLowerCase()}#${Number(number)}`;
+    const fieldsOf = (body ?? {}) as { body?: string };
+    if (method === 'GET' && what === 'comments') {
+      const listed = (comments.get(key) ?? []).map(({ id, author, body: text }) => ({
+        id,
+        user: { login: author },
+        body: text,
+      }));
+      return json(200, listed);
+    }
+    if (method === 'POST' && what === 'comments') {
+      const made = { id: ++ids, author: login, body: fieldsOf.body ?? '' };
+      comments.set(key, [...(comments.get(key) ?? []), made]);
+      return json(201, { id: made.id, user: { login }, body: made.body });
+    }
     if (found === undefined) return notFound();
-    const key = `${repo.toLowerCase()}#${found.number}`;
     const fields = (body ?? {}) as {
       assignees?: string[];
       labels?: string[];
@@ -157,19 +176,6 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       if (!found.labels.includes(name)) return json(404, { message: 'Label does not exist' });
       found.labels = found.labels.filter((each) => each !== name);
       return json(200, labelsOf(found));
-    }
-    if (method === 'GET' && what === 'comments') {
-      const listed = (comments.get(key) ?? []).map(({ id, author, body: text }) => ({
-        id,
-        user: { login: author },
-        body: text,
-      }));
-      return json(200, listed);
-    }
-    if (method === 'POST' && what === 'comments') {
-      const made = { id: ++ids, author: login, body: fields.body ?? '' };
-      comments.set(key, [...(comments.get(key) ?? []), made]);
-      return json(201, { id: made.id, user: { login }, body: made.body });
     }
     return notFound();
   };

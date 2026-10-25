@@ -254,6 +254,100 @@ describe('runServe', () => {
     );
   });
 
+  it("checks an open pull request against its base's moved tip and comments the conflict on it, on git 2.38 (ADR 0198)", async () => {
+    const porter = JSON.stringify({
+      name: 'porter',
+      description: 'Brews an order in one step and opens its pull request.',
+      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [
+              { path: 'recipes/stout.jsonc', text: recipe },
+              { path: 'recipes/porter.jsonc', text: porter },
+            ],
+            brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
+          },
+        },
+      }),
+    );
+    const ready = result.kind === 'ready' ? result.setup : assert.fail();
+    // A pass at every tick, so one sees the batch on tap.
+    setup = { ...ready, intake: { ...ready.intake, pollEveryMs: 0 } };
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      t0,
+    );
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [
+          { number: 12, labels: [], author: 'ann', title: 'Add a --json flag', body: 'Please.' },
+        ],
+      },
+    });
+    const merged: string[] = [];
+    // The pull request's comments that carry the conflict's marker.
+    const conflictComments = () =>
+      [...github.comments.entries()].flatMap(([key, comments]) =>
+        comments
+          .filter(({ body }) => body.includes('base_conflict.1'))
+          .map(({ body }) => ({ key, body })),
+      );
+    let waits = 0;
+    const code = await runServe(
+      setup,
+      shell({
+        fetch: github.fetch,
+        wait: async () => {
+          waits++;
+          if (conflictComments().length > 0 || waits > 40) controller.abort();
+        },
+        git: async (_cwd, args) => {
+          if (args[0] === '--version')
+            return { code: 0, stdout: 'git version 2.38.0\n', stderr: '' };
+          throw new Error('no red proof or guarded step runs here');
+        },
+        // The bottle branch holds what was pushed; the base moved to 'b…' since.
+        push: (repository) => ({
+          commit: async () => FAKE_COMMIT,
+          baseTip: async () => 'b'.repeat(40),
+          isAncestor: async (commit, of) => commit === of,
+          remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+          push: async (commit, branch) => {
+            pushes.push(`${repository.repo} ${commit} ${branch}`);
+          },
+          secretScan: async () => [],
+        }),
+        mergeTree: () => async (head, tip) => {
+          merged.push(`${head} ${tip}`);
+          return { kind: 'conflicts', files: ['src/cli.ts'] };
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.deepStrictEqual(merged, [`${FAKE_COMMIT} ${'b'.repeat(40)}`]);
+    const [pull] = github.pulls;
+    const url = `https://github.com/acme/web/pull/${pull?.number}`;
+    assert.deepStrictEqual(
+      createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.baseChecks,
+      [{ pullRequest: url, branch: 'main', tip: 'b'.repeat(40), conflicts: ['src/cli.ts'] }],
+    );
+    const [comment] = conflictComments();
+    assert.ok(comment, lines.join('\n'));
+    assert.equal(comment?.key, `acme/web#${pull?.number}`);
+    assert.match(comment?.body ?? '', /src\/cli\.ts/);
+  });
+
   it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
     const touched: string[] = [];
     const terminal: LiveTerminal = {
