@@ -1828,6 +1828,45 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     });
   });
 
+  /** The batch in the last round its route allows: the next blocked finish makes it Stuck. */
+  const lastRound = (): Event[] => [
+    ordered,
+    routed,
+    ...done('gauge'),
+    scheduled('implement'),
+    started('implement'),
+    recorded(1),
+    { ...scheduled('gauge', 2), route: findings },
+    started('gauge', 2),
+    { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt: 2, outcome: succeeded },
+    scheduled('implement', 2),
+    started('implement', 2),
+  ];
+  /** The Stuck reason's roundsOut when the last round ends blocked with `ending`. */
+  const roundsOutOf = (ending: Ending) => {
+    const decision = decide(fold(lastRound()), finish(2, ending), withRoute());
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(
+      stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked',
+      JSON.stringify(stuck),
+    );
+    return stuck.reason.roundsOut;
+  };
+
+  it('keeps a finding whose file or why starts with whitespace, on one line as the status comment reads it (review of #508)', () => {
+    const padded = {
+      ...finding(1),
+      file: `${' '.repeat(1_000)}src/poll.ts`,
+      why: `${'\n'.repeat(1_000)}no  deadline\n\tat all`,
+    };
+    assert.deepStrictEqual(roundsOutOf({ ...blocked, findings: [padded] }), {
+      rounds: 1,
+      open: [{ ...padded, file: 'src/poll.ts', why: 'no deadline at all' }],
+      more: 0,
+    });
+  });
+
   it('keeps ten open findings of the last round, cut as the status comment reads them, and counts the rest (ADR 0192)', () => {
     const lastRound = [
       ordered,
