@@ -49,6 +49,41 @@ export function ranIn(
   return session?.resumes === undefined ? undefined : worktreeOf(step, session.id);
 }
 
+/** The attempt of `step` before attempt `n`, if any. */
+const attemptBefore = (step: Step, n: number): Attempt | undefined =>
+  step.attempts.get(Math.max(...[...step.attempts.keys()].filter((each) => each < n)));
+
+/**
+ * Whether `ref` of `batch` is the retry of an attempt that ran out of its turns, by the mark on
+ * that attempt's outcome: then `ref` resumes its session whatever the brewer's `retryMode`
+ * (ADR 0175).
+ */
+export function afterOverrun(batch: Batch, ref: AttemptRef): boolean {
+  const step = batch.steps.get(ref.stepId);
+  return step?.attempts.get(ref.attempt)?.retry === true && overranBefore(step, ref.attempt);
+}
+
+/**
+ * Whether `ref` of `batch` resumed the session of an attempt that ran out of its turns, as the
+ * status comment says it (ADR 0175).
+ */
+export function resumedAfterOverrun(batch: Batch, ref: AttemptRef): boolean {
+  const step = batch.steps.get(ref.stepId);
+  const attempt = step?.attempts.get(ref.attempt);
+  if (step === undefined || attempt === undefined || attempt.phase === 'scheduled') return false;
+  return attempt.session?.resumes !== undefined && overranBefore(step, ref.attempt);
+}
+
+/** Whether the attempt of `step` before attempt `n` ran out of its turns, by its outcome's mark. */
+const overranBefore = (step: Step, n: number): boolean => {
+  const previous = attemptBefore(step, n);
+  return (
+    previous?.phase === 'finished' &&
+    previous.outcome.kind === 'failed' &&
+    previous.outcome.overran === 'turns'
+  );
+};
+
 /**
  * How attempt `ref` of `batch` starts when its brewer resumes; undefined when it has no session to
  * resume: it is no retry and answers no questions, or the attempt before it ran no session. A
@@ -61,8 +96,7 @@ export function resumeOf(batch: Batch, ref: AttemptRef): Resumption | undefined 
   const current = step?.attempts.get(ref.attempt);
   const resumable = current?.retry === true || current?.answered === true;
   if (step === undefined || !resumable) return undefined;
-  const before = Math.max(...[...step.attempts.keys()].filter((n) => n < ref.attempt));
-  const previous = step.attempts.get(before);
+  const previous = attemptBefore(step, ref.attempt);
   if (previous === undefined || previous.phase === 'scheduled') return undefined;
   const { session } = previous;
   if (session === undefined) return undefined;

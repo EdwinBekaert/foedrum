@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { outDocCopyOf } from '../../src/brewers/attempt-plan.ts';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
 import {
@@ -23,6 +24,7 @@ import {
   claudeBrewerRunnerWith,
   clearOutDocFile,
   readOutDocFile,
+  restoreOutDocFile,
   waitFor,
   writeSystemPromptFile,
 } from '../../src/brewers/claude-runner.ts';
@@ -110,6 +112,10 @@ const setup = (
     clearFails?: string;
     /** Why writing the system prompt file fails, if it does. */
     systemPromptFails?: string;
+    /** Why keeping a copy of the out doc fails, if it does. */
+    copyFails?: string;
+    /** Why putting the copy of the out doc back fails, if it does. */
+    restoreFails?: string;
   } = {},
 ) => {
   const counts: {
@@ -128,6 +134,10 @@ const setup = (
   const read: { file: string; maxBytes: number; root: string }[] = [];
   /** Each out doc cleared, with how many starts of claude came before it. */
   const cleared: { file: string; root: string; starts: number }[] = [];
+  /** Each out doc put back from a copy, with how many starts of claude came before it (ADR 0175). */
+  const restored: { file: string; root: string; copy: string; starts: number }[] = [];
+  /** Each copy of an out doc kept as an attempt ended (ADR 0175). */
+  const copied: { file: string; text: string }[] = [];
   let clock = 0;
   const deps: ClaudeRunnerDeps = {
     claude: '/opt/claude/bin/claude',
@@ -167,6 +177,14 @@ const setup = (
         cleared.push({ file, root, starts: calls.length });
         if (more.clearFails !== undefined) throw new Error(more.clearFails);
       },
+      restoreOutDoc: (file, root, copy) => {
+        restored.push({ file, root, copy, starts: calls.length });
+        if (more.restoreFails !== undefined) throw new Error(more.restoreFails);
+      },
+      copyOutDoc: (file, text) => {
+        copied.push({ file, text });
+        if (more.copyFails !== undefined) throw new Error(more.copyFails);
+      },
     },
     now: () => {
       clock += 1;
@@ -189,6 +207,8 @@ const setup = (
     prompted,
     read,
     cleared,
+    restored,
+    copied,
     waits,
     counts,
     runner: claudeBrewerRunnerWith(deps),
@@ -258,6 +278,83 @@ describe('claudeBrewerRunner', () => {
     const fresh = setup({ lines: fixture('success.jsonl'), result: exited(0) });
     await fresh.runner.start(attempt).ended;
     assert.deepEqual(fresh.cleared, []);
+  });
+
+  // ADR 0175: the out doc is the work the resumed session is told to finish.
+  it('keeps the out doc a run that ran out of turns left, putting its copy back, instead of removing it', async () => {
+    const resuming = plan();
+    const outDocFrom = join('/work', 'attempt', '1.out.md');
+    const resume: ClaudeAttemptPlan = {
+      ...resuming,
+      call: { ...resuming.call, session: { kind: 'resume', id: session(1) } },
+      outDocFrom,
+    };
+    const { cleared, restored, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => resume },
+    );
+    await runner.start(attempt).ended;
+    assert.deepEqual(cleared, []);
+    assert.deepEqual(restored, [
+      { file: resolve('/work/tree', 'plan.md'), root: '/work/tree', copy: outDocFrom, starts: 0 },
+    ]);
+  });
+
+  it('does not start claude when the copy of the out doc cannot be put back (review of #496)', async () => {
+    const resuming = plan();
+    const resume: ClaudeAttemptPlan = {
+      ...resuming,
+      call: { ...resuming.call, session: { kind: 'resume', id: session(1) } },
+      outDocFrom: join('/work', 'attempt', '1.out.md'),
+    };
+    const { calls, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => resume, restoreFails: 'the out doc plan.md is outside the worktree' },
+    );
+    const { ending } = await runner.start(attempt).ended;
+    assert.deepEqual(calls, []);
+    assert.equal(ending.kind, 'failed');
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /outside the worktree/);
+  });
+
+  // ADR 0175: a recreated worktree would have lost it.
+  it('keeps a copy of the out doc beside the settings file when the attempt ran out of turns and can resume', async () => {
+    const overrun = { ...attempt, limits: { ...limits, maxTurns: 1, resumable: true } };
+    const ran = setup(
+      { lines: fixture('max-turns.jsonl'), result: exited(1) },
+      { plan: async () => plan(59), outDoc: done },
+    );
+    const end = await ran.runner.start(overrun).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'budget exceeded: 2 turns, maxTurns is 1',
+      overran: 'turns',
+    });
+    assert.deepEqual(ran.copied, [{ file: outDocCopyOf(plan().settingsFile), text: done }]);
+
+    // Not for an overrun that cannot resume, nor for any other ending.
+    const notResumable = setup(
+      { lines: fixture('max-turns.jsonl'), result: exited(1) },
+      { plan: async () => plan(59), outDoc: done },
+    );
+    await notResumable.runner.start({ ...attempt, limits: { ...limits, maxTurns: 1 } }).ended;
+    assert.deepEqual(notResumable.copied, []);
+    const succeeded = setup({ lines: fixture('success.jsonl'), result: exited(0) });
+    await succeeded.runner.start({ ...attempt, limits: { ...limits, resumable: true } }).ended;
+    assert.deepEqual(succeeded.copied, []);
+  });
+
+  it('settles an overrun as it was when the copy of its out doc cannot be kept', async () => {
+    const { runner } = setup(
+      { lines: fixture('max-turns.jsonl'), result: exited(1) },
+      { plan: async () => plan(59), outDoc: done, copyFails: 'ENOSPC: no space left on device' },
+    );
+    const end = await runner.start({
+      ...attempt,
+      limits: { ...limits, maxTurns: 1, resumable: true },
+    }).ended;
+    assert.equal(end.ending.kind === 'failed' && end.ending.overran, 'turns');
   });
 
   it('does not start claude when the out doc a run before left cannot be removed (ADR 0118)', async () => {
@@ -1117,6 +1214,67 @@ describe('clearOutDocFile (ADR 0118)', () => {
       assert.throws(() => clearOutDocFile(file, worktree), /outside the worktree/, file);
     }
     assert.equal(existsSync(join(dir.path, 'outside', 'plan.md')), true);
+  });
+});
+
+describe('restoreOutDocFile (ADR 0175)', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('restore-out-doc');
+  });
+  afterEach(() => dir.remove());
+
+  it('writes the copy into a worktree that lost its out doc, and keeps one that is there', () => {
+    const copy = join(dir.path, '1.out.md');
+    writeFileSync(copy, 'the gauge so far');
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(worktree);
+    restoreOutDocFile(join(worktree, 'plan.md'), worktree, copy);
+    assert.equal(readFileSync(join(worktree, 'plan.md'), 'utf8'), 'the gauge so far');
+    writeFileSync(join(worktree, 'plan.md'), 'written since');
+    restoreOutDocFile(join(worktree, 'plan.md'), worktree, copy);
+    assert.equal(readFileSync(join(worktree, 'plan.md'), 'utf8'), 'written since');
+  });
+
+  // Review of #496: an untracked folder is not in a worktree recreated from its branch.
+  it('does nothing when the out doc folder is not in the worktree, so the session resumes without it', () => {
+    const copy = join(dir.path, '1.out.md');
+    writeFileSync(copy, 'the gauge so far');
+    restoreOutDocFile(join(dir.path, 'notes', 'plan.md'), dir.path, copy);
+    assert.equal(existsSync(join(dir.path, 'notes')), false);
+  });
+
+  // Review of #496: only a missing copy is skipped; one that cannot be read stops the attempt.
+  it('throws, writing nothing, when the copy cannot be read', () => {
+    const copy = join(dir.path, '1.out.md');
+    mkdirSync(copy);
+    assert.throws(
+      () => restoreOutDocFile(join(dir.path, 'plan.md'), dir.path, copy),
+      /EISDIR|EPERM|EACCES/,
+    );
+    assert.equal(existsSync(join(dir.path, 'plan.md')), false);
+  });
+
+  it('does nothing when there is no copy', () => {
+    restoreOutDocFile(join(dir.path, 'plan.md'), dir.path, join(dir.path, 'none.out.md'));
+    assert.equal(existsSync(join(dir.path, 'plan.md')), false);
+  });
+
+  // A committed link in the recreated worktree could lead the write out of it.
+  it('writes nothing outside the worktree, through a linked folder or ..', () => {
+    const copy = join(dir.path, '1.out.md');
+    writeFileSync(copy, 'the gauge so far');
+    const worktree = join(dir.path, 'worktree');
+    mkdirSync(worktree);
+    mkdirSync(join(dir.path, 'outside'));
+    symlinkSync(join(dir.path, 'outside'), join(worktree, 'out'), 'junction');
+    for (const file of [
+      join(worktree, 'out', 'plan.md'),
+      join(worktree, '..', 'outside', 'plan.md'),
+    ]) {
+      assert.throws(() => restoreOutDocFile(file, worktree, copy), /outside the worktree/, file);
+    }
+    assert.equal(existsSync(join(dir.path, 'outside', 'plan.md')), false);
   });
 });
 

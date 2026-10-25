@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { type Batch, fold } from '../../src/engine/fold.ts';
-import { ranIn, resumeOf } from '../../src/engine/session-resume.ts';
+import { afterOverrun, ranIn, resumeOf } from '../../src/engine/session-resume.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 
@@ -171,5 +171,29 @@ describe('ranIn', () => {
     };
     assert.deepStrictEqual(of(1), { attempt: 1, worktree: worktree(1) });
     assert.deepStrictEqual(of(3), { attempt: 2, worktree: worktree(2) });
+  });
+});
+
+describe('afterOverrun (ADR 0175)', () => {
+  const overran: StepOutcome = {
+    kind: 'failed',
+    retryable: true,
+    reason: 'budget exceeded: 81 turns, maxTurns is 80',
+    overran: 'turns',
+  };
+
+  it('says whether the attempt before ran out of its turns, by the mark on its outcome', () => {
+    const batch = batchOf([...fresh(1, overran), scheduled(2)]);
+    assert.equal(afterOverrun(batch, plan(2)), true);
+    assert.equal(afterOverrun(batch, plan(1)), false, 'a first attempt has none before it');
+  });
+
+  it('says no after any other ending, and for an attempt the batch does not have', () => {
+    const unmarked: StepOutcome = { ...crashed, reason: 'budget exceeded: 81 turns' };
+    for (const outcome of [crashed, unmarked]) {
+      assert.equal(afterOverrun(batchOf([...fresh(1, outcome), scheduled(2)]), plan(2)), false);
+    }
+    const batch = batchOf([...fresh(1, overran), scheduled(2)]);
+    assert.equal(afterOverrun(batch, { ...plan(2), stepId: 'brew' }), false);
   });
 });

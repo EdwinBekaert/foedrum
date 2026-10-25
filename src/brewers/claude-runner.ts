@@ -9,6 +9,7 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  readFileSync,
   readSync,
   realpathSync,
   statSync,
@@ -44,7 +45,7 @@ import type { GravityReading } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
-import type { AttemptSystemPrompt } from './attempt-plan.ts';
+import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
   type AttemptPermissions,
   attemptSettings,
@@ -83,6 +84,11 @@ export interface ClaudeAttemptPlan {
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
+  /**
+   * For a resumed run after a turn overrun: the copy of the out doc the run before left. The
+   * runner keeps the out doc in the worktree, or puts this copy back there (ADR 0175).
+   */
+  outDocFrom?: string;
 }
 
 /** An out doc as the runner found it. */
@@ -112,6 +118,13 @@ export interface ClaudeRunnerDeps {
      * resumes its session there (ADR 0118); throws when it cannot.
      */
     clearOutDoc: (file: string, root: string) => void;
+    /**
+     * Puts the copy of the out doc a run that ran out of turns left back in `root`, the worktree,
+     * when it has none (ADR 0175); throws when it cannot.
+     */
+    restoreOutDoc: (file: string, root: string, copy: string) => void;
+    /** Keeps the copy of the out doc of an attempt that ran out of turns (ADR 0175). */
+    copyOutDoc: (file: string, text: string) => void;
   };
   now: () => Date;
   /** Resolves after `ms`, or at once when `signal` aborts. */
@@ -211,6 +224,30 @@ export function clearOutDocFile(file: string, root: string): void {
     throw new Error(`the out doc ${file} is outside the worktree`);
   }
   unlinkSync(file);
+}
+
+/**
+ * Writes `copy`, the out doc a run that ran out of turns left, to `file` in `root`, the worktree,
+ * when the worktree has none: it was recreated (ADR 0175). Nothing when there is no copy.
+ */
+export function restoreOutDocFile(file: string, root: string, copy: string): void {
+  if (lstatSync(file, { throwIfNoEntry: false }) !== undefined) return;
+  // A folder git does not track is not in a recreated worktree: the session resumes without it.
+  if (lstatSync(dirname(file), { throwIfNoEntry: false }) === undefined) return;
+  let text: string;
+  try {
+    text = readFileSync(copy, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  // As clearOutDocFile: a linked folder on its path, or `..`, could lead out of the worktree.
+  const real = join(realpathSync(dirname(file)), basename(file));
+  if (pathInside(realpathSync(root), real) === undefined) {
+    throw new Error(`the out doc ${file} is outside the worktree`);
+  }
+  // A new file only: `wx` neither follows a link put in its place nor overwrites one.
+  writeFileSync(real, text, { flag: 'wx' });
 }
 
 /** How the process ended, from what the stream process answered. */
@@ -397,10 +434,13 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
-        // A resumed run is read by the out doc it writes, never the one the run before left,
-        // such as its needs_input (ADR 0118).
+        // A resumed run is read by the out doc it writes, never the one the run before left, such
+        // as its needs_input (ADR 0118); after a turn overrun that out doc stays, or its copy comes
+        // back, since it is the work the session finishes (ADR 0175).
         if (plan.call.session.kind === 'resume') {
-          deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
+          const file = resolve(plan.cwd, limits.outDoc.file);
+          if (plan.outDocFrom === undefined) deps.files.clearOutDoc(file, plan.cwd);
+          else deps.files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
         }
         args = claudeArgs({
           ...plan.call,
@@ -508,11 +548,21 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         denials: seen.denials,
         deniedTools: seen.deniedTools,
         turns: seen.turns,
+        sessionStarted: seen.session !== undefined,
         ...(commits === undefined ? {} : { commits }),
       };
+      const ending = settleAttempt(facts, limits);
+      // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).
+      if (ending.kind === 'failed' && ending.overran === 'turns' && facts.outDoc !== undefined) {
+        try {
+          deps.files.copyOutDoc(outDocCopyOf(plan.settingsFile), facts.outDoc);
+        } catch {
+          // The retry resumes without it: a copy is no reason to change how the attempt ended.
+        }
+      }
       // The text as read, valid or not, for the state branch (ADR 0103).
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      return withReadings({ ending: settleAttempt(facts, limits), ...reported, ...outDoc });
+      return withReadings({ ending, ...reported, ...outDoc });
     };
 
     // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169).
@@ -540,6 +590,8 @@ export function claudeBrewerRunner(
       writeSystemPrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
+      restoreOutDoc: restoreOutDocFile,
+      copyOutDoc: writeSystemPromptFile,
     },
     now: () => new Date(),
     wait: waitFor,

@@ -25,6 +25,11 @@ export interface AttemptLimits {
   commitsSince?: string;
   /** For a Taster's blocking step: a `done` with the verdict `changes` is blocked by findings (ADR 0161). */
   blocking?: boolean;
+  /**
+   * The driver can resume the attempt's session: a claude step with a worktree manager that
+   * recreates worktrees. A run past `maxTurns` after claude's init then fails retryably (ADR 0175).
+   */
+  resumable?: boolean;
 }
 
 export interface AttemptStart {
@@ -147,6 +152,8 @@ export interface AttemptFacts {
   deniedTools: readonly string[];
   /** Turns the brewer took. */
   turns: number;
+  /** Whether claude's init report came, so the session it set up can be resumed (ADR 0175). */
+  sessionStarted?: boolean;
   /** The commits since the limits' `commitsSince`, when they name one. */
   commits?: CommitsSeen;
 }
@@ -266,9 +273,13 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
     const summary = `${denials} permission denials, maxDenials is ${maxDenials}${tools}`;
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
-  // The same budget would run out again.
+  // A fresh attempt would meet the same budget; one that resumes the session starts with the work
+  // done, so the overrun is retryable when the session can be resumed (ADR 0047, ADR 0175).
   if (maxTurns !== undefined && turns > maxTurns) {
-    return failed(false, `budget exceeded: ${turns} turns, maxTurns is ${maxTurns}`);
+    const reason = `budget exceeded: ${turns} turns, maxTurns is ${maxTurns}`;
+    return limits.resumable === true && facts.sessionStarted === true
+      ? { kind: 'failed', retryable: true, reason, overran: 'turns' }
+      : failed(false, reason);
   }
   switch (exit.kind) {
     case 'stopped':

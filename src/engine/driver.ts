@@ -24,7 +24,7 @@ import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
 import type { Batch, State } from './fold.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
-import { resumeOf } from './session-resume.ts';
+import { afterOverrun, resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
@@ -523,6 +523,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         return false;
       }
       fallback = resumed.fallback;
+      // A fresh start would run out of the same budget: the retry ends here (ADR 0175).
+      if (afterOverrun(batch, ref)) {
+        const why = fallback ?? `${ref.stepId}#${ref.attempt - 1} has no session to resume`;
+        const reason = `the turn budget ran out, and its session cannot be resumed: ${why}`;
+        const ending = { kind: 'failed', retryable: false, reason } as const;
+        if (recordStart(started)) issue({ kind: 'finish', ...ref, ending });
+        releaseAttempt(key);
+        return false;
+      }
       // At the commits of the steps before it (ADR 0066).
       made = await repository.manager.create(ref, taskTreeStart(batch, repository));
     } catch (error) {
@@ -595,7 +604,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     batch: Batch,
     ref: AttemptRef,
   ): Promise<{ kind: 'resumed'; session: SessionRef } | { kind: 'fresh'; fallback?: string }> => {
-    const found = brews(ref) && resumes(ref) ? resumeOf(batch, ref) : undefined;
+    // After a turn overrun whatever the brewer's retryMode: a fresh start would meet the same
+    // budget (ADR 0175).
+    const found =
+      brews(ref) && (resumes(ref) || afterOverrun(batch, ref)) ? resumeOf(batch, ref) : undefined;
     if (found === undefined) return { kind: 'fresh' };
     if (found.kind === 'fresh') return { kind: 'fresh', fallback: found.why };
     const { from, session } = found;
@@ -611,6 +623,17 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       const why = `the worktree of ${name} could not be recreated: ${(error as Error).message}`;
       return { kind: 'fresh', fallback: why };
     }
+  };
+
+  /**
+   * The limits `ref` runs with, and whether the driver could resume its session: a claude step
+   * whose worktree manager recreates worktrees, so a turn overrun is retryable (ADR 0175).
+   */
+  const limitsOf = (ref: AttemptRef): AttemptLimits => {
+    const given = limits(ref);
+    if (!brews(ref) || worktrees.length === 0) return given;
+    const { manager } = repositoryOf(log.state(), ref.batchId, worktrees);
+    return manager.recreate === undefined ? given : { ...given, resumable: true };
   };
 
   /**
@@ -693,7 +716,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
             refused.add(key);
             continue;
           }
-          const run = runner.start({ ref, limits: limits(ref) });
+          const run = runner.start({ ref, limits: limitsOf(ref) });
           runs.set(key, { ref, run });
           run.ended.then(
             (end) => ended.push({ ref, end }),

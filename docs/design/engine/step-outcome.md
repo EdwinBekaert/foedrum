@@ -5,7 +5,7 @@ Every step ends in one outcome, defined in [`src/schemas/step-outcome.ts`](../..
 | Kind | Carries |
 |---|---|
 | `succeeded` | the step's output |
-| `failed` | whether it is retryable, and the reason |
+| `failed` | whether it is retryable, the reason, and `overran: "turns"` when a brewer's run went past its turn budget and its retry resumes the session ([ADR 0175](../../adr/0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)) |
 | `needs_input` | the questions |
 | `cancelled` | nothing |
 

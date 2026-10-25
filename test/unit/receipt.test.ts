@@ -188,6 +188,31 @@ describe("a batch's receipts", () => {
     assert.deepEqual(totalParts(ran), ['2 attempts', '5m 16s', '62 turns', '1.54M tokens']);
   });
 
+  // ADR 0175: the receipt says why the attempt went on in the session before it.
+  it('ends the receipt line of an attempt that resumed after the turn budget with it', () => {
+    const id = 's1';
+    const ran = batch({
+      steps: new Map([
+        step(
+          'gauge',
+          finished(1, {
+            session: { id, worktree: '/work/7-1' },
+            receipt: receipt(),
+            outcome: { kind: 'failed', retryable: true, reason: 'budget', overran: 'turns' },
+          }),
+          finished(2, { session: { id, resumes: id, worktree: '/work/7-1' }, receipt: receipt() }),
+        ),
+      ]),
+      path: [
+        { stepId: 'gauge', attempt: 1 },
+        { stepId: 'gauge', attempt: 2 },
+      ],
+    });
+    const text = renderStatus(ran, ['gauge']);
+    assert.match(text, /^- `gauge #1` · 2m 38s · 31 turns$/m);
+    assert.match(text, /^- `gauge #2` · 2m 38s · 31 turns · resumed after the turn budget$/m);
+  });
+
   it('sums them', () => {
     assert.deepEqual(totalParts(ran), [
       '2 attempts',

@@ -97,6 +97,38 @@ describe('renderStatus', () => {
     );
   });
 
+  // ADR 0175: a retry after the turn budget ran out goes on in the same session.
+  it('says a running attempt resumed after the turn budget, and only then', () => {
+    const overran: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'failed',
+        retryable: true,
+        reason: 'budget exceeded: 81 turns, maxTurns is 80',
+        overran: 'turns',
+      },
+    };
+    const id = '0f8fad5b-d9cb-469f-a165-708677289500';
+    const resumed: Attempt = {
+      phase: 'started',
+      attempt: 2,
+      deadlineAt: at,
+      session: { id, resumes: id, worktree: 'work/7-1/brew/1' },
+    };
+    const text = renderStatus(batch({ steps: new Map([step('brew', overran, resumed)]) }), steps);
+    assert.equal(
+      lineOf(text, 'brew'),
+      '- ▶️ `brew`: brewing, attempt 2, resumed after the turn budget',
+    );
+    const crashed = renderStatus(
+      batch({ steps: new Map([step('brew', failed(1, 'crash'), resumed)]) }),
+      steps,
+    );
+    assert.equal(lineOf(crashed, 'brew'), '- ▶️ `brew`: brewing, attempt 2');
+  });
+
   it('marks a skipped step and a failed one', () => {
     const text = renderStatus(
       batch({

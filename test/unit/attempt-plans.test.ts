@@ -338,6 +338,42 @@ describe('createAttemptPlans: plan', () => {
         /^The run before this one ended before the step was done\. Go on with the step where it stopped, then write brew\.md as your instructions say\./,
       );
       assert.doesNotMatch(plan.prompt, /untrusted-input/);
+      // Its out doc goes before the run, so the run is read by what it writes (ADR 0118).
+      assert.equal(plan.outDocFrom, undefined);
+    });
+
+    // ADR 0175: whatever the brewer's retryMode, the driver resumed it; the plan says why.
+    it('tells a retry after a turn overrun to finish and end, and names the copy of the out doc it left', async () => {
+      const overran: Event = {
+        ...failed,
+        outcome: {
+          kind: 'failed',
+          retryable: true,
+          reason: 'budget exceeded: 41 turns, maxTurns is 40',
+          overran: 'turns',
+        },
+      };
+      const events: Event[] = [
+        ...ordered,
+        started,
+        overran,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+        resumed,
+      ];
+      const { plans, reads } = setup(events);
+      const plan = await plans.plan({ ...start, ref: second });
+      assert.equal(plan.cwd, recreated);
+      assert.deepEqual(plan.call.session, { kind: 'resume', id: sessionId });
+      assert.deepEqual(reads, [], 'the session holds its inputs');
+      assert.match(
+        plan.prompt,
+        /^The run before this one ran out of turns\. Finish what is left of the step, write brew\.md as your instructions say, and end\.$/,
+      );
+      assert.equal(
+        plan.outDocFrom,
+        join(workRoot, 'attempt-settings', '12-1', 'brew', '1.out.md'),
+        "the copy brew#1's runner kept",
+      );
     });
 
     // The answers to the questions of brew#1, and of an earlier round, which its session holds.
@@ -449,6 +485,7 @@ describe('createAttemptPlans: plan', () => {
         /source="answers to the questions of step brew" name="answers">\nQ: Which flag\?\nA: --json\n<\//,
       );
       assert.doesNotMatch(plan.prompt, /Which file\?/);
+      assert.equal(plan.outDocFrom, undefined, 'the needs_input it left goes (ADR 0118)');
     });
 
     it('gives a fresh retry after a resume that found no session every round of answers (ADR 0118)', async () => {

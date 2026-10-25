@@ -13,7 +13,7 @@ import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
-import { ranIn } from '../engine/session-resume.ts';
+import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
@@ -31,6 +31,7 @@ import {
   type InputRead,
   inputsOf,
   MAX_CHANGE_INPUT_BYTES,
+  outDocCopyOf,
   type PlannedInput,
   planAttempt,
   type RegressionTests,
@@ -376,8 +377,20 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       // before, so an answered attempt gets this round's alone (ADR 0118). Only a retry or an
       // answered attempt resumes one, which no route scheduled (ADR 0117).
       const answered = started?.answered === true;
+      // A retry after a turn overrun finishes the work with the out doc it left (ADR 0175).
+      const overran = afterOverrun(batch, ref);
       const resumes: Resumed | undefined =
-        session.resumes === undefined ? undefined : answered ? 'answered' : 'retry';
+        session.resumes === undefined
+          ? undefined
+          : answered
+            ? 'answered'
+            : overran
+              ? 'turns'
+              : 'retry';
+      const outDocFrom =
+        resumes === 'turns'
+          ? outDocCopyOf(settingsFileOf(workRoot, { ...ref, attempt: attempt - 1 }))
+          : undefined;
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
       const { inputs, houseYeast } =
         resumes === undefined
@@ -397,6 +410,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         settingsFile,
         sessionId: session.id,
         ...(resumes === undefined ? {} : { resumes }),
+        ...(outDocFrom === undefined ? {} : { outDocFrom }),
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
