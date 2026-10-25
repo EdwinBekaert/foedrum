@@ -838,7 +838,7 @@ describe('pullRequestText', () => {
           seeIt: '`@Test` runs, ask @bob',
           beforeAfter: [
             { case: '`@Test`', before: '@Test void parse() {', after: '`@Test void parse() {`' },
-            { case: '`a|@x`', before: '`a\\`@y`', after: `\`${'z'.repeat(197)}@w\`` },
+            { case: '`a|@x`', before: '`a\\`@y`', after: `\`${'z'.repeat(196)} @w\`` },
           ],
         },
       },
@@ -847,7 +847,7 @@ describe('pullRequestText', () => {
     assert.match(body, /^## How it works\n\nAdds `@Test void adds\(\)` for ann\.\n/);
     assert.ok(body.includes('\n| `@Test` | Test void parse() { | `@Test void parse() {` |\n'), body);
     // A pipe splits the cell before a span, a doubled backslash escapes none, a cut opens one.
-    assert.ok(body.includes(`\n| \`a\\|x\` | \`a\\\\\`y\` | \`${'z'.repeat(197)}w |\n`), body);
+    assert.ok(body.includes(`\n| \`a\\|x\` | \`a\\\\\`y\` | \`${'z'.repeat(196)} w |\n`), body);
     assert.match(body, /\n\*\*See it:\*\* `@Test` runs, ask bob\n/);
   });
 
