@@ -503,7 +503,7 @@ export function earlierFindingsInput(stepId: string, rounds: readonly EarlierRou
       [
         `Round ${round.step}:`,
         ...('unread' in round
-          ? [`Its findings could not be read: ${round.unread}.`]
+          ? [`Its findings could not be read: ${flatLine(round.unread)}.`]
           : roundLines(round.findings, round.dispositions)),
       ].join('\n'),
     )
