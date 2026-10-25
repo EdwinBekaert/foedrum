@@ -46,7 +46,7 @@ const NIP_TEST = 'greets a stranger when no name is given';
  * commits nothing and adds its verdict and findings (ADR 0161), and a Finer with nothing to
  * simplify commits nothing and says why (ADR 0166).
  */
-interface Scripted {
+export interface Scripted {
   files: Record<string, string>;
   message: string;
   summary: string;
@@ -116,14 +116,6 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   ],
 };
 
-/** The out doc each brewer of Nip writes, from its file in `defaults/brewers/`. */
-const OUT_DOCS: Readonly<Record<string, string>> = {
-  gauge: 'gauge.md',
-  implement: 'brew.md',
-  fine: 'fine.md',
-  taste: 'taste.md',
-};
-
 /** The out doc of a scripted attempt that is done. */
 export const scriptedOutDoc = ({ summary, tasting, fining }: Scripted): string =>
   outDoc({ status: 'done', summary, ...tasting, ...fining });
@@ -170,6 +162,8 @@ export interface ScriptedNipOptions {
   /** The git configuration of the brewer's commits: who commits, no signing, no hooks. */
   config: NonNullable<GitOptions['config']>;
   write: (path: string, text: string) => void;
+  /** What each step's attempts play, when not `NIP_SCRIPT`: `npm run demo`'s adds its own Tasters. */
+  script?: Readonly<Record<string, readonly Scripted[]>>;
 }
 
 export interface ScriptedNip extends BrewerRunner {
@@ -177,9 +171,9 @@ export interface ScriptedNip extends BrewerRunner {
   readonly prompts: ReadonlyMap<string, string>;
 }
 
-/** The scripted Gauger, Cellarman, Finer and Taster of `NIP_SCRIPT`, in serve's runner seam. */
+/** The scripted Gauger, Cellarman, Finer and Taster of `NIP_SCRIPT` (or `script`), in serve's runner seam. */
 export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
-  const { plan, git, config, write } = options;
+  const { plan, git, config, write, script = NIP_SCRIPT } = options;
   const prompts = new Map<string, string>();
   // Each step's attempts play its script in the order this runner starts them, so the retry of an
   // attempt lost with an earlier process (npm run demo's kill) plays what that one would have.
@@ -191,7 +185,7 @@ export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
     if (known !== undefined) return known;
     const step = `${ref.batchId} ${ref.stepId}`;
     const turn = turns.get(step) ?? 0;
-    const scripted = NIP_SCRIPT[ref.stepId]?.[turn];
+    const scripted = script[ref.stepId]?.[turn];
     if (scripted === undefined) {
       throw new Error(`Nip's script has no turn ${turn + 1} of ${ref.stepId} for attempt ${key}`);
     }
@@ -217,8 +211,7 @@ export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
       const scripted = scriptOf(start.ref);
       const { files, message } = scripted;
       for (const [path, text] of Object.entries(files)) write(join(planned.cwd, path), text);
-      const doc = OUT_DOCS[start.ref.stepId];
-      if (doc !== undefined) write(join(planned.cwd, doc), scriptedOutDoc(scripted));
+      write(join(planned.cwd, start.limits.outDoc.file), scriptedOutDoc(scripted));
       // A Taster, and a Finer with nothing to simplify, commit nothing.
       if (Object.keys(files).length === 0) return undefined;
       for (const args of [

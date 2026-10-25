@@ -1,6 +1,8 @@
 // npm run demo (ADR 0097, ADR 0139): a scratch Brewery and target repository in .foedrum/tmp/demo,
-// an order on an in-process fake code host, brewed with Nip by the scripted Gauger, Cellarman and Taster of
-// the Nip fixture through `foedrum serve`'s own Cellar (scripts/demo/cellar.ts), which is killed
+// an order on an in-process fake code host, brewed with the demo Brewery's own recipe (Nip's steps,
+// tasted through three lenses side by side, ADR 0185) by the Nip fixture's scripted Gauger,
+// Cellarman and Finer and three Tasters through `foedrum serve`'s own Cellar
+// (scripts/demo/cellar.ts), which is killed
 // mid-attempt and started again, until the batch is on tap with one pull request and one status
 // comment; then a second order brewed by `foedrum brew` instead of the Cellar, and `foedrum
 // resume`'s line for the Cellarman's attempt. No gh, no GitHub, no claude, no network.
@@ -48,7 +50,7 @@ import {
   stepLines,
 } from './demo/walkthrough.ts';
 
-/** How long one life of the Cellar may take: Nip's seven attempts need well under a minute. */
+/** How long one life of the Cellar may take: the recipe's attempts need well under a minute. */
 const LIFE_MS = 600_000;
 
 const root = resolve(import.meta.dirname, '..');

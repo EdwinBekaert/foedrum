@@ -5,7 +5,7 @@ import { type DemoBrewersOptions, demoBrewers } from '../../scripts/demo/brewer.
 import type { Life } from '../../scripts/demo/core.ts';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import type { AttemptStart } from '../../src/engine/brewer-runner.ts';
-import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { NIP_SCRIPT } from '../helpers/nip-fixture.ts';
 
@@ -166,6 +166,52 @@ describe('the demo brewers', () => {
     });
     const { ending } = await runner.start(start).ended;
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+  });
+
+  it("play the three Tasters of the parallel group: each one's own advisory finding in its out doc, and no commit", async () => {
+    const { runner, log } = brewers('finish');
+    const findings: string[] = [];
+    for (const stepId of ['correctness', 'security', 'test-design']) {
+      const start: AttemptStart = {
+        ref: { batchId: '1-1', stepId, attempt: 1 },
+        limits: { outDoc: { file: 'taste.md', schema: TastingOutDoc } },
+      };
+      const end = await runner.start(start).ended;
+      assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
+      const doc = end.ending.kind === 'succeeded' ? end.ending.output : undefined;
+      const { verdict, findings: found } = doc as {
+        verdict?: string;
+        findings?: { file?: string; why?: string }[];
+      };
+      assert.equal(verdict, 'approve', stepId);
+      assert.equal(found?.length, 1, `${stepId}: ${JSON.stringify(found)}`);
+      findings.push(found?.[0]?.why ?? '');
+    }
+    assert.equal(new Set(findings).size, 3, findings.join('\n'));
+    assert.deepStrictEqual(log, [
+      `write ${join(cwd, 'taste.md')}`,
+      `write ${join(cwd, 'taste.md')}`,
+      `write ${join(cwd, 'taste.md')}`,
+    ]);
+  });
+
+  it("write each attempt's out doc to the file its limits name, whatever its step", async () => {
+    const { runner, log } = brewers('finish');
+    for (const [stepId, schema] of [
+      ['correctness', TastingOutDoc],
+      ['gauge', OutDocFrontmatter],
+    ] as const) {
+      const named: AttemptStart = {
+        ref: { batchId: '1-1', stepId, attempt: 1 },
+        limits: { outDoc: { file: `${stepId}-out.md`, schema } },
+      };
+      const { ending } = await runner.start(named).ended;
+      assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    }
+    assert.deepStrictEqual(
+      log.filter((line) => line.endsWith('-out.md')),
+      [`write ${join(cwd, 'correctness-out.md')}`, `write ${join(cwd, 'gauge-out.md')}`],
+    );
   });
 
   it('fail the attempt, not the tick, when git cannot commit, and do not crash', async () => {

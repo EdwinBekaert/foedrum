@@ -1,6 +1,7 @@
-// npm run demo's decisions (ADR 0097, ADR 0139): where its scratch folder may be, the Brewery it
-// makes there, the orders on the fake code host, and whether a run ended as it should. The shell is
-// scripts/demo.ts; one life of the Cellar, or foedrum brew's run, is scripts/demo/cellar.ts.
+// npm run demo's decisions (ADR 0097, ADR 0139, ADR 0185): where its scratch folder may be, the
+// Brewery it makes there and its recipe, the orders on the fake code host, and whether a run ended
+// as it should. The shell is scripts/demo.ts; one life of the Cellar, or foedrum brew's run, is
+// scripts/demo/cellar.ts.
 
 import nodePath, { dirname, join, type PlatformPath } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
@@ -16,12 +17,62 @@ export const TARGET = 'demo/web';
 export const USER = 'ann';
 export const LOGIN = 'cellar-bot';
 
-/** The issue the Cellar brews: the Nip fixture's, in the Brewery's repository, labelled for Nip. */
-export const ORDER = { ...NIP_ORDER, author: USER };
+/** The demo Brewery's own recipe, which its orders are labelled for. */
+export const RECIPE = 'nip-parallel';
+
+/** The Tasters' lens steps of the recipe's parallel group, which run side by side (ADR 0168). */
+const LENS_STEPS = [
+  { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+  { id: 'security', brewer: 'taster', lens: 'diff/security' },
+  { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
+] as const;
+
+/**
+ * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its one taste step a parallel
+ * group of three lens steps. Nip itself tastes through one lens, so no Nip batch pays for three
+ * Taster runs (#448).
+ */
+export const recipeText = (): string =>
+  `// Nip's steps, tasted through three lenses side by side (ADR 0168).\n${JSON.stringify(
+    {
+      name: RECIPE,
+      description: 'Quick fix in one repository, test-first, tasted through three lenses at once',
+      budget: { minutes: 30 },
+      steps: [
+        { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+        {
+          id: 'red',
+          check: 'test',
+          expect: 'fail',
+          of: 'gauge',
+          when: 'recipe.testFirst',
+          onFail: { goto: 'gauge', maxRounds: 1 },
+        },
+        {
+          id: 'implement',
+          brewer: 'cellarman',
+          onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } },
+        },
+        { id: 'fine', brewer: 'finer' },
+        {
+          id: 'green',
+          check: ['build', 'typecheck', 'lint', 'format', 'test'],
+          onFail: { goto: 'implement', maxRounds: 1 },
+        },
+        { id: 'taste', parallel: LENS_STEPS },
+        { action: 'openPullRequest' },
+      ],
+    },
+    null,
+    2,
+  )}\n`;
+
+/** The issue the Cellar brews: the Nip fixture's, in the Brewery's repository, labelled for the recipe. */
+export const ORDER = { ...NIP_ORDER, author: USER, labels: [`recipe:${RECIPE}`] };
 
 /**
  * The issue `foedrum brew` brews: the same order again, filed unlabelled so the Cellar leaves it,
- * and labelled for Nip by the demo once the Cellar has stopped.
+ * and labelled for the recipe by the demo once the Cellar has stopped.
  */
 export const BREW_ORDER = { ...ORDER, number: 2, labels: [] as string[] };
 
@@ -116,11 +167,13 @@ export const scratchFolder = (
 };
 
 /**
- * The Brewery's files, by path relative to its checkout: the Nip fixture's, whose recipe and
- * brewers come from Foedrum's defaults (ADR 0098).
+ * The Brewery's files, by path relative to its checkout: the Nip fixture's, whose brewers and
+ * lenses come from Foedrum's defaults (ADR 0098), and the demo's recipe.
  */
-export const breweryFiles = (): Record<string, string> =>
-  nipBreweryFiles({ brewery: BREWERY, target: TARGET, user: USER });
+export const breweryFiles = (): Record<string, string> => ({
+  ...nipBreweryFiles({ brewery: BREWERY, target: TARGET, user: USER }),
+  [`recipes/${RECIPE}.jsonc`]: recipeText(),
+});
 
 /** `.foedrum/local.jsonc`: the work root and the user's clone of the target repository. */
 export const localConfig = (workRoot: string, clone: string): string =>

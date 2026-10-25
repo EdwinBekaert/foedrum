@@ -61,6 +61,15 @@ describe('the walkthrough steps', () => {
     assert.deepStrictEqual(stepLines(0), ['', headingOf(0), `Look for: ${STEPS[0]?.lookFor}`]);
   });
 
+  it("say what to look for in the parallel group: the three lens attempts at once, on the comment's path line, each one's findings under its own step", () => {
+    const lookFor = (id: string) => STEPS.find((step) => step.id === id)?.lookFor ?? '';
+    assert.match(lookFor('order'), /recipe:nip-parallel/);
+    assert.match(lookFor('checks'), /correctness #1, security #1 and test-design #1/);
+    assert.match(lookFor('checks'), /brewing at once/);
+    assert.match(lookFor('pull-request'), /path line/);
+    assert.match(lookFor('pull-request'), /each one's findings under its own step/);
+  });
+
   it('say that the diagnosis is the demo own, not doctor on this machine', () => {
     assert.match(STEPS[0]?.lookFor ?? '', /demo's own/);
     assert.match(STEPS[0]?.lookFor ?? '', /not foedrum doctor/);
