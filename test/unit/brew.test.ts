@@ -438,6 +438,32 @@ describe('runBrew', () => {
     );
   });
 
+  it('prints every plain line byte for byte off a terminal, with no batch time (ADR 0179)', async () => {
+    // Ordered five minutes before this run, so a batch time would differ from the attempt's.
+    const ordered = new Date(t0.getTime() - 5 * 60_000);
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, ordered);
+    const controller = new AbortController();
+    let now = t0;
+    const plain = shell(behave.hang({ ...idle, turn: 14 }), {
+      signal: controller.signal,
+      clock: () => now,
+      wait: async (ms) => {
+        now = new Date(now.getTime() + ms);
+        if (now.getTime() - t0.getTime() > 60_000) controller.abort();
+      },
+    });
+    assert.equal(await runBrew(setup, plain, request), 1);
+    assert.deepStrictEqual(lines, [
+      'foedrum brew: routed batch 12-1 to the recipe stout',
+      'foedrum brew: brewing batch 12-1 as ann',
+      'foedrum brew: status comment: https://github.com/Acme/Brewery/issues/12#issuecomment-1',
+      'foedrum brew: batch 12-1 brewing: brew #1 started',
+      'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
+      'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
+      'foedrum brew: stopped; batch 12-1 brewing: brew #1 started',
+    ]);
+  });
+
   describe('with a live line on a terminal (ADR 0174)', () => {
     interface Live {
       /** How many seconds of the fake clock the brew runs before it is stopped. */
