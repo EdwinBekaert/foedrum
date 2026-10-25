@@ -98,8 +98,8 @@ const fakeBoard = (size: { columns: number | undefined; rows: number | undefined
 };
 
 interface Watching {
-  /** The state each read of the store gives; the last one goes on being given. */
-  states?: readonly State[];
+  /** The state each read of the store gives, or the error it throws; the last goes on being given. */
+  states?: readonly (State | Error)[];
   columns?: number | undefined;
   rows?: number | undefined;
   /** How far the fake clock goes at each wait. */
@@ -110,14 +110,10 @@ interface Watching {
 }
 
 /** Runs the watch on a fake terminal, clock and store until the `waits`-th wait stops it. */
-const watched = async ({
-  states = [stateOf([])],
-  columns: width = 200,
-  rows = 50,
-  step = 1000,
-  waits = 1,
-  onWait,
-}: Watching = {}) => {
+const watched = async (watching: Watching = {}) => {
+  const { states = [stateOf([])], columns: width = 200, step = 1000, waits = 1, onWait } = watching;
+  // A height given as undefined is a terminal that does not know its height.
+  const rows = 'rows' in watching ? watching.rows : 50;
   const board = fakeBoard({ columns: width, rows });
   const controller = new AbortController();
   const waited: number[] = [];
@@ -126,7 +122,11 @@ const watched = async ({
   let reads = 0;
   const shell: WatchShell = {
     terminal: board.terminal,
-    state: () => states[Math.min(reads++, states.length - 1)] as State,
+    state: () => {
+      const read = states[Math.min(reads++, states.length - 1)];
+      if (read instanceof Error) throw read;
+      return read as State;
+    },
     signal: controller.signal,
     clock: () => new Date(now),
     wait: async (ms) => {
@@ -137,7 +137,8 @@ const watched = async ({
       if (waited.length >= waits) controller.abort();
     },
   };
-  const result = await watchStatus(shell);
+  // A watch that throws is a result the tests compare too, so it fails as an assertion.
+  const result = await watchStatus(shell).catch((error: unknown) => ({ thrown: String(error) }));
   return { result, ...board, waited, framesAtWait, reads: () => reads };
 };
 
@@ -423,6 +424,60 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     });
     assert.equal(listening, 1);
   });
+
+  it('shows the whole board, with every attempt, when the height of the terminal is unknown', async () => {
+    const events = [12, 13, 14].flatMap((issue) => brewing(issue, 'implement'));
+    const { frames } = await watched({ states: [stateOf(events)], rows: undefined });
+    assert.equal(frames[0]?.length, 7);
+    assert.equal(frames[0]?.at(-1), '  implement #1 / 0s');
+  });
+
+  it('shows only the first line on a terminal of two rows, in the height less one', async () => {
+    const { frames } = await watched({ states: [stateOf([ordered(11), ordered(12)])], rows: 2 });
+    assert.deepEqual(frames[0], ['2 live batches']);
+  });
+});
+
+describe('foedrum status --watch: a store that cannot be read', () => {
+  const unread = 'could not read the store: database is locked; trying again each second';
+
+  it('keeps the last board with one line that says the store could not be read, and draws the board again once it reads', async () => {
+    const good = stateOf([ordered(11)]);
+    const { result, frames } = await watched({
+      states: [good, new Error('database is locked'), good],
+      waits: 3,
+    });
+    assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+    const board = ['1 live batch', columns([['-', '11-1', '#11', 'ordered', ROUTED]], '')[0]];
+    assert.deepEqual(frames, [board, [...board, unread], board]);
+  });
+
+  it('says in one line that the store could not be read when the first read fails', async () => {
+    const { result, frames } = await watched({ states: [new Error('database is locked')] });
+    assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+    assert.deepEqual(frames, [[unread]]);
+  });
+
+  it('keeps the line about the store within the height less one, in place of the last row', async () => {
+    const good = stateOf([ordered(11), ordered(12)]);
+    const { frames } = await watched({
+      states: [good, new Error('database is locked')],
+      rows: 4,
+      waits: 2,
+    });
+    assert.deepEqual(frames[1], [...(frames[0] ?? []).slice(0, 2), unread]);
+  });
+
+  it('draws the line about the store from a resize too, and the resize handler throws nothing', async () => {
+    const good = stateOf([ordered(11)]);
+    const { frames } = await watched({
+      states: [good, new Error('database is locked')],
+      onWait: (_n, board) => {
+        for (const handler of board.handlers) handler();
+      },
+    });
+    assert.deepEqual(frames[1], [...(frames[0] ?? []), unread]);
+  });
 });
 
 describe('foedrum status --watch: off a terminal', () => {
@@ -489,6 +544,11 @@ describe('foedrum status --watch: the command layer', () => {
 
   it('takes the watch flag in the status command schema', () => {
     assert.equal(StatusCommand.safeParse({ command: 'status', watch: true }).success, true);
+  });
+
+  it('takes the watch flag only as true in the status command schema', () => {
+    assert.equal(StatusCommand.safeParse({ command: 'status', watch: false }).success, false);
+    assert.equal(StatusCommand.safeParse({ command: 'status', watch: 'yes' }).success, false);
   });
 
   it('lists --watch among the options of status in the usage', async () => {

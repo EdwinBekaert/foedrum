@@ -17,7 +17,7 @@ import { storePath } from './commands.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { readKeptBranches } from './kept-branches-git.ts';
-import { boardTerminal } from './live-terminal.ts';
+import { boardTerminal, type TerminalStream } from './live-terminal.ts';
 import { type CliResult, runCli } from './run.ts';
 import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.ts';
 
@@ -26,11 +26,14 @@ import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.
  * serve's facts, gh's login among them, come through `exec` and `resolve`, default the real runner
  * and PATH, so a test gives fakes or a canned answer for gh's login. A failure the command layer
  * throws, such as a store that cannot be read, is one line, as for every other failure.
+ * `status --watch` draws on `board`, default standard output and the process's environment.
  */
 export const cliFromCheckout = async (
   argv: string[],
   cwd: string,
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>>,
+  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>> & {
+    board?: { stream: TerminalStream; env: Readonly<Record<string, string | undefined>> };
+  },
 ): Promise<CliResult> => {
   const readText = (...path: string[]): string | undefined => {
     const file = join(cwd, ...path);

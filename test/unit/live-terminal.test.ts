@@ -355,6 +355,16 @@ describe('boardTerminal: what it does to the stream (ADR 0188)', () => {
     assert.equal(calls[0], 'moveCursor(0, -3)');
   });
 
+  it('goes back up by the screen rows the board before takes at the width now, as a terminal rewraps its lines when it gets narrower', () => {
+    const { board, calls, stream } = boardOf({ columns: 100 });
+    board.redraw(['2 live batches', 'x'.repeat(50), '', 'y'.repeat(40)]);
+    stream.columns = 20;
+    calls.length = 0;
+    board.redraw(['2 live batches']);
+    // 14 characters take one row of 20, 50 take three, an empty line one, 40 take two.
+    assert.equal(calls[0], 'moveCursor(0, -6)');
+  });
+
   it('leaves nothing of a longer board behind a shorter one, and never shows a blank screen between two boards', () => {
     const screen = fakeBoardScreen();
     const board = boardTerminal(screen.stream, {});

@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { cliFromCheckout } from '../../src/cli/cli-main.ts';
+import type { TerminalStream } from '../../src/cli/live-terminal.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { INVALID_RECIPES } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -242,6 +243,85 @@ describe('foedrum status and replay on store files', () => {
     assert.equal(exitCode, 1);
     assert.equal(stdout, '');
     assert.match(stderr, /^foedrum status: [^\n]+\n$/);
+  });
+});
+
+describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
+  let brewery: TempDir;
+  let store: string;
+  beforeEach(() => {
+    brewery = makeTempDir('cli');
+    store = join(brewery.path, '.foedrum', 'index.db');
+  });
+  afterEach(() => removeTree(brewery.path));
+
+  /** A TTY stream that keeps what is written to it and calls `written` after each write. */
+  const ttyStream = (isTTY: boolean, written: (text: string) => void = () => {}) => {
+    const writes: string[] = [];
+    const stream: TerminalStream = {
+      isTTY,
+      columns: 100,
+      rows: 30,
+      on: () => {},
+      off: () => {},
+      cursorTo: () => true,
+      moveCursor: () => true,
+      clearLine: () => true,
+      clearScreenDown: () => true,
+      write: (text) => {
+        writes.push(text);
+        written(text);
+        return true;
+      },
+    };
+    return { stream, writes };
+  };
+
+  it("draws the board of the Brewery's store on the terminal, and ends on a stop signal with exit code 0", async () => {
+    mkdirSync(join(brewery.path, '.foedrum'));
+    const writer = openSqliteEventStore(store);
+    writer.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
+    );
+    writer.close();
+    const listeners = process.listenerCount('SIGBREAK');
+    // The stop comes once the first board is on the terminal, as a Ctrl+C would.
+    const { stream, writes } = ttyStream(true, (text) => {
+      if (text.includes('12-1')) process.emit('SIGBREAK', 'SIGBREAK');
+    });
+    const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
+      exec: cannedGhLogin(),
+      resolve: resolveWithMadeUpGh,
+      denylist: noDenylist,
+      board: { stream, env: { TERM: 'xterm' } },
+    });
+    assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+    assert.equal(writes[0], '1 live batch');
+    assert.match(writes.join(''), /^1 live batch\n- +12-1 +#12 +ordered +to be routed by /);
+    assert.equal(writes.at(-1), '\n');
+    assert.equal(process.listenerCount('SIGBREAK'), listeners);
+  });
+
+  it('refuses off a terminal in one line with exit code 1, and creates no store', async () => {
+    const { stream, writes } = ttyStream(false);
+    const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
+      exec: cannedGhLogin(),
+      resolve: resolveWithMadeUpGh,
+      denylist: noDenylist,
+      board: { stream, env: { TERM: 'xterm' } },
+    });
+    assert.deepEqual(result, {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status --watch needs a terminal; foedrum status prints the batches once\n',
+    });
+    assert.deepEqual(writes, []);
+    assert.equal(existsSync(store), false);
   });
 });
 
