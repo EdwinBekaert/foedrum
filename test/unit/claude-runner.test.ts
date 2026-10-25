@@ -37,7 +37,7 @@ import type {
 } from '../../src/engine/brewer-runner.ts';
 import type { StreamOptions, StreamResult } from '../../src/platform/processes.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
-import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { FiningOutDoc, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import {
   documentedUsageLimits,
   limitResults,
@@ -595,6 +595,42 @@ describe('claudeBrewerRunner', () => {
         const uncommitted = setup(clean, { plan: counting });
         await uncommitted.runner.start(attempt).ended;
         assert.deepEqual(uncommitted.scans, []);
+      });
+
+      it("scans nothing for a Finer's done that says unchanged, which succeeds with no commit (ADR 0166)", async () => {
+        const fining: AttemptStart = {
+          ...committing,
+          limits: { ...committing.limits, outDoc: { file: 'fine.md', schema: FiningOutDoc } },
+        };
+        const { scans, runner } = setup(clean, {
+          plan: counting,
+          commits: { kind: 'counted', count: 0 },
+          outDoc: outDoc({ status: 'done', summary: 'Nothing', unchanged: 'Already simple' }),
+        });
+        assert.equal((await runner.start(fining).ended).ending.kind, 'succeeded');
+        assert.deepEqual(scans, []);
+      });
+
+      it('lets a turn overrun win over the scan: it fails before the out doc is read, so its commits are not scanned (ADR 0175)', async () => {
+        const { scans, runner } = setup(
+          { lines: fixture('max-turns.jsonl'), result: exited(1) },
+          {
+            plan: async () => ({ ...plan(59), commits: inClone }),
+            scanned: { kind: 'scanned', findings: [finding] },
+          },
+        );
+        const overrun = {
+          ...committing,
+          limits: { ...committing.limits, maxTurns: 1, resumable: true },
+        };
+        const { ending } = await runner.start(overrun).ended;
+        assert.deepEqual(ending, {
+          kind: 'failed',
+          retryable: true,
+          reason: 'budget exceeded: 2 turns, maxTurns is 1',
+          overran: 'turns',
+        });
+        assert.deepEqual(scans, []);
       });
 
       it('blocks on the environment when git could not scan them, also when the scan throws', async () => {
