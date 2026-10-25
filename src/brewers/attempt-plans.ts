@@ -414,8 +414,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /**
    * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then for a Taster
-   * that reviews a diff where the change starts (ADR 0161), then for a brewer that asks for house
-   * yeast the rules that match its change (ADR 0169), then the answers to its step's questions,
+   * that reviews a diff where the change starts (ADR 0161), then for a later round of a Taster's
+   * step the earlier rounds' findings with their dispositions (ADR 0191), then for a brewer that
+   * asks for house yeast the rules that match its change (ADR 0169), then the answers to its step's
+   * questions,
    * then what sent it back when a route scheduled it (ADR 0128), and last, for a retry after the
    * secret scan failed the attempt before it, why (ADR 0187). With the rules it was given.
    */
