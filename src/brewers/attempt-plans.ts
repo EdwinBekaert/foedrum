@@ -257,9 +257,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   ): Promise<string | undefined> => {
     if (options.git === undefined) throw new Error('the change since the round before: no git');
     const args = ['merge-base', '--is-ancestor', ancestor, head];
-    const { code } = await inClone(options.git)(options.clone(repo), args);
+    const { code, killed } = await inClone(options.git)(options.clone(repo), args);
     // Exit 1 alone says it is not an ancestor; any other end is git's failure (#506).
-    return code === 0 ? undefined : code === 1 ? off : `git merge-base exited with code ${code}`;
+    if (code === 0) return undefined;
+    if (code === 1) return off;
+    return killed === undefined
+      ? `git merge-base exited with code ${code}`
+      : `git merge-base was killed (${killed})`;
   };
 
   /**
