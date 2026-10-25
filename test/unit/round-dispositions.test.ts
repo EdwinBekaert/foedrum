@@ -557,4 +557,27 @@ describe('which attempts give a round its findings and dispositions (review of #
       ].join('\n'),
     );
   });
+
+  it("says why a blocked round's out doc that is invalid, or that the read refused, could not be read", async () => {
+    const { prompt } = await planRound(ROUND_THREE, 3, {
+      [join('/work', 'tasting-1', 'taste.md')]:
+        '---\n{ "status": "done", "summary": "x", "verdict": "maybe" }\n---\n',
+      [join('/work', 'tasting-2', 'taste.md')]: {
+        kind: 'unread',
+        reason: 'it is larger than 1048576 bytes',
+      },
+    });
+    const text = inputText(prompt, 'earlierFindings');
+    // The schema's reason spans lines; the round reads it on one.
+    assert.match(
+      text,
+      /^Round tasting#1:\nIts findings could not be read: its out doc is invalid: [^\n]*at verdict\.\n\nRound tasting#2:/,
+    );
+    assert.ok(
+      text.endsWith(
+        'Round tasting#2:\nIts findings could not be read: it is larger than 1048576 bytes.',
+      ),
+      text,
+    );
+  });
 });
