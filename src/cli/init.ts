@@ -3,7 +3,16 @@
 // writes the new ones and asks before changing one that is there, then runs doctor. The ports are
 // the terminal, the clone's files, GitHub through gh and doctor; init-main.ts gives the real ones.
 
+import { parseJsonc } from '../formats/jsonc.ts';
 import type { RepositoryFacts } from '../github/repository-facts.ts';
+import { BreweryConfig } from '../schemas/brewery-config.ts';
+import { BreweryClaudeSettings } from '../schemas/brewery-settings.ts';
+import { Repo } from '../schemas/events.ts';
+import { RepositoryAlias } from '../schemas/ids.ts';
+import { ModelsConfig } from '../schemas/models.ts';
+import { CheckName, Command } from '../schemas/primitives.ts';
+import { readJsonc } from '../schemas/read.ts';
+import type { z } from '../schemas/zod.ts';
 import type { CliResult } from './run.ts';
 
 export interface InitPorts {
@@ -25,7 +34,357 @@ export interface InitPorts {
   doctor: () => Promise<{ ok: boolean; report: string }>;
 }
 
+/** The plugin the Brewery's sessions enable, from this repository as its marketplace (ADR 0125). */
+const PLUGIN = 'foedrum@foedrum';
+const PLUGIN_COMMANDS = [
+  'claude plugin marketplace add EdwinBekaert/foedrum',
+  `claude plugin install ${PLUGIN} --scope project`,
+];
+/** The label the intake claims a target repository's issues by (ADR 0068). */
+const INTAKE_LABEL = 'foedrum:brew';
+const IGNORED = '.foedrum/';
+/** No aliases of its own: every alias is Foedrum's default (ADR 0153). */
+const MODELS = `// Model aliases over Foedrum's defaults (ADR 0153), such as { "builder": "opus" }.
+{ "models": {} }
+`;
+
+/** Standard input ended before an answer: init stops where it is. */
+class NoAnswer extends Error {}
+
+type Parsed<T> = { value: T } | { refused: string };
+
+type Json = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is Json =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The first message of a schema that refused `value`, or the value it parsed. */
+const schemaOf =
+  <T>(schema: z.ZodType<T>) =>
+  (value: unknown): Parsed<T> => {
+    const parsed = schema.safeParse(value);
+    return parsed.success
+      ? { value: parsed.data }
+      : { refused: parsed.error.issues[0]?.message ?? 'Not valid' };
+  };
+
+/** A file as it is in the clone: not there, there but not a JSON(C) object, or its object. */
+type Existing =
+  | { kind: 'missing' }
+  | { kind: 'unreadable'; reason: string }
+  | { kind: 'read'; value: Json };
+
+const readObject = (text: string | undefined): Existing => {
+  if (text === undefined) return { kind: 'missing' };
+  try {
+    const value = parseJsonc(text);
+    return isRecord(value)
+      ? { kind: 'read', value }
+      : { kind: 'unreadable', reason: 'it is not an object' };
+  } catch (error) {
+    if (error instanceof SyntaxError) return { kind: 'unreadable', reason: error.message };
+    throw error;
+  }
+};
+
+/** The paths whose values differ between `was` and `now`, a key only one of them has by name. */
+const changedPaths = (was: unknown, now: unknown, path: readonly string[] = []): string[] => {
+  if (isRecord(was) && isRecord(now)) {
+    return [...new Set([...Object.keys(was), ...Object.keys(now)])].flatMap((key) => {
+      const at = [...path, key].join('.');
+      if (!Object.hasOwn(now, key)) return [`${at} (removed)`];
+      if (!Object.hasOwn(was, key)) return [`${at} (added)`];
+      return changedPaths(was[key], now[key], [...path, key]);
+    });
+  }
+  return JSON.stringify(was) === JSON.stringify(now) ? [] : [path.join('.')];
+};
+
+/** A file init would write: its text, and what it changes in the one there (none when new). */
+interface Planned {
+  path: string;
+  text: string;
+  /** `undefined` for a new file; the lines that say what changes, none when it is up to date. */
+  changes: string[] | undefined;
+  question?: string;
+}
+
+/** A JSON object file: written new, or what it changes in the object there. */
+const planObject = (path: string, existing: Existing, value: Json): Planned => {
+  const text = `${JSON.stringify(value, null, 2)}\n`;
+  switch (existing.kind) {
+    case 'missing':
+      return { path, text, changes: undefined };
+    case 'unreadable':
+      return { path, text, changes: [`all of it: ${existing.reason}`] };
+    case 'read':
+      return { path, text, changes: changedPaths(existing.value, value) };
+    default: {
+      const never: never = existing;
+      throw new Error(`Unknown file ${JSON.stringify(never)}`);
+    }
+  }
+};
+
+/** Checks `text` against `schema`; a file init built that does not pass is a bug in init. */
+const passes = <T>(path: string, text: string, schema: z.ZodType<T>): void => {
+  const read = readJsonc(text, schema);
+  if (!read.valid) throw new Error(`${path} would not pass its schema: ${read.reason}`);
+};
+
+/** The five checks of a Node repository: its scripts by name, `npm test` for `test`. */
+const nodeChecks = (scripts: Json): Record<CheckName, string | null> =>
+  Object.fromEntries(
+    CheckName.options.map((check) => [
+      check,
+      typeof scripts[check] !== 'string'
+        ? null
+        : check === 'test'
+          ? 'npm test'
+          : `npm run ${check}`,
+    ]),
+  ) as Record<CheckName, string | null>;
+
+/** A repository's `package.json` scripts, `undefined` when it has no package.json that reads. */
+const scriptsOf = (packageJson: string | undefined): Json | undefined => {
+  if (packageJson === undefined) return undefined;
+  try {
+    const value: unknown = JSON.parse(packageJson);
+    if (!isRecord(value)) return undefined;
+    return isRecord(value.scripts) ? value.scripts : {};
+  } catch {
+    return undefined;
+  }
+};
+
+/** The alias a repository's name suggests: its lower-case letters and digits, from a letter. */
+const suggestedAlias = (repo: string): string =>
+  (repo.split('/')[1] ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/^[0-9]+/, '')
+    .slice(0, 20);
+
 /** Runs `foedrum init` through `ports`. */
-export const runInit = async (_ports: InitPorts): Promise<CliResult> => {
-  throw new Error('not implemented');
+export const runInit = async (ports: InitPorts): Promise<CliResult> => {
+  const { say, files } = ports;
+  if (!files.exists('.git')) {
+    return refuse(
+      "run it in a clone of the Brewery's repository; init does not create the repository yet",
+    );
+  }
+
+  // Asks until an answer passes `parse`, which says why it does not.
+  const ask = async <T>(
+    question: string,
+    fallback: string | undefined,
+    parse: (answer: string) => Parsed<T> | Promise<Parsed<T>>,
+  ): Promise<T> => {
+    const shown = `${question}${fallback === undefined || fallback === '' ? '' : ` [${fallback}]`}: `;
+    for (;;) {
+      const answer = await ports.ask(shown);
+      if (answer === undefined) throw new NoAnswer(question);
+      const parsed = await parse(answer.trim() === '' ? (fallback ?? '') : answer.trim());
+      if ('value' in parsed) return parsed.value;
+      say(`  ${parsed.refused}`);
+    }
+  };
+
+  try {
+    const login = await ports.login();
+    const config = readObject(files.read('foedrum.jsonc'));
+    const base: Json = config.kind === 'read' ? config.value : {};
+    const named = Repo.safeParse(base.brewery);
+    const brewery = await ask(
+      'Brewery repository (owner/name)',
+      named.success ? named.data : `${login}/foedrum-brewery`,
+      schemaOf(Repo),
+    );
+
+    // The repositories foedrum.jsonc has keep their entries as they are.
+    const kept: Json = isRecord(base.repositories) ? base.repositories : {};
+    const facts = new Map<string, RepositoryFacts>();
+    const targets = await ask(
+      'Target repositories (owner/name, separated by spaces)',
+      Object.keys(kept).join(' '),
+      async (answer): Promise<Parsed<string[]>> => {
+        const names = [...new Set(answer.split(/\s+/).filter((name) => name !== ''))];
+        for (const name of names) {
+          const checked = schemaOf(Repo)(name);
+          if ('refused' in checked) return { refused: `${name}: ${checked.refused}` };
+        }
+        const lower = new Set(names.map((name) => name.toLowerCase()));
+        if (lower.size !== names.length) return { refused: 'A repository is named twice' };
+        for (const name of names.filter((name) => !Object.hasOwn(kept, name))) {
+          if (facts.has(name)) continue;
+          try {
+            facts.set(name, await ports.repository(name));
+          } catch (error) {
+            return { refused: error instanceof Error ? error.message : String(error) };
+          }
+        }
+        return { value: names };
+      },
+    );
+
+    // The aliases of the repositories it keeps, which a new one may not take.
+    const aliases = new Set(
+      targets.flatMap((repo) => {
+        const entry = Object.hasOwn(kept, repo) ? kept[repo] : undefined;
+        return isRecord(entry) && typeof entry.alias === 'string' ? [entry.alias] : [];
+      }),
+    );
+    const repositories: Json = {};
+    const ceiling: string[] = Array.isArray(base.permissionCeiling)
+      ? base.permissionCeiling.filter((rule): rule is string => typeof rule === 'string')
+      : [];
+    for (const repo of targets) {
+      if (Object.hasOwn(kept, repo)) {
+        repositories[repo] = kept[repo];
+        continue;
+      }
+      // Read while the targets were asked.
+      const read = facts.get(repo) as RepositoryFacts;
+      const scripts = scriptsOf(read.packageJson);
+      say(
+        `Read ${repo}: base ${read.base}, ${scripts === undefined ? 'no package.json' : 'checks from package.json'}`,
+      );
+      const suggested = suggestedAlias(repo);
+      const alias = await ask(
+        `Alias of ${repo}`,
+        RepositoryAlias.safeParse(suggested).success && !aliases.has(suggested)
+          ? suggested
+          : undefined,
+        (answer) => {
+          const parsed = schemaOf(RepositoryAlias)(answer);
+          if ('value' in parsed && aliases.has(parsed.value)) {
+            return { refused: `The alias ${parsed.value} is taken` };
+          }
+          return parsed;
+        },
+      );
+      aliases.add(alias);
+      let checks: Record<string, string | null>;
+      if (scripts === undefined) {
+        checks = {};
+        for (const check of CheckName.options) {
+          checks[check] = await ask(
+            `${check} check of ${repo} (a command, empty for none)`,
+            undefined,
+            (answer): Parsed<string | null> => {
+              if (answer === '') return { value: null };
+              const parsed = schemaOf(Command)(answer);
+              return 'value' in parsed ? { value: answer } : parsed;
+            },
+          );
+        }
+      } else {
+        checks = nodeChecks(scripts);
+      }
+      // A brewer runs a Node repository's checks itself before it commits (ADR 0163).
+      const tools =
+        scripts === undefined
+          ? []
+          : Object.values(checks).flatMap((command) =>
+              command === null ? [] : [`Bash(${command})`],
+            );
+      for (const tool of tools) if (!ceiling.includes(tool)) ceiling.push(tool);
+      repositories[repo] = {
+        alias,
+        intake: { labels: [INTAKE_LABEL] },
+        source: 'managed',
+        base: read.base,
+        checks,
+        ...(scripts !== undefined && read.lockfile
+          ? { setup: { command: 'npm ci', timeout: '10m' } }
+          : {}),
+        ...(tools.length === 0 ? {} : { tools }),
+      };
+    }
+
+    const brewed: Json = {
+      ...base,
+      brewery,
+      users: base.users ?? [login],
+      concurrency: base.concurrency ?? 1,
+      ...(ceiling.length === 0 ? {} : { permissionCeiling: ceiling }),
+      repositories,
+    };
+    const configFile = planObject('foedrum.jsonc', config, brewed);
+    const settings = planSettings(readObject(files.read('.claude/settings.json')));
+    passes(configFile.path, configFile.text, BreweryConfig);
+    passes('models.jsonc', MODELS, ModelsConfig);
+    passes(settings.path, settings.text, BreweryClaudeSettings);
+    const plans: Planned[] = [
+      { ...configFile, question: 'Change foedrum.jsonc (its comments are not kept)? [y/N]: ' },
+      {
+        path: 'models.jsonc',
+        text: MODELS,
+        changes: files.exists('models.jsonc') ? [] : undefined,
+      },
+      planIgnore(files.read('.gitignore')),
+      settings,
+    ];
+    for (const plan of plans) {
+      if (plan.changes === undefined) {
+        files.write(plan.path, plan.text);
+        say(`Wrote ${plan.path}`);
+        continue;
+      }
+      if (plan.changes.length === 0) {
+        say(`${plan.path} is up to date`);
+        continue;
+      }
+      say(`${plan.path} would change:`);
+      for (const change of plan.changes) say(`  ${change}`);
+      const answer = await ports.ask(plan.question ?? `Change ${plan.path}? [y/N]: `);
+      if (answer === undefined) throw new NoAnswer(`Change ${plan.path}?`);
+      if (/^y(?:es)?$/i.test(answer.trim())) {
+        files.write(plan.path, plan.text);
+        say(`Changed ${plan.path}`);
+      } else {
+        say(`Kept ${plan.path}`);
+      }
+    }
+  } catch (error) {
+    if (error instanceof NoAnswer) {
+      return refuse(`no answer to "${error.message}"; nothing more is written`);
+    }
+    throw error;
+  }
+
+  const { ok, report } = await ports.doctor();
+  say(report.trimEnd());
+  say('');
+  say('Each machine runs these once, in the Brewery, for the plugin:');
+  for (const command of PLUGIN_COMMANDS) say(command);
+  return { exitCode: ok ? 0 : 1, stdout: '', stderr: '' };
+};
+
+const refuse = (message: string): CliResult => ({
+  exitCode: 1,
+  stdout: '',
+  stderr: `foedrum init: ${message}\n`,
+});
+
+/** `.gitignore` with `.foedrum/`, added after the lines there. */
+const planIgnore = (was: string | undefined): Planned => {
+  const path = '.gitignore';
+  if (was === undefined) return { path, text: `${IGNORED}\n`, changes: undefined };
+  const lines = was.split(/\r?\n/).map((line) => line.trim());
+  if (lines.some((line) => ['.foedrum', '/.foedrum'].includes(line.replace(/\/$/, '')))) {
+    return { path, text: was, changes: [] };
+  }
+  const end = was === '' || was.endsWith('\n') ? '' : '\n';
+  return { path, text: `${was}${end}${IGNORED}\n`, changes: [`+ ${IGNORED}`] };
+};
+
+/** `.claude/settings.json` with the plugin enabled, merged into the settings there. */
+const planSettings = (existing: Existing): Planned => {
+  const was = existing.kind === 'read' ? existing.value : {};
+  const enabled = isRecord(was.enabledPlugins) ? was.enabledPlugins : {};
+  return planObject('.claude/settings.json', existing, {
+    ...was,
+    enabledPlugins: { ...enabled, [PLUGIN]: true },
+  });
 };

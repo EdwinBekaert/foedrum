@@ -3,6 +3,10 @@
 
 import { z } from './zod.ts';
 
-export const BreweryClaudeSettings = z.unknown().refine(() => {
-  throw new Error('not implemented');
+export const BreweryClaudeSettings = z.looseObject({
+  enabledPlugins: z
+    .record(z.string().min(1), z.boolean())
+    .optional()
+    .describe('Each plugin by <name>@<marketplace>, enabled or not'),
 });
+export type BreweryClaudeSettings = z.infer<typeof BreweryClaudeSettings>;

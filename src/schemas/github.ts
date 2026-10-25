@@ -77,3 +77,9 @@ export const GitHubComment = z.object({
 
 /** `GET /user`: the account gh is logged in as (ADR 0073). */
 export const GitHubUser = z.object({ login: z.string().min(1) });
+
+/** A repository, as far as `foedrum init` reads it (ADR 0199). */
+export const GitHubRepository = z.object({ default_branch: z.string().min(1) });
+
+/** A file's contents, base64 up to GitHub's 1 MB; a larger file comes with `encoding: none`. */
+export const GitHubFileContents = z.object({ encoding: z.string(), content: z.string() });

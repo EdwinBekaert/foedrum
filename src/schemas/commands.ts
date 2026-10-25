@@ -11,6 +11,10 @@ import { z } from './zod.ts';
 export const DoctorCommand = z.strictObject({ command: z.literal('doctor') });
 export type DoctorCommand = z.infer<typeof DoctorCommand>;
 
+/** `foedrum init`: a Brewery's files in its clone, from a few questions (ADR 0199). */
+export const InitCommand = z.strictObject({ command: z.literal('init') });
+export type InitCommand = z.infer<typeof InitCommand>;
+
 export const StatusCommand = z.strictObject({
   command: z.literal('status'),
   /** `--watch`: draw a board of the live batches until Ctrl+C (ADR 0188). */
