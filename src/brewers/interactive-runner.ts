@@ -29,6 +29,7 @@ import {
   type OutDocRead,
   readOutDocFile,
   setUpFor,
+  writeSystemPromptFile,
 } from './claude-runner.ts';
 
 export interface InteractiveRunnerDeps {
@@ -55,6 +56,8 @@ export interface InteractiveRunnerDeps {
   platform: NodeJS.Platform;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
+    /** Writes the attempt's system prompt file (ADR 0183). */
+    writeSystemPrompt: (file: string, text: string) => void;
     /** Reads the out doc only inside `root`, the worktree. */
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
     /** Removes the out doc a run before left, only inside `root` (ADR 0118). */
@@ -117,6 +120,9 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           return await running.ended;
         }
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
+        const { systemPrompt } = plan;
+        if (systemPrompt !== undefined)
+          deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
         // Read by the out doc this session writes, never one the run before left (ADR 0118).
         deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
         const { model, effort, tools, session } = plan.call;
@@ -126,6 +132,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           settingsFile: plan.settingsFile,
           tools,
           sessionId: session.id,
+          appendSystemPromptFile: systemPrompt?.file,
         });
       } catch (error) {
         return unstartable(error);
@@ -245,6 +252,7 @@ export function interactiveBrewerRunner(
     headless: headlessRunner(options.claude, options.setup),
     files: {
       writeSettings: writeAttemptSettings,
+      writeSystemPrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
     },

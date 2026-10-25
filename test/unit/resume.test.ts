@@ -96,6 +96,7 @@ describe('foedrum resume (ADR 0126)', () => {
     env: Readonly<Record<string, string>>;
   }[];
   let settings: { file: string; settings: AttemptSettings }[];
+  let systemPrompts: { file: string; text: string }[];
   let beats: { everyMs: number; beat: () => void }[];
   let said: string[];
 
@@ -105,6 +106,7 @@ describe('foedrum resume (ADR 0126)', () => {
     calls = [];
     started = [];
     settings = [];
+    systemPrompts = [];
     beats = [];
     said = [];
     const log = createCommandLog({
@@ -195,6 +197,9 @@ describe('foedrum resume (ADR 0126)', () => {
     writeSettings: (file, written) => {
       settings.push({ file, settings: written });
     },
+    writeSystemPrompt: (file, text) => {
+      systemPrompts.push({ file, text });
+    },
     terminal: { claudeCode: false, tty: true },
     env: { TERM: 'xterm-256color', LANG: 'C.UTF-8', GH_TOKEN: 'a token', HOME: '/home/ada' },
     platform: 'linux',
@@ -265,6 +270,19 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.deepEqual(settings, [
       { file, settings: attemptSettings({ ...permissions, sandbox: true }) },
     ]);
+    // ADR 0183: the engine's rules beside the settings, as the attempt had them.
+    const system = join(
+      workRoot,
+      'attempt-settings',
+      implement.batchId,
+      'implement',
+      '1.system.md',
+    );
+    assert.deepEqual(
+      systemPrompts.map(({ file: written }) => written),
+      [system],
+    );
+    assert.match(systemPrompts[0]?.text ?? '', /- Your shell runs only these commands: npm test\./);
     assert.deepEqual(started, [
       {
         program: setup.claude,
@@ -284,6 +302,8 @@ describe('foedrum resume (ADR 0126)', () => {
           '--disable-slash-commands',
           '--strict-mcp-config',
           '--safe-mode',
+          '--append-system-prompt-file',
+          system,
         ],
         cwd: pathOf(implement),
         // The brewer's base and forced variables, with the terminal's own: never a token.

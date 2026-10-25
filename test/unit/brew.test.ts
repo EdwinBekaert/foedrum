@@ -84,14 +84,22 @@ const fakeScreen = (width: number | 'unknown') => {
       columns = to;
       for (const handler of [...resizers]) handler();
     },
-    /** The live lines drawn, each without its spinner. */
+    /** The live lines drawn, each without its spinner and the batch's time (ADR 0179). */
     texts: (): string[] =>
       rewrites().map((text) => {
         assert.ok(SPINNER.includes(text[0] ?? ''), `a spinner starts ${JSON.stringify(text)}`);
-        return text.slice(2);
+        const batchTime = BATCH_TIME.exec(text.slice(2));
+        assert.ok(batchTime, `the batch's time leads ${JSON.stringify(text)}`);
+        return text.slice(2 + batchTime[0].length);
       }),
+    /** The batch's time on each live line drawn. */
+    batchTimes: (): string[] =>
+      rewrites().map((text) => BATCH_TIME.exec(text.slice(2))?.[1] ?? `none in ${text}`),
   };
 };
+
+/** The batch's time that leads a live line after its spinner, with the ` / ` after it. */
+const BATCH_TIME = /^((?:\d+m )?\d+s) \/ /;
 
 /** The line without its elapsed time, which depends on when each redraw came. */
 const withoutTime = (text: string): string => text.replace(/ \/ (\d+m )?\d+s(?= \/|$)/, '');
@@ -348,7 +356,7 @@ describe('runBrew', () => {
         '',
         '| Attempt | Result |',
         '|---|---|',
-        '| brew #1 | succeeded |',
+        '| `brew #1` | succeeded |',
         '',
         '<details><summary>What each step reported</summary>',
         '',
@@ -438,6 +446,32 @@ describe('runBrew', () => {
     );
   });
 
+  it('prints every plain line byte for byte off a terminal, with no batch time (ADR 0179)', async () => {
+    // Ordered five minutes before this run, so a batch time would differ from the attempt's.
+    const ordered = new Date(t0.getTime() - 5 * 60_000);
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, ordered);
+    const controller = new AbortController();
+    let now = t0;
+    const plain = shell(behave.hang({ ...idle, turn: 14 }), {
+      signal: controller.signal,
+      clock: () => now,
+      wait: async (ms) => {
+        now = new Date(now.getTime() + ms);
+        if (now.getTime() - t0.getTime() > 60_000) controller.abort();
+      },
+    });
+    assert.equal(await runBrew(setup, plain, request), 1);
+    assert.deepStrictEqual(lines, [
+      'foedrum brew: routed batch 12-1 to the recipe stout',
+      'foedrum brew: brewing batch 12-1 as ann',
+      'foedrum brew: status comment: https://github.com/Acme/Brewery/issues/12#issuecomment-1',
+      'foedrum brew: batch 12-1 brewing: brew #1 started',
+      'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
+      'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
+      'foedrum brew: stopped; batch 12-1 brewing: brew #1 started',
+    ]);
+  });
+
   describe('with a live line on a terminal (ADR 0174)', () => {
     interface Live {
       /** How many seconds of the fake clock the brew runs before it is stopped. */
@@ -448,14 +482,17 @@ describe('runBrew', () => {
       runner?: BrewerRunner;
       /** What the state branch's flush answers, by the number of flushes so far. */
       flush?: (flushes: number) => FlushResult;
+      /** Runs on the fresh store before the brew, to record what was there before it. */
+      before?: () => void;
     }
 
     /** Brews with a terminal, a clock that only the waits move and a brewer that shows `progress`. */
     const brewLive = async (progress: AttemptProgress, more: Live = {}) => {
-      const { seconds = 10, columns = 120, onWait, runner, flush } = more;
+      const { seconds = 10, columns = 120, onWait, runner, flush, before } = more;
       // A test brews more than once: each brew gets the lock and the store of a fresh machine.
       lock = fakeLock('ann');
       store = { ...openSqliteEventStore(':memory:'), close: () => {} };
+      before?.();
       const screen = fakeScreen(columns);
       const controller = new AbortController();
       const waits: number[] = [];
@@ -497,6 +534,72 @@ describe('runBrew', () => {
       assert.ok(
         screen.texts().includes('brew #1 / 2m 41s / turn 14 / Edit src/schemas/primitives.ts'),
         screen.texts().slice(-3).join('\n'),
+      );
+    });
+
+    it("leads the line with the batch's time, counted from when it was ordered, before the attempts (ADR 0179)", async () => {
+      const { screen } = await brewLive(
+        { ...idle, turn: 14 },
+        {
+          seconds: 5,
+          before: () => {
+            const ordered = new Date(t0.getTime() - 5 * 60_000);
+            log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, ordered);
+          },
+        },
+      );
+      const times = screen.batchTimes();
+      assert.ok(times.length > 0, 'a live line is drawn');
+      assert.ok(
+        times.every((time) => /^5m \d+s$/.test(time)),
+        times.join(' '),
+      );
+      assert.ok(times.includes('5m 3s'), times.join(' '));
+      assert.ok(
+        screen.rewrites().some((drawn) => /^. 5m 3s \/ brew #1 \/ \d+s \/ turn 14$/.test(drawn)),
+        screen.rewrites().join('\n'),
+      );
+    });
+
+    it("counts the batch's time from this brew's start for a batch ordered with no time (ADR 0179)", async () => {
+      const { screen } = await brewLive(idle, {
+        seconds: 5,
+        before: () => {
+          // A batch ordered before batch.ordered recorded when.
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          const old = {
+            type: 'batch.ordered',
+            batchId: '12-1',
+            order: { issue: 12 },
+            routeBy,
+          } as const;
+          store.withTransaction((tx) => tx.append(old));
+        },
+      });
+      const times = screen.batchTimes();
+      assert.ok(times.length > 0, 'a live line is drawn');
+      assert.ok(
+        // Seconds since this run's start at t0, never the minutes of an earlier order.
+        times.every((time) => /^\d+s$/.test(time)),
+        times.join(' '),
+      );
+      // And it moves: a time pinned at 0s would also be no minutes.
+      assert.ok(times.includes('3s'), times.join(' '));
+    });
+
+    it("shows a batch's time as 0s while the clock reads before its order (ADR 0179)", async () => {
+      const { screen } = await brewLive(idle, {
+        seconds: 3,
+        before: () => {
+          const ordered = new Date(t0.getTime() + 10 * 60_000);
+          log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, ordered);
+        },
+      });
+      const times = screen.batchTimes();
+      assert.ok(times.length > 0, 'a live line is drawn');
+      assert.ok(
+        times.every((time) => time === '0s'),
+        times.join(' '),
       );
     });
 
@@ -606,7 +709,16 @@ describe('runBrew', () => {
       assert.ok(full.length > 0, 'a line fills the terminal');
       assert.ok(full.every((drawn) => drawn.length === 39));
       assert.ok(narrow.screen.rewrites().every((drawn) => drawn.length <= 39));
-      assert.ok(full.every((drawn) => drawn.slice(2).startsWith('brew #1 / ')));
+      // Cut from the end: the spinner and the batch's time stay (ADR 0179).
+      assert.ok(
+        full.every((drawn) => /^. \d+s \/ brew #1 \/ /.test(drawn)),
+        full.join('\n'),
+      );
+      const cut = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3, columns: 9 });
+      assert.ok(
+        cut.screen.rewrites().every((drawn) => /^. \d+s \/ b?$/.test(drawn)),
+        cut.screen.rewrites().join('\n'),
+      );
       const unknown = await brewLive(
         { ...idle, turn: 3, lastTool },
         { seconds: 3, columns: 'unknown' },

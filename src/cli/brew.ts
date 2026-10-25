@@ -148,11 +148,17 @@ const attemptText = (label: string, ms: number, progress: AttemptProgress | unde
 };
 
 /**
- * The live line: `frame`, then the attempts, in ASCII only (every UTF-16 unit outside U+0020 to
- * U+007E as a `\uXXXX` escape), cut to one character less than the terminal's width.
+ * The live line: `frame`, the batch's time, then the attempts, in ASCII only (every UTF-16 unit
+ * outside U+0020 to U+007E as a `\uXXXX` escape), cut from the end to one character less than the
+ * terminal's width (ADR 0174, ADR 0179).
  */
-const liveLine = (frame: string, attempts: readonly string[], columns: number | undefined) =>
-  `${frame} ${attempts.join(' ; ')}`
+const liveLine = (
+  frame: string,
+  batchTime: string,
+  attempts: readonly string[],
+  columns: number | undefined,
+) =>
+  `${frame} ${batchTime} / ${attempts.join(' ; ')}`
     .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
     .slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
 
@@ -164,8 +170,10 @@ export const runBrew = async (
 ): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS, terminal } = shell;
   const { target, owner, by, via } = request;
-  // The live line (ADR 0174), drawn only with a terminal: the attempts that run, when this driver
-  // first saw each run, what the driver reports of one, and whether the line is on screen.
+  // The live line (ADR 0174), drawn only with a terminal: when the batch was ordered (this run's
+  // start until the batch says, ADR 0179), the attempts that run, when this driver first saw each
+  // run, what the driver reports of one, and whether the line is on screen.
+  let orderedAt = clock().getTime();
   let brewing: Running[] = [];
   const seenAt = new Map<string, number>();
   let progressOf: (ref: AttemptRef) => AttemptProgress | undefined = () => undefined;
@@ -186,9 +194,9 @@ export const runBrew = async (
     const attempts = brewing.map(({ label, ref }) =>
       attemptText(label, at - (seenAt.get(label) ?? at), progressOf(ref)),
     );
-    terminal.rewrite(
-      liveLine(SPINNER.charAt(frame++ % SPINNER.length), attempts, terminal.columns()),
-    );
+    const spinner = SPINNER.charAt(frame++ % SPINNER.length);
+    const batchTime = elapsed(Math.max(0, at - orderedAt));
+    terminal.rewrite(liveLine(spinner, batchTime, attempts, terminal.columns()));
     onScreen = true;
   };
   // Notices and questions may carry text a model wrote: never a control character on the
@@ -424,6 +432,7 @@ export const runBrew = async (
       }
       const line = `batch ${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
       const at = clock().getTime();
+      if (now.orderedAt !== undefined) orderedAt = Date.parse(now.orderedAt);
       const running = runningAttempts(now);
       for (const { label } of running) if (!seenAt.has(label)) seenAt.set(label, at);
       brewing = running;

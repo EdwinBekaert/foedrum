@@ -24,6 +24,8 @@ import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 const day = 24 * hour;
 const now = new Date('2026-10-15T12:00:00.000Z');
 const inAnHour = '2026-10-15T13:00:00.000Z';
+/** `now` as the events write it. */
+const atNow = now.toISOString();
 const inTwoDays = '2026-10-17T12:00:00.000Z';
 const pullRequest = 'https://github.com/acme/api/pull/7';
 const sha = 'a'.repeat(40);
@@ -239,9 +241,9 @@ describe('decide order and unrouted: a routing deadline (ADR 0032)', () => {
   const unroutable = ['retry', 'recipe', 'cancel'] as const;
   const stuckOnRouting = [late, stuckOn(routing, unroutable)];
 
-  it('orders a batch, to be routed within the routing interval', () => {
+  it('orders a batch, to be routed within the routing interval, and records when (ADR 0179)', () => {
     accepts([], { kind: 'order', batchId: 'b1', order: { issue: 100 } }, [
-      { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 }, routeBy: inAnHour },
+      { type: 'batch.ordered', batchId: 'b1', order: { issue: 100 }, routeBy: inAnHour, at: atNow },
     ]);
   });
 
@@ -256,6 +258,7 @@ describe('decide order and unrouted: a routing deadline (ADR 0032)', () => {
           order: { issue: 101 },
           parentBatchId: 'b1',
           routeBy: inAnHour,
+          at: atNow,
         },
       ],
     );
@@ -1365,6 +1368,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
     batchId,
     order,
     routeBy: inAnHour,
+    at: atNow,
     ...from,
   });
 
@@ -1614,7 +1618,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       accepts([webOrdered], again('api-7', api), [orderedAgain('api-7', api)]);
       const intake = { kind: 'order', batchId: 'api-7', order: api } as const;
       accepts([webOrdered], intake, [
-        { type: 'batch.ordered', batchId: 'api-7', order: api, routeBy: inAnHour },
+        { type: 'batch.ordered', batchId: 'api-7', order: api, routeBy: inAnHour, at: atNow },
       ]);
     });
 
