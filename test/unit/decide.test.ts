@@ -1724,7 +1724,7 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
 
 describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
   // Loaded in each test, so a recipe that does not load fails the test, not the suite.
-  const withRoute = (when?: string): Context => {
+  const withRoute = (when?: string, maxRounds = 1): Context => {
     const loaded = loadRecipes({
       recipes: [
         {
@@ -1736,7 +1736,7 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
               {
                 id: 'implement',
                 brewer: 'malt',
-                onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } },
+                onBlocked: { findings: { goto: 'gauge', maxRounds } },
               },
             ],
             { testFirst: false },
@@ -1853,6 +1853,38 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     );
     return stuck.reason.roundsOut;
   };
+
+  it('records the rounds and no open finding for a blocked brewer that wrote none, as a Cellarman does (review of #508)', () => {
+    const { findings: _, ...none } = blocked;
+    assert.deepStrictEqual(roundsOutOf(none), { rounds: 1, open: [], more: 0 });
+  });
+
+  it('records the rounds the route used, not a fixed one (review of #508)', () => {
+    const round = (attempt: number): Event[] => [
+      recorded(attempt - 1),
+      { ...scheduled('gauge', attempt), route: findings },
+      started('gauge', attempt),
+      { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt, outcome: succeeded },
+      scheduled('implement', attempt),
+      started('implement', attempt),
+    ];
+    const twoRounds = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+      ...round(2),
+      ...round(3),
+    ];
+    const decision = decide(fold(twoRounds), finish(3), withRoute(undefined, 2));
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(
+      stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked',
+      JSON.stringify(decision),
+    );
+    assert.equal(stuck.reason.roundsOut?.rounds, 2);
+  });
 
   it('keeps a finding whose file or why starts with whitespace, on one line as the status comment reads it (review of #508)', () => {
     const padded = {

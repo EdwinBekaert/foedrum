@@ -454,6 +454,10 @@ describe('loadRecipes: an onBlocked route and its rounds (ADR 0064)', () => {
     assert.equal(pale.rounds(routedBatch([undefined, findings]), 'implement', 'findings'), 1);
     assert.equal(pale.rounds(routedBatch([undefined, findings]), 'implement', 'failed'), undefined);
     assert.equal(pale.rounds(routedBatch([undefined]), 'gauge', 'findings'), undefined);
+    assert.equal(
+      withRoute(2).rounds(routedBatch([undefined, findings, findings]), 'implement', 'findings'),
+      2,
+    );
   });
 });
 
