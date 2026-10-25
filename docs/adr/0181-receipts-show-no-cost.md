@@ -18,5 +18,6 @@ The rest of ADR 0172 stands. Its example lines are history and stay.
 ## Consequences
 - The status comment, `foedrum status` and the pull request show the same figures to everyone who reads them.
 - An old receipt's cost stays in the stored event's text on the state branch until that log is rewritten, which it never is; nothing reads it.
+- A Foedrum from before this record cannot read a receipt recorded after it, whose models have no cost, as it cannot read any field a later event schema adds: every driver of a Brewery runs the same version.
 - ADR 0042's rule that the cost is never summed across attempts has nothing left to apply to.
 - Summing cost in `foedrum brewers`, which ADR 0172 left for later, is dropped.
