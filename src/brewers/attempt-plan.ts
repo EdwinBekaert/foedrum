@@ -304,7 +304,7 @@ ${diff}`;
 }
 
 /**
- * The round of a lens step before attempt `ref`, when it reviewed (ADR 0190, ADR 0196): the
+ * The latest round of a lens step before attempt `ref` that reviewed (ADR 0190, ADR 0196): the
  * commit its worktree started at, or `unfound` when nothing records one. None for a first round:
  * a retry, or an attempt after an answer, belongs to the round of the attempt it follows, so it
  * reviews what that round reviews.
@@ -318,8 +318,12 @@ export function roundBefore(batch: Batch, ref: AttemptRef): RoundBefore | undefi
   while (first !== undefined && (first.retry === true || first.answered === true)) {
     first = before(first.attempt);
   }
-  const earlier = first === undefined ? undefined : before(first.attempt);
-  if (earlier?.phase !== 'finished' || !reviewed(earlier.outcome)) return undefined;
+  // A failed, cancelled or lost attempt reviewed nothing: the one before it may have (ADR 0196).
+  let earlier = first === undefined ? undefined : before(first.attempt);
+  while (earlier !== undefined && !(earlier.phase === 'finished' && reviewed(earlier.outcome))) {
+    earlier = before(earlier.attempt);
+  }
+  if (earlier === undefined) return undefined;
   const ran = ranIn(step, earlier);
   return ran === undefined
     ? { kind: 'unfound', attempt: earlier.attempt }
