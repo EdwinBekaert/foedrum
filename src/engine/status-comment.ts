@@ -4,7 +4,7 @@
 
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
-import type { StuckReason, WaitCondition } from '../schemas/events.ts';
+import type { RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
@@ -93,6 +93,16 @@ const plain = (text: string): string => {
 
 const code = (id: string): string => `\`${id}\``;
 
+/**
+ * What the status comment and `foedrum stuck` recommend when a findings route ran out of rounds,
+ * until the analyse recipe can plan the order again itself (ADR 0192, #388).
+ */
+export const STEP_BACK = 'Another round is unlikely to help: plan the order again, or split it.';
+
+/** `rounds` rounds of a findings route, in words. */
+export const roundsText = (rounds: number): string =>
+  `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`;
+
 /** A text a brewer wrote at `stepId` as one plain line, or a fixed line when it looks like a secret. */
 type Told = (text: string, stepId: string) => string;
 
@@ -136,6 +146,25 @@ const stuckText = (reason: StuckReason, told: Told): string => {
   }
 };
 
+/**
+ * What a findings route that ran out of rounds left open, as the Findings section shows findings,
+ * and the recommendation to step back (ADR 0192).
+ */
+const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told): string[] => {
+  const after = roundsText(rounds);
+  const listed = open.map(
+    (finding) =>
+      `- ${code(stepId)}: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+  );
+  if (more > 0) listed.push(`- ${code(stepId)}: and ${more} more`);
+  return [
+    ...(listed.length === 0
+      ? [`Still open after ${after}: no finding was recorded.`]
+      : [`Still open after ${after}:`, ...listed]),
+    STEP_BACK,
+  ];
+};
+
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
 const laneText = (lane: Lane, told: Told): string[] => {
   switch (lane.kind) {
@@ -162,6 +191,9 @@ const laneText = (lane: Lane, told: Told): string[] => {
       return [
         `🔔 **Stuck**: ${stuckText(reason, told)}`,
         ...questions,
+        ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
+          ? openLines(reason.stepId, reason.roundsOut, told)
+          : []),
         `Get it moving with ${options.map(code).join(', ')}.`,
       ];
     }

@@ -470,6 +470,15 @@ function lineRecipe(
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
     return found;
   };
+  // A route counts the attempts of its goto step it scheduled (ADR 0064).
+  const roundsOf: Recipe['rounds'] = (batch, id, why) => {
+    const { route } = at(id);
+    if (route === undefined || route.why !== why) return undefined;
+    const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
+    return [...attempts].filter(
+      (attempt) => attempt.route?.from === id && attempt.route.why === why,
+    ).length;
+  };
   return {
     // A recipe has at least one step (its schema).
     firstStep: steps[0] === undefined ? '' : named(steps[0]),
@@ -494,19 +503,13 @@ function lineRecipe(
         : { kind: 'done', pullRequests: [], opens };
     },
     mayRetry: (batch, id) => at(id).mayRetry([...(batch.steps.get(id)?.attempts.values() ?? [])]),
-    // A route counts the attempts of its goto step it scheduled (ADR 0064).
     loopBack: (batch, id, why) => {
       const { route } = at(id);
-      if (route === undefined || route.why !== why) return undefined;
-      const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
-      const rounds = [...attempts].filter(
-        (attempt) => attempt.route?.from === id && attempt.route.why === why,
-      ).length;
+      const rounds = roundsOf(batch, id, why);
+      if (route === undefined || rounds === undefined) return undefined;
       return rounds < route.maxRounds ? route.goto : undefined;
     },
-    rounds: () => {
-      throw new Error('not implemented');
-    },
+    rounds: roundsOf,
   };
 }
 

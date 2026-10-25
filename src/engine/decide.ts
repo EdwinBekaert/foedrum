@@ -2,19 +2,22 @@
 // It takes the folded state and one command, and returns the events to append or a refusal.
 // Pure: the caller passes the time, and the recipes through a small interface.
 
-import type {
-  Answer,
-  ClaudeReport,
-  Event,
-  GravityReading,
-  OrderRef,
-  Receipt,
-  ScheduleRoute,
-  StuckOption,
-  StuckReason,
-  Surface,
-  Usage,
-  WaitCondition,
+import {
+  type Answer,
+  type ClaudeReport,
+  type Event,
+  type GravityReading,
+  MAX_OPEN_FINDING_TEXT,
+  MOST_OPEN_FINDINGS,
+  type OrderRef,
+  type Receipt,
+  type RoundsOut,
+  type ScheduleRoute,
+  type StuckOption,
+  type StuckReason,
+  type Surface,
+  type Usage,
+  type WaitCondition,
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind, TastingFinding } from '../schemas/out-doc.ts';
@@ -477,7 +480,16 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
           // The next round, until the route's rounds are used up (brewers-and-recipes §2).
           const back = recipe.loopBack(batch, stepId, 'findings');
           const group = recipe.group(stepId);
-          if (back === undefined) stick(draft, batchId, blocked);
+          if (back === undefined) {
+            const rounds = recipe.rounds(batch, stepId, 'findings');
+            stick(
+              draft,
+              batchId,
+              rounds === undefined
+                ? blocked
+                : { ...blocked, roundsOut: roundsOut(rounds, ending.findings ?? []) },
+            );
+          }
           // A child's verdict waits for its group's other children (ADR 0168).
           else if (group !== undefined) settle(draft, batchId, group);
           else goBack(draft, batchId, back, { from: stepId, why: 'findings' });
@@ -801,6 +813,21 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
     }
   }
 }
+
+/**
+ * What a findings route that used its `rounds` leaves open (ADR 0192): the first findings of its
+ * last round, cut to what the status comment reads of them, and a count of the rest. Every finding
+ * is open until the step the route goes back to can settle one by a disposition (ADR 0191, #501).
+ */
+const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsOut => {
+  const cut = (text: string) => text.slice(0, MAX_OPEN_FINDING_TEXT);
+  const open = findings.slice(0, MOST_OPEN_FINDINGS).map(({ file, why, ...finding }) => ({
+    ...finding,
+    ...(file === undefined ? {} : { file: cut(file) }),
+    why: cut(why),
+  }));
+  return { rounds, open, more: findings.length - open.length };
+};
 
 /** How a blocked out doc's failure reason starts, by its blocker kind. */
 const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
